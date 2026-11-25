@@ -37,7 +37,9 @@ ChaCha20 stream keyed by the match seed. High bytes encode domain (1 library
 shuffle, 2 affected-seat effect, 3 reserved table) and owning seat (zero for
 table). The low 48 bits encode that domain and seat's event ordinal. Opening
 shuffles, mulligans and resolving shuffles use the same library counter.
-Rejection sampling consumes one word per rule step. A paired substitution
+Opening rejection sampling consumes one word per rule step; a resolving
+shuffle is one event drawing its Fisher-Yates words from its own stream. A
+private board shuffles only with a scenario seed; otherwise a shuffle faults. A paired substitution
 occupies the removed copy's physical slot while admission checks sorted rows.
 
 The v2 trace chain hashes compact typed JSON in deterministic field order.
@@ -139,10 +141,17 @@ commander completes once and preserves the next card. Commander-return decisions
 resumable continuations, never priority windows; drain concessions and
 revalidate owner choices before exposing queries.
 
-Library manipulation is private to its chooser and replay-proven. Scry, Surveil
-(CR 701.22, 701.25), mill (CR 701.17), library selection (not drawing, CR 121.5)
-and top-ordering partition the available prefix, clamp short libraries and emit
-nothing for zero. Optional shuffles consume no randomness when declined. Counted
+Library manipulation is private to its chooser and replay-proven. While a
+search, scry or surveil choice waits, only its chooser sees the library cards
+it looks at, a searcher its whole library (CR 701.23a); no other seat learns
+an identity, count or order. Candidates follow object order and view rows
+handle order (minted in object order); neither follows library position. Scry picks the bottom
+cards, then orders the top and bottom groups; surveil picks the graveyard cards,
+then orders the rest (CR 701.22a, 701.25a). Each asks only for orders of two or
+more cards and commits one atomic event; positions other seats remembered in
+that library are forgotten. Scry, surveil and mill (CR 701.17) clamp short
+libraries; mill emits nothing for zero, while a positive scry or surveil of an
+empty library is still an empty event (CR 701.22d, 701.25d). Optional shuffles consume no randomness when declined. Counted
 draws make sequential unclamped attempts; each-player draws finish each seat in
 turn order. Discards clamp to hand size, group choices stay private until one
 simultaneous discard, and random discard samples without replacement. Library-top
@@ -341,8 +350,23 @@ Forbidding regeneration stays limited to the nonland-permanent wave. Counts use 
 excluding prevented destruction. Turn-long exile replacement covers only
 creatures actually dealt its damage, so exile causes no death. Indestructible
 prevents destruction before replacement; generic departures never imply dies
-triggers. Typed land search may find zero (CR 701.23b); found lands enter
-simultaneously without reveal, then the library shuffles.
+triggers. A search shows the searcher every card of a non-empty library and
+offers those with the printed qualities; with no match it still asks,
+offering none. With a quality it may find none (CR 701.23b); "a card" must
+find as many as it can (CR 701.23d). A printed reveal happens once, in the
+library, for any destination; a found commander bound for its owner's hand
+then offers the command zone (CR 903.9b), and the found cards move together, onto
+the battlefield (optionally tapped, CR 614.1c) under the searcher's control or
+into the owner's hand or graveyard. Found cards are saved in object order. A
+found Aura entering the battlefield enchants an object its controller chooses
+among those already there that it could enchant, without targeting (CR 303.4f);
+with none, including when the last host leaves while the choice is open or
+before entry, it stays in the library (CR 303.4g), as does a found instant or
+sorcery (CR 304.4, 307.4), which never enters the battlefield by any move. Revealed hand cards are a public minimum
+count per owner and Oracle identity (CR 701.23e), never an incarnation: each
+physical departure is counted once, a public one consuming one copy of its
+identity and a hidden one one of each; a reversed cast restores the copy its
+announcement consumed (CR 601.2i).
 
 ## Battlefield entry replacements
 
@@ -354,11 +378,19 @@ structural characteristics, or count that controller's live opponents. The
 entering permanent cannot contribute to its own count. Simultaneous entry
 uses the common prior battlefield and ordered entry sees earlier moves.
 Conditional tapped entry and entry counters apply to every move onto the
-battlefield. The life-payment offer runs through `begin_battlefield_entry`.
-Land plays use that continuation today, and future search and reanimation
-moves can use it. The continuation suspends before mutation and commits the
-chosen payment and entry together. It skips the offer when the controller
-cannot pay (CR 119.4) or the move already requires tapped entry. A land play
+battlefield. A land play's life-payment offer runs through
+`begin_battlefield_entry`; a search onto the battlefield asks each payable
+found entrant in object order, counting life already committed, then commits
+the payments and one simultaneous entry batch with a per-entrant override. The
+offer binds its entrant as the decision's subject. A forced tapped entry still
+offers a payable payment and enters tapped either way, and its controller sees
+the entering card while deciding, even from a hidden zone (CR 614.1c, 614.12; the
+shockland ruling "If an effect puts this land onto the battlefield tapped, you
+may pay 2 life, but it still enters tapped.", [Lorwyn Eclipsed release
+notes](https://magic.wizards.com/en/news/feature/lorwyn-eclipsed-release-notes)).
+Each continuation suspends before mutation and commits the chosen payment and
+entry together. It skips the offer when the controller
+cannot pay (CR 119.4). A land play
 still requires a land in hand.
 
 ## Keywords, attachments and temporary effects
@@ -517,10 +549,13 @@ under one kernel control node:
 | "if/unless you control a [filter]", "N or more [filter]", not/all of these | `If` over a battlefield count read on resolution (CR 608.2c) |
 
 An optional chooser is the controller; a chooser named by `decidedBy` would
-need CR 800.4g reassignment and rejects. A payer binds to the controller or the
+need CR 800.4g reassignment and rejects. A filtered target's captured controller
+may choose only to search and shuffle their own library, in the compiler and
+the Kernel IR check alike: it leaves with them (CR 800.4a), so a reassigned
+choice could act on nothing. A payer binds to the controller or the
 trigger's kernel event player, and a cost's implicit payer must be the same
-player. An optional body is a draw, life change, mill, or a tap, untap, move or
-counter verb on a target or the source. The continuation offers no impossible
+player. An optional body is a draw, life change, mill, search, shuffle, scry or
+surveil, or a tap, untap, move or counter verb on a target or the source. The continuation offers no impossible
 choice (CR 608.2d):
 - no object that can still change (CR 701.26a) or move (CR 400.7)
 - no live player or a zero amount

@@ -125,12 +125,16 @@ impl RulesTxn {
                 tokens: Arc::default(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
-                match_state: prepared.match_config.as_ref().map(|config| {
-                    MatchState::new(
-                        config,
-                        opening_library_sizes[config.starting_player.0 as usize],
-                    )
-                }),
+                match_state: prepared
+                    .match_config
+                    .as_ref()
+                    .map(|config| {
+                        MatchState::new(
+                            config,
+                            opening_library_sizes[config.starting_player.0 as usize],
+                        )
+                    })
+                    .or_else(|| prepared.config.initial.seed.map(MatchState::scenario)),
                 effects: vec![].into(),
                 next_effect_id: 0,
                 next_damage_transaction_id: 0,

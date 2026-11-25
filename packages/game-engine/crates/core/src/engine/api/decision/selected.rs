@@ -176,7 +176,30 @@ impl RulesTxn {
         }
         pending.decision.shape.check(&pending.answer)?;
         let original = &pending.decision;
-        if current.shape == original.shape && current.candidates == original.candidates {
+        let unchanged =
+            current.shape == original.shape && current.candidates == original.candidates;
+        // CR 701.22a, 701.23a, 701.25a, 903.9b: nothing can change a library
+        // choice, or the command-zone choice of a found commander, while it
+        // waits, so its complete saved table, unselected rows included, must
+        // be the current offer; no remapping applies.
+        if !unchanged
+            && matches!(
+                &self.state.rules.frame,
+                Frame::ResolutionChoice {
+                    choice: ResolutionChoice::Search { .. }
+                        | ResolutionChoice::Scry { .. }
+                        | ResolutionChoice::Surveil { .. }
+                        | ResolutionChoice::SearchEntry { .. },
+                    ..
+                } | Frame::CommanderReturn {
+                    continuation: CommanderContinuation::Search { .. },
+                    ..
+                }
+            )
+        {
+            return Err("library choice offer changed".into());
+        }
+        if unchanged {
             return Ok(());
         }
         let index = |i| {

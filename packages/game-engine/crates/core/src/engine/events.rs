@@ -275,9 +275,10 @@ enum BatchAuthority<'a> {
     ),
     CreateRegenerationShield,
     PlaceCounters,
+    /// CR 614.1c, 614.12: the entry replacements chosen for each entrant
+    /// of one entry batch, all read against the same prior state.
     BattlefieldEntry {
-        object: ObjectId,
-        entry: EntryOverride,
+        entries: &'a [(ObjectId, EntryOverride)],
     },
 }
 fn independent_footprints(
@@ -304,6 +305,8 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
         ProposedEvent::PhaseOutControlled { .. }
             | ProposedEvent::PhaseOutTarget { .. }
             | ProposedEvent::Move { .. }
+            | ProposedEvent::EnterTapped { .. }
+            | ProposedEvent::Surveil { .. }
             | ProposedEvent::DestroyPermanent { .. }
             | ProposedEvent::DestroyCreature { .. }
             | ProposedEvent::StateBasedGraveyard { .. }
@@ -350,7 +353,22 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             }
             (keys.clone(), keys)
         }
+        ProposedEvent::Scry { player, looked, .. }
+        | ProposedEvent::Surveil { player, looked, .. } => {
+            let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
+            read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
+            let mut write = BTreeSet::from([FactKey::Libraries]);
+            if let ProposedEvent::Surveil { graveyard, .. } = event {
+                write.extend(graveyard.iter().map(|o| FactKey::Object(o.card)));
+            }
+            (read, write)
+        }
+        ProposedEvent::RevealFound { objects, .. } => {
+            let keys: BTreeSet<_> = objects.iter().map(|o| FactKey::Object(o.card)).collect();
+            (keys, BTreeSet::new())
+        }
         ProposedEvent::FinishLibraryShuffle { .. }
+        | ProposedEvent::ShuffleLibrary { .. }
         | ProposedEvent::ShuffleLibraryWord { .. }
         | ProposedEvent::Setup { .. } => {
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
@@ -495,7 +513,9 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::Move { object, .. }
+        | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = keys.clone();
             // Zone membership is authoritative (CR 400.7). A battlefield Aura
@@ -563,7 +583,9 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
     // Use history is another incarnation-bound fact. Movement/reversal writes
     // are independent for distinct sources; turn entry clears the current set.
     let keys: Vec<_> = match event {
-        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::Move { object, .. }
+        | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::LeaveGame { object, .. } => {
             vec![FactKey::ManaAbilityUse(object.card)]
         }
         ProposedEvent::ReversePermanentMana { receipt } => {
@@ -831,7 +853,21 @@ impl RulesTxn {
                         libraries.insert(owner);
                     }
                 }
+                ProposedEvent::Scry { player, looked, .. }
+                | ProposedEvent::Surveil { player, looked, .. } => {
+                    libraries.insert(*player);
+                    players.insert(*player);
+                    objects.extend(looked.iter().copied());
+                }
+                ProposedEvent::RevealFound {
+                    player,
+                    objects: found,
+                } => {
+                    players.insert(*player);
+                    objects.extend(found.iter().copied());
+                }
                 ProposedEvent::FinishLibraryShuffle { player }
+                | ProposedEvent::ShuffleLibrary { player }
                 | ProposedEvent::ShuffleLibraryWord { player, .. } => {
                     libraries.insert(*player);
                 }
@@ -1103,6 +1139,7 @@ impl RulesTxn {
                 ProposedEvent::Untap { object }
                 | ProposedEvent::Transform { object }
                 | ProposedEvent::Tap { object }
+                | ProposedEvent::EnterTapped { object }
                 | ProposedEvent::Move { object, .. } => {
                     objects.insert(*object);
                 }
@@ -1313,17 +1350,19 @@ impl RulesTxn {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
-        self.commit_batch_inner(cause, group, false, None)
+        self.commit_batch_inner(cause, group, false, &[])
     }
 
     pub(super) fn commit_entry_batch(
         &mut self,
         cause: BatchCause,
         group: EventGroup,
-        object: ObjectId,
-        entry: EntryOverride,
+        entries: &[(ObjectId, EntryOverride)],
     ) -> Result<CommittedBatch, String> {
-        self.commit_batch_inner(cause, group, false, Some((object, entry)))
+        if entries.is_empty() {
+            return Err("an entry batch names its entrants".into());
+        }
+        self.commit_batch_inner(cause, group, false, entries)
     }
 
     fn commit_batch_inner(
@@ -1331,7 +1370,7 @@ impl RulesTxn {
         cause: BatchCause,
         group: EventGroup,
         library_append: bool,
-        entry_override: Option<(ObjectId, EntryOverride)>,
+        entry_override: &[(ObjectId, EntryOverride)],
     ) -> Result<CommittedBatch, String> {
         let replacement = self.prepare_graveyard_batch(&cause, &group)?;
         let mut events = vec![];
@@ -1407,8 +1446,10 @@ impl RulesTxn {
 
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
-        let authority = if let Some((object, entry)) = entry_override {
-            BatchAuthority::BattlefieldEntry { object, entry }
+        let authority = if !entry_override.is_empty() {
+            BatchAuthority::BattlefieldEntry {
+                entries: entry_override,
+            }
         } else if placing
             || events
                 .iter()
@@ -1720,6 +1761,16 @@ impl RulesTxn {
         };
         let destination = &replaced;
         let o = self.current(*object)?.clone();
+        // CR 304.4, 307.4: an instant or sorcery card never enters the
+        // battlefield; a rule that would put one there leaves it in place.
+        if *destination == Zone::Battlefield
+            && matches!(
+                self.definition(object.card)?.characteristics.kind,
+                CardKind::Instant | CardKind::Sorcery
+            )
+        {
+            return Err("an instant or sorcery cannot enter the battlefield".into());
+        }
         // CR 111.8: once a token has left the battlefield it cannot move again.
         if self
             .state
@@ -1916,6 +1967,9 @@ impl RulesTxn {
 
         self.apply_prepared_occurrence(proposed, before, BatchAuthority::Ordinary)
     }
+    /// CR 400.7, 701.23e: one occurrence, with each physical departure from a
+    /// publicly known hand accounted once, around any nested leaves (a
+    /// discard is a move).
     fn apply_prepared_occurrence(
         &mut self,
         proposed: &ProposedEvent,
@@ -1926,6 +1980,30 @@ impl RulesTxn {
     }
 
     fn apply_occurrence_with_entry_state(
+        &mut self,
+        proposed: &ProposedEvent,
+        before: Option<&PreEventFacts>,
+        authority: BatchAuthority<'_>,
+        entry_state: Option<&Self>,
+    ) -> Result<EventOutcome, String> {
+        let known_hand = self.known_hand_cards();
+        let actual = self.apply_occurrence_leaf(proposed, before, authority, entry_state)?;
+        self.forget_departed_hand_cards(known_hand)?;
+        Ok(actual)
+    }
+
+    /// A nested leaf of an occurrence (a discard's move): its hand
+    /// departure is accounted by the enclosing occurrence.
+    fn apply_nested_leaf(
+        &mut self,
+        proposed: &ProposedEvent,
+        before: Option<&PreEventFacts>,
+        authority: BatchAuthority<'_>,
+    ) -> Result<EventOutcome, String> {
+        self.apply_occurrence_leaf(proposed, before, authority, None)
+    }
+
+    fn apply_occurrence_leaf(
         &mut self,
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
@@ -1953,6 +2031,41 @@ impl RulesTxn {
                 cards,
             } => self.apply_mill(*player, count, cards, before, replacement)?,
 
+            ProposedEvent::Scry {
+                player,
+                looked,
+                top,
+                bottom,
+            } => self.apply_scry(*player, looked, top, bottom)?,
+            ProposedEvent::Surveil {
+                player,
+                looked,
+                top,
+                graveyard,
+            } => self.apply_surveil(*player, looked, top, graveyard, before)?,
+            ProposedEvent::ShuffleLibrary { player } => self.apply_library_shuffle(*player)?,
+            ProposedEvent::EnterTapped { object } => {
+                if self.current(*object)?.zone
+                    != (Zone::Library {
+                        owner: self.state.rules.cards[&object.card].owner,
+                    })
+                {
+                    return Err("tapped entry outside its owner's library".into());
+                }
+                let owner = self.state.rules.cards[&object.card].owner;
+                // CR 614.1c: a forced tapped entry needs no entry payment.
+                self.apply_move(
+                    *object,
+                    Zone::Battlefield,
+                    Some(owner),
+                    entry_state,
+                    true,
+                    None,
+                )?
+            }
+            ProposedEvent::RevealFound { player, objects } => {
+                self.apply_found_reveal(*player, objects)?
+            }
             ProposedEvent::FinishLibraryShuffle { player } => {
                 let group_shuffle =
                     replacement.is_some() && self.publish_group_permutation(*player)?;
@@ -1982,7 +2095,12 @@ impl RulesTxn {
                 let source = self.current(*object)?;
                 {
                     let characteristics = self.structural_characteristics(*object)?;
-                    if source.zone != Zone::Stack
+                    // CR 303.4f: an Aura entering without being cast (from its
+                    // owner's library, by a search) enchants a chosen object it
+                    // could enchant; that choice does not target.
+                    let owner = self.state.rules.cards[&object.card].owner;
+                    let chosen = source.zone == (Zone::Library { owner });
+                    if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]
                         || !self.is_live(source.controller)
@@ -1990,17 +2108,26 @@ impl RulesTxn {
                         || !self
                             .current(*target)
                             .is_ok_and(|o| o.present_on_battlefield() && self.is_live(o.controller))
-                        || !self.targetable_by(*target, source.controller)
+                        || (!chosen && !self.targetable_by(*target, source.controller))
                         || self.protected_from(*target, &characteristics)
                     {
                         return Err("invalid attached Aura entry".into());
                     }
                 }
+                let force_tapped = matches!(authority, BatchAuthority::BattlefieldEntry { entries }
+                    if entries.iter().any(|(entrant, entry)| entrant == object
+                        && matches!(entry, EntryOverride::ForceTapped)));
                 // Check allocation before movement/LKI writes, even for direct
                 // private application; the batch/rule-step owns full rollback.
                 let (attachment_timestamp, next) = self.next_attachment_allocation()?;
-                let EventOutcome::Moved { movement } =
-                    self.apply_move(*object, Zone::Battlefield, None, entry_state, false, None)?
+                let EventOutcome::Moved { movement } = self.apply_move(
+                    *object,
+                    Zone::Battlefield,
+                    None,
+                    entry_state,
+                    force_tapped,
+                    None,
+                )?
                 else {
                     return Err("attached entry movement invariant".into());
                 };
@@ -2089,7 +2216,7 @@ impl RulesTxn {
                 if let Some(actual) = self.replace_destruction(*object, shields, before)? {
                     return Ok(actual);
                 }
-                self.apply_prepared_occurrence(
+                self.apply_nested_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard {
@@ -2112,7 +2239,7 @@ impl RulesTxn {
                 if let Some(actual) = self.replace_destruction(*object, shields, before)? {
                     return Ok(actual);
                 }
-                self.apply_prepared_occurrence(
+                self.apply_nested_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard {
@@ -2231,7 +2358,7 @@ impl RulesTxn {
                         .and_then(|proof| proof.get(&source))
                         .copied()
                         .unwrap_or(Zone::Graveyard { owner });
-                    let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                    let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                         &ProposedEvent::Move {
                             object: source,
                             destination,
@@ -2288,7 +2415,7 @@ impl RulesTxn {
                     .get(&object.card)
                     .ok_or("missing sacrificed card")?
                     .owner;
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard { owner },
@@ -2310,7 +2437,7 @@ impl RulesTxn {
                 {
                     return Err("invalid discard event".into());
                 }
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard { owner: *player },
@@ -2342,7 +2469,7 @@ impl RulesTxn {
                     .get(&owner)
                     .and_then(|cards| cards.first())
                     .copied();
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Library { owner },
@@ -2529,7 +2656,7 @@ impl RulesTxn {
                 let destination = Zone::Graveyard {
                     owner: self.state.rules.cards[&object.card].owner,
                 };
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination,
@@ -2796,15 +2923,17 @@ impl RulesTxn {
                     BatchAuthority::SpellToStack(player) => Some(player),
                     _ => None,
                 };
-                let (force_tapped, payment) = match authority {
-                    BatchAuthority::BattlefieldEntry {
-                        object: entrant,
-                        entry,
-                    } if entrant == *object => match entry {
-                        EntryOverride::ForceTapped => (true, None),
-                        EntryOverride::LifePayment { paid } => (false, Some(paid)),
-                    },
-                    _ => (false, None),
+                let entry = match authority {
+                    BatchAuthority::BattlefieldEntry { entries } => entries
+                        .iter()
+                        .find(|(entrant, _)| entrant == object)
+                        .map(|(_, entry)| *entry),
+                    _ => None,
+                };
+                let (force_tapped, payment) = match entry {
+                    Some(EntryOverride::ForceTapped) => (true, None),
+                    Some(EntryOverride::LifePayment { paid }) => (false, Some(paid)),
+                    None => (false, None),
                 };
                 self.apply_move(
                     *object,

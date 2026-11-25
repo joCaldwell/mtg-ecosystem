@@ -299,6 +299,7 @@ impl ScenarioConfig {
                     (PlayerId(2), vec![CardId(16), CardId(15)]),
                     (PlayerId(3), vec![CardId(26)]),
                 ])),
+                seed: None,
             },
             mode: Mode::Scenario,
             players: 4,

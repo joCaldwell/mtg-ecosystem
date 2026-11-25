@@ -10,6 +10,9 @@ pub struct PendingEntry {
     controller: PlayerId,
     cause: BatchCause,
     pub(super) resume: FrameLink,
+    /// The move already enters tapped; paying the life is still allowed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    force_tapped: bool,
 }
 
 enum EntryPayment {
@@ -36,8 +39,45 @@ impl RulesTxn {
             && self.state.rules.players[usize::from(controller.0)].can_pay_life(amount)
     }
 
+    /// CR 119.4 and 614.1c: the decision paying `entrant`'s entry life
+    /// cost, with the entrant as the slot's subject so the answer binds to
+    /// it. Paying is allowed even when the entrant enters tapped anyway:
+    /// "If an effect puts this land onto the battlefield tapped, you may pay
+    /// 2 life, but it still enters tapped." (Lorwyn Eclipsed release notes,
+    /// https://magic.wizards.com/en/news/feature/lorwyn-eclipsed-release-notes)
+    pub(in crate::engine) fn entry_payment_decision(
+        &self,
+        controller: PlayerId,
+        entrant: ObjectId,
+    ) -> Decision<Rules> {
+        self.decision(
+            controller,
+            Reason::OptionalEffect,
+            vec![
+                Candidate::Flag { flag: Flag::Accept },
+                Candidate::Flag {
+                    flag: Flag::Decline,
+                },
+                Candidate::Object { object: entrant },
+            ],
+            Shape::Pick {
+                slots: vec![Slot {
+                    role: SlotRole::Choice,
+                    subject: Some(2),
+                    allowed: vec![0, 1],
+                    min: 1,
+                    max: 1,
+                    repeat: false,
+                }],
+                rules: vec![],
+            },
+        )
+    }
+
     /// Own a battlefield move until the entry decision and the move are complete.
     /// The calling rule resumes only after the entire entry batch commits.
+    /// A forced tapped entry still offers a payable life payment and enters
+    /// tapped either way (CR 614.1c, 614.12).
     pub(in crate::engine) fn begin_battlefield_entry(
         &mut self,
         object: ObjectId,
@@ -45,9 +85,6 @@ impl RulesTxn {
         resume: Frame,
         force_tapped: bool,
     ) -> Result<(), String> {
-        if force_tapped {
-            return self.finish_battlefield_entry(object, cause, resume, EntryPayment::ForceTapped);
-        }
         let controller = self.current(object)?.controller;
         if self
             .entry_life_cost(object)?
@@ -60,11 +97,28 @@ impl RulesTxn {
                     controller,
                     cause,
                     resume,
+                    force_tapped,
                 }),
             };
             return Ok(());
         }
-        self.finish_battlefield_entry(object, cause, resume, EntryPayment::NoneRequired)
+        let payment = if force_tapped {
+            EntryPayment::ForceTapped
+        } else {
+            EntryPayment::NoneRequired
+        };
+        self.finish_battlefield_entry(object, cause, resume, payment, force_tapped)
+    }
+
+    /// The entering card its controller decides about while the entry
+    /// waits, even from a hidden zone; nobody else sees it.
+    pub(in crate::engine) fn battlefield_entry_visible(
+        &self,
+        viewer: PlayerId,
+        object: ObjectId,
+    ) -> bool {
+        matches!(&self.state.rules.frame, Frame::BattlefieldEntry { entry }
+            if entry.controller == viewer && entry.object == object)
     }
 
     pub(super) fn battlefield_entry_request(
@@ -77,13 +131,9 @@ impl RulesTxn {
         let amount = self
             .entry_life_cost(entry.object)?
             .ok_or("missing entry life cost")?;
-        Ok(self.can_pay_entry_life(entry.controller, &amount).then(|| {
-            self.pick_flags(
-                entry.controller,
-                Reason::OptionalEffect,
-                &[Flag::Accept, Flag::Decline],
-            )
-        }))
+        Ok(self
+            .can_pay_entry_life(entry.controller, &amount)
+            .then(|| self.entry_payment_decision(entry.controller, entry.object)))
     }
 
     pub(super) fn battlefield_entry_step(&mut self, entry: PendingEntry) -> Result<(), String> {
@@ -112,7 +162,13 @@ impl RulesTxn {
         } else {
             EntryPayment::Declined
         };
-        self.finish_battlefield_entry(entry.object, entry.cause, resume, payment)
+        self.finish_battlefield_entry(
+            entry.object,
+            entry.cause,
+            resume,
+            payment,
+            entry.force_tapped,
+        )
     }
 
     fn finish_battlefield_entry(
@@ -121,6 +177,7 @@ impl RulesTxn {
         cause: BatchCause,
         resume: Frame,
         payment: EntryPayment,
+        force_tapped: bool,
     ) -> Result<(), String> {
         let mut children = vec![];
         if let EntryPayment::Paid { player, amount } = &payment {
@@ -152,14 +209,18 @@ impl RulesTxn {
                 self.commit_batch(cause, EventGroup::Ordered { children })?;
             }
             EntryPayment::ForceTapped | EntryPayment::Declined | EntryPayment::Paid { .. } => {
-                let entry = if matches!(payment, EntryPayment::ForceTapped) {
+                let entry = if force_tapped {
                     EntryOverride::ForceTapped
                 } else {
                     EntryOverride::LifePayment {
                         paid: matches!(payment, EntryPayment::Paid { .. }),
                     }
                 };
-                self.commit_entry_batch(cause, EventGroup::Ordered { children }, object, entry)?;
+                self.commit_entry_batch(
+                    cause,
+                    EventGroup::Ordered { children },
+                    &[(object, entry)],
+                )?;
             }
         }
         if land_play {
@@ -193,6 +254,7 @@ impl RulesTxn {
                     .take(if live { 1 } else { 2 })
                     .any(|input| input.player == player && input.decision_id == decision_id);
                 if player != entry.controller
+                    || entry.force_tapped
                     || source != entry.object
                     || !matches!(resume, Frame::Priority)
                     || !accepted
@@ -286,29 +348,84 @@ mod tests {
         }
     }
 
+    /// "If an effect puts this land onto the battlefield tapped, you may pay
+    /// 2 life, but it still enters tapped." (Lorwyn Eclipsed release notes)
     #[test]
-    fn forced_tapped_entry_skips_a_payable_shockland_offer() {
-        let board = entry_land_board(StaticEffect::PayLifeOrEnterTapped { amount: 2.into() })
-            .card("Forest", 0, 0, Zone::Library { owner: PlayerId(0) })
-            .libraries("Forest", 4);
-        let mut game = Game::new(board.prepare());
-        let object = Driver::object(&game, 0);
-        let before = game.state_digest().unwrap();
-        assert_eq!(
-            game.move_object(object, Zone::Battlefield).unwrap_err(),
-            "payable entry requires a battlefield entry continuation"
-        );
-        assert_eq!(game.state_digest().unwrap(), before);
-        let life = game.state.rules.players[0].life.clone();
-        game.begin_battlefield_entry(object, BatchCause::Fixture, Frame::Priority, true)
-            .unwrap();
-        let decision = Driver::request(&mut game, u64::MAX);
-        assert_ne!(decision.reason, Reason::OptionalEffect);
-        let successor = game.current(Driver::object(&game, 0)).unwrap();
-        assert_eq!(successor.zone, Zone::Battlefield);
-        assert!(successor.tapped);
-        assert_eq!(game.state.rules.players[0].life, life);
-        game.validate_state().unwrap();
+    fn forced_tapped_entry_still_offers_the_payment_and_enters_tapped() {
+        for pay in [true, false] {
+            let board = entry_land_board(StaticEffect::PayLifeOrEnterTapped { amount: 2.into() })
+                .card("Forest", 0, 0, Zone::Library { owner: PlayerId(0) })
+                .libraries("Forest", 4);
+            let mut game = Game::new(board.prepare());
+            let object = Driver::object(&game, 0);
+            let before = game.state_digest().unwrap();
+            assert_eq!(
+                game.move_object(object, Zone::Battlefield).unwrap_err(),
+                "payable entry requires a battlefield entry continuation"
+            );
+            assert_eq!(game.state_digest().unwrap(), before);
+            let mut life = game.state.rules.players[0].life.clone();
+            game.begin_battlefield_entry(object, BatchCause::Fixture, Frame::Priority, true)
+                .unwrap();
+            // A rules transaction publishes on commit; this white-box call
+            // outside one publishes explicitly.
+            game.refresh_visibility().unwrap();
+            let decision = Driver::request(&mut game, u64::MAX);
+            assert_eq!(decision.reason, Reason::OptionalEffect);
+            // The entrant is the slot's subject.
+            let Shape::Pick { slots, .. } = &decision.shape else {
+                panic!("{decision:?}")
+            };
+            assert_eq!(
+                slots[0]
+                    .subject
+                    .map(|i| decision.candidates[i as usize].clone()),
+                Some(Candidate::Object { object })
+            );
+            // Its controller observes the library entrant it decides about;
+            // nobody else sees a library card.
+            let observed = game.observe(PlayerId(0), Budget::unlimited());
+            let mine = match observed {
+                QueryResult::Complete(QueryValue::Observation(mine)) => mine,
+                QueryResult::Rejected(rejection) => panic!("observation rejected: {rejection:?}"),
+                _ => panic!("the entering controller observes its decision"),
+            };
+            let pending = mine.decision.as_ref().expect("a pending entry payment");
+            let Candidate::Object { object: handle } = &pending.candidates[2] else {
+                panic!("{pending:?}")
+            };
+            assert!(
+                mine.view
+                    .objects
+                    .iter()
+                    .any(|o| &o.handle == handle && matches!(o.zone, Zone::Library { .. }))
+            );
+            let QueryResult::Complete(QueryValue::Observation(theirs)) =
+                game.observe(PlayerId(1), Budget::unlimited())
+            else {
+                panic!("an opponent observes")
+            };
+            assert!(
+                theirs
+                    .view
+                    .objects
+                    .iter()
+                    .all(|o| !matches!(o.zone, Zone::Library { .. }))
+            );
+            game.validate_state().unwrap();
+            let flag = if pay { Flag::Accept } else { Flag::Decline };
+            let answer = decision.pick_one(&Candidate::Flag { flag }).unwrap();
+            game.respond(decision.player, decision.id, answer).unwrap();
+            let _ = Driver::request(&mut game, u64::MAX);
+            if pay {
+                life.subtract(&2.into());
+            }
+            let successor = game.current(Driver::object(&game, 0)).unwrap();
+            assert_eq!(successor.zone, Zone::Battlefield);
+            assert!(successor.tapped);
+            assert_eq!(game.state.rules.players[0].life, life);
+            game.validate_state().unwrap();
+        }
     }
 
     #[test]

@@ -23,6 +23,10 @@ pub struct Casting {
     pub prior_passes: Vec<PlayerId>,
     pub mana_activations: Vec<ManaActivationUndo>,
     pub undo_mana: bool,
+    /// CR 701.23e: announcing this spell from its owner's hand consumed one
+    /// publicly known copy of its identity there; a reversal restores it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub revealed_hand_consumed: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

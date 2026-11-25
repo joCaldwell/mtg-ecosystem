@@ -4,41 +4,10 @@ impl RulesTxn {
     pub(crate) fn update_library_position_memory(
         &mut self,
         event: &ProposedEvent,
-        actual: &EventOutcome,
+        _actual: &EventOutcome,
     ) {
-        let revealed_move = matches!(actual, EventOutcome::Moved { movement }
-            if self.replacement_reveals(movement.previous));
         let objects = &self.state.rules.objects;
         for knowledge in &mut self.state.knowledge.visibility {
-            // A secret choice from hand into a hidden zone cannot identify
-            // which previously revealed card stayed. Forget that hand's rows.
-            let concealed_hand = match (event, actual) {
-                (ProposedEvent::Move { .. }, EventOutcome::Moved { movement }) => {
-                    match (movement.from, movement.destination) {
-                        // A printed replacement has already identified the
-                        // card publicly. Other known hand cards stay known.
-                        (Zone::Hand { owner }, Zone::Library { .. }) if !revealed_move => {
-                            Some(owner)
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-            if let Some(owner) = concealed_hand {
-                knowledge.revealed_hand.retain(|id| {
-                    self.state
-                        .rules
-                        .cards
-                        .get(&id.card)
-                        .is_none_or(|c| c.owner != owner)
-                });
-            }
-            knowledge.revealed_hand.retain(|id| {
-                objects
-                    .get(&id.card)
-                    .is_some_and(|o| o.id == *id && matches!(o.zone, Zone::Hand { .. }))
-            });
             knowledge.public_tucked_cards.retain(|id| {
                 let Some(Object {
                     id: current,
@@ -53,10 +22,16 @@ impl RulesTxn {
                 }
                 match event {
                     ProposedEvent::FinishLibraryShuffle { player }
+                    | ProposedEvent::ShuffleLibrary { player }
                     | ProposedEvent::ShuffleLibraryWord { player, .. } => player != owner,
 
                     // Scry can hide the size of the portion sent to the
                     // bottom. Opponents cannot update positions from that count.
+                    // Surveil reorders the kept cards secretly; positions of
+                    // that library are forgotten conservatively in both.
+                    ProposedEvent::Scry { player, .. } | ProposedEvent::Surveil { player, .. } => {
+                        player != owner
+                    }
 
                     // The chooser sees the reordered prefix. Other viewers
                     // can still track the untouched tail through these actions,
@@ -115,8 +90,133 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    /// Publicly known identities in hand. No targetable handle or hand position
-    /// is disclosed. A subsequent zone change invalidates that incarnation.
+    /// Hand cards of every owner with publicly known hand identities,
+    /// captured before an event so its departures can be classified.
+    pub(super) fn known_hand_cards(&self) -> Vec<ObjectId> {
+        let owners: BTreeSet<PlayerId> = self
+            .state
+            .knowledge
+            .visibility
+            .iter()
+            .flat_map(|k| k.revealed_hand.keys().copied())
+            .collect();
+        if owners.is_empty() {
+            return vec![];
+        }
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| matches!(o.zone, Zone::Hand { owner } if owners.contains(&owner)))
+            .map(|o| o.id)
+            .collect()
+    }
+
+    /// CR 400.2, 400.7, 701.23e: revealed hand knowledge is a minimum count
+    /// per owner and Oracle identity, never a private incarnation. A card
+    /// that leaves the hand into a public zone names its identity, so one
+    /// known copy of it is consumed whichever copy it was. A departure into
+    /// a hidden zone could have been any card, so one copy of every known
+    /// identity is consumed. A departed owner's hand left the game.
+    pub(super) fn forget_departed_hand_cards(
+        &mut self,
+        before: Vec<ObjectId>,
+    ) -> Result<(), String> {
+        let mut departures = vec![];
+        for id in before {
+            let current = self.state.rules.objects.get(&id.card);
+            if current.is_some_and(|o| o.id == id && matches!(o.zone, Zone::Hand { .. })) {
+                continue;
+            }
+            let card = self
+                .state
+                .rules
+                .cards
+                .get(&id.card)
+                .ok_or("missing hand card")?;
+            let public = current.is_some_and(|o| {
+                self.replacement_reveals(id)
+                    || (!matches!(o.zone, Zone::Hand { .. } | Zone::Library { .. })
+                        && o.hideaway.is_none())
+            });
+            departures.push((card.owner, public.then(|| card.oracle_id.clone())));
+        }
+        let live: Vec<_> = (0..4).map(|p| self.is_live(PlayerId(p))).collect();
+        for knowledge in &mut self.state.knowledge.visibility {
+            for (owner, identity) in &departures {
+                let Some(rows) = knowledge.revealed_hand.get_mut(owner) else {
+                    continue;
+                };
+                match identity {
+                    Some(oracle) => {
+                        if let Some(n) = rows.get_mut(oracle) {
+                            *n -= 1;
+                        }
+                    }
+                    None => rows.values_mut().for_each(|n| *n -= 1),
+                }
+                rows.retain(|_, n| *n > 0);
+            }
+            knowledge
+                .revealed_hand
+                .retain(|owner, rows| !rows.is_empty() && live[owner.0 as usize]);
+        }
+        Ok(())
+    }
+
+    /// The publicly known copies of `card`'s identity in its owner's hand.
+    /// Every seat holds the same counts.
+    pub(super) fn known_hand_count(&self, card: CardId) -> u32 {
+        let Some(physical) = self.state.rules.cards.get(&card) else {
+            return 0;
+        };
+        self.state.knowledge.visibility[0]
+            .revealed_hand
+            .get(&physical.owner)
+            .and_then(|rows| rows.get(&physical.oracle_id))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// CR 601.2i: a reversed announcement puts the card back where it was
+    /// announced from, restoring the known copy its departure consumed.
+    pub(super) fn restore_known_hand_copy(&mut self, card: CardId) {
+        let physical = &self.state.rules.cards[&card];
+        let (owner, oracle) = (physical.owner, physical.oracle_id.clone());
+        for knowledge in &mut self.state.knowledge.visibility {
+            *knowledge
+                .revealed_hand
+                .entry(owner)
+                .or_default()
+                .entry(oracle.clone())
+                .or_default() += 1;
+        }
+    }
+
+    /// CR 701.23e: every player saw `cards` enter `owner`'s hand revealed.
+    pub(super) fn remember_revealed_hand(
+        &mut self,
+        owner: PlayerId,
+        cards: &[ObjectId],
+    ) -> Result<(), String> {
+        let mut identities = vec![];
+        for id in cards {
+            if self.zone(*id) != Some(Zone::Hand { owner }) {
+                return Err("revealed hand memory outside its owner's hand".into());
+            }
+            identities.push(self.definition(id.card)?.oracle_id.clone());
+        }
+        for knowledge in &mut self.state.knowledge.visibility {
+            let rows = knowledge.revealed_hand.entry(owner).or_default();
+            for oracle in &identities {
+                *rows.entry(oracle.clone()).or_default() += 1;
+            }
+        }
+        Ok(())
+    }
+
+    /// Publicly known identities in hand, one row per known copy. No
+    /// targetable handle or hand position is disclosed.
     pub fn publicly_searched_hand(
         &self,
         viewer: PlayerId,
@@ -127,12 +227,45 @@ impl RulesTxn {
             .visibility
             .get(viewer.0 as usize)
             .ok_or("invalid viewer")?;
+        // Every reveal and departure is public, so every seat counts alike.
+        if self
+            .state
+            .knowledge
+            .visibility
+            .iter()
+            .any(|other| other.revealed_hand != k.revealed_hand)
+        {
+            return Err("revealed hand memory differs between seats".into());
+        }
         let mut cards = vec![];
-        for id in &k.revealed_hand {
-            let Some(Zone::Hand { owner }) = self.zone(*id) else {
-                return Err("stale revealed hand memory".into());
-            };
-            cards.push((owner, self.definition(id.card)?.oracle_id.clone()));
+        for (owner, rows) in &k.revealed_hand {
+            if !self.is_live(*owner) {
+                return Err("revealed hand memory of a departed owner".into());
+            }
+            for (oracle, known) in rows {
+                // The minimum count never exceeds the copies actually there.
+                let held = self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == (Zone::Hand { owner: *owner }))
+                    .filter(|o| {
+                        self.state
+                            .rules
+                            .cards
+                            .get(&o.id.card)
+                            .is_some_and(|c| c.oracle_id == *oracle)
+                    })
+                    .count();
+                if *known == 0 || *known as usize > held {
+                    return Err("stale revealed hand memory".into());
+                }
+                cards.extend(std::iter::repeat_n(
+                    (*owner, oracle.clone()),
+                    *known as usize,
+                ));
+            }
         }
         cards.sort();
         Ok(cards)

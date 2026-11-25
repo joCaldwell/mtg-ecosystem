@@ -12,6 +12,7 @@ publish.workspace = true
 mtg-compiler.workspace = true
 mtg-contracts.workspace = true
 mtg-core = { workspace = true, features = ["testkit"] }
+mtg-observe.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rand_chacha = { version = "=0.10.0", default-features = false }

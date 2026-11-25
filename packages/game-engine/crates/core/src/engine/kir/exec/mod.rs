@@ -4,6 +4,7 @@
 mod attach;
 mod draw;
 mod grant_keywords;
+mod library;
 mod life;
 mod set_move;
 mod tap;

@@ -94,8 +94,10 @@ impl ObjectHandles {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Knowledge {
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub revealed_hand: BTreeSet<ObjectId>,
+    /// CR 701.23e: the minimum number of publicly revealed copies of each
+    /// Oracle identity known to be in each owner's hand.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub revealed_hand: BTreeMap<PlayerId, BTreeMap<String, u32>>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -452,9 +454,19 @@ impl RulesTxn {
         }) {
             return true;
         }
-        // CR 701.20a-b: only this selected set is temporarily public; it
-        // remains in the library, without publishing positions or other candidates.
-
+        // CR 701.22a, 701.23a, 701.25a: only the player searching, scrying
+        // or surveiling sees the library cards of their own choice, while it
+        // waits; no position or other card is published.
+        if matches!(object.zone, Zone::Library { owner } if owner == viewer)
+            && self.library_choice_visible(viewer, object.id)
+        {
+            return true;
+        }
+        // CR 614.1c: the entering card whose entry payment its controller
+        // decides, wherever it enters from.
+        if self.battlefield_entry_visible(viewer, object.id) {
+            return true;
+        }
         if self.replacement_reveals(object.id) {
             return true;
         }
@@ -1267,7 +1279,9 @@ impl RulesTxn {
             let current: Vec<_> = if reference
                 || matches!(
                     self.state.rules.frame,
-                    Frame::ResolutionChoice { .. } | Frame::GraveyardGroup { .. }
+                    Frame::ResolutionChoice { .. }
+                        | Frame::GraveyardGroup { .. }
+                        | Frame::BattlefieldEntry { .. }
                 ) {
                 self.state
                     .rules

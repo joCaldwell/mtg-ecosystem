@@ -527,6 +527,49 @@ fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred,
     Ok(Pred(atoms))
 }
 
+/// CR 205, 208, 202.3: the printed characteristics a library card is
+/// searched for: card types, supertypes, subtypes, colors and fixed
+/// comparisons, their conjunctions ("all of") and alternatives ("any of").
+/// A card has no controller, status or permanent keywords in a library.
+pub(crate) fn lower_card_filter(filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
+    let mut plain = filter.clone();
+    let each = plain.all_of.take();
+    let any = plain.any_of.take();
+    match plain.cls.take() {
+        None | Some(ast::ObjectFilterCls::Card) => {}
+        Some(other) => return Err(operand("filter", format!("cls:{}", variant(&other)))),
+    }
+    if let Some(field) = present_fields(&plain).into_iter().find(|field| {
+        matches!(
+            *field,
+            "control" | "status" | "non_token" | "with_ability" | "without_ability"
+        )
+    }) {
+        return Err(operand("filter", format!("library_card:{field}")));
+    }
+    // Context only names "you" for a control atom, which is rejected above.
+    let mut pred = lower_filter_for(&plain, PlayerExpr::you(Context::Spell))?;
+    if let Some(children) = each {
+        if children.is_empty() {
+            return Err(operand("filter", "all_of:empty"));
+        }
+        for child in &children {
+            pred.0.extend(lower_card_filter(child)?.0);
+        }
+    }
+    if let Some(children) = any {
+        if children.is_empty() {
+            return Err(operand("filter", "any_of:empty"));
+        }
+        let alternatives = children
+            .iter()
+            .map(lower_card_filter)
+            .collect::<Result<_, _>>()?;
+        pred.0.push(Atom::AnyOf { alternatives });
+    }
+    Ok(pred)
+}
+
 /// CR 109.5, 201.5: bind a live static predicate, including "other".
 pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
     let mut plain = filter.clone();

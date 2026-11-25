@@ -136,6 +136,18 @@ impl RulesTxn {
             {
                 return Err("snapshot zone-owner invariant".into());
             }
+            // CR 304.4, 307.4: no instant or sorcery is ever a permanent.
+            if o.zone == Zone::Battlefield
+                && matches!(
+                    self.definition(setup.id)
+                        .map_err(|_| "snapshot battlefield definition")?
+                        .characteristics
+                        .kind,
+                    CardKind::Instant | CardKind::Sorcery
+                )
+            {
+                return Err("snapshot instant or sorcery on the battlefield".into());
+            }
         }
         self.validate_attachment_state()?;
         self.validate_control_state()?;
@@ -282,6 +294,12 @@ impl RulesTxn {
                         cast.original_object != top.source
                     }
                     || top.paid.is_some()
+                    || (cast.revealed_hand_consumed
+                        && !(cast.origin.is_spell()
+                            && top.cast_from
+                                == (Zone::Hand {
+                                    owner: s.rules.cards[&top.source.card].owner,
+                                })))
                 {
                     return Err("snapshot casting frame invariant".into());
                 }

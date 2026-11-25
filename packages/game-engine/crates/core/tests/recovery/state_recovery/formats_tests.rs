@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    57,
-    "069e4186a70e0a1d45a8a55a1ae2f679459462ac5ff4d4ddb98b7a25449433a2",
+    58,
+    "abdf9469482e48473231f74bd39ec629283686025d10f92396e82f1c659c1003",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    87,
-    "7353cfe93089aec67b4e76292ed6b784b7523b1f53a995c7e6e0cdfdbb1cac5f",
+    88,
+    "74cf7a9b7f752397fd526b0bbdf4b1b0cfb2d09db69b01a2b59291dc21088c64",
 );
 const WORK_PIN: (u32, &str) = (
     53,
@@ -333,6 +333,32 @@ fn suspended_land_play_rejects_rehashed_tampering() {
     }
 }
 
+/// Wire shapes no fixture board suspends in: a battlefield search's entry
+/// choice with a chosen Aura host and a payment (CR 303.4f, 614.1c), and a
+/// forced tapped entry that still offers its payment. Substituted into
+/// real snapshots; only their JSON shape is fingerprinted.
+fn library_entry_shapes() -> Vec<String> {
+    let game = mid_resolution();
+    let object = Driver::object(&game, 0);
+    let mut search: Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    search["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::SearchEntry {
+            player: PlayerId(0),
+            found: vec![object],
+            hosts: vec![(object, object)],
+            paid: vec![(object, true)],
+            source_block: 0,
+        })
+        .unwrap();
+    let mut entry: Value =
+        serde_json::from_str(&suspended_battlefield_entry().snapshot().unwrap()).unwrap();
+    entry["state"]["rules"]["frame"]["entry"]["force_tapped"] = true.into();
+    [search, entry]
+        .iter()
+        .map(|value| serde_json::to_string(value).unwrap())
+        .collect()
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -344,6 +370,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         ])
         .chain(mana_riders())
         .map(|g| g.snapshot().unwrap())
+        .chain(library_entry_shapes())
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

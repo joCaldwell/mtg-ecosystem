@@ -173,6 +173,13 @@ impl RulesTxn {
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());
         };
+        // CR 701.22-701.25: library verbs and their private choices.
+        if matches!(
+            verb,
+            Verb::Search { .. } | Verb::Shuffle { .. } | Verb::Scry { .. } | Verb::Surveil { .. }
+        ) {
+            return self.kernel_library(frame, verb, source_block);
+        }
         match verb {
             Verb::Attach {
                 what: Ref::Source,

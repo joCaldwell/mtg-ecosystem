@@ -665,13 +665,24 @@ fn records_without_an_r4_resolution_reject() {
     ));
 }
 
+/// CR 701.22a, 701.23a, 701.24a: Read the Bones scries and Wayfarer's
+/// Bauble searches and shuffles through `Executes`-only library cells.
 #[test]
-fn unaudited_library_procedures_reject_the_entire_record() {
-    for raw in [BONES, BAUBLE] {
-        assert!(matches!(
-            compile(R4, raw),
-            CompileResult::Unsupported { .. }
-        ));
+fn library_procedures_lower_to_executes_only_cells() {
+    use kir::{Cell, Tiers, definition_cells, definition_tiers};
+    for (raw, cells) in [
+        (BONES, vec![Cell::ScryController]),
+        (
+            BAUBLE,
+            vec![Cell::SearchController, Cell::ShuffleController],
+        ),
+    ] {
+        let CompileResult::Lowered { definition } = compile(R4, raw) else {
+            panic!("library procedure did not lower");
+        };
+        assert_eq!(definition_tiers(&definition).unwrap(), Tiers::EXECUTES);
+        let occupied = definition_cells(&definition).unwrap();
+        assert!(cells.iter().all(|cell| occupied.contains(cell)));
     }
 }
 
@@ -701,9 +712,7 @@ fn rider_blocks_reject_without_claiming_unaccounted_text() {
 /// edge, rejects instead of being read by shape.
 #[test]
 fn contradictory_or_missing_r4_edges_reject() {
-    assert!(
-        matches!(compile(R4, BAUBLE), CompileResult::Unsupported { ref path, .. } if path == "effects.steps")
-    );
+    assert!(matches!(compile(R4, BAUBLE), CompileResult::Lowered { .. }));
     let refs = |row: &mut serde_json::Value| -> serde_json::Value {
         row["resolution"]["faces"][0]["blocks"][0]["refs"].clone()
     };

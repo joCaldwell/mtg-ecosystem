@@ -156,6 +156,8 @@ Every flat effect is a kernel verb; the audited cells are:
 | `mill`, `discard`, `sacrifice` | Controller or one announced player (mill; X for the player); controller, damaged player, announced player (random or X), each player or each opponent (discard); damaged player, target opponent, each player or each opponent sacrifices one creature |
 | `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source or one announced creature |
 | `modify_until` | End-of-turn fixed P/T change of the source, one announced creature or a matching battlefield set; the source's own keyword grant |
+| `search`, `shuffle` | The controller's own library, or that of a filtered target's captured controller: up to a fixed number of cards with printed type, supertype, subtype, color or fixed stat qualities, optionally revealed, onto the searcher's battlefield (optionally tapped) or into the owner's hand or graveyard; the shuffle of that library |
+| `scry`, `surveil` | The controller, a fixed positive number |
 
 The interpreter routes admitted leaves through the shared rules operations.
 Board-wide sets evaluate through the battlefield and graveyard queries.
@@ -180,7 +182,8 @@ participation and controller filters require the battlefield in these sets
 card sets exclude tokens (CR 111.6). Player expressions name the invocation's
 controller, a bound player, the caster or active event player, or a player
 target in a prefix of ordinary player slots. They can also read the recorded
-owner of the source or a singleton iteration object. Player loops and life
+owner of the source or a singleton iteration object, and the controller a
+filtered permanent or spell target's frame captured (CR 608.2h). Player loops and life
 leaves can read each player or each opponent. Target owners, object controllers
 and life totals can require missing or last-known facts the continuation cannot
 always read. Object stats and cast-history amounts remain outside the control
@@ -208,7 +211,7 @@ operation wherever the current algebra cannot already express it.
 Archive R4 supplies the source, parsed abilities and bound resolution graph.
 `compose` lowers every printed ability or rejects the complete record. Every
 executable program contains KIR nodes. Missing references, unaudited operators,
-and unsupported complete procedures such as scry and surveil reject explicitly.
+and unsupported complete procedures such as look-at and reveal reject explicitly.
 
 The normalized source lines must equal the parsed blocks. When the parser
 groups the same printed lines differently (an ability-word "instead" rider kept
@@ -221,7 +224,7 @@ including the scalar player relations the archive always resolves (`control`
 you/opponent, `owner`/`whose` your, `to` owner). A pronoun (`it`, `that`,
 `them`, `rest`) must resolve to a target or a step result, never an evaluated
 or derived entry. A step result must name the nearest earlier producer of its
-role (a search's selection, a look's objects), or, for `rest` only, the
+role (a search's selection or objects, a look's objects), or, for `rest` only, the
 remainder of its own member of a simultaneous step after an earlier sibling
 took from the pool; any other role rejects. A printed target's resolved
 block-relative slot must be the slot announced for its selection, and a

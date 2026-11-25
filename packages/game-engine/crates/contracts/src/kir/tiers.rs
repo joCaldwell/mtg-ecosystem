@@ -177,6 +177,18 @@ pub enum Cell {
     SourceKeywordsUntilEndOfTurn,
     TargetKeywordsUntilEndOfTurn,
     SetKeywordsUntilEndOfTurn,
+    // CR 701.22-701.25: library search, shuffle, scry and surveil.
+    /// CR 701.23: the controller searches their library.
+    SearchController,
+    /// CR 701.23, 608.2h: a target's last-known controller searches theirs.
+    SearchTargetController,
+    /// CR 701.24a.
+    ShuffleController,
+    ShuffleTargetController,
+    /// CR 701.22a.
+    ScryController,
+    /// CR 701.25a.
+    SurveilController,
     /// CR 608.2c-d: a control node (sequence with a decision or result,
     /// condition, choice, repetition, payment) run by the continuation.
     Control,
@@ -269,6 +281,12 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SourceKeywordsUntilEndOfTurn
         | C::TargetKeywordsUntilEndOfTurn
         | C::SetKeywordsUntilEndOfTurn
+        | C::SearchController
+        | C::SearchTargetController
+        | C::ShuffleController
+        | C::ShuffleTargetController
+        | C::ScryController
+        | C::SurveilController
         | C::Control
         | C::ManaChoose
         | C::ManaLandsCouldProduce

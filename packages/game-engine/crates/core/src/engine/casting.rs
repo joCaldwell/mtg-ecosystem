@@ -117,6 +117,7 @@ impl RulesTxn {
             .checked_add(1)
             .ok_or("stack ID resource limit")?;
         self.record_event(Event::SpellProposed { card, stack_id: id })?;
+        let known_before = self.known_hand_count(original_object.card);
         let source = self
             .move_object_for(
                 original_object,
@@ -128,6 +129,7 @@ impl RulesTxn {
                 },
             )?
             .successor;
+        let revealed_hand_consumed = self.known_hand_count(original_object.card) < known_before;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         let source_facts = self.object_before(source)?;
         let entry = StackInstance {
@@ -166,6 +168,7 @@ impl RulesTxn {
             prior_passes: self.state.rules.passes.clone(),
             mana_activations: vec![],
             undo_mana: false,
+            revealed_hand_consumed,
         };
         self.rules_mut().frame = self.spell_announcement_frame(cast)?;
         self.rules_mut().passes.clear();
@@ -370,6 +373,13 @@ impl RulesTxn {
             o.controller = owner;
             o.default_controller = owner;
             o.tapped = false;
+            // The card returns publicly to the hand it was announced from.
+            if cast.revealed_hand_consumed {
+                if !matches!(stack.cast_from, Zone::Hand { owner: p } if p == owner) {
+                    return Err("known hand reversal outside its owner's hand".into());
+                }
+                self.restore_known_hand_copy(cast.original_object.card);
+            }
         }
         self.rules_mut().pending = None;
         self.rules_mut().priority = stack.controller;

@@ -7,6 +7,7 @@ mod damage;
 mod destroy;
 mod discard;
 mod draw;
+mod library;
 mod life;
 mod mana;
 mod mill;
@@ -788,7 +789,18 @@ impl Walk<'_, '_> {
                 chooser,
                 node: child,
             } => {
-                self.control_player(chooser, true)?;
+                if self.target_controller_chooser(chooser) {
+                    // CR 608.2h, 800.4a, 800.4g: the last-known controller
+                    // of a filtered target may only search or shuffle their
+                    // own library. Once they leave, that library left with
+                    // them, so skipping the choice deprives no live player.
+                    self.player(chooser)?;
+                    if !self.scan && !Self::own_library(child, chooser) {
+                        return unaudited("target controller choice outside their library");
+                    }
+                } else {
+                    self.control_player(chooser, true)?;
+                }
                 // CR 608.2d: "you may destroy target permanent", a choice the
                 // resolving frame offers at this instruction's cursor.
                 if let Some((verb, slot, regeneration_forbidden)) = node.optional_target_destroy() {
@@ -1036,6 +1048,10 @@ impl Walk<'_, '_> {
                 change,
                 until,
             } => self.audit_modify(what, *layer, change, *until),
+            Verb::Search { player, search } => self.audit_search(player, search),
+            Verb::Shuffle { player } => self.audit_shuffle(player),
+            Verb::Scry { player, amount } => self.audit_look(player, amount, false),
+            Verb::Surveil { player, amount } => self.audit_look(player, amount, true),
             Verb::Attach {
                 what: Ref::Source,
                 to: Ref::Target { slot: 0 },
@@ -1044,11 +1060,8 @@ impl Walk<'_, '_> {
             {
                 Ok(Cell::Attachment)
             }
-            Verb::Scry { .. }
-            | Verb::Surveil { .. }
-            | Verb::Regenerate { .. }
+            Verb::Regenerate { .. }
             | Verb::AddMana { .. }
-            | Verb::Search { .. }
             | Verb::Counter { .. }
             | Verb::CopyStackObject { .. }
             | Verb::GainControl { .. }
@@ -1057,7 +1070,6 @@ impl Walk<'_, '_> {
             | Verb::PlayPermission { .. }
             | Verb::Transform { .. }
             | Verb::SetDesignation { .. }
-            | Verb::Shuffle { .. }
             | Verb::Builtin { .. } => unaudited("verb"),
         }
     }

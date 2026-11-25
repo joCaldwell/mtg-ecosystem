@@ -8,12 +8,17 @@ use mtg_contracts::{Catalog, Color, HybridPayment, Quantity};
 use mtg_view::*;
 use std::collections::HashMap;
 
-/// Fixed number of object, stack and remembered-library rows in each observation.
+/// Fixed number of object, stack, remembered-library and known-hand rows in
+/// each observation.
 pub const MAX_ENTITIES: usize = 256;
 
 /// A frame can only be exposed if every entity and every candidate has a row.
 pub fn fits_layout(view: &PermittedView, decision: &Decision<Viewer>) -> bool {
-    view.objects.len() + view.stack.len() + view.known_library_positions.len() <= MAX_ENTITIES
+    view.objects.len()
+        + view.stack.len()
+        + view.known_library_positions.len()
+        + view.known_searched_hand.len()
+        <= MAX_ENTITIES
         && decision.candidates.len() <= action::STOP
         && view.players.len() <= 4
 }
@@ -314,6 +319,17 @@ pub fn encode(
         r.ent_int[i][..4].copy_from_slice(&[card(c, &k.oracle_id)?, 3, p, p]);
         r.ent_num[i][15] = -1;
         r.ent_num[i][18] = k.position as i32;
+    }
+    // CR 701.23e: each publicly known copy of a revealed card in a hand, by
+    // identity only; it has no handle, position or incarnation.
+    let base = base + v.stack.len() + v.known_library_positions.len();
+    for (j, (owner, oracle_id)) in v.known_searched_hand.iter().enumerate() {
+        let i = base + j;
+        r.ent_mask[i] = 1;
+        let p = relative(*owner);
+        r.ent_int[i][..4].copy_from_slice(&[card(c, oracle_id)?, 1, p, p]);
+        r.ent_num[i][15] = -1;
+        r.ent_num[i][18] = -1;
     }
     for (i, k) in d.candidates.iter().enumerate() {
         let (kind, entity, seat, a, b) = match k {

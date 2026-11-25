@@ -33,6 +33,10 @@ pub struct ScenarioInitial {
     pub life: [Quantity; 4],
     pub turn_step: TurnStep,
     pub libraries: Option<BTreeMap<PlayerId, Vec<CardId>>>,
+    /// The seed of a private board's library shuffles (CR 701.24a). A board
+    /// without one has no randomness, and a shuffle there faults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<[u8; 32]>,
 }
 impl Default for ScenarioInitial {
     fn default() -> Self {
@@ -40,6 +44,7 @@ impl Default for ScenarioInitial {
             life: std::array::from_fn(|_| Quantity::from(40)),
             turn_step: TurnStep::PostcombatMain,
             libraries: None,
+            seed: None,
         }
     }
 }

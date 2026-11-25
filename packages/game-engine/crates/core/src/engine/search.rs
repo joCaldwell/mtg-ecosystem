@@ -45,6 +45,8 @@ pub enum OwnKnowledgeAction {
     Drawn {
         oracle_id: String,
     },
+    /// CR 701.24a: the library was shuffled after setup.
+    Shuffled,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -196,6 +198,7 @@ pub fn known_suffix(
             | OwnKnowledgeAction::LibrarySelected { .. }
             | OwnKnowledgeAction::Scry { .. }
             | OwnKnowledgeAction::Surveil { .. }
+            | OwnKnowledgeAction::Shuffled
             | OwnKnowledgeAction::Milled { .. } => {
                 return Err(SearchRejection::UnsupportedHistory(
                     "scry library ordering is outside foundations search".into(),

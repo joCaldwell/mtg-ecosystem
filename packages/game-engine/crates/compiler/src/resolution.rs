@@ -315,6 +315,20 @@ impl Resolution {
                 }
                 _ => None,
             },
+            // CR 608.2h: "its controller", the current or last-known
+            // controller of one of the block's announced targets.
+            RefEntry::Derived(d) if d.path == path && d.scope.is_none() => {
+                match (&d.derived.relation, &*d.derived.of) {
+                    (crate::ast::PlayerRelation::Controller, ResolvedRef::Target(t)) => {
+                        u32::try_from(t.slot)
+                            .ok()
+                            .map(|slot| kir::PlayerExpr::ControllerOf {
+                                object: kir::Ref::Target { slot },
+                            })
+                    }
+                    _ => None,
+                }
+            }
             _ => None,
         }))
     }
@@ -859,6 +873,14 @@ fn step_producer(
             Some(step) => (step, "search"),
             None => return false,
         },
+        // The cards a search found are its objects too (CR 701.23a).
+        "objects"
+            if ability
+                .pointer(&result.step)
+                .is_some_and(|s| s["effect"] == "search") =>
+        {
+            (result.step.as_str(), "search")
+        }
         "objects" => (result.step.as_str(), "look-at"),
         "remainder" => {
             // The rest of a pool another member of the same simultaneous step

@@ -149,7 +149,11 @@ pub enum Until {
     Indefinite,
 }
 
-/// CR 701.23: what a search looks for and where the found cards go.
+/// CR 701.23: what a search looks for and where the found cards go. An
+/// empty filter is a search "simply for a quantity of cards": the searcher
+/// must find `maximum`, or as many as the library holds (CR 701.23d). With a
+/// stated quality they may find any number up to `maximum` (CR 701.23b). The
+/// found cards move together to `to`; `reveal` shows them first (CR 701.23e).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchSpec {
