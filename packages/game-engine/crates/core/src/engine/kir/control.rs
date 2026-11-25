@@ -411,13 +411,16 @@ impl RulesTxn {
             return Err("missing kernel completion".into());
         }
         match (&task.stage, node) {
-            (Stage::Complete { .. }, _)
+            (Stage::Complete { outcomes }, _)
                 if task.resume == FrameLink(0)
                     && task.path.is_empty()
                     && task.bindings.is_empty()
                     && depth == 1
                     && depth < self.state.rules.frames.len() =>
             {
+                for outcome in outcomes {
+                    self.validate_library_reorder_outcome(self.kernel_root()?, None, outcome)?;
+                }
                 Ok(())
             }
             (Stage::Leaf, Node::Do(_)) | (Stage::Run, _) => Ok(()),

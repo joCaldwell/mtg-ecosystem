@@ -172,9 +172,10 @@ controller to order the clamped prefix (CR 401.2, 701.20e). The order
 decision shows the current prefix to that player, including a lone card.
 The engine saves only the order and identities that player learned. A
 permutation can invalidate a public position in the prefix while positions
-beyond the prefix remain known. The procedure has its own event and
-`ReorderLibraryTop` choice. Snapshot 90 records that choice and outcome
-while observations use the existing order decision.
+beyond the prefix remain known. This top-level instruction saves the
+looked-at prefix and its resulting permutation. Snapshot 94 records
+the private choice and the engine validates the completed outcome before
+replay. Observations use the existing order decision.
 
 Ordinary spell sequences preserve the source order of eligible fixed library,
 life, removal and land-allowance instructions across printed blocks. A library

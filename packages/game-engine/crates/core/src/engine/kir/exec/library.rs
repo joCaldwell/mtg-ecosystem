@@ -1391,6 +1391,77 @@ impl RulesTxn {
         })
     }
 
+    /// CR 401.2, 701.20e: the completed reorder retains the exact private
+    /// prefix so that state validation can check the permutation after
+    /// later instructions change that library.
+    pub(in crate::engine) fn validate_library_reorder_outcome(
+        &self,
+        frame: &Resolving,
+        instruction: Option<&Instruction>,
+        outcome: &InstructionOutcome,
+    ) -> Result<(), String> {
+        let invalid = || "snapshot completed library reorder invariant".to_owned();
+        let result = match outcome {
+            InstructionOutcome::Effect {
+                actual:
+                    Some(EventOutcome::LibraryTopReordered {
+                        player,
+                        looked,
+                        top,
+                    }),
+            } => Some((player, looked, top)),
+            InstructionOutcome::Damage {
+                actual: Some(EventOutcome::LibraryTopReordered { .. }),
+            }
+            | InstructionOutcome::Life {
+                actual: Some(EventOutcome::LibraryTopReordered { .. }),
+            } => return Err(invalid()),
+            InstructionOutcome::Kernel { outcomes } => {
+                for child in outcomes {
+                    self.validate_library_reorder_outcome(frame, None, child)?;
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(Verb::ReorderLibraryTop { amount, .. }) =
+            instruction.and_then(Instruction::verb)
+        {
+            let controller = self.entry(frame.stack_id)?.controller;
+            if let Some((player, looked, top)) = result {
+                if *player == controller
+                    && self.valid_looked(frame, *player, looked, amount)?
+                    && Self::same_cards(looked, top)
+                    && looked.iter().all(|id| {
+                        self.state.rules.objects.get(&id.card).map_or_else(
+                            || !self.is_live(*player),
+                            |current| {
+                                // A later move can create a successor. If the
+                                // same incarnation lives, it still belongs to
+                                // this library (CR 400.7).
+                                current.id.incarnation > id.incarnation
+                                    || (current.id == *id
+                                        && current.zone == (Zone::Library { owner: *player }))
+                            },
+                        )
+                    })
+                {
+                    return Ok(());
+                }
+            } else if matches!(outcome, InstructionOutcome::Effect { actual: None })
+                || matches!(outcome, InstructionOutcome::PlayerActionSkipped { player }
+                    if *player == controller && !self.is_live(*player))
+            {
+                return Ok(());
+            }
+            return Err(invalid());
+        }
+        if result.is_some() {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+
     /// CR 701.22a, 701.25a: the looked-at cards are distinct cards of the
     /// chooser's own library, at least one and at most the printed amount;
     /// this holds even after the chooser left with that library.

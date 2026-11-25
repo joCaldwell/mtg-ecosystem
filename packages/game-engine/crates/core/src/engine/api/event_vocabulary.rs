@@ -265,6 +265,7 @@ pub enum EventOutcome {
     },
     LibraryTopReordered {
         player: PlayerId,
+        looked: Vec<ObjectId>,
         top: Vec<ObjectId>,
     },
     Scried {

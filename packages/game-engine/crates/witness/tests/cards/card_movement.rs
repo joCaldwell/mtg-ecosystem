@@ -471,3 +471,91 @@ fn top_search_shuffles_the_remainder_and_reveals_only_when_printed() {
         }
     }
 }
+
+#[test]
+fn probe_rejects_a_target_whose_announcement_requires_kicker() {
+    let probe = record!("f8d227b6-1627-4ea1-b815-887094497abf");
+    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, probe);
+    let mtg_compiler::CompileResult::Unsupported { reason, .. } = result else {
+        panic!("expected rejection of Probe's conditional target: {result:?}");
+    };
+    assert_eq!(reason, "cell:target:cost_conditional_announcement");
+}
+
+#[test]
+fn ponder_rejects_invalid_completed_reorders_while_waiting_to_shuffle() {
+    let ponder = record!("02090581-61aa-4348-ad57-451be8ee91c2");
+    let mut g = Game::new(
+        board(&[(ponder, Cell::ReorderLibraryTop)])
+            .permanent_or_hand("Ponder", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .library_card("Plains", 0)
+            .library_card("Forest", 0)
+            .library_card("Swamp", 0)
+            .library_card("Island", 0)
+            .library_card("Forest", 1)
+            .prepare(),
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1]);
+    let decision = next_choice(&mut g);
+    assert_eq!(decision.reason, Reason::OrderLibraryTop);
+    order(&mut g, &decision, vec![2, 0, 1]);
+    let shuffle = next_choice(&mut g);
+    assert_eq!(shuffle.reason, Reason::OptionalEffect);
+    let original = g.state.rules.frames[0].clone();
+    let outside_prefix = Driver::object(&g, 5);
+    let other_library = Driver::object(&g, 6);
+    let battlefield = Driver::object(&g, 1);
+    for forged in [
+        "duplicate",
+        "different pool",
+        "other library",
+        "battlefield",
+    ] {
+        let Frame::Resolve { frame } = &mut g.state.rules.frames[0] else {
+            panic!("expected the saved invocation");
+        };
+        let [
+            InstructionOutcome::Effect {
+                actual: Some(EventOutcome::LibraryTopReordered { looked, top, .. }),
+            },
+        ] = frame.outcomes.as_mut_slice()
+        else {
+            panic!("expected the completed reorder");
+        };
+        match forged {
+            "duplicate" => top[1] = top[0],
+            "different pool" => top[1] = outside_prefix,
+            "other library" | "battlefield" => {
+                let replacement = if forged == "other library" {
+                    other_library
+                } else {
+                    battlefield
+                };
+                let original = top[1];
+                top[1] = replacement;
+                let looked = looked.iter_mut().find(|card| **card == original).unwrap();
+                *looked = replacement;
+            }
+            _ => unreachable!(),
+        }
+        let error = g.validate_state().expect_err(forged);
+        assert!(
+            error.contains("completed library reorder"),
+            "{forged}: {error}"
+        );
+        g.state.rules.frames[0] = original.clone();
+    }
+    let decline = shuffle
+        .pick_one(&Candidate::Flag {
+            flag: Flag::Decline,
+        })
+        .unwrap();
+    g.respond(shuffle.player, shuffle.id, decline).unwrap();
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 4)),
+        Some(Zone::Hand { owner: PlayerId(0) }),
+    );
+}

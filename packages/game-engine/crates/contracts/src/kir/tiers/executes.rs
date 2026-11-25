@@ -98,8 +98,11 @@ fn spell_costs(p: &SpellProgram, context: Context) -> bool {
                 }))
 }
 
-/// The optional-cost identities a node's conditions read.
-fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
+/// The optional-cost identities a node reads. The engine announces all
+/// program targets, so it cannot admit a target in a cost-gated branch
+/// (CR 601.2c, 702.33d).
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result<(), String> {
     fn cond<'a>(c: &'a kir::Cond, out: &mut Vec<&'a String>) {
         match c {
             kir::Cond::CostPaid { identity } => out.push(identity),
@@ -113,18 +116,28 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
         }
     }
     match node {
-        kir::Node::Do(_) => {}
-        kir::Node::Seq(nodes) => nodes.iter().for_each(|n| cost_conditions(n, out)),
+        kir::Node::Do(_) => Ok(()),
+        kir::Node::Seq(nodes) => nodes.iter().try_for_each(|n| cost_conditions(n, out)),
         kir::Node::If {
             condition,
             then,
             otherwise,
         } => {
+            let before = out.len();
             cond(condition, out);
-            cost_conditions(then, out);
-            if let Some(otherwise) = otherwise {
-                cost_conditions(otherwise, out);
+            if out.len() != before
+                && (!kir::target_slots(then).is_empty()
+                    || otherwise
+                        .as_ref()
+                        .is_some_and(|node| !kir::target_slots(node).is_empty()))
+            {
+                return cell("target", "cost_conditional_announcement");
             }
+            cost_conditions(then, out)?;
+            if let Some(otherwise) = otherwise {
+                cost_conditions(otherwise, out)?;
+            }
+            Ok(())
         }
         kir::Node::Optional { node, .. }
         | kir::Node::UnlessPays { node, .. }
@@ -134,8 +147,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
             cost_conditions(body, out)
         }
         kir::Node::Reflexive { first, then } => {
-            cost_conditions(first, out);
-            cost_conditions(then, out);
+            cost_conditions(first, out)?;
+            cost_conditions(then, out)
         }
     }
 }
@@ -159,7 +172,7 @@ fn program(
     // CR 702.33d: a "kicked" condition reads a cost this spell declares.
     let mut paid = vec![];
     for Instruction::Kernel { node, .. } in &p.instructions {
-        cost_conditions(node, &mut paid);
+        cost_conditions(node, &mut paid)?;
     }
     if paid.iter().any(|id| {
         !p.optional_additional_costs

@@ -189,6 +189,10 @@ and life totals can require missing or last-known facts the continuation cannot
 always read. Object stats and cast-history amounts remain outside the control
 cells.
 
+The spell's program supplies its announcement targets. Branches gated by
+an optional-cost condition cannot supply targets until cost-dependent
+target declarations are supported (CR 601.2c).
+
 Every branch and leaf needs its own audited cell. Non-life leaves use the flat
 executor without task bindings, with a single announced target when they read a
 target. A nested draw must draw exactly one fixed card for one player. Counted

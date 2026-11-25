@@ -104,6 +104,7 @@ impl RulesTxn {
         self.remember_library_order(player, top)?;
         Ok(EventOutcome::LibraryTopReordered {
             player,
+            looked: looked.to_vec(),
             top: top.to_vec(),
         })
     }

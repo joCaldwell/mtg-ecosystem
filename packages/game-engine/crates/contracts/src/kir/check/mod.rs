@@ -953,6 +953,11 @@ impl Walk<'_, '_> {
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
+            // The completed reorder is validated against its own fixed
+            // amount at the resolving instruction's cursor.
+            Verb::ReorderLibraryTop { .. } => {
+                unaudited("library reorder needs a top-level instruction")
+            }
             // CR 121.2: counted draws retain attempt progress and finish
             // with an outcome that must match a top-level draw instruction.
             Verb::Draw { player, amount } if !single_draw(player, amount) => {

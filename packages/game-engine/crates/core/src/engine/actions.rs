@@ -1169,6 +1169,9 @@ impl RulesTxn {
         {
             return Err("snapshot resolving invocation invariant".into());
         }
+        for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
+            self.validate_library_reorder_outcome(frame, Some(instruction), outcome)?;
+        }
         if self
             .state
             .rules
