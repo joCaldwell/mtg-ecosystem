@@ -568,6 +568,8 @@ impl Strategy<'_> {
                 | Reason::AdditionalCosts
                 | Reason::ChooseModes
                 | Reason::ScryBottom
+                | Reason::Populate
+                | Reason::Proliferate
                 | Reason::SurveilGraveyard,
                 Shape::Pick { slots, .. },
             ) => Answer::Pick {

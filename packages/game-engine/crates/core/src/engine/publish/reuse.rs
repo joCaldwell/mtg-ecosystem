@@ -138,6 +138,8 @@ impl Published {
             next_effect_id,
             next_damage_transaction_id,
             pending_triggers,
+            resolution_triggers: _,
+            resolution_trigger_clock: _,
             next_trigger_id,
             libraries,
             combat,

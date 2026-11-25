@@ -258,6 +258,7 @@ enum FactKey {
     Object(CardId),
     Mana(PlayerId),
     Life(PlayerId),
+    PlayerCounters(PlayerId),
     CommanderDamage(PlayerId),
     Libraries,
     AllDamage,
@@ -344,9 +345,17 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             (read, BTreeSet::from([FactKey::Libraries]))
         }
 
+        ProposedEvent::CreateTokenCopy { original, .. } => (
+            BTreeSet::from([FactKey::TokenAllocation, FactKey::Object(original.card)]),
+            BTreeSet::from([FactKey::TokenAllocation]),
+        ),
         ProposedEvent::CreateCreatureTokens { .. }
         | ProposedEvent::CreatePredefinedTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::GivePlayerCounters { player, .. } => {
+            let keys = BTreeSet::from([FactKey::PlayerCounters(*player)]);
             (keys.clone(), keys)
         }
         ProposedEvent::PutPlusOneCounters { object, .. } => {
@@ -677,6 +686,7 @@ fn collect<'a>(
                             | ProposedEvent::CleanupEffects
                             | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
+                            | ProposedEvent::CreateTokenCopy { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::CreatePredefinedTokens { .. }
                             | ProposedEvent::FreezeLifeUntilNextTurn { .. }
@@ -773,6 +783,7 @@ impl RulesTxn {
             object,
             destination: Zone::Exile,
         };
+        let before_event = self.pre_event();
         let mut before = self.facts(&[&proposed])?;
         before.control = authority;
         let batch_id = self.state.rules.next_batch_id;
@@ -787,9 +798,11 @@ impl RulesTxn {
             BatchAuthority::Ordinary,
             None,
         )?;
-        // Only this exact BF -> exile movement cannot match any currently
-        // supported dies/ETB trigger. General movement still uses apply_group.
+        // CR 603.6c, 800.4a/c: controller reconciliation can move a watched
+        // permanent. Collect the actual exile inside the same rule transaction.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let cause = BatchCause::ControlReconciliation;
+        self.collect_triggers(&cause, &before_event, &occurrences)?;
         self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(CommittedBatch {
                 batch_id,
@@ -873,11 +886,22 @@ impl RulesTxn {
                     players.insert(*player);
                     objects.extend(looked.iter().copied());
                 }
+                ProposedEvent::CreateTokenCopy {
+                    controller,
+                    original,
+                    ..
+                } => {
+                    players.insert(*controller);
+                    objects.insert(*original);
+                }
                 ProposedEvent::CreateCreatureTokens { controller, .. }
                 | ProposedEvent::CreatePredefinedTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
                     players.insert(*controller);
+                }
+                ProposedEvent::GivePlayerCounters { player, .. } => {
+                    players.insert(*player);
                 }
                 ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
@@ -1491,6 +1515,40 @@ impl RulesTxn {
             }
         }
 
+        if events
+            .iter()
+            .any(|e| matches!(e, ProposedEvent::CreateTokenCopy { .. }))
+        {
+            let (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::Populate,
+                },
+                [
+                    ProposedEvent::CreateTokenCopy {
+                        controller, source, ..
+                    },
+                ],
+            ) = (&self.state.rules.frame, events.as_slice())
+            else {
+                return Err("copy creation needs a resolving populate choice".into());
+            };
+            let entry = self.entry(frame.stack_id)?;
+            let Some(instruction @ kernel!(Populate { .. })) = self
+                .program_for(entry)?
+                .instructions
+                .get(frame.cursor as usize)
+            else {
+                return Err("copy creation outside populate instruction".into());
+            };
+            if *controller != entry.controller
+                || *source != entry.source
+                || cause != self.instruction_cause(frame, instruction.source_block())?
+            {
+                return Err("unbound populate token event".into());
+            }
+        }
+
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
         let land = match &cause {
@@ -1508,9 +1566,13 @@ impl RulesTxn {
                 land,
             }
         } else if placing
-            || events
-                .iter()
-                .any(|e| matches!(e, ProposedEvent::PutPlusOneCounters { .. }))
+            || events.iter().any(|e| {
+                matches!(
+                    e,
+                    ProposedEvent::PutPlusOneCounters { .. }
+                        | ProposedEvent::GivePlayerCounters { .. }
+                )
+            })
         {
             self.authorize_counter_batch(&cause, &group)?;
             BatchAuthority::PlaceCounters
@@ -2343,11 +2405,34 @@ impl RulesTxn {
                 self.apply_search_shuffle_word(*player, *index, None)?
             }
 
+            ProposedEvent::GivePlayerCounters {
+                player,
+                poison,
+                energy,
+            } => {
+                if !matches!(authority, BatchAuthority::PlaceCounters) {
+                    return Err("counter placement requires complete batch authority".into());
+                }
+                let recipient = &mut self.rules_mut().players[player.0 as usize];
+                let previous_poison = recipient.poison_counters.clone();
+                let previous_energy = recipient.energy_counters.clone();
+                recipient.poison_counters.add(poison);
+                recipient.energy_counters.add(energy);
+                EventOutcome::PlayerCountersPlaced {
+                    player: *player,
+                    poison: poison.clone(),
+                    energy: energy.clone(),
+                    previous_poison,
+                    previous_energy,
+                }
+            }
             ProposedEvent::PutPlusOneCounters { object, amount } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {
                     return Err("counter placement requires complete batch authority".into());
                 }
-                if !self.is_battlefield_creature(*object) || *amount <= Quantity::zero() {
+                // The staged allocation checks which permanents this instruction
+                // permits. Proliferate can add to a formerly animated land.
+                if !self.current(*object)?.present_on_battlefield() || *amount <= Quantity::zero() {
                     return Err("invalid counter placement".into());
                 }
                 let o = self
@@ -2364,7 +2449,8 @@ impl RulesTxn {
                     current: o.plus_one_counters.clone(),
                 }
             }
-            event @ (ProposedEvent::CreateCreatureTokens { .. }
+            event @ (ProposedEvent::CreateTokenCopy { .. }
+            | ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::CreatePredefinedTokens { .. }
             | ProposedEvent::CeaseToken { .. }
             | ProposedEvent::CeaseSpellCopy { .. }) => self.apply_token_event(event)?,
@@ -2597,6 +2683,10 @@ impl RulesTxn {
                             .commanders
                             .combat_loss_candidates()
                             .contains(player),
+                        PlayerLossReason::Poison => {
+                            self.state.rules.players[player.0 as usize].poison_counters
+                                < Quantity::from(10)
+                        }
                         PlayerLossReason::FailedDraw => {
                             !self.state.rules.players[player.0 as usize].failed_draw
                         }

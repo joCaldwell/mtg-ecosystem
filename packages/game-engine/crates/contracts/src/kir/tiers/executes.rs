@@ -141,15 +141,11 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         }
         kir::Node::Optional { node, .. }
         | kir::Node::UnlessPays { node, .. }
-        | kir::Node::IfPays { node, .. }
-        | kir::Node::Delayed { node, .. } => cost_conditions(node, out),
+        | kir::Node::IfPays { node, .. } => cost_conditions(node, out),
         kir::Node::ForEach { body, .. } | kir::Node::Choose { body, .. } => {
             cost_conditions(body, out)
         }
-        kir::Node::Reflexive { first, then } => {
-            cost_conditions(first, out)?;
-            cost_conditions(then, out)
-        }
+        kir::Node::Delayed { .. } | kir::Node::Reflexive { .. } => Ok(()),
     }
 }
 
@@ -200,6 +196,36 @@ fn program(
         event,
         announced_x,
     };
+    let followups: Vec<_> = p
+        .instructions
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| {
+            matches!(
+                i,
+                Instruction::Kernel {
+                    node: kir::Node::Delayed { .. } | kir::Node::Reflexive { .. },
+                    ..
+                }
+            )
+        })
+        .collect();
+    if let [(offset, Instruction::Kernel { node, source_block })] = followups.as_slice() {
+        let body = match node {
+            kir::Node::Delayed { program, .. } | kir::Node::Reflexive { program, .. } => program,
+            _ => unreachable!(),
+        };
+        if *offset + 1 != p.instructions.len()
+            || body
+                .instructions
+                .iter()
+                .any(|i| i.source_block() != *source_block)
+        {
+            return cell("program", "resolution_trigger_final_instruction_and_label");
+        }
+    } else if !followups.is_empty() {
+        return cell("program", "multiple_resolution_triggers");
+    }
     let mut used = BTreeSet::new();
     for Instruction::Kernel { node, .. } in &p.instructions {
         used.extend(kir::check(node, &env)?.target_slots);
@@ -208,6 +234,16 @@ fn program(
         return Err("unused target occurrence".into());
     }
     Ok(())
+}
+
+pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<(), String> {
+    if p.targets
+        .iter()
+        .any(|t| t.chooser != Chooser::Controller || t.stage != EvaluationStage::Announcement)
+    {
+        return cell("target", "resolution_trigger_announcement");
+    }
+    validate_target_bindings(p)
 }
 
 fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
@@ -243,20 +279,24 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
             return Err("unbound, duplicate, or noncontiguous target occurrence".into());
         }
     }
-    if p.targets
-        .windows(2)
-        .any(|targets| targets[0].domain != targets[1].domain)
+    // CR 115.3, 601.2c: separate fight occurrences choose independently.
+    // This exception stays in the homogeneous object announcement route.
+    let fight_pair = matches!(p.targets.as_slice(), [_, _])
+        && p.instructions.iter().any(|i| {
+            matches!(
+                i.verb(),
+                Some(kir::Verb::Fight {
+                    first: kir::Ref::Target { slot: 0 },
+                    second: kir::Ref::Target { slot: 1 },
+                })
+            )
+        });
+    if !fight_pair
+        && p.targets
+            .windows(2)
+            .any(|pair| pair[0].domain != pair[1].domain || pair[0].filter != pair[1].filter)
     {
-        return Err("mixed target domains are unsupported".into());
-    }
-    // Requests expose one common candidate set, and execution uses that common
-    // predicate. Distinct per-slot filters need a different request contract;
-    // accepting them here would apply the first slot's restriction to all slots.
-    if p.targets
-        .windows(2)
-        .any(|targets| targets[0].filter != targets[1].filter)
-    {
-        return Err("mixed target filters are unsupported".into());
+        return Err("mixed target domains or filters are unsupported".into());
     }
     for t in &p.targets {
         if let Some(f) = &t.filter {

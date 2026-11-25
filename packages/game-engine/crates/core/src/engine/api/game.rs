@@ -141,6 +141,8 @@ impl RulesTxn {
                 next_effect_id: 0,
                 next_damage_transaction_id: 0,
                 pending_triggers: vec![],
+                resolution_triggers: Shared::default(),
+                resolution_trigger_clock: Default::default(),
                 next_trigger_id: 0,
                 libraries: prepared.config.initial_libraries().into(),
                 combat: vec![],
@@ -157,6 +159,8 @@ impl RulesTxn {
                 players: (0..4)
                     .map(|p| Player {
                         life_frozen_until_next_turn: false,
+                        poison_counters: Quantity::zero(),
+                        energy_counters: Quantity::zero(),
                         failed_draw: false,
                         life: prepared.config.initial_life(PlayerId(p)),
                         mana: BTreeMap::new(),

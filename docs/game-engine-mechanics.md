@@ -627,6 +627,20 @@ Creation stages the new objects together. The normal mana and activation paths
 pay the printed token costs. Restore reconstructs the template from its creating
 source and token identity, including after the token ceases to exist.
 
+### Keyword actions and counters
+
+- Investigate creates a Clue with its two-mana sacrifice-and-draw ability
+  (CR 701.16a, 111.10f).
+- Populate copies a controlled creature token's copiable values. Animation
+  can qualify the original. Restore reconstructs the copy from retained token
+  data (CR 701.36, 707.2).
+- Proliferate chooses any number of permanents and players with counters,
+  adding one per existing kind simultaneously. Supported kinds are permanent
+  +1/+1 and player poison and energy. At least ten poison counters cause
+  a loss (CR 701.34a, 704.5c).
+- Fight uses current power for simultaneous noncombat damage. Both participants
+  must be legal battlefield creatures. Self-fight deals double power (CR 701.14).
+
 ### Continuous permanent control
 
 The `GainControl` cell captures one battlefield target, the exact source, or a
@@ -799,6 +813,31 @@ incarnation, including when the source also has supported intrinsic keywords
 (CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
 counters.
 
+### Delayed and reflexive triggers
+
+The final instruction can create one trigger with the invocation’s source
+and controller (CR 603.7, 603.12).
+
+| Actual occurrence | Admitted body |
+| --- | --- |
+| Next end step begins | Draw, create fixed tokens, or return the creature card exiled by the parent under its owner’s control. |
+| Next turn’s upkeep begins | Controller draws fixed cards. |
+| Controller’s next upkeep begins | Controller draws or randomly discards a fixed count. |
+| Chosen creature leaves | Return the card the parent exiled after its own death, under its owner’s control. |
+| Optional fixed mana payment completes | Announce one target for the separate reflexive ability. |
+
+Step transitions govern timing (CR 513.2). Captures bind exact incarnations
+(CR 400.7, 603.7c). Watchers see actual departures including SBAs, replacement
+moves and concession exile (CR 603.6c, 614.6, 800.4a/c). Mana undo restores
+watchers of reversed sacrifices (CR 733.1). Phased-out sources use the
+parent’s last-known facts (CR 608.2h, 702.26b). Stabilization and APNAP
+placement precede priority (CR 117.5, 603.3b–d).
+
+Recovery checks creator, controller, capture and firing evidence. Step
+watermarks and retired receipts prevent duplicate firings. These one-shot rows
+earn `Executes` under `ResolutionTriggerV1`.
+[Pinned Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)
+
 ### Printed choices, payments and conditions
 
 Each printed "may", "if", "unless" and "up to" of a block must match its AST
@@ -852,52 +891,33 @@ above one also reject.
 
 ### Modal spells and abilities
 
-An instant or sorcery whose only block is a printed "Choose one —", "Choose
-two —", "Choose one or both —" (two modes) or "Choose one or more —" over two to
-five bullets lowers to a `ModalSpell` declaration (CR 700.2). The AST count must
-equal the printed count, and each bullet must be a certified resolution span
-equal to its AST option. Each mode lowers through the ordinary verb lowerers.
-Every mode must lower, or the card rejects under `verb:modal:<detail>`. The
-spell's base program keeps timing and is otherwise empty. Each legal set of
-distinct modes is its own program, its modes' instructions in printed order
-(CR 608.2c, 700.2d). `Definition::spell_programs` yields those programs.
+A printed "Choose one", "two", "one or both" or "one or more" over two to five
+bullets lowers to a `ModalSpell` declaration (CR 700.2): an instant or
+sorcery's only block, or a trigger's or activation's text after its header.
+Counts and bullets must match the AST and certified spans. Every mode lowers
+(an ability's as a whole ability of its block, agreeing on all but its program),
+or the card rejects under `verb:modal:<detail>`. The base program keeps timing
+only; each legal set of distinct modes is its own program in printed order (CR
+608.2c, 700.2d), yielded by `spell_programs` and `programs`.
 
-Casting enters `Frame::ChooseModes` before additional costs, X, hybrid symbols
-and targets (CR 601.2b). The caster answers one `Pick` of `Candidate::Modes`
-(`Reason::ChooseModes`), with the bit mask and printed labels. A mode whose
-target cannot be chosen is not offered, and a spell with no offerable set
-cannot be proposed (CR 700.2a). The stack entry keeps the chosen `mode_mask`,
-which is public in the permitted view. Its program is the selected one.
-Targets, provenance, tokens and resolution read it (CR 700.2c). One selection announces at most one target in a battlefield
-permanent, creature, any-damage or player domain. State validation requires an
-unbound mask only while choosing and a declared selection afterwards. These
-cards earn `Executes` only (`modal_choice_v1`).
+A spell or activation answers `Reason::ChooseModes` in `Frame::ChooseModes`
+before costs, X and targets (CR 601.2b, 602.2b), and with nothing offerable
+cannot be proposed. A trigger chooses in `Frame::TriggerTargets` and with
+nothing offerable leaves the stack (CR 603.3c). Only selections with legal
+targets are offered; an empty decision faults. The public `mode_mask` selects
+the program. A selection targets at most one battlefield, own-graveyard,
+any-damage or player object. State validation rejects a stray or unbound mask.
+These earn `Executes` (`modal_choice_v1`).
 
-A triggered or activated ability whose block is a header followed by the same
-printed declaration ("When ~ enters, choose one —", "{1}, {T}: Choose one —")
-keeps its event, cost and restriction on an empty base program in its `modal`
-declaration. Each mode lowers as a complete ability of that block, and the
-modes must agree on everything but their programs (`verb:modal:mode_dependent_ability`).
-An activation chooses in `Frame::ChooseModes` before targets and costs (CR
-602.2b); a modal activation with no offerable selection cannot be proposed. A
-trigger chooses in its `Frame::TriggerTargets` as it is put on the stack, and
-with no offerable selection it is removed from the stack (CR 603.3c, 700.2b).
-Selections may also target a controlled permanent or creature or a card in
-the controller's graveyard. A mode decision with no candidate faults. State
-validation rejects a mask naming no selection, a mask on a nonmodal
-occurrence and a bound untargeted trigger selection still being placed.
+"Up to one", "any number", repeats, entwine, escalate, spree, costed modes
+(CR 700.2h), upgrades, other text in the block, two-target selections and modes
+that add mana (CR 605.1a) reject.
 
-"Choose up to one" and "any number", repeated modes, entwine, escalate,
-spree, a mode with its own cost (CR 700.2h) and a "Choose one. If ..."
-upgrade reject. So does a modal block beside other text, or a selection with
-two targets.
-
-"[One] for each [filter]" on a draw or life step with a unit amount lowers to
-`Amount::Count` over the filter, counted once as the step is performed (CR
-608.2h). A counted draw is the controller's (`DrawControllerPerObject`) over a
-battlefield or graveyard set, which drawing cannot change (CR 121.2). Another
-per-object amount, a step-result or player-relative filter, and `forEach` on
-other verbs reject.
+"[One] for each [filter]" on a draw or life step is `Amount::Count`, counted
+once (CR 608.2h), over objects you or opponents control, graveyard cards, or
+(life only) your hand. A counted draw (`DrawControllerPerObject`) reads a
+battlefield or graveyard set, which drawing cannot change. Other amounts,
+step-result filters and another player's referents reject.
 
 ## Derived capability tiers
 

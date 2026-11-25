@@ -32,6 +32,26 @@ pub(super) fn declared(effects: &[Value]) -> bool {
     })
 }
 
+/// CR 605.1a: an untargeted activated ability that could add mana is a mana
+/// ability, which never uses the stack. A modal activation with a mode that
+/// adds mana is outside the modal and mana tables alike.
+pub(super) fn reject_mana_modes(effects: &[Value]) -> Result<(), Failure> {
+    fn adds_mana(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => {
+                map.get("effect").and_then(Value::as_str) == Some("add-mana")
+                    || map.values().any(adds_mana)
+            }
+            Value::Array(items) => items.iter().any(adds_mana),
+            _ => false,
+        }
+    }
+    if effects.iter().any(adds_mana) {
+        return Err(unsupported_modal("mana_ability"));
+    }
+    Ok(())
+}
+
 /// Where the printed "choose" phrase starts: a spell's whole first line, a
 /// triggered ability's first line after its trigger condition (", choose")
 /// or an activated ability's after its cost (": Choose").

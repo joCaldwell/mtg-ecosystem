@@ -40,6 +40,7 @@ pub enum CreatureLossReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayerLossReason {
+    Poison,
     CommanderDamage,
     Life,
     FailedDraw,
@@ -788,6 +789,8 @@ impl RulesTxn {
                 let x = &self.state.rules.players[p.0 as usize];
                 if x.life <= Quantity::zero() {
                     Some((p, PlayerLossReason::Life))
+                } else if x.poison_counters >= Quantity::from(10) {
+                    Some((p, PlayerLossReason::Poison))
                 } else if x.failed_draw {
                     Some((p, PlayerLossReason::FailedDraw))
                 } else if self

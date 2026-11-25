@@ -27,3 +27,29 @@ pub(super) fn lower(
         cx.source_block,
     ))
 }
+
+/// CR 107.14, 122.1f, 704.5c: a fixed award to you or to each opponent.
+pub(super) fn player(
+    cx: &mut StepCx<'_>,
+    who: &PlayerSelector,
+    counter: &SourceCounter,
+    count: &serde_json::Value,
+) -> Result<Instruction, Failure> {
+    let player = match (who.player.as_str(), &who.selection_id, &who.of) {
+        ("you", None, None) => PlayerExpr::you(cx.context),
+        ("each-opponent", None, None) => PlayerExpr::EachOpponent,
+        _ => return Err(step("get-counters", "player")),
+    };
+    let counter = match counter.r#type.as_str() {
+        "poison" => kir::PlayerCounterKind::Poison,
+        "energy" => kir::PlayerCounterKind::Energy,
+        _ => return Err(step("get-counters", "counter_kind")),
+    };
+    Ok(cx.act(Verb::GiveCounters {
+        player,
+        counter,
+        amount: Amount::Fixed {
+            value: fixed_positive_amount(&typed(count, "amount")?)?,
+        },
+    }))
+}

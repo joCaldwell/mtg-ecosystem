@@ -57,6 +57,12 @@ impl RulesTxn {
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
+        if let Node::Delayed { event, .. } = &node {
+            return self.execute_delayed_trigger(frame, event, source_block);
+        }
+        if matches!(node, Node::Do(Verb::ReturnCapturedExile {})) {
+            return self.execute_captured_return(frame, source_block);
+        }
         // CR 119.3: the standalone drain pair uses the actual loss total.
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;
@@ -204,6 +210,18 @@ impl RulesTxn {
             return self.kernel_library(frame, verb, source_block);
         }
         match verb {
+            Verb::GiveCounters {
+                player,
+                counter,
+                amount,
+            } => self.give_counters(frame, &player, counter, &amount, source_block),
+            Verb::Populate { .. } => self.begin_keyword_choice(frame, ResolutionChoice::Populate),
+            Verb::Proliferate { .. } => {
+                self.begin_keyword_choice(frame, ResolutionChoice::Proliferate)
+            }
+            Verb::Fight { first, second } => {
+                self.execute_fight(frame, &first, &second, source_block)
+            }
             Verb::Attach {
                 what: Ref::Source,
                 to: Ref::Target { slot: 0 },

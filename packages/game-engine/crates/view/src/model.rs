@@ -214,6 +214,8 @@ pub enum Reason<S: Space> {
     /// CR 303.4f: the object an Aura put onto the battlefield without being
     /// cast enters attached to. The slot's subject is the Aura.
     EntryAttachment,
+    Populate,
+    Proliferate,
 }
 
 impl<S: Space> Reason<S> {
@@ -252,6 +254,8 @@ impl<S: Space> Reason<S> {
             Self::OrderLibraryBottom => 29,
             Self::EntryAttachment => 30,
             Self::ChooseModes => 31,
+            Self::Populate => 33,
+            Self::Proliferate => 34,
             Self::ChosenObjectCost { .. } => 32,
         }
     }

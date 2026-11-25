@@ -45,6 +45,12 @@ impl RulesTxn {
                 .ok_or("missing triggered ability")?
                 .modal
                 .as_ref(),
+            // A follow-up trigger's program comes from its creator and is
+            // never modal.
+            StackKind::Triggered {
+                ability: EffectiveTriggerAbility::Followup { .. },
+                ..
+            } => None,
         })
     }
 

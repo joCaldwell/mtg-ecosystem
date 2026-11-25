@@ -263,3 +263,34 @@ fn modal_ability_executable_shape_is_closed() {
         FunctioningZone::Battlefield,
     ));
 }
+
+/// CR 605.1a: a modal activation with a mode that adds mana would be a mana
+/// ability, which never uses the stack; it rejects by name instead of
+/// lowering as a modal stack activation. No frozen R4 record has one, and a
+/// changed record fails the archive's span coverage first, so the guard the
+/// activated block runs on its effects is checked on Goblin Cratermaker's
+/// frozen effects with one mode replaced.
+#[test]
+fn a_modal_activation_that_adds_mana_rejects_by_name() {
+    let row: serde_json::Value = serde_json::from_str(GOBLIN_CRATERMAKER).unwrap();
+    let ability = row["faces"][0]["result"]["abilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["kind"] == "activated")
+        .unwrap()
+        .clone();
+    let effects = ability["effects"].as_array().unwrap().clone();
+    assert!(modal::declared(&effects));
+    modal::reject_mana_modes(&effects).unwrap();
+    let mut mana = effects;
+    mana[0]["steps"][0]["options"][1]["effects"] = json!([{"steps": [{
+        "effect": "add-mana",
+        "who": {"player": "you"},
+        "mana": {"mana": "fixed", "symbols": ["C", "C"]}
+    }]}]);
+    assert_eq!(
+        modal::reject_mana_modes(&mana).unwrap_err().reason,
+        "verb:modal:mana_ability"
+    );
+}

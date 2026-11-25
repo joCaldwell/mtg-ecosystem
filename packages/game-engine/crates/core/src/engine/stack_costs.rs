@@ -671,7 +671,7 @@ impl RulesTxn {
             || (announcing_x && !x_spell)
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
-                != matches!(&entry.kind,StackKind::Triggered {ability,..} if triggers::binds_death_controller(&*self.effective_trigger(entry.source, *ability)?))
+                != matches!(&entry.kind,StackKind::Triggered {ability: ability @ EffectiveTriggerAbility::Intrinsic { .. },..} if triggers::binds_death_controller(&*self.effective_trigger(entry.source, *ability)?))
         {
             return Err("snapshot X/death LKI binding invariant".into());
         }

@@ -154,7 +154,8 @@ Every flat effect is a kernel verb; the audited cells are:
 | `damage` | From the source: one announced target (fixed or X for any target or creature), the controller, a mana ability's activator, or creature sets plus optionally each player (fixed, X, creature count or other casts' mana value) |
 | `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile), one card from your graveyard (hand), or one creature card from your graveyard (battlefield) |
 | `mill`, `discard`, `sacrifice` | Controller or one announced player (mill; X for the player); controller, damaged player, announced player (random or X), each player or each opponent (discard); damaged player, target opponent, each player or each opponent sacrifices one creature |
-| `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source or one announced creature |
+| `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source, one announced creature, or a matching battlefield creature set |
+| `give_counters`, `proliferate`, `populate`, `fight` | Fixed poison or energy for the controller or each opponent; the controller's current public choice of counter-bearing recipients or a controlled creature token; two announced creatures or a source-relative fight |
 | `modify_until` | End-of-turn fixed P/T change or keyword grant on the audited source, target and set operands; signed announced-X P/T change on one announced creature or activated source |
 | `gain_control`, `set_characteristics` | The [captured battlefield recipients, durations and layers](game-engine-mechanics.md#continuous-permanent-control) |
 | `search`, `shuffle` | The controller's own library, or that of a filtered target's captured controller: up to a fixed number of cards with printed type, supertype, subtype, color or fixed stat qualities, optionally revealed, onto the searcher's battlefield (optionally tapped) or into the owner's hand or graveyard; the shuffle of that library, or a singleton to the top after shuffling the remainder |
@@ -201,8 +202,10 @@ draws, including each-player and announced-X draws, require a top-level draw
 instruction for their saved attempts and outcome. Token creation and
 temporary effects need persistent leaf provenance, and set damage retains
 facts tied to the top-level cursor. The specialized drain and optional target
-destroy retain their standalone routes. `Delayed` and `Reflexive` remain
-unaudited. Control nodes derive capabilities from their leaves, including
+destroy retain their standalone routes. `Delayed` and `Reflexive` carry
+separately checked, single-instruction programs. The parent instruction can
+register a one-shot [resolution-created trigger](game-engine-mechanics.md#delayed-and-reflexive-triggers)
+at the end of its program. Control nodes derive capabilities from their leaves, including
 target- and program-sensitive requirements. Continuation-based nodes also
 require `KernelControlV1`, which is outside the reviewed hosting and search
 sets. Composition and profile admission check each complete definition.

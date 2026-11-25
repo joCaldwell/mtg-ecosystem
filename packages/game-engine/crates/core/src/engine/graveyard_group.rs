@@ -365,6 +365,11 @@ impl GraveyardGroup {
                     GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature) || matches!(i, kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. })),
                     GroupResult::ActualEffect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldPermanent),
                     GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..})),
+                    GroupResult::Discard { player } if matches!(i, kernel!(Discard {
+                        player: you!(), amount: fixed!(_), random: true
+                    })) => *player == entry.controller && matches!(entry.kind, StackKind::Triggered {
+                        ability: EffectiveTriggerAbility::Followup { .. }, ..
+                    }),
                     GroupResult::Discard {..} => matches!(i, kernel!(Discard { player: you!() | event_player!(), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), random: true, .. })),
                     GroupResult::Sacrifice {..} => matches!(i, kernel!(Sacrifice { player: event_player!(), .. }) | kernel!(Sacrifice { player: target_player!(_), .. })),
                 };

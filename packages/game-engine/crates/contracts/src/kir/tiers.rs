@@ -21,6 +21,7 @@ use super::*;
 use crate::{ActivationCost, Capability, Definition, Instruction, SpellProgram, TriggerCondition};
 
 mod executes;
+pub(super) use executes::validate_resolution_targets;
 
 /// CR 113.3: the `Executes` tier of a definition: its card shell and every
 /// non-kernel surface has an executor ([`executes`]) and every kernel node
@@ -170,6 +171,10 @@ pub enum Cell {
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
+    Fight,
+    Populate,
+    PlayerCounters,
+    Proliferate,
     CreatureTokens,
     MultiTypeCreatureTokens,
     TokensForTargetController,
@@ -205,6 +210,7 @@ pub enum Cell {
     /// CR 608.2c-d: a control node (sequence with a decision or result,
     /// condition, choice, repetition, payment) run by the continuation.
     Control,
+    ResolutionTrigger,
     // CR 106, 605: mana abilities beyond the tap-only fixed, any-color and
     // commander-color surface.
     /// CR 106.1a: N mana of one color chosen from a printed list.
@@ -327,6 +333,10 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeEachPlayer
         | C::SacrificeEachOpponent
         | C::PredefinedTokens
+        | C::Fight
+        | C::Populate
+        | C::PlayerCounters
+        | C::Proliferate
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::PlusOneCountersSet
@@ -346,6 +356,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ReorderLibraryTop
         | C::ScryController
         | C::SurveilController
+        | C::ResolutionTrigger
         | C::Control
         | C::ManaChoose
         | C::ManaLandsCouldProduce
@@ -503,6 +514,10 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::CreatureOrPlaneswalkerTargetV1
         | C::IndestructibleV1
         | C::ActivatedSourceKeywordGrantV1
+        | C::FightV1
+        | C::PopulateV1
+        | C::PlayerCountersV1
+        | C::ProliferateV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1
         | C::PrivateLibraryReorderV1
@@ -520,6 +535,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::GroupHandDiscardV1
         // CR 603.4: opened with its executor and rules tests; no review yet.
         | C::InterveningIfV1
+        | C::ResolutionTriggerV1
         | C::EventTriggerV1 => Tiers::EXECUTES,
     }
 }
