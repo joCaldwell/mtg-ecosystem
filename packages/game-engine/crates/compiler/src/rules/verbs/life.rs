@@ -11,11 +11,24 @@ pub(super) fn lower(
     amount: &serde_json::Value,
     for_each: Option<&serde_json::Value>,
 ) -> Result<Instruction, Failure> {
-    if for_each.is_some() {
-        return Err(unsupported("forEach", "unsupported event result"));
-    }
     uncounted(cx)?;
     let amount: ast::Amount = typed(amount, "amount")?;
+    // CR 608.2h: "N life for each [filter]" with a unit N is that count.
+    if let Some(for_each) = for_each {
+        let player = lower_player(
+            cx.program,
+            cx.slots,
+            who,
+            cx.context,
+            cx.player_binding.event_role(),
+        )?;
+        let amount = lower_for_each(for_each, &amount, cx.context)?;
+        return Ok(cx.act(if gain {
+            Verb::GainLife { player, amount }
+        } else {
+            Verb::LoseLife { player, amount }
+        }));
+    }
     let (player, amount) = match (gain, typed::<ast::PlayerRef>(who, "player")?) {
         (true, ast::PlayerRef::Controller(controller)) => {
             let slot = preceding_target(cx.program, cx.source_block, &controller.of)?;

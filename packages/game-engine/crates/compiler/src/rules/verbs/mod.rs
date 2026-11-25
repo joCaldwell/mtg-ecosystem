@@ -168,13 +168,18 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             amount,
             for_each,
         } => life::lower(cx, true, who, amount, for_each.as_ref()),
-        Step::LoseLife { who, amount } => life::lower(cx, false, who, amount, None),
+        Step::LoseLife {
+            who,
+            amount,
+            for_each,
+        } => life::lower(cx, false, who, amount, for_each.as_ref()),
         Step::Discard(discard) => discard::lower(cx, discard),
         Step::Draw {
             who,
             amount,
             optional,
-        } => draw::lower(cx, who, amount, *optional),
+            for_each,
+        } => draw::lower(cx, who, amount, *optional, for_each.as_ref()),
         Step::ReturnToHand { what, to, optional } => return_to_hand::lower(cx, what, to, *optional),
         Step::MoveZone {
             what,

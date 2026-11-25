@@ -850,7 +850,7 @@ Everything else rejects under `compose.control:<detail>`:
 Modal steps outside the modal spells below (W14) and "up to N" targets for N
 above one also reject.
 
-### Modal spells
+### Modal spells and abilities
 
 An instant or sorcery whose only block is a printed "Choose one —", "Choose
 two —", "Choose one or both —" (two modes) or "Choose one or more —" over two to
@@ -873,9 +873,31 @@ permanent, creature, any-damage or player domain. State validation requires an
 unbound mask only while choosing and a declared selection afterwards. These
 cards earn `Executes` only (`modal_choice_v1`).
 
-Modal abilities, repeated modes, entwine, escalate, spree, a mode with its own
-cost (CR 700.2h) and a "Choose one. If ..." upgrade reject. So does a modal
-block beside other spell text, or a selection with two targets.
+A triggered or activated ability whose block is a header followed by the same
+printed declaration ("When ~ enters, choose one —", "{1}, {T}: Choose one —")
+keeps its event, cost and restriction on an empty base program in its `modal`
+declaration. Each mode lowers as a complete ability of that block, and the
+modes must agree on everything but their programs (`verb:modal:mode_dependent_ability`).
+An activation chooses in `Frame::ChooseModes` before targets and costs (CR
+602.2b); a modal activation with no offerable selection cannot be proposed. A
+trigger chooses in its `Frame::TriggerTargets` as it is put on the stack, and
+with no offerable selection it is removed from the stack (CR 603.3c, 700.2b).
+Selections may also target a controlled permanent or creature or a card in
+the controller's graveyard. A mode decision with no candidate faults. State
+validation rejects a mask naming no selection, a mask on a nonmodal
+occurrence and a bound untargeted trigger selection still being placed.
+
+"Choose up to one" and "any number", repeated modes, entwine, escalate,
+spree, a mode with its own cost (CR 700.2h) and a "Choose one. If ..."
+upgrade reject. So does a modal block beside other text, or a selection with
+two targets.
+
+"[One] for each [filter]" on a draw or life step with a unit amount lowers to
+`Amount::Count` over the filter, counted once as the step is performed (CR
+608.2h). A counted draw is the controller's (`DrawControllerPerObject`) over a
+battlefield or graveyard set, which drawing cannot change (CR 121.2). Another
+per-object amount, a step-result or player-relative filter, and `forEach` on
+other verbs reject.
 
 ## Derived capability tiers
 

@@ -1382,6 +1382,23 @@ pub(crate) fn lower_count(count: &ast::AmountCount, context: Context) -> Result<
     })
 }
 
+/// CR 608.2h: "[one] for each [filter]" is the number of objects the
+/// filter matches as the step is performed, counted once. Only a unit
+/// quantity per object lowers; a filter term outside the count tables, or
+/// an object reference ("for each creature destroyed this way"), rejects.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(crate) fn lower_for_each(
+    for_each: &serde_json::Value,
+    per_object: &ast::Amount,
+    context: Context,
+) -> Result<Amount, Failure> {
+    if !matches!(per_object, ast::Amount::Fixed(n) if n.value == 1) {
+        return Err(operand("forEach", "per_object_amount"));
+    }
+    let of: ast::ObjectFilter = typed(for_each, "forEach")?;
+    lower_count(&ast::AmountCount { of: Box::new(of) }, context)
+}
+
 /// CR 107.3, 608.2h: the sentence binding "where X is the number of
 /// creatures on the battlefield", the one X definition a step reads.
 pub(crate) fn counts_creatures(bindings: &[serde_json::Value]) -> Result<bool, Failure> {

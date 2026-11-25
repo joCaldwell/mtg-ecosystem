@@ -463,7 +463,8 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         if a.functioning_zone != FunctioningZone::Battlefield
             || matches!(
                 a.cost,
-                ActivationCost::TapPayLifeSacrificeSource { .. } | ActivationCost::DiscardSource { .. }
+                ActivationCost::TapPayLifeSacrificeSource { .. }
+                    | ActivationCost::DiscardSource { .. }
             )
         {
             return cell("modal", "activation_source_or_cost");
@@ -906,7 +907,11 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         if let Some(modal) = &d.modal_spell {
-            modal_shape(d.spell.as_ref().ok_or("missing spell program")?, modal, false)?;
+            modal_shape(
+                d.spell.as_ref().ok_or("missing spell program")?,
+                modal,
+                false,
+            )?;
         }
         for variant in d.spell_programs() {
             program(variant, Context::Spell, None, d.x_mana_cost)?;

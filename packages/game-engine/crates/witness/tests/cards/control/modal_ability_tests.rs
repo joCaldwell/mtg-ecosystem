@@ -46,10 +46,7 @@ fn board_with(definitions: Vec<Definition>, step: TurnStep) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for definition in definitions {
         assert!(
-            definition
-                .activated
-                .iter()
-                .any(|a| a.modal.is_some())
+            definition.activated.iter().any(|a| a.modal.is_some())
                 || definition.triggered.iter().any(|a| a.modal.is_some()),
             "{}",
             definition.name
@@ -209,8 +206,12 @@ fn trufflesnout_chooses_its_mode_as_the_trigger_is_placed() {
 #[test]
 fn coliseum_behemoth_offers_only_modes_with_legal_targets() {
     let game = |ring: bool| {
-        let mut b = board(&[COLISEUM_BEHEMOTH], TurnStep::PrecombatMain)
-            .permanent_or_hand("Coliseum Behemoth", 0, 0, true);
+        let mut b = board(&[COLISEUM_BEHEMOTH], TurnStep::PrecombatMain).permanent_or_hand(
+            "Coliseum Behemoth",
+            0,
+            0,
+            true,
+        );
         for _ in 0..7 {
             b = b.permanent_or_hand("Forest", 0, 0, false);
         }

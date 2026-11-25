@@ -175,10 +175,7 @@ fn modal_triggers_lower_each_selection_beside_their_event() {
         ["Destroy target artifact or enchantment.", "Draw a card."]
     );
     let targets = |mask| modal.selections[&mask].targets.len();
-    assert_eq!(
-        modal.selections.keys().copied().collect::<Vec<_>>(),
-        [1, 2]
-    );
+    assert_eq!(modal.selections.keys().copied().collect::<Vec<_>>(), [1, 2]);
     assert_eq!([targets(1), targets(2)], [1, 0]);
     assert!(behemoth.requirements().contains(&Capability::ModalChoiceV1));
     assert_eq!(
@@ -227,12 +224,7 @@ fn modal_ability_executable_shape_is_closed() {
     });
     // The selections are exactly the legal counts.
     rejects(&|d| {
-        d.triggered[0]
-            .modal
-            .as_mut()
-            .unwrap()
-            .selections
-            .remove(&2);
+        d.triggered[0].modal.as_mut().unwrap().selections.remove(&2);
     });
     // A selection may not leave the declaring block.
     rejects(&|d| d.triggered[0].modal.as_mut().unwrap().source_block += 1);

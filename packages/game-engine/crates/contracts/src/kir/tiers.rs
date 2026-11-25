@@ -114,6 +114,8 @@ pub enum Cell {
     // CR 121: draw.
     DrawController,
     DrawControllerCounted,
+    /// CR 121.2, 608.2h: "draw a card for each [filter]", counted once.
+    DrawControllerPerObject,
     DrawAnnouncedX,
     DrawEachPlayer,
     DrawEventPlayer,
@@ -289,6 +291,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeCounted
         | C::Drain
         | C::DrawControllerCounted
+        | C::DrawControllerPerObject
         | C::DrawAnnouncedX
         | C::DrawEachPlayer
         | C::DrawEventPlayer

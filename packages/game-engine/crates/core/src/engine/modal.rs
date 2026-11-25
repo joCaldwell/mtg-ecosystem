@@ -177,7 +177,12 @@ impl RulesTxn {
     pub(super) fn validate_modes(&self, entry: &StackInstance) -> Result<(), String> {
         let modal = self.modal_declaration(entry)?;
         let frame = self.underlying_mana_frame(&self.state.rules.frame)?;
-        let top = self.state.rules.stack.last().is_some_and(|t| t.id == entry.id);
+        let top = self
+            .state
+            .rules
+            .stack
+            .last()
+            .is_some_and(|t| t.id == entry.id);
         let choosing = top
             && match frame {
                 Frame::ChooseModes { cast } => cast.stack_id == entry.id,
@@ -190,7 +195,8 @@ impl RulesTxn {
         let announcing = matches!(frame, Frame::ChooseModes { cast } if cast.stack_id == entry.id);
         // A placed trigger's bound selection is still in its placement frame
         // only while that selection's target is chosen.
-        let placing = matches!(frame, Frame::TriggerTargets { stack_id, .. } if *stack_id == entry.id);
+        let placing =
+            matches!(frame, Frame::TriggerTargets { stack_id, .. } if *stack_id == entry.id);
         if placing
             && let (Some(modal), Some(mask)) = (modal, entry.mode_mask)
             && modal
@@ -203,9 +209,7 @@ impl RulesTxn {
         match (modal, entry.mode_mask) {
             (None, None) if !announcing => Ok(()),
             (Some(_), None) if choosing || stopped => Ok(()),
-            (Some(modal), Some(mask))
-                if modal.selections.contains_key(&mask) && !announcing =>
-            {
+            (Some(modal), Some(mask)) if modal.selections.contains_key(&mask) && !announcing => {
                 Ok(())
             }
             _ => Err("modal announcement binding invariant".into()),

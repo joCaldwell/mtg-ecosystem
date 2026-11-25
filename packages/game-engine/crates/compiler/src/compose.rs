@@ -888,7 +888,9 @@ fn compose_face(
                             text,
                             modal::Header::Activated,
                             &site,
-                            |sentences| activation(&card, &costs, parts(sentences)?, timing, block, text),
+                            |sentences| {
+                                activation(&card, &costs, parts(sentences)?, timing, block, text)
+                            },
                             |a: &mut ActivatedAbility| &mut a.program,
                         )?;
                         if spell_kind {
@@ -901,7 +903,11 @@ fn compose_face(
                         ability.modal = Some(modal);
                         labels.activated.push(label);
                         definition.activated.push(ability);
-                        return printed::choices_printed(text, &printed[block], &resolution.segments(block)?);
+                        return printed::choices_printed(
+                            text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
                     }
                     let peeled = control::peel(&effects)?;
                     let core = parts(&peeled.sentences)?;
@@ -1034,13 +1040,19 @@ fn compose_face(
                             text,
                             modal::Header::Triggered,
                             &site,
-                            |sentences| trigger(&card, &event, parts(sentences)?, condition.as_ref(), block),
+                            |sentences| {
+                                trigger(&card, &event, parts(sentences)?, condition.as_ref(), block)
+                            },
                             |a: &mut TriggeredAbility| &mut a.program,
                         )?;
                         ability.modal = Some(modal);
                         labels.triggered.push(label);
                         definition.triggered.push(ability);
-                        return printed::choices_printed(text, &printed[block], &resolution.segments(block)?);
+                        return printed::choices_printed(
+                            text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
                     }
                     let peeled = control::peel(&effects)?;
                     let lower = |sentences: &[serde_json::Value]| {

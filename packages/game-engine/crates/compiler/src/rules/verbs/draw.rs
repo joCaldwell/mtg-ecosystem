@@ -8,10 +8,35 @@ pub(super) fn lower(
     who: &PlayerSelector,
     amount: &DrawAmount,
     optional: bool,
+    for_each: Option<&serde_json::Value>,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     if optional {
         return Err(step("draw", "optional"));
+    }
+    // CR 121.2, 608.2h: "draw a card for each [filter]" is one counted
+    // sequence of single draws by the controller, counted once.
+    if let Some(for_each) = for_each {
+        let player = lower_player_ref(
+            cx.program,
+            cx.slots,
+            typed::<ast::PlayerRef>(who, "player")?,
+            cx.context,
+            cx.player_binding.event_role(),
+        )?;
+        let DrawAmount::Fixed { value } = amount else {
+            return Err(operand("forEach", "per_object_amount"));
+        };
+        if !player.is_you() {
+            return Err(step("draw", "for_each_recipient"));
+        }
+        let per_object = ast::Amount::Fixed(Box::new(ast::AmountFixed {
+            value: i64::from(*value),
+        }));
+        return Ok(cx.act(Verb::Draw {
+            player,
+            amount: lower_for_each(for_each, &per_object, cx.context)?,
+        }));
     }
     let player = match typed::<ast::PlayerRef>(who, "player")? {
         ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
