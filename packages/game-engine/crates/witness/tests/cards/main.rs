@@ -1,5 +1,6 @@
 mod attachments;
 mod control;
+mod costs;
 mod damage_triggers;
 mod keywords;
 mod library;

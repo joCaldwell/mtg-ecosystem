@@ -48,7 +48,9 @@ export type ResolvedRef =
   /** CR 603.2: an object of the triggering event; `role` is the trigger's AST discriminant. */
   | { ref: "event-object"; role: string }
   /** CR 603.2: a player of the triggering event: the kernel role when the
-   * kernel names that trigger's player, otherwise the trigger's AST discriminant. */
+   * kernel names that trigger's player, otherwise the trigger's AST
+   * discriminant. CR 508.1: `declaring-player` is the player whose attack or
+   * block declaration a printed declaration cost applies to. */
   | { ref: "event-player"; role: EventPlayerRole | string }
   /** CR 614.12: the permanent entering the battlefield, distinct from the source. */
   | { ref: "entering-object" }
@@ -58,6 +60,11 @@ export type ResolvedRef =
   | { ref: "bound-var"; id: string }
   /** CR 607.2a: the cards exiled by a linked ability pair. */
   | { ref: "linked-pool"; id: string }
+  /** CR 607.1–607.2d, 601.2c, 601.2h: a result established by another
+   * ability block of the same face (an as-enters choice, a paid additional
+   * cost's object, an earlier paragraph of the same spell). `block` is the
+   * face-relative index of the producing block; `step` is relative to it. */
+  | { ref: "linked-result"; block: number; step: string; role: StepResultRole }
   /** CR 107.3a, 107.3m: the value announced for X. */
   | { ref: "announced-x" };
 
@@ -144,6 +151,9 @@ function collectSteps(value: unknown, path: string, out: { path: string; effect:
   }
 }
 
+/** The face a block belongs to: its sibling blocks' kinds, for links. */
+interface FaceBlocks { sourceFaceIndex: number; kinds: string[] }
+
 export function resolveCard(input: CardBindingInput, analysis: CardBindingAnalysis): CardResolution {
   const prefix = `card:${input.identity}`;
   const local = (id: string) => id.startsWith(prefix) ? id.slice(prefix.length) : id;
@@ -152,8 +162,9 @@ export function resolveCard(input: CardBindingInput, analysis: CardBindingAnalys
   const faces: FaceResolution[] = input.faces.map(face => {
     const result = face.result;
     if (!result?.ok) { cardResiduals.add("face:unparsed"); return { sourceFaceIndex: face.sourceFaceIndex, blocks: null }; }
+    const siblings: FaceBlocks = { sourceFaceIndex: face.sourceFaceIndex, kinds: result.abilities.map(ability => ability.kind) };
     const blocks = result.abilities.map((ability, index) =>
-      resolveBlock(`/faces/${face.sourceFaceIndex}/abilities/${index}`, ability, result.lines[index], nodes, analysis, local));
+      resolveBlock(`/faces/${face.sourceFaceIndex}/abilities/${index}`, ability, result.lines[index], nodes, analysis, local, siblings, index));
     return { sourceFaceIndex: face.sourceFaceIndex, blocks };
   });
   const roots = faces.flatMap(face => (face.blocks ?? []).map((_, index) => `/faces/${face.sourceFaceIndex}/abilities/${index}`));
@@ -168,7 +179,7 @@ export function resolveCard(input: CardBindingInput, analysis: CardBindingAnalys
 }
 
 function resolveBlock(root: string, ability: unknown, line: ParsedLine | undefined, nodes: Map<string, BindingNode>,
-  analysis: CardBindingAnalysis, local: (id: string) => string): BlockResolution {
+  analysis: CardBindingAnalysis, local: (id: string) => string, face: FaceBlocks, blockIndex: number): BlockResolution {
   const inBlock = (path: string) => path === root || path.startsWith(`${root}/`);
   const rel = (path: string) => path.slice(root.length);
   const residuals = new Set<string>();
@@ -206,12 +217,68 @@ function resolveBlock(root: string, ability: unknown, line: ParsedLine | undefin
 
   type Resolved = { ref: ResolvedRef; scope?: string } | { derived: { relation: PlayerRelation; of: ResolvedRef }; scope?: string }
     | { evaluated: "selection" } | { unresolved: string };
+  // A reference printed inside an ability this block grants, creates or
+  // copies (a quoted ability, a delayed trigger): not printed on the face
+  // itself, so it never links to another block (CR 607.2d, 607.5a, 113.10).
+  const nested = (at: string): boolean => analysis.nodes.some(node => node.node === "ability" &&
+    node.path !== root && inBlock(node.path) && (at === node.path || at.startsWith(`${node.path}/`)));
+  /** CR 607.1–607.2d, 601.2c, 601.2h, 107.3a, 601.2: a node another block of
+   * this face established. Only the links one face fixes exactly are named;
+   * every other cross-block reference stays a residual. */
+  const linked = (node: BindingNode, name: string, at: string): Resolved => {
+    const unresolved = { unresolved: `cross-block:${name}` };
+    const match = /^\/faces\/(\d+)\/abilities\/(\d+)(?=\/|$)/.exec(node.path);
+    if (!match || Number(match[1]) !== face.sourceFaceIndex || nested(at)) return unresolved;
+    const block = Number(match[2]);
+    const producer = `/faces/${match[1]}/abilities/${block}`;
+    const ownScope = (scope: string | undefined) => scope !== undefined && local(scope) === `${producer}#ability`;
+    const relative = (path: string) => path.slice(producer.length);
+    const from = face.kinds[block], to = face.kinds[blockIndex];
+    // CR 601.2c, 608.2c: the paragraphs of one spell are one spell ability.
+    const sameSpell = from === "spell" && to === "spell";
+    // CR 601.2h: the spell's own additional cost, paid as it is cast; one
+    // such block, so the paid object is not ambiguous.
+    const paidCost = from === "additional-cost" && to === "spell" && face.kinds.filter(kind => kind === "additional-cost").length === 1;
+    const onFace = (path: string) => path.startsWith(`/faces/${face.sourceFaceIndex}/`);
+    switch (node.node) {
+      case "value-choice": {
+        // CR 607.2d, 614.12a: a choice stored for the permanent, made by the
+        // one block of this face that makes a choice of its category.
+        const step = owningStep(relative(node.path));
+        const producers = [...nodes.values()].filter(other => other.node === "value-choice" && other.category === node.category && onFace(other.path));
+        return step && node.lifetime.kind === "source-incarnation" && ownScope(node.scope) && producers.length === 1
+          ? { ref: { ref: "linked-result", block, step, role: "choice" } } : unresolved;
+      }
+      case "selection":
+        return ownScope(node.scope) && (sameSpell || paidCost)
+          ? { ref: { ref: "linked-result", block, step: relative(node.path), role: "selection" } } : unresolved;
+      case "event-result": {
+        const event = nodes.get(local(node.event));
+        const step = owningStep(relative(node.path));
+        return sameSpell && step && event?.node === "event" && ownScope(event.scope) && !event.operation.startsWith("trigger:")
+          && ["objects", "player", "quantity"].includes(node.result)
+          ? { ref: { ref: "linked-result", block, step, role: node.result as StepResultRole } } : unresolved;
+      }
+      case "announced-number":
+        // CR 107.3a, 601.2b: X is announced once as the spell is cast; its
+        // additional cost and its paragraphs use that one value.
+        return node.announcement === "cast" && ownScope(node.scope) && from === "spell" && (to === "additional-cost" || to === "spell")
+          ? { ref: { ref: "announced-x" } } : unresolved;
+      case "runtime-player":
+        // CR 601.2, 601.2h: the payer of a cost this card's casting
+        // carries (kicker, an additional cost) is the player who cast it.
+        return node.role === "prospective-caster" && ownScope(node.scope) && (from === "keywords" || from === "additional-cost")
+          ? { ref: { ref: "controller", role: "prospective-caster" } } : unresolved;
+      default:
+        return unresolved;
+    }
+  };
   const resolve = (id: string, at: string, depth = 0): Resolved => {
     const node = nodes.get(id);
     if (!node) return { unresolved: "missing-node" };
     const name = `${node.node}${"role" in node && typeof node.role === "string" ? `:${node.role}` : ""}`;
     if (node.node === "source") return { ref: { ref: "source" } };
-    if (!inBlock(node.path)) return { unresolved: `cross-block:${name}` };
+    if (!inBlock(node.path)) return linked(node, name, at);
     const scope = scopeOf("scope" in node ? node.scope as string : undefined);
     if (scope?.startsWith("!")) return { unresolved: `foreign-scope:${name}` };
     const scoped = <T extends object>(value: T) => scope === undefined ? value : { ...value, scope };
@@ -222,6 +289,9 @@ function resolveBlock(root: string, ability: unknown, line: ParsedLine | undefin
         // CR 702.21a: ward's payer is the controller of the spell or ability
         // whose targeting triggered it.
         if (node.role === "targeting-player") return scoped({ ref: { ref: "event-player", role: "becomes-target" } as ResolvedRef });
+        // CR 508.1: a declaration cost's payer is the player declaring the
+        // attack or block the cost applies to.
+        if (node.role === "declaring-player") return scoped({ ref: { ref: "event-player", role: "declaring-player" } as ResolvedRef });
         return { unresolved: name };
       }
       case "selection": {
@@ -240,7 +310,9 @@ function resolveBlock(root: string, ability: unknown, line: ParsedLine | undefin
         // "Their controllers": each member of a set evaluated at another operand.
         const of: Resolved = ofNode?.node === "selection" && ofNode.selection !== "target" && inBlock(ofNode.path) && !triggerOf(ofNode.path)
           ? { ref: { ref: "step-result", step: rel(ofNode.path), role: "selection" } } : resolve(local(node.of), at, depth + 1);
-        return "ref" in of && !("scope" in of && of.scope !== undefined)
+        // An operand scoped to the same nested ability as this player keeps
+        // that one scope (CR 113.10, 109.5).
+        return "ref" in of && (!("scope" in of) || of.scope === undefined || of.scope === scope)
           ? scoped({ derived: { relation: node.role as PlayerRelation, of: of.ref } }) : { unresolved: `${name}<${"unresolved" in of ? of.unresolved : "compound"}>` };
       }
       case "event-result": {
@@ -256,10 +328,22 @@ function resolveBlock(root: string, ability: unknown, line: ParsedLine | undefin
         return { ref: { ref: "event-object", role: node.role } };
       case "battlefield-entry-proposal":
         return { ref: { ref: "entering-object" } };
+      case "alternatives": {
+        // CR 603.2: whichever alternative event occurred; named only when
+        // every alternative denotes the same reference.
+        if (depth > 4 || !node.of.length) return { unresolved: name };
+        const each = node.of.map(of => resolve(local(of), at, depth + 1));
+        const first = JSON.stringify(each[0]);
+        return "ref" in each[0] && each.every(one => JSON.stringify(one) === first) ? each[0] : { unresolved: name };
+      }
+
       case "announced-number":
         return scope === undefined ? { ref: { ref: "announced-x" } } : { unresolved: `${name}:nested` };
       case "defined-number":
       case "instruction-member":
+      // CR 608.2h: "that player" in a per-recipient damage amount is the
+      // member of the recipient group the amount is computed for.
+      case "recipient-member":
         return { ref: { ref: "bound-var", id: rel(node.path) } };
       case "recipient":
         return { ref: { ref: "source" }, scope: rel(node.path) };

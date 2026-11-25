@@ -266,6 +266,42 @@ and supported attributes at those boundaries. A mandatory compensation step
 still executes when a legal target survives destruction. Its recipient is
 independent of the target's owner and any zone successor.
 
+### Cost keywords and variable costs
+
+A spell's printed cost may begin with one `{X}` and hold two-color hybrid or
+single-color Phyrexian symbols. X is announced before targets and its value is
+the spell's announced X (CR 107.3a, 601.2b). Each hybrid symbol is announced as
+one listed alternative, and a Phyrexian symbol paid with life costs 2 life,
+which a player with less than 2 life cannot pay (CR 107.4e-f, 119.4). Several X,
+monocolored hybrid, colorless or hybrid Phyrexian symbols reject. Hybrid,
+Phyrexian, X and special symbols in activation costs also reject.
+
+Cycling is a hand activation on any card type: its fixed mana and the card's
+own discard, then one draw (CR 702.29a). Kicker on an instant or sorcery is an
+optional additional mana cost declared while casting. "If this spell was kicked"
+is `Cond::CostPaid` on that declaration (CR 702.33a, d). Flashback on an instant
+or sorcery without X or hybrid symbols casts the card from its owner's
+graveyard at normal timing for the flashback cost instead of its mana cost
+(CR 702.34a, 118.9). As it resolves, fails to resolve or is countered, the spell is
+exiled instead. Abandoning the cast returns it to the graveyard (CR 733.1).
+The public stack entry marks a flashback spell. Validation rejects a spell cast
+from another player's hand or graveyard, or from a graveyard without flashback.
+"As an additional cost to cast this spell, sacrifice a/an [quality]" is paid
+after mana; a spell with nothing to sacrifice is not offered (CR 601.2b, 701.21a).
+Other additional costs reject as `kind:additional-cost:<term>`. Ward waits for the
+trigger wave.
+
+An activation can also pay life and remove +1/+1 counters from its source, alone or with
+tap, mana and source sacrifice. A player who cannot pay is not offered the
+ability (CR 119.4, 122.1), and a cost without mana is paid as targets complete,
+with no mana window (CR 601.2g). A chosen sacrifice can count several permanents,
+any permanent, or "another" (never the source), and can also tap the source
+after mana (CR 109.1, 602.2b, 701.21a). Each of these surfaces is its own
+`Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Kicker`,
+`Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
+`ActivationRemoveCounters`, `SacrificeCostChoice`, `SacrificeCostTap`,
+`SacrificeCostAnother`).
+
 ### Target status and tap/untap
 
 A tapped-status filter requires current tapped status; absence means no
@@ -608,11 +644,11 @@ the derived decisions equal the capability lists they replaced.
 | --- | --- |
 | Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
-| Cost × route | Tap, mana, source sacrifice, one sacrificed permanent of a type, type union or subtype, tap/mana/sacrifice combinations, and untargeted tap, pay life and sacrifice the source, only where that announcement route pays the complete cost (CR 602.2b). |
+| Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, and the cycling hand discard, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | Self entry of any permanent type, self dies, becomes tapped, beginning steps, casts, attacks, damage to a player, other creature entries, creature deaths and controlled land entries, without intervening conditions. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
-| Card shell | A single-face normal card with a fixed cost and complete bound source. Unsupported shells and keywords reject. |
+| Card shell | A single-face normal card with a fixed, X or hybrid/Phyrexian spell cost and complete bound source, with the [cost keywords](#cost-keywords-and-variable-costs) above. Unsupported shells and keywords reject. |
 
 Sentences resolve in printed order (CR 608.2c). A pronoun must be bound by the
 archive to a target of its own block or to an earlier step of that block;

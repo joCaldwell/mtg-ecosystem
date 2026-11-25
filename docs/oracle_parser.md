@@ -90,11 +90,16 @@ parsed face and block, with block-relative paths:
 - `refs`: every reference resolved to the closed `Ref` vocabulary shared with the
   kernel IR (source, controller by role, target slot, attached-to, event object or
   player by trigger, entering object, step result, bound variable, linked pool,
-  announced X), a player derived from one, an operand evaluated in place, or
-  `unresolved` with the exact reason. An event player is named by the kernel's
+  linked result, announced X), a player derived from one, an operand evaluated in
+  place, or `unresolved` with the exact reason. An event player is named by the kernel's
   `EventPlayerRole` where the kernel names that trigger's player
-  (`active-player` for a beginning-of-step trigger, `caster`, `activating-player`)
-  and otherwise by its trigger's AST discriminant.
+  (`active-player` for a beginning-of-step trigger, `caster`, `activating-player`),
+  `declaring-player` for an attack or block declaration cost, and otherwise by its
+  trigger's AST discriminant. A linked result names another block of the same face
+  (`block`, block-relative `step`): an as-enters choice made by the face's only
+  choice of that category, a spell's own additional-cost object, or an earlier
+  paragraph of the same spell. References inside a granted or created ability never
+  link; every other cross-block reference stays `unresolved`.
 - `steps`: each printed step's event under its AST discriminant, or the scope of
   a [structural step](../packages/oracle-parser/src/semantic/step-vocabulary.ts);
   a step the binder did not account for is `unaccounted`.

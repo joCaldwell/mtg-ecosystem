@@ -280,6 +280,10 @@ pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle> {
     pub cast_complete: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spell_copy: bool,
+    /// CR 702.34a: this spell was cast from its owner's graveyard for its
+    /// flashback cost and is exiled as it leaves the stack.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flashback: bool,
     pub targets: Vec<VisibleTarget<O>>,
 }
 impl<H, O> VisibleStackEntry<H, O> {
@@ -310,6 +314,7 @@ impl<H, O> VisibleStackEntry<H, O> {
             controller: self.controller,
             cast_complete: self.cast_complete,
             spell_copy: self.spell_copy,
+            flashback: self.flashback,
             targets: self.targets.into_iter().map(|t| t.convert()).collect(),
         }
     }

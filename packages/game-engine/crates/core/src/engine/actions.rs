@@ -340,12 +340,24 @@ impl RulesTxn {
         if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {
             self.validate_tap_life_sacrifice_source(player, object, life)?;
         }
+        // CR 119.4, 122.1, 602.2b: life can be paid only from a life total at
+        // least that large, and only counters the source has can be removed.
+        if let ActivationCost::Composite { costs } = &ability.cost
+            && (costs.pay_life.is_some() || costs.remove_source_plus_one_counters.is_some())
+            && !self.permanent_source_costs_payable(object, player, costs)
+        {
+            return Err("unpayable life or counter activation cost".into());
+        }
         let tap = ability.cost == ActivationCost::TapSource
             || matches!(
                 ability.cost,
                 ActivationCost::TapPayLifeSacrificeSource { .. }
             )
-            || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap);
+            || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap)
+            || matches!(
+                &ability.cost,
+                ActivationCost::SacrificePermanent { tap: true, .. }
+            );
         if tap
             && (source.tapped
                 || (self.characteristics(object)?.kind == CardKind::Creature
@@ -354,9 +366,16 @@ impl RulesTxn {
         {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }
-        if let ActivationCost::SacrificePermanent { filter, count, .. } = &ability.cost
+        if let ActivationCost::SacrificePermanent {
+            filter,
+            count,
+            another,
+            ..
+        } = &ability.cost
             && usize::try_from(*count).map_or(true, |n| {
-                self.sacrifice_candidates(player, filter).len() < n
+                self.sacrifice_cost_candidates(player, filter, another.then_some(object))
+                    .len()
+                    < n
             })
         {
             return Err("no payable sacrifice permanent".into());

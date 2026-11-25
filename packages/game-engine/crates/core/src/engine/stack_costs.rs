@@ -417,6 +417,39 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
+        // CR 601.2a, 702.34a, 903.8: a spell is cast by its owner from that
+        // owner's own hand, from the command zone as that owner's commander,
+        // or from that owner's own graveyard only with flashback. No other
+        // origin exists for a cast spell (a copy is never cast).
+        if entry.kind.is_spell() && !self.is_spell_copy(entry) {
+            let owner = self
+                .state
+                .rules
+                .cards
+                .get(&entry.source.card)
+                .ok_or("missing spell physical card")?
+                .owner;
+            let consistent = entry.controller == owner
+                && match entry.cast_from {
+                    Zone::Hand { owner: from } => from == owner,
+                    Zone::Command { owner: from } => {
+                        from == owner
+                            && self
+                                .state
+                                .rules
+                                .commanders
+                                .history(entry.source.card)
+                                .is_some()
+                    }
+                    Zone::Graveyard { owner: from } => {
+                        from == owner && self.copiable_definition(entry.source)?.flashback.is_some()
+                    }
+                    Zone::Battlefield | Zone::Library { .. } | Zone::Stack | Zone::Exile => false,
+                };
+            if !consistent {
+                return Err("snapshot spell casting origin invariant".into());
+            }
+        }
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
@@ -426,9 +459,21 @@ impl RulesTxn {
         }
         let x_spell = self.copiable_definition(entry.source)?.x_mana_cost && entry.kind.is_spell();
         let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
-        let x_bound = x_spell && !announcing_x;
+        // CR 601.2b: optional additional costs and hybrid symbols are
+        // announced before X, so X stays unbound through those stages.
+        let before_x = announcing_x
+            || matches!(&self.state.rules.frame,
+                Frame::AdditionalCosts { cast } | Frame::HybridCost { cast } if cast.stack_id == entry.id);
+        let x_bound = x_spell && !before_x;
+        // A game can end (CR 104.2a) while a spell is still being announced;
+        // its unpaid entry then keeps whatever it had announced.
+        let unfinished = entry.paid.is_none()
+            && matches!(
+                self.state.rules.frame,
+                Frame::Fault { .. } | Frame::Finished { .. }
+            );
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
-            || entry.x.is_some() != x_bound
+            || (entry.x.is_some() != x_bound && !(unfinished && x_spell))
             || (announcing_x && !x_spell)
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
