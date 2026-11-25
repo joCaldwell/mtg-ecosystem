@@ -83,6 +83,7 @@ fn program(
     p: &SpellProgram,
     context: Context,
     event: Option<&TriggerCondition>,
+    announced_x: bool,
 ) -> Result<(), String> {
     if p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
@@ -111,7 +112,7 @@ fn program(
         context,
         targets: &p.targets,
         event,
-        announced_x: false,
+        announced_x,
     };
     let mut used = BTreeSet::new();
     for Instruction::Kernel { node, .. } in &p.instructions {
@@ -212,7 +213,8 @@ fn sacrifice_filter(f: &SacrificeFilter) -> bool {
         |s: &String| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphabetic() || c == '-');
     types_ok
         && match (f.types.is_empty(), f.subtypes.as_slice()) {
-            (false, []) => true,
+            // CR 110.1: "a permanent" names any controlled permanent.
+            (true, []) | (false, []) => true,
             (true, [subtype]) => subtype_ok(subtype),
             _ => false,
         }
@@ -246,12 +248,16 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         ActivationCost::SacrificeSource => {
             kind == CardKind::Creature && route != Some(Route::Player)
         }
+        // CR 602.2b, 701.21a: tapping the source and "another" are part of
+        // the one chosen sacrifice cost.
         ActivationCost::SacrificePermanent {
             count,
             filter,
             mana,
+            tap: _,
+            another: _,
         } => {
-            *count == 1
+            *count >= 1
                 && sacrifice_filter(filter)
                 && mana.as_ref().is_none_or(mana_ok)
                 && match route {
@@ -260,13 +266,19 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                     Some(Route::Player) => false,
                 }
         }
-        // A life payment is a mana-ability cost only; no stack activation
-        // pays it as part of a composite cost.
+        // CR 118.3, 119.4, 122.1: life and +1/+1 counter removal from the
+        // source are paid with the other source terms after any mana.
         ActivationCost::Composite { costs } => {
-            costs.remove_source_plus_one_counters.is_none()
-                && costs.pay_life.is_none()
+            costs
+                .remove_source_plus_one_counters
+                .as_ref()
+                .is_none_or(|n| *n > Quantity::zero())
+                && costs.pay_life.as_ref().is_none_or(|n| *n > Quantity::zero())
                 && costs.mana.as_ref().is_none_or(mana_ok)
-                && (costs.tap || costs.sacrifice)
+                && (costs.tap
+                    || costs.sacrifice
+                    || costs.pay_life.is_some()
+                    || costs.remove_source_plus_one_counters.is_some())
                 && match route {
                     None | Some(Route::Object | Route::Stack) => true,
                     // The entity announcement pays a combined cost only
@@ -297,6 +309,14 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 702.29a, 602.2a: cycling is the one hand activation, on any card
+    // type: its fixed mana and this exact hand card, then one draw.
+    if a.functioning_zone == FunctioningZone::Hand {
+        if !hand_discard_draw_activation(a) {
+            return cell("activated", "hand");
+        }
+        return program(&a.program, Context::Activated, None, false);
+    }
     if a.functioning_zone != FunctioningZone::Battlefield
         || !matches!(
             d.characteristics.kind,
@@ -327,7 +347,7 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         return cell("activated", "equip");
     }
     cost(d, a)?;
-    program(&a.program, Context::Activated, None)
+    program(&a.program, Context::Activated, None, false)
 }
 
 /// CR 303.4a: the Aura's one announced target encodes the enchant predicate.
@@ -414,7 +434,7 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     }) {
         return cell("trigger", format!("{key}:death_filter"));
     }
-    program(&a.program, Context::Triggered, Some(&a.condition))
+    program(&a.program, Context::Triggered, Some(&a.condition), false)
 }
 
 /// The mana row: a tap ability of a creature, artifact or land that adds
@@ -548,11 +568,12 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     let c = &d.characteristics;
     // Whole-card characteristics the composition tables do not describe
-    // reject: second faces, hybrid and X costs, snow and Sagas.
+    // reject: second faces, snow and Sagas. A spell's X and hybrid or
+    // Phyrexian symbols are announced while casting (CR 107.3, 107.4e-f,
+    // 601.2b/f); a land has no mana cost to announce (CR 305.1).
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
     // below then requires the land's intrinsic mana (CR 305.6).
-    if !c.hybrid_mana.is_empty()
-        || d.x_mana_cost
+    if ((!c.hybrid_mana.is_empty() || d.x_mana_cost) && d.spell.is_none())
         || c.snow
         || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
@@ -654,7 +675,9 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && c.power.is_none()
                 && c.toughness.is_none()
                 && d.intrinsic_zone.is_none()
-                && d.activated.is_empty()
+                && d.activated
+                    .iter()
+                    .all(|a| a.functioning_zone == FunctioningZone::Hand)
                 && d.triggered.is_empty()
                 && d.mana_abilities.is_empty()
                 && d.spell.as_ref().is_some_and(|p| p.timing == cast_timing)
@@ -668,6 +691,9 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
             d.spell.as_ref().ok_or("missing spell program")?,
             Context::Spell,
             None,
+            // CR 107.3a: X in a spell's text is the value announced for its
+            // own cost; an ability's X is not announced (CR 107.3).
+            d.x_mana_cost,
         )?;
     }
     if d.static_abilities
@@ -744,7 +770,7 @@ mod tests {
     /// admitted at any tier, so it can never keep the reviewed composite
     /// cost's Hosting tier.
     #[test]
-    fn composite_activation_life_payment_is_rejected() {
+    fn composite_activation_life_payment_executes_only() {
         let tap = |pay_life: Option<Quantity>| {
             with(|d| {
                 d.activated.push(ability(
@@ -765,31 +791,32 @@ mod tests {
             })
         };
         tap(None).validate().unwrap();
-        let mut json = serde_json::to_value(tap(None)).unwrap();
-        json["activated"][0]["cost"]["composite"]["costs"]["pay_life"] =
-            serde_json::to_value(Quantity::from(1)).unwrap();
-        let forged: Definition = serde_json::from_value(json).unwrap();
-        assert_eq!(forged, tap(Some(1.into())));
-        assert!(
-            forged
-                .validate()
-                .unwrap_err()
-                .contains("cell:cost:composite")
-        );
-        assert!(validate(&forged).is_err());
-        // The public tier queries agree: the forged surface earns no tier
-        // and is never reported as having no Hosting blockers.
         assert!(
             kir::definition_tiers(&tap(None))
                 .unwrap()
                 .admits(kir::ExecutionTier::Hosting)
         );
-        assert!(matches!(
-            kir::definition_tiers(&forged),
-            Err(kir::KirError::Unaudited(detail)) if detail.contains("cell:cost:composite")
-        ));
-        assert!(kir::unqualified(&forged, kir::ExecutionTier::Hosting).is_err());
-        assert!(kir::definition_cells(&forged).is_err());
+        // CR 119.4: a stack activation's life payment executes, and its cell
+        // keeps the card at Executes until reviewed.
+        let paid = tap(Some(1.into()));
+        paid.validate().unwrap();
+        assert!(
+            kir::definition_cells(&paid)
+                .unwrap()
+                .contains(&kir::Cell::ActivationPayLife)
+        );
+        let tiers = kir::definition_tiers(&paid).unwrap();
+        assert!(tiers.admits(kir::ExecutionTier::Executes));
+        assert!(!tiers.admits(kir::ExecutionTier::HeadlessQualified));
+        assert!(!tiers.admits(kir::ExecutionTier::Hosting));
+        // A zero life payment is no printed cost and earns no tier.
+        let zero = tap(Some(0.into()));
+        assert!(
+            zero.validate()
+                .unwrap_err()
+                .contains("cell:cost:composite")
+        );
+        assert!(kir::definition_cells(&zero).is_err());
     }
 
     /// The new mana shapes execute only: their cells start at Executes and
@@ -1039,11 +1066,11 @@ mod tests {
     #[test]
     fn program_targets_must_be_bound_and_used() {
         let mut p = program(vec![damage()], vec![target(TargetDomain::AnyDamageTarget)]);
-        super::program(&p, Context::Spell, None).unwrap();
+        super::program(&p, Context::Spell, None, false).unwrap();
         p.targets.clear();
-        assert!(super::program(&p, Context::Spell, None).is_err());
+        assert!(super::program(&p, Context::Spell, None, false).is_err());
         p.targets.push(target(TargetDomain::AnyDamageTarget));
         p.instructions = vec![gain(Context::Spell)];
-        assert!(super::program(&p, Context::Spell, None).is_err());
+        assert!(super::program(&p, Context::Spell, None, false).is_err());
     }
 }

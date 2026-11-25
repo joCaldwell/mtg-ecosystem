@@ -44,8 +44,13 @@ pub(super) fn lower(
                     selection_id,
                     TargetDomain::AnyDamageTarget,
                 )?,
-                kir::Amount::Fixed {
-                    value: fixed_positive_amount(&amount)?,
+                // CR 107.3a: a spell's X is the value announced for it;
+                // definition admission scopes X to a spell whose cost has it.
+                match amount {
+                    ast::Amount::X(_) if cx.context == Context::Spell => kir::Amount::announced_x(),
+                    _ => kir::Amount::Fixed {
+                        value: fixed_positive_amount(&amount)?,
+                    },
                 },
                 cx.source_block,
             ));

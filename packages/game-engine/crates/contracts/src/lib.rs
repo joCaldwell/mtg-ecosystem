@@ -1190,6 +1190,12 @@ pub enum ActivationCost {
         filter: SacrificeFilter,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana: Option<ManaCost>,
+        /// CR 602.2b, 701.21a: "{T}" is paid with the sacrifice, after mana.
+        #[serde(default, skip_serializing_if = "is_false")]
+        tap: bool,
+        /// CR 109.1, 701.21a: "another" excludes the ability's own source.
+        #[serde(default, skip_serializing_if = "is_false")]
+        another: bool,
     },
     SacrificeSource,
     TapSource,

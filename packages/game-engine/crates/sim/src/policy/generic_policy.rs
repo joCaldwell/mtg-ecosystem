@@ -1321,6 +1321,13 @@ impl Strategy<'_> {
                     .remove_source_plus_one_counters
                     .as_ref()
                     .is_some_and(|n| o.plus_one_counters < *n)
+                    // CR 119.4: keep a margin above a printed life payment.
+                    || costs.pay_life.as_ref().is_some_and(|life| {
+                        v.players
+                            .iter()
+                            .find(|r| r.player == v.viewer)
+                            .is_none_or(|r| r.life <= *life)
+                    })
                 {
                     return None;
                 }
@@ -1334,6 +1341,8 @@ impl Strategy<'_> {
                 count,
                 filter,
                 mana,
+                tap,
+                another,
             } => {
                 if *count != 1 {
                     return None;
@@ -1341,11 +1350,12 @@ impl Strategy<'_> {
                 if !self
                     .sacrifice_objects(v, filter)
                     .iter()
+                    .filter(|t| !*another || t.handle != o.handle)
                     .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
                 {
                     return None;
                 }
-                (false, false, mana.clone().unwrap_or_else(zero_cost))
+                (*tap, false, mana.clone().unwrap_or_else(zero_cost))
             }
         };
         if tap

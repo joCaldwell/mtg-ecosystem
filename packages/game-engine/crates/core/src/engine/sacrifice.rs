@@ -19,17 +19,31 @@ impl RulesTxn {
             .map(|o| o.id)
             .collect()
     }
+    /// CR 109.1, 701.21a: the permanents `player` could sacrifice for a
+    /// cost, excluding `source` when the cost says "another".
+    pub(crate) fn sacrifice_cost_candidates(
+        &self,
+        player: PlayerId,
+        filter: &SacrificeFilter,
+        another_than: Option<ObjectId>,
+    ) -> Vec<ObjectId> {
+        let mut candidates = self.sacrifice_candidates(player, filter);
+        if let Some(source) = another_than {
+            candidates.retain(|id| id.card != source.card);
+        }
+        candidates
+    }
     pub(super) fn invocation_sacrifice<'a>(
         &'a self,
         entry: &'a StackInstance,
-    ) -> Option<(&'a SacrificeFilter, u32)> {
+    ) -> Option<(&'a SacrificeFilter, u32, Option<ObjectId>)> {
         match entry.kind {
             StackKind::Spell => self
                 .program_for(entry)
                 .ok()?
                 .additional_sacrifice
                 .as_ref()
-                .map(|f| (f, 1)),
+                .map(|f| (f, 1, None)),
             StackKind::Activated { ability, .. } => match &self
                 .copiable_definition(entry.source)
                 .ok()?
@@ -37,7 +51,12 @@ impl RulesTxn {
                 .get(ability as usize)?
                 .cost
             {
-                ActivationCost::SacrificePermanent { filter, count, .. } => Some((filter, *count)),
+                ActivationCost::SacrificePermanent {
+                    filter,
+                    count,
+                    another,
+                    ..
+                } => Some((filter, *count, another.then_some(entry.source))),
                 _ => None,
             },
             _ => None,
@@ -51,10 +70,10 @@ impl RulesTxn {
         stack: &StackInstance,
         prefix: &[ObjectId],
     ) -> Result<Vec<ObjectId>, String> {
-        let (filter, count) = self
+        let (filter, count, another_than) = self
             .invocation_sacrifice(stack)
             .ok_or("missing sacrifice cost")?;
-        let mut eligible = self.sacrifice_candidates(stack.controller, filter);
+        let mut eligible = self.sacrifice_cost_candidates(stack.controller, filter, another_than);
         // Never allocate from a declared count. Only the actual permanents
         // bound selection work, including on narrower hosts.
         let Ok(count) = usize::try_from(count) else {
@@ -79,8 +98,8 @@ impl RulesTxn {
         stack: &StackInstance,
         cast: &Casting,
     ) -> Result<(), String> {
-        if let Some((filter, count)) = self.invocation_sacrifice(stack) {
-            let eligible = self.sacrifice_candidates(stack.controller, filter);
+        if let Some((filter, count, another_than)) = self.invocation_sacrifice(stack) {
+            let eligible = self.sacrifice_cost_candidates(stack.controller, filter, another_than);
             if u32::try_from(cast.sacrifices.len()) != Ok(count)
                 || !cast.sacrifices.windows(2).all(|w| w[0] < w[1])
                 || !cast
@@ -202,7 +221,7 @@ impl RulesTxn {
 
                 let object = input.object()?;
                 cast.sacrifices.push(object);
-                let (_, count) = self.invocation_sacrifice(&stack).ok_or("missing cost")?;
+                let (_, count, _) = self.invocation_sacrifice(&stack).ok_or("missing cost")?;
                 if u32::try_from(cast.sacrifices.len()) != Ok(count) {
                     self.rules_mut().frame = Frame::SacrificeCost { cast };
                     return Ok(());
@@ -275,7 +294,7 @@ impl RulesTxn {
             return Ok(());
         };
         let stack = self.top()?;
-        let Some((_, count)) = self.invocation_sacrifice(stack) else {
+        let Some((_, count, _)) = self.invocation_sacrifice(stack) else {
             return Err("missing sacrifice cost".into());
         };
         if count <= 1 || !self.next_sacrifices(stack, &cast.sacrifices)?.is_empty() {
@@ -345,7 +364,7 @@ impl RulesTxn {
                 }
                 self.validate_characteristic_identity(f.object, &f.characteristics)?;
             }
-            let count = self.invocation_sacrifice(e).map_or(0, |(_, count)| count);
+            let count = self.invocation_sacrifice(e).map_or(0, |(_, count, _)| count);
             if self.stack_entry_complete(e) && count == 1 && e.sacrificed.is_none() {
                 return Err("snapshot missing sacrifice cost facts".into());
             }

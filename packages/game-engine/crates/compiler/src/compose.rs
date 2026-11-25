@@ -591,6 +591,12 @@ fn compose(
                                 .push(keywords::equip(&card, one, label, text)?);
                             labels.activated.push(label);
                         }
+                        [one] if one.keyword == "cycling" => {
+                            definition
+                                .activated
+                                .push(keywords::cycling(one, label, text)?);
+                            labels.activated.push(label);
+                        }
                         [one] if one.keyword == "enchant" => {
                             let spell = definition
                                 .spell
