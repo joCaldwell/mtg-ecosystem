@@ -240,7 +240,7 @@ impl RulesTxn {
         let choosing = matches!(frame, Frame::HybridCost {cast} if cast.stack_id==entry.id);
         // CR 601.2b: optional additional costs are declared before hybrid
         // symbols, so the symbols stay unchosen through that stage.
-        let declaring = matches!(frame, Frame::AdditionalCosts {cast} if cast.stack_id==entry.id);
+        let declaring = matches!(frame, Frame::ChooseModes {cast} | Frame::AdditionalCosts {cast} if cast.stack_id==entry.id);
         // A game can end (CR 104.2a) while a spell is still being announced;
         // its unpaid entry then keeps whatever it had announced.
         let unfinished =
@@ -281,7 +281,7 @@ impl RulesTxn {
         }
         if let Some(lock) = &entry.cost_lock {
             if matches!(self.underlying_mana_frame(&self.state.rules.frame)?,
-                Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
+                Frame::ChooseModes {cast} | Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
             {
                 return Err("spell cost locked before announcement choices".into());
             }
@@ -305,7 +305,7 @@ impl RulesTxn {
         // Only an unpaid entry may lack its lock: payment follows the lock.
         if entry.paid.is_none()
             && (matches!(frame,
-            Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
+            Frame::ChooseModes {cast} | Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
                 || matches!(frame, Frame::Fault { .. } | Frame::Finished { .. }))
         {
             return Ok(());

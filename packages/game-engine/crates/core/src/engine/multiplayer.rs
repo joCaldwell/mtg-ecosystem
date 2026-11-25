@@ -447,7 +447,8 @@ impl RulesTxn {
             // their identities and recheck them at resolution under608.2b.
             let proposing = matches!(
                 self.state.rules.frame,
-                Frame::AdditionalCosts { .. }
+                Frame::ChooseModes { .. }
+                    | Frame::AdditionalCosts { .. }
                     | Frame::HybridCost { .. }
                     | Frame::AnnounceX { .. }
                     | Frame::EntityTargets { .. }

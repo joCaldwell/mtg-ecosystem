@@ -60,6 +60,7 @@ pub(crate) fn shell(
             toughness,
         },
         intrinsic_zone: (kind == CardKind::Land).then_some(FunctioningZone::Battlefield),
+        modal_spell: None,
         spell: match kind {
             CardKind::Land => None,
             // CR 304.1, 307.1: ordinary timing follows the card type.

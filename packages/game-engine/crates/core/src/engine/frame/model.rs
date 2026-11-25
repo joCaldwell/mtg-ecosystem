@@ -108,6 +108,9 @@ pub enum Frame {
     AdditionalCosts {
         cast: Casting,
     },
+    ChooseModes {
+        cast: Casting,
+    },
     AnnounceX {
         cast: Casting,
     },

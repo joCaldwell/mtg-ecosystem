@@ -19,6 +19,7 @@ mod control;
 mod costs;
 mod events;
 mod keywords;
+mod modal;
 mod printed;
 mod steps;
 #[cfg(test)]
@@ -754,6 +755,32 @@ fn compose(
                 } if spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
                     slots.clear();
+                    let site = control::Site {
+                        resolution: &resolution,
+                        index: block,
+                        printed: &printed[block],
+                        context: Context::Spell,
+                    };
+                    if modal::declared(&effects) {
+                        if definition.modal_spell.is_some() {
+                            return Err(unsupported(
+                                "compose.effects",
+                                "multiple modal declarations",
+                            ));
+                        }
+                        let program = definition.spell.as_ref().expect("spell program");
+                        definition.modal_spell = Some(modal::lower(
+                            &effects,
+                            program.timing,
+                            &result.lines[block].text,
+                            &site,
+                        )?);
+                        return printed::choices_printed(
+                            &result.lines[block].text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
+                    }
                     let peeled = control::peel(&effects)?;
                     let program = definition.spell.as_mut().expect("spell program");
                     let (before, before_slots) = (program.clone(), slots.clone());
@@ -770,12 +797,6 @@ fn compose(
                         )
                     };
                     lower(program, &mut slots, &peeled.sentences)?;
-                    let site = control::Site {
-                        resolution: &resolution,
-                        index: block,
-                        printed: &printed[block],
-                        context: Context::Spell,
-                    };
                     let base = before.instructions.len();
                     control::apply(&peeled, &site, &mut program.instructions, base, |prefix| {
                         let (mut scratch, mut scratch_slots) =

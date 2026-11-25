@@ -564,6 +564,7 @@ impl Strategy<'_> {
                 | Reason::ResolveDiscard
                 | Reason::DamageEffect { .. }
                 | Reason::AdditionalCosts
+                | Reason::ChooseModes
                 | Reason::ScryBottom
                 | Reason::SurveilGraveyard,
                 Shape::Pick { slots, .. },

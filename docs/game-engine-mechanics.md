@@ -697,7 +697,35 @@ Everything else rejects under `compose.control:<detail>`:
 - another condition, a nested leaf that needs persistent provenance
 - `forEach` amounts (CR 121.2a: a counted draw is one replaceable event)
 
-Modal steps (W14) and "up to N" targets for N above one also reject.
+Modal steps outside the modal spells below (W14) and "up to N" targets for N
+above one also reject.
+
+### Modal spells
+
+An instant or sorcery whose only block is a printed "Choose one —", "Choose
+two —", "Choose one or both —" (two modes) or "Choose one or more —" over two to
+five bullets lowers to a `ModalSpell` declaration (CR 700.2). The AST count must
+equal the printed count, and each bullet must be a certified resolution span
+equal to its AST option. Each mode lowers through the ordinary verb lowerers.
+Every mode must lower, or the card rejects under `verb:modal:<detail>`. The
+spell's base program keeps timing and is otherwise empty. Each legal set of
+distinct modes is its own program, its modes' instructions in printed order
+(CR 608.2c, 700.2d). `Definition::spell_programs` yields those programs.
+
+Casting enters `Frame::ChooseModes` before additional costs, X, hybrid symbols
+and targets (CR 601.2b). The caster answers one `Pick` of `Candidate::Modes`
+(`Reason::ChooseModes`), with the bit mask and printed labels. A mode whose
+target cannot be chosen is not offered, and a spell with no offerable set
+cannot be proposed (CR 700.2a). The stack entry keeps the chosen `mode_mask`,
+which is public in the permitted view. Its program is the selected one.
+Targets, provenance, tokens and resolution read it (CR 700.2c). One selection announces at most one target in a battlefield
+permanent, creature, any-damage or player domain. State validation requires an
+unbound mask only while choosing and a declared selection afterwards. These
+cards earn `Executes` only (`modal_choice_v1`).
+
+Modal abilities, repeated modes, entwine, escalate, spree, a mode with its own
+cost (CR 700.2h) and a "Choose one. If ..." upgrade reject. So does a modal
+block beside other spell text, or a selection with two targets.
 
 ## Derived capability tiers
 

@@ -510,8 +510,7 @@ impl RulesTxn {
                 .program;
             return Ok(vec![root]);
         }
-        Ok(d.spell
-            .iter()
+        Ok(d.spell_programs()
             .chain(d.activated.iter().map(|a| &a.program))
             .chain(d.triggered.iter().map(|a| &a.program))
             .collect())

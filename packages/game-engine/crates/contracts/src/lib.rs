@@ -43,7 +43,10 @@ use kir::{Context, PlayerExpr, SetExpr, Verb};
 
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 mod archives;
 pub use archives::*;
@@ -1168,6 +1171,32 @@ pub struct SpellProgram {
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
 }
+
+/// CR 601.2b and 700.2a–d: one announcement chooses distinct modes. Each
+/// admitted selection is an ordinary program in printed order with only its
+/// own target occurrences. Bit zero denotes the first printed mode.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ModalSpell {
+    pub source_block: u32,
+    pub min: u32,
+    pub max: u32,
+    pub labels: Vec<String>,
+    pub selections: BTreeMap<u8, SpellProgram>,
+}
+impl ModalSpell {
+    pub const MAX_MODES: usize = 5;
+
+    pub fn masks(len: usize, min: u32, max: u32) -> impl Iterator<Item = u8> {
+        let limit = if len <= Self::MAX_MODES {
+            1u8 << len
+        } else {
+            0
+        };
+        (1..limit).filter(move |mask| (min..=max).contains(&mask.count_ones()))
+    }
+}
 fn single_sacrifice() -> u32 {
     1
 }
@@ -1540,6 +1569,8 @@ pub struct Definition {
     pub characteristics: Characteristics,
     pub intrinsic_zone: Option<FunctioningZone>,
     pub spell: Option<SpellProgram>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal_spell: Option<ModalSpell>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub activated: Vec<ActivatedAbility>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1557,6 +1588,19 @@ pub struct Definition {
     pub composed: bool,
 }
 impl Definition {
+    /// Executable versions of the spell program. For a modal spell the base
+    /// program carries timing and resolution; effects belong to selections.
+    pub fn spell_programs(&self) -> impl Iterator<Item = &SpellProgram> {
+        self.spell
+            .iter()
+            .filter(|_| self.modal_spell.is_none())
+            .chain(
+                self.modal_spell
+                    .iter()
+                    .flat_map(|modal| modal.selections.values()),
+            )
+    }
+
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1, Capability::ComposedAbilityV1]);
         if self.characteristics.is_attachment() {
@@ -1602,7 +1646,10 @@ impl Definition {
                 _ => {}
             }
         }
-        if let Some(program) = &self.spell {
+        if self.modal_spell.is_some() {
+            set.insert(Capability::ModalChoiceV1);
+        }
+        for program in self.spell_programs() {
             add_program_requirements(&mut set, program);
         }
         if !self.mana_abilities.is_empty() {

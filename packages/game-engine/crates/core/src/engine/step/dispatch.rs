@@ -44,6 +44,7 @@ impl RulesTxn {
             Frame::Setup => self.setup_step()?,
 
             Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
+            Frame::ChooseModes { cast } => self.bind_modes(cast)?,
             Frame::HybridCost { cast } => {
                 let input = self
                     .rules_mut()

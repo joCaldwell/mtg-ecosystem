@@ -133,10 +133,16 @@ impl RulesTxn {
     ) -> Result<&SpellProgram, RuleError> {
         let definition = self.copiable_definition(stack.source)?;
         match &stack.kind {
-            StackKind::Spell => Ok(definition
-                .spell
-                .as_ref()
-                .ok_or_else(|| "missing spell program".to_string())?),
+            StackKind::Spell => {
+                if let Some(mask) = stack.mode_mask {
+                    return definition
+                        .modal_spell
+                        .as_ref()
+                        .and_then(|modal| modal.selections.get(&mask))
+                        .ok_or_else(|| "missing selected spell program".into());
+                }
+                Ok(definition.spell.as_ref().ok_or("missing spell program")?)
+            }
             StackKind::Triggered { ability, .. } => match *ability {
                 EffectiveTriggerAbility::Intrinsic { index } => Ok(definition
                     .triggered
