@@ -4,6 +4,8 @@
 use super::*;
 use ChosenCostAction::{Discard, ExileFromGraveyard, Tap};
 
+mod mana;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::engine) struct PaidObject {
@@ -96,7 +98,16 @@ impl RulesTxn {
         cost: &ChosenObjectCost,
     ) -> Result<bool, String> {
         let eligible = self.eligible_cost_objects(player, source, cost)?;
-        Ok(usize::try_from(cost.count).is_ok_and(|n| n <= eligible.len()))
+        let Ok(count) = usize::try_from(cost.count) else {
+            return Ok(false);
+        };
+        if eligible.len() < count {
+            return Ok(false);
+        }
+        match &cost.mana {
+            Some(mana) => self.can_fund_chosen_cost(player, source, cost, mana, &eligible, count),
+            None => Ok(true),
+        }
     }
 
     fn next_chosen_objects(

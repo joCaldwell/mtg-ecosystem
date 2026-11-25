@@ -321,8 +321,11 @@ mana, the source tap and the entire chosen set in one rule step. Discard
 candidates and the selected prefix remain private until the actual move to
 the public graveyard (CR 400.2). Paid receipts bind the exact movements or
 taps. A later untap preserves the proof that a tap paid the cost. The priority
-menu requires enough eligible objects, and the engine checks availability
-again after the mana window. Random and whole-hand discard, variable counts,
+menu requires enough eligible objects left after funding mana. It uses the
+current pool and a bounded search over independent tap-mana abilities, reserving
+the source for its own `{T}` cost. The proof excludes mana abilities that need
+mana or life payments or have riders. The engine checks availability again
+after the mana window. Random and whole-hand discard, variable counts,
 other graveyards, self-exile from hand and chosen-object mana abilities remain
 outside these cells.
 

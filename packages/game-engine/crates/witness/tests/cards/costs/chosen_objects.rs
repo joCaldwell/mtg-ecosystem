@@ -231,6 +231,42 @@ fn written_tap_can_pay_with_the_summoning_sick_source_without_a_symbol() {
 }
 
 #[test]
+fn evangel_offer_reserves_a_creature_after_funding_mana() {
+    for second_creature in [false, true] {
+        let board = board(&[(EVANGEL, &[Cell::ChosenObjectCost])])
+            .permanent_or_hand("Selesnya Evangel", 0, 0, false)
+            .permanent_or_hand("Llanowar Elves", 0, 0, false);
+        let board = if second_creature {
+            board.permanent_or_hand("Llanowar Elves", 0, 0, false)
+        } else {
+            board
+        };
+        let mut game = Game::with_trace(board.prepare(), TraceMode::Detailed);
+        assert!(game.state.rules.players[0].mana.is_empty());
+        let source = Driver::object(&game, 0);
+        let elves = Driver::object(&game, 1);
+        let activation = activate(source, 0);
+        assert_eq!(actions(&mut game).contains(&activation), second_creature);
+        if second_creature {
+            let other_elves = Driver::object(&game, 2);
+            Driver::action(&mut game, activation);
+            Driver::pay(&mut game, &[1]);
+            let request = expect(&mut game, 0, reason(ChosenCostAction::Tap));
+            assert_eq!(offered_objects(&request), [other_elves]);
+            Driver::pick_object(&mut game, other_elves);
+            expect(&mut game, 0, Reason::Priority);
+            assert!(
+                [source, elves, other_elves]
+                    .into_iter()
+                    .all(|id| game.current(id).unwrap().tapped)
+            );
+            settle(&mut game);
+            assert_eq!(game.state.rules.tokens.len(), 1);
+        }
+    }
+}
+
+#[test]
 fn source_symbol_and_chosen_tap_need_different_objects_and_recheck_after_mana() {
     for mana_uses_creature in [false, true] {
         let prepared = board(&[(EVANGEL, &[Cell::ChosenObjectCost])])
