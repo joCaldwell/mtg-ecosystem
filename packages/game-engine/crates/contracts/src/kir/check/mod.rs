@@ -472,13 +472,7 @@ impl Walk<'_, '_> {
                 object: Ref::Source | Ref::BoundVar { .. },
             } => Ok(()),
             PlayerExpr::EachPlayer | PlayerExpr::EachOpponent if !single => Ok(()),
-            // CR 608.2h: a filtered target's controller is the current or
-            // last-known controller the resolving frame captured for it,
-            // also after the target left its zone.
-            PlayerExpr::ControllerOf {
-                object: Ref::Target { slot },
-            } if self.target_controller_facts(*slot) => Ok(()),
-            // Other object-derived players can need an absent object's last
+            // Object-derived players can need an absent object's last
             // known information (CR 608.2h). The continuation has no such
             // lookup, and a target may already be illegal at resolution.
             _ => unaudited("control player expression"),
@@ -795,7 +789,18 @@ impl Walk<'_, '_> {
                 chooser,
                 node: child,
             } => {
-                self.control_player(chooser, true)?;
+                if self.target_controller_chooser(chooser) {
+                    // CR 608.2h, 800.4a, 800.4g: the last-known controller
+                    // of a filtered target may only search or shuffle their
+                    // own library. Once they leave, that library left with
+                    // them, so skipping the choice deprives no live player.
+                    self.player(chooser)?;
+                    if !self.scan && !Self::own_library(child, chooser) {
+                        return unaudited("target controller choice outside their library");
+                    }
+                } else {
+                    self.control_player(chooser, true)?;
+                }
                 // CR 608.2d: "you may destroy target permanent", a choice the
                 // resolving frame offers at this instruction's cursor.
                 if let Some((verb, slot, regeneration_forbidden)) = node.optional_target_destroy() {

@@ -58,7 +58,8 @@ impl RulesTxn {
             Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }
-                | CommanderContinuation::ResolutionDraw { frame, .. } => Some(frame),
+                | CommanderContinuation::ResolutionDraw { frame, .. }
+                | CommanderContinuation::Search { frame, .. } => Some(frame),
                 CommanderContinuation::StateBased { .. }
                 | CommanderContinuation::StateBasedBatch { .. } => None,
 

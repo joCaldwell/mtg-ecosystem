@@ -70,6 +70,13 @@ impl Composer {
         let answer = match &d.shape {
             Shape::Pick { slots, rules } => {
                 let mut picks = vec![vec![]; slots.len()];
+                // CR 701.23a: a search with no matching card still looks at
+                // the library; the observation shows it and stop finds nothing.
+                if matches!(d.reason, Reason::SearchLibrary) && slots.iter().all(|s| s.max == 0) {
+                    let mut choices = Choices::new(0, 0);
+                    choices.pointer[STOP] = 1;
+                    select!(choices);
+                }
                 for (i, slot) in slots.iter().enumerate() {
                     while picks[i].len() < slot.max as usize {
                         let mut choices = Choices::new(i, picks.iter().map(Vec::len).sum());
@@ -485,6 +492,32 @@ mod tests {
         assert!(matches!(
             Composer::compose(&search, &[1], None).unwrap(),
             Step::Answer(Answer::Pick { picks }) if picks == vec![vec![1]]
+        ));
+        // CR 701.23a: a library with no matching card is still inspected;
+        // the only pointer is the stop that finds nothing.
+        let none = Decision {
+            candidates: vec![],
+            shape: Shape::Pick {
+                slots: vec![Slot {
+                    role: SlotRole::Choice,
+                    subject: None,
+                    allowed: vec![],
+                    min: 0,
+                    max: 0,
+                    repeat: false,
+                }],
+                rules: vec![],
+            },
+            ..search.clone()
+        };
+        let Step::Choose(c) = Composer::compose(&none, &[], None).unwrap() else {
+            panic!("expected mask")
+        };
+        assert_eq!(c.pointer.iter().filter(|p| **p == 1).count(), 1);
+        assert_eq!(c.pointer[STOP], 1);
+        assert!(matches!(
+            Composer::compose(&none, &[STOP], None).unwrap(),
+            Step::Answer(Answer::Pick { picks }) if picks == vec![Vec::<u32>::new()]
         ));
         let order = Decision {
             id: DecisionToken("order".into()),

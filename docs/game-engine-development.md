@@ -242,8 +242,9 @@ selects the numeric upper bound. For AnnounceX, fully modeled resources can tigh
 this bound. With uncertain sources or reductions, the published maximum applies.
 An unbounded decision with unknown supply uses the signed 32-bit ceiling.
 
-Entity rows preserve object order, then stack order, then remembered library positions
-in published order. Remembered positions have no targetable handle. Missing entity
+Entity rows preserve object order, then stack order, then remembered library positions,
+then one hand-zone row per publicly known revealed hand card, in published order.
+Remembered positions and known hand cards have no targetable handle. Missing entity
 and seat references are -1. Card zero represents absent identity. Player features and
 entity seat references rotate around the viewer. `seat` and terminal rewards use
 absolute seat order. A terminal step returns the next opening observation alongside

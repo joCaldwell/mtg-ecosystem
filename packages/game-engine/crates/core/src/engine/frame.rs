@@ -171,6 +171,17 @@ macro_rules! frame_walk {
                         hold,
                         id: frame.stack_id,
                     }),
+                    CommanderContinuation::Search {
+                        frame,
+                        player: _,
+                        found: _,
+                        remaining: _,
+                        choices: _,
+                        source_block: _,
+                    } => visit($Held::Invocation {
+                        hold,
+                        id: frame.stack_id,
+                    }),
                     CommanderContinuation::Draw { player: _ } => {}
                     CommanderContinuation::StateBased { resume: _ } => {},
                     CommanderContinuation::StateBasedBatch {
@@ -249,6 +260,7 @@ macro_rules! frame_parent {
             Self::CommanderReturn { continuation: CommanderContinuation::BoardReturn { .. }
                 | CommanderContinuation::SpellMove { .. }
                 | CommanderContinuation::ResolutionDraw { .. }
+                | CommanderContinuation::Search { .. }
                 | CommanderContinuation::Draw { .. }, .. }
 
 

@@ -2,8 +2,9 @@
 //! exact frozen R4 source, on seeded private boards. Every choice is checked
 //! for state validity, an exact snapshot round trip and per-seat privacy;
 //! every finished resolution replays from its journal.
-//! Pinned CR 401.2, 608.2d, 608.2h, 701.22a, 701.23a-e, 701.24a, 701.25a,
-//! 800.4a: https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+//! Pinned CR 401.2, 608.2d, 608.2h, 701.22a-d, 701.23a-e, 701.24a,
+//! 701.25a-d, 800.4a, 903.9b:
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{Cell, Tiers, definition_cells, definition_tiers};
 use mtg_core::testkit::*;
 
@@ -27,12 +28,23 @@ const OPT: &str = record!("713332c1-5bd8-400f-bfff-c1ca0697a043");
 const PREORDAIN: &str = record!("ac641490-ca14-48d7-8cc4-b69ce984befa");
 const CONSIDER: &str = record!("4c9bcba6-87b5-4fb3-97ee-6fe5b739337d");
 const CULTIVATE: &str = record!("8b755881-a72d-4e21-a369-d2924eb4585a");
+const ARMILLARY_SPHERE: &str = record!("3963140c-da67-43e6-9514-fe9dc0a43c4d");
+const CRYSTAL_BALL: &str = record!("bd85fe4d-1d62-416f-ac2d-e287911c84e3");
+const SINISTER_STARFISH: &str = record!("58321467-41d6-4419-bcb2-cd3e60f677b3");
 
 const SEED: [u8; 32] = [7; 32];
 
 /// A seeded board whose catalog adds `cards`, each compiled from frozen
 /// source to `Executes` only and occupying the named cells.
 fn board(cards: &[(&str, &[Cell])]) -> Board {
+    Board::new(catalog(cards), "r4-library-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .seed(SEED)
+}
+
+/// The witness catalog with `cards` added; see [`board`].
+fn catalog(cards: &[(&str, &[Cell])]) -> Catalog {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for &(raw, cells) in cards {
         let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
@@ -53,10 +65,11 @@ fn board(cards: &[(&str, &[Cell])]) -> Board {
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    Board::new(catalog, "r4-library-witness")
-        .step(TurnStep::PrecombatMain)
-        .seats(2)
-        .seed(SEED)
+    catalog
+}
+
+fn identity(name: &str) -> String {
+    oracle_id(FixtureCatalog::Witness.get(), name).to_owned()
 }
 
 /// State validation and an exact snapshot round trip.
@@ -76,9 +89,9 @@ fn observation(g: &Game, seat: u8) -> Observation {
     o
 }
 
-/// CR 401.2: at the next decision, the chooser's observation holds exactly
-/// the library cards it chooses among; every other seat sees no library
-/// card and no decision.
+/// CR 401.2, 701.23a: at the next decision, the chooser's observation holds
+/// exactly the library cards it looks at (a searcher's whole library);
+/// every other seat sees no library card and no decision.
 fn private_to(g: &mut Game, chooser: u8, cards: usize) {
     let d = Driver::request(g, u64::MAX);
     assert_eq!(d.player, PlayerId(chooser));
@@ -222,7 +235,8 @@ fn rampant_growth_offers_basic_lands_and_always_shuffles() {
             panic!("{d:?}")
         };
         assert_eq!((slots[0].min, slots[0].max), (0, 1));
-        private_to(&mut g, 0, 2);
+        // CR 701.23a: the searcher looks at every card, not only matches.
+        private_to(&mut g, 0, 4);
         let island = lands[0];
         answer(
             &mut g,
@@ -375,7 +389,7 @@ fn path_to_exile_offers_the_exiled_creatures_controller_a_basic_land() {
         Driver::pay(&mut g, &[1]);
         optional(&mut g, 1, accept);
         if accept {
-            private_to(&mut g, 1, 1);
+            private_to(&mut g, 1, 2);
             let swamp = Driver::object(&g, 5);
             answer(&mut g, 1, Reason::SearchLibrary, &[swamp]);
         }
@@ -577,4 +591,376 @@ fn cultivate_split_destination_rejects() {
         panic!("split search must reject: {result:?}");
     };
     assert_eq!(reason, "verb:search:found_cards");
+}
+
+/// The chooser's library objects in their observation, in published order.
+fn library_view(g: &Game, seat: u8) -> Vec<String> {
+    observation(g, seat)
+        .view
+        .objects
+        .iter()
+        .filter(|o| matches!(o.zone, Zone::Library { .. }))
+        .map(|o| o.oracle_id.clone())
+        .collect()
+}
+
+/// CR 701.23a, b: with no matching card the searcher still looks at the
+/// whole library and finds nothing; the library is still shuffled.
+#[test]
+fn rampant_growth_inspects_a_library_without_basic_lands() {
+    let prepared = board(&[(
+        RAMPANT_GROWTH,
+        &[Cell::SearchController, Cell::ShuffleController],
+    )])
+    .permanent_or_hand("Rampant Growth", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .library_card("Lightning Bolt", 0)
+    .library_card("Grizzly Bears", 0)
+    .library_card("Forest", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let d = next_choice(&mut g);
+    assert_eq!((d.player, &d.reason), (PlayerId(0), &Reason::SearchLibrary));
+    assert!(d.candidates.is_empty());
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    assert_eq!((slots[0].min, slots[0].max), (0, 0));
+    private_to(&mut g, 0, 2);
+    // Object order, never library order.
+    let mut seen = library_view(&g, 0);
+    seen.sort();
+    let mut expected = ["Lightning Bolt", "Grizzly Bears"].map(identity).to_vec();
+    expected.sort();
+    assert_eq!(seen, expected);
+    answer(&mut g, 0, Reason::SearchLibrary, &[]);
+    settle(&mut g);
+    assert_eq!(shuffles(&g, 0), 1);
+    assert_eq!(library(&g, 0).len(), 2);
+}
+
+/// Demonic Tutor finding its owner's commander: CR 903.9b offers the command
+/// zone instead of the hand, then the library is shuffled. Both answers
+/// validate, round-trip and replay.
+#[test]
+fn demonic_tutor_finding_a_commander_offers_the_command_zone() {
+    for to_command in [true, false] {
+        let prepared = board(&[(DEMONIC_TUTOR, &[Cell::SearchController])])
+            .permanent_or_hand("Demonic Tutor", 0, 0, true)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .library_card("Isamaru, Hound of Konda", 0)
+            .library_card("Grizzly Bears", 0)
+            .library_card("Forest", 1)
+            .commander(CardId(3))
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2]);
+        let isamaru = Driver::object(&g, 3);
+        answer(&mut g, 0, Reason::SearchLibrary, &[isamaru]);
+        let d = next_choice(&mut g);
+        assert_eq!(d.player, PlayerId(0));
+        assert!(
+            matches!(&d.reason, Reason::CommanderReturn { destination, .. }
+                if *destination == Zone::Hand { owner: PlayerId(0) }),
+            "{d:?}"
+        );
+        checked(&g);
+        assert_recoverable((&g).into());
+        let flag = if to_command {
+            Flag::CommandZone
+        } else {
+            Flag::Destination
+        };
+        g.respond(
+            d.player,
+            d.id,
+            d.pick_one(&Candidate::Flag { flag }).unwrap(),
+        )
+        .unwrap();
+        settle(&mut g);
+        let zone = g.state.rules.objects[&CardId(3)].zone;
+        if to_command {
+            assert_eq!(zone, Zone::Command { owner: PlayerId(0) });
+        } else {
+            assert_eq!(zone, Zone::Hand { owner: PlayerId(0) });
+        }
+        assert_eq!(library(&g, 0), vec![CardId(4)]);
+        assert_eq!(shuffles(&g, 0), 1);
+    }
+}
+
+const SPHERE: &[(&str, &[Cell])] = &[(
+    ARMILLARY_SPHERE,
+    &[Cell::SearchController, Cell::ShuffleController],
+)];
+
+/// Armillary Sphere: "Search your library for up to two basic land cards,
+/// reveal them, put them into your hand, then shuffle."
+fn sphere_board() -> Board {
+    board(SPHERE)
+        .permanent_or_hand("Armillary Sphere", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, true)
+        .library_card("Forest", 0)
+        .library_card("Island", 0)
+        .library_card("Grizzly Bears", 0)
+        .library_card("Forest", 1)
+}
+
+/// Activate the Sphere and find `found` (card ids), resolving to an empty
+/// stack with seat 0 holding priority.
+fn sphere(found: &[u32]) -> Game {
+    let mut g = Game::with_trace(sphere_board().prepare(), TraceMode::Detailed);
+    let sphere = Driver::object(&g, 0);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: sphere,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut g, &[1, 2]);
+    let found = objects(&g, found);
+    answer(&mut g, 0, Reason::SearchLibrary, &found);
+    settle(&mut g);
+    g
+}
+
+/// Seat 1's permitted view and its encoded observation tensors, at seat 1's
+/// next priority after seat 0 passes.
+fn opponent_tensors(g: &mut Game) -> (String, mtg_observe::Row) {
+    Driver::pass(g);
+    assert_eq!(Driver::request(g, u64::MAX).player, PlayerId(1));
+    let o = observation(g, 1);
+    let d = o.decision.as_ref().expect("seat 1 decides");
+    let catalog = mtg_observe::catalog::ObservationCatalog::new(catalog(SPHERE).into());
+    let mtg_observe::action::Step::Choose(choices) =
+        mtg_observe::action::Composer::compose(d, &[], None).unwrap()
+    else {
+        panic!("seat 1 has a choice")
+    };
+    let row = mtg_observe::encode(&catalog, &o, 0, &choices, false).unwrap();
+    (serde_json::to_string(&o.view).unwrap(), row)
+}
+
+/// CR 701.23e: the found cards are revealed in the library, before they
+/// move to the hand, and each seat keeps a count of the revealed identities.
+#[test]
+fn armillary_sphere_reveals_found_lands_before_they_move() {
+    let g = sphere(&[4, 5]);
+    let events = g.events();
+    let revealed = events
+        .iter()
+        .position(|e| {
+            matches!(e, Event::Committed { actual: EventOutcome::FoundRevealed { objects, .. }, .. }
+                if objects.iter().all(|o| o.incarnation == 0 && matches!(o.card, CardId(4) | CardId(5))))
+        })
+        .expect("found lands revealed in the library");
+    let moved = events
+        .iter()
+        .position(|e| {
+            matches!(e, Event::Committed { actual: EventOutcome::Moved { movement }, .. }
+                if movement.previous.card == CardId(4)
+                    && movement.destination == Zone::Hand { owner: PlayerId(0) })
+        })
+        .expect("found land moved");
+    assert!(revealed < moved);
+    let mut known = ["Forest", "Island"]
+        .map(|n| (PlayerId(0), identity(n)))
+        .to_vec();
+    known.sort();
+    for seat in 0..2 {
+        assert_eq!(observation(&g, seat).view.known_searched_hand, known);
+    }
+    assert_eq!(shuffles(&g, 0), 1);
+}
+
+/// CR 400.2, 701.23e: revealed hand knowledge counts identities, not
+/// copies. Playing the hidden Forest or the revealed one leaves seat 1 the
+/// same permitted view and the same encoded observation, while revealing a
+/// different land is distinguishable in both.
+#[test]
+fn revealed_hand_knowledge_never_identifies_a_copy() {
+    let mut played = vec![];
+    for land in [3, 4] {
+        let mut g = sphere(&[4]);
+        let forest = identity("Forest");
+        assert_eq!(
+            observation(&g, 1).view.known_searched_hand,
+            vec![(PlayerId(0), forest)]
+        );
+        let object = Driver::object(&g, land);
+        Driver::action(&mut g, Action::PlayLand { object });
+        assert_eq!(Driver::request(&mut g, u64::MAX).player, PlayerId(0));
+        assert_eq!(g.state.rules.objects[&object.card].zone, Zone::Battlefield);
+        checked(&g);
+        assert!(observation(&g, 1).view.known_searched_hand.is_empty());
+        played.push(opponent_tensors(&mut g));
+    }
+    assert_eq!(played[0].0, played[1].0, "permitted views differ");
+    assert!(played[0].1 == played[1].1, "observation tensors differ");
+
+    let mut forest = sphere(&[4]);
+    let mut island = sphere(&[5]);
+    let forest = opponent_tensors(&mut forest);
+    let island = opponent_tensors(&mut island);
+    assert_ne!(forest.0, island.0);
+    assert!(forest.1 != island.1, "revealed identities are encoded");
+}
+
+/// CR 701.22d, 701.25d: a positive scry or surveil of an empty library is
+/// still that event, with no choice and nothing moved.
+#[test]
+fn looks_at_an_empty_library_are_still_events() {
+    for (name, raw, cell, mana) in [
+        ("Crystal Ball", CRYSTAL_BALL, Cell::ScryController, true),
+        (
+            "Sinister Starfish",
+            SINISTER_STARFISH,
+            Cell::SurveilController,
+            false,
+        ),
+    ] {
+        let prepared = board(&[(raw, &[cell])])
+            .permanent_or_hand(name, 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .library_card("Forest", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let source = Driver::object(&g, 0);
+        Driver::action(
+            &mut g,
+            Action::ActivateAbility {
+                object: source,
+                ability: 0,
+            },
+        );
+        if mana {
+            Driver::pay(&mut g, &[1]);
+        }
+        settle(&mut g);
+        let looks = g
+            .events()
+            .iter()
+            .filter(|e| match e {
+                Event::Committed {
+                    actual:
+                        EventOutcome::Scried {
+                            player,
+                            top,
+                            bottom,
+                        },
+                    ..
+                } => *player == PlayerId(0) && top.is_empty() && bottom.is_empty(),
+                Event::Committed {
+                    actual:
+                        EventOutcome::Surveilled {
+                            player,
+                            top,
+                            movements,
+                        },
+                    ..
+                } => *player == PlayerId(0) && top.is_empty() && movements.is_empty(),
+                _ => false,
+            })
+            .count();
+        assert_eq!(looks, 1, "{name}");
+    }
+}
+
+/// `validate_state` rejects a departed chooser's choice of another verb, a
+/// saved search table whose unselected candidates changed, and a seeded
+/// board without its randomness.
+#[test]
+fn library_state_rejects_forged_choices_and_lost_randomness() {
+    // A departed searcher's choice must still be the search's own variant.
+    let prepared = board(&[(PATH_TO_EXILE, &[Cell::SearchTargetController])])
+        .seats(3)
+        .permanent_or_hand("Path to Exile", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .library_card("Swamp", 1)
+        .library_card("Forest", 2)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let target = Driver::object(&g, 2);
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[1]);
+    optional(&mut g, 1, true);
+    assert_eq!(next_choice(&mut g).reason, Reason::SearchLibrary);
+    g.concede(PlayerId(1)).unwrap();
+    let Frame::ResolutionChoice { choice, .. } = &g.state.rules.frame else {
+        panic!("{:?}", g.state.rules.frame)
+    };
+    let ResolutionChoice::Search { source_block, .. } = choice.clone() else {
+        panic!("{choice:?}")
+    };
+    g.validate_state().unwrap();
+    let original = g.state.rules.frame.clone();
+    if let Frame::ResolutionChoice { choice, .. } = &mut g.state.rules.frame {
+        *choice = ResolutionChoice::Surveil {
+            player: PlayerId(1),
+            looked: vec![],
+            graveyard: None,
+            source_block,
+        };
+    }
+    assert!(
+        g.validate_state().is_err(),
+        "forged departed choice variant"
+    );
+    g.state.rules.frame = original;
+    g.validate_state().unwrap();
+
+    // A saved search answer keeps its whole offered table.
+    let prepared = board(&[(RAMPANT_GROWTH, &[Cell::SearchController])])
+        .permanent_or_hand("Rampant Growth", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .library_card("Island", 0)
+        .library_card("Plains", 0)
+        .library_card("Forest", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let d = next_choice(&mut g);
+    let island = Candidate::Object {
+        object: Driver::object(&g, 3),
+    };
+    let picked = d.index(&island).unwrap();
+    g.respond(
+        d.player,
+        d.id,
+        Answer::Pick {
+            picks: vec![vec![picked]],
+        },
+    )
+    .unwrap();
+    g.validate_state().unwrap();
+    let pending = g.state.rules.pending.clone();
+    let hidden = Driver::object(&g, 5);
+    let forged = g.state.rules.pending.as_mut().unwrap();
+    let unselected = forged
+        .decision
+        .candidates
+        .iter()
+        .position(|c| *c != island)
+        .unwrap();
+    // Seat 1's hidden library card in place of the unselected Plains.
+    forged.decision.candidates[unselected] = Candidate::Object { object: hidden };
+    assert!(g.validate_state().is_err(), "forged unselected candidate");
+    g.state.rules.pending = pending;
+    g.validate_state().unwrap();
+
+    // A seeded board's shuffles need its match randomness.
+    g.state.rules.match_state = None;
+    assert!(g.validate_state().is_err(), "seed without randomness");
 }

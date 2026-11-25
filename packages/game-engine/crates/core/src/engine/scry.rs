@@ -36,6 +36,14 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
+    fn library_is_empty(&self, player: PlayerId) -> bool {
+        self.state
+            .rules
+            .libraries
+            .get(&player)
+            .is_none_or(|cards| cards.is_empty())
+    }
+
     /// The chooser's memory of the cards they put back, top first.
     fn remembered(&self, cards: &[ObjectId], tag: &str) -> Result<Vec<RememberedCard>, String> {
         cards
@@ -79,13 +87,21 @@ impl RulesTxn {
         bottom: &[ObjectId],
     ) -> Result<EventOutcome, String> {
         let amount = Quantity::from(i64::try_from(looked.len()).map_err(|_| "scry limit")?);
+        // CR 701.22d: an empty library still scries, with nothing looked at.
         if !self.is_live(player)
-            || looked.is_empty()
+            || (looked.is_empty() && !self.library_is_empty(player))
             || self.library_prefix(player, &amount)? != looked
         {
             return Err("invalid scry prefix".into());
         }
         Self::library_partition(looked, [top, bottom])?;
+        if looked.is_empty() {
+            return Ok(EventOutcome::Scried {
+                player,
+                top: vec![],
+                bottom: vec![],
+            });
+        }
         let library = self
             .rules_mut()
             .libraries
@@ -124,13 +140,21 @@ impl RulesTxn {
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
         let amount = Quantity::from(i64::try_from(looked.len()).map_err(|_| "surveil limit")?);
+        // CR 701.25d: an empty library still surveils, with nothing looked at.
         if !self.is_live(player)
-            || looked.is_empty()
+            || (looked.is_empty() && !self.library_is_empty(player))
             || self.library_prefix(player, &amount)? != looked
         {
             return Err("invalid surveil prefix".into());
         }
         Self::library_partition(looked, [top, graveyard])?;
+        if looked.is_empty() {
+            return Ok(EventOutcome::Surveilled {
+                player,
+                top: vec![],
+                movements: vec![],
+            });
+        }
         // Put the kept cards back on top first; the moved cards leave from
         // wherever they are, which changes no other position.
         let library = self
@@ -202,7 +226,8 @@ impl RulesTxn {
         Ok(EventOutcome::LibraryShuffled { player, count })
     }
 
-    /// CR 701.23e: every player saw the found cards now in `player`'s hand.
+    /// CR 701.23e: every player sees the found cards, still in `player`'s
+    /// library, before they move. The search records what stays known.
     pub(super) fn apply_found_reveal(
         &mut self,
         player: PlayerId,
@@ -211,13 +236,10 @@ impl RulesTxn {
         if objects.is_empty()
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || objects.iter().any(|o| {
-                self.current(*o).map(|o| o.zone).ok() != Some(Zone::Hand { owner: player })
+                self.current(*o).map(|o| o.zone).ok() != Some(Zone::Library { owner: player })
             })
         {
-            return Err("revealed found cards must be in the searcher's hand".into());
-        }
-        for knowledge in &mut self.state.knowledge.visibility {
-            knowledge.revealed_hand.extend(objects.iter().copied());
+            return Err("revealed found cards must be in the searcher's library".into());
         }
         Ok(EventOutcome::FoundRevealed {
             player,

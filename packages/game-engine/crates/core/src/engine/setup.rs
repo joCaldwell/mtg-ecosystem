@@ -730,6 +730,10 @@ impl RulesTxn {
     }
     pub(super) fn validate_match_state(&self) -> Result<(), String> {
         match (&self.prepared.match_config, &self.state.rules.match_state) {
+            // A seeded private board always carries its library randomness.
+            (None, None) if self.prepared.config.initial.seed.is_some() => {
+                Err("snapshot scenario seed without match randomness".into())
+            }
             (None, None) => Ok(()),
             // A seeded private board shuffles libraries and has no opening.
             (None, Some(s)) => {

@@ -94,8 +94,10 @@ impl ObjectHandles {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Knowledge {
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub revealed_hand: BTreeSet<ObjectId>,
+    /// CR 701.23e: the minimum number of publicly revealed copies of each
+    /// Oracle identity known to be in each owner's hand.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub revealed_hand: BTreeMap<PlayerId, BTreeMap<String, u32>>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

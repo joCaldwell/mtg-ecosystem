@@ -1,11 +1,15 @@
 //! Library verbs: search, shuffle, scry and surveil (CR 701.22-701.25).
 //!
 //! The acting player looks at hidden library cards through one resolution
-//! choice. Only that player's decision names them (`visible_to`), so no
-//! other seat learns an identity, a candidate count or an order. Found cards
-//! move together; a revealed card bound for its owner's hand stays known to
-//! every seat while it remains there (CR 701.23e). A departed actor's library
-//! left the game with them (CR 800.4a), so their pending choice is skipped.
+//! choice. Only that player sees them (`visible_to`): a searcher sees the
+//! whole searched library in object order (CR 701.23a) while only matching
+//! cards are selectable, so no other seat learns an identity, a candidate
+//! count or an order. Found cards are revealed in the library, then move
+//! together; a found commander bound for its owner's hand first offers the
+//! command zone (CR 903.9b). Revealed cards in their owner's hand stay
+//! publicly counted by Oracle identity (CR 701.23e). A departed actor's
+//! library left the game with them (CR 800.4a), so their pending choice is
+//! skipped.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchSpec};
@@ -16,6 +20,18 @@ pub(in crate::engine) struct SearchBounds {
     pub candidates: Vec<ObjectId>,
     pub minimum: usize,
     pub maximum: usize,
+    /// The number of cards in the searched library.
+    pub library: usize,
+}
+
+impl SearchBounds {
+    /// CR 701.23a: the searcher looks at every card of a non-empty library,
+    /// even when none matches. Only a search that must find every card,
+    /// including an empty library, has nothing to decide.
+    pub fn needs_choice(&self) -> bool {
+        self.library > 0
+            && (self.minimum < self.candidates.len() || self.candidates.len() < self.library)
+    }
 }
 
 impl RulesTxn {
@@ -64,6 +80,7 @@ impl RulesTxn {
             .flatten()
             .map(|card| self.object_id(*card).ok_or("missing library card"))
             .collect::<Result<Vec<_>, _>>()?;
+        let library = candidates.len();
         candidates.retain(|id| {
             self.current(*id).is_ok_and(|object| {
                 crate::query::matches_pred(&self.object_facts(object), player, &search.filter)
@@ -86,6 +103,7 @@ impl RulesTxn {
             maximum: maximum.min(candidates.len()),
             candidates,
             minimum,
+            library,
         })
     }
 
@@ -124,9 +142,9 @@ impl RulesTxn {
             }
             Verb::Search { search, .. } => {
                 let bounds = self.search_bounds(actor, &search)?;
-                // CR 701.23b, d: nothing to choose when every candidate must
-                // be found, including none at all.
-                if bounds.minimum == bounds.candidates.len() {
+                // CR 701.23a, d: nothing to choose when every card must be
+                // found, including from an empty library.
+                if !bounds.needs_choice() {
                     return self.complete_search(frame, actor, bounds.candidates, source_block);
                 }
                 self.rules_mut().frame = Frame::ResolutionChoice {
@@ -141,10 +159,25 @@ impl RulesTxn {
             Verb::Scry { ref amount, .. } | Verb::Surveil { ref amount, .. } => {
                 let amount = self.kernel_amount(&frame, amount)?;
                 let looked = self.library_prefix(actor, &amount)?;
-                // CR 701.22a, 701.25a: an empty library leaves nothing to look at.
+                // CR 701.22b, d, 701.25c, d: a positive scry or surveil of
+                // an empty library is still that event, with nothing moved.
                 if looked.is_empty() {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                    let event = if matches!(verb, Verb::Scry { .. }) {
+                        ProposedEvent::Scry {
+                            player: actor,
+                            looked,
+                            top: vec![],
+                            bottom: vec![],
+                        }
+                    } else {
+                        ProposedEvent::Surveil {
+                            player: actor,
+                            looked,
+                            top: vec![],
+                            graveyard: vec![],
+                        }
+                    };
+                    return self.commit_look(frame, event, source_block);
                 }
                 let choice = if matches!(verb, Verb::Scry { .. }) {
                     ResolutionChoice::Scry {
@@ -169,8 +202,46 @@ impl RulesTxn {
         }
     }
 
-    /// CR 701.23a, e, 110.2: move the found cards together, then record a
-    /// printed reveal of the cards now in their owner's hand.
+    /// The audited search at this frame's cursor and the zone its found
+    /// cards go to; `None` is the battlefield, tapped (CR 110.2, 614.1c).
+    fn search_destination(&self, frame: &Resolving) -> Result<(SearchSpec, Option<Zone>), String> {
+        let (verb, _) = self.library_verb(frame)?;
+        let Verb::Search { player, search } = verb else {
+            return Err("search continuation lost its instruction".into());
+        };
+        let Players::One(player) = self.kernel_players(frame, &player)? else {
+            return Err("search without one player".into());
+        };
+        let to = match search.to {
+            Destination::Battlefield { tapped, .. } => (!tapped).then_some(Zone::Battlefield),
+            Destination::OwnerHand => Some(Zone::Hand { owner: player }),
+            Destination::OwnerGraveyard => Some(Zone::Graveyard { owner: player }),
+            _ => return Err("search destination has no audited executor".into()),
+        };
+        Ok((search, to))
+    }
+
+    /// CR 903.9b: found commanders bound for their owner's hand, in object
+    /// order, each of whose owner may choose the command zone instead.
+    fn found_commanders(
+        &self,
+        frame: &Resolving,
+        found: &[ObjectId],
+    ) -> Result<Vec<ObjectId>, String> {
+        let (_, to) = self.search_destination(frame)?;
+        Ok(if matches!(to, Some(Zone::Hand { .. })) {
+            found
+                .iter()
+                .copied()
+                .filter(|o| self.state.rules.commanders.history(o.card).is_some())
+                .collect()
+        } else {
+            vec![]
+        })
+    }
+
+    /// CR 701.23a, 903.9b: ask each found commander's owner where it goes
+    /// before the found cards move together.
     fn complete_search(
         &mut self,
         frame: Resolving,
@@ -178,10 +249,57 @@ impl RulesTxn {
         found: Vec<ObjectId>,
         source_block: u32,
     ) -> Result<(), String> {
-        let (verb, _) = self.library_verb(&frame)?;
-        let Verb::Search { search, .. } = verb else {
-            return Err("search continuation lost its instruction".into());
-        };
+        let remaining = self.found_commanders(&frame, &found)?;
+        self.continue_search(frame, player, found, remaining, vec![], source_block)
+    }
+
+    /// Offer the next found commander its command-zone choice, or commit
+    /// the search once every commander's owner has chosen.
+    pub(in crate::engine) fn continue_search(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        found: Vec<ObjectId>,
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    ) -> Result<(), String> {
+        // CR 800.4a: the searcher's library left the game with them.
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        if let Some(object) = remaining.first().copied() {
+            self.rules_mut().frame = Frame::CommanderReturn {
+                object,
+                destination: Zone::Hand { owner: player },
+                continuation: CommanderContinuation::Search {
+                    frame,
+                    player,
+                    found,
+                    remaining,
+                    choices,
+                    source_block,
+                },
+            };
+            return Ok(());
+        }
+        self.commit_search(frame, player, found, &choices, source_block)
+    }
+
+    /// CR 701.23a, e, 110.2, 903.9b: reveal the found cards in the library
+    /// when printed, then move them together, each commander to the zone
+    /// its owner chose. Revealed cards that reach the hand stay publicly
+    /// counted there by Oracle identity.
+    fn commit_search(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        found: Vec<ObjectId>,
+        choices: &[(ObjectId, bool)],
+        source_block: u32,
+    ) -> Result<(), String> {
+        let (search, to) = self.search_destination(&frame)?;
         if found.is_empty() {
             return self.finish_instruction(
                 frame,
@@ -191,33 +309,35 @@ impl RulesTxn {
                 },
             );
         }
-        let to = match search.to {
-            Destination::Battlefield { tapped, .. } => (!tapped).then_some(Zone::Battlefield),
-            Destination::OwnerHand => Some(Zone::Hand { owner: player }),
-            Destination::OwnerGraveyard => Some(Zone::Graveyard { owner: player }),
-            _ => return Err("search destination has no audited executor".into()),
-        };
-        // CR 903.9b: a commander put into its owner's hand offers the
-        // command zone instead; that replacement has no search continuation.
-        if matches!(to, Some(Zone::Hand { .. }))
-            && found
-                .iter()
-                .any(|o| self.state.rules.commanders.history(o.card).is_some())
-        {
-            return Err("search of a commander into its owner's hand needs CR 903.9b".into());
+        let cause = self.instruction_cause(&frame, source_block)?;
+        let reveal = search.reveal && matches!(to, Some(Zone::Hand { .. }));
+        if reveal {
+            self.commit(
+                ProposedEvent::RevealFound {
+                    player,
+                    objects: found.clone(),
+                },
+                cause.clone(),
+            )?;
         }
         let occurrences = found
             .iter()
-            .map(|object| match to {
-                Some(destination) => ProposedEvent::Move {
-                    object: *object,
-                    destination,
-                },
-                None => ProposedEvent::EnterTapped { object: *object },
+            .map(|object| {
+                let command = choices.iter().any(|(o, yes)| o == object && *yes);
+                match to {
+                    _ if command => ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Command { owner: player },
+                    },
+                    Some(destination) => ProposedEvent::Move {
+                        object: *object,
+                        destination,
+                    },
+                    None => ProposedEvent::EnterTapped { object: *object },
+                }
             })
             .collect();
-        let cause = self.instruction_cause(&frame, source_block)?;
-        let batch = self.commit_batch(cause.clone(), EventGroup::Simultaneous { occurrences })?;
+        let batch = self.commit_batch(cause, EventGroup::Simultaneous { occurrences })?;
         let movements = batch
             .occurrences
             .iter()
@@ -226,14 +346,15 @@ impl RulesTxn {
                 _ => Err("search movement invariant".to_string()),
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if search.reveal && matches!(to, Some(Zone::Hand { .. })) {
-            self.commit(
-                ProposedEvent::RevealFound {
-                    player,
-                    objects: movements.iter().map(|m| m.successor).collect(),
-                },
-                cause,
-            )?;
+        if reveal {
+            let revealed: Vec<_> = movements
+                .iter()
+                .filter(|m| m.destination == (Zone::Hand { owner: player }))
+                .map(|m| m.successor)
+                .collect();
+            if !revealed.is_empty() {
+                self.remember_revealed_hand(player, &revealed)?;
+            }
         }
         self.finish_instruction(
             frame,
@@ -242,6 +363,41 @@ impl RulesTxn {
                 destroyed_creatures: 0,
             },
         )
+    }
+
+    /// The suspended search continuation is this instruction's own: the
+    /// found cards are a legal answer and the commanders are asked in order.
+    pub(in crate::engine) fn valid_search_continuation(
+        &self,
+        object: ObjectId,
+        frame: &Resolving,
+        player: PlayerId,
+        found: &[ObjectId],
+        remaining: &[ObjectId],
+        choices: &[(ObjectId, bool)],
+        source_block: u32,
+    ) -> Result<bool, String> {
+        let (verb, block) = self.library_verb(frame)?;
+        let Verb::Search {
+            player: who,
+            search,
+        } = &verb
+        else {
+            return Ok(false);
+        };
+        if block != source_block
+            || !matches!(self.kernel_players(frame, who)?, Players::One(p) if p == player)
+            || !self.is_live(player)
+        {
+            return Ok(false);
+        }
+        let bounds = self.search_bounds(player, search)?;
+        let commanders = self.found_commanders(frame, found)?;
+        let asked: Vec<_> = choices.iter().map(|(o, _)| *o).collect();
+        Ok(Self::subset(&bounds.candidates, found)
+            && (bounds.minimum..=bounds.maximum).contains(&found.len())
+            && remaining.first() == Some(&object)
+            && asked.iter().chain(remaining).copied().collect::<Vec<_>>() == commanders)
     }
 
     /// The decision a library choice waits for, or `None` when its actor
@@ -262,6 +418,8 @@ impl RulesTxn {
                 let (Verb::Search { search, .. }, _) = self.library_verb(frame)? else {
                     return Err("search choice lost its instruction".into());
                 };
+                // CR 701.23a: the searcher sees the whole library; only the
+                // matching cards are offered, possibly none at all.
                 let bounds = self.search_bounds(*player, &search)?;
                 Some(self.pick(
                     *player,
@@ -531,7 +689,7 @@ impl RulesTxn {
         viewer: PlayerId,
         object: ObjectId,
     ) -> bool {
-        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
+        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
             return false;
         };
         match choice {
@@ -539,19 +697,11 @@ impl RulesTxn {
             | ResolutionChoice::Surveil { player, looked, .. } => {
                 *player == viewer && looked.contains(&object)
             }
+            // CR 701.23a: every card of the searched library, matching or
+            // not, in object order; no position is published.
             ResolutionChoice::Search { player, .. } if *player == viewer => {
-                let Ok((Verb::Search { search, .. }, _)) = self.library_verb(frame) else {
-                    return false;
-                };
                 self.current(object).is_ok_and(|current| {
-                    current.id == object
-                        && current.zone == (Zone::Library { owner: viewer })
-                        && crate::query::matches_pred(
-                            &self.object_facts(current),
-                            viewer,
-                            &search.filter,
-                        )
-                        .is_yes()
+                    current.id == object && current.zone == (Zone::Library { owner: viewer })
                 })
             }
             _ => false,
@@ -595,15 +745,10 @@ impl RulesTxn {
         if expected != player || source_block != block {
             return Ok(false);
         }
-        // A departed actor's library left the game; the step skips it.
-        if !self.is_live(player) {
-            return Ok(true);
-        }
-        Ok(match (choice, &verb) {
-            (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => {
-                let bounds = self.search_bounds(player, search)?;
-                bounds.minimum < bounds.candidates.len()
-            }
+        // The choice variant must be this verb's own, and its partial
+        // answers well formed, before the departure fast path accepts it.
+        let staged = match (choice, &verb) {
+            (ResolutionChoice::Search { .. }, Verb::Search { .. }) => true,
             (
                 ResolutionChoice::Scry {
                     looked,
@@ -611,34 +756,50 @@ impl RulesTxn {
                     top,
                     ..
                 },
-                Verb::Scry { amount, .. },
+                Verb::Scry { .. },
             ) => {
-                let amount = self.kernel_amount(frame, amount)?;
-                let partition = match (bottom, top) {
-                    (None, None) => true,
-                    (Some(bottom), None) => {
-                        Self::subset(looked, bottom) && Self::rest(looked, bottom).len() > 1
+                !looked.is_empty()
+                    && match (bottom, top) {
+                        (None, None) => true,
+                        (Some(bottom), None) => {
+                            Self::subset(looked, bottom) && Self::rest(looked, bottom).len() > 1
+                        }
+                        (Some(bottom), Some(top)) => {
+                            bottom.len() > 1
+                                && Self::subset(looked, bottom)
+                                && Self::same_cards(&Self::rest(looked, bottom), top)
+                        }
+                        (None, Some(_)) => false,
                     }
-                    (Some(bottom), Some(top)) => {
-                        bottom.len() > 1
-                            && Self::subset(looked, bottom)
-                            && Self::same_cards(&Self::rest(looked, bottom), top)
-                    }
-                    (None, Some(_)) => false,
-                };
-                partition && !looked.is_empty() && self.library_prefix(player, &amount)? == *looked
             }
             (
                 ResolutionChoice::Surveil {
                     looked, graveyard, ..
                 },
-                Verb::Surveil { amount, .. },
+                Verb::Surveil { .. },
             ) => {
+                !looked.is_empty()
+                    && graveyard.as_ref().is_none_or(|graveyard| {
+                        Self::subset(looked, graveyard) && Self::rest(looked, graveyard).len() > 1
+                    })
+            }
+            _ => false,
+        };
+        if !staged {
+            return Ok(false);
+        }
+        // A departed actor's library left the game; the step skips it.
+        if !self.is_live(player) {
+            return Ok(true);
+        }
+        Ok(match (choice, &verb) {
+            (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => {
+                self.search_bounds(player, search)?.needs_choice()
+            }
+            (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
+            | (ResolutionChoice::Surveil { looked, .. }, Verb::Surveil { amount, .. }) => {
                 let amount = self.kernel_amount(frame, amount)?;
-                graveyard.as_ref().is_none_or(|graveyard| {
-                    Self::subset(looked, graveyard) && Self::rest(looked, graveyard).len() > 1
-                }) && !looked.is_empty()
-                    && self.library_prefix(player, &amount)? == *looked
+                self.library_prefix(player, &amount)? == *looked
             }
             _ => false,
         })

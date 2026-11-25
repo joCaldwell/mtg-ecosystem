@@ -1908,6 +1908,7 @@ impl RulesTxn {
         {
             return Err("regeneration shield requires authenticated creation".into());
         }
+        let known_hand = self.known_hand_cards();
 
         let actual = match proposed {
             ProposedEvent::Mill {
@@ -2789,6 +2790,7 @@ impl RulesTxn {
                 self.apply_move(*object, *destination, caster, false)?
             }
         };
+        self.forget_departed_hand_cards(known_hand)?;
         self.update_library_position_memory(proposed, &actual);
         Ok(actual)
     }

@@ -142,13 +142,15 @@ resumable continuations, never priority windows; drain concessions and
 revalidate owner choices before exposing queries.
 
 Library manipulation is private to its chooser and replay-proven. While a
-search, scry or surveil choice waits, only its chooser sees the offered library
-cards; no other seat learns an identity, count or order. Scry picks the bottom
+search, scry or surveil choice waits, only its chooser sees the library cards
+it looks at, a searcher its whole library in object order (CR 701.23a); no
+other seat learns an identity, count or order. Scry picks the bottom
 cards, then orders the top and bottom groups; surveil picks the graveyard cards,
 then orders the rest (CR 701.22a, 701.25a). Each asks only for orders of two or
 more cards and commits one atomic event; positions other seats remembered in
 that library are forgotten. Scry, surveil and mill (CR 701.17) clamp short
-libraries and emit nothing for zero. Optional shuffles consume no randomness when declined. Counted
+libraries; mill emits nothing for zero, while a positive scry or surveil of an
+empty library is still an empty event (CR 701.22d, 701.25d). Optional shuffles consume no randomness when declined. Counted
 draws make sequential unclamped attempts; each-player draws finish each seat in
 turn order. Discards clamp to hand size, group choices stay private until one
 simultaneous discard, and random discard samples without replacement. Library-top
@@ -347,13 +349,16 @@ Forbidding regeneration stays limited to the nonland-permanent wave. Counts use 
 excluding prevented destruction. Turn-long exile replacement covers only
 creatures actually dealt its damage, so exile causes no death. Indestructible
 prevents destruction before replacement; generic departures never imply dies
-triggers. A search offers the searcher's library cards with the printed
-qualities, sorted so no position leaks. With a quality it may find none (CR
-701.23b); "a card" must find as many as it can (CR 701.23d). Found cards move
-together, onto the battlefield (optionally tapped, CR 614.1c) under the
-searcher's control or into the owner's hand or graveyard. A revealed card in
-hand stays known to every seat while it remains there (CR 701.23e). A commander
-found into its owner's hand faults: CR 903.9b has no search continuation.
+triggers. A search shows the searcher every card of a non-empty library and
+offers those with the printed qualities, sorted so no position leaks; with no
+match it still asks, offering none. With a quality it may find none (CR
+701.23b); "a card" must find as many as it can (CR 701.23d). A found commander
+bound for its owner's hand first offers the command zone (CR 903.9b); then
+printed reveals happen in the library and the found cards move together, onto
+the battlefield (optionally tapped, CR 614.1c) under the searcher's control or
+into the owner's hand or graveyard. Revealed hand cards are a public minimum
+count per owner and Oracle identity (CR 701.23e), never an incarnation: a public
+departure of that identity consumes one, and a hidden departure one of each.
 
 ## Keywords, attachments and temporary effects
 
@@ -504,8 +509,9 @@ under one kernel control node:
 
 An optional chooser is the controller; a chooser named by `decidedBy` would
 need CR 800.4g reassignment and rejects. A filtered target's captured controller
-may choose to search and shuffle their own library: it leaves with them (CR
-800.4a), so a reassigned choice could act on nothing. A payer binds to the controller or the
+may choose only to search and shuffle their own library, in the compiler and
+the Kernel IR check alike: it leaves with them (CR 800.4a), so a reassigned
+choice could act on nothing. A payer binds to the controller or the
 trigger's kernel event player, and a cost's implicit payer must be the same
 player. An optional body is a draw, life change, mill, search, shuffle, scry or
 surveil, or a tap, untap, move or counter verb on a target or the source. The continuation offers no impossible

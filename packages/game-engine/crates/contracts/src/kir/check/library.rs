@@ -26,6 +26,23 @@ impl Walk<'_, '_> {
         }
     }
 
+    /// CR 608.2h: the last-known controller of a filtered target, the
+    /// chooser Path to Exile-style text calls "its controller".
+    pub(super) fn target_controller_chooser(&self, chooser: &PlayerExpr) -> bool {
+        matches!(chooser, PlayerExpr::ControllerOf {
+            object: Ref::Target { slot },
+        } if self.target_controller_facts(*slot))
+    }
+
+    /// Every verb of `node` searches or shuffles `player`'s own library.
+    pub(super) fn own_library(node: &Node, player: &PlayerExpr) -> bool {
+        match node {
+            Node::Seq(nodes) => nodes.iter().all(|node| Self::own_library(node, player)),
+            Node::Do(Verb::Search { player: p, .. } | Verb::Shuffle { player: p }) => p == player,
+            _ => false,
+        }
+    }
+
     /// A filtered battlefield-permanent or stack-spell target, whose current
     /// or last-known controller the resolving frame captures (CR 608.2h).
     pub(super) fn target_controller_facts(&self, slot: u32) -> bool {

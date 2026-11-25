@@ -1337,6 +1337,47 @@ fn library_cells_reject_other_libraries_destinations_and_filters() {
         },
         &unfiltered
     ));
+    // CR 800.4g: a filtered target's controller may only choose to search
+    // or shuffle their own library. Skipping any other choice after they
+    // leave would deprive a live player of its effect.
+    let filtered = filtered_creature_target();
+    let theirs = PlayerExpr::ControllerOf {
+        object: Ref::Target { slot: 0 },
+    };
+    for node in [
+        Node::Do(Verb::Draw {
+            player: you.clone(),
+            amount: Amount::fixed(1),
+        }),
+        Node::Seq(vec![
+            search(you.clone(), Pred(vec![]), 1, Destination::OwnerHand),
+            Node::Do(Verb::Shuffle {
+                player: theirs.clone(),
+            }),
+        ]),
+    ] {
+        assert!(unaudited(
+            &Node::Optional {
+                chooser: theirs.clone(),
+                node: Box::new(node),
+            },
+            &filtered
+        ));
+    }
+    // That player chooses nothing outside an optional library action.
+    assert!(unaudited(
+        &Node::ForEach {
+            var: 0,
+            over: Domain::Players {
+                players: theirs.clone(),
+            },
+            body: Box::new(Node::Do(Verb::Draw {
+                player: you.clone(),
+                amount: Amount::fixed(1),
+            })),
+        },
+        &filtered
+    ));
     // Each player and an announced player have no library cell.
     for player in [PlayerExpr::EachPlayer, PlayerExpr::target(0)] {
         assert!(unaudited(

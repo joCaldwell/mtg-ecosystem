@@ -19,6 +19,17 @@ pub enum CommanderContinuation {
         player: PlayerId,
         source_block: u32,
     },
+    /// CR 701.23a, 903.9b: a search's `found` cards wait while each found
+    /// commander bound for its owner's hand (`remaining`, the current one
+    /// first) offers the command zone; then they all move together.
+    Search {
+        frame: Resolving,
+        player: PlayerId,
+        found: Vec<ObjectId>,
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    },
     Draw {
         player: PlayerId,
     },
@@ -292,6 +303,21 @@ impl RulesTxn {
                     },
                 )?;
             }
+            CommanderContinuation::Search {
+                frame,
+                player,
+                found,
+                mut remaining,
+                mut choices,
+                source_block,
+            } => {
+                if remaining.first() != Some(&object) {
+                    return Err("search commander choice order".into());
+                }
+                remaining.remove(0);
+                choices.push((object, to_command));
+                self.continue_search(frame, player, found, remaining, choices, source_block)?;
+            }
             CommanderContinuation::Draw { player } => {
                 if present {
                     self.move_object_for(
@@ -510,6 +536,31 @@ impl RulesTxn {
                         return Err(
                             "snapshot commander resolution draw continuation invariant".into()
                         );
+                    }
+                }
+                CommanderContinuation::Search {
+                    frame,
+                    player,
+                    found,
+                    remaining,
+                    choices,
+                    source_block,
+                } => {
+                    self.validate_resolving(frame)?;
+                    if *player != owner
+                        || current.zone != (Zone::Library { owner })
+                        || *destination != (Zone::Hand { owner })
+                        || !self.valid_search_continuation(
+                            *object,
+                            frame,
+                            *player,
+                            found,
+                            remaining,
+                            choices,
+                            *source_block,
+                        )?
+                    {
+                        return Err("snapshot commander search continuation invariant".into());
                     }
                 }
                 CommanderContinuation::Draw { player } => {
