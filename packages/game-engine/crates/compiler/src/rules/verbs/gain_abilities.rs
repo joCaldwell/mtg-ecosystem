@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-fn keyword(grant: &ast::GainedAbility) -> Result<KeywordAbility, Failure> {
+pub(super) fn keyword(grant: &ast::GainedAbility) -> Result<KeywordAbility, Failure> {
     let grant = match grant {
         ast::GainedAbility::Keyword(keyword) => keyword,
         ast::GainedAbility::KeywordChoice(_)
@@ -71,6 +71,18 @@ pub(super) fn lower(
         lower_board_set(&what, cx.context)?
     } else if is_this_creature(&what) {
         SetExpr::source()
+    } else if let Some(slot) = continuous::followup_target(cx, &what) {
+        if keywords == [KeywordAbility::Haste] && !continuous::targets_creature(cx, slot) {
+            return Ok(cx.act(Verb::SetCharacteristics {
+                what: SetExpr::target(slot),
+                values: kir::CharacteristicSet {
+                    keywords,
+                    ..Default::default()
+                },
+                until: kir::Until::EndOfTurn,
+            }));
+        }
+        SetExpr::target(slot)
     } else {
         SetExpr::target(bind_creature_target(cx.program, cx.slots, &what)?)
     };

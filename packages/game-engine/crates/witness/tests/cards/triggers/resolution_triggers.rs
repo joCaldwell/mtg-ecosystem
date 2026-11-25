@@ -8,6 +8,7 @@ const CARRIER_PIGEONS: &str = record!("2d30a634-43c6-4e78-ba10-7ef7ee17ac40");
 const TRANSLUMINANT: &str = record!("f4d54a89-8409-4fbc-b01f-3b03f352820f");
 const CASEY_JONES: &str = record!("bc163b5a-0b1a-4257-8c07-5c7d5284015f");
 const SPARKTONGUE_DRAGON: &str = record!("1817acd5-5ed0-47b8-8e56-4715a488867e");
+const TRUE_CONVICTION: &str = record!("fc299c1c-50f3-492a-b6b8-a3664bb72ab7");
 const LUCIUS: &str = record!("fa726aac-f4ae-4e34-ac08-36c1f50215f3");
 
 fn deliveries(g: &Game) -> usize {
@@ -321,12 +322,12 @@ fn resolution_created_reflexive_payment_announces_targets_after_actual_spend() {
     assert_recoverable((&g).into());
 }
 
-#[test]
-fn resolution_created_departure_watches_the_chosen_permanent() {
+fn watch_with_lucius(watched_controller: u8) -> (Game, ObjectId, ObjectId) {
     let prepared = prepare(
         board(&[LUCIUS], TurnStep::PrecombatMain)
+            .seats(4)
             .permanent_or_hand("Lucius the Eternal", 0, 0, false)
-            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Grizzly Bears", 1, watched_controller, false)
             .permanent_or_hand("Murder", 0, 0, true)
             .permanent_or_hand("Unsummon", 0, 0, true)
             .permanent_or_hand("Swamp", 0, 0, false)
@@ -349,6 +350,12 @@ fn resolution_created_departure_watches_the_chosen_permanent() {
         targets.entity_targets(vec![target(watched)]),
     );
     settle(&mut g);
+    (g, source, watched)
+}
+
+#[test]
+fn resolution_created_departure_watches_the_chosen_permanent() {
+    let (mut g, source, watched) = watch_with_lucius(1);
     let exile = Driver::object(&g, 0);
     assert_eq!(g.current(exile).unwrap().zone, Zone::Exile);
     assert_eq!(deliveries(&g), 0);
@@ -365,4 +372,109 @@ fn resolution_created_departure_watches_the_chosen_permanent() {
     );
     assert_eq!(Driver::object(&g, 0).incarnation, exile.incarnation + 1);
     assert_recoverable((&g).into());
+}
+
+/// CR 603.6c and 800.4a: a non-owned creature still controlled by a
+/// departing player moves from the battlefield to exile.
+#[test]
+fn resolution_created_departure_collects_concession_exile() {
+    let (mut g, source, watched) = watch_with_lucius(2);
+    let exiled_source = Driver::object(&g, 0);
+    assert_eq!(g.current(exiled_source).unwrap().zone, Zone::Exile);
+    assert_eq!(g.state.rules.cards[&watched.card].owner, PlayerId(1));
+    assert_eq!(g.current(watched).unwrap().controller, PlayerId(2));
+    assert_eq!(deliveries(&g), 0);
+    checked(&g);
+
+    g.concede(PlayerId(2)).unwrap();
+    drive(&mut g, &[], triggered);
+    assert_eq!(g.live_players(), [PlayerId(0), PlayerId(1), PlayerId(3)]);
+    assert_eq!(g.current(Driver::object(&g, 1)).unwrap().zone, Zone::Exile);
+    assert_eq!(g.state.rules.stack[0].source, source);
+    assert!(
+        matches!(&g.state.rules.stack[0].kind, StackKind::Triggered {
+        witness: TriggerEventWitness::Moved { movement }, ..
+    } if movement.previous == watched && movement.from == Zone::Battlefield
+        && movement.destination == Zone::Exile)
+    );
+    assert_eq!(deliveries(&g), 1);
+    checked(&g);
+
+    settle(&mut g);
+    let returned = Driver::object(&g, 0);
+    assert_eq!(g.current(returned).unwrap().zone, Zone::Battlefield);
+    assert_eq!(returned.incarnation, exiled_source.incarnation + 1);
+    assert_recoverable((&g).into());
+}
+
+/// CR 608.2h/702.26b: a phased-out source uses the parent's last-known
+/// battlefield characteristics for damage, including granted lifelink.
+#[test]
+fn resolution_created_reflexive_trigger_uses_phased_source_lki() {
+    let mut setup = board_with(
+        compiled(&[SPARKTONGUE_DRAGON, TRUE_CONVICTION], false),
+        TurnStep::PrecombatMain,
+    )
+    .permanent_or_hand("Sparktongue Dragon", 0, 0, true);
+    for _ in 0..8 {
+        setup = setup.permanent_or_hand("Mountain", 0, 0, false);
+    }
+    let mut g = Game::with_trace(
+        prepare(setup.permanent_or_hand("True Conviction", 0, 0, false)),
+        TraceMode::Detailed,
+    );
+    cast_to_priority(&mut g, 0, vec![]);
+    drive(&mut g, &[], triggered);
+    checked(&g);
+    let dragon = Driver::object(&g, 0);
+    // Private fixture action: the phasing primitive is available without an
+    // admitted phasing spell. The paid trigger proceeds through normal inputs.
+    g.phase_out_permanents(phasing::PhaseSelection::Target(dragon))
+        .unwrap();
+    assert!(g.current(dragon).unwrap().phased_out.is_some());
+    let last_known = g.state.rules.stack[0]
+        .source_facts
+        .as_ref()
+        .unwrap()
+        .clone();
+    for keyword in [
+        KeywordAbility::Flying,
+        KeywordAbility::DoubleStrike,
+        KeywordAbility::Lifelink,
+    ] {
+        assert!(last_known.keywords.contains(&keyword));
+    }
+
+    while matches!(g.next_test_decision().reason, Reason::Priority) {
+        Driver::pass(&mut g);
+    }
+    let offer = Driver::request(&mut g, u64::MAX);
+    assert_eq!(offer.reason, Reason::OptionalEffect);
+    Driver::answer(
+        &mut g,
+        u64::MAX,
+        offer
+            .pick_one(&Candidate::Flag { flag: Flag::Accept })
+            .unwrap(),
+    );
+    Driver::pay(&mut g, &[6, 7, 8]);
+    let targets = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(targets.reason, Reason::Targets { .. }));
+    assert_eq!(deliveries(&g), 1);
+    assert_eq!(
+        g.state.rules.stack[0].source_facts.as_ref(),
+        Some(&last_known)
+    );
+    let (controller, opponent) = (life(&g, 0), life(&g, 1));
+    Driver::answer(
+        &mut g,
+        u64::MAX,
+        targets.entity_targets(vec![TargetEntity::Player {
+            player: PlayerId(1),
+        }]),
+    );
+    drive(&mut g, &[], |g| g.state.rules.stack.is_empty());
+    g.validate_state().unwrap();
+    assert_eq!(life(&g, 1), plus(&opponent, -3));
+    assert_eq!(life(&g, 0), plus(&controller, 3));
 }

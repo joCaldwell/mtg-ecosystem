@@ -157,14 +157,9 @@ impl RulesTxn {
         if !self.is_live(entry.controller) {
             return Ok(());
         }
-        let source_facts = if self.current(entry.source).is_ok() {
-            self.object_before(entry.source)?
-        } else {
-            entry
-                .source_facts
-                .clone()
-                .ok_or("missing resolution trigger source facts")?
-        };
+        // CR 608.2h, 702.26b: use the creating invocation's last-known
+        // appearance when its source has left or phased out.
+        let source_facts = self.source_facts(entry)?;
         let row = ResolutionTrigger {
             source: entry.source,
             controller: entry.controller,

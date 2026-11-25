@@ -352,6 +352,25 @@ pub(crate) struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 pub(crate) enum Step {
+    GainControl {
+        who: Box<ast::PlayerRef>,
+        what: Box<ast::ObjectRef>,
+        #[serde(default, deserialize_with = "present_json_operand")]
+        duration: Option<serde_json::Value>,
+    },
+    Become {
+        what: Box<ast::ObjectRef>,
+        spec: Box<ast::BecomeSpec>,
+        duration: Box<ast::Duration>,
+    },
+    ModifyCharacteristics {
+        what: Box<ast::ObjectRef>,
+        modifiers: Vec<ast::ResolvingCharacteristicModifier>,
+        snapshot: ast::LitEffectCreated,
+        #[serde(rename = "statedAs")]
+        stated_as: Option<ast::EffectModifyCharacteristicsStatedAs>,
+        duration: Box<ast::Duration>,
+    },
     LoseAbilities {
         what: serde_json::Value,
         removal: serde_json::Value,
@@ -462,8 +481,8 @@ pub(crate) enum Step {
     },
     Pump {
         what: serde_json::Value,
-        power: SignedAmount,
-        toughness: SignedAmount,
+        power: ast::SignedAmount,
+        toughness: ast::SignedAmount,
         duration: SourceDuration,
     },
     Regenerate {
@@ -712,13 +731,6 @@ pub(crate) enum DrawAmount {
 #[serde(deny_unknown_fields)]
 pub(crate) struct SourceDuration {
     pub(crate) duration: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SignedAmount {
-    pub(crate) sign: i8,
-    pub(crate) amount: Count,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

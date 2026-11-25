@@ -817,7 +817,7 @@ impl Strategy<'_> {
     fn expendable(&self, o: &VisibleObject) -> bool {
         o.token.is_some()
             || o.characteristics.as_ref().is_some_and(|c| {
-                c.kind == CardKind::Creature && c.power.as_ref().is_some_and(|p| p <= &1.into())
+                c.has_type(CardKind::Creature) && c.power.as_ref().is_some_and(|p| p <= &1.into())
             })
     }
     fn damage_amount(&self, v: &PermittedView, p: &SpellProgram) -> Quantity {
@@ -1386,12 +1386,7 @@ impl Strategy<'_> {
                 (*tap, false, mana.clone().unwrap_or_else(zero_cost))
             }
         };
-        if tap
-            && (o.tapped
-                || (d.characteristics.kind == CardKind::Creature
-                    && !o.attack_ready
-                    && !o.keywords.contains(&KeywordAbility::Haste)))
-        {
+        if tap && !available_tap(o) {
             return None;
         }
         let draw = a.program.instructions.iter().any(I::uncounted_draw);

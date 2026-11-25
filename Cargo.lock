@@ -771,6 +771,7 @@ dependencies = [
  "mtg-contracts",
  "mtg-core",
  "mtg-observe",
+ "mtg-sim",
  "rand_chacha",
  "rand_core",
  "serde",

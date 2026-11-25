@@ -893,7 +893,7 @@ impl RulesTxn {
             return Ok(None);
         }
         let characteristics = match self.characteristics_with_sources(object, sources) {
-            Ok(characteristics) if characteristics.kind == CardKind::Creature => characteristics,
+            Ok(characteristics) if characteristics.has_type(CardKind::Creature) => characteristics,
             _ => return Ok(None),
         };
         let toughness = characteristics.toughness.ok_or("missing toughness")?;

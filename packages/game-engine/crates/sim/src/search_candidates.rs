@@ -487,13 +487,7 @@ pub fn generate(
         for (ability, activated) in d.activated.iter().enumerate() {
             check()?;
             let (mana_sources, spending) = match &activated.cost {
-                ActivationCost::TapSource
-                    if object.tapped
-                        || (d.characteristics.kind == CardKind::Creature
-                            && !object.attack_ready) =>
-                {
-                    continue;
-                }
+                ActivationCost::TapSource if !crate::policy::available_tap(object) => continue,
                 ActivationCost::Mana { cost } => {
                     let Some(payment) = funding(catalog, observation, cost) else {
                         continue;
