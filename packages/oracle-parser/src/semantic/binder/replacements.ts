@@ -42,11 +42,6 @@ function topLevelReplacement(context: Context): boolean {
     !context.conditional && !context.decider;
 }
 
-function singleSentenceStep(path: string, context: Context): boolean {
-  const ability = context.lexicalAbilityPath;
-  return ability !== undefined && path.startsWith(ability) && /^\/effects\/\d+\/steps\/0$/.test(path.slice(ability.length));
-}
-
 function bindDamageCounterRecipient(this: Analyzer, replacement: ReplacementInstruction, path: string, context: Context): boolean {
   const { event, replace } = replacement;
   const one = { amount: "fixed", value: 1 };
@@ -270,29 +265,6 @@ function captureDamageRecipient(this: Analyzer, effect: Extract<Effect, { effect
   return this.eventResult(previous, damage.id, "objects", "one", "same-objects", creatures).id;
 }
 
-function captureDelayedExileSubject(this: Analyzer, effect: Extract<Effect, { effect: "create-replacement" }>,
-  path: string, previous: Effect | undefined, previousPath: string | undefined, context: Context): string | undefined {
-  const { replace } = effect.replacement;
-  if (!topLevelReplacement(context) || !singleSentenceStep(path, context) || !previousPath ||
-      !singleSentenceStep(previousPath, context) || !simpleExileBody(replace) ||
-      !isDeepStrictEqual(effect, { effect: "create-replacement", replacement: { occurrence: "each", replace,
-        event: { event: "move-zone", what: { ref: "it" }, from: { zone: "battlefield" } },
-      } }) || !isDeepStrictEqual(previous, {
-        effect: "create-delayed-trigger", trigger: { trigger: "phase", phase: "end-step", whose: "each-player" },
-        occurrence: "next", nextOnly: true, targets: "enclosing-ability", effects: [{ steps: [{ effect: "exile", what: { ref: "it" } }] }],
-      }) || context.objects.length !== 1) return;
-  const [subject] = context.objects;
-  const delayedSubject = this.at(`${previousPath}/effects/0/steps/0/what`);
-  const origin = this.result.nodes.find(node => node.id === subject.id);
-  if (subject.domain !== "object" || subject.cardinality !== "one" || delayedSubject?.id !== subject.id ||
-      origin?.node !== "event-result" || origin.identity !== "zone-successors" ||
-      origin.description?.cls !== "permanent" || !isDeepStrictEqual(origin.description.types, ["creature"]) ||
-      !singleSentenceStep(origin.path, context)) return;
-  const move = this.result.nodes.find(node => node.id === origin.event);
-  if (move?.node === "event" && move.scope === context.ability && move.operation === "move-zone" &&
-      !move.optional && !move.conditional && !move.repeated) return subject.id;
-}
-
 export function moveToExileRule(this: Analyzer, effect: Extract<Effect, { effect: "create-replacement" }>, path: string,
   context: Context, precedingEffect?: string): boolean {
   const { event, replace, occurrence, condition, optional } = effect.replacement;
@@ -362,8 +334,11 @@ export function moveToExileRule(this: Analyzer, effect: Extract<Effect, { effect
     tracked = { kind: "one-object", object: permanent };
     this.bound(event.what, whatPath, permanent, rules);
   } else {
-    const object = captureDamageRecipient.call(this, effect, prior, path, context, precedingEffect) ??
-      captureDelayedExileSubject.call(this, effect, path, prior, precedingEffect, context);
+    // Whip of Erebos ("exile it instead of putting it anywhere else") stays
+    // unresolved: the parsed event has no "not exile" destination, and the
+    // 2013-09-15 ruling (CR 614.1a, 614.6) excludes moves already headed to
+    // exile, so binding it would capture the wrong events.
+    const object = captureDamageRecipient.call(this, effect, prior, path, context, precedingEffect);
     if (!object) return false;
     tracked = { kind: "one-object", object };
     capturedThisTurn = effect.duration?.duration === "this-turn";

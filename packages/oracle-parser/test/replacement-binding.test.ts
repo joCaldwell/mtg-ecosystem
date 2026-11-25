@@ -104,19 +104,12 @@ describe("replacement participant binding", () => {
     assert.ok(nested.residual(exileOperand));
   });
 
-  it("uses the same one returned incarnation as the preceding delayed exile", () => {
+  it("keeps Whip of Erebos unresolved: the parse has no \"not exile\" destination", () => {
+    // 2013-09-15 ruling and CR 614.1a/614.6: "instead of putting it anywhere
+    // else" does not apply to a move already headed to exile, and the parsed
+    // event carries no destination, so its match would be too broad.
     const fixture = inspect("Whip of Erebos", "Artifact", "{T}: " + whip);
-    assert.deepEqual(fixture.ref("/replacement/event/what"), {
-      path: "/effects/3/steps/0/replacement/event/what", ref: { ref: "step-result", step: "/effects/0/steps/0", role: "objects" },
-    });
-    const group = inspect("Whip of Erebos", "Artifact", "{T}: " + whip, ([ability]) => {
-      assert.equal(ability.kind, "activated");
-      const move = ability.effects[0].steps[0];
-      assert.equal(move.effect, "move-zone");
-      assert.equal(move.what.ref, "target");
-      move.what.count = { amount: "fixed", value: 2 };
-    });
-    assert.ok(group.residual(exileOperand));
+    assert.ok(fixture.residual(exileOperand));
   });
 
   it("keeps a granted replacement and conditional payment branches outside the new scopes", () => {
