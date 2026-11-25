@@ -532,11 +532,14 @@ impl RulesTxn {
             }
         }
         for (id, o) in &self.state.rules.objects {
+            // CR 122.1a, 122.2: counters remain on a permanent after a
+            // layer-4 animation ends. Replay proves the original placement.
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
                     && (o.zone != Zone::Battlefield
-                        || self.copiable_definition(o.id)?.characteristics.kind
-                            != CardKind::Creature))
+                        || !self.historical_creature_possible(
+                            &self.copiable_definition(o.id)?.characteristics,
+                        )))
             {
                 return Err("snapshot counter invariant".into());
             }

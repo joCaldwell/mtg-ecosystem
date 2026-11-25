@@ -62,6 +62,7 @@ struct Counts {
     condition: usize,
     unless: usize,
     limit: usize,
+    duration: usize,
 }
 
 /// The printed words of `text` (already [`rules_text`]).
@@ -79,16 +80,21 @@ fn printed(text: &str, statics: bool) -> Counts {
             .sum()
     };
     let words = |word: &str| phrases(&[word]);
-    let statics = if statics {
+    let static_conditions = if statics {
         phrases(&["as", "long", "as"]) + words("during")
     } else {
         0
     };
     Counts {
         may: words("may"),
-        condition: words("if") + statics,
+        condition: words("if") + static_conditions,
         unless: words("unless"),
         limit: phrases(&["up", "to"]),
+        duration: if statics {
+            0
+        } else {
+            phrases(&["as", "long", "as"])
+        },
     }
 }
 
@@ -117,7 +123,9 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
             "unless" => found.unless += 1,
             _ => {}
         },
+        ("condition", Value::Object(_)) if kind == Some("duration:as-long-as") => {}
         ("condition", Value::Object(_)) if kind.is_none() => found.condition += 1,
+        ("duration", Value::String(duration)) if duration == "as-long-as" => found.duration += 1,
         ("declined", Value::Object(fields)) if fields.get("tapped") == Some(&Value::Bool(true)) => {
             found.condition += 1;
         }
@@ -134,13 +142,21 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
 fn carriers(value: &Value, found: &mut Counts) {
     match value {
         Value::Object(fields) => {
-            let kind = fields.get("conditionKind").and_then(Value::as_str);
+            let kind = condition_kind(value);
             for (key, child) in fields {
                 member(key, child, kind, found);
             }
         }
         Value::Array(items) => items.iter().for_each(|item| carriers(item, found)),
         _ => {}
+    }
+}
+
+fn condition_kind(value: &Value) -> Option<&str> {
+    if value["duration"] == "as-long-as" {
+        Some("duration:as-long-as")
+    } else {
+        value["conditionKind"].as_str()
     }
 }
 
@@ -151,10 +167,7 @@ fn field_carriers(ability: &Value, field: &str, found: &mut Counts) -> Result<()
     let node = ability.pointer(field).ok_or_else(missing)?;
     let (parent, key) = field.rsplit_once('/').ok_or_else(missing)?;
     let key = key.replace("~1", "/").replace("~0", "~");
-    let kind = ability
-        .pointer(parent)
-        .and_then(|p| p.get("conditionKind"))
-        .and_then(Value::as_str);
+    let kind = ability.pointer(parent).and_then(condition_kind);
     member(&key, node, kind, found);
     Ok(())
 }

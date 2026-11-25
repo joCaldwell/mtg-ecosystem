@@ -102,8 +102,8 @@ impl RulesTxn {
     pub(crate) fn is_battlefield_creature(&self, id: ObjectId) -> bool {
         self.current(id).is_ok_and(|o| o.present_on_battlefield())
             && self
-                .characteristics(id)
-                .is_ok_and(|c| c.kind == CardKind::Creature)
+                .structural_characteristics(id)
+                .is_ok_and(|c| c.has_type(CardKind::Creature))
     }
     pub(crate) fn top(&self) -> Result<&StackInstance, RuleError> {
         self.state

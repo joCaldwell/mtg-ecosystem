@@ -174,6 +174,8 @@ pub struct ControlBefore {
     pub objects: Vec<ObjectBefore>,
     pub attachments: Vec<AttachmentBefore>,
     pub(super) effects: Vec<ControlEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) resolved_grants: Vec<ResolvedEffect>,
     pub live_players: Vec<PlayerId>,
     pub next_attachment_timestamp: u64,
 }
@@ -317,7 +319,9 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
             | ProposedEvent::ReversePermanentMana { .. }
-    )
+            | ProposedEvent::CleanupEffects
+    ) || matches!(event, ProposedEvent::CreateEffect { effect }
+            if matches!(effect.kind, ResolvedEffectKind::GainControl { .. }))
 }
 
 fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
@@ -706,6 +710,14 @@ fn collect<'a>(
 }
 impl RulesTxn {
     pub(crate) fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String> {
+        let resolved_grants = self
+            .state
+            .rules
+            .effects
+            .iter()
+            .filter(|effect| matches!(effect.kind, ResolvedEffectKind::GainControl { .. }))
+            .cloned()
+            .collect::<Vec<_>>();
         let objects = self
             .state
             .rules
@@ -714,6 +726,7 @@ impl RulesTxn {
             .filter(|object| object.zone == Zone::Battlefield)
             .collect::<Vec<_>>();
         if self.state.rules.control_effects.is_empty()
+            && resolved_grants.is_empty()
             && objects
                 .iter()
                 .all(|object| self.is_live(object.default_controller))
@@ -735,6 +748,7 @@ impl RulesTxn {
                 })
                 .collect(),
             effects: self.state.rules.control_effects.clone(),
+            resolved_grants,
             live_players: self.live_players(),
             next_attachment_timestamp: self.state.rules.next_attachment_timestamp,
         })))
@@ -955,6 +969,9 @@ impl RulesTxn {
                         ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
                         | ResolvedEffectKind::PumpSet { targets, .. }
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
+                        | ResolvedEffectKind::GainControl { targets, .. }
+                        | ResolvedEffectKind::SetCharacteristics { targets, .. }
+                        | ResolvedEffectKind::PumpAnnouncedX { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
                         | ResolvedEffectKind::ModifyPowerToughness { target, .. }
@@ -1946,19 +1963,17 @@ impl RulesTxn {
             return Ok(self.has_keyword(object, KeywordAbility::Indestructible));
         };
         // The leaf's facts are produced against its pre-event fork, not supplied
-        // by a caller. Exact incarnation/zone/type must still agree at commit;
-        // missing facts never mean an unprotected target. Restore verifies the
+        // by a caller. Captured characteristics may include layer-4 effects.
+        // Missing facts never mean an unprotected target. Restore verifies the
         // complete prior payload (including keywords) through boundary replay.
         let [fact] = before.objects.as_slice() else {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        let types = &self.copiable_definition(object)?.characteristics;
+        self.validate_characteristic_identity(object, &fact.characteristics)?;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone
-            || fact.characteristics.kind != types.kind
-            || fact.characteristics.additional_types != types.additional_types
             || fact.owner != self.state.rules.cards[&object.card].owner
             || fact.controller != current.controller
         {
@@ -2893,7 +2908,9 @@ impl RulesTxn {
                     let o = self.current(*object)?;
                     if o.zone != Zone::Battlefield
                         || !o.tapped
-                        || self.characteristics(*object)?.kind != CardKind::Land
+                        || !self
+                            .structural_characteristics(*object)?
+                            .has_type(CardKind::Land)
                     {
                         return Err("invalid mana reversal source".into());
                     }

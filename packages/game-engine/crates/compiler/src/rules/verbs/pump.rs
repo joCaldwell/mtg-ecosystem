@@ -6,8 +6,8 @@ use super::*;
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
     what: &serde_json::Value,
-    power: &SignedAmount,
-    toughness: &SignedAmount,
+    power: &ast::SignedAmount,
+    toughness: &ast::SignedAmount,
     duration: &SourceDuration,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
@@ -17,13 +17,34 @@ pub(super) fn lower(
         lower_reviewed_set(&what, cx.context)?
     } else if is_this_creature(&what) {
         kir::SetExpr::source()
+    } else if let Some(slot) = continuous::followup_target(cx, &what) {
+        SetExpr::target(slot)
     } else {
         kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, &what)?)
     };
-    Ok(Instruction::pump(
-        set,
-        signed_fixed(power)?,
-        signed_fixed(toughness)?,
-        cx.source_block,
-    ))
+    let power = delta(power)?;
+    let toughness = delta(toughness)?;
+    match (power, toughness) {
+        (kir::PumpDelta::Fixed { value: power }, kir::PumpDelta::Fixed { value: toughness }) => {
+            Ok(Instruction::pump(set, power, toughness, cx.source_block))
+        }
+        (power, toughness) => Ok(cx.act(Verb::ModifyUntil {
+            what: set,
+            layer: kir::Layer::PowerToughnessModify,
+            change: kir::Change::PowerToughnessX { power, toughness },
+            until: kir::Until::EndOfTurn,
+        })),
+    }
+}
+
+fn delta(value: &ast::SignedAmount) -> Result<kir::PumpDelta, Failure> {
+    if matches!(*value.amount, ast::Amount::X(_)) {
+        Ok(kir::PumpDelta::X {
+            negative: *value.sign == ast::SignedAmountSign::Minus1,
+        })
+    } else {
+        Ok(kir::PumpDelta::Fixed {
+            value: signed_fixed(value)?,
+        })
+    }
 }
