@@ -2892,7 +2892,9 @@ impl RulesTxn {
                     let o = self.current(*object)?;
                     if o.zone != Zone::Battlefield
                         || !o.tapped
-                        || self.characteristics(*object)?.kind != CardKind::Land
+                        || !self
+                            .structural_characteristics(*object)?
+                            .has_type(CardKind::Land)
                     {
                         return Err("invalid mana reversal source".into());
                     }

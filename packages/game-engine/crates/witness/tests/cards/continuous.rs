@@ -428,10 +428,10 @@ fn resolved_continuous_setter_orders_between_two_static_sources() {
     assert!(forged.validate_state().is_err());
 }
 
-// CR 302.6, 702.10 and 702.111: the new controller can immediately attack
-// with the creature, and a single blocker is illegal after the menace grant.
+// CR 302.6, 510.2, 613.1f, 702.10 and 702.111: haste permits the attack,
+// menace prevents a single blocker, and the captured grants survive damage validation.
 #[test]
-fn resolved_continuous_granted_menace_requires_two_blockers() {
+fn resolved_continuous_stolen_creature_with_menace_deals_combat_damage() {
     let mut g = with(
         board(&[LOSE_CALM]),
         &[
@@ -456,12 +456,116 @@ fn resolved_continuous_granted_menace_requires_two_blockers() {
         )
         .is_err()
     );
-    g.respond(
-        request.player,
-        request.id,
-        request.block(vec![(first, attacker), (second, attacker)]),
-    )
-    .unwrap();
+    g.fork()
+        .respond(
+            request.player,
+            request.id,
+            request.block(vec![(first, attacker), (second, attacker)]),
+        )
+        .unwrap();
+    unblocked_damage(&mut g, &request, 2);
+}
+
+// CR 205.2b, 510.2, 613.1d: a land with the creature type deals combat damage.
+#[test]
+fn resolved_continuous_animated_land_deals_combat_damage() {
+    let mut g = with(
+        board(&[NATURAL_AFFINITY]),
+        &[
+            ("Natural Affinity", 0, true),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Grizzly Bears", 1, false),
+        ],
+    );
+    let land = object(&g, 1);
+    cast_on(&mut g, 0, &[], &[2, 3, 4]);
+    let request = blockers(&mut g, &[land]);
+    unblocked_damage(&mut g, &request, 2);
+}
+
+// CR 205.2b, 601.2c, 613.1d: the simulator's permitted view retains the
+// creature type of the animated land, and the engine accepts its selection.
+#[test]
+fn resolved_continuous_bolt_policy_targets_an_animated_land() {
+    use mtg_core::query::{self, Tri};
+    use mtg_sim::policy::{Policy, Strategy};
+
+    let mut g = with(
+        board(&[NATURAL_AFFINITY]),
+        &[
+            ("Natural Affinity", 0, true),
+            ("Forest", 1, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Lightning Bolt", 0, true),
+            ("Mountain", 0, false),
+        ],
+    );
+    cast_on(&mut g, 0, &[], &[2, 3, 4]);
+    Driver::cast(&mut g, CardId(5));
+    let request = Driver::request(&mut g, u64::MAX);
+    let session = g.player_session(request.player);
+    let QueryResult::Complete(QueryValue::Observation(observation)) =
+        session.observe(Budget::unlimited())
+    else {
+        panic!("expected permitted observation");
+    };
+    let decision = observation.decision.as_ref().unwrap();
+    let Reason::Targets { specs } = &decision.reason else {
+        panic!("expected Bolt target");
+    };
+    let view = &observation.view;
+    let forest = view
+        .objects
+        .iter()
+        .find(|object| object.owner == PlayerId(1) && object.zone == Zone::Battlefield)
+        .unwrap();
+    let offered = Candidate::Object {
+        object: forest.handle.clone(),
+    };
+    assert!(decision.index(&offered).is_some());
+    assert_eq!(
+        query::matches_target_domain(&query::in_view(view, forest), view.viewer, specs[0].domain),
+        Tri::Yes
+    );
+    let answer = Strategy::new(&g.prepared.catalog, Policy::Develop, [0; 4])
+        .choose(&observation)
+        .unwrap();
+    assert_eq!(answer, decision.pick_one(&offered).unwrap());
+    let QueryResult::Complete(QueryValue::Validated(receipt)) =
+        session.check_response(decision.id.clone(), answer, Budget::unlimited())
+    else {
+        panic!("invalid permitted answer");
+    };
+    g.submit(receipt).unwrap();
+    Driver::pay(&mut g, &[6]);
+    settle(&mut g, &[]);
+    assert_eq!(
+        g.zone(object(&g, 1)),
+        Some(Zone::Graveyard { owner: PlayerId(1) })
+    );
+}
+
+fn unblocked_damage(g: &mut Game, request: &Decision<Rules>, damage: i64) {
+    assert_eq!(request.player, PlayerId(1));
+    let mut expected = g.state.rules.players[1].life.clone();
+    expected.subtract(&damage.into());
+    g.respond(request.player, request.id, request.block(vec![]))
+        .unwrap();
+    for _ in 0..20 {
+        let decision = Driver::request(g, u64::MAX);
+        if g.state.rules.players[1].life == expected {
+            checked(g);
+            return;
+        }
+        let pass = mtg_witness::temporary::pass(&decision);
+        g.respond(decision.player, decision.id, pass).unwrap();
+    }
+    panic!("unblocked attacker failed to deal combat damage");
 }
 
 #[test]

@@ -2799,18 +2799,38 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    fn characteristic_set_vocabulary(&self) -> impl Iterator<Item = &CharacteristicSet> {
+    fn catalog_verbs(&self) -> impl Iterator<Item = &mtg_contracts::kir::Verb> {
         self.prepared.catalog.definitions.iter().flat_map(|d| {
             d.spell_programs()
                 .chain(d.activated.iter().map(|ability| &ability.program))
                 .chain(d.triggered.iter().map(|ability| &ability.program))
                 .flat_map(|p| &p.instructions)
-                .filter_map(|i| match i.verb() {
-                    Some(mtg_contracts::kir::Verb::SetCharacteristics { values, .. }) => {
-                        Some(values)
-                    }
-                    _ => None,
-                })
+                .filter_map(Instruction::verb)
+        })
+    }
+
+    fn characteristic_set_vocabulary(&self) -> impl Iterator<Item = &CharacteristicSet> {
+        self.catalog_verbs().filter_map(|verb| match verb {
+            mtg_contracts::kir::Verb::SetCharacteristics { values, .. } => Some(values),
+            _ => None,
+        })
+    }
+
+    // CR 510.2, 613.1f: the captured keywords include resolved and static
+    // grants. A static grant can disappear after capture. Admission bounds
+    // the historical vocabulary, and restore replays the actual capture.
+    fn historical_granted_keyword(&self, keyword: KeywordAbility) -> bool {
+        use mtg_contracts::kir::Verb;
+        self.catalog_verbs().any(|verb| match verb {
+            Verb::ModifyUntil { change: Change::AddKeywords { keywords }, .. } => keywords.contains(&keyword),
+            Verb::SetCharacteristics { values, .. } => values.keywords.contains(&keyword),
+            _ => false,
+        }) || self.prepared.catalog.definitions.iter().any(|d| {
+            d.static_abilities.iter().any(|a| match &a.effect {
+                StaticEffect::Continuous { changes, .. } => changes.iter().any(|change|
+                    matches!(change, Change::AddKeywords { keywords } if keywords.contains(&keyword))),
+                _ => false,
+            })
         })
     }
 
@@ -3010,24 +3030,21 @@ impl RulesTxn {
             }
             let source_definition = self.copiable_definition(d.source.object)?;
             let expected_keywords = source_definition.keywords.as_slice();
-            // This bounds the vocabulary of possible LKI grants, not their
-            // occurrence. Departure-invariant facts below and restore's input
-            // replay still authenticate the captured historical appearance.
-            // Validated ordinary spell grants belong here alongside static ones.
             let battlefield_creature = d.source.zone == Zone::Battlefield
                 && d.source.characteristics.has_type(CardKind::Creature);
-            let keywords_valid = expected_keywords.iter().all(|k| d.source.keywords.contains(k))
-                && d.source.keywords.iter().enumerate().all(|(index, keyword)| {
-                    !d.source.keywords[..index].contains(keyword)
-                        && (expected_keywords.contains(keyword)
-                            || (battlefield_creature && (source_definition.activated.iter()
-                                .filter_map(mtg_contracts::activated_source_keyword::keywords)
-                                .any(|keywords| keywords.contains(keyword))
-                                || self.prepared.catalog.definitions.iter().any(|definition|
-                                    definition.static_abilities.iter().any(|a| matches!(&a.effect,
-                                        StaticEffect::Continuous { changes, .. } if changes.iter().any(|change|
-                                            matches!(change, Change::AddKeywords { keywords } if keywords.contains(keyword)))))))))
-                });
+            let keywords_valid = expected_keywords
+                .iter()
+                .all(|k| d.source.keywords.contains(k))
+                && d.source
+                    .keywords
+                    .iter()
+                    .enumerate()
+                    .all(|(index, keyword)| {
+                        !d.source.keywords[..index].contains(keyword)
+                            && (expected_keywords.contains(keyword)
+                                || (d.source.zone == Zone::Battlefield
+                                    && self.historical_granted_keyword(*keyword)))
+                    });
             if !keywords_valid {
                 return Err(
                     "damage source keyword LKI outside admitted intrinsic/granted abilities".into(),
@@ -3039,10 +3056,7 @@ impl RulesTxn {
                 return Err("prepared damage source changed consumed facts".into());
             }
             if tx.kind == DamageKind::Combat {
-                if d.source.zone != Zone::Battlefield
-                    || d.source.characteristics.kind != CardKind::Creature
-                    || d.source.controller != d.controller
-                {
+                if !battlefield_creature || d.source.controller != d.controller {
                     return Err("invalid assigned combat source".into());
                 }
                 powers

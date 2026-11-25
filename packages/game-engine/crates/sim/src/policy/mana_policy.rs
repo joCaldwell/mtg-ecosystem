@@ -138,7 +138,7 @@ fn controlled_permanent(view: &PermittedView, object: &mtg_core::VisibleObject) 
     object.zone == Zone::Battlefield && !object.phased_out && object.controller == view.viewer
 }
 
-fn available_tap(object: &mtg_core::VisibleObject) -> bool {
+pub(crate) fn available_tap(object: &mtg_core::VisibleObject) -> bool {
     !object.tapped
         && (!object
             .characteristics

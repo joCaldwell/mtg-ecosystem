@@ -367,8 +367,10 @@ departure until combat ends (CR 509.1g, 511.3). Skip blocker/damage steps only
 when none attacked. First and double strike have distinct participant sets;
 trample and deathtouch assignments, dealt damage and prevention remain distinct.
 
-Validate simultaneous damage before life/history writes. Assignment stays
-distinct from current or latest-departure source facts governing damage-time
+Validate simultaneous damage before life/history writes. Combat source
+validation reads the captured creature type, including animation, and
+keywords from resolved and static grants (CR 510.2, 613.1d,f). Assignment
+stays distinct from current or latest-departure source facts governing damage-time
 deathtouch, lifelink and beneficiary, including Equipment departure. Noncombat
 damage retains exact source and invocation controller. Protection from a color
 checks derived or last-known source colors for targeting, attachments, blocking
