@@ -173,6 +173,45 @@ describe("library dig picks and the rest (B01)", () => {
     assert.ok(keene.blocks.every(block => !block.residuals.some(residual => residual.includes("unsupported-reference"))));
   });
 
+  it("checks every arm of a compound selection against the pool's zone", () => {
+    const { blocks: [block] } = card("Mill five cards. Exile a creature card from among them. Exile an artifact card or a creature card from your graveyard. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(block)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" });
+  });
+
+  it("walks paths, not instruction order: exclusive branches and rows do not compete", () => {
+    const look = "Look at the top five cards of your library. Put a creature card from among them into your hand. ";
+    // The exile and the rest are on different branches either way round.
+    const { blocks: [first] } = card(look + "If you control a creature, exile the top card of your library. Otherwise, put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(first)["/effects/2/otherwise/steps/0/what"], remainder("/effects/2/otherwise/steps/0"));
+    const { blocks: [second] } = card(look + "If you control a creature, put the rest on the bottom of your library in any order. Otherwise, exile the top card of your library.", "Sorcery");
+    assert.deepEqual(refs(second)["/effects/2/steps/0/what"], remainder("/effects/2/steps/0"));
+    // A conditional scan emits no event and shares a path with the rest.
+    const { blocks: [scan] } = card(look + "If you control a creature, you may exile cards from the top of your library until you exile a land card. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(scan)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" });
+    // Druid of the Emerald Grove: the "9 or less" row's move cannot reach the "10-19" row's "the other".
+    const druid = card("When this creature enters, search your library for up to two basic land cards and reveal them, then roll a d20.\n9 or less | Put those cards into your hand, then shuffle.\n10\u201419 | Put one of those cards onto the battlefield tapped and the other into your hand, then shuffle.\n20+ | Put those cards onto the battlefield tapped, then shuffle.", "Creature \u2014 Dwarf Druid", "{3}{G}", "Druid of the Emerald Grove");
+    assert.ok(druid.binding.references.some(reference => "ref" in reference.expression && reference.expression.ref === "rest" && reference.binding === "bound"));
+  });
+
+  it("counts only the pick's own choice to take nothing", () => {
+    const { binding, blocks: [block] } = card("You may look at the top five cards of your library, put one of them into your hand, and put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(block.residuals, []);
+    assert.deepEqual(binding.engineFeatures, []);
+  });
+
+  it("compares the pool's actor and owner, and its zone, by identity", () => {
+    const { blocks: [library] } = card("Target opponent reveals the top three cards of your library. Put one of them into your hand and the rest into your graveyard.", "Sorcery");
+    assert.deepEqual(refs(library)["/effects/1/steps/0/steps/1/what"], { unresolved: "unsupported-reference" });
+    const { blocks: [hand] } = card("Target opponent reveals their hand. Put one of them into your hand, exile a card from their hand, then put the rest into their graveyard.", "Sorcery");
+    assert.deepEqual(refs(hand)["/effects/1/steps/2/what"], { unresolved: "unsupported-reference" });
+  });
+
+  it("drops the declined-choice feature from a remainder that is not established (Dihada)", () => {
+    const { binding } = card("+2: Up to one target legendary creature gains vigilance, lifelink, and indestructible until your next turn.\n\u22123: Reveal the top four cards of your library. Put any number of legendary cards from among them into your hand and the rest into your graveyard. Create a Treasure token for each card put into your graveyard this way.\n\u221211: Gain control of all nonland permanents until end of turn. Untap them. They gain haste until end of turn.\nDihada, Binder of Wills can be your commander.", "Legendary Planeswalker \u2014 Dihada", "{1}{R}{W}{B}", "Dihada, Binder of Wills");
+    assert.ok(!binding.engineFeatures.some(need => need.feature === "optional-look-remainder" &&
+      binding.references.some(reference => reference.path === need.path && reference.binding !== "bound")));
+  });
+
   it("keeps a plural pronoun after an any-number pick from a plural pool unresolved", () => {
     const { blocks: [block] } = card("Choose one —\n• Form a Party — Look at the top five cards of your library. You may reveal any number of creature cards from among them and put them into your hand. Put the rest on the bottom of your library in a random order.\n• Start a Brawl — Creatures you control get +2/+2 until end of turn.", "Sorcery", "{3}{G}", "You Meet in a Tavern");
     assert.deepEqual(refs(block)["/effects/0/steps/0/options/0/effects/1/steps/0/steps/1/what"], { unresolved: "ambiguous-antecedent" });
