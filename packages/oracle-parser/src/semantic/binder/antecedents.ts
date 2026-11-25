@@ -2,7 +2,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { ObjectFilter, ObjectRef, PlayerRef } from "../../ast.ts";
 import { isPluralPlayerRef } from "../../parser/refs.ts";
-import type { BindingCardinality, ReferenceBinding, ReferenceExpression } from "../types.ts";
+import type { BindingCardinality, BindingNode, ReferenceBinding, ReferenceExpression } from "../types.ts";
 import type { Analyzer } from "./analyzer.ts";
 import type { ChoiceReference } from "./choices.ts";
 import { ENTRY_CHOICE_RULES, child, combine, describes, description, domain, objectCardinality, referenceCardinality, type Candidate, type Context } from "./context.ts";
@@ -277,6 +277,10 @@ export function object(this: Analyzer, expression: ObjectRef, path: string, cont
           }
         }
       }
+      const hand = this.revealedHand(expression, path, candidates);
+      if (hand) return this.antecedent(expression, path, [hand], "many", ["400.2", "608.2c", "701.20a"]);
+      const picked = this.poolPickAntecedent(expression, path, candidates, context);
+      if (picked) return this.antecedent(expression, path, [picked], objectCardinality(expression), ["608.2c", "400.7j"]);
       return this.antecedent(expression, path, candidates, objectCardinality(expression), ["608.2k", "400.7j", ...(candidates !== context.objects ? ["608.2h"] : [])]);
     }
     case "trigger-event-object":
@@ -335,16 +339,19 @@ export function object(this: Analyzer, expression: ObjectRef, path: string, cont
         return this.bound(expression, path, id, rules);
       }
 
-      // "Put one of them into your hand and the rest into your graveyard":
-      // the pool the same sentence's selection chose from, less that choice.
+      // A special recognizer's pick (no printed selection) from the same
+      // sentence's pool. A printed pick goes through pickRemainder below.
       const sentence = /^(.*\/effects\/\d+)\//.exec(path)?.[1];
       const chosen = this.poolSelections.get(context.ability);
       const pool = expression.of ? this.at(child(path, "of")) : chosen?.pool;
-      if (chosen && pool && sentence && chosen.path.startsWith(`${sentence}/`) && chosen.pool.id === pool.id) {
+      if (chosen && pool && sentence && chosen.path.startsWith(`${sentence}/`) && chosen.pool.id === pool.id &&
+          !this.result.nodes.some(node => node.node === "selection" && node.path === chosen.path)) {
         const id = this.node({ id: this.id(path, "remainder"), path, node: "remainder", scope: context.ability, pool: pool.id,
           excluding: chosen.selected.id, rules: ["608.2c"] });
         return this.bound(expression, path, id, ["608.2c"]);
       }
+      const remainder = this.pickRemainder(expression, path, context);
+      if (remainder) return remainder;
       this.unresolved(expression, path, "unsupported-reference", "This relation needs an attachment, event, pool, or linked-ability binding.", ["303.4", "301.5", "607"]);
       return undefined;
     }
@@ -365,6 +372,292 @@ export function object(this: Analyzer, expression: ObjectRef, path: string, cont
       throw new Error(`Unhandled ObjectRef variant: ${JSON.stringify(unreachable)}`);
     }
   }
+}
+/** The step at `path` whose `what` this selection is ("reveal a card from
+ * among them", "you choose a card from it", "put one of them …"). */
+function pickStep(selectionPath: string): string | undefined {
+  return /^(.*\/steps\/\d+)\/what$/.exec(selectionPath)?.[1];
+}
+/** The event an instruction at `step` performed. */
+function stepEvent(analyzer: Analyzer, step: string): Extract<BindingNode, { node: "event" }> | undefined {
+  const node = analyzer.result.nodes.find(entry => entry.node === "event" && entry.path === step);
+  return node?.node === "event" ? node : undefined;
+}
+/** The selections of `scope` that pick "from among" an established pool
+ * (CR 608.2c): a filtered or "one of them" selection whose `fromAmong` or
+ * `pool` is bound. `pool` narrows them to the picks from that pool. */
+export function poolPicks(this: Analyzer, scope: string, pool?: string): { id: string; path: string; pool: string; cardinality: BindingCardinality }[] {
+  return this.result.nodes.flatMap(node => {
+    if (node.node !== "selection" || node.scope !== scope || node.selection === "target" || !("ref" in node.expression)) return [];
+    const ref = node.expression.ref;
+    const at = ref === "filter" || ref === "each" || ref === "all" ? `${node.path}/filter/fromAmong` : ref === "from-pool" ? `${node.path}/pool` : undefined;
+    const from = at ? this.at(at) : undefined;
+    return from && from.domain === "object" && (pool === undefined || from.id === pool)
+      ? [{ id: node.id, path: node.path, pool: from.id, cardinality: node.cardinality }] : [];
+  });
+}
+/** Every pick "from among" a pool or "one of them" the ability at `path` has
+ * attempted so far, bound or not: the instructions whose `fromAmong` or
+ * `pool` operand was walked. An unresolved pick still takes cards from its
+ * pool, so a remainder or pronoun cannot be proven past it. */
+function attemptedPicks(analyzer: Analyzer, path: string): string[] {
+  const root = /^(.*\/abilities\/\d+)\//.exec(path)?.[1];
+  if (!root) return [];
+  return [...new Set(analyzer.result.references.flatMap(reference =>
+    reference.path.startsWith(`${root}/`) && /\/(?:fromAmong|pool)$/.test(reference.path) ? [reference.path] : []))];
+}
+/** A singular pronoun after a pick "from among" a pool: "You may reveal an
+ * Elf card from among them and put it into your hand", "You choose a
+ * nonland card from it. That player discards that card." The pool itself is
+ * plural, so the one pick (or the object it became, CR 400.7j) is the only
+ * object the pronoun can mean (CR 608.2c). Bound only when the remaining
+ * candidates are exactly that pool and that pick, the pick is the only pick
+ * the ability has attempted from any pool, and the pronoun is inside the pick's own optional group or
+ * sentence; a `choose-object` pick ("you choose … that card") is meant by any
+ * later pronoun of the ability. */
+export function poolPickAntecedent(this: Analyzer, expression: ObjectRef, path: string, candidates: Candidate[], context: Context): Candidate | undefined {
+  // "From it" names a set to pick from, never an earlier pick.
+  if (objectCardinality(expression) !== "one" || candidates.length !== 2 || /\/(?:fromAmong|pool)$/.test(path)) return;
+  const attempted = attemptedPicks(this, path);
+  for (const [pool, picked] of [[candidates[0], candidates[1]], [candidates[1], candidates[0]]]) {
+    if (pool.domain !== "object" || pool.cardinality === "one" || picked.domain !== "object" || picked.cardinality !== "one") continue;
+    const picks = this.poolPicks(context.ability, pool.id);
+    const [pick] = picks;
+    if (picks.length !== 1 || pick.cardinality !== "one" || pick.id !== (picked.successorOf ?? picked.id) ||
+        attempted.length !== 1 || !attempted[0].startsWith(`${pick.path}/`)) continue;
+    const step = pickStep(pick.path);
+    const event = step ? stepEvent(this, step) : undefined;
+    if (!step || !event || path.startsWith(`${step}/`)) continue;
+    const container = /^(.*)\/steps\/\d+$/.exec(step)?.[1];
+    const ability = /^(.*\/abilities\/\d+)\//.exec(step)?.[1];
+    const scope = event.operation === "choose-object" ? ability : container;
+    // A card picked from among cards is a card ("that card").
+    if (scope && path.startsWith(`${scope}/`))
+      return picked.description || picked.successorOf || !pool.description ? picked : { ...picked, description: pool.description };
+  }
+  return undefined;
+}
+/** "From it" after "target opponent reveals their hand": the revealed or
+ * looked-at hand as a set of cards (CR 400.2, 701.20a). Only a whole hand
+ * named by the instruction just performed on it, revealed by its owner or
+ * looked at, establishes this zone pronoun. */
+export function revealedHand(this: Analyzer, expression: ObjectRef, path: string, candidates: Candidate[]): Candidate | undefined {
+  if (!isDeepStrictEqual(expression, { ref: "it" }) || !path.endsWith("/filter/fromAmong") || candidates.length !== 1) return;
+  const [hand] = candidates;
+  const node = this.result.nodes.find(entry => entry.id === hand.id);
+  if (node?.node !== "selection" || node.selection !== "evaluate-reference" || !("ref" in node.expression)) return;
+  // "Their hand" is either all cards in that zone or the zone's cards.
+  const shown = node.expression;
+  const zone = shown.ref === "all" && Object.keys(shown).length === 2 &&
+    Object.keys(shown.filter).length === 2 && shown.filter.cls === "card" ? shown.filter.zone : undefined;
+  const ownerPath = zone?.zone === "hand" && Object.keys(zone).length === 2 ? `${node.path}/filter/zone/owner`
+    : shown.ref === "zone-cards" && shown.zone === "hand" && Object.keys(shown).length === 3 ? `${node.path}/owner` : undefined;
+  if (!ownerPath) return;
+  const step = pickStep(node.path);
+  const event = step ? stepEvent(this, step) : undefined;
+  const owner = this.at(ownerPath);
+  if (!step || !event || !owner || owner.domain !== "player" || owner.cardinality !== "one" || event.optional || event.repeated) return;
+  if (event.operation === "reveal" ? this.at(`${step}/who`)?.id !== owner.id : event.operation !== "look-at") return;
+  return hand;
+}
+/** Instructions that cannot take a card out of a pool of looked-at,
+ * revealed, milled, searched or exiled cards (they move nothing). */
+const POOL_PRESERVING = new Set(["reveal", "look-at", "choose-object", "gain-life", "lose-life", "damage", "pump", "set-pt",
+  "create-token", "put-counters", "tap", "untap", "add-mana", "gain-abilities", "become", "choose-value", "player-gain-abilities"]);
+/** Instructions that move only their printed `what` operand(s). */
+const OPERAND_MOVES = new Set(["move-zone", "exile", "return-to-hand", "sacrifice", "destroy", "shuffle-into-library", "attach"]);
+/** Instructions with no object operand that take cards only from the library. */
+const LIBRARY_ONLY = new Set(["draw", "mill", "scry", "surveil"]);
+/** Containers whose nested instructions are walked; any other instruction
+ * holding nested instructions is not on the allowlist. */
+const CONTAINERS = new Set(["optional-group", "simultaneous", "modal", "roll-dice", "flip-coin"]);
+/** Keys under which sibling paths are mutually exclusive alternatives. */
+const ALTERNATIVES = new Set(["options", "rows", "outcomes"]);
+
+/** The value at a JSON pointer below `root`. */
+function pointer(root: unknown, segments: string[]): unknown {
+  let value = root;
+  for (const segment of segments) value = isRecord(value) || Array.isArray(value) ? (value as Record<string, unknown>)[segment] : undefined;
+  return value;
+}
+/** Two instruction paths that cannot both be performed in one resolution:
+ * different modes, die rows or coin outcomes, or a sentence's steps and its
+ * otherwise branch (CR 608.2c). */
+function exclusive(a: string, b: string): boolean {
+  const x = a.split("/"), y = b.split("/");
+  let common = 0;
+  while (common < x.length && common < y.length && x[common] === y[common]) common++;
+  if (common === x.length || common === y.length) return false;
+  if (ALTERNATIVES.has(x[common - 1])) return true;
+  const pair = [x[common], y[common]].sort().join(" ");
+  return pair === "otherwise steps" || pair === "instead original";
+}
+/** Printed order of two instruction paths that are not exclusive. */
+function before(a: string, b: string): boolean {
+  const x = a.split("/"), y = b.split("/");
+  for (let index = 0; index < Math.min(x.length, y.length); index++) {
+    if (x[index] === y[index]) continue;
+    const m = Number(x[index]), n = Number(y[index]);
+    return Number.isInteger(m) && Number.isInteger(n) ? m < n : x[index] < y[index];
+  }
+  return x.length < y.length;
+}
+/** Every printed instruction of an ability, by path. */
+function instructions(value: unknown, path: string, out: { path: string; effect: Record<string, unknown> }[] = []) {
+  if (Array.isArray(value)) value.forEach((entry, index) => instructions(entry, `${path}/${index}`, out));
+  else if (isRecord(value)) {
+    if (typeof value.effect === "string" && /\/steps\/\d+$/.test(path)) out.push({ path, effect: value });
+    for (const [key, entry] of Object.entries(value)) if (key !== "trigger" && key !== "costs") instructions(entry, `${path}/${key}`, out);
+  }
+  return out;
+}
+/** Every zone a selection can take cards from, or undefined when one of its
+ * arms names none (a permanent or spell has no zone and no `card` class). */
+function selectionZones(expression: unknown): string[] | undefined {
+  if (!isRecord(expression)) return undefined;
+  if (expression.ref === "library-cards") return ["library"];
+  if (expression.ref === "zone-cards") return typeof expression.zone === "string" ? [expression.zone] : undefined;
+  if (!["filter", "each", "all", "target"].includes(String(expression.ref)) || !isRecord(expression.filter)) return undefined;
+  const arms = (filter: Record<string, unknown>): string[] | undefined => {
+    const own = isRecord(filter.zone) && typeof filter.zone.zone === "string" ? filter.zone.zone : undefined;
+    const nested = ["anyOf", "allOf", "oneOf"].flatMap(key => Array.isArray(filter[key]) ? filter[key] as unknown[] : []);
+    if (own) return nested.length ? undefined : [own];
+    if (!nested.length) return JSON.stringify(filter).includes('"cls":"card"') || filter.fromAmong ? undefined : ["battlefield"];
+    const zones = nested.map(arm => isRecord(arm) ? arms(arm) : undefined);
+    return zones.every(zone => zone) ? zones.flat() as string[] : undefined;
+  };
+  return arms(expression.filter);
+}
+/** The zone the pool's cards are in, from the printed instruction that
+ * established it. */
+function poolZone(operation: string, step: Record<string, unknown>, selection: unknown): string | undefined {
+  if (operation === "mill") return "graveyard";
+  if (operation === "exile") return "exile";
+  if (operation === "scan-library") return "library";
+  if (operation === "look-at" && isRecord(step.what) && isRecord(step.what.of) && !("ref" in step.what)) return String(step.what.of.zone);
+  if (operation === "search" && isRecord(step.zones) && Array.isArray(step.zones.of) && step.zones.of.length === 1 && isRecord(step.zones.of[0]))
+    return String(step.zones.of[0].zone);
+  const zones = selectionZones(selection);
+  return zones?.length === 1 && zones[0] !== "battlefield" ? zones[0] : undefined;
+}
+
+/** "The rest" (CR 608.2c): the one pool that can reach this reference, less
+ * its one pick. Bound only when all of these hold:
+ * - the ability attempted exactly one pick from among any pool, on any path,
+ *   bound or not, and that pick is bound to this pool;
+ * - the pool still reaches the reference and is the only multi-object set
+ *   that can be meant (a set still established here, one made under a
+ *   condition, or a reveal-until scan's revealed cards competes);
+ * - the pool's actor and owner are bound single players, the same player
+ *   for a reveal, and it is either "Put one of them … and the rest …" in one
+ *   sentence or the ability controller's own look, reveal or mill;
+ * - every printed instruction between the pool and this reference, on any
+ *   path that can reach it (modes, die rows, coin outcomes and otherwise
+ *   branches are exclusive), is on the allowlist: it emitted its event
+ *   without a diagnostic and moves nothing, moves only the pick (or what it
+ *   became), the source or this same remainder, or takes cards only from
+ *   other zones, every arm of a compound selection included.
+ * The pick's own "may", "up to" or "any number" (not a choice that also
+ * skips the rest) leaves the whole pool. */
+export function pickRemainder(this: Analyzer, expression: Extract<ObjectRef, { ref: "rest" }>, path: string, context: Context): Candidate | undefined {
+  const attempted = attemptedPicks(this, path);
+  const picks = this.poolPicks(context.ability);
+  if (expression.exclude || attempted.length !== 1 || picks.length !== 1 || !attempted[0].startsWith(`${picks[0].path}/`)) return;
+  const [pick] = picks;
+  const pool = context.objects.find(candidate => candidate.id === pick.pool);
+  if (!pool || pool.domain !== "object" || pool.cardinality === "one" || this.invalidNodes.has(pool.id) ||
+      (expression.of && this.at(child(path, "of"))?.id !== pool.id)) return;
+  const step = pickStep(pick.path);
+  const rest = /^(.*\/steps\/\d+)\/what(?:\/\d+)?$/.exec(path)?.[1];
+  const root = /^(.*\/abilities\/\d+)\//.exec(path)?.[1];
+  const face = root ? [...this.abilityAsts.keys()].find(at => root === at || root.startsWith(`${at}/`)) : undefined;
+  if (!step || !rest || !root || !face) return;
+  const ability = pointer(this.abilityAsts.get(face), root.slice(face.length).split("/").filter(Boolean));
+  const inAbility = (node: BindingNode) => node.path.startsWith(`${root}/`);
+  // Competing sets.
+  const reaching = new Set(context.objects.map(candidate => candidate.id));
+  const conditional = (eventId: string) => this.result.nodes.some(entry => entry.id === eventId && entry.node === "event" && entry.conditional);
+  const scanned = new Set(this.result.nodes.flatMap(node => node.node === "library-scan" && inAbility(node) ? [node.pool] : []));
+  const sets = this.result.nodes.filter(node => inAbility(node) && "cardinality" in node && node.cardinality !== "one" &&
+    (node.node === "event-result" ? node.result === "objects" && node.path !== step && !node.path.startsWith(`${step}/`) &&
+        (reaching.has(node.id) || conditional(node.event) || scanned.has(node.id))
+      : node.node === "selection" && node.path !== pick.path && /\/steps\/\d+\/(?:what|for)(?:\/\d+)?$/.test(node.path) &&
+        (reaching.has(node.id) || conditional(this.id(node.path.replace(/\/(?:what|for)(?:\/\d+)?$/, ""), "event")))));
+  if (sets.length !== 1 || sets[0].id !== pool.id) return;
+  const node = sets[0];
+  // The instruction that established the pool: its actor, owner and zone.
+  const origin = node.node === "event-result" ? node.path
+    : node.node === "selection" ? /^(.*\/steps\/\d+)\/(?:what|for)(?:\/\d+)?$/.exec(node.path)?.[1] : undefined;
+  const event = origin ? stepEvent(this, origin) : undefined;
+  const originStep = origin ? pointer(ability, origin.slice(root.length).split("/").filter(Boolean)) : undefined;
+  if (!origin || !event || event.repeated || !isRecord(originStep)) return;
+  const actor = this.at(`${origin}/who`);
+  const owner = [`${origin}/what/of/owner`, `${origin}/what/owner`, `${origin}/what/filter/zone/owner`, `${origin}/for/filter/zone/owner`]
+    .map(at => this.at(at)).find(candidate => candidate);
+  const single = (player: Candidate | undefined) => player?.domain === "player" && player.cardinality === "one";
+  if ((actor && !single(actor)) || (owner && !single(owner)) ||
+      (event.operation === "reveal" && actor && owner && actor.id !== owner.id)) return;
+  const sameSentence = /\/pool$/.test(attempted[0]) && path.startsWith(`${/^(.*\/effects\/\d+)\//.exec(pick.path)?.[1]}/`);
+  const ownLibrary = ["look-at", "reveal", "mill"].includes(event.operation) && actor?.id === context.you &&
+    (owner ? owner.id === context.you : event.operation === "mill");
+  if (!sameSentence && !ownLibrary) return;
+  const zone = poolZone(event.operation, originStep, node.node === "selection" ? node.expression : undefined);
+  if (ownLibrary && zone !== "library" && zone !== "graveyard") return;
+  // Everything the pick became (CR 400.7j).
+  const derived = new Set([pick.id]);
+  for (const later of this.result.nodes) if (later.node === "event-result" && inAbility(later) &&
+    (later.path === step || this.result.nodes.some(entry => entry.id === later.event && entry.node === "event" && entry.inputs.some(id => derived.has(id)))))
+    derived.add(later.id);
+  // The printed instructions between the pool and this reference.
+  for (const { path: at, effect } of instructions(ability, root)) {
+    if (at === origin || at === step || at === rest || !before(origin, at) || !before(at, rest) ||
+        exclusive(at, rest) || exclusive(at, origin)) continue;
+    const operation = String(effect.effect);
+    // Die rolls and coin flips are events themselves (their rows and
+    // outcomes are walked as exclusive paths); the other containers are not.
+    if (operation === "roll-dice" || operation === "flip-coin") {
+      if (!stepEvent(this, at) || this.result.diagnostics.some(diagnostic => diagnostic.path === at)) return;
+      continue;
+    }
+    if (CONTAINERS.has(operation)) continue;
+    const performed = stepEvent(this, at);
+    if (!performed || this.result.diagnostics.some(diagnostic => diagnostic.path === at || diagnostic.path.startsWith(`${at}/`))) return;
+    if (POOL_PRESERVING.has(operation)) continue;
+    if (LIBRARY_ONLY.has(operation)) { if (zone === "library" || !zone) return; continue; }
+    if (operation === "search") {
+      const searched = isRecord(effect.zones) && Array.isArray(effect.zones.of) ? effect.zones.of.map(entry => isRecord(entry) ? entry.zone : undefined) : [];
+      if (!zone || !searched.length || searched.some(entry => entry === zone || entry === undefined)) return;
+      continue;
+    }
+    if (!OPERAND_MOVES.has(operation)) return;
+    const operands = Array.isArray(effect.what) ? effect.what.map((entry, index) => ({ expression: entry, at: `${at}/what/${index}` }))
+      : [{ expression: effect.what, at: `${at}/what` }];
+    for (const operand of operands) {
+      const target = this.at(operand.at);
+      const targetNode = target ? this.result.nodes.find(entry => entry.id === target.id) : undefined;
+      if (target && (derived.has(target.id) || targetNode?.node === "source" ||
+          (targetNode?.node === "remainder" && targetNode.pool === pool.id && targetNode.excluding === pick.id))) continue;
+      const zones = selectionZones(operand.expression);
+      if (!zone || !zones || zones.includes(zone)) return;
+    }
+  }
+  const rules = sameSentence ? ["608.2c"] : ["608.2c", ...(event.operation === "reveal" ? ["701.20a"] : [])];
+  const id = this.node({ id: this.id(path, "remainder"), path, node: "remainder", scope: context.ability,
+    pool: pool.id, excluding: pick.id, rules });
+  // The pick's own choice to take nothing: its own "may" or an optional
+  // group that does not also hold this reference, "up to", "any number".
+  const pickAst = pointer(ability, step.slice(root.length).split("/").filter(Boolean));
+  const group = /^(.*\/steps\/\d+)\/steps\/\d+$/.exec(step)?.[1];
+  const groupAst = group ? pointer(ability, group.slice(root.length).split("/").filter(Boolean)) : undefined;
+  const pickNode = this.result.nodes.find(entry => entry.id === pick.id);
+  const chosen = pickNode?.node === "selection" && "ref" in pickNode.expression ? pickNode.expression : undefined;
+  const count = chosen && "count" in chosen ? chosen.count : undefined;
+  const mayTakeNothing = (isRecord(pickAst) && pickAst.optional === true) ||
+    (group && isRecord(groupAst) && groupAst.effect === "optional-group" && !path.startsWith(`${group}/`)) ||
+    (chosen && "upTo" in chosen && chosen.upTo) || (count?.amount === "chosen" && !count.minimum);
+  if (ownLibrary && mayTakeNothing)
+    this.engineFeature("optional-look-remainder", path, "Use all remaining looked-at cards. When the choice was declined, use the full pool.", rules);
+  return this.bound(expression, path, id, rules);
 }
 export function selection(this: Analyzer, expression: ObjectRef | PlayerRef, path: string, context: Context, targeted: boolean): Candidate | undefined {
   if (targeted && context.phase !== "resolution") {
