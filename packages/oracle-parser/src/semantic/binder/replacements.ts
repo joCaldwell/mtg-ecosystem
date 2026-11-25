@@ -5,7 +5,7 @@ import type { BindingNode } from "../types.ts";
 import type { Analyzer } from "./analyzer.ts";
 import { child, combine, objectCardinality, type Candidate, type Context } from "./context.ts";
 import { stackClasses } from "./predicates.ts";
-import { exileReplacementParts, quantityUnit } from "./replacement-shapes.ts";
+import { exileReplacementParts, quantityUnit, simpleExileBody, singleGraveyardExile } from "./replacement-shapes.ts";
 import { SELF_GRAVEYARD_REPLACEMENT, type OptionalEntryCopy } from "./templates.ts";
 
 export function additionalStackCopy(this: Analyzer, replacement: ReplacementInstruction, path: string, context: Context): boolean {
@@ -36,9 +36,105 @@ export function keepUnspentMana(this: Analyzer, replacement: ReplacementInstruct
   return true;
 }
 
+function topLevelReplacement(context: Context): boolean {
+  return !context.barrier && context.lexicalAbilityPath !== undefined &&
+    /^\/faces\/\d+\/abilities\/\d+$/.test(context.lexicalAbilityPath) &&
+    !context.conditional && !context.decider;
+}
+
+function singleSentenceStep(path: string, context: Context): boolean {
+  const ability = context.lexicalAbilityPath;
+  return ability !== undefined && path.startsWith(ability) && /^\/effects\/\d+\/steps\/0$/.test(path.slice(ability.length));
+}
+
+function bindDamageCounterRecipient(this: Analyzer, replacement: ReplacementInstruction, path: string, context: Context): boolean {
+  const { event, replace } = replacement;
+  const one = { amount: "fixed", value: 1 };
+  const on = { ref: "replacement-event-object", role: "recipient" };
+  if (!isDeepStrictEqual(replacement, { occurrence: "each", event: {
+    event: "damage", kind: "noncombat",
+    source: { ref: "filter", filter: { control: "you" }, count: one },
+    to: [{ ref: "filter", filter: { types: ["creature"], control: "opponent" }, count: one }],
+  }, replace: { replacement: "effects", effects: [{ steps: [{
+    effect: "put-counters", counter: { type: "-1/-1" }, count: { amount: "replacement-event-quantity" }, on,
+  }] }] } }) || replace.replacement !== "effects") return false;
+
+  // CR 120.4b, 614.6: the counters use the sole creature recipient of the
+  // proposed damage. The quantity modifier graph has no operand for the
+  // original amount, which therefore remains an unresolved reference.
+  const rules = ["120.4b", "122.6", "614.1a", "614.6", "614.7a"];
+  const eventPath = child(path, "event");
+  const matching: Context = { ...context, phase: "replacement-match" };
+  this.walk(event, eventPath, matching);
+  const at = `${eventPath}/to/0`;
+  const source = this.at(child(eventPath, "source"));
+  const match = this.at(at);
+  if (!source || !match) return true;
+  const proposal = this.event(eventPath, matching, "proposed-damage", [source, match]);
+  const recipient = this.node({ id: this.id(at, "recipient"), path: at, node: "event-participant",
+    scope: context.ability, event: proposal, role: "proposed-damage-recipient", cardinality: "one", rules });
+  const counterPath = `${path}/replace/effects/0/steps/0`;
+  this.effect(replace.effects[0].steps[0], counterPath, { ...context, phase: "resolution",
+    exactEventObject: { path: child(counterPath, "on"), id: recipient, rules } });
+  return true;
+}
+
+function bindSinglePlayerReplacement(this: Analyzer, replacement: ReplacementInstruction, path: string, context: Context): boolean {
+  const { event, replace } = replacement;
+  if (!isDeepStrictEqual(replacement, { occurrence: "each", event, replace })) return false;
+  const you = { player: "you" };
+  const eventPath = child(path, "event");
+  const matching: Context = { ...context, phase: "replacement-match" };
+  if (isDeepStrictEqual(replace, { replacement: "skip" }) &&
+      (["a-player", "an-opponent"].some(player =>
+        isDeepStrictEqual(event, { event: "begin-time", who: { player }, what: { kind: "turn" }, extra: true })) ||
+        isDeepStrictEqual(event, { event: "draw", who: { player: "a-player" }, quantity: { op: "eq", value: { amount: "fixed", value: 1 } } }))) {
+    this.walk(event, eventPath, matching);
+    if (event.event === "begin-time")
+      this.engineFeature("phase-scheduling", path, "Skip each matching extra turn before it starts.", ["500.7", "614.1b", "614.10", "614.10a"]);
+    else this.engineFeature("static-rule", path, "Replace each qualifying individual draw with no action.", ["121.2", "614.1b", "614.10"]);
+    return true;
+  }
+  if (isDeepStrictEqual(event, { event: "proliferate", who: you }) && replace.replacement === "effects" &&
+      isDeepStrictEqual(replace, { replacement: "effects", effects: [{ steps: [{
+        effect: "keyword-action", action: "proliferate", who: you, times: { amount: "fixed", value: 2 },
+      }] }] })) {
+    this.walk(event, eventPath, matching);
+    this.effect(replace.effects[0].steps[0], `${path}/replace/effects/0/steps/0`, { ...context, phase: "resolution" });
+    this.engineFeature("static-rule", path, "Replace each qualifying proliferate event with two separate proliferations by the same player.", ["614.5", "614.6", "701.34"]);
+    return true;
+  }
+  return false;
+}
+
 export function exileReplacement(this: Analyzer, replacement: ReplacementInstruction, path: string, context: Context): boolean {
   const parts = !context.barrier && context.permanentSource ? exileReplacementParts(replacement) : undefined;
-  if (!parts) return false;
+  if (!parts) {
+    if (!topLevelReplacement(context) || context.phase !== "continuous" || !context.permanentSource) return false;
+    const move = singleGraveyardExile(replacement);
+    if (move) {
+      const rules = ["400.6", "400.7", "614.1a", "614.5", "614.6", "616.1"];
+      const matching: Context = { ...context, phase: "replacement-match" };
+      const eventPath = child(path, "event");
+      const at = child(eventPath, "what");
+      const match = this.object(move.event.what, at, matching);
+      if (!match) return true;
+      this.walk(move.event.to, child(eventPath, "to"), matching);
+      const exilePath = `${path}/replace/effects/0/steps/0`;
+      const proposal = this.id(path, "exile-replacement");
+      const object = this.node({ id: this.id(at, "affected"), path: at, node: "event-participant",
+        scope: context.ability, event: proposal, role: "proposed-move-object", cardinality: "one", rules });
+      this.node({ id: proposal, path, node: "exile-replacement", scope: context.ability, object, filter: match.id,
+        from: move.from, originalDestination: "graveyard", exileEvent: this.id(exilePath, "event"),
+        graveyardOwner: this.at(`${eventPath}/to/owner`)?.id, rules });
+      this.effect(move.exile, exilePath, { ...context, phase: "resolution",
+        exactEventObject: { path: child(exilePath, "what"), id: object, rules } });
+      this.engineFeature("zone-replacement", path, "Redirect each matching proposed graveyard move to exile, with any prescribed counter.", rules);
+      return true;
+    }
+    return bindDamageCounterRecipient.call(this, replacement, path, context) ||
+      bindSinglePlayerReplacement.call(this, replacement, path, context);
+  }
 
   const rules = ["400.6", "400.7", "614.1a", "614.5", "614.6", "616.1",
     ...(parts.opponentGraveyard ? ["102.2", "108.4", "108.4a", "400.3", "607.2b"] : []),
@@ -135,6 +231,68 @@ export function delayedExileReturn(this: Analyzer, effect: Extract<Effect, { eff
   return true;
 }
 
+/** CR 120.4b, 400.7, 608.2c: capture the prior damage step's one
+ * creature recipient, or the directly named target where damage is immaterial. */
+function captureDamageRecipient(this: Analyzer, effect: Extract<Effect, { effect: "create-replacement" }>,
+  prior: Effect | undefined, path: string, context: Context, previous: string | undefined): string | undefined {
+  const { event, replace } = effect.replacement;
+  if (!topLevelReplacement(context) || !context.spellAbility || !previous || prior?.effect !== "damage" ||
+      !isDeepStrictEqual(prior, { effect: "damage", source: { ref: "self" }, amount: prior.amount, to: prior.to }) ||
+      prior.amount.amount !== "fixed" || prior.amount.value < 1 || event.event !== "move-zone" || !simpleExileBody(replace) ||
+      !isDeepStrictEqual(effect, { effect: "create-replacement", duration: { duration: "this-turn" }, replacement: {
+        occurrence: "each", event: { event: "move-zone", what: event.what, from: { zone: "battlefield" }, to: { zone: "graveyard" } }, replace,
+      } }) || path !== `${context.lexicalAbilityPath}/effects/1/steps/0` ||
+      previous !== `${context.lexicalAbilityPath}/effects/0/steps/0`) return;
+
+  const creatures = { types: ["creature"] };
+  const creatureOrPlaneswalker = { allOf: [{ anyOf: [creatures, { types: ["planeswalker"] }] }] };
+  const to = prior.to;
+  const ref = to.to === "object" ? to.ref : undefined;
+  const target = ref?.ref === "target" && ref.selectionId &&
+    isDeepStrictEqual(to, { to: "object", ref: { ref: "target", filter: ref.filter, count: { amount: "fixed", value: 1 }, selectionId: ref.selectionId } }) &&
+    [creatures, creatureOrPlaneswalker].some(filter => isDeepStrictEqual(ref.filter, filter)) ? ref : undefined;
+  const anyTarget = to.to === "any-target" && to.selectionId &&
+    isDeepStrictEqual(to, { to: "any-target", selectionId: to.selectionId });
+  if (!target && !anyTarget) return;
+  const participant = this.at(`${previous}/to${target ? "/ref" : ""}`);
+  const damage = this.result.nodes.find(node => node.id === this.id(previous, "event"));
+  if (!participant || participant.cardinality !== "one" ||
+      (target ? participant.domain !== "object" : participant.domain !== "object-or-player") ||
+      damage?.node !== "event" || damage.operation !== "damage" || damage.scope !== context.ability ||
+      damage.optional || damage.conditional || damage.repeated ||
+      !isDeepStrictEqual(damage.inputs, [context.source, participant.id])) return;
+
+  if (target && isDeepStrictEqual(event.what, { ref: "that", filter: target.filter })) return participant.id;
+  if (!isDeepStrictEqual(event.what, { ref: "filter", count: { amount: "fixed", value: 1 }, filter: {
+    ...creatures, damageHistory: { role: "recipient", window: { event: "this-way" } },
+  } })) return;
+  this.engineFeature("event-history", previous, "Track the exact creature incarnation dealt positive damage by this instruction.", ["120.4b", "614.7a", "400.7"]);
+  return this.eventResult(previous, damage.id, "objects", "one", "same-objects", creatures).id;
+}
+
+function captureDelayedExileSubject(this: Analyzer, effect: Extract<Effect, { effect: "create-replacement" }>,
+  path: string, previous: Effect | undefined, previousPath: string | undefined, context: Context): string | undefined {
+  const { replace } = effect.replacement;
+  if (!topLevelReplacement(context) || !singleSentenceStep(path, context) || !previousPath ||
+      !singleSentenceStep(previousPath, context) || !simpleExileBody(replace) ||
+      !isDeepStrictEqual(effect, { effect: "create-replacement", replacement: { occurrence: "each", replace,
+        event: { event: "move-zone", what: { ref: "it" }, from: { zone: "battlefield" } },
+      } }) || !isDeepStrictEqual(previous, {
+        effect: "create-delayed-trigger", trigger: { trigger: "phase", phase: "end-step", whose: "each-player" },
+        occurrence: "next", nextOnly: true, targets: "enclosing-ability", effects: [{ steps: [{ effect: "exile", what: { ref: "it" } }] }],
+      }) || context.objects.length !== 1) return;
+  const [subject] = context.objects;
+  const delayedSubject = this.at(`${previousPath}/effects/0/steps/0/what`);
+  const origin = this.result.nodes.find(node => node.id === subject.id);
+  if (subject.domain !== "object" || subject.cardinality !== "one" || delayedSubject?.id !== subject.id ||
+      origin?.node !== "event-result" || origin.identity !== "zone-successors" ||
+      origin.description?.cls !== "permanent" || !isDeepStrictEqual(origin.description.types, ["creature"]) ||
+      !singleSentenceStep(origin.path, context)) return;
+  const move = this.result.nodes.find(node => node.id === origin.event);
+  if (move?.node === "event" && move.scope === context.ability && move.operation === "move-zone" &&
+      !move.optional && !move.conditional && !move.repeated) return subject.id;
+}
+
 export function moveToExileRule(this: Analyzer, effect: Extract<Effect, { effect: "create-replacement" }>, path: string,
   context: Context, precedingEffect?: string): boolean {
   const { event, replace, occurrence, condition, optional } = effect.replacement;
@@ -162,6 +320,7 @@ export function moveToExileRule(this: Analyzer, effect: Extract<Effect, { effect
   const priorEvent = prior && precedingEffect ? this.result.nodes.find(node => node.id === this.id(precedingEffect, "event")) : undefined;
   const rules = ["400.6", "400.7h", "400.7j", "614.1a", "614.5", "614.6"];
   let tracked: Extract<BindingNode, { node: "captured-move-replacement" }>["tracked"];
+  let capturedThisTurn = false;
 
   if (event.from === undefined && isDeepStrictEqual(event.to, { zone: "graveyard", owner: "your" }) &&
       !event.resolving && isDeepStrictEqual(event.what, { ref: "that", filter: { cls: "spell" } }) &&
@@ -202,7 +361,14 @@ export function moveToExileRule(this: Analyzer, effect: Extract<Effect, { effect
     const permanent = context.objects[0].id;
     tracked = { kind: "one-object", object: permanent };
     this.bound(event.what, whatPath, permanent, rules);
-  } else return false;
+  } else {
+    const object = captureDamageRecipient.call(this, effect, prior, path, context, precedingEffect) ??
+      captureDelayedExileSubject.call(this, effect, path, prior, precedingEffect, context);
+    if (!object) return false;
+    tracked = { kind: "one-object", object };
+    capturedThisTurn = effect.duration?.duration === "this-turn";
+    this.bound(event.what, whatPath, object, [...rules, "608.2c"]);
+  }
 
   this.walk(event.from, child(eventPath, "from"), context);
   this.walk(event.to, child(eventPath, "to"), context);
@@ -211,7 +377,8 @@ export function moveToExileRule(this: Analyzer, effect: Extract<Effect, { effect
   const affected = this.node({ id: this.id(exilePath, "affected"), path: child(exilePath, "what"),
     node: "event-participant", scope: context.ability, event: ruleId, role: "proposed-move-object", cardinality: "one", rules });
   this.node({ id: ruleId, path, node: "captured-move-replacement", scope: context.ability,
-    created: this.event(path, context, effect.effect, []), tracked, match: event, exile: this.id(exilePath, "event"), rules });
+    created: this.event(path, context, effect.effect, []), tracked, match: event, exile: this.id(exilePath, "event"),
+    ...(capturedThisTurn ? { duration: "this-turn" as const } : {}), rules });
   const execution = { ...context, objects: [], players: [], quantities: [], departed: [], exileResults: undefined,
     exactEventObject: { path: child(exilePath, "what"), id: affected, rules } };
   this.effect(exile, exilePath, execution);
