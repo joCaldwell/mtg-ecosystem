@@ -255,7 +255,11 @@ fn mid_resolution() -> Game {
 
 fn suspended_battlefield_entry() -> Game {
     let mut catalog = FixtureCatalog::Witness.get().clone();
-    let land = catalog.definitions.iter_mut().find(|d| d.name == "Forest").unwrap();
+    let land = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Forest")
+        .unwrap();
     land.source_labels = None;
     land.static_abilities.push(StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
@@ -271,7 +275,10 @@ fn suspended_battlefield_entry() -> Game {
     );
     let object = Driver::object(&game, 0);
     Driver::action(&mut game, Action::PlayLand { object });
-    assert_eq!(Driver::request(&mut game, u64::MAX).reason, Reason::OptionalEffect);
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::OptionalEffect
+    );
     game
 }
 

@@ -718,8 +718,7 @@ impl RulesTxn {
         let mut occurrences = vec![];
         self.apply_leaf(
             &proposed,
-            batch_id,
-            &[],
+            (batch_id, &[]),
             before.clone(),
             &mut occurrences,
             BatchAuthority::Ordinary,
@@ -1529,7 +1528,7 @@ impl RulesTxn {
                     Some(before) => before.clone(),
                     None => self.facts(&[proposed])?,
                 };
-                self.apply_leaf(proposed, batch, path, before, out, authority, None)?;
+                self.apply_leaf(proposed, (batch, path), before, out, authority, None)?;
                 if changes_control_inputs(proposed) {
                     self.reconcile_controllers()?;
                 }
@@ -1564,9 +1563,7 @@ impl RulesTxn {
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_leaf(
-                        event, batch, path, before, out, authority, Some(&common),
-                    )?;
+                    self.apply_leaf(event, (batch, path), before, out, authority, Some(&common))?;
                     path.pop();
                 }
                 // CR 603.10a, 702.15c/702.2e: simultaneous departures use
@@ -1596,8 +1593,7 @@ impl RulesTxn {
     fn apply_leaf(
         &mut self,
         proposed: &ProposedEvent,
-        batch: u64,
-        path: &[u32],
+        (batch, path): (u64, &[u32]),
         before: PreEventFacts,
         out: &mut Vec<OccurrenceResult>,
         authority: BatchAuthority<'_>,
@@ -1804,7 +1800,9 @@ impl RulesTxn {
                     Some(paid) => !paid,
                     None if !prior.can_pay_entry_life(controller, &amount) => true,
                     None => {
-                        return Err("payable entry requires a battlefield entry continuation".into());
+                        return Err(
+                            "payable entry requires a battlefield entry continuation".into()
+                        );
                     }
                 }
             } else {
@@ -2790,9 +2788,10 @@ impl RulesTxn {
                     _ => None,
                 };
                 let payment = match authority {
-                    BatchAuthority::EntryPayment { object: entrant, paid } if entrant == *object => {
-                        Some(paid)
-                    }
+                    BatchAuthority::EntryPayment {
+                        object: entrant,
+                        paid,
+                    } if entrant == *object => Some(paid),
                     _ => None,
                 };
                 self.apply_move(*object, *destination, caster, entry_state, payment)?

@@ -98,7 +98,10 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
     match (key, child) {
         ("optional", Value::Bool(true)) => found.may += 1,
         ("effect" | "static", Value::String(tag)) => match tag.as_str() {
-            "optional-group" | "grant-play-permission" | "additional-land-plays" | "entry-choice" => {
+            "optional-group"
+            | "grant-play-permission"
+            | "additional-land-plays"
+            | "entry-choice" => {
                 found.may += 1;
             }
             "create-replacement" | "must-attack" | "must-block" => found.condition += 1,

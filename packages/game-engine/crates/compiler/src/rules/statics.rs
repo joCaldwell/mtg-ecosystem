@@ -247,7 +247,10 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
             if count == Quantity::zero() {
                 return Err(gap("enters-with-counters:zero"));
             }
-            ability(Battlefield, StaticEffect::EntersWithPlusOneCounters { count })
+            ability(
+                Battlefield,
+                StaticEffect::EntersWithPlusOneCounters { count },
+            )
         }
         S::EntersWithCounterChoice(_) => return Err(gap("enters-with-counter-choice")),
         S::AttachmentLimit(_) => return Err(gap("attachment-limit")),

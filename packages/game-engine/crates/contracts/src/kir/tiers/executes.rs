@@ -556,7 +556,9 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                     // the first state-based toughness check.
                     let mut entry_toughness = n.clone();
                     for ability in &d.static_abilities {
-                        if let kir::StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
+                        if let kir::StaticEffect::EntersWithPlusOneCounters { count } =
+                            &ability.effect
+                        {
                             entry_toughness.add(count);
                         }
                     }

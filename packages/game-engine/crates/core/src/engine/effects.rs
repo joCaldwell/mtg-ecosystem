@@ -398,15 +398,22 @@ impl RulesTxn {
         use mtg_contracts::kir::EntryCondition;
         match condition {
             EntryCondition::UnlessControlled { filter, cmp, count } => {
-                let actual = self.battlefield_static_sources(None)
+                let actual = self
+                    .battlefield_static_sources(None)
                     .filter(|target| {
                         target.id != entrant.id
                             && target.controller == entrant.controller
-                            && self.structural_characteristics(target.id).is_ok_and(|characteristics| {
-                                self.static_predicate(
-                                    filter, entrant, target, &characteristics, target.controller,
-                                )
-                            })
+                            && self.structural_characteristics(target.id).is_ok_and(
+                                |characteristics| {
+                                    self.static_predicate(
+                                        filter,
+                                        entrant,
+                                        target,
+                                        &characteristics,
+                                        target.controller,
+                                    )
+                                },
+                            )
                     })
                     .count();
                 !static_compare(&(actual as i64).into(), *cmp, count)
