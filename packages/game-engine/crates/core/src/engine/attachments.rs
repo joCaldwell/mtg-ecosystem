@@ -228,6 +228,19 @@ impl RulesTxn {
                 _ => {}
             }
         }
+        // CR 702.84a, 611.2c: an unearthed incarnation gains haste for as
+        // long as it remains that object, from the moment it entered.
+        if let Ok(o) = self.current(object)
+            && o.id == object
+            && o.unearthed
+            && o.zone == Zone::Battlefield
+        {
+            const HASTE: &[KeywordAbility] = &[KeywordAbility::Haste];
+            rows.push((
+                (o.keyword_timestamp.unwrap_or(0), 1, 0),
+                Row::Grant(HASTE),
+            ));
+        }
         // CR 611.2c/613.1f/400.7: resolved effects affect only the captured
         // incarnation; source departure does not end an already resolved
         // EOT grant.

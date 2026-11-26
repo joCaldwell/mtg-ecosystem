@@ -166,6 +166,35 @@ impl RulesTxn {
                 return Err("snapshot has an impossible ability face".into());
             }
         }
+        // CR 702.30a: a player has at most one upkeep per turn, and each
+        // battlefield permanent records when it came under its controller's
+        // control.
+        if s.rules
+            .players
+            .iter()
+            .any(|p| p.upkeeps > s.rules.turn.number)
+            || s.rules.objects.values().any(|o| match o.control_upkeeps {
+                // A forged controller outside the seats is a snapshot error.
+                Some(n) => {
+                    o.zone != Zone::Battlefield
+                        || s.rules
+                            .players
+                            .get(o.controller.0 as usize)
+                            .is_none_or(|p| n > p.upkeeps)
+                }
+                None => o.zone == Zone::Battlefield,
+            })
+        {
+            return Err("invalid upkeep control history".into());
+        }
+        // CR 702.84a: only a battlefield incarnation is unearthed.
+        if s.rules
+            .objects
+            .values()
+            .any(|o| o.unearthed && o.zone != Zone::Battlefield)
+        {
+            return Err("unearthed object off the battlefield".into());
+        }
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.
         if s.rules.players.len() != 4
@@ -431,6 +460,17 @@ impl RulesTxn {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
                 let stage = self.underlying_mana_frame(&s.rules.frame)?;
+                if cast.delve.is_some() || cast.tap_payment.is_some() {
+                    if !matches!(
+                        stage,
+                        Frame::SpendMana { .. }
+                            | Frame::SacrificeCost { .. }
+                            | Frame::ChosenObjectCost { .. }
+                    ) {
+                        return Err("snapshot spell payment stage invariant".into());
+                    }
+                    self.mana_due(top, cast)?;
+                }
                 let target_stage = matches!(
                     stage,
                     Frame::EntityTargets { .. }

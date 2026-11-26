@@ -117,6 +117,12 @@ pub struct ObjectBefore {
     pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battlefield_entry_turn: Option<u64>,
+    /// CR 702.30a: `Object::control_upkeeps` as last known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_upkeeps: Option<u64>,
+    /// CR 702.84a: `Object::unearthed` as last known.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unearthed: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -281,6 +287,10 @@ enum FactKey {
 #[derive(Clone, Copy)]
 pub(super) enum EntryOverride {
     ForceTapped,
+    CreatureController {
+        player: PlayerId,
+        tapped: bool,
+    },
     /// CR 614.12: the entry choice was made (life paid or card revealed)
     /// or declined.
     Choice {
@@ -1910,7 +1920,9 @@ impl RulesTxn {
 
         // Pinned CR 614.1a/6: replace every would-die cause, including
         // costs and SBAs, before any graveyard move or dies observer.
-        let replaced = if self.anger_replaces_death(*object, *destination) {
+        let replaced = if self.anger_replaces_death(*object, *destination)
+            || self.unearth_replaces_departure(*object, *destination)
+        {
             Zone::Exile
         } else {
             *destination
@@ -2057,6 +2069,8 @@ impl RulesTxn {
             }
         }
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
+        let control_upkeeps = (*destination == Zone::Battlefield)
+            .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
         self.rules_mut().objects.insert(
             object.card,
             Object {
@@ -2065,6 +2079,7 @@ impl RulesTxn {
                 attached_to: None,
                 attachment_timestamp: None,
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
+                control_upkeeps,
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 plus_one_counters,
                 transforms: 0,
@@ -2072,6 +2087,7 @@ impl RulesTxn {
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
+                unearthed: false,
                 id: successor,
                 controller,
                 default_controller: controller,
@@ -2692,13 +2708,17 @@ impl RulesTxn {
                 else {
                     return Err("top-library movement invariant".into());
                 };
-                let cards = self
-                    .rules_mut()
-                    .libraries
-                    .get_mut(&owner)
-                    .ok_or("missing owner library")?;
-                cards.retain(|card| *card != object.card);
-                cards.insert(0, object.card);
+                // CR 614.1a: a replacement (unearth's exile) can divert the
+                // move; only a card that reached the library goes on top.
+                if movement.destination == (Zone::Library { owner }) {
+                    let cards = self
+                        .rules_mut()
+                        .libraries
+                        .get_mut(&owner)
+                        .ok_or("missing owner library")?;
+                    cards.retain(|card| *card != object.card);
+                    cards.insert(0, object.card);
+                }
                 EventOutcome::LibraryTopMoved {
                     movement,
                     previous_top,
@@ -2938,6 +2958,10 @@ impl RulesTxn {
                 // ends, before the separately budgeted postcombat entry unit.
                 if self.state.rules.turn.step == TurnStep::EndCombat {
                     self.clear_combat();
+                }
+                // CR 503.1a, 702.30a: count each player's upkeeps as they begin.
+                if next.step == TurnStep::Upkeep && next.step != self.state.rules.turn.step {
+                    self.rules_mut().players[owner.0 as usize].upkeeps += 1;
                 }
                 let previous = std::mem::replace(&mut self.rules_mut().turn, next.clone());
                 let previous_owner = std::mem::replace(&mut self.rules_mut().turn_owner, *owner);
@@ -3182,8 +3206,15 @@ impl RulesTxn {
                 };
                 let (force_tapped, payment) = match entry {
                     Some(EntryOverride::ForceTapped) => (true, None),
+                    Some(EntryOverride::CreatureController { tapped, .. }) => (tapped, None),
                     Some(EntryOverride::Choice { accepted }) => (false, Some(accepted)),
                     None => (false, None),
+                };
+                let intended = match entry {
+                    Some(EntryOverride::CreatureController { player, .. }) => {
+                        Some((player, object.face))
+                    }
+                    _ => intended,
                 };
                 self.apply_move(
                     *object,

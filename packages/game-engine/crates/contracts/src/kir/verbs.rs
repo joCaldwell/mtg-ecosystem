@@ -337,6 +337,11 @@ pub enum DelayedEvent {
     NextUpkeep {
         of: PlayerExpr,
     },
+    /// CR 702.84a: return the source card from its owner's graveyard to the
+    /// battlefield. That object gains haste and is exiled instead of leaving
+    /// the battlefield; the trigger exiles it at the next end step.
+    #[serde(deserialize_with = "no_operands")]
+    NextEndStepAfterUnearth,
     #[serde(deserialize_with = "no_operands")]
     EndOfCombat,
     /// An ordinary event pattern, watched until `until` (CR 603.7c).
@@ -527,6 +532,9 @@ pub enum Verb {
     },
     /// CR 603.7.
     ReturnCapturedExile {},
+    /// CR 702.84a, 603.7: exile the permanent the creating ability returned,
+    /// if it is still that object on the battlefield.
+    ExileCapturedReturn {},
     CreateDelayedTrigger {
         event: DelayedEvent,
         node: Box<Node>,

@@ -109,6 +109,7 @@ pub enum Cell {
     LifeTargetPlayerX,
     LifeTargetController,
     LifeTargetControllerPower,
+    LifeGraveyardCreatureManaValue,
     LifeCounted,
     /// CR 119.3, 608.2c: the each-opponent drain pair.
     Drain,
@@ -150,7 +151,9 @@ pub enum Cell {
     ExileGraveyardTarget,
     GraveyardTargetWasCreature,
     MoveGraveyardTargetToOwnerHand,
+    MoveGraveyardTargetToOwnerLibraryTop,
     MoveOwnGraveyardCreatureToBattlefield,
+    MoveGraveyardCreatureToBattlefield,
     MoveOwnGraveyardCardToBattlefield,
     ExileTargetGraveyard,
     ExileGraveyards,
@@ -188,6 +191,9 @@ pub enum Cell {
     SacrificeDamagedPlayer,
     SacrificeEachPlayer,
     SacrificeEachOpponent,
+    /// CR 701.21a: the source's current controller, or the ability's
+    /// controller, sacrifices that exact permanent if they control it.
+    SacrificeSource,
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
@@ -297,6 +303,20 @@ pub enum Cell {
     /// CR 702.34a: casting from the graveyard for the flashback cost, and
     /// exile as the spell leaves the stack.
     Flashback,
+    /// CR 702.66: exile graveyard cards for generic mana during spell payment.
+    Delve,
+    /// CR 702.51: tap creatures to pay colored or generic mana costs.
+    Convoke,
+    /// CR 702.126: tap artifacts to pay generic mana costs.
+    Improvise,
+    /// CR 702.74a, 118.9: the evoke alternative cost and the entering
+    /// permanent's sacrifice trigger reading it.
+    Evoke,
+    /// CR 702.30a: the echo upkeep trigger and the control history it reads.
+    Echo,
+    /// CR 702.84a: the graveyard return, haste, departure exile and the
+    /// end-step exile of the returned permanent.
+    Unearth,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -329,6 +349,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeEachOpponent
         | C::LifeTargetPlayerX
         | C::LifeTargetController
+        | C::LifeGraveyardCreatureManaValue
         | C::LifeTargetControllerPower
         | C::LifeCounted
         | C::Drain
@@ -350,9 +371,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ChooseObjectOwnerHand
         | C::GraveyardTargetWasCreature
         | C::ExileGraveyardTarget
+        | C::MoveGraveyardTargetToOwnerLibraryTop
         | C::MoveGraveyardTargetToOwnerHand
         | C::MoveOwnGraveyardTargetToHand
         | C::MoveOwnGraveyardCardToBattlefield
+        | C::MoveGraveyardCreatureToBattlefield
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
@@ -442,7 +465,14 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SpellAdditionalSacrifice
         | C::Kicker
         | C::Buyback
-        | C::Flashback => Tiers::EXECUTES,
+        | C::Flashback
+        | C::Delve
+        | C::Convoke
+        | C::Improvise
+        | C::Evoke
+        | C::Echo
+        | C::Unearth
+        | C::SacrificeSource => Tiers::EXECUTES,
     }
 }
 
@@ -620,7 +650,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::InterveningIfV1
         | C::ResolutionTriggerV1
         | C::EventTriggerV1
-        | C::TriggerTurnHistoryV1 => Tiers::EXECUTES,
+        | C::TriggerTurnHistoryV1
+        | C::SacrificeSourceV1 => Tiers::EXECUTES,
     }
 }
 
@@ -691,8 +722,28 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     if !d.characteristics.hybrid_mana.is_empty() {
         cells.insert(Cell::HybridManaCost);
     }
+    if d.improvise {
+        cells.insert(Cell::Improvise);
+    }
+    if d.convoke {
+        cells.insert(Cell::Convoke);
+    }
+    if d.delve {
+        cells.insert(Cell::Delve);
+    }
     if d.flashback.is_some() {
         cells.insert(Cell::Flashback);
+    }
+    if d.alternative_cost.is_some() {
+        cells.insert(Cell::Evoke);
+    }
+    if d.triggered.iter().any(|t| {
+        matches!(
+            t.condition.intervening_if(),
+            Some(Cond::ControlledSinceLastUpkeep {})
+        )
+    }) {
+        cells.insert(Cell::Echo);
     }
     if let Some(p) = &d.spell {
         if p.additional_sacrifice.is_some() {

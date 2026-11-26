@@ -732,7 +732,8 @@ impl Walk<'_, '_> {
             | Cond::CastBy { .. }
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
-            | Cond::OpponentControlsMore { .. } => {
+            | Cond::OpponentControlsMore { .. }
+            | Cond::ControlledSinceLastUpkeep {} => {
                 unaudited("intervening condition in a resolving node")
             }
         }
@@ -756,7 +757,7 @@ impl Walk<'_, '_> {
     /// Scope and type of every operand of a verb. Total over [`Verb`].
     fn operands(&mut self, verb: &Verb) -> Result<(), KirError> {
         match verb {
-            Verb::ReturnCapturedExile {} => Ok(()),
+            Verb::ReturnCapturedExile {} | Verb::ExileCapturedReturn {} => Ok(()),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::GiveCounters { player, amount, .. }
@@ -831,6 +832,13 @@ impl Walk<'_, '_> {
             } => {
                 self.player(player)?;
                 self.amount(count)?;
+                // CR 701.21a: "sacrifice it" names the source itself, which
+                // must be a permanent's own ability (not a spell).
+                if *filter == Pred::source() {
+                    return self
+                        .expect(&Ref::Source, &[RefKind::Object], "sacrificed source")
+                        .map(|_| ());
+                }
                 self.pred(filter)
             }
             Verb::AddMana { player, mana } => {
@@ -1271,6 +1279,11 @@ impl Walk<'_, '_> {
                                 if *object == Pred::source() || *event.pattern() == EventPattern::self_dies()))
                             && self.creature_target(*slot)?
                             && program.targets.is_empty() => {}
+                    // CR 702.84a: a graveyard source's own unearth ability.
+                    (DelayedEvent::NextEndStepAfterUnearth, Node::Do(Verb::ExileCapturedReturn {}))
+                        if self.env.context == Context::Activated && program.targets.is_empty() => {
+                        self.out.cells.insert(Cell::Unearth);
+                    }
                     (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, amount, random: true }))
                         if *of == PlayerExpr::you(self.env.context) && *player == PlayerExpr::you(Context::Triggered)
                             && amount.as_fixed().is_some_and(|n| *n > Quantity::zero())
@@ -1623,6 +1636,7 @@ impl Walk<'_, '_> {
             | Verb::CopyStackObject { .. }
             | Verb::Attach { .. }
             | Verb::ReturnCapturedExile {}
+            | Verb::ExileCapturedReturn {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
             | Verb::SetDesignation { .. }
@@ -1744,7 +1758,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::PreventDamage { prevention, .. } => modify::prevention_capabilities(prevention, out),
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
-        Verb::Sacrifice { player, .. } => sacrifice::capabilities(player, out),
+        Verb::Sacrifice { player, filter, .. } => sacrifice::capabilities(player, filter, out),
         Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
             out.insert(Capability::SearchLibraryTopV1);
         }
@@ -1764,6 +1778,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::CopyStackObject { .. }
         | Verb::Attach { .. }
         | Verb::ReturnCapturedExile {}
+        | Verb::ExileCapturedReturn {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::SetDesignation { .. }

@@ -116,6 +116,38 @@ impl RulesTxn {
         self.casting_cost(source, viewer, proposal.cast_from, x)
     }
 
+    /// CR 118.9, 601.2f: quote the printed alternative cost (evoke) of the
+    /// same front-face proposal from hand or the command zone, with the
+    /// commander tax, increases and reductions that would lock with it.
+    pub fn quote_alternative_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+    ) -> Result<Option<(String, ManaCost)>, String> {
+        let object = self.resolve_handle(viewer, card)?;
+        let proposal = self.priority_spell_announcement(viewer, object.card, CardFace::Front)?;
+        if !matches!(proposal.cast_from, Zone::Hand { .. } | Zone::Command { .. }) {
+            return Ok(None);
+        }
+        let source = ObjectId {
+            face: proposal.face,
+            ..proposal.original_object
+        };
+        let Some(alternative) = self.copiable_definition(source)?.alternative_cost.as_ref() else {
+            return Ok(None);
+        };
+        let lock = self.cost_lock_inputs(source, viewer, proposal.cast_from)?;
+        let cost = self.construct_spell_cost(
+            source,
+            proposal.cast_from,
+            None,
+            std::slice::from_ref(&alternative.identity),
+            None,
+            &lock,
+        )?;
+        Ok(Some((alternative.identity.clone(), cost)))
+    }
+
     pub(super) fn validate_priority_spell_cast(
         &self,
         player: PlayerId,
@@ -216,6 +248,8 @@ impl RulesTxn {
             sacrifices: vec![],
             origin: AnnouncementOrigin::Spell,
             spending: None,
+            delve: None,
+            tap_payment: None,
             spending_restricted: vec![],
             stack_id: id,
             original_object,
@@ -240,12 +274,8 @@ impl RulesTxn {
         if definition.modal_spell.is_some() && stack.mode_mask.is_none() {
             return Ok(Frame::ChooseModes { cast });
         }
-        if !definition
-            .spell
-            .as_ref()
-            .ok_or("missing spell")?
-            .optional_additional_costs
-            .is_empty()
+        definition.spell.as_ref().ok_or("missing spell")?;
+        if !self.optional_cost_declarations(stack)?.is_empty()
             && stack.selected_additional_costs.is_none()
         {
             return Ok(Frame::AdditionalCosts { cast });

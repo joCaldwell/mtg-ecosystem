@@ -100,7 +100,9 @@ impl CreatorProgram {
 impl ResolutionTrigger {
     fn due(&self, event: &DelayedEvent, step: TurnStep, owner: PlayerId, turn: u64) -> bool {
         match event {
-            DelayedEvent::NextEndStep | DelayedEvent::NextEndStepAfterExile { .. } => {
+            DelayedEvent::NextEndStep
+            | DelayedEvent::NextEndStepAfterExile { .. }
+            | DelayedEvent::NextEndStepAfterUnearth => {
                 let offset = u64::from(matches!(self.step, TurnStep::End | TurnStep::Cleanup));
                 step == TurnStep::End && self.turn.checked_add(offset) == Some(turn)
             }
@@ -238,6 +240,43 @@ impl RulesTxn {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
+            }
+            // CR 702.84a, 400.7: return the exact graveyard card; a card that
+            // has left the graveyard is a new object, and nothing returns.
+            DelayedEvent::NextEndStepAfterUnearth => {
+                let entry = self.entry(frame.stack_id)?;
+                let (source, controller) = (entry.source, entry.controller);
+                let returnable = self.current(source).is_ok_and(|o| {
+                    o.id == source && o.zone == (Zone::Graveyard { owner: controller })
+                }) && !self.state.rules.tokens.contains_key(&source.card);
+                if !returnable {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                let actual = self.move_object_for(
+                    source,
+                    Zone::Battlefield,
+                    self.instruction_cause(&frame, block)?,
+                )?;
+                if actual.destination != Zone::Battlefield
+                    || self.current(actual.successor).map(|o| o.id) != Ok(actual.successor)
+                {
+                    return self.finish_instruction(
+                        frame,
+                        InstructionOutcome::Effect {
+                            actual: Some(EventOutcome::Moved { movement: actual }),
+                        },
+                    );
+                }
+                self.rules_mut()
+                    .objects
+                    .get_mut(&actual.successor.card)
+                    .ok_or("missing unearthed permanent")?
+                    .unearthed = true;
+                capture = Some(Capture {
+                    target: source,
+                    actual,
+                });
             }
             DelayedEvent::TargetLeavesAfterExilingSource { slot } => {
                 watched = self.resolving_creature(&frame, slot)?;
@@ -524,6 +563,46 @@ impl RulesTxn {
         Ok(false)
     }
 
+    /// CR 702.84a, 603.7c: exile the returned permanent if it is still the
+    /// object the creating ability returned.
+    pub(super) fn execute_captured_exile(
+        &mut self,
+        frame: Resolving,
+        block: u32,
+    ) -> Result<(), String> {
+        let entry = self.entry(frame.stack_id)?;
+        let StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Followup { creator },
+            ..
+        } = entry.kind
+        else {
+            return Err("captured exile has no delayed invocation".into());
+        };
+        let row = self
+            .state
+            .rules
+            .resolution_triggers
+            .get(&creator)
+            .ok_or("missing captured exile origin")?;
+        let target = row.capture.as_ref().map(|capture| capture.actual.successor);
+        let actual = match target {
+            Some(target)
+                if self.current(target).is_ok_and(|object| {
+                    object.id == target && object.zone == Zone::Battlefield
+                }) =>
+            {
+                let movement = self.move_object_for(
+                    target,
+                    Zone::Exile,
+                    self.instruction_cause(&frame, block)?,
+                )?;
+                Some(EventOutcome::Moved { movement })
+            }
+            _ => None,
+        };
+        self.finish_instruction(frame, InstructionOutcome::Effect { actual })
+    }
+
     pub(super) fn execute_captured_return(
         &mut self,
         frame: Resolving,
@@ -752,7 +831,21 @@ impl RulesTxn {
                         };
                     if let Some(capture) = &row.capture {
                         let movement = &capture.actual;
+                        // CR 702.84a: unearth captures its own return.
+                        let landed = if *event == DelayedEvent::NextEndStepAfterUnearth {
+                            Zone::Battlefield
+                        } else {
+                            Zone::Exile
+                        };
                         let bound = match event {
+                            DelayedEvent::NextEndStepAfterUnearth => {
+                                movement.from
+                                    == (Zone::Graveyard {
+                                        owner: row.controller,
+                                    })
+                                    && capture.target == row.source
+                                    && row.source_facts.owner == row.controller
+                            }
                             DelayedEvent::NextEndStepAfterExile { slot } => {
                                 movement.from == Zone::Battlefield
                                     && !self.entry(creator).is_ok_and(|e| {
@@ -773,7 +866,7 @@ impl RulesTxn {
                         };
                         if !bound
                             || movement.previous != capture.target
-                            || movement.destination != Zone::Exile
+                            || movement.destination != landed
                             || movement.successor.card != capture.target.card
                             || !movement.successor.face.is_front()
                             || capture.target.incarnation.checked_add(1)
@@ -787,12 +880,16 @@ impl RulesTxn {
                                     object.id.incarnation < movement.successor.incarnation
                                         || (object.id.incarnation == movement.successor.incarnation
                                             && (object.id != movement.successor
-                                                || object.zone != Zone::Exile))
+                                                || object.zone != landed))
                                 })
                         {
                             return Err("resolution trigger captured incarnation invariant".into());
                         }
-                    } else if matches!(event, DelayedEvent::NextEndStepAfterExile { .. }) {
+                    } else if matches!(
+                        event,
+                        DelayedEvent::NextEndStepAfterExile { .. }
+                            | DelayedEvent::NextEndStepAfterUnearth
+                    ) {
                         return Err("resolution trigger lacks exile movement".into());
                     }
                     if leaves {
@@ -800,7 +897,9 @@ impl RulesTxn {
                     }
                     let after = |stamp: &StepStamp| stamp.batch >= row.first_batch;
                     let due = match event {
-                        DelayedEvent::NextEndStep | DelayedEvent::NextEndStepAfterExile { .. } => {
+                        DelayedEvent::NextEndStep
+                        | DelayedEvent::NextEndStepAfterExile { .. }
+                        | DelayedEvent::NextEndStepAfterUnearth => {
                             clock.end.as_ref().is_some_and(after)
                         }
                         DelayedEvent::NextTurnUpkeep => clock

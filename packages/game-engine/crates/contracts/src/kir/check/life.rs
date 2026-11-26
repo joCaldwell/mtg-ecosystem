@@ -13,6 +13,20 @@ impl Walk<'_, '_> {
         player: &PlayerExpr,
         amount: &Amount,
     ) -> Result<Cell, KirError> {
+        if let Amount::StatOf {
+            object: Ref::Target { slot },
+            stat: Stat::ManaValue,
+        } = amount
+            && player == &PlayerExpr::you(self.env.context)
+            && self.env.targets.len() == 1
+            && matches!(self.domain(*slot)?, TargetDomain::GraveyardCard { .. })
+            && self.env.targets[*slot as usize]
+                .filter
+                .as_ref()
+                .is_some_and(|filter| filter.types == [CardKind::Creature])
+        {
+            return Ok(Cell::LifeGraveyardCreatureManaValue);
+        }
         if amount.is_resolution_count() {
             let single_recipient = player.is_you()
                 || self.player_target(player)? == Some(TargetDomain::AnyPlayer)

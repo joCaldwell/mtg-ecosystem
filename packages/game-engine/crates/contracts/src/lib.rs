@@ -256,6 +256,8 @@ pub enum Capability {
 
     EventPlayerDiscardV1,
     EventPlayerSacrificeV1,
+    /// CR 701.21a: a resolving sacrifice of the source permanent itself.
+    SacrificeSourceV1,
     FilteredDamageTriggerV1,
     DamageControllerDiscardV1,
 
@@ -1259,6 +1261,9 @@ pub enum SpellResolution {
 }
 /// CR 702.27a: the optional mana cost that changes successful spell completion.
 pub const BUYBACK_COST: &str = "buyback";
+/// CR 702.74a: the alternative cost whose payment makes the entering
+/// permanent's controller sacrifice it.
+pub const EVOKE_COST: &str = "evoke";
 
 /// CR 702.33a/e: one source-bound optional fixed mana declaration. The
 /// identity names the exact archived keyword; conditions cannot link by position.
@@ -1859,6 +1864,17 @@ pub struct Definition {
     /// and is exiled whenever it would leave the stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flashback: Option<ManaCost>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub delve: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub convoke: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub improvise: bool,
+    /// CR 118.9, 601.2b: a printed alternative cost (evoke, CR 702.74a) the
+    /// caster may announce instead of the mana cost when casting from hand
+    /// or the command zone. Its identity names the keyword.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternative_cost: Option<OptionalAdditionalManaCost>,
     pub oracle_id: String,
     pub name: String,
     pub characteristics: Characteristics,

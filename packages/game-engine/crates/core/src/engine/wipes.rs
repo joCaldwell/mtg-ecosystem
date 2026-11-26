@@ -69,6 +69,18 @@ impl RulesTxn {
         self.rules_mut().frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
+    /// CR 702.84a, 614.1a: an unearthed permanent is exiled instead of
+    /// leaving the battlefield for any other zone. A commander bound for its
+    /// owner's command zone already had that replacement applied first, as
+    /// its owner may order them (CR 616.1, 903.9b).
+    pub(super) fn unearth_replaces_departure(&self, object: ObjectId, destination: Zone) -> bool {
+        !matches!(
+            destination,
+            Zone::Exile | Zone::Battlefield | Zone::Command { .. }
+        ) && self
+            .current(object)
+            .is_ok_and(|o| o.id == object && o.zone == Zone::Battlefield && o.unearthed)
+    }
     pub(super) fn anger_replaces_death(&self, object: ObjectId, destination: Zone) -> bool {
         matches!(destination,Zone::Graveyard { .. }) && self.current(object).is_ok_and(|o|o.zone==Zone::Battlefield) && self.state.rules.effects.iter().any(|e|matches!(&e.kind,ResolvedEffectKind::ExileDamaged {targets} if targets.contains(&object)))
     }

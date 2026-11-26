@@ -142,9 +142,26 @@ impl RulesTxn {
             return Err("negative locked increase".into());
         }
         let mut additional = vec![];
+        // CR 118.9, 702.74a: an announced alternative cost replaces the
+        // mana cost of a hand or command-zone cast.
+        let mut alternative = None;
         for (index, identity) in selected.iter().enumerate() {
             if selected[..index].contains(identity) {
                 return Err("duplicate additional cost".into());
+            }
+            if let Some(cost) = definition
+                .alternative_cost
+                .as_ref()
+                .filter(|c| c.identity == *identity)
+            {
+                if !matches!(from, Zone::Hand { .. } | Zone::Command { .. })
+                    || x.is_some()
+                    || hybrid.is_some()
+                {
+                    return Err("alternative cost announced outside its casting route".into());
+                }
+                alternative = Some(cost.mana.clone());
+                continue;
             }
             additional.push(
                 program
@@ -170,7 +187,9 @@ impl RulesTxn {
                             .clone()
                             .ok_or("graveyard cast without flashback")?
                     }
-                    _ => definition.characteristics.mana_cost.clone(),
+                    _ => {
+                        alternative.unwrap_or_else(|| definition.characteristics.mana_cost.clone())
+                    }
                 };
                 if let Some(colors) = hybrid {
                     self.validate_hybrid_colors(source, colors)?;
@@ -269,10 +288,7 @@ impl RulesTxn {
         // announced in order, and the cost locks (CR 601.2f) only after all of
         // them. A game that ends mid-announcement keeps that prefix.
         let definition = self.stack_definition(entry)?;
-        let additional_pending = !self
-            .program_for(entry)?
-            .optional_additional_costs
-            .is_empty()
+        let additional_pending = !self.optional_cost_declarations(entry)?.is_empty()
             && entry.selected_additional_costs.is_none();
         let hybrid_pending = needs_choice && entry.hybrid_colors.is_empty();
         let x_pending = definition.x_mana_cost && entry.x.is_none();
