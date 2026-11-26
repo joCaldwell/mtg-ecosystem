@@ -742,7 +742,7 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
             )
         }
         C::BlockerFilter(x) => {
-            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, |_| {
+            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, || {
                 Ok(kir::BlockRestriction::Blockers {
                     only: x.mode == ast::CombatRuleBlockerFilterMode::Only,
                     filter: declaration_set(&x.blockers)?,
@@ -750,7 +750,7 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
             });
         }
         C::BlockingFilter(x) => {
-            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, |_| {
+            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, || {
                 Ok(kir::BlockRestriction::Attackers {
                     only: x.mode == ast::CombatRuleBlockerFilterMode::Only,
                     filter: declaration_set(&x.attackers)?,
@@ -758,7 +758,7 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
             });
         }
         C::BlockerCount(x) => {
-            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, |_| {
+            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, || {
                 let ast::Amount::Fixed(n) = &*x.comparison.value else {
                     return Err(gap("combat-rule:blocker-count:amount"));
                 };
@@ -824,14 +824,14 @@ fn declaration_rule(
     what: &ast::ObjectRef,
     condition: Option<&ast::Condition>,
     kind: Option<ast::SentenceConditionKind>,
-    restriction: impl FnOnce(()) -> Result<kir::BlockRestriction, Failure>,
+    restriction: impl FnOnce() -> Result<kir::BlockRestriction, Failure>,
 ) -> Result<StaticAbility, Failure> {
     let condition = qualified_condition(condition, kind)?;
     Ok(rule(
         FunctioningZone::Battlefield,
         StaticRule::Block {
             affects: declaration_scope(what)?,
-            restriction: restriction(())?,
+            restriction: restriction()?,
         },
         condition,
     ))
@@ -1239,24 +1239,45 @@ fn modify(
 pub(crate) fn lacks_defender_to_attack(x: &ast::CombatRuleAsThough) -> bool {
     x.action == ast::CombatRuleAsThoughAction::Attack
         && matches!(&*x.pretense, ast::CombatPretense::Keyword(p)
-        if p.pretend == ast::CombatPretenseKeywordPretend::LacksKeyword
-            && p.of == ast::CombatPretenseKeywordOf::AffectedCreature
-            && *p.keyword == ast::KeywordInstance {
-                keyword: "defender".into(),
-                cost: None,
-                cost_modifications: None,
-                restriction: None,
-                amount: None,
-                bindings: None,
-                variable_constraints: None,
-                from: None,
-                filter: None,
-                materials: None,
-                companion: None,
-                paired_with: None,
-                enchant_player: None,
-                prototype: None,
-                additional_costs: None,
-                gift: None,
-            })
+            if p.pretend == ast::CombatPretenseKeywordPretend::LacksKeyword
+                && p.of == ast::CombatPretenseKeywordOf::AffectedCreature
+                && bare_keyword(&p.keyword, "defender"))
+}
+
+/// The keyword alone, with no cost, amount, filter or other parameter.
+fn bare_keyword(k: &ast::KeywordInstance, name: &str) -> bool {
+    let ast::KeywordInstance {
+        keyword,
+        cost,
+        cost_modifications,
+        restriction,
+        amount,
+        bindings,
+        variable_constraints,
+        from,
+        filter,
+        materials,
+        companion,
+        paired_with,
+        enchant_player,
+        prototype,
+        additional_costs,
+        gift,
+    } = k;
+    keyword == name
+        && cost.is_none()
+        && cost_modifications.is_none()
+        && restriction.is_none()
+        && amount.is_none()
+        && bindings.is_none()
+        && variable_constraints.is_none()
+        && from.is_none()
+        && filter.is_none()
+        && materials.is_none()
+        && companion.is_none()
+        && paired_with.is_none()
+        && enchant_player.is_none()
+        && prototype.is_none()
+        && additional_costs.is_none()
+        && gift.is_none()
 }

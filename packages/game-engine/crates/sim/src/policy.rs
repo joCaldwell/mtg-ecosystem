@@ -531,7 +531,9 @@ impl Strategy<'_> {
                         };
                         added.push(blocker_handle.clone());
                     }
-                    if n + added.len() < *least || most.is_some_and(|m| n > m) {
+                    // CR 509.1b: least above most leaves no legal block.
+                    let total = n + added.len();
+                    if total < *least || most.is_some_and(|m| total > m) {
                         blocks.retain(|(_, a)| a != attacker);
                     } else {
                         blocks.extend(added.into_iter().map(|b| (b, attacker.clone())));
