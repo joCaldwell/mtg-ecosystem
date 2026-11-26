@@ -210,12 +210,8 @@ pub fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tr
         Atom::AnyType { kinds } => known(object.structural(), |c| {
             kinds.iter().any(|kind| c.has_type(*kind))
         }),
-        Atom::Subtype { subtype } => known(object.derived(), |c| {
-            c.subtypes.iter().any(|s| s == subtype)
-        }),
-        Atom::NotSubtype { subtype } => known(object.derived(), |c| {
-            !c.subtypes.iter().any(|s| s == subtype)
-        }),
+        Atom::Subtype { subtype } => known(object.derived(), |c| c.has_subtype(subtype)),
+        Atom::NotSubtype { subtype } => known(object.derived(), |c| !c.has_subtype(subtype)),
         Atom::Legendary => known(object.structural(), |c| c.legendary),
         Atom::NotLegendary => known(object.structural(), |c| !c.legendary),
         Atom::Basic => known(object.structural(), |c| c.basic),
@@ -315,7 +311,7 @@ pub fn matches_sacrifice_filter(
     }
     known(object.derived(), |c| {
         (filter.types.is_empty() || filter.types.iter().any(|kind| c.has_type(*kind)))
-            && filter.subtypes.iter().all(|s| c.subtypes.contains(s))
+            && filter.subtypes.iter().all(|s| c.has_subtype(s))
     })
 }
 

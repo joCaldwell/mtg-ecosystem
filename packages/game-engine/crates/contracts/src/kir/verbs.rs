@@ -143,6 +143,8 @@ pub enum Change {
     SetColors { colors: Vec<Color> },
     /// Layer 4.
     AddTypes { kinds: Vec<CardKind> },
+    /// Layer 4 (CR 205.3m): the recipient is every creature type.
+    AllCreatureTypes,
     /// Layer 2.
     Controller { player: PlayerExpr },
 }
@@ -159,7 +161,7 @@ impl Change {
             | Self::RemoveKeywords { .. }
             | Self::AddManaAbilities { .. } => Layer::Ability,
             Self::SetColors { .. } => Layer::Color,
-            Self::AddTypes { .. } => Layer::Type,
+            Self::AddTypes { .. } | Self::AllCreatureTypes => Layer::Type,
             Self::Controller { .. } => Layer::Control,
         }
     }
@@ -168,20 +170,53 @@ impl Change {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "delta", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PumpDelta {
-    Fixed { value: Quantity },
-    X { negative: bool },
+    Fixed {
+        value: Quantity,
+    },
+    X {
+        negative: bool,
+    },
+    /// CR 608.2h, 611.2c: a resolution count read once as the effect
+    /// begins; the change keeps that value for its duration.
+    Counted {
+        amount: Amount,
+        negative: bool,
+    },
 }
 
 impl PumpDelta {
+    /// The signed change once the change's one X is known: the announced X,
+    /// or the value its counted deltas read.
     pub fn with_x(&self, x: &Quantity) -> Quantity {
         match self {
             Self::Fixed { value } => value.clone(),
-            Self::X { negative: false } => x.clone(),
-            Self::X { negative: true } => {
+            Self::X { negative: false }
+            | Self::Counted {
+                negative: false, ..
+            } => x.clone(),
+            Self::X { negative: true } | Self::Counted { negative: true, .. } => {
                 let mut result = Quantity::zero();
                 result.subtract(x);
                 result
             }
+        }
+    }
+    /// The resolution count this delta reads, if any.
+    pub fn counted(&self) -> Option<&Amount> {
+        match self {
+            Self::Counted { amount, .. } => Some(amount),
+            _ => None,
+        }
+    }
+}
+
+impl Change {
+    /// CR 608.2h: the one resolution count a P/T change reads. Both
+    /// counted deltas of one change read the same number.
+    pub fn counted_x(&self) -> Option<&Amount> {
+        match self {
+            Self::PowerToughnessX { power, toughness } => power.counted().or(toughness.counted()),
+            _ => None,
         }
     }
 }

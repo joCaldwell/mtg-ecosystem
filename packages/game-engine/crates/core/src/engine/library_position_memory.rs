@@ -248,6 +248,34 @@ impl RulesTxn {
         Ok(())
     }
 
+    /// CR 701.20a: every player saw `cards`, distinct cards already in
+    /// `owner`'s hand, revealed there. A revealed card may be one already
+    /// known, so each identity's known count rises only to the number of
+    /// its copies revealed now.
+    pub(in crate::engine) fn remember_revealed_hand_cards(
+        &mut self,
+        owner: PlayerId,
+        cards: &[ObjectId],
+    ) -> Result<(), String> {
+        let mut revealed = BTreeMap::<String, u32>::new();
+        for id in cards.iter().collect::<BTreeSet<_>>() {
+            if self.zone(*id) != Some(Zone::Hand { owner }) {
+                return Err("revealed hand card outside its owner's hand".into());
+            }
+            *revealed
+                .entry(self.definition(id.card)?.oracle_id.clone())
+                .or_default() += 1;
+        }
+        for knowledge in &mut self.state.knowledge.visibility {
+            let rows = knowledge.revealed_hand.entry(owner).or_default();
+            for (oracle, count) in &revealed {
+                let known = rows.entry(oracle.clone()).or_default();
+                *known = (*known).max(*count);
+            }
+        }
+        Ok(())
+    }
+
     /// Publicly known identities in hand, one row per known copy. No
     /// targetable handle or hand position is disclosed.
     pub fn publicly_searched_hand(

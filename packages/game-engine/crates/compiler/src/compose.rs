@@ -259,16 +259,17 @@ fn block_mirror_gap(raw: &str, error: &serde_json::Error) -> Failure {
     )
 }
 
-/// Sentence conditions and X bindings have no block table row; the shared
-/// step lowerer would reject them later, but reject here with a stable reason.
+/// Sentence conditions have no block table row; the shared step lowerer
+/// would reject them later, but reject here with a stable reason. X
+/// bindings ("where X is ...") lower in the shared step lowerer.
 fn plain_sentences(effects: &[Sentence]) -> Result<(), Failure> {
     if effects
         .iter()
-        .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())
+        .any(|s| s.condition.is_some() || s.condition_kind.is_some())
     {
         return Err(unsupported(
             "compose.effects",
-            "conditional or bound sentence outside the block tables",
+            "conditional sentence outside the block tables",
         ));
     }
     Ok(())
@@ -889,6 +890,27 @@ fn compose_face(
                                 .ok_or_else(|| unsupported("keyword", "keyword:enchant:source"))?;
                             spell.targets.push(keywords::enchant(one, text)?);
                         }
+                        // CR 702.73a: changeling is a characteristic-defining
+                        // ability, "This object is every creature type"; it
+                        // functions in every zone (CR 604.3).
+                        _ if keywords.iter().any(|k| k.keyword == "changeling") => {
+                            let (changeling, rest): (Vec<_>, Vec<_>) = keywords
+                                .iter()
+                                .cloned()
+                                .partition(|k| k.keyword == "changeling");
+                            if changeling.len() != 1
+                                || changeling[0] != keywords::changeling()
+                                || kind != CardKind::Creature
+                            {
+                                return Err(unsupported("keyword", "keyword:changeling:source"));
+                            }
+                            definition.characteristics.all_creature_types = true;
+                            if !rest.is_empty() {
+                                definition
+                                    .keywords
+                                    .extend(keywords::lower(card.kind, &rest, text)?);
+                            }
+                        }
                         _ => definition
                             .keywords
                             .extend(keywords::lower(card.kind, &keywords, text)?),
@@ -899,6 +921,14 @@ fn compose_face(
                     effect,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
+                    if let Some(cda) = rules::every_creature_type_cda(&effect) {
+                        cda?;
+                        if kind != CardKind::Creature {
+                            return Err(unsupported("static", "static:cda-types:noncreature"));
+                        }
+                        definition.characteristics.all_creature_types = true;
+                        return Ok(());
+                    }
                     let quoted = |raw: &serde_json::Value| quoted_ability(raw, block, kind);
                     let abilities = lower_static(&effect, &StaticSite { quoted: &quoted })?;
                     labels.statics.extend(abilities.iter().map(|_| label));

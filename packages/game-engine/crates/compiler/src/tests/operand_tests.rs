@@ -175,17 +175,18 @@ fn amounts_players_destinations_and_durations_are_typed() {
             expected
         );
     }
-    // CR 107.3, 608.2h: X is the announced X, or the counted creatures.
+    // CR 107.3, 608.2h: X is the announced X, or the sentence's bound X.
     let x = amount(json!({"amount":"x"}));
     assert_eq!(
-        lower_damage_amount(&x, false, Context::Spell).unwrap(),
+        lower_damage_amount(&x, None, Context::Spell).unwrap(),
         kir::Amount::announced_x()
     );
+    let creatures = kir::Amount::Count {
+        set: SetExpr::battlefield(kir::Pred::creatures()),
+    };
     assert_eq!(
-        lower_damage_amount(&x, true, Context::Spell).unwrap(),
-        kir::Amount::Count {
-            set: SetExpr::battlefield(kir::Pred::creatures())
-        }
+        lower_damage_amount(&x, Some(&creatures), Context::Spell).unwrap(),
+        creatures
     );
     let selector = |v| serde_json::from_value::<PlayerSelector>(v).unwrap();
     let player = |v| {
@@ -324,4 +325,128 @@ fn counted_target_groups_lower_one_leaf_per_member_and_step() {
     )
     .unwrap_err();
     assert_eq!(code(failure), "operand:target:count:damage_source");
+}
+
+#[test]
+fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
+    // CR 107.3, 608.2h: "where X is [a number]" is read as each step that
+    // prints X is performed. A step that cannot read it, a re-read after a
+    // step that could change the number, and an unsupported quantity reject.
+    let creatures = json!({"amount":"count","of":{"types":["creature"],"control":"you"}});
+    let pump = json!({"effect":"pump","what":{"ref":"target","filter":{"types":["creature"]},
+        "count":{"amount":"fixed","value":1},"selectionId":"line:0:0"},
+        "power":{"sign":1,"amount":{"amount":"x"}},
+        "toughness":{"sign":1,"amount":{"amount":"fixed","value":0}},
+        "duration":{"duration":"end-of-turn"}});
+    let draw = json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"x"}});
+    let mill = json!({"effect":"mill","who":{"player":"you"},"amount":{"amount":"x"}});
+    let lower = |steps: serde_json::Value, value: serde_json::Value| {
+        let sentence: Sentence = serde_json::from_value(
+            json!({"steps":steps,"bindings":[{"variable":"x","value":value}]}),
+        )
+        .unwrap();
+        append_spell_effects(
+            &mut program(),
+            &[sentence],
+            0,
+            &mut BTreeMap::new(),
+            PlayerBinding::Unbound,
+            Context::Spell,
+        )
+    };
+    assert!(lower(json!([draw.clone()]), creatures.clone()).is_ok());
+    for (steps, value, expected) in [
+        (
+            json!([pump, draw]),
+            creatures.clone(),
+            "operand:bindings:reread_after_change",
+        ),
+        (
+            json!([mill]),
+            creatures.clone(),
+            "bindings:unconsumed_count_binding",
+        ),
+        (
+            json!([draw]),
+            json!({"amount":"plus","a":{"amount":"fixed","value":1},
+                "b":{"amount":"fixed","value":1}}),
+            "operand:bindings:plus",
+        ),
+        (
+            json!([draw]),
+            json!({"amount":"attribute-extremum","extremum":"minimum","attribute":"power",
+                "among":{"types":["creature"],"control":"you"}}),
+            "operand:bindings:attribute_extremum:minimum",
+        ),
+    ] {
+        assert_eq!(code(lower(steps, value).unwrap_err()), expected);
+    }
+}
+
+/// CR 614.12, 701.20a: "you may reveal a [filter] card from your hand"
+/// lowers to its hidden-card filter; every other reveal shape rejects by name.
+#[test]
+fn entry_reveal_lowers_one_filtered_hand_card_or_rejects() {
+    let reveal = |what: serde_json::Value| {
+        json!({"static":"entry-choice","what":{"ref":"this","noun":"land"},"who":{"player":"you"},
+            "costs":[{"cost":"reveal","what":what}],"declined":{"tapped":true}})
+    };
+    let hand = |filter: serde_json::Value, count: i64| {
+        let mut filter = filter;
+        filter["cls"] = json!("card");
+        filter["zone"] = json!({"zone":"hand","owner":"your"});
+        json!({"ref":"filter","filter":filter,"count":{"amount":"fixed","value":count}})
+    };
+    let site = StaticSite {
+        quoted: &|_| unreachable!("no quoted ability"),
+    };
+    let lowered = lower_static(
+        &reveal(hand(
+            json!({"allOf":[{"anyOf":[{"subtypes":["Plains"]},{"subtypes":["Island"]}]}]}),
+            1,
+        )),
+        &site,
+    )
+    .unwrap();
+    let [
+        StaticAbility {
+            effect: StaticEffect::RevealOrEnterTapped { filter },
+            ..
+        },
+    ] = lowered.as_slice()
+    else {
+        panic!("{lowered:?}")
+    };
+    assert_eq!(
+        filter,
+        &Pred(vec![Atom::AnyOf {
+            alternatives: vec![
+                Pred(vec![Atom::Subtype {
+                    subtype: "Plains".into()
+                }]),
+                Pred(vec![Atom::Subtype {
+                    subtype: "Island".into()
+                }]),
+            ]
+        }])
+    );
+    for (what, expected) in [
+        (
+            hand(json!({"subtypes":["Elf"]}), 2),
+            "static:entry-choice:reveal:count",
+        ),
+        (hand(json!({}), 1), "static:entry-choice:reveal:unfiltered"),
+        (
+            json!({"ref":"filter","filter":{"subtypes":["Elf"],"cls":"card","zone":{"zone":"graveyard","owner":"your"}},
+                "count":{"amount":"fixed","value":1}}),
+            "static:entry-choice:reveal:zone",
+        ),
+        (
+            hand(json!({"subtypes":["Elf"],"control":"you"}), 1),
+            "operand:filter:library_card:control",
+        ),
+    ] {
+        let failure = lower_static(&reveal(what.clone()), &site).expect_err("rejected reveal");
+        assert_eq!(code(failure), expected, "{what}");
+    }
 }

@@ -72,7 +72,6 @@ pub(super) fn lower(
         }
         DamageDestination::Each { refs } => refs.as_slice(),
         DamageDestination::Player { reference } => {
-            uncounted(cx)?;
             let players = match typed::<ast::PlayerRef>(reference, "damage_recipient")? {
                 ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
                 ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
@@ -84,7 +83,8 @@ pub(super) fn lower(
                     .ok_or_else(|| operand("damage_recipient", "unbound_event_player"))?,
                 other => return Err(operand("damage_recipient", variant(&other))),
             };
-            let amount = lower_damage_amount(&amount, false, cx.context)?;
+            let bound = cx.bound_x();
+            let amount = lower_damage_amount(&amount, bound.as_ref(), cx.context)?;
             return Ok(Instruction::damage(
                 kir::DamageTo::Players { players },
                 amount,
@@ -110,7 +110,8 @@ pub(super) fn lower(
             }
         }
     }
-    let amount = lower_damage_amount(&amount, cx.counted, cx.context)?;
+    let bound = cx.bound_x();
+    let amount = lower_damage_amount(&amount, bound.as_ref(), cx.context)?;
     Ok(SetDamage::instruction(
         sets,
         each_player,

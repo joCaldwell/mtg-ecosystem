@@ -411,6 +411,16 @@ either way (CR 614.12; the shockland ruling "If an effect puts this land onto
 the battlefield tapped, you may pay 2 life, but it still enters tapped.", [Lorwyn Eclipsed release notes](https://magic.wizards.com/en/news/feature/lorwyn-eclipsed-release-notes)).
 Payment and entry commit together; an unpayable offer is skipped.
 
+An entry reveal ("you may reveal a [filter] card from your hand. If you don't,
+this land enters tapped.", CR 701.20a) lowers to `RevealOrEnterTapped` over the
+hidden-card filter vocabulary and uses the same continuations. The offer lists
+Decline, the entrant as subject, then the matching cards of the incoming
+controller's hand other than the entrant. A live controller is always asked,
+with Decline alone when nothing matches, so the wait discloses nothing about the
+hand (CR 400.2). A search asks reveals after all payments. A reveal publishes the
+card's identity in that hand (`known_searched_hand`) without exceeding the
+revealed copies. Other entry costs (behold, multiple cards) reject.
+
 ## Keywords, attachments and temporary effects
 
 Battlefield static abilities use KIR scopes, predicates, conditions and
@@ -424,6 +434,15 @@ layer reject, including creature-subtype filters in layer 4 and color filters in
 layer 5 (CR 613.8). Ordered setters apply by source or creation timestamp (CR
 613.7); simultaneous competing setters need a timestamp choice and reject (CR
 613.7m).
+
+Changeling and a self "is every creature type" CDA are a printed characteristic
+in every zone (CR 702.73a, 604.3), as is changeling on a token. Every subtype
+check counts it only while the object is a creature (CR 205.3d, 205.3m). An
+Equipment, Aura or source static can make its recipient every creature type, as
+an unfiltered layer-4 change. It applies in timestamp order with resolved
+animations, whose creature-subtype replacement removes it (CR 613.3, 613.7).
+Scopes that reach other zones, conditional grants and resolving grants or
+removals reject.
 
 Static guards can read the active player, public battlefield or graveyard
 counts, and devotion (CR 700.5). Rule statics apply combat prohibitions and
@@ -646,10 +665,20 @@ earn `Executes` (`modal_choice_v1`). "Up to one", "any number", repeats,
 entwine, escalate, spree, costed modes, upgrades, other text in the block,
 two-target selections and mana modes reject.
 
-"[One] for each [filter]" on a draw or life step is `Amount::Count`, counted once
-(CR 608.2h), over objects you or opponents control, graveyard cards, or (life
-only) your hand. Other amounts, step-result filters and another player's
-referents reject.
+### Resolution-time counts
+
+"[N] for each [filter]" and a sentence's "where X is [number]" are read as the
+step that prints them is performed (CR 107.3, 608.2h), after earlier steps of
+the same program: `Amount::Count` over objects you or opponents control,
+graveyard cards or (not for draws) your hand, `Times` for N above one,
+`Greatest` power, toughness or mana value among permanents (never below zero,
+CR 107.1b) and your devotion (CR 700.5). Draws, life changes, set or player
+damage and P/T changes read them; a P/T change keeps its value in the saved
+effect (CR 611.2c) and a counted draw its recorded attempts. Several steps may
+re-read one X only across draws, life changes and damage. A step that cannot
+read X, a hand count re-read, announced or minimum quantities, event results
+("this way"), another player's referents and per-object iteration reject under
+`bindings:*` or `operand:bindings:*`.
 
 ## Derived capability tiers
 

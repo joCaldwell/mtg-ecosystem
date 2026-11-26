@@ -10,10 +10,10 @@ pub(super) fn lower(
     optional: bool,
     for_each: Option<&serde_json::Value>,
 ) -> Result<Instruction, Failure> {
-    uncounted(cx)?;
     if optional {
         return Err(step("draw", "optional"));
     }
+    let bound = cx.bound_x();
     // CR 121.2, 608.2h: "draw a card for each [filter]" is one counted
     // sequence of single draws by the controller, counted once.
     if let Some(for_each) = for_each {
@@ -24,7 +24,7 @@ pub(super) fn lower(
             cx.context,
             cx.player_binding.event_role(),
         )?;
-        let DrawAmount::Fixed { value } = amount else {
+        let (None, DrawAmount::Fixed { value }) = (&bound, amount) else {
             return Err(operand("forEach", "per_object_amount"));
         };
         if !player.is_you() {
@@ -49,6 +49,13 @@ pub(super) fn lower(
         )?,
     };
     let counted = player.is_you() || player == PlayerExpr::EachPlayer;
+    // CR 107.3, 608.2h: a bound X is counted as the controller draws.
+    if let Some(x) = bound {
+        return match (amount, player.is_you()) {
+            (DrawAmount::X {}, true) => Ok(cx.act(Verb::Draw { player, amount: x })),
+            _ => Err(step("draw", "recipient_or_count")),
+        };
+    }
     match (amount, &player) {
         (DrawAmount::Fixed { value: 1..=2 }, PlayerExpr::Is { .. }) => {
             // CR 121.2: one ordinary instruction for each single draw.

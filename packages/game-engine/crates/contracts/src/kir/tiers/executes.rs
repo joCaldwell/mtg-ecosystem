@@ -244,23 +244,30 @@ fn program(
 }
 
 /// A group leaf with its member slot erased: equal shapes are the same
-/// action applied to different members.
+/// action applied to different members. A leaf reading a resolution-time
+/// count has no shape: each member's leaf would re-read the count after
+/// earlier members changed (CR 608.2h).
 fn group_leaf_shape(node: &kir::Node) -> Option<serde_json::Value> {
-    fn erase(value: &mut serde_json::Value) {
+    fn erase(value: &mut serde_json::Value) -> bool {
         match value {
             serde_json::Value::Object(map) => {
+                if matches!(
+                    map.get("amount").and_then(|a| a.as_str()),
+                    Some("count" | "greatest" | "devotion")
+                ) {
+                    return false;
+                }
                 if map.get("ref").and_then(|r| r.as_str()) == Some("target") {
                     map.insert("slot".into(), 0.into());
                 }
-                map.values_mut().for_each(erase);
+                map.values_mut().all(erase)
             }
-            serde_json::Value::Array(items) => items.iter_mut().for_each(erase),
-            _ => {}
+            serde_json::Value::Array(items) => items.iter_mut().all(erase),
+            _ => true,
         }
     }
     let mut value = serde_json::to_value(node).ok()?;
-    erase(&mut value);
-    Some(value)
+    erase(&mut value).then_some(value)
 }
 
 pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<(), String> {
@@ -1182,11 +1189,17 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     }
     if d.static_abilities
         .iter()
-        .filter(|a| matches!(a.effect, kir::StaticEffect::PayLifeOrEnterTapped { .. }))
+        .filter(|a| {
+            matches!(
+                a.effect,
+                kir::StaticEffect::PayLifeOrEnterTapped { .. }
+                    | kir::StaticEffect::RevealOrEnterTapped { .. }
+            )
+        })
         .count()
         > 1
     {
-        return cell("static", "multiple_entry_life_payments");
+        return cell("static", "multiple_entry_choices");
     }
     for a in &d.static_abilities {
         a.validate_static(d)?;
@@ -1712,6 +1725,23 @@ mod tests {
         let mut mismatched = both;
         mismatched.instructions[1] = Instruction::act(destroy(1), 0);
         assert!(super::program(&mismatched, Context::Spell, None, false).is_err());
+        // A resolution-time count is never re-read once per member.
+        let counted = |slot| Verb::PutCounters {
+            on: kir::SetExpr::target(slot),
+            counter: kir::CounterKind::PlusOnePlusOne,
+            amount: kir::Amount::Count {
+                set: kir::SetExpr::battlefield(kir::Pred::creatures()),
+            },
+        };
+        assert!(
+            super::program(
+                &program(leaf(counted, 2), creatures.clone()),
+                Context::Spell,
+                None,
+                false
+            )
+            .is_err()
+        );
         // A group identity outside one whole group, and a batch without one.
         let mut split = creatures.clone();
         split[1].selection_id = "line:0:9/1".into();

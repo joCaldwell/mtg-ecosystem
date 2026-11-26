@@ -22,6 +22,17 @@ pub enum Amount {
         object: Ref,
         stat: Stat,
     },
+    /// CR 608.2h: the greatest `stat` among the objects of a set as the verb
+    /// is performed; zero when the set is empty.
+    Greatest {
+        set: SetExpr,
+        stat: Stat,
+    },
+    /// CR 608.2h: "N for each [filter]": `factor` times a resolution count.
+    Times {
+        factor: Quantity,
+        of: Box<Amount>,
+    },
     /// CR 700.5: count matching mana symbols in permanents this player controls.
     Devotion {
         player: PlayerExpr,
@@ -54,6 +65,24 @@ impl Amount {
     pub fn announced_x() -> Self {
         Self::Var {
             of: Ref::AnnouncedX,
+        }
+    }
+    /// CR 608.2h: a number the game state supplies when the verb reads it.
+    pub fn is_resolution_count(&self) -> bool {
+        match self {
+            Self::Count { .. } | Self::Greatest { .. } | Self::Devotion { .. } => true,
+            Self::Times { of, .. } => of.is_resolution_count(),
+            _ => false,
+        }
+    }
+    /// The count of a hand this number reads, which a draw changes.
+    pub fn counts_hand(&self) -> bool {
+        match self {
+            Self::Count {
+                set: SetExpr::Matching { zone, .. },
+            } => matches!(zone, ZoneExpr::Hand { .. }),
+            Self::Times { of, .. } => of.counts_hand(),
+            _ => false,
         }
     }
     pub fn is_announced_x(&self) -> bool {

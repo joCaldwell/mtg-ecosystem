@@ -205,6 +205,13 @@ pub(crate) fn lower_mana_ability(
     kind: CardKind,
     is_self: &dyn Fn(&str) -> bool,
 ) -> Result<Option<ManaAbility>, Failure> {
+    if !effects
+        .iter()
+        .flat_map(|s| &s.steps)
+        .any(|s| matches!(s, Step::AddMana { .. }))
+    {
+        return Ok(None);
+    }
     if effects
         .iter()
         .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())
@@ -215,13 +222,6 @@ pub(crate) fn lower_mana_ability(
         ));
     }
     let mut steps = effects.iter().flat_map(|s| &s.steps);
-    if !effects
-        .iter()
-        .flat_map(|s| &s.steps)
-        .any(|s| matches!(s, Step::AddMana { .. }))
-    {
-        return Ok(None);
-    }
     // CR 608.2c: the mana is added first, then the riders in printed order.
     let Some(Step::AddMana {
         who,

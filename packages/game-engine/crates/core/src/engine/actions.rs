@@ -102,6 +102,10 @@ pub enum ResolutionChoice {
         hosts: Vec<(ObjectId, ObjectId)>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         paid: Vec<(ObjectId, bool)>,
+        /// CR 701.20a, 614.12: then, entrant by entrant, the hand card
+        /// revealed for each entry reveal, or `None` when declined.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        revealed: Vec<(ObjectId, Option<ObjectId>)>,
         source_block: u32,
     },
     /// CR 701.25a: `player` looked at `looked`, then chooses the graveyard
@@ -1125,12 +1129,24 @@ impl RulesTxn {
                         failed,
                     },
                 ) => {
+                    // CR 608.2h: a resolution count was read once, as the
+                    // draws began; later instructions of the same program may
+                    // change it, so the recorded attempts are that number.
+                    let counted = match instruction {
+                        kernel!(Draw { amount, .. }) if amount.is_resolution_count() => {
+                            Some(crate::engine::kir::resolution_count_bound(amount))
+                        }
+                        _ => None,
+                    };
                     if *player != self.draw_player_for_instruction(frame, instruction)?
                         || attempted.is_negative()
-                        || *attempted > amount
+                        || counted
+                            .as_ref()
+                            .is_some_and(|bound| bound.as_ref().is_some_and(|b| attempted > b))
+                        || (counted.is_none() && *attempted > amount)
                         || failed.is_negative()
                         || failed > attempted
-                        || (*attempted != amount && self.is_live(*player))
+                        || (counted.is_none() && *attempted != amount && self.is_live(*player))
                     {
                         return Err("counted draw completed outcome invariant".into());
                     }
@@ -1301,24 +1317,26 @@ impl RulesTxn {
                     found,
                     hosts,
                     paid,
+                    revealed,
                     source_block,
                 },
         } = &self.state.rules.frame
             && self.is_live(*player)
             && self
-                .next_entry_question(*player, found, hosts, paid)?
+                .next_entry_question(*player, found, hosts, paid, revealed)?
                 .is_none()
         {
-            let (frame, player, found, hosts, paid, source_block) = (
+            let (frame, player, found, hosts, paid, revealed, source_block) = (
                 frame.clone(),
                 *player,
                 found.clone(),
                 hosts.clone(),
                 paid.clone(),
+                revealed.clone(),
                 *source_block,
             );
             self.rules_mut().pending = None;
-            self.continue_search_entry(frame, player, found, hosts, paid, source_block)?;
+            self.continue_search_entry(frame, player, found, hosts, paid, revealed, source_block)?;
         }
         Ok(())
     }

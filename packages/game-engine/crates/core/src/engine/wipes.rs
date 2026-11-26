@@ -4,7 +4,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::ObjectSet;
-use mtg_contracts::kir::{Amount, Destination, SetExpr};
+use mtg_contracts::kir::{Destination, SetExpr};
 
 /// What a board-wide movement does with each member (CR 701.8, 400.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -527,13 +527,11 @@ impl RulesTxn {
                 }
             })
             || match damage.amount {
-                // A count is bounded by every object that could exist.
-                Amount::Count { .. } => {
-                    f.amount
-                        > Quantity::from(
-                            (4 * capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize)
-                                as i64,
-                        )
+                // CR 608.2h: a resolution count was read once; later
+                // instructions may change it, so it is bounded, not re-read.
+                amount if amount.is_resolution_count() => {
+                    crate::engine::kir::resolution_count_bound(amount)
+                        .is_some_and(|bound| f.amount > bound)
                 }
                 amount => self.kernel_amount(frame, amount)? != f.amount,
             }

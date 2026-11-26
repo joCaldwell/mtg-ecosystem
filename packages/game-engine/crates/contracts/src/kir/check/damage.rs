@@ -92,7 +92,7 @@ impl Walk<'_, '_> {
                     Amount::Var {
                         of: Ref::AnnouncedX,
                     } => Ok(()),
-                    Amount::Count { set } => Self::audit_verb_count(set),
+                    amount if amount.is_resolution_count() => Self::audit_verb_amount(amount),
                     Amount::OtherCastsManaValue { caster } if caster.is_you() => Ok(()),
                     _ => unaudited("set damage amount"),
                 }

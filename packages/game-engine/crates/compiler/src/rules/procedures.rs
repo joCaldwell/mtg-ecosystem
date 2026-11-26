@@ -25,6 +25,7 @@ pub(crate) mod controller_library {
                 steps,
                 condition: None,
                 condition_kind: None,
+                ..
             },
         ] = effects
         else {
@@ -87,6 +88,7 @@ pub(crate) mod source_dies_nonland_destroy {
                 condition_kind: None,
                 bindings,
                 steps,
+                ..
             },
         ] = effects
         else {
@@ -134,6 +136,7 @@ pub(crate) mod land_entry_gain_life {
                 steps,
                 condition: None,
                 condition_kind: None,
+                ..
             },
         ] = effects
         else {
