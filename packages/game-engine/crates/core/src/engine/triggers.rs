@@ -149,6 +149,9 @@ testkit_fields! {
         /// observer's turn ordinal, recorded only for such an observer.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub nth: Option<u32>,
+        /// CR 601.2c: the permanents the spell targets as it becomes cast.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub targets: Vec<ObjectId>,
     }
 }
 /// The event subject's resolving binding (CR 400.7, 608.2h).
@@ -1022,6 +1025,7 @@ impl RulesTxn {
                 priority_paid_exile: entry.cast_from == Zone::Exile,
                 spell: self.object_before(entry.source)?,
                 nth: None,
+                targets: Self::targeted_permanents(entry).into_iter().collect(),
             }),
         };
         self.collect_trigger_witness(
@@ -1194,9 +1198,10 @@ impl RulesTxn {
                                 live: observers.is_live(attacker.controller),
                             }), you, attacker.object, &identity))
                     }
-                    EventPattern::Cast { caster, spell, .. } => {
+                    EventPattern::Cast { caster, spell, targets_source, .. } => {
                         matches!(&witness, TriggerEventWitness::SpellCast { cast }
                             if player_in(caster, Some(cast.caster), you)
+                                && (!*targets_source || cast.targets.contains(&object.id))
                                 && holds(spell, Some(&Frozen {
                                     facts: &cast.spell,
                                     token: false,
@@ -2114,7 +2119,11 @@ impl RulesTxn {
             && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } | Zone::Graveyard { owner } if owner == cast.spell.owner)
                 || cast.cast_from == Zone::Exile)
             && (!cast.priority_paid_exile || cast.cast_from == Zone::Exile)
-            && cast.x.as_ref().is_none_or(|x| !x.is_negative()))
+            && cast.x.as_ref().is_none_or(|x| !x.is_negative())
+            && cast
+                .targets
+                .iter()
+                .all(|t| self.state.rules.cards.contains_key(&t.card)))
     }
 
     fn validate_trigger_witness(
@@ -2480,8 +2489,9 @@ impl RulesTxn {
             TriggerEventWitness::SpellCast { cast } => {
                 self.valid_cast_facts(cast)?
                     && ordinal_evidence(pattern, cast.nth)
-                    && matches!(pattern, EventPattern::Cast { caster, spell, .. }
+                    && matches!(pattern, EventPattern::Cast { caster, spell, targets_source, .. }
                         if player_in(caster, Some(cast.caster), controller)
+                            && (!*targets_source || cast.targets.contains(&source))
                             && holds(spell, Some(&Frozen { facts: &cast.spell, token: false,
                                 live: true }), controller,
                                 cast.spell.object, &identity(cast.spell.object)))

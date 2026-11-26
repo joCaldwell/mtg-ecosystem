@@ -9,6 +9,7 @@ const MORBID_OPPORTUNIST: &str = record!("322f44f0-e6da-4ee0-b474-e7d5e9a461c5")
 const AJANIS_PRIDEMATE: &str = record!("95e94dea-5ac0-4d6f-adec-ca147aee861f");
 const MAZIREK: &str = record!("e0420f2c-d578-421e-ae75-e7dc5f70661a");
 const FAERIE_MASTERMIND: &str = record!("a984db23-40ea-428d-829f-e944267280f8");
+const MOUSE_TRAPPER: &str = record!("5b0a4530-6e19-41a2-9ea6-e4c8cf85b6c4");
 
 fn counters(g: &Game, object: ObjectId) -> Quantity {
     g.current(object).unwrap().plus_one_counters.clone()
@@ -302,4 +303,16 @@ fn turn_history_each_sacrifice_triggers() {
     settle(&mut g);
     assert_eq!(counters(&g, mazirek), 2.into());
     assert_recoverable((&g).into());
+}
+
+/// Valiant ("becomes the target ... for the first time each turn") needs a
+/// per-object targeting ledger, which the turn ledger does not keep, so the
+/// ordinal rejects by name instead of lowering as an unlimited trigger.
+#[test]
+fn turn_history_unledgered_ordinal_rejects_by_name() {
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, MOUSE_TRAPPER);
+    assert!(
+        format!("{result:?}").contains("trigger:occurrence:becomes_target"),
+        "{result:?}"
+    );
 }

@@ -43,6 +43,7 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
                 caster: PlayerExpr::EachOpponent,
                 spell: Pred::default(),
                 nth: None,
+                targets_source: false,
             }),
         ),
         (

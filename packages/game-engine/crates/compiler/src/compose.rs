@@ -396,6 +396,29 @@ fn trigger(
     condition: Option<&serde_json::Value>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
+    // CR 115.1, 601.2c: "a spell that targets this [permanent]" lowers the
+    // cast event without the target clause, then names the source.
+    if raw["trigger"] == "cast"
+        && let Some(targets) = raw["what"].get("targets")
+        && (*targets == serde_json::json!({"ref": "self"})
+            || targets["ref"] == "this"
+                && targets.as_object().map(|o| o.len()) == Some(2)
+                && targets["noun"]
+                    .as_str()
+                    .is_some_and(|noun| card.is_self(noun)))
+    {
+        let mut stripped = raw.clone();
+        if let Some(what) = stripped["what"].as_object_mut() {
+            what.remove("targets");
+        }
+        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
+        let EventPattern::Cast { targets_source, .. } = pattern else {
+            return Err(unsupported("compose.block", "trigger:targets:event"));
+        };
+        *targets_source = true;
+        return Ok(ability);
+    }
     let Some(occurrence) = raw.get("occurrence") else {
         return trigger_event(card, raw, parts, condition, block);
     };

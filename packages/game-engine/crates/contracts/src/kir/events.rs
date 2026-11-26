@@ -71,6 +71,11 @@ pub enum EventPattern {
         spell: Pred,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         nth: Option<TurnOrdinal>,
+        /// CR 115.1, 601.2c: "a spell that targets this [permanent]": the
+        /// source is among the permanents the spell targets as it becomes
+        /// cast.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        targets_source: bool,
     },
     /// CR 115.1, 601.2c, 602.2b, 603.3d: a stack object targets a permanent.
     BecomesTarget {
