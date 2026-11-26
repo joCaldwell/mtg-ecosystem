@@ -196,6 +196,8 @@ pub enum Cell {
     PumpTarget,
     PumpSet,
     PumpAnnouncedX,
+    /// CR 608.2h: a P/T change by a resolution count, read once.
+    PumpCounted,
     SourceKeywordsUntilEndOfTurn,
     TargetKeywordsUntilEndOfTurn,
     SetKeywordsUntilEndOfTurn,
@@ -359,6 +361,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::PlusOneCountersEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
+        | C::PumpCounted
         | C::SourceKeywordsUntilEndOfTurn
         | C::TargetKeywordsUntilEndOfTurn
         | C::SetKeywordsUntilEndOfTurn

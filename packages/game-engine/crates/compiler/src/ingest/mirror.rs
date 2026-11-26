@@ -342,19 +342,64 @@ pub(crate) struct SourceProperty {
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "serde_json::Value")]
 pub(crate) struct Sentence {
-    #[serde(default, deserialize_with = "present_ast_field")]
     pub(crate) condition: Option<serde_json::Value>,
+    pub(crate) condition_kind: Option<String>,
+    pub(crate) bindings: Vec<serde_json::Value>,
+    pub(crate) steps: Vec<Step>,
+    /// CR 107.3: which steps read the sentence's variable X, in step order.
+    pub(crate) reads_x: Vec<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SentenceFields {
+    #[serde(default, deserialize_with = "present_ast_field")]
+    condition: Option<serde_json::Value>,
     #[serde(
         default,
         rename = "conditionKind",
         deserialize_with = "present_ast_field"
     )]
-    pub(crate) condition_kind: Option<String>,
+    condition_kind: Option<String>,
     #[serde(default)]
-    pub(crate) bindings: Vec<serde_json::Value>,
-    pub(crate) steps: Vec<Step>,
+    bindings: Vec<serde_json::Value>,
+    steps: Vec<Step>,
+}
+
+impl TryFrom<serde_json::Value> for Sentence {
+    type Error = serde_json::Error;
+    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
+        /// An `{"amount": "x"}` operand anywhere inside the step.
+        fn reads_x(value: &serde_json::Value) -> bool {
+            match value {
+                serde_json::Value::Object(object) => {
+                    object.get("amount").and_then(|a| a.as_str()) == Some("x")
+                        || object.values().any(reads_x)
+                }
+                serde_json::Value::Array(items) => items.iter().any(reads_x),
+                _ => false,
+            }
+        }
+        let reads = value["steps"]
+            .as_array()
+            .map(|steps| steps.iter().map(reads_x).collect())
+            .unwrap_or_default();
+        let SentenceFields {
+            condition,
+            condition_kind,
+            bindings,
+            steps,
+        } = serde_json::from_value(value)?;
+        Ok(Self {
+            condition,
+            condition_kind,
+            bindings,
+            steps,
+            reads_x: reads,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -515,6 +560,8 @@ pub(crate) enum Step {
         power: ast::SignedAmount,
         toughness: ast::SignedAmount,
         duration: SourceDuration,
+        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
+        for_each: Option<serde_json::Value>,
     },
     Regenerate {
         what: serde_json::Value,

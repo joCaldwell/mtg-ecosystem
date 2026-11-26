@@ -656,10 +656,20 @@ earn `Executes` (`modal_choice_v1`). "Up to one", "any number", repeats,
 entwine, escalate, spree, costed modes, upgrades, other text in the block,
 two-target selections and mana modes reject.
 
-"[One] for each [filter]" on a draw or life step is `Amount::Count`, counted once
-(CR 608.2h), over objects you or opponents control, graveyard cards, or (life
-only) your hand. Other amounts, step-result filters and another player's
-referents reject.
+### Resolution-time counts
+
+"[N] for each [filter]" and a sentence's "where X is [number]" are read as the
+step that prints them is performed (CR 107.3, 608.2h), after earlier steps of
+the same program: `Amount::Count` over objects you or opponents control,
+graveyard cards or (not for draws) your hand, `Times` for N above one,
+`Greatest` power, toughness or mana value among permanents (never below zero,
+CR 107.1b) and your devotion (CR 700.5). Draws, life changes, set or player
+damage and P/T changes read them; a P/T change keeps its value in the saved
+effect (CR 611.2c) and a counted draw its recorded attempts. Several steps may
+re-read one X only across draws, life changes and damage. A step that cannot
+read X, a hand count re-read, announced or minimum quantities, event results
+("this way"), another player's referents and per-object iteration reject under
+`bindings:*` or `operand:bindings:*`.
 
 ## Derived capability tiers
 

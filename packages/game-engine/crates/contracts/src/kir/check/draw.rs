@@ -12,18 +12,15 @@ impl Walk<'_, '_> {
         // CR 121.2, 608.2h: the controller draws one card for each object
         // of a battlefield or graveyard set. Drawing changes neither zone,
         // so every attempt of the sequence reads the same count.
-        if let Amount::Count { set } = amount {
-            return match (player, set) {
-                (
-                    PlayerExpr::Is {
-                        who: Ref::Controller { .. },
-                    },
-                    SetExpr::Matching {
-                        zone:
-                            ZoneExpr::Battlefield | ZoneExpr::Graveyards | ZoneExpr::Graveyard { .. },
-                        ..
-                    },
-                ) => Self::audit_verb_count(set).map(|()| Cell::DrawControllerPerObject),
+        // The greatest stat or devotion of the battlefield is as stable; a
+        // hand is not.
+        if amount.is_resolution_count() {
+            return match player {
+                PlayerExpr::Is {
+                    who: Ref::Controller { .. },
+                } if !amount.counts_hand() => {
+                    Self::audit_verb_amount(amount).map(|()| Cell::DrawControllerPerObject)
+                }
                 _ => unaudited("counted draw recipient or set"),
             };
         }
