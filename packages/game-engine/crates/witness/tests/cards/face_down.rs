@@ -179,6 +179,16 @@ fn a_face_down_spell_is_a_nameless_colorless_2_2_for_three_and_stays_private() {
         }
     ));
 
+    // CR 702.37c, 601.2f: the quote prices the face-down spell, not the card.
+    let handle = game.handle_for(PlayerId(0), hermit).unwrap();
+    assert_eq!(
+        game.quote_face_down_cast_cost(PlayerId(0), &handle)
+            .unwrap(),
+        ManaCost {
+            generic: 3.into(),
+            colored: vec![],
+        }
+    );
     Driver::action(&mut game, Action::CastFaceDown { card: hermit });
     Driver::pay(&mut game, &[2, 3, 4]);
     // CR 708.4: on the stack it is a face-down creature spell.

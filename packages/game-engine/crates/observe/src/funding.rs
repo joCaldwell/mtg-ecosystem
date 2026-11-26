@@ -87,6 +87,9 @@ pub(super) fn funding(
             if def.back_face.is_some() {
                 return 2;
             }
+            // CR 118.9, 702.74a: a hand or command-zone cast may announce
+            // the printed alternative cost instead of the mana cost.
+            let mut alternative = None;
             let (cost, hybrid) = match action {
                 Action::Cast { .. } => {
                     if c.reduces_cost(&obj.oracle_id)
@@ -108,6 +111,14 @@ pub(super) fn funding(
                     {
                         cost.generic.add(n);
                         cost.generic.add(n);
+                    }
+                    if let Some(printed) = &def.alternative_cost
+                        && matches!(obj.zone, Zone::Hand { .. } | Zone::Command { .. })
+                    {
+                        let mut alt = printed.mana.clone();
+                        alt.generic.add(&cost.generic);
+                        alt.generic.subtract(&def.characteristics.mana_cost.generic);
+                        alternative = Some(alt);
                     }
                     (cost, def.characteristics.hybrid_mana.as_slice())
                 }
@@ -132,7 +143,10 @@ pub(super) fn funding(
                 _ => unreachable!(),
             };
             let (pool, complete) = supply.get_or_init(|| intrinsic_supply(c, v));
-            let pays_fixed = mtg_contracts::mana_spend::spend(&cost, pool).is_some();
+            let pays_fixed = mtg_contracts::mana_spend::spend(&cost, pool).is_some()
+                || alternative
+                    .as_ref()
+                    .is_some_and(|alt| mtg_contracts::mana_spend::spend(alt, pool).is_some());
             match (pays_fixed, hybrid.is_empty(), *complete) {
                 (true, true, _) => 1,
                 (false, _, true) => 0,

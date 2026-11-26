@@ -1239,7 +1239,7 @@ impl Strategy<'_> {
         } else {
             None
         };
-        let cost = match quote {
+        let mut cost = match quote {
             Some((game, card)) => game.quote_cast_cost(v.viewer, card, x.as_ref()).ok()?,
             None => {
                 let mut cost = match (&d.flashback, flashback) {
@@ -1272,14 +1272,40 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let (choices, plan) = mana_policy::hybrid_plan(
+        let mut alternative = None;
+        let (choices, plan) = match mana_policy::hybrid_plan(
             self.catalog,
             v,
             cost.clone(),
             &d.characteristics.hybrid_mana,
-        )?;
+        ) {
+            Some(plan) => plan,
+            // CR 118.9, 702.74a: announce the printed alternative cost from
+            // hand or the command zone when only it can be funded.
+            None => {
+                let printed = d.alternative_cost.as_ref().filter(|_| {
+                    matches!(o.zone, Zone::Hand { .. } | Zone::Command { .. })
+                        && d.characteristics.hybrid_mana.is_empty()
+                        && x.is_none()
+                })?;
+                // Only the engine quote includes the tax, increases and
+                // reductions that lock with the alternative (CR 601.2f); an
+                // observation alone never plans one.
+                let (game, card) = quote?;
+                let (identity, alt) = game
+                    .quote_alternative_cast_cost(v.viewer, card)
+                    .ok()
+                    .flatten()
+                    .filter(|(identity, _)| *identity == printed.identity)?;
+                let plan = mana_policy::hybrid_plan(self.catalog, v, alt.clone(), &[])?;
+                alternative = Some(identity);
+                cost = alt;
+                plan
+            }
+        };
         self.memory.payment.announced_cost = unchanged_cost.then_some(cost);
         self.memory.hybrid_choices = choices;
+        self.memory.alternative_cost = alternative;
         self.memory.planned_x = x;
         self.memory.mana_plan = plan;
         self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
@@ -1335,9 +1361,12 @@ impl Strategy<'_> {
 
     /// CR 702.37a: cast a morph card from hand face down for {3} when its
     /// printed cast was not chosen.
-    fn cast_face_down(&mut self, observation: &Observation) -> Option<Action<Viewer>> {
+    fn cast_face_down(
+        &mut self,
+        observation: &Observation,
+        game: Option<&mtg_core::Game>,
+    ) -> Option<Action<Viewer>> {
         let v = &observation.view;
-        let cost = mtg_contracts::FaceDownCast::cast_cost();
         for o in v.objects.iter().filter(|o| in_viewers_hand(v, o)) {
             let action = Action::CastFaceDown {
                 card: o.handle.clone(),
@@ -1348,6 +1377,14 @@ impl Strategy<'_> {
             {
                 continue;
             }
+            // The rules quote includes increases and reductions (CR 601.2f).
+            let cost = match game {
+                Some(game) => match game.quote_face_down_cast_cost(v.viewer, &o.handle) {
+                    Ok(cost) => cost,
+                    Err(_) => continue,
+                },
+                None => mtg_contracts::FaceDownCast::cast_cost(),
+            };
             let Some(plan) = mana_policy::plan_for(self.catalog, v, &cost, None) else {
                 continue;
             };
@@ -1636,6 +1673,7 @@ impl Strategy<'_> {
         self.memory.mana_color = None;
         self.memory.mana_bundle = None;
         self.memory.hybrid_choices.clear();
+        self.memory.alternative_cost = None;
         self.memory.planned_x = None;
         if let Some(r) = self.reactive_spells_with_game(v, game)? {
             return Ok(r);
@@ -1779,7 +1817,7 @@ impl Strategy<'_> {
                 }
             }
         }
-        if let Some(r) = self.cast_face_down(observation) {
+        if let Some(r) = self.cast_face_down(observation, game) {
             return Ok(r);
         }
         for o in v.objects.iter().filter(|o| {

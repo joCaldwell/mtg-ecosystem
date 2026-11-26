@@ -223,6 +223,15 @@ impl RulesTxn {
                 }
             }
         }
+        // CR 702.84a, 611.2c: an unearthed incarnation gains haste for as
+        // long as it remains that object.
+        if self
+            .current(object)
+            .is_ok_and(|o| o.id == object && o.unearthed && o.zone == Zone::Battlefield)
+            && !keywords.contains(&KeywordAbility::Haste)
+        {
+            keywords.push(KeywordAbility::Haste);
+        }
         // CR 611.2c/613.1f/400.7: union only for the captured incarnation;
         // source departure does not end an already resolved EOT grant.
         for effect in &self.state.rules.effects {

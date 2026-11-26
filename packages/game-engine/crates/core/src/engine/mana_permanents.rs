@@ -1378,6 +1378,8 @@ impl RulesTxn {
                         attached_to: None,
                         attachment_timestamp: None,
                         battlefield_entry_turn: r.source.battlefield_entry_turn,
+                        control_upkeeps: r.source.control_upkeeps,
+                        unearthed: r.source.unearthed,
                         keyword_timestamp: r.source.keyword_timestamp,
                         id: r.source.object,
                         controller: r.source.controller,

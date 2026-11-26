@@ -14,6 +14,7 @@ static FACE_DOWN: LazyLock<Definition> = LazyLock::new(|| Definition {
     source_labels: None,
     x_mana_cost: false,
     flashback: None,
+    alternative_cost: None,
     face_down: None,
     oracle_id: String::new(),
     name: String::new(),

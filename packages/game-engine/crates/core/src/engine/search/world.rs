@@ -383,12 +383,16 @@ impl SampleBuildWork {
                         .as_ref()
                         .filter(|v| v.entered_this_turn)
                         .map(|_| turn),
+                    // CR 702.30a: echo history is not in the permitted
+                    // view, and echo is outside the reviewed search tier.
+                    control_upkeeps: (row.zone == Zone::Battlefield).then_some(0),
                     keyword_timestamp: None,
                     plus_one_counters: Quantity::zero(),
                     transforms: 0,
                     adventure_player: None,
                     face_down: false,
                     deathtouch_damage: false,
+                    unearthed: false,
                     id: object,
                     zone: row.zone,
                     controller,
