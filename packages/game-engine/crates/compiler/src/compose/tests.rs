@@ -1699,9 +1699,13 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
     for line in [
         "Prowess, protection from red and from green",
         "Prowess, protection from red and from green.",
+        "Prowess, protection from red, from green",
+        "Prowess, protection from red, and from green",
         "Prowess and protection from red and from green",
         "Prowess; and protection from red and from green",
         "Protection from red and from green, prowess",
+        "Protection from red, from green, prowess",
+        "Protection from red, and from green, prowess",
     ] {
         let protection_first = line.starts_with("Protection");
         let kws = if protection_first {
@@ -1759,6 +1763,112 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
         assert_eq!(
             (direct.path.as_str(), direct.reason.as_str()),
             ("keyword", "keyword:triggered:printed_instances"),
+            "{line}"
+        );
+    }
+    for line in [
+        "Prowess; and protection from all colors.",
+        "Protection from all colors, prowess",
+        "Prowess, protection from each color.",
+    ] {
+        let protection_first = line.starts_with("Protection");
+        let kws = if protection_first {
+            json!([
+                {"keyword": "protection", "from": [{"scope": "all-colors"}]},
+                {"keyword": "prowess"}
+            ])
+        } else {
+            json!([
+                {"keyword": "prowess"},
+                {"keyword": "protection", "from": [{"scope": "all-colors"}]}
+            ])
+        };
+        let all_colors_intact = changed(THOR_ODINSON, |row| {
+            row["source"]["oracle_text"] = json!(line);
+            row["source"]["keywords"] = json!(["Prowess", "Protection"]);
+            row["faces"][0]["result"]["lines"][0]["text"] = json!(line);
+            row["faces"][0]["result"]["abilities"][0]["keywords"] = kws;
+            let bytes = line.len();
+            let cert = &mut row["resolution"]["faces"][0]["blocks"][0]["spans"]["certificate"];
+            cert["bytes"] = json!(bytes);
+            cert["segments"][0]["end"] = json!(bytes);
+        });
+        let all_colors_lowered = lowers(&all_colors_intact).unwrap();
+        assert_eq!(
+            all_colors_lowered.keywords,
+            mtg_contracts::fixed_color_protection::KEYWORDS,
+            "{line}"
+        );
+        assert_eq!(all_colors_lowered.triggered.len(), 1, "{line}");
+        let all_colors_dropped = changed(&all_colors_intact, |row| {
+            row["faces"][0]["result"]["abilities"][0]["keywords"] = json!([
+                {"keyword": "protection", "from": [{"scope": "all-colors"}]}
+            ]);
+        });
+        let failure = lowers(&all_colors_dropped).unwrap_err();
+        assert_eq!(
+            (failure.path.as_str(), failure.reason.as_str()),
+            ("keyword", "keyword:protection:printed_quality"),
+            "{line}"
+        );
+        let direct = keywords::triggered_instances_printed(
+            &[line.to_owned()],
+            &json!([{"kind": "keywords", "keywords": [{"keyword": "protection"}]}]),
+        )
+        .unwrap_err();
+        assert_eq!(
+            (direct.path.as_str(), direct.reason.as_str()),
+            ("keyword", "keyword:triggered:printed_instances"),
+            "{line}"
+        );
+    }
+    // Possessive forms never match `Cursor::word(...)` in the parser.
+    for (line, kws, source_keywords, expected_reason) in [
+        (
+            "Prowess's",
+            json!([{"keyword": "prowess"}]),
+            json!(["Prowess"]),
+            "keyword:prowess:printed",
+        ),
+        (
+            "Prowess'",
+            json!([{"keyword": "prowess"}]),
+            json!(["Prowess"]),
+            "keyword:prowess:printed",
+        ),
+        (
+            "Prowess and's flying",
+            json!([{"keyword": "prowess"}, {"keyword": "flying"}]),
+            json!(["Prowess", "Flying"]),
+            "keyword:triggered:printed",
+        ),
+        (
+            "Prowess, protection from red's",
+            json!([{"keyword": "prowess"}, {"keyword": "protection", "from": [{"scope": "color", "color": "red"}]}]),
+            json!(["Prowess", "Protection"]),
+            "keyword:triggered:printed",
+        ),
+        (
+            "Flying, vigilance, prowess's",
+            json!([{"keyword": "flying"}, {"keyword": "vigilance"}]),
+            json!(["Flying", "Vigilance"]),
+            "keyword:triggered:printed_instances",
+        ),
+    ] {
+        let corrupted = changed(THOR_ODINSON, |row| {
+            row["source"]["oracle_text"] = json!(line);
+            row["source"]["keywords"] = source_keywords.clone();
+            row["faces"][0]["result"]["lines"][0]["text"] = json!(line);
+            row["faces"][0]["result"]["abilities"][0]["keywords"] = kws.clone();
+            let bytes = line.len();
+            let cert = &mut row["resolution"]["faces"][0]["blocks"][0]["spans"]["certificate"];
+            cert["bytes"] = json!(bytes);
+            cert["segments"][0]["end"] = json!(bytes);
+        });
+        let failure = lowers(&corrupted).unwrap_err();
+        assert_eq!(
+            (failure.path.as_str(), failure.reason.as_str()),
+            ("keyword", expected_reason),
             "{line}"
         );
     }

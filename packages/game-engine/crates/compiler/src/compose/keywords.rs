@@ -119,6 +119,12 @@ fn lower_with_protection_text(
             ));
         }
         if let Some(from) = &keyword.protection_from {
+            if keyword.keyword != "protection" {
+                return Err(unsupported(
+                    "keyword",
+                    format!("keyword:{}:parameters", keyword.keyword),
+                ));
+            }
             lowered.extend(fixed_color_protection(kind, from, protection_text)?);
         } else {
             let ability = TABLE
@@ -468,79 +474,18 @@ pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
     TRIGGERED.iter().any(|(name, _)| *name == keyword.keyword)
 }
 
-/// The printed spelling of one triggered keyword instance ("bushido 2").
-fn spelling(keyword: &SourceKeyword) -> Option<String> {
-    let (name, parameterized) = TRIGGERED.iter().find(|(n, _)| *n == keyword.keyword)?;
-    match (parameterized, keyword.amount) {
-        (false, None) => Some((*name).to_owned()),
-        (true, Some(n)) => Some(format!("{name} {n}")),
-        _ => None,
-    }
-}
-
-/// Exact printed spelling of one supported keyword inside a triggered-keyword
-/// line (ASCII lowercase), matching `TABLE`, `LANDWALK`,
-/// `fixed_color_protection` and `TRIGGERED`.
-fn companion_spelling(keyword: &SourceKeyword) -> Option<String> {
-    if is_triggered(keyword) {
-        return (keyword.cost.is_none()
-            && keyword.filter.is_none()
-            && keyword.protection_from.is_none())
-        .then(|| spelling(keyword))
-        .flatten();
-    }
-    if keyword.cost.is_some() || keyword.amount.is_some() {
-        return None;
-    }
-    if keyword.keyword == "landwalk" {
-        let ability = basic_landwalk(keyword.filter.as_ref()?)?;
-        return LANDWALK
-            .iter()
-            .find(|(_, a)| *a == ability)
-            .map(|(name, _)| format!("{}walk", name.to_ascii_lowercase()));
-    }
-    if keyword.filter.is_some() {
-        return None;
-    }
-    if let Some(from) = &keyword.protection_from {
-        use SourceProtectionQuality::{AllColors, Color};
-        use mtg_contracts::fixed_color_protection::keyword_for_name;
-        return match from.as_slice() {
-            [AllColors {}] => Some("protection from each color".to_owned()),
-            [Color { color }] if keyword_for_name(color).is_some() => {
-                Some(format!("protection from {}", color.to_ascii_lowercase()))
-            }
-            [Color { color }, Color { color: other }]
-                if color != other
-                    && keyword_for_name(color).is_some()
-                    && keyword_for_name(other).is_some() =>
-            {
-                Some(format!(
-                    "protection from {} and from {}",
-                    color.to_ascii_lowercase(),
-                    other.to_ascii_lowercase()
-                ))
-            }
-            _ => None,
-        };
-    }
-    TABLE
-        .iter()
-        .find(|(name, _)| *name == keyword.keyword)
-        .map(|(name, _)| (*name).to_owned())
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum LineToken {
-    Word(String),
+    Word { value: String, possessive: bool },
     Number(String),
     Symbol,
     Punct(char),
 }
 
 /// Tokenize a normalized Oracle line using the same word/number/symbol
-/// boundaries as `packages/oracle-parser/src/lexer.ts`. Notably letters and
-/// ASCII digits never merge (`"afterlife1"` lexes to `afterlife`, `1`).
+/// boundaries, horizontal-whitespace handling, and possessive flags as
+/// `packages/oracle-parser/src/lexer.ts`. Notably letters and ASCII digits never
+/// merge (`"afterlife1"` lexes to `afterlife`, `1`).
 fn lex_line(line: &str) -> Vec<LineToken> {
     const CONTRACTIONS: &[&str] = &[
         "can't",
@@ -575,7 +520,7 @@ fn lex_line(line: &str) -> Vec<LineToken> {
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        if c.is_whitespace() {
+        if c == ' ' || c == '\t' {
             i += 1;
             continue;
         }
@@ -607,15 +552,18 @@ fn lex_line(line: &str) -> Vec<LineToken> {
                     break;
                 }
             }
-            let mut word: String = chars[start..i].iter().collect::<String>().to_lowercase();
-            if !CONTRACTIONS.contains(&word.as_str()) {
-                if let Some(stem) = word.strip_suffix("'s") {
-                    word = stem.to_owned();
-                } else if chars.get(i) == Some(&'\'') && word.ends_with('s') {
+            let mut value: String = chars[start..i].iter().collect::<String>().to_lowercase();
+            let mut possessive = false;
+            if !CONTRACTIONS.contains(&value.as_str()) {
+                if let Some(stem) = value.strip_suffix("'s") {
+                    value = stem.to_owned();
+                    possessive = true;
+                } else if chars.get(i) == Some(&'\'') && value.ends_with('s') {
                     i += 1;
+                    possessive = true;
                 }
             }
-            tokens.push(LineToken::Word(word));
+            tokens.push(LineToken::Word { value, possessive });
             continue;
         }
         tokens.push(LineToken::Punct(c));
@@ -624,16 +572,146 @@ fn lex_line(line: &str) -> Vec<LineToken> {
     tokens
 }
 
-/// Consume one inter-keyword separator matching `parseKeywordLine`
-/// (`packages/oracle-parser/src/parser/keywords.ts:524-533`): `,`, `;`, `, and`,
-/// `; and`, or bare `and`.
-fn consume_separator(tokens: &[LineToken]) -> Option<&[LineToken]> {
+fn consume_word<'a>(tokens: &'a [LineToken], expected: &str) -> Option<&'a [LineToken]> {
     match tokens {
-        [LineToken::Punct(',' | ';'), LineToken::Word(w), tail @ ..] if w == "and" => Some(tail),
-        [LineToken::Punct(',' | ';'), tail @ ..] => Some(tail),
-        [LineToken::Word(w), tail @ ..] if w == "and" => Some(tail),
+        [
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == expected => Some(tail),
         _ => None,
     }
+}
+
+fn consume_words<'a>(mut tokens: &'a [LineToken], words: &[&str]) -> Option<&'a [LineToken]> {
+    for word in words {
+        tokens = consume_word(tokens, word)?;
+    }
+    Some(tokens)
+}
+
+/// Consume one inter-keyword separator matching `parseKeywordLine`
+/// (`packages/oracle-parser/src/parser/keywords.ts:524-533`): `,`, `;`, `, and`,
+/// `; and`, or bare non-possessive `and`.
+fn consume_separator(tokens: &[LineToken]) -> Option<&[LineToken]> {
+    match tokens {
+        [
+            LineToken::Punct(',' | ';'),
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => Some(tail),
+        [LineToken::Punct(',' | ';'), tail @ ..] => Some(tail),
+        [
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => Some(tail),
+        _ => None,
+    }
+}
+
+/// Consume one two-color protection separator matching `parseProtectionScopes`
+/// (`packages/oracle-parser/src/parser/keywords.ts:248-252`): `, from`,
+/// `, and from`, or `and from`.
+fn consume_protection_separator(tokens: &[LineToken]) -> Option<&[LineToken]> {
+    let after_sep = match tokens {
+        [
+            LineToken::Punct(','),
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => tail,
+        [LineToken::Punct(','), tail @ ..] => tail,
+        [
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => tail,
+        _ => return None,
+    };
+    consume_word(after_sep, "from")
+}
+
+/// Consume one supported keyword token-for-token using the non-possessive
+/// word/number rules of `packages/oracle-parser/src/parser/keywords.ts`.
+fn consume_keyword<'a>(
+    keyword: &SourceKeyword,
+    tokens: &'a [LineToken],
+) -> Option<&'a [LineToken]> {
+    if is_triggered(keyword) {
+        if keyword.cost.is_some() || keyword.filter.is_some() || keyword.protection_from.is_some() {
+            return None;
+        }
+        let (name, parameterized) = TRIGGERED.iter().find(|(n, _)| *n == keyword.keyword)?;
+        let rest = consume_word(tokens, name)?;
+        return match (parameterized, keyword.amount) {
+            (false, None) => Some(rest),
+            (true, Some(n)) => match rest {
+                [LineToken::Number(digits), tail @ ..] if *digits == n.to_string() => Some(tail),
+                _ => None,
+            },
+            _ => None,
+        };
+    }
+    if keyword.cost.is_some() || keyword.amount.is_some() {
+        return None;
+    }
+    if keyword.keyword == "landwalk" {
+        if keyword.protection_from.is_some() {
+            return None;
+        }
+        let ability = basic_landwalk(keyword.filter.as_ref()?)?;
+        let name = LANDWALK
+            .iter()
+            .find(|(_, a)| *a == ability)
+            .map(|(name, _)| format!("{}walk", name.to_ascii_lowercase()))?;
+        return consume_word(tokens, &name);
+    }
+    if keyword.filter.is_some() {
+        return None;
+    }
+    if let Some(from) = &keyword.protection_from {
+        if keyword.keyword != "protection" {
+            return None;
+        }
+        use SourceProtectionQuality::{AllColors, Color};
+        use mtg_contracts::fixed_color_protection::keyword_for_name;
+        let rest = consume_words(tokens, &["protection", "from"])?;
+        return match from.as_slice() {
+            [AllColors {}] => consume_words(rest, &["each", "color"])
+                .or_else(|| consume_words(rest, &["all", "colors"])),
+            [Color { color }] if keyword_for_name(color).is_some() => {
+                consume_word(rest, &color.to_ascii_lowercase())
+            }
+            [Color { color }, Color { color: other }]
+                if color != other
+                    && keyword_for_name(color).is_some()
+                    && keyword_for_name(other).is_some() =>
+            {
+                let rest = consume_word(rest, &color.to_ascii_lowercase())?;
+                let rest = consume_protection_separator(rest)?;
+                consume_word(rest, &other.to_ascii_lowercase())
+            }
+            _ => None,
+        };
+    }
+    let (name, _) = TABLE.iter().find(|(name, _)| *name == keyword.keyword)?;
+    let mut rest = tokens;
+    for part in name.split(' ') {
+        rest = consume_word(rest, part)?;
+    }
+    Some(rest)
 }
 
 /// The keyword line prints each listed keyword left-to-right under the parser
@@ -669,15 +747,10 @@ pub(super) fn triggered_printed(
             rest = consume_separator(rest)
                 .ok_or_else(|| unsupported("keyword", "keyword:triggered:printed"))?;
         }
-        let expected = companion_spelling(keyword).ok_or_else(reject)?;
-        let expected_tokens = lex_line(&expected);
-        let after = rest
-            .strip_prefix(expected_tokens.as_slice())
-            .ok_or_else(reject)?;
+        rest = consume_keyword(keyword, rest).ok_or_else(reject)?;
         if triggered && !listed.contains(&keyword.keyword) {
             return Err(reject());
         }
-        rest = after;
     }
     if !rest.is_empty() {
         return Err(unsupported("keyword", "keyword:triggered:printed"));
@@ -703,7 +776,7 @@ pub(super) fn triggered_instances_printed(
         let tokens = lex_line(line);
         let mut i = 0;
         while i < tokens.len() {
-            if let LineToken::Word(word) = &tokens[i]
+            if let LineToken::Word { value: word, .. } = &tokens[i]
                 && let Some((name, parameterized)) =
                     TRIGGERED.iter().find(|(n, _)| *n == word.as_str())
             {
@@ -713,7 +786,7 @@ pub(super) fn triggered_instances_printed(
                         i += 2;
                         continue;
                     }
-                    if let Some(LineToken::Word(w)) = tokens.get(i + 1)
+                    if let Some(LineToken::Word { value: w, .. }) = tokens.get(i + 1)
                         && w == "x"
                     {
                         printed.push((block, format!("{name} x")));
