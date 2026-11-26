@@ -241,6 +241,8 @@ pub(super) fn general(
         Enters,
         Dies,
         Attacks,
+        Leaves,
+        Blocks,
     }
     impl Kind {
         fn pattern(self, object: Pred) -> EventPattern {
@@ -248,6 +250,8 @@ pub(super) fn general(
                 Self::Enters => EventPattern::Enters { object },
                 Self::Dies => EventPattern::Dies { object },
                 Self::Attacks => EventPattern::Attacks { attacker: object },
+                Self::Leaves => EventPattern::LeavesBattlefield { object },
+                Self::Blocks => EventPattern::Blocks { blocker: object },
             }
         }
     }
@@ -260,6 +264,10 @@ pub(super) fn general(
                 Some("enters") => (Kind::Enters, &[]),
                 Some("dies") => (Kind::Dies, &[]),
                 Some("attacks") => (Kind::Attacks, &[]),
+                // CR 603.6c, 509.3a: an alternative of an any-of event; the
+                // single events lower in their own rows below.
+                Some("leaves") => (Kind::Leaves, &[]),
+                Some("blocks") => (Kind::Blocks, &[]),
                 Some("put-into-graveyard") => (
                     Kind::Dies,
                     &[
@@ -399,6 +407,19 @@ pub(super) fn general(
         } else {
             (a, b)
         };
+        // CR 119.9: the source's entry or a player's life gain.
+        let gain = if a["trigger"] == "gains-life" { a } else { b };
+        if gain["trigger"] == "gains-life"
+            && let Some((Kind::Enters, object)) =
+                event(card, if gain == a { b } else { a })?
+            && object == Pred::source()
+            && let Some(EventPattern::GainsLife { player, nth: None }) = general(card, gain)?
+        {
+            return Ok(Some(EventPattern::AnyOf {
+                first: Box::new(EventPattern::Enters { object }),
+                second: Box::new(EventPattern::GainsLife { player, nth: None }),
+            }));
+        }
         if let (
             Some((Kind::Enters, object)),
             Ok(SourceTrigger::Cast {
@@ -457,13 +478,18 @@ pub(super) fn general(
         if *a_subject != Pred::source() || *b_subject != Pred::source() {
             return Ok(None);
         }
-        let other = match (a, b) {
-            (Kind::Enters, Kind::Dies | Kind::Attacks) => *b,
-            (Kind::Dies | Kind::Attacks, Kind::Enters) => *a,
+        // CR 603.2c: the source's entry and its death, attack or departure,
+        // or its attack and its block; no occurrence is both.
+        let (first, other) = match (a, b) {
+            (Kind::Enters, Kind::Dies | Kind::Attacks | Kind::Leaves) => (Kind::Enters, *b),
+            (Kind::Dies | Kind::Attacks | Kind::Leaves, Kind::Enters) => (Kind::Enters, *a),
+            (Kind::Attacks, Kind::Blocks) | (Kind::Blocks, Kind::Attacks) => {
+                (Kind::Attacks, Kind::Blocks)
+            }
             _ => return Ok(None),
         };
         return Ok(Some(EventPattern::AnyOf {
-            first: Box::new(EventPattern::self_enters()),
+            first: Box::new(first.pattern(Pred::source())),
             second: Box::new(other.pattern(Pred::source())),
         }));
     }

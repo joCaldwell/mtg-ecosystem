@@ -391,9 +391,26 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         return match (&**first, &**second) {
             (EventPattern::Enters { object }, EventPattern::Dies { object: other })
             | (EventPattern::Enters { object }, EventPattern::Attacks { attacker: other })
+            | (
+                EventPattern::Enters { object },
+                EventPattern::LeavesBattlefield { object: other },
+            )
                 if *object == Pred::source() && *other == Pred::source() =>
             {
                 Ok(())
+            }
+            // CR 506.4, 509.1a: an attacking creature is never declared as a
+            // blocker, so one declaration is either the attack or the block.
+            (EventPattern::Attacks { attacker }, EventPattern::Blocks { blocker })
+                if *attacker == Pred::source() && *blocker == Pred::source() =>
+            {
+                Ok(())
+            }
+            // CR 119.9, 603.6a: a life gain is never an entry.
+            (EventPattern::Enters { object }, EventPattern::GainsLife { nth: None, .. })
+                if *object == Pred::source() =>
+            {
+                check_event(second, attachment)
             }
             // CR 509.1a: a blocking creature is never also an attacker
             // becoming blocked, so one declaration cannot match both.

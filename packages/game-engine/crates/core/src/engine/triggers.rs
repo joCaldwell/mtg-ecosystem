@@ -384,10 +384,16 @@ impl TriggerEventWitness {
         }
         match (&**second, self) {
             (EventPattern::Dies { .. }, witness) if witness.dies() => Some(second),
+            (EventPattern::LeavesBattlefield { .. }, witness) if witness.leaves() => Some(second),
             (EventPattern::Attacks { .. }, Self::CreatureAttacked { .. })
             | (EventPattern::Cast { .. }, Self::SpellCast { .. })
+            | (EventPattern::Blocks { .. }, Self::Blocked { .. })
+            | (EventPattern::GainsLife { .. }, Self::LifeGained { .. })
             | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. }) => Some(second),
             (_, Self::Blocked { .. }) if matches!(**first, EventPattern::Blocks { .. }) => {
+                Some(first)
+            }
+            (_, Self::CreatureAttacked { .. }) if matches!(**first, EventPattern::Attacks { .. }) => {
                 Some(first)
             }
             _ => None,

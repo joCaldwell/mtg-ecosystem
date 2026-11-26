@@ -18,6 +18,7 @@ macro_rules! record {
     };
 }
 
+mod event_alternatives;
 mod intervening_history;
 mod keyword_triggers;
 mod object_events;
