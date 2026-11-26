@@ -3,7 +3,7 @@ use super::*;
 
 /// CR 111.1-111.4, 111.10, 608.2h: the resolving controller or the last
 /// controller of a removed target creates tokens of one exact recipe: a
-/// predefined artifact (Treasure, Food, Clue) or a creature token with
+/// predefined artifact (Treasure, Gold, Food, Clue) or a creature token with
 /// printed characteristics, entering tapped if printed. The number is fixed, the announced X, the
 /// sentence's bound X or "for each [filter]", read when the step is
 /// performed. Event results ("that many"), copies, printed names, abilities
@@ -42,9 +42,7 @@ pub(super) fn lower(
 /// 111.3-111.4: a creature token with exactly its printed characteristics.
 /// Returns whether the tokens enter tapped (CR 614.1c).
 fn recipe(token: &serde_json::Value) -> Result<(kir::TokenSpec, bool), Failure> {
-    let object = token
-        .as_object()
-        .ok_or_else(|| operand("token", "shape"))?;
+    let object = token.as_object().ok_or_else(|| operand("token", "shape"))?;
     if object.contains_key("copyOf") {
         return Err(operand("token", "copy_of"));
     }
@@ -69,6 +67,7 @@ fn recipe(token: &serde_json::Value) -> Result<(kir::TokenSpec, bool), Failure> 
     }
     let kind = match predefined {
         ast::PredefinedTokenName::Treasure => PredefinedToken::Treasure,
+        ast::PredefinedTokenName::Gold => PredefinedToken::Gold,
         ast::PredefinedTokenName::Food => PredefinedToken::Food,
         ast::PredefinedTokenName::Clue => PredefinedToken::Clue,
         other => return Err(operand("token", format!("predefined:{}", variant(&other)))),

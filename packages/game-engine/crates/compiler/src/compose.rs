@@ -211,12 +211,7 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
 /// rows (predefined tokens) is also a typed sentence the shared step
 /// lowerer reads (CR 111.10); any other part needs a table event.
 fn reviewed_sentence(part: Part) -> Result<Sentence, Failure> {
-    let table = || {
-        unsupported(
-            "compose.step",
-            "step table rows require a table event",
-        )
-    };
+    let table = || unsupported("compose.step", "step table rows require a table event");
     match part {
         Part::Typed(sentence) => Ok(sentence),
         Part::Table(steps) => {

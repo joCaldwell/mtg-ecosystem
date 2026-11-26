@@ -1,5 +1,5 @@
 //! Functional artifact templates use the normal paid activation machinery.
-//! CR 111.10a–b,f, 602.2 and 605.3.
+//! CR 111.10a–c,f, 602.2 and 605.3.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::PredefinedToken;
@@ -42,18 +42,18 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     d.source_labels = None;
     d.x_mana_cost = false;
     d.flashback = None;
-    let treasure = kind == PredefinedToken::Treasure;
+    let mana_token = matches!(kind, PredefinedToken::Treasure | PredefinedToken::Gold);
     let costs = PermanentActivationCosts {
         remove_source_plus_one_counters: None,
-        tap: kind != PredefinedToken::Clue,
-        mana: (!treasure).then(|| ManaCost {
+        tap: matches!(kind, PredefinedToken::Treasure | PredefinedToken::Food),
+        mana: (!mana_token).then(|| ManaCost {
             generic: 2.into(),
             colored: vec![],
         }),
         sacrifice: true,
         pay_life: None,
     };
-    if treasure {
+    if mana_token {
         d.mana_abilities.push(ManaAbility {
             costs,
             production: ManaProduction::AnyColor,
@@ -74,7 +74,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
                 },
                 0,
             ),
-            PredefinedToken::Treasure => unreachable!(),
+            PredefinedToken::Treasure | PredefinedToken::Gold => unreachable!(),
         };
         d.activated.push(ActivatedAbility {
             modal: None,

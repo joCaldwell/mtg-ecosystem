@@ -1,4 +1,4 @@
-//! Predefined artifact tokens, CR 111.10a–b,f.
+//! Predefined artifact tokens, CR 111.10a–c,f.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use serde_json::{Value, json};
@@ -7,14 +7,16 @@ use serde_json::{Value, json};
 #[serde(rename_all = "snake_case")]
 pub enum PredefinedToken {
     Treasure,
+    Gold,
     Food,
     Clue,
 }
 impl PredefinedToken {
-    const ALL: [Self; 3] = [Self::Treasure, Self::Food, Self::Clue];
+    const ALL: [Self; 4] = [Self::Treasure, Self::Gold, Self::Food, Self::Clue];
     pub fn name(self) -> &'static str {
         match self {
             Self::Treasure => "Treasure",
+            Self::Gold => "Gold",
             Self::Food => "Food",
             Self::Clue => "Clue",
         }
