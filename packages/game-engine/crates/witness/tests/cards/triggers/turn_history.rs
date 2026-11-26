@@ -218,6 +218,7 @@ fn turn_history_life_gain_event_triggers() {
     assert_eq!(life(&g, 0), plus(&before, 1));
     assert_eq!(counters(&g, pridemate), 1.into());
     assert_eq!(g.state.rules.cast_history[0].life_gains, 1);
+    assert_eq!(g.state.rules.cast_history[0].life_gained, 1.into());
     assert_recoverable((&g).into());
 }
 

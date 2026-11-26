@@ -500,11 +500,31 @@ fn mentions(pred: &Pred, object: Ref) -> bool {
     )
 }
 
+/// Exact measurements from the current turn (CR 601.2i, 508.1, 700.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnFact {
+    Attacked,
+    CreatureDied,
+    CreatureDiedUnderYourControl,
+    PermanentLeftUnderYourControl,
+    SpellsCast,
+    NoncreatureSpellsCast,
+    SpellsCastFromHand,
+    CardsDrawn,
+    LifeGained,
+}
+
 /// The intervening "if" clauses a triggered ability can check (CR 603.4).
 /// Each one names one audited evaluation the rules core performs when the
 /// event occurs and again as the ability resolves.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intervening {
+    TurnHistory {
+        fact: TurnFact,
+        cmp: Cmp,
+        value: Quantity,
+    },
     /// "if you cast it": the entering source came from a spell its
     /// controller cast (CR 603.4, 400.7).
     SourceCastByController,
@@ -621,6 +641,11 @@ impl Intervening {
     pub fn condition(&self) -> Cond {
         let you = PlayerExpr::you(Context::Triggered);
         match self {
+            Self::TurnHistory { fact, cmp, value } => Cond::TurnHistory {
+                fact: *fact,
+                cmp: *cmp,
+                value: value.clone(),
+            },
             Self::ControlsOwnCommander => Cond::ControlsOwnCommander {},
             Self::OpponentControlsMore { kind } => Cond::OpponentControlsMore { kind: *kind },
             Self::SourceCastByController => Cond::CastBy {
@@ -695,6 +720,11 @@ impl Intervening {
     /// has none. A condition is admitted only in exactly one of these forms.
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
+            Cond::TurnHistory { fact, cmp, value } if !value.is_negative() => Self::TurnHistory {
+                fact: *fact,
+                cmp: *cmp,
+                value: value.clone(),
+            },
             Cond::CastBy { .. } => Self::SourceCastByController,
             Cond::ControlledSinceLastUpkeep {} => Self::SourceControlledSinceLastUpkeep,
             // CR 702.74a: the one reviewed entry cost an intervening clause reads.

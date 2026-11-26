@@ -70,6 +70,11 @@ impl ControllerMeasurement {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "condition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCheck {
+    TurnHistory {
+        controller: PlayerId,
+        observed: Quantity,
+        passed: bool,
+    },
     SourceCastByController {
         entrant: ObjectId,
         controller: PlayerId,
@@ -135,7 +140,8 @@ pub enum InterveningCheck {
 impl InterveningCheck {
     pub fn passed(&self) -> bool {
         match self {
-            Self::ControlsOwnCommander { passed, .. }
+            Self::TurnHistory { passed, .. }
+            | Self::ControlsOwnCommander { passed, .. }
             | Self::OpponentControlsMore { passed, .. }
             | Self::ControllerHandEmpty { passed, .. }
             | Self::ControllerComparison { passed, .. }
@@ -160,6 +166,26 @@ impl InterveningCheck {
         card_bound: u32,
     ) -> bool {
         match (condition, self) {
+            (
+                Intervening::TurnHistory { fact, cmp, value },
+                Self::TurnHistory {
+                    controller: checked,
+                    observed,
+                    passed,
+                },
+            ) => {
+                use mtg_contracts::kir::TurnFact::*;
+                *checked == controller
+                    && !observed.is_negative()
+                    && (!matches!(
+                        fact,
+                        Attacked
+                            | CreatureDied
+                            | CreatureDiedUnderYourControl
+                            | PermanentLeftUnderYourControl
+                    ) || *observed <= Quantity::from(1))
+                    && *passed == compare(observed, *cmp, value)
+            }
             (
                 Intervening::SourceCastByController,
                 Self::SourceCastByController {
@@ -404,6 +430,7 @@ impl RulesTxn {
     pub(super) fn check_intervening(
         &self,
         condition: &Intervening,
+        history: &[super::triggers::TurnCastHistory; 4],
         controller: PlayerId,
         source: ObjectId,
         last_known: &ObjectBefore,
@@ -413,6 +440,40 @@ impl RulesTxn {
             return Err("intervening condition requested after controller departure".into());
         }
         Ok(match condition {
+            Intervening::TurnHistory { fact, cmp, value } => {
+                use mtg_contracts::kir::TurnFact::*;
+                let row = &history[controller.0 as usize];
+                let quantity = |n: u32| Quantity::from(i64::from(n));
+                let spell_count = |n| {
+                    u32::try_from(n)
+                        .map(quantity)
+                        .map_err(|_| "turn history count limit")
+                };
+                let observed = match fact {
+                    Attacked => quantity(u32::from(row.attacked)),
+                    CreatureDied => {
+                        quantity(u32::from(history.iter().any(|seat| seat.creature_died)))
+                    }
+                    CreatureDiedUnderYourControl => quantity(u32::from(row.creature_died)),
+                    PermanentLeftUnderYourControl => quantity(u32::from(row.permanent_left)),
+                    SpellsCast => spell_count(row.spells.len())?,
+                    NoncreatureSpellsCast => spell_count(
+                        row.spells
+                            .iter()
+                            .filter(|spell| !spell.characteristics.has_type(CardKind::Creature))
+                            .count(),
+                    )?,
+                    SpellsCastFromHand => quantity(row.hand_casts),
+                    CardsDrawn => quantity(row.draws),
+                    LifeGained => row.life_gained.clone(),
+                };
+                let passed = compare(&observed, *cmp, value);
+                InterveningCheck::TurnHistory {
+                    controller,
+                    observed,
+                    passed,
+                }
+            }
             Intervening::SourceCastByController => InterveningCheck::SourceCastByController {
                 entrant: source,
                 controller,
@@ -638,6 +699,7 @@ impl RulesTxn {
         };
         let check = self.check_intervening(
             &condition,
+            &self.state.rules.cast_history,
             stack.controller,
             stack.source,
             stack
@@ -691,7 +753,8 @@ impl RulesTxn {
             return Err("cast-entry resolution lost its match evidence".into());
         }
         if let Some(
-            InterveningCheck::ControllerComparison { passed: false, .. }
+            InterveningCheck::TurnHistory { passed: false, .. }
+            | InterveningCheck::ControllerComparison { passed: false, .. }
             | InterveningCheck::ControlsOwnCommander { passed: false, .. }
             | InterveningCheck::OpponentControlsMore { passed: false, .. },
         ) = &frame.condition_check

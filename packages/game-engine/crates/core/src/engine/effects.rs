@@ -641,6 +641,7 @@ impl RulesTxn {
             Cond::CostPaid { .. }
             | Cond::Satisfies { .. }
             | Cond::CastBy { .. }
+            | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
             | Cond::ControlledSinceLastUpkeep {} => false,

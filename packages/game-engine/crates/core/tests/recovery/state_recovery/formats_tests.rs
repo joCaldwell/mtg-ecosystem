@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    83,
-    "6e663bc0965e0345e794fd5848a0fadf9601ee111880caa3d0e8df294c892272",
+    85,
+    "257aed31210c8c30f57b28f8769ca9b2cd1725d8060e7fecb78fc17af8735fef",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    114,
-    "28cd7b1be5f90c2b678f99f972316b3b49146bb358b430270f7f0e73df408c0a",
+    116,
+    "ea3a65a1f411b0e2cde4ceb74a6c1f236a8bfd1e31ef73261739181369254b33",
 );
 const WORK_PIN: (u32, &str) = (
     59,
@@ -836,6 +836,24 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())
+        .chain([{
+            let mut sample: Value =
+                serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+            let history = &mut sample["state"]["cast_history"][0];
+            history["attacked"] = true.into();
+            history["creature_died"] = true.into();
+            history["permanent_left"] = true.into();
+            history["hand_casts"] = 1.into();
+            history["life_gained"] = serde_json::to_value(Quantity::from(2)).unwrap();
+            sample["state"]["frame"]["frame"]["condition_check"] =
+                serde_json::to_value(InterveningCheck::TurnHistory {
+                    controller: PlayerId(0),
+                    observed: 2.into(),
+                    passed: true,
+                })
+                .unwrap();
+            serde_json::to_string(&sample).unwrap()
+        }])
         .chain([object_choice_shape()])
         .collect::<Vec<_>>();
     for raw in &samples {
