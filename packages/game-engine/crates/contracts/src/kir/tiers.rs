@@ -305,10 +305,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DamageController
         | C::MoveTargetOwnerHand
         | C::MoveTargetOwnerLibraryTop
-        | C::MoveTargetOwnerLibraryPosition
-        | C::ShuffleResolvingSpell
-        | C::ShuffleTargetOwnerLibrary
-        | C::DrawShuffledTargetOwner
         | C::DiscardController => Tiers::SEARCH_HOSTING,
         C::DrawTargetPlayer
         | C::DestroyTargetCreature
@@ -390,6 +386,10 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SearchController
         | C::SearchLibraryTop
         | C::SearchSplitBasicLands
+        | C::MoveTargetOwnerLibraryPosition
+        | C::ShuffleResolvingSpell
+        | C::ShuffleTargetOwnerLibrary
+        | C::DrawShuffledTargetOwner
         | C::SearchTargetController
         | C::ShuffleController
         | C::ShuffleTargetController
