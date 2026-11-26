@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 pub(super) struct PlannedMana {
     pub source: ObjectHandle,
     pub color: Option<Color>,
+    pub bundle: Option<Vec<Color>>,
     pub ability: Option<ManaAbilityIdentity>,
 }
 struct Source<'a> {
@@ -20,6 +21,7 @@ struct Source<'a> {
     land: bool,
     amount: Quantity,
     production: ManaProduction,
+    choose_bundle: bool,
     colors: Vec<Color>,
     cost: Option<ManaCost>,
     /// Pays life or performs a rider (damage, life gain): used last.
@@ -29,13 +31,13 @@ struct Planner<'a> {
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
-    spell_only: BTreeMap<Color, Quantity>,
+    scoped_mana: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
 }
 impl Planner<'_> {
     fn balance(&self, color: &Color, nested: bool) -> Quantity {
         let mut amount = self.pool.get(color).cloned().unwrap_or_default();
-        if !nested && let Some(spell) = self.spell_only.get(color) {
+        if !nested && let Some(spell) = self.scoped_mana.get(color) {
             amount.add(spell);
         }
         amount
@@ -44,7 +46,7 @@ impl Planner<'_> {
     fn can_fund(&self, cost: &ManaCost, nested: bool) -> bool {
         let mut pool = self.pool.clone();
         if !nested {
-            for (color, amount) in &self.spell_only {
+            for (color, amount) in &self.scoped_mana {
                 pool.entry(*color).or_default().add(amount);
             }
         }
@@ -60,28 +62,53 @@ impl Planner<'_> {
             if self.can_fund(cost, nested) {
                 return true;
             }
-            let deficit = required
+            let needed = required
                 .iter()
-                .find(|(c, n)| self.balance(c, nested) < **n)
-                .map(|(c, _)| *c);
-            // Prefer rocks/dorks to lands. Fixed multi-symbol production is
-            // evaluated at its full quantity, including the Signet's input cost.
-            let chosen = (0..self.sources.len())
-                .filter(|i| !self.used[self.sources[*i].object_index])
-                .filter(|i| deficit.is_none_or(|c| self.sources[*i].colors.contains(&c)))
-                .min_by_key(|i| {
+                .filter_map(|(&color, amount)| {
+                    let available = self.balance(&color, nested);
+                    (available < *amount).then(|| {
+                        let mut missing = amount.clone();
+                        missing.subtract(&available);
+                        (color, missing)
+                    })
+                })
+                .collect::<BTreeMap<_, _>>();
+            let deficit = needed.keys().next().copied();
+            let chosen = self
+                .sources
+                .iter()
+                .enumerate()
+                .filter(|(_, source)| !self.used[source.object_index])
+                .filter(|(_, source)| deficit.is_none_or(|color| source.colors.contains(&color)))
+                .min_by_key(|(index, source)| {
+                    let mut needed = needed.clone();
+                    let mut useful = Quantity::zero();
+                    let color = deficit.or_else(|| source.colors.first().copied());
+                    let symbols = match &source.production {
+                        ManaProduction::Fixed { symbols } => symbols.as_slice(),
+                        _ => color.as_slice(),
+                    };
+                    for symbol in symbols {
+                        if let Some(missing) = needed.get_mut(symbol) {
+                            let amount = missing.clone().min(source.amount.clone());
+                            missing.subtract(&amount);
+                            useful.add(&amount);
+                        }
+                    }
                     (
-                        self.sources[*i].harm,
-                        self.sources[*i].colors.len(),
-                        self.sources[*i].land,
-                        usize::from(self.sources[*i].cost.is_some()),
-                        self.sources[*i]
+                        source.cost.is_some(),
+                        source
                             .cost
                             .as_ref()
                             .is_some_and(|cost| spend(cost, &self.pool).is_none()),
-                        *i,
+                        source.harm,
+                        std::cmp::Reverse(useful),
+                        source.colors.len(),
+                        source.land,
+                        *index,
                     )
-                });
+                })
+                .map(|(index, _)| index);
             let Some(i) = chosen else { return false };
             self.used[self.sources[i].object_index] = true;
             let Some(i) = self.fund_source_cost(i) else {
@@ -103,6 +130,7 @@ impl Planner<'_> {
                 source: source.handle.clone(),
                 ability: Some(source.ability),
                 color,
+                bundle: source.choose_bundle.then(|| symbols.to_vec()),
             });
         }
         false
@@ -254,6 +282,7 @@ fn production_colors(
 ) -> Vec<Color> {
     match mana {
         ManaProduction::Fixed { symbols } => symbols.clone(),
+        ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
         ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
         ManaProduction::CommanderColor => commander_colors(view, controller),
         ManaProduction::Choose { colors, .. } => colors.clone(),
@@ -365,9 +394,20 @@ pub(super) fn plan_for(
     cost: &ManaCost,
     exclude: Option<&ObjectHandle>,
 ) -> Option<std::collections::VecDeque<PlannedMana>> {
+    plan_for_payment(catalog, view, cost, exclude, &[])
+}
+
+pub(super) fn plan_for_payment(
+    catalog: &Catalog,
+    view: &PermittedView,
+    cost: &ManaCost,
+    exclude: Option<&ObjectHandle>,
+    eligible: &[mtg_contracts::RestrictedMana],
+) -> Option<std::collections::VecDeque<PlannedMana>> {
     let pool = spendable_pool(view)?;
-    if spend(cost, &pool).is_some() {
-        return Some(Default::default());
+    let mut scoped_mana = BTreeMap::<Color, Quantity>::new();
+    for unit in eligible {
+        scoped_mana.entry(unit.color).or_default().add(&unit.amount);
     }
     let mut sources = vec![];
     for (object_index, o) in view.objects.iter().enumerate() {
@@ -412,29 +452,43 @@ pub(super) fn plan_for(
             )
         });
         for (identity, ability) in printed.chain(granted) {
-            if !usable_printed(ability, o, &life)
+            if ability
+                .spend_restriction
+                .is_some_and(|rule| !rule.permits_resolution_payment())
+                || !usable_printed(ability, o, &life)
                 || !condition_holds(view, o, ability.condition.as_ref())
             {
                 continue;
             }
-            let colors = production_colors(catalog, view, &ability.production, view.viewer);
-            if colors.is_empty() {
-                continue;
+            let productions = match &ability.production {
+                ManaProduction::Bundles { options } => options
+                    .iter()
+                    .cloned()
+                    .map(|symbols| (ManaProduction::Fixed { symbols }, true))
+                    .collect(),
+                production => vec![(production.clone(), false)],
+            };
+            for (production, choose_bundle) in productions {
+                let colors = production_colors(catalog, view, &production, view.viewer);
+                if colors.is_empty() {
+                    continue;
+                }
+                sources.push(Source {
+                    object_index,
+                    ability: identity,
+                    handle: &o.handle,
+                    amount: match &production {
+                        ManaProduction::Choose { amount, .. } => amount.clone(),
+                        _ => 1.into(),
+                    },
+                    land,
+                    production,
+                    choose_bundle,
+                    colors,
+                    cost: ability.costs.mana.clone(),
+                    harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
+                });
             }
-            sources.push(Source {
-                object_index,
-                ability: identity,
-                handle: &o.handle,
-                amount: match &ability.production {
-                    ManaProduction::Choose { amount, .. } => amount.clone(),
-                    _ => 1.into(),
-                },
-                land,
-                production: ability.production.clone(),
-                colors,
-                cost: ability.costs.mana.clone(),
-                harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
-            });
         }
         if land && d.is_some() && available_tap(o) {
             for color in c
@@ -451,6 +505,7 @@ pub(super) fn plan_for(
                     production: ManaProduction::Fixed {
                         symbols: vec![color],
                     },
+                    choose_bundle: false,
                     colors: vec![color],
                     cost: None,
                     harm: false,
@@ -462,7 +517,7 @@ pub(super) fn plan_for(
         sources,
         used: vec![false; view.objects.len()],
         pool,
-        spell_only: BTreeMap::new(),
+        scoped_mana,
         plan: vec![],
     };
     planner.fund(cost, false).then(|| planner.plan.into())
@@ -583,6 +638,7 @@ mod tests {
                 pay_life: None,
             },
             production: ManaProduction::AnyColor,
+            spend_restriction: None,
             riders: vec![],
             source_block: 0,
         }];
@@ -713,6 +769,59 @@ mod tests {
     }
 
     #[test]
+    fn a_one_drop_uses_a_forest_before_an_unfundable_cataracts_bundle() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/d98b4250-3492-4864-9c4c-42db09b3ccd4.json"
+            ),
+        ) else {
+            panic!("frozen Cascading Cataracts must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects.push(land(&catalog, "Cascading Cataracts", 3));
+        for index in 0..4 {
+            let mut forest = land(&catalog, "Forest", 3);
+            forest.handle = ObjectHandle(format!("Forest-{index}"));
+            view.objects.push(forest);
+        }
+        let cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::G],
+        };
+        let plan =
+            plan_for(&catalog, &view, &cost, None).expect("a Forest pays for Llanowar Elves");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].source, view.objects[1].handle);
+    }
+
+    #[test]
+    fn mana_with_only_a_spend_rider_can_fund_a_generic_cost() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/36937483-30cb-449a-8028-75017a124922.json"
+            ),
+        ) else {
+            panic!("frozen Boseiju must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects
+            .push(land(&catalog, "Boseiju, Who Shelters All", 3));
+        let cost = ManaCost {
+            generic: 1.into(),
+            colored: vec![],
+        };
+        let plan = plan_for(&catalog, &view, &cost, None).expect("Boseiju can pay a generic cost");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].source, view.objects[0].handle);
+    }
+
+    #[test]
     fn any_color_source_is_planned_in_the_missing_color() {
         let source = ObjectHandle("any-color-provider".into());
         let mut planner = Planner {
@@ -723,13 +832,14 @@ mod tests {
                 land: false,
                 amount: 1.into(),
                 production: ManaProduction::AnyColor,
+                choose_bundle: false,
                 colors: vec![Color::W, Color::U, Color::B, Color::R, Color::G],
                 cost: None,
                 harm: false,
             }],
             used: vec![false],
             pool: BTreeMap::new(),
-            spell_only: BTreeMap::new(),
+            scoped_mana: BTreeMap::new(),
             plan: vec![],
         };
         let cost = ManaCost {

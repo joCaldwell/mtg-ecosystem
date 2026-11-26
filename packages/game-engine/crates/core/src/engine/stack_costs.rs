@@ -479,6 +479,7 @@ impl RulesTxn {
             targets: vec![],
             announced_targets: vec![vec![]; 4],
             paid: (!mana && !targeted && !chosen).then_some(total_cost.clone()),
+            mana_uncounterable: false,
             total_cost,
             cast_from,
         };
@@ -779,6 +780,9 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
+        if entry.mana_uncounterable && (!entry.kind.is_spell() || entry.paid.is_none()) {
+            return Err("spending rider requires a paid spell".into());
+        }
         self.validate_paid_chosen_cost(entry)?;
         // CR 601.2a, 702.34a, 903.8: a spell is cast by its owner from that
         // owner's own hand, from the command zone as that owner's commander,
@@ -912,6 +916,7 @@ impl RulesTxn {
         if !entry.kind.is_spell() {
             return Ok(false);
         }
-        self.has_uncounterable_static(entry.source, entry.controller)
+        Ok(entry.mana_uncounterable
+            || self.has_uncounterable_static(entry.source, entry.controller)?)
     }
 }

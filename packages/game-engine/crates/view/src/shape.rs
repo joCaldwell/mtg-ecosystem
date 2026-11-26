@@ -1,6 +1,6 @@
 //! The public legality contract. Every index refers to this decision's ordered
 //! candidate table, except for slot and bucket references within joint rules.
-use mtg_contracts::{Color, ManaCost, Quantity};
+use mtg_contracts::{Color, ManaCost, Quantity, RestrictedMana};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -97,6 +97,48 @@ pub struct Gate {
 #[serde(deny_unknown_fields)]
 pub struct ManaPool {
     pub unrestricted: BTreeMap<Color, Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restricted: Vec<RestrictedMana>,
+}
+
+impl ManaPool {
+    pub fn available(&self) -> BTreeMap<Color, Quantity> {
+        let mut total = self.unrestricted.clone();
+        for unit in &self.restricted {
+            total.entry(unit.color).or_default().add(&unit.amount);
+        }
+        total
+    }
+
+    /// Deterministic legal allocation for policies that do not choose buckets.
+    pub fn spend(&self, cost: &ManaCost) -> Option<PayAnswer> {
+        let mut remaining = mtg_contracts::mana_spend::spend(cost, &self.available())?;
+        let mut restricted = vec![];
+        for bucket in &self.restricted {
+            let Some(needed) = remaining.get_mut(&bucket.color) else {
+                continue;
+            };
+            let amount = bucket.amount.clone().min(needed.clone());
+            if amount > Quantity::zero() {
+                needed.subtract(&amount);
+                restricted.push(RestrictedMana {
+                    amount,
+                    ..bucket.clone()
+                });
+            }
+        }
+        remaining.retain(|_, amount| *amount > Quantity::zero());
+        Some(if restricted.is_empty() {
+            PayAnswer::Spend {
+                unrestricted: remaining,
+            }
+        } else {
+            PayAnswer::SpendRestricted {
+                unrestricted: remaining,
+                restricted,
+            }
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -128,4 +170,21 @@ pub enum PayAnswer {
     Spend {
         unrestricted: BTreeMap<Color, Quantity>,
     },
+    SpendRestricted {
+        unrestricted: BTreeMap<Color, Quantity>,
+        restricted: Vec<RestrictedMana>,
+    },
+}
+
+impl PayAnswer {
+    pub fn spending(&self) -> Option<(&BTreeMap<Color, Quantity>, &[RestrictedMana])> {
+        match self {
+            Self::Spend { unrestricted } => Some((unrestricted, &[])),
+            Self::SpendRestricted {
+                unrestricted,
+                restricted,
+            } if !restricted.is_empty() => Some((unrestricted, restricted)),
+            _ => None,
+        }
+    }
 }

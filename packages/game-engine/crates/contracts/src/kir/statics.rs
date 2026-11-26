@@ -740,6 +740,7 @@ pub fn granted_mana_supported(
                 && a.restriction.is_none()
                 && a.condition.is_none()
                 && a.riders.is_empty()
+                && a.spend_restriction.is_none()
                 && super::tiers::mana_production_supported(&a.production)
         })
 }

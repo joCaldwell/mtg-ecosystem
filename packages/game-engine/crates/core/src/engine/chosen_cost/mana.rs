@@ -51,7 +51,9 @@ impl RulesTxn {
         eligible: &[ObjectId],
         count: usize,
     ) -> Result<bool, String> {
-        let initial = ManaShortfall::new(mana, &self.state.rules.players[player.0 as usize].mana);
+        let use_on = self.activation_mana_use(source, None)?;
+        let initial =
+            ManaShortfall::new(mana, &self.mana_payment_pool(player, use_on)?.available());
         if initial.paid() {
             return Ok(true);
         }
@@ -127,7 +129,8 @@ impl RulesTxn {
                     };
                     // A conservative preflight can combine independent mana sources.
                     // Inputs, life and riders would require simulating their order.
-                    if !ability.costs.tap
+                    if ability.spend_restriction.is_some()
+                        || !ability.costs.tap
                         || ability.costs.mana.is_some()
                         || ability.costs.pay_life.is_some()
                         || !ability.riders.is_empty()
@@ -138,6 +141,11 @@ impl RulesTxn {
                     match &ability.production {
                         ManaProduction::Fixed { symbols } => options
                             .push(symbols.iter().map(|&color| (color, one.clone())).collect()),
+                        ManaProduction::Bundles { options: bundles } => options.extend(
+                            bundles
+                                .iter()
+                                .map(|symbols| symbols.iter().map(|&c| (c, one.clone())).collect()),
+                        ),
                         ManaProduction::Choose { colors, amount } => options
                             .extend(colors.iter().map(|&color| vec![(color, amount.clone())])),
                         production => options.extend(

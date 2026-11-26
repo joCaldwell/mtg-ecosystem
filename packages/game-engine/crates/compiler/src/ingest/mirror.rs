@@ -497,6 +497,8 @@ pub(crate) enum Step {
             deserialize_with = "present_json_operand"
         )]
         spend_restriction: Option<serde_json::Value>,
+        #[serde(default, deserialize_with = "present_json_operand")]
+        riders: Option<serde_json::Value>,
     },
     Exile {
         what: serde_json::Value,
@@ -892,6 +894,10 @@ pub(crate) enum SourceMana {
     },
     AnyColor {
         amount: Count,
+    },
+    Combination {
+        amount: serde_json::Value,
+        options: serde_json::Value,
     },
     AnyOneColor {
         amount: serde_json::Value,

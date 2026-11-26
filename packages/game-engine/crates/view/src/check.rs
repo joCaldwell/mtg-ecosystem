@@ -58,16 +58,44 @@ impl Shape {
                     cost,
                     pool,
                 },
-                Answer::Pay {
-                    pay: PayAnswer::Spend { unrestricted },
-                },
+                Answer::Pay { pay },
             ) => {
+                let (unrestricted, restricted) =
+                    pay.spending().ok_or("expected spend allocation")?;
                 subtract_selected_mana(pool.unrestricted.clone(), unrestricted)?;
-                validate_selected_mana_cost(cost, unrestricted)
+                subtract_restricted_mana(pool.restricted.clone(), restricted)?;
+                let mut total = unrestricted.clone();
+                for unit in restricted {
+                    total.entry(unit.color).or_default().add(&unit.amount);
+                }
+                validate_selected_mana_cost(cost, &total)
             }
             _ => Err("answer outside decision shape".into()),
         }
     }
+}
+
+pub fn subtract_restricted_mana(
+    mut pool: Vec<mtg_contracts::RestrictedMana>,
+    selected: &[mtg_contracts::RestrictedMana],
+) -> Result<Vec<mtg_contracts::RestrictedMana>, String> {
+    if selected
+        .windows(2)
+        .any(|pair| pair[0].key() >= pair[1].key())
+    {
+        return Err("restricted allocation must use distinct ordered buckets".into());
+    }
+    for unit in selected {
+        let index = pool
+            .binary_search_by_key(&unit.key(), mtg_contracts::RestrictedMana::key)
+            .map_err(|_| "restricted mana bucket unavailable")?;
+        if unit.amount <= Quantity::zero() || unit.amount > pool[index].amount {
+            return Err("invalid restricted mana amount".into());
+        }
+        pool[index].amount.subtract(&unit.amount);
+    }
+    pool.retain(|unit| unit.amount > Quantity::zero());
+    Ok(pool)
 }
 
 fn within(len: usize, min: u32, max: u32) -> bool {

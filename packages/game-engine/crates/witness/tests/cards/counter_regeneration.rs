@@ -15,6 +15,9 @@ macro_rules! record {
 fn board() -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
+        record!("0baabe39-72ae-47bd-a095-cbf7eb8a6361"), // Ancient Ziggurat
+        record!("36937483-30cb-449a-8028-75017a124922"), // Boseiju
+        record!("215fd0b4-5817-4335-a0ed-1694e44bde41"), // Omen Hawker
         record!("cc187110-1148-4090-bbb8-e205694a39f5"), // Counterspell
         record!("3407fe41-fdd3-4119-8f70-4bc4590a379f"), // Negate
         record!("46665089-aa3d-44c3-964d-6638dfbb5782"), // Essence Scatter
@@ -479,4 +482,254 @@ fn counter_regeneration_self_shield_expires_at_cleanup() {
     cast_on(&mut game, 2, &[3, 4, 5], source);
     resolve(&mut game);
     assert_eq!(zone(&game, 0), Zone::Graveyard { owner: P0 });
+}
+
+fn finish_mana(game: &mut Game) {
+    Driver::answer(
+        game,
+        Q,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+}
+
+fn spend_witness(
+    game: &mut Game,
+    unrestricted: std::collections::BTreeMap<Color, Quantity>,
+    restricted: Vec<mtg_contracts::RestrictedMana>,
+) {
+    Driver::answer(
+        game,
+        Q,
+        Answer::Pay {
+            pay: PayAnswer::SpendRestricted {
+                unrestricted,
+                restricted,
+            },
+        },
+    );
+}
+
+fn witness_pool(game: &mut Game) -> ManaPool {
+    let decision = Driver::request(game, Q);
+    let Shape::Pay { pool, .. } = decision.shape else {
+        panic!("expected a payment window")
+    };
+    pool
+}
+
+fn priority_mana(game: &mut Game, card: u32) {
+    Driver::action(
+        game,
+        Action::ActivateMana {
+            object: Driver::object(game, card),
+        },
+    );
+}
+
+fn round_trip(game: &Game) -> Game {
+    game.validate_state().unwrap();
+    let raw = game.snapshot().unwrap();
+    let restored = Game::restore(game.prepared.as_ref().clone(), &raw).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), raw);
+    restored
+}
+
+#[test]
+fn creature_only_mana_is_bound_to_the_purchase_on_restore() {
+    use std::collections::BTreeMap;
+    let board = board()
+        .permanent_or_hand("Ancient Ziggurat", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Think Twice", 0, 0, true)
+        .permanent_or_hand("Drudge Skeletons", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false);
+    let mut game = Game::new(board.libraries("Forest", 4).prepare());
+    priority_mana(&mut game, 0);
+    select(&mut game, Candidate::Color { color: Color::B });
+    priority_mana(&mut game, 1);
+    priority_mana(&mut game, 4);
+    Driver::request(&mut game, Q);
+    let mut game = round_trip(&game);
+    let bucket = game.state.rules.players[0].restricted_mana.clone();
+    assert_eq!(bucket.len(), 1);
+
+    let mut illegal = round_trip(&game);
+    Driver::cast(&mut illegal, CardId(2));
+    finish_mana(&mut illegal);
+    let offer = Driver::request(&mut illegal, Q);
+    assert!(witness_pool(&mut illegal).restricted.is_empty());
+    assert!(
+        illegal
+            .respond(
+                offer.player,
+                offer.id,
+                Answer::Pay {
+                    pay: PayAnswer::SpendRestricted {
+                        unrestricted: BTreeMap::from([(Color::U, 1.into())]),
+                        restricted: bucket.clone(),
+                    },
+                }
+            )
+            .is_err()
+    );
+
+    Driver::cast(&mut game, CardId(3));
+    assert_eq!(witness_pool(&mut game).restricted, bucket);
+    finish_mana(&mut game);
+    spend_witness(&mut game, BTreeMap::from([(Color::U, 1.into())]), bucket);
+    Driver::request(&mut game, Q);
+    assert!(game.state.rules.players[0].restricted_mana.is_empty());
+    assert!(game.state.rules.stack.last().unwrap().paid.is_some());
+}
+
+#[test]
+fn uncounterable_rider_uses_the_selected_mana_and_only_that_spell() {
+    use std::collections::BTreeMap;
+    for use_rider in [false, true] {
+        let board = board()
+            .permanent_or_hand("Boseiju, Who Shelters All", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Think Twice", 0, 0, true)
+            .permanent_or_hand("Counterspell", 1, 1, true)
+            .permanent_or_hand("Island", 1, 1, false)
+            .permanent_or_hand("Island", 1, 1, false);
+        let mut game = Game::new(board.libraries("Forest", 4).prepare());
+        priority_mana(&mut game, 0);
+        priority_mana(&mut game, 1);
+        priority_mana(&mut game, 2);
+        let mut game = round_trip(&game);
+        Driver::cast(&mut game, CardId(3));
+        finish_mana(&mut game);
+        let pool = witness_pool(&mut game);
+        assert_eq!(pool.restricted.len(), 1);
+        if use_rider {
+            spend_witness(
+                &mut game,
+                BTreeMap::from([(Color::U, 1.into())]),
+                pool.restricted,
+            );
+        } else {
+            Driver::answer(
+                &mut game,
+                Q,
+                Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: BTreeMap::from([(Color::U, 1.into()), (Color::G, 1.into())]),
+                    },
+                },
+            );
+        }
+        Driver::request(&mut game, Q);
+        let mut game = round_trip(&game);
+        assert_eq!(
+            game.state.rules.stack.last().unwrap().mana_uncounterable,
+            use_rider
+        );
+        counter(&mut game, 4, &[5, 6]);
+        resolve(&mut game);
+        assert_eq!(game.state.rules.stack.len(), usize::from(use_rider));
+    }
+}
+
+#[test]
+fn activation_mana_is_eligible_only_for_activation_while_rider_mana_can_pay_resolution() {
+    use std::collections::BTreeMap;
+    let board = board()
+        .permanent_or_hand("Think Twice", 0, 0, true)
+        .permanent_or_hand("Mana Leak", 1, 1, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Omen Hawker", 0, 0, false)
+        .permanent_or_hand("Boseiju, Who Shelters All", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 1, 1, false)
+        .permanent_or_hand("Island", 1, 1, false);
+    let mut game = Game::new(board.libraries("Forest", 4).prepare());
+    for card in 4..=7 {
+        priority_mana(&mut game, card);
+    }
+    Driver::cast(&mut game, CardId(0));
+    finish_mana(&mut game);
+    let pool = witness_pool(&mut game);
+    assert_eq!(pool.restricted.len(), 1);
+    Driver::answer(
+        &mut game,
+        Q,
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([(Color::U, 2.into())]),
+            },
+        },
+    );
+    counter(&mut game, 1, &[8, 9]);
+    pass_round(&mut game);
+    select(&mut game, Candidate::Flag { flag: Flag::Accept });
+    // Add two ordinary mana. Neither of Omen Hawker's units may contribute.
+    for card in [2, 3] {
+        let object = Driver::object(&game, card);
+        let decision = Driver::request(&mut game, Q);
+        let source = decision
+            .index(&Candidate::Action {
+                action: Action::ActivateMana { object },
+            })
+            .unwrap();
+        Driver::answer(
+            &mut game,
+            Q,
+            Answer::Pay {
+                pay: PayAnswer::Activate { source },
+            },
+        );
+    }
+    finish_mana(&mut game);
+    let pool = witness_pool(&mut game);
+    assert_eq!(pool.restricted.len(), 1);
+    spend_witness(
+        &mut game,
+        BTreeMap::from([(Color::U, 2.into())]),
+        pool.restricted,
+    );
+    Driver::request(&mut game, Q);
+    assert_eq!(zone(&game, 0), Zone::Stack);
+    assert!(!game.state.rules.stack[0].mana_uncounterable);
+    assert_eq!(game.state.rules.players[0].restricted_mana.len(), 2);
+}
+
+#[test]
+fn ranked_frozen_spend_restrictions_compile() {
+    for (raw, expected) in [
+        (
+            record!("7fab8d65-af51-47d3-8f10-2676bf6e8ba3"),
+            mtg_contracts::ManaSpendRestriction::ColorlessEldraziSpellOrAbility,
+        ),
+        (
+            record!("8ea46945-d5ab-4209-b473-4769e7b8b962"),
+            mtg_contracts::ManaSpendRestriction::ColorlessSpell,
+        ),
+        (
+            record!("b36accb4-cde6-4b1d-b549-8c975cfa999d"),
+            mtg_contracts::ManaSpendRestriction::ArtifactSpellOrArtifactAbility,
+        ),
+        (
+            record!("f9d3b046-0b95-4103-a630-4b3fb88bb60b"),
+            mtg_contracts::ManaSpendRestriction::LegendarySpellUncounterable,
+        ),
+    ] {
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("ranked restriction {expected:?} must lower: {result:?}");
+        };
+        assert!(
+            definition
+                .mana_abilities
+                .iter()
+                .any(|ability| ability.spend_restriction == Some(expected))
+        );
+    }
 }

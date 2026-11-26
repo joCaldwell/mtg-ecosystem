@@ -80,6 +80,9 @@ pub enum Candidate<S: Space> {
     Color {
         color: Color,
     },
+    ManaBundle {
+        symbols: Vec<Color>,
+    },
     ManaAbility {
         ability: ManaAbilityIdentity,
     },

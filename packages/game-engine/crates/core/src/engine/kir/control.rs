@@ -796,7 +796,7 @@ impl RulesTxn {
                     Payment::Mana { mana: cost } => {
                         // CR 605.3a: the payer may activate mana abilities
                         // here. With no usable source, only the pool can fund it.
-                        if self.can_pay(player, cost)?
+                        if self.can_pay_for(player, cost, payments::ManaUse::Resolution)?
                             || self.state.rules.objects.values().any(|object| {
                                 self.validate_mana_activation(player, object.id).is_ok()
                             })
