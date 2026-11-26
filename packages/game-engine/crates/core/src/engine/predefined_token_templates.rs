@@ -99,9 +99,12 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
 
 pub(super) fn can_create(source: &Definition, kind: PredefinedToken) -> bool {
     let program = |p: &SpellProgram| {
-        p.instructions
-            .iter()
-            .any(|i| matches!(i,kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Predefined { kind: k }, .. }) if *k==kind))
+        p.instructions.iter().any(|instruction| {
+            matches!(
+                super::tokens::creating_token_recipe(instruction),
+                Some(mtg_contracts::kir::TokenSpec::Predefined { kind: k }) if *k == kind
+            )
+        })
     };
     // CR 111.10: a resolving spell may be the creating recipe as well.
     source
