@@ -4,9 +4,9 @@ use super::*;
 fn catalog() -> Catalog {
     let mut c = FixtureCatalog::Witness.get().clone();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-        include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/5dee663f-9e2e-4503-8086-fc51664fdf29.json"
+            "../../../../../tests/fixtures/phase1-r5/5dee663f-9e2e-4503-8086-fc51664fdf29.json"
         ),
     ) else {
         panic!("complete Thieving Otter source must lower")

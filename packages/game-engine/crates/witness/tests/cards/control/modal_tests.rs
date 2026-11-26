@@ -1,4 +1,4 @@
-//! Fixed-count modal instants and sorceries from exact frozen R4 source on
+//! Fixed-count modal instants and sorceries from exact frozen R5 source on
 //! private boards. Modes are announced first, only selections whose targets
 //! can be chosen are offered, and the chosen modes run in printed order.
 //! Every choice is checked for state validity and an exact snapshot round
@@ -11,7 +11,7 @@ use mtg_contracts::kir::{Tiers, definition_tiers};
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../../tests/fixtures/phase1-r4/",
+            "../../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -30,7 +30,7 @@ const CLEANSING_NOVA: &str = record!("aff34f28-f707-4458-8af3-1bd5b13a6b10");
 fn board(cards: &[&str]) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in cards {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("frozen modal witness failed: {result:?}");
         };

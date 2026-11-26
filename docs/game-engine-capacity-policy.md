@@ -44,7 +44,7 @@ and its casting source once without deduplication, so fanout is at most
 Copied/granted token abilities must extend this proof before admission. Before
 publishing a batch, the engine preflights its entire emission against retained
 stack/pending count, TriggerId arithmetic and StackId headroom; overflow rolls back
-payment, events, IDs and all siblings atomically. Cascade has no executable R4 form
+payment, events, IDs and all siblings atomically. Cascade has no executable R5 form
 ([mechanics](game-engine-mechanics.md)); a future lowering must bound its progress,
 exile and permutation lists by the 100-card library and charge retained capacity.
 

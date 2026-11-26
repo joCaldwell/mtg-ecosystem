@@ -70,7 +70,7 @@ class StageDeckTests(unittest.TestCase):
             with self.subTest(bad), self.assertRaisesRegex(ValueError, "positive integer"):
                 self.check(cards)
 
-    def test_only_the_registered_r4_origin_is_accepted(self):
+    def test_only_the_registered_r5_origin_is_accepted(self):
         with tempfile.TemporaryDirectory() as temp:
             fixtures, archive = Path(temp), Path(temp) / "archive.jsonl"
             header = b'{"recordType":"manifest","n":1}\n'
@@ -84,17 +84,17 @@ class StageDeckTests(unittest.TestCase):
 
             exact = {"file_sha256": sha(archive.read_bytes()), "manifest_sha256": sha(header.rstrip())}
             other = {"file_sha256": "0" * 64, "manifest_sha256": "1" * 64}
-            # A valid, registered older origin (e.g. schema-3 current) is not R4.
+            # A valid, registered older origin (e.g. schema-3 current) is not R5.
             register([dict(exact, manifest_file="archive-manifest-current.json"),
-                      dict(other, manifest_file=module["R4_MANIFEST"])])
-            with self.assertRaisesRegex(ValueError, "not the registered Archive R4 file"):
+                      dict(other, manifest_file=module["R5_MANIFEST"])])
+            with self.assertRaisesRegex(ValueError, "not the registered Archive R5 file"):
                 module["accepted_origin"](archive, fixtures)
             register([dict(other, manifest_file="archive-manifest-current.json"),
-                      dict(exact, manifest_file=module["R4_MANIFEST"])])
+                      dict(exact, manifest_file=module["R5_MANIFEST"])])
             origin, got_header, _ = module["accepted_origin"](archive, fixtures)
-            self.assertEqual((origin["manifest_file"], got_header), (module["R4_MANIFEST"], header))
-            (fixtures / module["R4_MANIFEST"]).write_bytes(b'{"recordType":"manifest","n":2}\n')
-            with self.assertRaisesRegex(ValueError, "not the registered Archive R4 file"):
+            self.assertEqual((origin["manifest_file"], got_header), (module["R5_MANIFEST"], header))
+            (fixtures / module["R5_MANIFEST"]).write_bytes(b'{"recordType":"manifest","n":2}\n')
+            with self.assertRaisesRegex(ValueError, "not the registered Archive R5 file"):
                 module["accepted_origin"](archive, fixtures)
             with self.assertRaisesRegex(ValueError, "lacks rows"):
                 module["archive_rows"](archive.read_bytes(), {"elf", "leader"})

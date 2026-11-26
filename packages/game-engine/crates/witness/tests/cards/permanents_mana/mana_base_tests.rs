@@ -9,40 +9,40 @@ use mtg_contracts::{ManaLandController, ManaProduction};
 use mtg_core::ManaAbilityIdentity;
 
 const MANIFEST: &str =
-    include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json");
 const SOURCES: [&str; 11] = [
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/14d2979d-5728-42d7-a027-0eb1f754655d.json"
+        "../../../../../tests/fixtures/phase1-r5/14d2979d-5728-42d7-a027-0eb1f754655d.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/40b36bc6-c185-4bda-99e7-0118953c2c97.json"
+        "../../../../../tests/fixtures/phase1-r5/40b36bc6-c185-4bda-99e7-0118953c2c97.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/27b047e3-0d41-45e2-98e9-9391d7923a1e.json"
+        "../../../../../tests/fixtures/phase1-r5/27b047e3-0d41-45e2-98e9-9391d7923a1e.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/67f43ac6-2a58-4b53-b5d7-0330e2a252e2.json"
+        "../../../../../tests/fixtures/phase1-r5/67f43ac6-2a58-4b53-b5d7-0330e2a252e2.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/9a02a9a7-39d9-4763-85d3-747a0540b60b.json"
+        "../../../../../tests/fixtures/phase1-r5/9a02a9a7-39d9-4763-85d3-747a0540b60b.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/2fda4fe7-8b0c-489c-a000-6d358e614e34.json"
+        "../../../../../tests/fixtures/phase1-r5/2fda4fe7-8b0c-489c-a000-6d358e614e34.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/d0ee5bdc-2b69-4b73-9a20-ffcc18783b29.json"
+        "../../../../../tests/fixtures/phase1-r5/d0ee5bdc-2b69-4b73-9a20-ffcc18783b29.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/1b3d7fce-e9fe-4176-9d9a-472415826cdd.json"
+        "../../../../../tests/fixtures/phase1-r5/1b3d7fce-e9fe-4176-9d9a-472415826cdd.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/7190debf-708b-4f41-9714-0d0a5bd5a74e.json"
+        "../../../../../tests/fixtures/phase1-r5/7190debf-708b-4f41-9714-0d0a5bd5a74e.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/2cc8c24f-cca8-462c-a5ad-1f8662e69a8a.json"
+        "../../../../../tests/fixtures/phase1-r5/2cc8c24f-cca8-462c-a5ad-1f8662e69a8a.json"
     ),
     include_str!(
-        "../../../../../tests/fixtures/phase1-r4/0895c9b7-ae7d-4bb3-af17-3b75deb50a25.json"
+        "../../../../../tests/fixtures/phase1-r5/0895c9b7-ae7d-4bb3-af17-3b75deb50a25.json"
     ),
 ];
 const LIFE: i64 = 20;

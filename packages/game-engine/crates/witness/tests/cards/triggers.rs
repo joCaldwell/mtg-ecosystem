@@ -1,5 +1,5 @@
 //! Track 3A wave W7: trigger events as pure-KIR event patterns, from exact
-//! frozen R4 source on private boards. Each witness checks state validity
+//! frozen R5 source on private boards. Each witness checks state validity
 //! and an exact snapshot round trip; the ones driven only by accepted
 //! inputs also replay from their journal.
 //! Pinned CR 507.1, 508.3a, 603.2, 603.3b, 603.4, 603.6a, 603.10a, 700.4,
@@ -11,7 +11,7 @@ macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../tests/fixtures/phase1-r4/",
+            "/../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -50,7 +50,7 @@ fn compiled(cards: &[&str], executes_only: bool) -> Vec<Definition> {
     cards
         .iter()
         .map(|raw| {
-            let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+            let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
             let mtg_compiler::CompileResult::Lowered { definition } = result else {
                 panic!("frozen trigger witness failed: {result:?}");
             };

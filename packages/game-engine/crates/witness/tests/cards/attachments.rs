@@ -11,28 +11,28 @@ fn game_with(cards: &[(&str, u8, bool)], adapt: impl FnOnce(&mut Catalog)) -> Ga
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/2a9054ce-7276-4030-901a-cf6aa18f2b62.json"
+            "../../../../tests/fixtures/phase1-r5/2a9054ce-7276-4030-901a-cf6aa18f2b62.json"
         ),
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/c6c2f370-fc33-4907-975c-a07af3dc664d.json"
+            "../../../../tests/fixtures/phase1-r5/c6c2f370-fc33-4907-975c-a07af3dc664d.json"
         ),
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/c1624d10-8838-4af8-aea1-a96c0fe6fd6b.json"
+            "../../../../tests/fixtures/phase1-r5/c1624d10-8838-4af8-aea1-a96c0fe6fd6b.json"
         ),
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/65986c1b-8e51-4604-b685-d82fa7d1263a.json"
+            "../../../../tests/fixtures/phase1-r5/65986c1b-8e51-4604-b685-d82fa7d1263a.json"
         ),
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/5f5e0b10-c8cf-450c-bfd3-bcb0528ec330.json"
+            "../../../../tests/fixtures/phase1-r5/5f5e0b10-c8cf-450c-bfd3-bcb0528ec330.json"
         ),
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/c8b143ad-43ec-4e0d-a440-e348daa31391.json"
+            "../../../../tests/fixtures/phase1-r5/c8b143ad-43ec-4e0d-a440-e348daa31391.json"
         ),
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/ca204b66-8d0c-431a-8d34-282f7c2d17da.json"
+            "../../../../tests/fixtures/phase1-r5/ca204b66-8d0c-431a-8d34-282f7c2d17da.json"
         ),
     ] {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("{result:?}")
         };
@@ -247,7 +247,7 @@ fn dying_host_triggers_skullclamp_before_equipment_detaches() {
 }
 
 // Controlled variant: protection is granted by a resolved Equipment static.
-// Pacifism and the Equip activations are the frozen R4 programs.
+// Pacifism and the Equip activations are the frozen R5 programs.
 #[test]
 fn gaining_protection_removes_aura_and_detaches_equipment() {
     let mut g = game_with(
@@ -343,7 +343,7 @@ fn combat_triggers_match_only_the_equipped_attacker() {
     }
 }
 
-// Isolate the noncreature Aura target domains. Their R4 cards also contain
+// Isolate the noncreature Aura target domains. Their R5 cards also contain
 // other printed clauses, whose independent rejection must be preserved.
 #[test]
 fn aura_filter_governs_announcement_and_entry_on_noncreatures() {

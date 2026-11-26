@@ -1,4 +1,4 @@
-//! Frozen R4 witnesses for CR 121.2, 509.3g, 601.2c, 603.4 and 608.2h.
+//! Frozen R5 witnesses for CR 121.2, 509.3g, 601.2c, 603.4 and 608.2h.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -370,7 +370,7 @@ fn observed_events_spell_cast_subtype_and_mixed_entry_branch_resolve() {
 
 #[test]
 fn observed_events_regent_keeps_unresolved_target_actor_rejected() {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, THUNDERBREAK_REGENT);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, THUNDERBREAK_REGENT);
     assert!(
         matches!(result, mtg_compiler::CompileResult::Unsupported { .. }),
         "{result:?}"

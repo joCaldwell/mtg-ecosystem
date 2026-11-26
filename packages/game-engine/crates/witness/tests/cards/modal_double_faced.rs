@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -18,11 +18,11 @@ const WITCH: &str = record!("0355249a-8e4e-41db-9cea-1b901faffbe6");
 const ONDU: &str = record!("15fc4e74-300e-4c2d-8ed7-004553b2f7c2");
 const FLORAHEDRON: &str = record!("53542c79-a62a-4d6a-97db-5296e9c68302");
 const BOOMERANG: &str = record!("dc4a4996-108a-4aac-850f-2d9f76403446");
-const BEARS: &str = include_str!("../../../../tests/fixtures/phase1-r4/grizzly-bears.json");
+const BEARS: &str = include_str!("../../../../tests/fixtures/phase1-r5/grizzly-bears.json");
 const STONE_RAIN: &str = record!("6e880df6-fc00-43d2-a9c8-f575f40b78c6");
 
 fn lower(raw: &str) -> Definition {
-    match mtg_witness::compile(mtg_witness::R4_MANIFEST, raw) {
+    match mtg_witness::compile(mtg_witness::R5_MANIFEST, raw) {
         mtg_compiler::CompileResult::Lowered { definition } => *definition,
         outcome => panic!("modal witness did not lower: {outcome:?}"),
     }
@@ -279,7 +279,7 @@ fn modal_double_faced_rejects_unreviewed_layouts_by_name() {
     ];
     for (layout, raw) in cases {
         let mtg_compiler::CompileResult::Unsupported { path, reason } =
-            mtg_witness::compile(mtg_witness::R4_MANIFEST, raw)
+            mtg_witness::compile(mtg_witness::R5_MANIFEST, raw)
         else {
             panic!("{layout} did not reject");
         };
@@ -289,7 +289,7 @@ fn modal_double_faced_rejects_unreviewed_layouts_by_name() {
 }
 
 /// No frozen MDFC with two spell faces lowers at this checkpoint. This
-/// synthetic layout exercises the generic choice using two exact R4 blocks.
+/// synthetic layout exercises the generic choice using two exact R5 blocks.
 fn dual_spell_record(back: &str) -> String {
     let mut front: Value = serde_json::from_str(STONE_RAIN).unwrap();
     let back: Value = serde_json::from_str(back).unwrap();

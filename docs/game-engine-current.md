@@ -23,11 +23,11 @@ wall-clock reporting; library callers can supply their own journal sink to
 
 ## Supported behavior and remaining work
 
-Archive R4 composition lowers each supported card to `Instruction::Kernel`
+Archive R5 composition lowers each supported card to `Instruction::Kernel`
 programs or reports an unsupported record; [mechanics](game-engine-mechanics.md)
 owns the supported rules and [Kernel IR](game-engine-catalogs.md#kernel-ir) the
 wire contract and admission boundaries. The retained Commander Foundations
-profile uses the R4 match catalog; its decklists, catalog digest and engine build
+profile uses the R5 match catalog; its decklists, catalog digest and engine build
 bind the host and search inputs. Smoke and rules witnesses use smaller
 source-lowered catalogs.
 

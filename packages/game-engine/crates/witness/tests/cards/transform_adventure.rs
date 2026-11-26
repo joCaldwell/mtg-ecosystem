@@ -6,7 +6,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -26,7 +26,7 @@ const GOLLUM: &str = record!("0296d57e-e5b9-456f-bb21-eb584adefb4c");
 const BOOMERANG: &str = record!("dc4a4996-108a-4aac-850f-2d9f76403446");
 
 fn lower(raw: &str) -> Definition {
-    match mtg_witness::compile(mtg_witness::R4_MANIFEST, raw) {
+    match mtg_witness::compile(mtg_witness::R5_MANIFEST, raw) {
         mtg_compiler::CompileResult::Lowered { definition } => *definition,
         outcome => panic!("two-part witness did not lower: {outcome:?}"),
     }
@@ -729,7 +729,7 @@ fn two_part_layouts_outside_this_checkpoint_reject_by_name() {
     ];
     for (layout, raw) in cases {
         let mtg_compiler::CompileResult::Unsupported { path, reason } =
-            mtg_witness::compile(mtg_witness::R4_MANIFEST, raw)
+            mtg_witness::compile(mtg_witness::R5_MANIFEST, raw)
         else {
             panic!("{layout} did not reject");
         };
@@ -738,12 +738,12 @@ fn two_part_layouts_outside_this_checkpoint_reject_by_name() {
     }
     // A trigger on a transform event has no executor yet.
     assert!(matches!(
-        mtg_witness::compile(mtg_witness::R4_MANIFEST, HEIRLOOM),
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, HEIRLOOM),
         mtg_compiler::CompileResult::Unsupported { .. }
     ));
     // Gollum's Adventure passes the layout gate but not its own text.
     assert!(matches!(
-        mtg_witness::compile(mtg_witness::R4_MANIFEST, GOLLUM),
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, GOLLUM),
         mtg_compiler::CompileResult::Unsupported { .. }
     ));
 }
@@ -839,7 +839,7 @@ fn transform_ability_snapshot_rejects_impossible_faces() {
 const PIGEONS: &str = record!("2d30a634-43c6-4e78-ba10-7ef7ee17ac40");
 
 /// No frozen transforming card creates a delayed trigger at this checkpoint.
-/// This test-only layout pairs two exact R4 faces: Carrier Pigeons, whose
+/// This test-only layout pairs two exact R5 faces: Carrier Pigeons, whose
 /// enters trigger creates one, and Ulvenwald Abomination, which has none.
 fn delayed_transform_record() -> String {
     use serde_json::{Value, json};

@@ -12,14 +12,14 @@ fn tap_catalog() -> Catalog {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/3608f1f7-8dc5-4dd1-ae91-c830e1de9529.json"
+            "../../../../../tests/fixtures/phase1-r5/3608f1f7-8dc5-4dd1-ae91-c830e1de9529.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
+            "../../../../../tests/fixtures/phase1-r5/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
         ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
             raw,
         ) else {
             panic!("complete activated tap witness source must lower");
@@ -345,9 +345,9 @@ fn activated_permanent_tap_union_targets_pay_cost_and_reject_ineligible_objects_
 #[test]
 fn paid_creature_source_tap_checks_target_and_pays_before_resolution() {
     let record = include_str!(
-        "../../../../../tests/fixtures/phase1-r4/00d11662-9d10-4915-b80c-c1ad54b4e71b.json"
+        "../../../../../tests/fixtures/phase1-r5/00d11662-9d10-4915-b80c-c1ad54b4e71b.json"
     );
-    let manifest = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    let manifest = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json");
     assert_eq!(
         sha256(record.trim_end().as_bytes()),
         "5ce182cb8d8d5fa9a0d967a7de818bd7dc275fcb911aea86f150a42e4299fcd7"

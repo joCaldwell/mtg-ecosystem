@@ -8,14 +8,14 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
     let mut c = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/5820d760-8ed7-4abf-a959-c06ed86a3730.json"
+            "../../../../../tests/fixtures/phase1-r5/5820d760-8ed7-4abf-a959-c06ed86a3730.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/ce979f36-84f2-4419-b400-971263494cc6.json"
+            "../../../../../tests/fixtures/phase1-r5/ce979f36-84f2-4419-b400-971263494cc6.json"
         ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
             raw,
         ) else {
             panic!("complete retained tapped-creature spell must lower");

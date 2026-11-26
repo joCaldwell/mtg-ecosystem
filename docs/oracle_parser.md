@@ -57,7 +57,9 @@ backend and generated SDK contracts stay separate from this AST.
 
 `npm run archive-parser` reads the local cache and writes ignored
 `generated/oracle-ast.jsonl`; `--input PATH --output PATH --paper-evidence PATH`
-select a frozen corpus and its evidence snapshot. It never downloads or emits
+select a frozen corpus and its evidence snapshot. R5 reuses the exact R4 corpus
+and paper-printing evidence. The engine pins both archive identities for
+[comparison and provenance](game-engine-catalogs.md#catalog-source-and-commands). It never downloads or emits
 executable Card IR. [Archive code](../scripts/archive-parser.ts) owns exact fields;
 the schema-4 manifest declares `executable: false` and pins corpus, parser source,
 rules edition, scope and paper-evidence identities with summary counts. Source
