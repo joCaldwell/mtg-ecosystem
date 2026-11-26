@@ -195,6 +195,9 @@ impl RulesTxn {
             return self
                 .execute_token_instruction(frame, Instruction::Kernel { node, source_block });
         }
+        if let Node::Do(Verb::PreventDamage { prevention, .. }) = &node {
+            return self.kernel_prevent_damage(frame, prevention, source_block);
+        }
         if let Node::Do(Verb::RestrictCombat {
             affects,
             restriction,

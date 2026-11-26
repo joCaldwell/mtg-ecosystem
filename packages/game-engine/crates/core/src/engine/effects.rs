@@ -26,9 +26,22 @@ effect_id!(DamageId, u32);
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EffectKey {
-    Resolved { id: EffectId },
-    IntrinsicProtectionFromEverything { source: ObjectId },
-    IntrinsicProtectionFromColor { source: ObjectId, color: Color },
+    Resolved {
+        id: EffectId,
+    },
+    IntrinsicProtectionFromEverything {
+        source: ObjectId,
+    },
+    IntrinsicProtectionFromColor {
+        source: ObjectId,
+        color: Color,
+    },
+    /// CR 615.1, 614.1a: the static damage ability at `ability` of the
+    /// battlefield permanent `source`'s static abilities.
+    StaticAbility {
+        source: ObjectId,
+        ability: u32,
+    },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -159,7 +172,17 @@ pub enum ResolvedEffectKind {
         toughness: Quantity,
     },
 
-    PreventCombatDamage,
+    /// CR 615.1, 615.7: prevent matching damage this turn; `remaining` is
+    /// the CR 615.7 shield still left.
+    PreventDamage {
+        kind: mtg_contracts::kir::DamageKindFilter,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<TargetEntity>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<damage_rules::PreventedSources>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remaining: Option<Quantity>,
+    },
     AdditionalLandPlays {
         count: Quantity,
     },
@@ -601,7 +624,7 @@ impl RulesTxn {
         }
     }
 
-    fn static_condition(&self, source: &Object, condition: &Cond) -> bool {
+    pub(super) fn static_condition(&self, source: &Object, condition: &Cond) -> bool {
         match condition {
             Cond::Compare { left, cmp, right } => self
                 .static_amount(source, left)
@@ -1248,6 +1271,12 @@ impl RulesTxn {
                 affects: CombatProhibitionScope::Target { target },
                 ..
             } => self.capture_trigger_source_handles(*target)?,
+            kind @ ResolvedEffectKind::PreventDamage { .. } => {
+                match Self::prevention_object(kind) {
+                    Some(object) => self.capture_trigger_source_handles(object)?,
+                    None => vec![],
+                }
+            }
 
             _ => vec![],
         };
@@ -1642,12 +1671,19 @@ impl RulesTxn {
                     } if Self::grant_prevents_damage(targets, keywords, d) => {
                         (Quantity::zero(), d.amount.clone())
                     }
-                    ResolvedEffectKind::PreventCombatDamage if tx.kind == DamageKind::Combat => {
-                        (Quantity::zero(), d.amount.clone())
+                    ResolvedEffectKind::PreventDamage { .. } => {
+                        self.resolved_prevention_application(tx, d, effect)?
                     }
 
                     _ => return Err("resolved effect not applicable".into()),
                 }
+            }
+            EffectKey::StaticAbility { source, ability } => {
+                qualification = Some(Box::new(DamageReplacementQualification {
+                    effect_source: self.object_before(*source)?,
+                    damage_source: self.damage_source_appearance(d)?,
+                }));
+                self.static_damage_application(tx.kind, d, *source, *ability)?
             }
         };
         Ok(DamageApplication {
@@ -1689,7 +1725,8 @@ impl RulesTxn {
             )
         });
         recipients.dedup();
-        let keys = self.live_effect_keys();
+        let mut keys = self.live_effect_keys();
+        keys.extend(self.static_damage_keys());
         for (player, recipient) in recipients {
             let intrinsic = self.intrinsic_protection_keys(&recipient);
             let pairs = tx
@@ -1712,10 +1749,27 @@ impl RulesTxn {
         }
         Ok(None)
     }
+    /// One effect applies without a choice, except that a CR 615.7 shield
+    /// offered for several simultaneous events lets the recipient choose
+    /// which damage it prevents.
     fn automatic_pair(&self, pairs: &[DamageEffectCandidate]) -> bool {
-        pairs
-            .first()
-            .is_some_and(|first| pairs.iter().all(|pair| pair.effect == first.effect))
+        let Some(first) = pairs.first() else {
+            return false;
+        };
+        let shield = match first.effect {
+            EffectKey::Resolved { id } => self.state.rules.effects.iter().any(|e| {
+                e.id == id
+                    && matches!(
+                        e.kind,
+                        ResolvedEffectKind::PreventDamage {
+                            remaining: Some(_),
+                            ..
+                        }
+                    )
+            }),
+            _ => false,
+        };
+        pairs.iter().all(|pair| pair.effect == first.effect) && (pairs.len() == 1 || !shield)
     }
 
     pub(crate) fn damage_effect_request(&self) -> Result<Option<Decision<Rules>>, String> {
@@ -1881,6 +1935,13 @@ impl RulesTxn {
                                 == Some(kind)
                     }
                     (
+                        kernel!(PreventDamage { prevention, until: Until::EndOfTurn } @ source_block),
+                        kind @ ResolvedEffectKind::PreventDamage { .. },
+                    ) => {
+                        *source_block == effect.origin.source_block
+                            && self.prevention_kind(frame, prevention)?.as_ref() == Some(kind)
+                    }
+                    (
                         i,
                         ResolvedEffectKind::PumpSet {
                             targets,
@@ -1988,6 +2049,18 @@ impl RulesTxn {
                                 self.object_handle_id(PlayerId(v), *target)
                                     == Ok(&effect.target_handles[v as usize])
                             })
+                    }
+                    kind @ ResolvedEffectKind::PreventDamage { .. } => {
+                        match Self::prevention_object(kind) {
+                            Some(target) => {
+                                effect.target_handles.len() == 4
+                                    && (0..4).all(|v| {
+                                        self.object_handle_id(PlayerId(v), target)
+                                            == Ok(&effect.target_handles[v as usize])
+                                    })
+                            }
+                            None => effect.target_handles.is_empty(),
+                        }
                     }
 
                     _ => effect.target_handles.is_empty(),
@@ -2183,6 +2256,7 @@ impl RulesTxn {
             });
         }
         let life_gains = self.damage_keywords(&actual, Some(&source_appearances))?;
+        self.consume_prevention_shields(&tx)?;
         Ok(EventOutcome::DamageCommitted {
             life_gains,
             transaction: id,
@@ -2328,6 +2402,54 @@ impl RulesTxn {
                                     self.historical_creature_possible(&d.characteristics)
                                 })
                             })
+                    }
+                    (
+                        kernel!(PreventDamage { prevention, until: Until::EndOfTurn } @ source_block),
+                        kind @ ResolvedEffectKind::PreventDamage {
+                            kind: saved_kind,
+                            to,
+                            by,
+                            remaining,
+                        },
+                    ) => {
+                        use mtg_contracts::kir::{PreventionShield, PreventionSources};
+                        let known =
+                            |object: &ObjectId| self.state.rules.cards.contains_key(&object.card);
+                        *source_block == e.origin.source_block
+                            && *saved_kind == prevention.kind
+                            && to.is_some() == prevention.to.is_some()
+                            && match to {
+                                Some(TargetEntity::Player { player }) => player.0 < 4,
+                                Some(TargetEntity::Object { object }) => known(object),
+                                None => true,
+                            }
+                            && match (&prevention.by, by) {
+                                (None, None) => true,
+                                (
+                                    Some(PreventionSources::One { .. }),
+                                    Some(damage_rules::PreventedSources::One { object }),
+                                ) => known(object),
+                                (
+                                    Some(PreventionSources::Matching { filter }),
+                                    Some(damage_rules::PreventedSources::Matching {
+                                        filter: saved,
+                                    }),
+                                ) => filter == saved,
+                                _ => false,
+                            }
+                            && match (&prevention.shield, remaining) {
+                                (PreventionShield::All, None) => true,
+                                (PreventionShield::Next { amount }, Some(left)) => {
+                                    *left > Quantity::zero() && left <= amount
+                                }
+                                _ => false,
+                            }
+                            && e.target_handles.len()
+                                == if Self::prevention_object(kind).is_some() {
+                                    4
+                                } else {
+                                    0
+                                }
                     }
                     (
                         kernel!(RestrictCombat { affects, restriction, .. } @ source_block),
@@ -2567,6 +2689,7 @@ impl RulesTxn {
         // damage occurrence needs a command handle for the affected controller.
         let mut intrinsic: [Vec<EffectKey>; 4] = Default::default();
         if let Ok(tx) = self.damage_transaction() {
+            let statics = self.static_damage_keys();
             for d in &tx.entries {
                 let Some(controller) = self.recipient_chooser(&d.recipient) else {
                     continue;
@@ -2577,7 +2700,11 @@ impl RulesTxn {
                 let handles = intrinsic
                     .get_mut(controller.0 as usize)
                     .ok_or("invalid protection controller")?;
-                for key in self.intrinsic_protection_keys(&d.recipient) {
+                for key in self
+                    .intrinsic_protection_keys(&d.recipient)
+                    .into_iter()
+                    .chain(statics.iter().cloned())
+                {
                     let candidate = DamageEffectCandidate {
                         effect: key.clone(),
                         damage: d.id,
@@ -2657,7 +2784,8 @@ impl RulesTxn {
     ) -> Result<VisibleEffectSource<O>, String> {
         let (source, controller, announced) = match key {
             EffectKey::IntrinsicProtectionFromEverything { source }
-            | EffectKey::IntrinsicProtectionFromColor { source, .. } => (
+            | EffectKey::IntrinsicProtectionFromColor { source, .. }
+            | EffectKey::StaticAbility { source, .. } => (
                 *source,
                 self.current(*source)?.controller,
                 self.object_handle_id(viewer, *source).map(O::from)?,
@@ -2880,9 +3008,36 @@ impl RulesTxn {
             ResolvedEffectKind::ProtectControllerUntilNextTurn => {
                 VisibleEffect::ProtectControllerUntilNextTurn { handle, origin }
             }
-            ResolvedEffectKind::PreventCombatDamage => VisibleEffect::PreventCombatDamage {
+            ResolvedEffectKind::PreventDamage {
+                kind,
+                to,
+                by,
+                remaining,
+            } => VisibleEffect::PreventDamage {
                 handle,
                 origin,
+                kind: *kind,
+                to_player: match to {
+                    Some(TargetEntity::Player { player }) => Some(*player),
+                    _ => None,
+                },
+                to_object: match to {
+                    Some(TargetEntity::Object { object }) => Some(target_view(*object)?),
+                    _ => None,
+                },
+                by_object: match by {
+                    Some(damage_rules::PreventedSources::One { object }) => {
+                        Some(target_view(*object)?)
+                    }
+                    _ => None,
+                },
+                by_filter: match by {
+                    Some(damage_rules::PreventedSources::Matching { filter }) => {
+                        Some(filter.clone())
+                    }
+                    _ => None,
+                },
+                remaining: remaining.clone(),
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
             ResolvedEffectKind::AdditionalLandPlays { count } => {
@@ -2929,6 +3084,16 @@ impl RulesTxn {
                 DamageEffectKind::ProtectionFromEverything
             }
             EffectKey::IntrinsicProtectionFromColor { .. } => DamageEffectKind::ProtectionFromColor,
+            EffectKey::StaticAbility { source, ability } => match self
+                .live_damage_rule(source, ability)
+                .ok_or("missing static damage rule")?
+                .1
+            {
+                mtg_contracts::kir::StaticRule::ModifyDamage { .. } => {
+                    DamageEffectKind::ModifyDamage
+                }
+                _ => DamageEffectKind::PreventDamage,
+            },
             EffectKey::Resolved { id } => match self
                 .state
                 .rules
@@ -2944,7 +3109,7 @@ impl RulesTxn {
                 ResolvedEffectKind::ProtectControllerUntilNextTurn => {
                     DamageEffectKind::ProtectionFromEverything
                 }
-                ResolvedEffectKind::PreventCombatDamage => DamageEffectKind::PreventCombatDamage,
+                ResolvedEffectKind::PreventDamage { .. } => DamageEffectKind::PreventDamage,
 
                 _ => return Err("non-damage effect in choice".into()),
             },
@@ -3280,13 +3445,21 @@ impl RulesTxn {
         let existing_limit = self
             .damage_limit()
             .saturating_mul(self.effect_limit().saturating_add(2));
+        // Static damage abilities are bounded by the unique (event, ability)
+        // prefix below; each needs a distinct live battlefield ability.
+        let applications = tx
+            .applications
+            .iter()
+            .filter(|a| !matches!(a.effect, EffectKey::StaticAbility { .. }))
+            .count();
         if tx.entries.is_empty()
             || tx.entries.len() > self.damage_limit()
             // At most one additional intrinsic source per original occurrence.
-            || tx.applications.len() > existing_limit.saturating_add(tx.entries.len())
-            || (tx.applications.len() > existing_limit && tx.applications.iter().filter(|a|
+            || applications > existing_limit.saturating_add(tx.entries.len())
+            || (applications > existing_limit && tx.applications.iter().filter(|a|
                 !matches!(a.effect, EffectKey::IntrinsicProtectionFromEverything { .. }
-                    | EffectKey::IntrinsicProtectionFromColor { .. })
+                    | EffectKey::IntrinsicProtectionFromColor { .. }
+                    | EffectKey::StaticAbility { .. })
             ).count() > existing_limit)
 
             || tx.id.0 >= self.state.rules.next_damage_transaction_id
@@ -3458,6 +3631,7 @@ impl RulesTxn {
             .map(|d| (d.id, d.original_amount.clone()))
             .collect::<BTreeMap<_, _>>();
         let mut used: BTreeMap<DamageId, Vec<EffectKey>> = BTreeMap::new();
+        let mut shields: BTreeMap<EffectId, Quantity> = BTreeMap::new();
         for a in &tx.applications {
             let d = tx
                 .entries
@@ -3548,14 +3722,53 @@ impl RulesTxn {
                         {
                             (Quantity::zero(), a.before.clone())
                         }
-                        ResolvedEffectKind::PreventCombatDamage
-                            if tx.kind == DamageKind::Combat =>
-                        {
-                            (Quantity::zero(), a.before.clone())
+                        ResolvedEffectKind::PreventDamage { remaining, .. } => {
+                            // CR 615.7: the shield's value before this
+                            // transaction less what earlier members used.
+                            let prevented = match remaining {
+                                None => a.before.clone(),
+                                Some(left) => {
+                                    let mut left = left.clone();
+                                    left.subtract(&shields.get(id).cloned().unwrap_or_default());
+                                    left.min(a.before.clone())
+                                }
+                            };
+                            if prevented <= Quantity::zero() {
+                                return Err("overdrawn prevention shield prefix".into());
+                            }
+                            shields.entry(*id).or_default().add(&prevented);
+                            let mut after = a.before.clone();
+                            after.subtract(&prevented);
+                            (after, prevented)
                         }
 
                         _ => return Err("applied effect wrong domain".into()),
                     }
+                }
+                EffectKey::StaticAbility { source, ability } => {
+                    // The consumed static source may since have departed;
+                    // its consumed facts bind the applied ability.
+                    let qualification = a
+                        .qualification
+                        .as_deref()
+                        .ok_or("missing consumed static damage facts")?;
+                    let holder = &qualification.effect_source;
+                    self.validate_fact_identity(holder)?;
+                    self.validate_source_appearance(d, &qualification.damage_source)?;
+                    if holder.object != *source || holder.zone != Zone::Battlefield {
+                        return Err("invalid static damage prefix".into());
+                    }
+                    let definition = self
+                        .copiable_definition(*source)
+                        .or_else(|_| self.face_definition(source.card, source.face))?;
+                    let Some(StaticEffect::Rule { rule, .. }) = definition
+                        .static_abilities
+                        .get(*ability as usize)
+                        .map(|a| &a.effect)
+                    else {
+                        return Err("static damage prefix names no rule".into());
+                    };
+                    self.static_rule_amounts(rule, &a.before, false)?
                 }
             };
             if a.after != after || a.prevented != prevented {

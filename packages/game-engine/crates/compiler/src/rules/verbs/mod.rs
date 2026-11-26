@@ -20,6 +20,8 @@ mod library;
 mod life;
 mod mill;
 mod move_zone;
+pub(crate) mod prevention;
+pub(crate) use prevention::damage_kind;
 mod pump;
 mod regenerate;
 mod return_to_hand;
@@ -318,7 +320,10 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             duration,
         } => gain_abilities::lower(cx, what, abilities, duration),
         Step::Regenerate { what } => regenerate::lower(cx, what),
-        Step::PreventDamage { .. } => Err(step("prevent-damage", "unlowered")),
+        Step::PreventDamage {
+            prevention,
+            duration,
+        } => prevention::lower(cx, prevention, duration),
         Step::Counter { what } => counter::lower(cx, what),
     }
 }

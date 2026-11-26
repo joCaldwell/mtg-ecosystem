@@ -425,7 +425,7 @@ fn memoized_complete_views_preserve_every_field_through_fork_mutation_and_old_re
     // optional fields, then mutate each root field independently after warming.
     let mut value = serde_json::to_value(base_view()).unwrap();
     value["setup"] = serde_json::json!({"round":2,"phase":"declare","players":[{"player":0,"kept":false,"mulligans_taken":2}]});
-    value["effects"] = serde_json::json!([{"effect":"prevent_combat_damage","handle":"雪\\e","origin":{"source":{"announced":"a","current":null},"oracle_id":"oracle\n雪","controller":0},"expires_in_cleanup_of_turn":9}]);
+    value["effects"] = serde_json::json!([{"effect":"prevent_damage","kind":"combat","handle":"雪\\e","origin":{"source":{"announced":"a","current":null},"oracle_id":"oracle\n雪","controller":0},"expires_in_cleanup_of_turn":9}]);
     value["combat"] =
         serde_json::json!([{"attacker":"a","defender":1,"blocked":true,"blockers":["b"]}]);
     value["commanders"] = serde_json::json!([{"designation":"c","oracle_id":"oracle","history":{"owner":0,"color_identity":["W"],"command_casts":{"0":"2"},"combat_damage":{"1":"21"}}}]);

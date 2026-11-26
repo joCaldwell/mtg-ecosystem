@@ -14,7 +14,8 @@
 //!   or restriction (CR 602.5b) condition, a conditional mode count, the
 //!   conditional replacement of a countered spell (CR 701.6), a created
 //!   replacement (CR 614.1) and an "if able" requirement (CR 508.1d,
-//!   509.1c). In a static block a kindless condition is printed "if", "as
+//!   509.1c), a static replacement (CR 614.1a) and a per-event static
+//!   prevention (CR 615.10). In a static block a kindless condition is printed "if", "as
 //!   long as" or "during" (CR 611.3a), so those phrases count together.
 //! * "unless": a condition of kind `unless`; "if" and "unless" never stand
 //!   in for each other.
@@ -111,8 +112,18 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
                 found.may += 1;
             }
             "create-replacement" | "must-attack" | "must-block" => found.condition += 1,
+            // CR 614.1a: "If [an event] would happen, [another] instead".
+            "replacement" if key == "static" => found.condition += 1,
             _ => {}
         },
+        // CR 615.10: "If a source would deal damage to [a recipient],
+        // prevent [some] of that damage" is archived per source and recipient.
+        ("eventScope", Value::Object(scope))
+            if scope.get("sources").and_then(Value::as_str) == Some("each")
+                && scope.get("recipients").and_then(Value::as_str) == Some("each") =>
+        {
+            found.condition += 1;
+        }
         ("allowRepeat" | "permission", _) => found.may += 1,
         ("conditionalCount", _) => {
             found.may += 1;

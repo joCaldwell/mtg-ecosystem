@@ -207,6 +207,10 @@ pub enum Cell {
     TargetKeywordsUntilEndOfTurn,
     SetKeywordsUntilEndOfTurn,
     CombatProhibitionUntilEndOfTurn,
+    /// CR 615.1, 611.2a: prevent all matching damage this turn.
+    PreventDamageThisTurn,
+    /// CR 615.7: prevent the next N damage to one announced recipient.
+    PreventionShield,
     GainControl,
     SetCharacteristics,
     // CR 701.22-701.25: library search, shuffle, scry and surveil.
@@ -375,6 +379,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::TargetKeywordsUntilEndOfTurn
         | C::SetKeywordsUntilEndOfTurn
         | C::CombatProhibitionUntilEndOfTurn
+        | C::PreventDamageThisTurn
+        | C::PreventionShield
         | C::GainControl
         | C::SetCharacteristics
         | C::SearchController
@@ -443,9 +449,6 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::DefenderV1
         | C::ComposedAbilityV1 => Tiers::ALL,
         C::CastEnchantmentV1
-        | C::CombatDamagePreventionV1
-        | C::DamageBudgetPreventionV1
-        | C::StaticDamageReplacementV1
         | C::OwnerHandMoveV1
         | C::OwnerLibraryTopMoveV1
         | C::ActivatedAbilityV1
@@ -464,7 +467,11 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::TransformingDoubleFacedV1
         | C::AdventurerV1
         | C::TransformSourceV1
-        | C::GrantedManaAbilitiesV1 => Tiers::EXECUTES,
+        | C::GrantedManaAbilitiesV1
+        | C::DamagePreventionV1
+        | C::DamageBudgetPreventionV1
+        | C::StaticDamageReplacementV1
+        | C::UnpreventableDamageV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1

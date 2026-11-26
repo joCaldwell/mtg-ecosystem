@@ -114,6 +114,162 @@ pub enum StaticRule {
         affects: Scope,
         defender: PlayerExpr,
     },
+    /// CR 615.1, 615.10: a static prevention effect applied to each matching
+    /// damage event once, under the affected recipient's choice (CR 616.1).
+    PreventDamage {
+        event: DamageEvent,
+        prevent: PreventionAmount,
+    },
+    /// CR 614.1a, 120.8: "deals double/that much plus N damage instead" for
+    /// each matching nonzero damage event, ordered with prevention under
+    /// CR 616.1.
+    ModifyDamage {
+        event: DamageEvent,
+        change: DamageModification,
+    },
+    /// CR 615.12: matching damage can't be prevented. No admitted
+    /// prevention effect has an additional effect, so none applies and no
+    /// prevention shield is reduced.
+    DamageCantBePrevented {
+        event: DamageEvent,
+    },
+}
+
+/// CR 120.2, 510.2: the damage a damage rule or prevention effect watches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DamageKindFilter {
+    All,
+    Combat,
+    Noncombat,
+}
+
+/// CR 609.7a, 615.1, 614.1a: the damage events a static damage rule watches,
+/// read when the damage would be dealt. `by` matches the damage source's
+/// damage-time facts, `to` the recipient and `involving` either ("dealt to
+/// and dealt by"). Absent parts match every source or recipient.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DamageEvent {
+    pub kind: DamageKindFilter,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<Scope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<DamageRecipients>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub involving: Option<Scope>,
+}
+
+/// CR 120.1: the recipients a damage rule names. A player matches
+/// `players`; a permanent (only creatures are dealt damage here) matches
+/// `permanents`. At least one is present.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DamageRecipients {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub players: Option<PlayerExpr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permanents: Option<Scope>,
+}
+
+/// CR 615.1, 615.10: how much of one damage event a prevention prevents.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "prevent", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PreventionAmount {
+    All,
+    UpTo { amount: Quantity },
+    Half { round_up: bool },
+}
+
+/// CR 614.1a: the replaced damage amount.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "change", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DamageModification {
+    Multiply { factor: Quantity },
+    Add { amount: Quantity },
+}
+
+/// CR 615.1, 615.7, 611.2a: a prevention effect a resolving spell or
+/// ability creates. `to` names an announced recipient and `by` the damage
+/// source; absent parts match every recipient or source. `Next` is the
+/// CR 615.7 shield for exactly one recipient.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ResolvedPrevention {
+    pub kind: DamageKindFilter,
+    pub shield: PreventionShield,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<Ref>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<PreventionSources>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "shield", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PreventionShield {
+    /// Prevent all matching damage until the effect expires.
+    All,
+    /// CR 615.7: prevent the next `amount` damage.
+    Next { amount: Quantity },
+}
+
+/// CR 609.7a, 611.2c: the sources whose damage a resolved prevention
+/// prevents. `One` is an announced object, bound at resolution; `Matching`
+/// is read from the damage source when the damage would be dealt, since
+/// prevention modifies no characteristics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "sources", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PreventionSources {
+    One { object: Ref },
+    Matching { filter: Pred },
+}
+
+impl Quantity {
+    /// Half the quantity of a nonnegative value, rounded as stated.
+    pub fn halved(&self, round_up: bool) -> Option<Quantity> {
+        let n = i64::from(self.to_u32()?);
+        Some(Quantity::from(if round_up { (n + 1) / 2 } else { n / 2 }))
+    }
+}
+
+/// CR 609.7a, 120.1: a damage source's damage-time facts carry its
+/// characteristics, keywords, controller, owner, tapped and combat status.
+/// Filters read nothing else.
+pub fn damage_source_pred_valid(filter: &Pred) -> bool {
+    declaration_pred_valid(filter)
+}
+
+fn damage_scope_valid(scope: &Scope, d: &crate::Definition) -> bool {
+    let bound = match scope {
+        Scope::Source | Scope::Matching { .. } => true,
+        Scope::Attachment { kind, .. } => d.characteristics.subtypes.iter().any(|s| {
+            s == match kind {
+                AttachmentKind::Equipped => "Equipment",
+                AttachmentKind::Enchanted => "Aura",
+            }
+        }),
+    };
+    bound && scope.filter().is_none_or(declaration_pred_valid)
+}
+
+fn damage_event_valid(event: &DamageEvent, d: &crate::Definition) -> bool {
+    let recipients = event.to.as_ref().is_none_or(|to| {
+        (to.players.is_some() || to.permanents.is_some())
+            && to.players.as_ref().is_none_or(player_is_bound)
+            && to
+                .permanents
+                .as_ref()
+                .is_none_or(|scope| damage_scope_valid(scope, d))
+    });
+    let source_scope = |scope: &Option<Scope>| {
+        scope
+            .as_ref()
+            .is_none_or(|scope| damage_scope_valid(scope, d))
+    };
+    recipients
+        && source_scope(&event.by)
+        && source_scope(&event.involving)
+        && (event.involving.is_none() || (event.by.is_none() && event.to.is_none()))
 }
 
 /// CR 509.1b: per-pair and per-attacker block restrictions.
@@ -263,6 +419,18 @@ impl StaticEffect {
                 }
             }
             Self::Continuous { .. } => Capability::ContinuousStaticsV1,
+            Self::Rule {
+                rule: StaticRule::PreventDamage { .. },
+                ..
+            } => Capability::DamagePreventionV1,
+            Self::Rule {
+                rule: StaticRule::ModifyDamage { .. },
+                ..
+            } => Capability::StaticDamageReplacementV1,
+            Self::Rule {
+                rule: StaticRule::DamageCantBePrevented { .. },
+                ..
+            } => Capability::UnpreventableDamageV1,
             Self::Rule { .. } => Capability::RuleStaticsV1,
         }
     }
@@ -713,6 +881,27 @@ impl crate::StaticAbility {
                         on_battlefield
                             && declaration_scope_valid(affects, definition, kind)
                             && *defender == PlayerExpr::static_controller()
+                    }
+                    StaticRule::PreventDamage { event, prevent } => {
+                        on_battlefield
+                            && damage_event_valid(event, definition)
+                            && match prevent {
+                                PreventionAmount::All | PreventionAmount::Half { .. } => true,
+                                PreventionAmount::UpTo { amount } => *amount > Quantity::zero(),
+                            }
+                    }
+                    StaticRule::ModifyDamage { event, change } => {
+                        on_battlefield
+                            && damage_event_valid(event, definition)
+                            && match change {
+                                DamageModification::Multiply { factor } => {
+                                    *factor >= Quantity::from(2)
+                                }
+                                DamageModification::Add { amount } => *amount > Quantity::zero(),
+                            }
+                    }
+                    StaticRule::DamageCantBePrevented { event } => {
+                        on_battlefield && damage_event_valid(event, definition)
                     }
                 };
                 if supported {

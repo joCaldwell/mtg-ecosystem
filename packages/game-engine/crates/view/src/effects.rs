@@ -1,5 +1,7 @@
 use super::*;
-use mtg_contracts::kir::{CharacteristicSet, CombatProhibitionScope, CombatRequirement};
+use mtg_contracts::kir::{
+    CharacteristicSet, CombatProhibitionScope, CombatRequirement, DamageKindFilter, Pred,
+};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct EffectHandle(pub String);
@@ -9,8 +11,8 @@ pub struct DamageHandle(pub String);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DamageEffectKind {
-    DoubleDamage,
-    PreventCombatDamage,
+    PreventDamage,
+    ModifyDamage,
     ProtectionFromEachColor,
     ProtectionFromEverything,
     ProtectionFromColor,
@@ -57,6 +59,9 @@ macro_rules! effect_field {
     };
     ($value:ident, nested) => {
         $value.convert()
+    };
+    ($value:ident, optional) => {
+        $value.map(|row| row.convert())
     };
     ($value:ident, targets) => {
         $value.into_iter().map(|row| row.convert()).collect()
@@ -165,8 +170,21 @@ visible_effects! {
         toughness: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
-    PreventCombatDamage(handle) {
+    // CR 615.1, 615.7: a resolved prevention effect; `remaining` is the
+    // shield left of "the next N damage".
+    PreventDamage(handle) {
         origin: VisibleEffectSource<O> => nested,
+        kind: DamageKindFilter,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to_player: Option<PlayerId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        to_object: Option<VisibleTarget<O>> => optional,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        by_object: Option<VisibleTarget<O>> => optional,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by_filter: Option<Pred>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remaining: Option<Quantity>,
         expires_in_cleanup_of_turn: u64,
     },
     AdditionalLandPlays(handle) {
