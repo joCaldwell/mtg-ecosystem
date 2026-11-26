@@ -2373,8 +2373,7 @@ impl RulesTxn {
         let creature_card = |pred: &Pred, object: ObjectId| -> Result<bool, String> {
             Ok(!pred.0.contains(&Atom::Type {
                 kind: CardKind::Creature,
-            }) || self
-                .historical_creature_possible(&self.copiable_definition(object)?.characteristics))
+            }) || self.object_creature_possible(object)?)
         };
         // CR 603.10a: exactly the reviewed opponent-death row freezes the
         // dying creature's controller, pending or on the stack alike.

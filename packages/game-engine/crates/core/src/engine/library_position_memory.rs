@@ -109,6 +109,17 @@ impl RulesTxn {
 
     pub(super) fn validate_library_position_memory(&self) -> Result<(), String> {
         let views = &self.state.knowledge.visibility;
+        // CR 708.9: every seat saw the same departure reveals, each of a
+        // departed owner's card.
+        if views
+            .iter()
+            .any(|view| view.revealed_face_down != views[0].revealed_face_down)
+            || views[0].revealed_face_down.iter().any(|(owner, _)| {
+                self.is_live(*owner) || owner.0 as usize >= self.state.rules.players.len()
+            })
+        {
+            return Err("face-down departure reveals invariant".into());
+        }
         if views
             .iter()
             .any(|view| view.public_tucked_cards != views[0].public_tucked_cards)

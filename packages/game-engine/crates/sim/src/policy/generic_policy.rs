@@ -1401,8 +1401,10 @@ impl Strategy<'_> {
         None
     }
 
-    /// CR 702.37a: cast a morph card from hand face down for {3} when its
-    /// printed cast was not chosen.
+    /// CR 702.37a: cast a morph card from hand face down when its printed
+    /// cast was not chosen. Only the rules quote prices it (CR 601.2f: {3}
+    /// plus tax and increases such as Sphere of Resistance, less
+    /// reductions), so an observation alone plans no face-down cast.
     fn cast_face_down(
         &mut self,
         observation: &Observation,
@@ -1419,13 +1421,10 @@ impl Strategy<'_> {
             {
                 continue;
             }
-            // The rules quote includes increases and reductions (CR 601.2f).
-            let cost = match game {
-                Some(game) => match game.quote_face_down_cast_cost(v.viewer, &o.handle) {
-                    Ok(cost) => cost,
-                    Err(_) => continue,
-                },
-                None => mtg_contracts::FaceDownCast::cast_cost(),
+            let Some(cost) =
+                game.and_then(|g| g.quote_face_down_cast_cost(v.viewer, &o.handle).ok())
+            else {
+                continue;
             };
             let Some(plan) = mana_policy::plan_for(self.catalog, v, &cost, None) else {
                 continue;

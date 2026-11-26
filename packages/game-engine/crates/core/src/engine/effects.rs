@@ -2555,9 +2555,7 @@ impl RulesTxn {
                             && toughness.with_x(x) == modifier.toughness
                             && self.valid_continuous_capture(e, what, targets)
                             && targets.iter().all(|object| {
-                                self.copiable_definition(object).is_ok_and(|d| {
-                                    self.historical_creature_possible(&d.characteristics)
-                                })
+                                self.object_creature_possible(*object).unwrap_or(false)
                             })
                     }
                     (
@@ -2700,9 +2698,7 @@ impl RulesTxn {
                                 }
                                 SetExpr::One {
                                     object: Ref::Target { .. },
-                                } => self.historical_creature_possible(
-                                    &self.copiable_definition(target)?.characteristics,
-                                ),
+                                } => self.object_creature_possible(*target)?,
                                 _ => false,
                             }
                     }
@@ -2746,9 +2742,7 @@ impl RulesTxn {
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
-                            && self.historical_creature_possible(
-                                &self.copiable_definition(target)?.characteristics,
-                            )
+                            && self.object_creature_possible(*target)?
                     }
 
                     _ => false,
@@ -3413,6 +3407,16 @@ impl RulesTxn {
                 && self
                     .characteristic_set_vocabulary()
                     .any(|values| values.animation.is_some()))
+    }
+
+    /// `historical_creature_possible` for one object: also a card with morph,
+    /// which may have been a face-down 2/2 creature when the history was
+    /// made (CR 708.2a, 708.8). Replay authenticates which it was.
+    pub(super) fn object_creature_possible(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(
+            self.historical_creature_possible(&self.copiable_definition(object)?.characteristics)
+                || self.definition(object.card)?.face_down.is_some(),
+        )
     }
 
     /// `validate_characteristic_identity` for captured facts, whose transform

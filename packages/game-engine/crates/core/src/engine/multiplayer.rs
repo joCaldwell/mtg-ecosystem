@@ -279,6 +279,20 @@ impl RulesTxn {
             .filter(|o| self.state.rules.cards[&o.id.card].owner == player)
             .map(|o| o.id)
             .collect::<Vec<_>>();
+        // CR 708.9: a departing player's face-down spells and permanents are
+        // revealed to all players as they leave.
+        let revealed: Vec<_> = removed
+            .iter()
+            .filter(|o| self.is_face_down(**o))
+            .map(|o| (player, self.state.rules.cards[&o.card].oracle_id.clone()))
+            .collect();
+        if !revealed.is_empty() {
+            for knowledge in &mut self.state.knowledge.visibility {
+                knowledge
+                    .revealed_face_down
+                    .extend(revealed.iter().cloned());
+            }
+        }
         if !removed.is_empty() {
             self.commit_batch(
                 BatchCause::Departure { player },

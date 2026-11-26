@@ -18,6 +18,8 @@ const AINOK: &str = record!("7a5dae5f-29ab-4996-b236-c754de8769bc");
 const CAVERN: &str = record!("3763de30-28e1-4689-a71c-07d2fea3a466");
 const AKROMA: &str = record!("2b80faaf-92fd-4fa0-a3f6-8bb263e7ff1d");
 const NAMELESS: &str = record!("bd8d0498-53f9-484c-a59a-78daca468859");
+const BATTLEGROWTH: &str = record!("650bf82e-7f83-470c-bf4a-34281bfe9341");
+const SPHERE: &str = record!("09c96077-3804-4f12-a613-5bebc5e0413f");
 
 fn lower(raw: &str) -> Definition {
     match mtg_witness::compile(mtg_witness::R5_MANIFEST, raw) {
@@ -28,7 +30,15 @@ fn lower(raw: &str) -> Definition {
 
 fn board() -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
-    for record in [HERMIT, AINOK, CAVERN, AKROMA, NAMELESS] {
+    for record in [
+        HERMIT,
+        AINOK,
+        CAVERN,
+        AKROMA,
+        NAMELESS,
+        BATTLEGROWTH,
+        SPHERE,
+    ] {
         catalog.definitions.push(lower(record));
     }
     catalog
@@ -700,4 +710,137 @@ fn a_face_down_card_has_no_characteristic_defining_power_and_toughness() {
     assert_eq!((c.power, c.toughness), (Some(3.into()), Some(3.into())));
     assert_eq!(c.subtypes, ["Wizard", "Avatar"]);
     assert_recoverable((&game).into());
+}
+
+/// CR 708.5-708.6: two face-down creatures cast in the same public order
+/// look the same to an opponent choosing a target among them, whichever
+/// physical card came first; only public facts order the candidates.
+#[test]
+fn an_opponents_target_decision_does_not_order_face_down_cards_by_identity() {
+    let views = [[0, 1], [1, 0]].map(|order| {
+        let mut game = Game::new(
+            lands(
+                board()
+                    .permanent_or_hand("Thelonite Hermit", 0, 0, true)
+                    .permanent_or_hand("Ainok Survivalist", 0, 0, true),
+                "Forest",
+                6,
+            )
+            .permanent_or_hand("Unsummon", 1, 1, true)
+            .permanent_or_hand("Island", 1, 1, false)
+            .prepare(),
+        );
+        for (card, lands) in order.into_iter().zip([[2, 3, 4], [5, 6, 7]]) {
+            let card = Driver::object(&game, card);
+            Driver::action(&mut game, Action::CastFaceDown { card });
+            Driver::pay(&mut game, &lands);
+            settle_stack(&mut game);
+        }
+        Driver::pass(&mut game);
+        Driver::cast(&mut game, CardId(8));
+        let targets = Driver::request(&mut game, u64::MAX);
+        assert!(matches!(targets.reason, Reason::Targets { .. }));
+        assert_eq!(targets.player, PlayerId(1));
+        let opponent = view(&game, 1);
+        assert!(opponent.decision.is_some());
+        opponent
+    });
+    assert_eq!(views[0], views[1]);
+}
+
+/// CR 708.9: a player leaving the game reveals the face-down spells and
+/// permanents they own to the remaining players.
+#[test]
+fn a_departing_player_reveals_their_face_down_cards() {
+    let hermit = lower(HERMIT);
+    let mut game = Game::new(
+        lands(
+            board()
+                .seats(3)
+                .permanent_or_hand("Thelonite Hermit", 0, 0, true),
+            "Forest",
+            4,
+        )
+        .prepare(),
+    );
+    cast_face_down(&mut game);
+    assert!(view(&game, 1).view.revealed_face_down.is_empty());
+    game.concede(PlayerId(0)).unwrap();
+    Driver::settle(&mut game, u64::MAX);
+    for seat in [1, 2] {
+        assert_eq!(
+            view(&game, seat).view.revealed_face_down,
+            [(PlayerId(0), hermit.oracle_id.clone())]
+        );
+    }
+    game.validate_state().unwrap();
+    assert_recoverable((&game).into());
+}
+
+/// CR 122.2, 708.8: a counter put on a face-down land stays when it turns
+/// face up; snapshots accept a noncreature permanent with counters that was
+/// a face-down creature, and recovery replays it.
+#[test]
+fn a_counter_on_a_face_down_land_survives_turning_face_up_and_recovers() {
+    let mut game = Game::new(
+        lands(
+            board()
+                .permanent_or_hand("Zoetic Cavern", 0, 0, true)
+                .permanent_or_hand("Battlegrowth", 0, 0, true),
+            "Forest",
+            6,
+        )
+        .prepare(),
+    );
+    let cavern = cast_face_down(&mut game);
+    Driver::cast(&mut game, CardId(1));
+    Driver::pick_object(&mut game, cavern);
+    Driver::pay(&mut game, &[5]);
+    settle_stack(&mut game);
+    assert_eq!(game.current(cavern).unwrap().plus_one_counters, 1.into());
+    Driver::action(&mut game, Action::TurnFaceUp { object: cavern });
+    Driver::pay(&mut game, &[6, 7]);
+    let object = game.current(cavern).unwrap();
+    assert!(!object.face_down);
+    assert_eq!(object.plus_one_counters, 1.into());
+    assert_eq!(game.characteristics(cavern).unwrap().kind, CardKind::Land);
+    game.validate_state().unwrap();
+    assert_eq!(restore(&game).state_digest(), game.state_digest());
+    assert_recoverable((&game).into());
+}
+
+/// CR 601.2f, 702.37c: Develop casts face down only at the rules quote,
+/// {3} plus increases such as Sphere of Resistance's.
+#[test]
+fn the_simulator_casts_face_down_only_at_the_quoted_cost() {
+    use mtg_sim::policy::{Policy, Strategy};
+    for taxed in [false, true] {
+        let mut board = lands(
+            board().permanent_or_hand("Thelonite Hermit", 0, 0, true),
+            "Forest",
+            3,
+        );
+        if taxed {
+            board = board.permanent_or_hand("Sphere of Resistance", 1, 1, false);
+        }
+        let mut game = Game::new(board.prepare());
+        Driver::request(&mut game, u64::MAX);
+        let o = view(&game, 0);
+        let d = o.decision.as_ref().unwrap();
+        let card = game
+            .handle_for(PlayerId(0), Driver::object(&game, 0))
+            .unwrap();
+        let cost = game.quote_face_down_cast_cost(PlayerId(0), &card).unwrap();
+        assert_eq!(cost.generic, (3 + i64::from(taxed)).into());
+        let expected = if taxed {
+            Action::Pass
+        } else {
+            Action::CastFaceDown { card }
+        };
+        let mut strategy = Strategy::new(&game.prepared.catalog, Policy::Develop, [0; 4]);
+        assert_eq!(
+            strategy.choose_with_game(&o, &game).unwrap(),
+            d.pick_one(&Candidate::Action { action: expected }).unwrap()
+        );
+    }
 }

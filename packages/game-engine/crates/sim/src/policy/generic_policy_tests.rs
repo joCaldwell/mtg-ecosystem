@@ -1739,9 +1739,10 @@ fn block_policy_respects_least_and_greatest_blocker_counts() {
     }
 }
 
-/// CR 702.37a, e: Develop casts a morph card face down when its printed
-/// cost is out of reach and turns it face up once the mana is there. Both
-/// actions come only from the offered candidates.
+/// CR 702.37a, e: from an observation alone Develop plans no face-down cast
+/// (the witness covers the quoted one) and turns a face-down permanent face
+/// up once the mana is there. Both actions come only from the offered
+/// candidates.
 #[test]
 fn generic_policy_casts_face_down_and_turns_face_up() {
     let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
@@ -1787,6 +1788,8 @@ fn generic_policy_casts_face_down_and_turns_face_up() {
         ));
         o
     };
+    // Without the rules quote (CR 601.2f) an observation alone plans no
+    // face-down cast, even when it is offered.
     let cast = Action::CastFaceDown { card: card.clone() };
     let o = offer(
         &v,
@@ -1796,9 +1799,6 @@ fn generic_policy_casts_face_down_and_turns_face_up() {
             cast.clone(),
         ],
     );
-    assert_eq!(strategy(&c).priority(&o).unwrap(), cast);
-    // Not offered, not chosen.
-    let o = offer(&v, vec![Action::Pass, Action::Cast { card: card.clone() }]);
     assert_eq!(strategy(&c).priority(&o).unwrap(), Action::Pass);
 
     // The controller sees its face-down permanent (CR 708.5).

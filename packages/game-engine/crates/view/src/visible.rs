@@ -401,6 +401,10 @@ pub struct PermittedView<O = ObjectHandle> {
     /// A reveal gives neither a position nor an object handle.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub revealed_library_cards: Vec<(PlayerId, String)>,
+    /// CR 708.9: the face-down cards each departed owner revealed as they
+    /// left the game, by owner and Oracle identity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub revealed_face_down: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifice_choices: Vec<(PlayerId, O)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -243,6 +243,8 @@ pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     revealed_library_cards: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    revealed_face_down: Vec<(PlayerId, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sacrifice_choices: Vec<(PlayerId, super::StoredObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) setup: Option<VisibleSetup>,
@@ -345,6 +347,7 @@ impl From<PermittedView> for StoredPermittedView {
             known_searched_hand,
             known_library_positions,
             revealed_library_cards,
+            revealed_face_down,
             sacrifice_choices,
             setup,
             effects,
@@ -378,6 +381,7 @@ impl From<PermittedView> for StoredPermittedView {
                 known_searched_hand,
                 known_library_positions,
                 revealed_library_cards,
+                revealed_face_down,
                 sacrifice_choices: sacrifice_choices
                     .iter()
                     .map(|(p, h)| (*p, h.into()))
@@ -427,6 +431,7 @@ impl StoredPermittedView {
             known_searched_hand,
             known_library_positions,
             revealed_library_cards,
+            revealed_face_down,
             sacrifice_choices,
             setup,
             effects: _,
@@ -504,6 +509,7 @@ impl StoredPermittedView {
                 known_searched_hand,
                 known_library_positions,
                 revealed_library_cards,
+                revealed_face_down,
                 sacrifice_choices,
                 setup,
                 effects,
@@ -544,6 +550,7 @@ impl StoredPermittedView {
             known_searched_hand,
             known_library_positions,
             revealed_library_cards,
+            revealed_face_down,
             sacrifice_choices,
             setup,
             effects,
@@ -563,6 +570,7 @@ impl StoredPermittedView {
             known_searched_hand: known_searched_hand.clone(),
             known_library_positions: known_library_positions.clone(),
             revealed_library_cards: revealed_library_cards.clone(),
+            revealed_face_down: revealed_face_down.clone(),
             sacrifice_choices: sacrifice_choices
                 .iter()
                 .map(|(p, h)| (*p, h.into()))
@@ -599,6 +607,7 @@ impl StoredPermittedView {
             known_searched_hand,
             known_library_positions,
             revealed_library_cards,
+            revealed_face_down,
             sacrifice_choices,
             setup,
             effects,
@@ -618,6 +627,7 @@ impl StoredPermittedView {
             known_searched_hand: searched,
             known_library_positions: positions,
             revealed_library_cards: revealed,
+            revealed_face_down: departed,
             sacrifice_choices: sc,
             setup: s,
             effects: e,
@@ -636,6 +646,7 @@ impl StoredPermittedView {
         searched == known_searched_hand
             && positions == known_library_positions
             && revealed == revealed_library_cards
+            && departed == revealed_face_down
             && sc
                 .iter()
                 .map(|(p, h)| (*p, ObjectHandle::from(h)))

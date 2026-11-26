@@ -139,8 +139,11 @@ ID, faces or stack mana value. Leaving the hand face down consumes known hand
 copies as a hidden departure. Any other zone change turns the card face up
 and reveals it (CR 708.9): public zones show it, a hand gains a known copy and
 a library a known position. Every face-down card is shown when the game ends.
-A player leaving the game reveals nothing, since their objects leave with
-them. Snapshots reject face-down objects outside the stack or battlefield, or
+A departing owner's face-down cards are revealed to every seat
+(`PermittedView::revealed_face_down`). A decision offering a face-down object
+orders object candidates by zone, entry timestamp and stack position, never
+by card. A card with morph that was a face-down creature may keep counters
+after turning face up (CR 122.2). Snapshots reject face-down objects outside the stack or battlefield, or
 without morph.
 
 Support is provisional at `Executes`. Rejected: disguise (ward), nonmana or X

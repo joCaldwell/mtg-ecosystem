@@ -100,6 +100,9 @@ pub struct Knowledge {
     pub revealed_hand: BTreeMap<PlayerId, BTreeMap<String, u32>>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub public_tucked_cards: BTreeSet<ObjectId>,
+    /// CR 708.9: face-down cards revealed as their owner left the game.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub revealed_face_down: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own_knowledge: Vec<OwnKnowledgeAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1031,6 +1034,9 @@ impl RulesTxn {
             known_searched_hand: self.publicly_searched_hand(viewer)?,
             known_library_positions: self.known_library_positions(viewer)?,
             revealed_library_cards: self.revealed_split_search_cards()?,
+            revealed_face_down: self.state.knowledge.visibility[viewer.0 as usize]
+                .revealed_face_down
+                .clone(),
             sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
                 &self.state.rules.frame
             {
