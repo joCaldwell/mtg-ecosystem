@@ -46,11 +46,24 @@ pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Ce
         ManaProduction::Fixed { .. }
         | ManaProduction::AnyColor
         | ManaProduction::CommanderColor => {}
-        ManaProduction::Counted { filter, factor, .. } => {
+        ManaProduction::Counted {
+            zone,
+            filter,
+            factor,
+            ..
+        } => {
             if *factor < Quantity::from(1) {
                 return unaudited("counted mana factor");
             }
-            super::Walk::audited_filter(&crate::kir::ZoneExpr::Battlefield, filter)?;
+            match zone {
+                ZoneExpr::Battlefield | ZoneExpr::Graveyards => {
+                    super::Walk::audited_filter(zone, filter)?;
+                }
+                ZoneExpr::Graveyard { of } if *of == PlayerExpr::you(Context::Activated) => {
+                    super::Walk::audited_filter(&ZoneExpr::Graveyards, filter)?;
+                }
+                _ => return unaudited("counted mana zone"),
+            }
             cells.insert(Cell::ManaCounted);
         }
         ManaProduction::Choose { .. } | ManaProduction::Bundles { .. } => {

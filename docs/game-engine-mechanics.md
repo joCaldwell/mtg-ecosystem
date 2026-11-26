@@ -180,8 +180,8 @@ fixed symbols, any color, commander color, N mana of one color chosen from a
 printed list, one of the printed fixed bundles, up to five mana in any
 combination of colors, or one mana of a type the controller's or opponents'
 lands could produce. A printed mana bundle of one type may multiply by an
-audited battlefield count. It counts after the activation costs (CR 605.3b,
-608.2h). The planner applies earlier simulated taps and the source's own tap
+audited battlefield or public graveyard count after the activation costs
+(CR 605.3b, 608.2h). The planner applies earlier simulated taps and the source's own tap
 before reading the count from the permitted view. A zero count adds no mana.
 A bundle is chosen in full as the ability resolves.
 CR 106.7 is the least fixed point over battlefield lands, each read

@@ -310,6 +310,13 @@ pub fn matches_zone_pred(
 ) -> Tri {
     match zone {
         ZoneExpr::Battlefield => matches_battlefield_pred(object, you, pred),
+        ZoneExpr::Graveyard { of } if of.is_you() => {
+            if object.zone() == (Zone::Graveyard { owner: you }) && !object.is_token() {
+                matches_pred(object, you, pred)
+            } else {
+                Tri::No
+            }
+        }
         ZoneExpr::Graveyards => {
             if matches!(object.zone(), Zone::Graveyard { .. }) && !object.is_token() {
                 matches_pred(object, you, pred)

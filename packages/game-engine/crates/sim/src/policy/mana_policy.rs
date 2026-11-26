@@ -40,7 +40,13 @@ struct Planner<'a> {
 }
 impl Planner<'_> {
     fn amount(&self, source: &Source<'_>) -> Quantity {
-        let ManaProduction::Counted { filter, factor, .. } = &source.production else {
+        let ManaProduction::Counted {
+            filter,
+            factor,
+            zone,
+            ..
+        } = &source.production
+        else {
             return source.amount.clone();
         };
         let count = self
@@ -53,7 +59,7 @@ impl Planner<'_> {
                 if *index == source.object_index || self.tapped[*index] {
                     facts = facts.after_tap();
                 }
-                mtg_core::query::matches_battlefield_pred(&facts, self.view.viewer, filter).is_yes()
+                mtg_core::query::matches_zone_pred(&facts, self.view.viewer, zone, filter).is_yes()
             })
             .count();
         let mut amount = Quantity::from(i64::try_from(count).expect("bounded visible objects"));
@@ -381,11 +387,17 @@ fn could_produce_table(
                     controller,
                     colors_only,
                 } => reads.push((index, *controller, *colors_only)),
-                ManaProduction::Counted { color, filter, .. } => {
+                ManaProduction::Counted {
+                    color,
+                    filter,
+                    zone,
+                    ..
+                } => {
                     if view.objects.iter().any(|object| {
-                        mtg_core::query::matches_battlefield_pred(
+                        mtg_core::query::matches_zone_pred(
                             &mtg_core::query::in_view(view, object),
                             o.controller,
+                            zone,
                             filter,
                         )
                         .is_yes()

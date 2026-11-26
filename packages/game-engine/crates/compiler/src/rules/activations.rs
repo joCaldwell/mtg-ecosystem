@@ -374,17 +374,14 @@ pub(crate) fn lower_mana_ability(
             count => (Quantity::from(1), count),
         };
         let kir::Amount::Count {
-            set:
-                kir::SetExpr::Matching {
-                    zone: kir::ZoneExpr::Battlefield,
-                    filter,
-                },
+            set: kir::SetExpr::Matching { zone, filter },
         } = count
         else {
-            return Err(unsupported("mana", "counted ability zone"));
+            return Err(unsupported("mana", "counted ability amount"));
         };
         ManaProduction::Counted {
             color,
+            zone,
             factor,
             filter,
         }

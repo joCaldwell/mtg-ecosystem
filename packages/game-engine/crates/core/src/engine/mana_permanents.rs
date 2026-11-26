@@ -333,8 +333,13 @@ impl RulesTxn {
     ) -> Result<Vec<Color>, String> {
         Ok(match production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
-            ManaProduction::Counted { color, filter, .. } => {
-                if self.mana_count(player, filter) == 0 {
+            ManaProduction::Counted {
+                color,
+                filter,
+                zone,
+                ..
+            } => {
+                if self.mana_count(player, zone, filter) == 0 {
                     vec![]
                 } else {
                     vec![*color]
@@ -1057,13 +1062,18 @@ impl RulesTxn {
         }
         Ok(())
     }
-    fn mana_count(&self, player: PlayerId, filter: &mtg_contracts::kir::Pred) -> usize {
+    fn mana_count(
+        &self,
+        player: PlayerId,
+        zone: &mtg_contracts::kir::ZoneExpr,
+        filter: &mtg_contracts::kir::Pred,
+    ) -> usize {
         self.state
             .rules
             .objects
             .values()
             .filter(|object| {
-                crate::query::matches_battlefield_pred(&self.object_facts(object), player, filter)
+                crate::query::matches_zone_pred(&self.object_facts(object), player, zone, filter)
                     .is_yes()
             })
             .count()
@@ -1079,8 +1089,9 @@ impl RulesTxn {
                 color,
                 factor,
                 filter,
+                zone,
             } => {
-                let count = self.mana_count(a.player, filter);
+                let count = self.mana_count(a.player, zone, filter);
                 let mut amount = Quantity::from(
                     i64::try_from(count).map_err(|_| "mana count exceeds object limit")?,
                 );

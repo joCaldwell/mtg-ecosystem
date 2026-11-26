@@ -10,6 +10,9 @@ fn board() -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
+            "../../../../../tests/fixtures/phase1-r5/4fe8af73-c84a-44bd-9739-ee5c8b027874.json"
+        ),
+        include_str!(
             "../../../../../tests/fixtures/phase1-r5/7c427c3d-ecd8-45ef-bebd-8f10f4a311db.json"
         ),
         include_str!(
@@ -142,10 +145,18 @@ fn coffers_restores_its_pending_activation_then_counts_tapped_swamps() {
         Reason::Mana { .. }
     ));
     let mut game = restored(&game);
-    activate(&mut game, 1);
-    activate(&mut game, 2);
+    pay_two_black(&mut game);
+    assert_eq!(
+        game.state.rules.players[0].mana.get(&Color::B),
+        Some(&3.into())
+    );
+}
+
+fn pay_two_black(game: &mut Game) {
+    activate(game, 1);
+    activate(game, 2);
     Driver::answer(
-        &mut game,
+        game,
         u64::MAX,
         Answer::Pay {
             pay: PayAnswer::Finish {
@@ -154,7 +165,7 @@ fn coffers_restores_its_pending_activation_then_counts_tapped_swamps() {
         },
     );
     Driver::answer(
-        &mut game,
+        game,
         u64::MAX,
         Answer::Pay {
             pay: PayAnswer::Spend {
@@ -162,9 +173,36 @@ fn coffers_restores_its_pending_activation_then_counts_tapped_swamps() {
             },
         },
     );
-    Driver::request(&mut game, u64::MAX);
+    Driver::request(game, u64::MAX);
+}
+
+#[test]
+fn crypt_counts_only_black_creature_cards_in_its_controllers_graveyard() {
+    let yours = Zone::Graveyard { owner: PlayerId(0) };
+    let theirs = Zone::Graveyard { owner: PlayerId(1) };
+    let mut game = Game::new(
+        board()
+            .permanent_or_hand("Crypt of Agadeem", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .card("Typhoid Rats", 0, 0, yours)
+            .card("Llanowar Elves", 0, 0, yours)
+            .card("Swamp", 0, 0, yours)
+            .card("Typhoid Rats", 1, 1, theirs)
+            .libraries("Forest", 4)
+            .prepare(),
+    );
+    activate(&mut game, 0);
+    let d = Driver::request(&mut game, u64::MAX);
+    let answer = d
+        .pick_one(&Candidate::ManaAbility {
+            ability: mtg_core::ManaAbilityIdentity::Printed { index: 1 },
+        })
+        .unwrap();
+    game.respond(d.player, d.id, answer).unwrap();
+    pay_two_black(&mut game);
     assert_eq!(
         game.state.rules.players[0].mana.get(&Color::B),
-        Some(&3.into())
+        Some(&1.into())
     );
 }
