@@ -208,6 +208,7 @@ pub enum Capability {
     ProtectionFromEverythingV1,
 
     BasicLandwalkV1,
+    EvasionKeywordsV1,
     FixedColorProtectionV1,
     SourceCombatRestrictionsV1,
 
@@ -1634,6 +1635,13 @@ pub enum KeywordAbility {
     // CR 702.16j: intrinsic battlefield protection from every source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     ProtectionFromEverything,
+    // CR 702.13, 702.28, 702.31, 702.36, 702.118: evasion abilities that
+    // restrict which creatures can block (and, for shadow, be blocked by).
+    Intimidate,
+    Shadow,
+    Horsemanship,
+    Fear,
+    Skulk,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -1667,6 +1675,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "protection_from_everything" => Ok(Self::ProtectionFromEverything),
             "hexproof" => Ok(Self::Hexproof),
             "shroud" => Ok(Self::Shroud),
+            "intimidate" => Ok(Self::Intimidate),
+            "shadow" => Ok(Self::Shadow),
+            "horsemanship" => Ok(Self::Horsemanship),
+            "fear" => Ok(Self::Fear),
+            "skulk" => Ok(Self::Skulk),
 
             other => Err(de::Error::unknown_variant(
                 other,
@@ -1698,6 +1711,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "protection_from_everything",
                     "hexproof",
                     "shroud",
+                    "intimidate",
+                    "shadow",
+                    "horsemanship",
+                    "fear",
+                    "skulk",
                 ],
             )),
         }
@@ -2200,6 +2218,11 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
         | KeywordAbility::Swampwalk
         | KeywordAbility::Mountainwalk
         | KeywordAbility::Forestwalk => Capability::BasicLandwalkV1,
+        KeywordAbility::Intimidate
+        | KeywordAbility::Shadow
+        | KeywordAbility::Horsemanship
+        | KeywordAbility::Fear
+        | KeywordAbility::Skulk => Capability::EvasionKeywordsV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
     })
 }

@@ -23,7 +23,50 @@ const TABLE: &[(&str, KeywordAbility)] = &[
     ("lifelink", KeywordAbility::Lifelink),
     ("deathtouch", KeywordAbility::Deathtouch),
     ("indestructible", KeywordAbility::Indestructible),
+    // CR 702.13, 702.28, 702.31, 702.36, 702.118: evasion abilities.
+    ("intimidate", KeywordAbility::Intimidate),
+    ("shadow", KeywordAbility::Shadow),
+    ("horsemanship", KeywordAbility::Horsemanship),
+    ("fear", KeywordAbility::Fear),
+    ("skulk", KeywordAbility::Skulk),
 ];
+
+/// CR 702.14a,c, 305.6: "[basic land type]walk" is landwalk for one basic
+/// land subtype. Other landwalk qualities (nonbasic, snow, legendary, a card
+/// type) reject.
+const LANDWALK: &[(&str, KeywordAbility)] = &[
+    ("Plains", KeywordAbility::Plainswalk),
+    ("Island", KeywordAbility::Islandwalk),
+    ("Swamp", KeywordAbility::Swampwalk),
+    ("Mountain", KeywordAbility::Mountainwalk),
+    ("Forest", KeywordAbility::Forestwalk),
+];
+
+fn landwalk(kind: CardKind, keyword: &SourceKeyword) -> Result<KeywordAbility, Failure> {
+    let reject = || unsupported("keyword", "keyword:landwalk:quality");
+    if kind != CardKind::Creature || keyword.cost.is_some() || keyword.protection_from.is_some() {
+        return Err(reject());
+    }
+    let filter = keyword.filter.as_ref().ok_or_else(reject)?;
+    let object = filter.as_object().ok_or_else(reject)?;
+    if object.len() != 2 || object.get("types") != Some(&serde_json::json!(["land"])) {
+        return Err(reject());
+    }
+    let [subtype] = object
+        .get("subtypes")
+        .and_then(|s| s.as_array())
+        .map(Vec::as_slice)
+        .ok_or_else(reject)?
+    else {
+        return Err(reject());
+    };
+    let subtype = subtype.as_str().ok_or_else(reject)?;
+    LANDWALK
+        .iter()
+        .find(|(name, _)| *name == subtype)
+        .map(|(_, ability)| *ability)
+        .ok_or_else(reject)
+}
 
 /// The bare printed changeling keyword (CR 702.73a).
 pub(super) fn changeling() -> SourceKeyword {
@@ -45,6 +88,10 @@ pub(super) fn lower(
     }
     let mut lowered = Vec::new();
     for keyword in keywords {
+        if keyword.keyword == "landwalk" {
+            lowered.push(landwalk(kind, keyword)?);
+            continue;
+        }
         if keyword.cost.is_some() || keyword.filter.is_some() {
             return Err(unsupported(
                 "keyword",
@@ -124,6 +171,20 @@ pub(super) fn printed(
     }
     if listed.contains("protection") != lowered.iter().any(|k| k.fixed_protection_color().is_some())
     {
+        return Err(mismatch());
+    }
+    // Scryfall lists both "Landwalk" and the exact "[type]walk" keyword.
+    let landwalks: BTreeSet<String> = lowered
+        .iter()
+        .filter_map(|k| LANDWALK.iter().find(|(_, a)| a == k))
+        .map(|(name, _)| format!("{}walk", name.to_lowercase()))
+        .collect();
+    let listed_landwalks: BTreeSet<String> = listed
+        .iter()
+        .filter(|k| k.ends_with("walk") && *k != "landwalk")
+        .cloned()
+        .collect();
+    if listed.contains("landwalk") != !landwalks.is_empty() || listed_landwalks != landwalks {
         return Err(mismatch());
     }
     Ok(())
