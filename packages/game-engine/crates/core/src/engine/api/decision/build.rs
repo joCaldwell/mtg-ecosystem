@@ -294,6 +294,7 @@ impl RulesTxn {
                 | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
                 | TargetDomain::BattlefieldPermanent
+                | TargetDomain::GraveyardCard { .. }
                 | TargetDomain::OwnGraveyardCard
                 | TargetDomain::OwnGraveyardCreatureCard => self
                     .state

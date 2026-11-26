@@ -468,6 +468,26 @@ impl Site<'_> {
                         .collect::<Result<_, _>>()?,
                 })
             }
+            // CR 608.2h: "if it was a creature card" reads the announced
+            // graveyard incarnation, even after the preceding exile.
+            Some("is-filter")
+                if *condition
+                    == serde_json::json!({
+                        "condition":"is-filter", "time":"previous", "what":{"ref":"it"},
+                        "filter":{"types":["creature"],"cls":"card"}
+                    }) =>
+            {
+                let slot = self
+                    .resolution
+                    .target_slot_at(self.index, &format!("{path}/what"))?
+                    .ok_or_else(|| unsupported("compose.control", "unbound_previous_card"))?;
+                Ok(Cond::Satisfies {
+                    object: Ref::Target { slot },
+                    filter: kir::Pred(vec![kir::Atom::Type {
+                        kind: CardKind::Creature,
+                    }]),
+                })
+            }
             // "If you control a [filter]": at least one such permanent.
             Some("control") if fields == 3 => {
                 let what = &condition["what"];

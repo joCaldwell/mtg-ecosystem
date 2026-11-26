@@ -55,7 +55,7 @@ pub enum ProposedEvent {
         player: PlayerId,
         found: Option<ObjectId>,
     },
-    /// CR 110.2, 614.1c: a searched card enters under its owner's control,
+    /// CR 110.2, 614.1c: a card from a library or graveyard enters under its owner's control,
     /// already tapped.
     EnterTapped {
         object: ObjectId,

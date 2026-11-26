@@ -205,9 +205,9 @@ fn core_domain(g: &Game, o: &Object, you: PlayerId, domain: TargetDomain) -> boo
         TargetDomain::ControlledBattlefieldPermanent => {
             o.present_on_battlefield() && o.controller == you
         }
-        TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard => {
-            g.graveyard_target_legal(o, you, domain)
-        }
+        TargetDomain::GraveyardCard { .. }
+        | TargetDomain::OwnGraveyardCard
+        | TargetDomain::OwnGraveyardCreatureCard => g.graveyard_target_legal(o, you, domain),
         TargetDomain::CreatureOrPlaneswalker => g.creature_or_planeswalker(o.id),
         TargetDomain::ControlledBattlefieldCreature => {
             g.is_battlefield_creature(o.id) && o.controller == you
@@ -301,13 +301,19 @@ fn sets(own: Slots) -> [(ObjectSet, Slots); 12] {
         (ObjectSet::NonflyingCreatures, CREATURES & !FLYING),
     ]
 }
-const DOMAINS: [TargetDomain; 13] = [
+const DOMAINS: [TargetDomain; 15] = [
     TargetDomain::CreatureOrPlaneswalker,
     TargetDomain::BattlefieldPermanent,
     TargetDomain::ControlledBattlefieldPermanent,
     TargetDomain::ControlledBattlefieldCreature,
     TargetDomain::BattlefieldCreature,
     TargetDomain::BlockingBattlefieldCreature,
+    TargetDomain::GraveyardCard {
+        opponents_only: false,
+    },
+    TargetDomain::GraveyardCard {
+        opponents_only: true,
+    },
     TargetDomain::OwnGraveyardCreatureCard,
     TargetDomain::OwnGraveyardCard,
     TargetDomain::AnyDamageTarget,

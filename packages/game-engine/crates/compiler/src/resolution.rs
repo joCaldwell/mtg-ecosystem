@@ -295,6 +295,24 @@ impl Resolution {
                 Some(selection) => targets.iter().find(|s| s.selection_id == selection),
                 None => match targets {
                     [sole] => Some(sole),
+                    // The choice-result of a declared group denotes its one
+                    // printed selection (slot zero), not each synthetic member.
+                    [first, rest @ ..]
+                        if r.path == "/effects/2/steps/0/what"
+                            && expression.is_some_and(|v| v["ref"] == "choice-result")
+                            && ability
+                                .pointer("/effects/0/steps/0/effect")
+                                .is_some_and(|v| v == "declare-target")
+                            && ability
+                                .pointer("/effects/0/steps/0/what/selectionId")
+                                .and_then(Value::as_str)
+                                == Some(first.selection_id.as_str())
+                            && rest.iter().enumerate().all(|(i, t)| {
+                                t.selection_id == format!("{}/{}", first.selection_id, i + 1)
+                            }) =>
+                    {
+                        Some(first)
+                    }
                     // The fight lowerer bound the preceding creature effect's
                     // sole occurrence before it introduced the second fighter.
                     [first, _] if fight_antecedent => Some(first),
@@ -430,6 +448,21 @@ impl Resolution {
             .get(index)
             .ok_or_else(|| invalid("resolution", "missing block"))?;
         Ok(block.refs.iter().any(|entry| entry_path(entry) == path))
+    }
+
+    /// An unscoped reference to the target announced by this block.
+    pub(super) fn target_slot_at(&self, index: usize, path: &str) -> Result<Option<u32>, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        Ok(block.refs.iter().find_map(|entry| match entry {
+            RefEntry::Ref(r) if r.path == path && r.scope.is_none() => match &*r.r#ref {
+                ResolvedRef::Target(t) => u32::try_from(t.slot).ok(),
+                _ => None,
+            },
+            _ => None,
+        }))
     }
 
     pub(super) fn binds_counter_payer(

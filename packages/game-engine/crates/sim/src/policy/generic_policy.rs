@@ -414,7 +414,9 @@ impl Strategy<'_> {
         }
         if matches!(
             t.domain,
-            TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+            TargetDomain::GraveyardCard { .. }
+                | TargetDomain::OwnGraveyardCard
+                | TargetDomain::OwnGraveyardCreatureCard
         ) {
             return true;
         }
