@@ -113,6 +113,36 @@ Support is provisional at `Executes`. Split, flip, meld, prototype, Omen and
 Room layouts, battle and planeswalker faces, daybound, disturb, craft,
 casting or entering transformed and two-part flashback stay rejected.
 
+## Face-down spells and permanents
+
+Morph and megamorph with a fixed mana cost lower to `Definition::face_down` on
+a single-face permanent card (CR 702.37a-b). From hand, or the command zone for
+a commander, `CastFaceDown` casts it as a creature spell under that spell's
+timing, cost changes and prohibitions, paying {3} plus any tax (CR 702.37c,
+708.4). `Object::face_down` gives the spell, and the permanent it becomes, the
+CR 708.2a copiable values: a colorless 2/2 creature with no name, subtypes,
+mana cost or abilities. Facts captured while face down keep those values.
+
+`TurnFaceUp` is the controller's special action at priority (CR 116.2b,
+702.37e). It pays the morph cost through the mana window, spending mana as a
+resolution payment, and turns the same object face up. It never enters, and a
+megamorph gains a +1/+1 counter (CR 702.37b, 708.8). A `TurnedFaceUp` source
+trigger fires; a card that is not a creature face up leaves combat (CR 506.4).
+An unpaid cost reverses its mana activations (CR 733.1).
+
+Only the controller sees the identity (CR 708.5). Other viewers see no Oracle
+ID, faces or stack mana value. Leaving the hand face down consumes known hand
+copies as a hidden departure. Any other zone change turns the card face up
+and reveals it (CR 708.9): public zones show it, a hand gains a known copy and
+a library a known position. Every face-down card is shown when the game ends.
+A player leaving the game reveals nothing, since their objects leave with
+them. Snapshots reject face-down objects outside the stack or battlefield, or
+without morph.
+
+Support is provisional at `Executes`. Rejected: disguise (ward), nonmana or X
+morph costs, "as turned face up", turned-face-up events for other objects,
+manifest and cloak.
+
 
 ## Commander and hidden information
 
@@ -689,6 +719,7 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 | `DealsDamage` | the source's battlefield appearance as positive damage is dealt to a player (CR 120.3, 510.2) |
 | `StepBegins` | upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503-513) |
 | `BecomesTapped` | only the source itself (CR 701.26a) |
+| `TurnedFaceUp` | only the source itself, as it is turned face up (CR 702.37e, 708.8) |
 | `GainsLife`, `Discards` | the gaining or discarding player; each source's positive gain is one event (CR 119.9, 701.9a) |
 | `Sacrifices` | the sacrificing player and the permanent on the battlefield just before the move (CR 701.21a, 603.10a) |
 | `LeavesBattlefield` | a move off the battlefield or a phased-in permanent leaving the game with its owner, read as for `Dies` (CR 603.6c, 603.10a) |
