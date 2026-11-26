@@ -1461,6 +1461,19 @@ impl RulesTxn {
         self.check_history_capacity()?;
         Ok(())
     }
+    /// The once-each-turn key a pending intrinsic trigger would have
+    /// recorded: its source incarnation, the face up as it triggered and its
+    /// ability index. Only a limited ability ever records it.
+    pub(super) fn trigger_use(trigger: &PendingTrigger) -> Option<TriggerUse> {
+        match trigger.ability {
+            EffectiveTriggerAbility::Intrinsic { index } => Some(TriggerUse {
+                source: trigger.source,
+                face: trigger.source_face,
+                ability: index,
+            }),
+            EffectiveTriggerAbility::Followup { .. } => None,
+        }
+    }
     /// The turn ledger's spells are this turn's frozen casts by their row's
     /// seat; a limited trigger's use names a card of this game. Replay
     /// proves the counts and uses themselves.

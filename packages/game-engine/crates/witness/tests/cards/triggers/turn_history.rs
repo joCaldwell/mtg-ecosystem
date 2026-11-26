@@ -176,7 +176,7 @@ fn turn_history_once_each_turn_limits_simultaneous_and_later_deaths() {
     let before = hand(&g, 0);
     Driver::cast(&mut g, CardId(4));
     Driver::pay(&mut g, &[6, 7, 8]);
-    drive(&mut g, &[], |g| triggered(g));
+    drive(&mut g, &[], triggered);
     assert_eq!(g.state.rules.stack.len(), 1);
     assert_eq!(g.state.rules.trigger_uses.len(), 1);
     checked(&g);
