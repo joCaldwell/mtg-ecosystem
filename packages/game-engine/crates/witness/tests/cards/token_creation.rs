@@ -52,7 +52,10 @@ fn board(records: &[&str]) -> Board {
 
 /// Libraries come after the numbered cards, so card ids follow the board.
 fn game(b: Board) -> Game {
-    Game::new(b.libraries("Island", 6).seed([7; 32]).prepare())
+    Game::with_trace(
+        b.libraries("Island", 6).seed([7; 32]).prepare(),
+        TraceMode::Detailed,
+    )
 }
 
 fn checked(g: &Game) {
@@ -216,6 +219,27 @@ fn krenko_counts_goblins_as_the_ability_resolves() {
         assert_eq!(triggered, expected, "one trigger per token");
         let goblins = tokens(&g, P0, "Goblin Token");
         assert_eq!(goblins.len(), expected, "respond {respond}");
+        let created = g
+            .trace
+            .records
+            .iter()
+            .find_map(|record| {
+                let EvidenceRecord::Batch { batch } = &record.record else {
+                    return None;
+                };
+                batch.occurrences.iter().find_map(|occurrence| {
+                    if let EventOutcome::TokensCreated { objects, .. } = &occurrence.actual {
+                        Some(objects)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap();
+        assert_eq!(
+            created,
+            &goblins.iter().map(|goblin| goblin.id).collect::<Vec<_>>()
+        );
         let c = g.characteristics(goblins[0].id).unwrap();
         assert_eq!((c.power, c.toughness), (Some(1.into()), Some(1.into())));
         assert_eq!(c.colors, vec![Color::R]);
@@ -279,8 +303,21 @@ fn overseer_of_the_damned_creates_a_tapped_zombie() {
 /// announced X opens the counted token cell; no fixed count is printed.
 #[test]
 fn secure_the_wastes_reads_the_announced_x() {
-    let d = lowered(SECURE_THE_WASTES);
-    assert!(definition_cells(&d).unwrap().contains(&Cell::CountedTokens));
-    let json = serde_json::to_string(&d.spell).unwrap();
-    assert!(json.contains("announced_x"), "{json}");
+    let mut b = board(&[SECURE_THE_WASTES]).permanent_or_hand("Secure the Wastes", 0, 0, true);
+    for _ in 0..3 {
+        b = b.permanent_or_hand("Plains", 0, 0, false);
+    }
+    let mut g = game(b);
+    Driver::cast(&mut g, CardId(0));
+    let decision = Driver::request(&mut g, u64::MAX);
+    assert_eq!(decision.reason, Reason::AnnounceX);
+    g.respond(
+        decision.player,
+        decision.id,
+        Answer::Number { value: 2.into() },
+    )
+    .unwrap();
+    Driver::pay(&mut g, &[1, 2, 3]);
+    resolve(&mut g);
+    assert_eq!(tokens(&g, P0, "Warrior Token").len(), 2);
 }
