@@ -19,6 +19,7 @@ struct Source<'a> {
     ability: ManaAbilityIdentity,
     handle: &'a ObjectHandle,
     land: bool,
+    taps: bool,
     amount: Quantity,
     production: ManaProduction,
     choose_bundle: bool,
@@ -28,13 +29,61 @@ struct Source<'a> {
     harm: bool,
 }
 struct Planner<'a> {
+    catalog: &'a Catalog,
+    view: &'a PermittedView,
+    reserved: &'a [&'a ObjectHandle],
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
+    tapped: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
     scoped_mana: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
 }
 impl Planner<'_> {
+    fn amount(&self, source: &Source<'_>, color: Option<Color>) -> Quantity {
+        if matches!(source.production, ManaProduction::ChooseDevotion {}) {
+            return color.map_or_else(Quantity::zero, |color| {
+                devotion(self.view, self.view.viewer, color)
+            });
+        }
+        let ManaProduction::Counted {
+            filter,
+            factor,
+            zone,
+            ..
+        } = &source.production
+        else {
+            return source.amount.clone();
+        };
+        let count = self
+            .view
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(index, object)| {
+                let mut facts = mtg_core::query::in_view(self.view, object);
+                if *index == source.object_index || self.tapped[*index] {
+                    facts = facts.after_tap();
+                }
+                // Reserved convokers and improvisers are still untapped during
+                // mana production (CR 601.2g–h). Require a match in both states
+                // so a reserved tap can never improve the counted mana quote.
+                mtg_core::query::matches_zone_pred(&facts, self.view.viewer, zone, filter).is_yes()
+                    && (!self.reserved.contains(&&object.handle)
+                        || mtg_core::query::matches_zone_pred(
+                            &facts.after_tap(),
+                            self.view.viewer,
+                            zone,
+                            filter,
+                        )
+                        .is_yes())
+            })
+            .count();
+        let mut amount = Quantity::from(i64::try_from(count).expect("bounded visible objects"));
+        amount.multiply(factor);
+        amount
+    }
+
     fn balance(&self, color: &Color, nested: bool) -> Quantity {
         let mut amount = self.pool.get(color).cloned().unwrap_or_default();
         if !nested && let Some(spell) = self.scoped_mana.get(color) {
@@ -80,6 +129,10 @@ impl Planner<'_> {
                 .enumerate()
                 .filter(|(_, source)| !self.used[source.object_index])
                 .filter(|(_, source)| deficit.is_none_or(|color| source.colors.contains(&color)))
+                .filter(|(_, source)| {
+                    !matches!(source.production, ManaProduction::Counted { .. })
+                        || self.amount(source, None) > Quantity::zero()
+                })
                 .min_by_key(|(index, source)| {
                     let mut needed = needed.clone();
                     let mut useful = Quantity::zero();
@@ -88,9 +141,10 @@ impl Planner<'_> {
                         ManaProduction::Fixed { symbols } => symbols.as_slice(),
                         _ => color.as_slice(),
                     };
+                    let output = self.amount(source, color);
                     for symbol in symbols {
                         if let Some(missing) = needed.get_mut(symbol) {
-                            let amount = missing.clone().min(source.amount.clone());
+                            let amount = missing.clone().min(output.clone());
                             missing.subtract(&amount);
                             useful.add(&amount);
                         }
@@ -115,16 +169,33 @@ impl Planner<'_> {
                 return false;
             };
             let source = &self.sources[i];
+            let colors = if matches!(source.production, ManaProduction::LandsCouldProduce { .. })
+                && (source.taps || self.tapped.iter().any(|tapped| *tapped))
+            {
+                let mut view = self.view.clone();
+                for (index, object) in view.objects.iter_mut().enumerate() {
+                    object.tapped |=
+                        self.tapped[index] || (index == source.object_index && source.taps);
+                }
+                production_colors(self.catalog, &view, &source.production, view.viewer)
+            } else {
+                source.colors.clone()
+            };
             let color = match source.production {
-                ManaProduction::Fixed { .. } => None,
-                _ => deficit.or_else(|| source.colors.first().copied()),
+                ManaProduction::Fixed { .. } | ManaProduction::Counted { .. } => None,
+                _ => deficit
+                    .filter(|color| colors.contains(color))
+                    .or_else(|| colors.first().copied()),
             };
             let symbols = match &source.production {
+                ManaProduction::Counted { color, .. } => std::slice::from_ref(color),
                 ManaProduction::Fixed { symbols } => symbols.as_slice(),
                 _ => color.as_slice(),
             };
+            let amount = self.amount(source, color);
+            self.tapped[source.object_index] = source.taps;
             for &c in symbols {
-                self.pool.entry(c).or_default().add(&source.amount);
+                self.pool.entry(c).or_default().add(&amount);
             }
             self.plan.push(PlannedMana {
                 source: source.handle.clone(),
@@ -274,6 +345,19 @@ fn condition_holds(
 }
 
 /// The colors one ability of a permanent `controller` controls produces.
+pub(super) fn devotion(view: &PermittedView, player: PlayerId, color: Color) -> Quantity {
+    let symbols: usize = view
+        .objects
+        .iter()
+        .filter(|object| {
+            object.zone == Zone::Battlefield && !object.phased_out && object.controller == player
+        })
+        .filter_map(|object| object.characteristics.as_ref())
+        .map(|c| c.devotion_symbols(&[color]))
+        .sum();
+    Quantity::from(i64::try_from(symbols).expect("bounded visible devotion"))
+}
+
 fn production_colors(
     catalog: &Catalog,
     view: &PermittedView,
@@ -282,8 +366,13 @@ fn production_colors(
 ) -> Vec<Color> {
     match mana {
         ManaProduction::Fixed { symbols } => symbols.clone(),
+        ManaProduction::Counted { color, .. } => vec![*color],
         ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
         ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+        ManaProduction::ChooseDevotion {} => [Color::W, Color::U, Color::B, Color::R, Color::G]
+            .into_iter()
+            .filter(|color| devotion(view, controller, *color) > Quantity::zero())
+            .collect(),
         ManaProduction::CommanderColor => commander_colors(view, controller),
         ManaProduction::Choose { colors, .. } => colors.clone(),
         ManaProduction::LandsCouldProduce {
@@ -336,6 +425,24 @@ fn could_produce_table(
                     controller,
                     colors_only,
                 } => reads.push((index, *controller, *colors_only)),
+                ManaProduction::Counted {
+                    color,
+                    filter,
+                    zone,
+                    ..
+                } => {
+                    if view.objects.iter().any(|object| {
+                        mtg_core::query::matches_zone_pred(
+                            &mtg_core::query::in_view(view, object),
+                            o.controller,
+                            zone,
+                            filter,
+                        )
+                        .is_yes()
+                    }) {
+                        types.insert(*color);
+                    }
+                }
                 production => {
                     types.extend(production_colors(catalog, view, production, o.controller))
                 }
@@ -496,6 +603,7 @@ pub(super) fn plan_with_reservations(
                         _ => 1.into(),
                     },
                     land,
+                    taps: ability.costs.tap,
                     production,
                     choose_bundle,
                     colors,
@@ -516,6 +624,7 @@ pub(super) fn plan_with_reservations(
                     handle: &o.handle,
                     amount: 1.into(),
                     land,
+                    taps: true,
                     production: ManaProduction::Fixed {
                         symbols: vec![color],
                     },
@@ -528,8 +637,12 @@ pub(super) fn plan_with_reservations(
         }
     }
     let mut planner = Planner {
+        catalog,
+        view,
+        reserved,
         sources,
         used: vec![false; view.objects.len()],
+        tapped: vec![false; view.objects.len()],
         pool,
         scoped_mana,
         plan: vec![],
@@ -853,14 +966,118 @@ mod tests {
     }
 
     #[test]
+    fn counted_mana_plan_reads_taps_in_payment_order() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { mut definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/7c427c3d-ecd8-45ef-bebd-8f10f4a311db.json"
+            ),
+        ) else {
+            panic!("frozen Cradle must lower")
+        };
+        let ManaProduction::Counted { filter, .. } = &mut definition.mana_abilities[0].production
+        else {
+            panic!("expected counted production")
+        };
+        filter.0.push(mtg_contracts::kir::Atom::Untapped);
+        catalog.definitions.push(*definition);
+
+        let mut empty_board = view();
+        empty_board.objects.push(land(&catalog, "Gaea's Cradle", 3));
+        empty_board.objects.push(land(&catalog, "Forest", 3));
+        let generic = ManaCost {
+            generic: 1.into(),
+            colored: vec![],
+        };
+        let plan = plan_for(&catalog, &empty_board, &generic, None).expect("Forest pays");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].source, empty_board.objects[1].handle);
+
+        let mut view = view();
+        view.objects.push(land(&catalog, "Gaea's Cradle", 3));
+        let mut island = land(&catalog, "Island", 3);
+        island
+            .characteristics
+            .as_mut()
+            .unwrap()
+            .additional_types
+            .push(CardKind::Creature);
+        view.objects.push(island);
+        let mut creature = land(&catalog, "Forest", 3);
+        let facts = creature.characteristics.as_mut().unwrap();
+        facts.kind = CardKind::Creature;
+        facts.subtypes.clear();
+        view.objects.push(creature);
+
+        let mut cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::U, Color::G],
+        };
+        let plan =
+            plan_for(&catalog, &view, &cost, None).expect("Island and one untapped creature");
+        assert_eq!(plan[0].source, view.objects[1].handle);
+        assert_eq!(plan[1].source, view.objects[0].handle);
+        cost.colored.push(Color::G);
+        assert!(plan_for(&catalog, &view, &cost, None).is_none());
+
+        cost.colored = vec![Color::G];
+        let reserved = [&view.objects[1].handle, &view.objects[2].handle];
+        assert!(plan_with_reservations(&catalog, &view, &cost, None, &[], &reserved).is_none());
+
+        view.objects[2].tapped = true;
+        let reserved = [&view.objects[1].handle];
+        assert!(plan_with_reservations(&catalog, &view, &cost, None, &[], &reserved).is_none());
+    }
+
+    #[test]
+    fn devotion_mana_plan_uses_the_requested_colors_devotion() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/cfb8cdde-11f6-441a-942b-32d8c191fc90.json"
+            ),
+        ) else {
+            panic!("frozen Nyx Lotus must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects.push(land(&catalog, "Nyx Lotus", 3));
+        let first = land(&catalog, "Grizzly Bears", 3);
+        let mut second = first.clone();
+        second.handle = ObjectHandle("second Bear".into());
+        view.objects.extend([first, second]);
+
+        let mut cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::G, Color::G],
+        };
+        let plan =
+            plan_for(&catalog, &view, &cost, None).expect("two green devotion funds the cost");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].color, Some(Color::G));
+        cost.colored.push(Color::G);
+        assert!(plan_for(&catalog, &view, &cost, None).is_none());
+        cost.colored = vec![Color::R];
+        assert!(plan_for(&catalog, &view, &cost, None).is_none());
+    }
+
+    #[test]
     fn any_color_source_is_planned_in_the_missing_color() {
         let source = ObjectHandle("any-color-provider".into());
+        let view = view();
+        let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
         let mut planner = Planner {
+            catalog: &catalog,
+            view: &view,
+            reserved: &[],
             sources: vec![Source {
                 object_index: 0,
                 ability: ManaAbilityIdentity::Printed { index: 0 },
                 handle: &source,
                 land: false,
+                taps: true,
                 amount: 1.into(),
                 production: ManaProduction::AnyColor,
                 choose_bundle: false,
@@ -869,6 +1086,7 @@ mod tests {
                 harm: false,
             }],
             used: vec![false],
+            tapped: vec![false],
             pool: BTreeMap::new(),
             scoped_mana: BTreeMap::new(),
             plan: vec![],
