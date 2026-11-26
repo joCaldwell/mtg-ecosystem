@@ -992,7 +992,7 @@ fn graveyard_zone(zone: &ast::ZoneRef) -> Result<ZoneExpr, Failure> {
     }
 }
 
-fn keyword(grant: &ast::GainedAbility) -> Result<KeywordAbility, Failure> {
+fn keyword(grant: &ast::GainedAbility, raw: &serde_json::Value) -> Result<KeywordAbility, Failure> {
     let ast::GainedAbility::Keyword(g) = grant else {
         return Err(gap(&format!("modifier:grant:{}", variant(grant))));
     };
@@ -1021,7 +1021,7 @@ fn keyword(grant: &ast::GainedAbility) -> Result<KeywordAbility, Failure> {
         || bindings.is_some()
         || variable_constraints.is_some()
         || from.is_some()
-        || filter.is_some()
+        || (filter.is_some() && keyword != "landwalk")
         || materials.is_some()
         || companion.is_some()
         || paired_with.is_some()
@@ -1031,6 +1031,10 @@ fn keyword(grant: &ast::GainedAbility) -> Result<KeywordAbility, Failure> {
         || gift.is_some()
     {
         return Err(gap("modifier:parameterized-keyword"));
+    }
+    if keyword == "landwalk" {
+        return crate::compose::keywords::basic_landwalk(&raw["keyword"]["filter"])
+            .ok_or_else(|| gap("modifier:landwalk:quality"));
     }
     KeywordAbility::deserialize(
         serde::de::value::StrDeserializer::<serde::de::value::Error>::new(keyword),
@@ -1109,7 +1113,7 @@ fn modify(
                                 QuotedAbility::Mana(ability) => mana.push(ability),
                             }
                         }
-                        other => keywords.push(keyword(other)?),
+                        other => keywords.push(keyword(other, raw_grant)?),
                     }
                 }
                 if !mana.is_empty() {
@@ -1167,6 +1171,22 @@ fn modify(
             }
             M::Types(m) => {
                 plain!(m);
+                if let ast::TypeChange {
+                    card_types: None,
+                    subtypes: Some(items),
+                    chosen_subtype: None,
+                    supertypes: None,
+                } = &*m.change
+                    && let [item] = items.as_slice()
+                    && item.family == ast::SubtypeFamily::Creature
+                    && item.operation == ast::TypeChangeCardTypesOperation::Add
+                    && let ast::TypeChangeSubtypesItemTypes::Array(subtypes) = &*item.types
+                {
+                    changes.push(Change::AddCreatureSubtypes {
+                        subtypes: subtypes.clone(),
+                    });
+                    continue;
+                }
                 let ast::TypeChange {
                     card_types: Some(types),
                     subtypes: None,

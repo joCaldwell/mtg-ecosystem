@@ -446,15 +446,16 @@ revealed copies. Other entry costs (behold, multiple cards) reject.
 
 Battlefield static abilities use KIR scopes, predicates, conditions and
 characteristic changes; the first applicable layer selects recipients for every
-change of the effect (CR 611.3, 613.6). Layer 4 adds artifact or enchantment
-types, layer 5 sets colors, layer 6 grants supported keywords, layer 7b sets
-base power and toughness, and layer 7c applies signed modifiers (including fixed
-controller-relative ones, reselected by live controller and creature type) and
-counters (CR 613.4c). Scopes that could depend on another change in the same
-layer reject, including creature-subtype filters in layer 4 and color filters in
-layer 5 (CR 613.8). Ordered setters apply by source or creation timestamp (CR
-613.7); simultaneous competing setters need a timestamp choice and reject (CR
-613.7m).
+change of the effect (CR 611.3, 613.6). Layer 4 adds artifact and enchantment
+types or named creature subtypes. Layer 5 sets colors, and layer 6 grants
+supported keywords, including basic landwalk. Layer 7b sets base power and
+toughness. Layer 7c applies signed modifiers, including anthems filtered by
+live controller or subtype, and counters (CR 613.4c). An “other” filter
+excludes the source. Layer-4 creature-subtype filters and layer-5 color
+filters reject. Additive creature subtypes can read Creature membership after
+a resolving animation grants it (CR 613.8). Ordered setters apply by source
+or creation timestamp (CR 613.7). Simultaneous competing setters need a
+timestamp choice and reject (CR 613.7m).
 
 Changeling and a self "is every creature type" CDA are a printed characteristic
 in every zone (CR 702.73a, 604.3), as is changeling on a token. Every subtype

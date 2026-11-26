@@ -891,3 +891,27 @@ fn zephyr_net_grants_defender_and_flying() {
     assert!(r.index(&Candidate::Object { object: netted }).is_none());
     assert!(r.index(&Candidate::Object { object: free }).is_some());
 }
+
+/// CR 613.8: Hivestone depends on the animation for this recipient.
+/// Hydroform sets a creature subtype before the older effect adds Sliver.
+#[test]
+fn creature_subtype_addition_waits_for_animation() {
+    const HIVESTONE: &str = record!("72aeed80-653b-4c53-ba65-a339aad14b9a");
+    let mut g = with(
+        board(&[HIVESTONE, HYDROFORM]),
+        &[
+            ("Hivestone", 0, false),
+            ("Hydroform", 0, true),
+            ("Forest", 0, false),
+            ("Island", 0, false),
+            ("Forest", 0, false),
+        ],
+    );
+    let land = object(&g, 2);
+    assert!(!g.characteristics(land).unwrap().has_subtype("Sliver"));
+    cast_on(&mut g, 1, &[target(land)], &[3, 4]);
+    let facts = g.characteristics(land).unwrap();
+    assert!(facts.has_subtype("Elemental"));
+    assert!(facts.has_subtype("Sliver"));
+    checked(&g);
+}

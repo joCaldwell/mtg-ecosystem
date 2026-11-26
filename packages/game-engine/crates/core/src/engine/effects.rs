@@ -720,11 +720,24 @@ impl RulesTxn {
                 Layer::Color => self.structural_characteristics(target.id),
                 _ => self.color_layer_with_sources(target.id, sources),
             };
-            if facts
-                .is_ok_and(|c| self.static_matches(affects, source, target, &c, target.controller))
-                && condition
-                    .as_ref()
-                    .is_none_or(|c| self.static_condition(source, c))
+            if facts.is_ok_and(|mut c| {
+                // CR 613.8: Creature membership can depend on an animation,
+                // whose target set is fixed at resolution.
+                if first == Layer::Type
+                    && !c.has_type(CardKind::Creature)
+                    && changes
+                        .iter()
+                        .any(|change| matches!(change, Change::AddCreatureSubtypes { .. }))
+                    && self
+                        .resolved_characteristic_sets(target.id)
+                        .any(|(_, values)| values.animation.is_some())
+                {
+                    c.to_mut().additional_types.push(CardKind::Creature);
+                }
+                self.static_matches(affects, source, target, &c, target.controller)
+            }) && condition
+                .as_ref()
+                .is_none_or(|c| self.static_condition(source, c))
             {
                 matching.extend(
                     changes
@@ -933,10 +946,20 @@ impl RulesTxn {
             .resolved_characteristic_sets(object)
             .filter_map(|(time, values)| Some((time, 0, Row::Resolved(values.animation.as_ref()?))))
             .collect();
+        let becomes_creature = (!facts.has_type(CardKind::Creature))
+            .then(|| rows.iter().map(|(time, _, _)| *time).min())
+            .flatten();
         rows.extend(
             self.static_changes(object, Layer::Type, None)
                 .into_iter()
-                .map(|(time, change)| (time, 1, Row::Static(change))),
+                .map(|(time, change)| {
+                    let time = if matches!(change, Change::AddCreatureSubtypes { .. }) {
+                        time.max(becomes_creature.unwrap_or(0))
+                    } else {
+                        time
+                    };
+                    (time, 1, Row::Static(change))
+                }),
         );
         // CR 613.7b: retained rows are in creation order, including
         // replacement of the creature subtypes added by an earlier row.
@@ -971,6 +994,13 @@ impl RulesTxn {
                             let additional = &mut facts.to_mut().additional_types;
                             additional.push(*kind);
                             additional.sort_unstable();
+                        }
+                    }
+                }
+                Row::Static(Change::AddCreatureSubtypes { subtypes }) => {
+                    for subtype in subtypes {
+                        if !facts.subtypes.contains(subtype) {
+                            facts.to_mut().subtypes.push(subtype.clone());
                         }
                     }
                 }
@@ -3095,20 +3125,20 @@ impl RulesTxn {
         // Replay authenticates which provider existed at the original capture.
         base.power = c.power.clone();
         base.toughness = c.toughness.clone();
-        if base.additional_types != c.additional_types || base.colors != c.colors {
-            let vocabulary = || {
-                self.prepared
-                    .catalog
-                    .definitions
-                    .iter()
-                    .flat_map(|d| &d.static_abilities)
-                    .filter_map(|a| match &a.effect {
-                        StaticEffect::Continuous { changes, .. } => Some(changes),
-                        _ => None,
-                    })
-                    .flatten()
-            };
-            if base.additional_types.iter().any(|kind| !c.has_type(*kind))
+        let vocabulary = || {
+            self.prepared
+                .catalog
+                .definitions
+                .iter()
+                .flat_map(|d| &d.static_abilities)
+                .filter_map(|a| match &a.effect {
+                    StaticEffect::Continuous { changes, .. } => Some(changes),
+                    _ => None,
+                })
+                .flatten()
+        };
+        if (base.additional_types != c.additional_types || base.colors != c.colors)
+            && (base.additional_types.iter().any(|kind| !c.has_type(*kind))
                 || c.additional_types.contains(&c.kind)
                 || c.additional_types.windows(2).any(|kinds| kinds[0] >= kinds[1])
                 || c.additional_types.iter().any(|kind| {
@@ -3126,10 +3156,9 @@ impl RulesTxn {
                 })
                 || (base.colors != c.colors
                     && !vocabulary().any(|change| matches!(change, Change::SetColors { colors } if *colors == c.colors))
-                    && !self.characteristic_set_vocabulary().any(|values| values.colors.as_ref() == Some(&c.colors)))
-            {
-                return Err("historical type or color outside admitted static changes".into());
-            }
+                    && !self.characteristic_set_vocabulary().any(|values| values.colors.as_ref() == Some(&c.colors))))
+        {
+            return Err("historical type or color outside admitted static changes".into());
         }
         if base.subtypes != c.subtypes {
             let animations = || {
@@ -3140,6 +3169,9 @@ impl RulesTxn {
                 || c.subtypes.iter().any(|s| {
                     !base.subtypes.contains(s)
                         && !animations().any(|a| a.creature_subtypes.contains(s))
+                        && !vocabulary().any(|change| {
+                            matches!(change, Change::AddCreatureSubtypes { subtypes } if subtypes.contains(s))
+                        })
                 })
                 || base.subtypes.iter().any(|s| {
                     !c.subtypes.contains(s)
