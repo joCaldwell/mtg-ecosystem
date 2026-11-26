@@ -1099,6 +1099,25 @@ fn compose_face(
                                     .extend(keywords::lower(card.kind, &rest, text)?);
                             }
                         }
+                        // CR 702.108a, 702.91a, 702.45a, 702.135a, 702.46a:
+                        // a triggered keyword is the trigger its rule
+                        // defines; each printed instance is its own ability.
+                        _ if keywords.iter().any(keywords::is_triggered) => {
+                            keywords::triggered_printed(&keywords, text, &card_source.shape)?;
+                            let (triggers, rest): (Vec<_>, Vec<_>) =
+                                keywords.iter().cloned().partition(keywords::is_triggered);
+                            if !rest.is_empty() {
+                                definition
+                                    .keywords
+                                    .extend(keywords::lower(card.kind, &rest, text)?);
+                            }
+                            for keyword in &triggers {
+                                definition
+                                    .triggered
+                                    .push(keywords::triggered(&card, keyword, label)?);
+                                labels.triggered.push(label);
+                            }
+                        }
                         _ => definition
                             .keywords
                             .extend(keywords::lower(card.kind, &keywords, text)?),

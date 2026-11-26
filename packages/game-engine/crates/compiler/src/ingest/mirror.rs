@@ -8,6 +8,8 @@ pub(crate) struct SourceKeyword {
     pub(crate) cost: Option<Vec<SourceCost>>,
     pub(crate) filter: Option<serde_json::Value>,
     pub(crate) protection_from: Option<Vec<SourceProtectionQuality>>,
+    /// The printed N of a parameterized keyword ("Bushido 2", CR 702.45a).
+    pub(crate) amount: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -49,6 +51,11 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "protection"
                 | "changeling"
                 | "landwalk"
+                | "prowess"
+                | "battle cry"
+                | "bushido"
+                | "afterlife"
+                | "soulshift"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
@@ -61,6 +68,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             "protection" => ["keyword", "from"].as_slice(),
+            "bushido" | "afterlife" | "soulshift" => ["keyword", "amount"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
@@ -76,6 +84,17 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             .map(|c| serde_json::from_value(c.clone()).map_err(D::Error::custom))
             .transpose()?;
         let filter = object.get("filter").cloned();
+        // A fixed positive N; "X" and other amounts reject by name.
+        let amount = object
+            .get("amount")
+            .map(|amount| {
+                amount
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .filter(|n| *n >= 1)
+                    .ok_or_else(|| D::Error::custom(format!("keyword:{keyword}:amount")))
+            })
+            .transpose()?;
         let protection_from = object
             .get("from")
             .map(|from| {
@@ -88,6 +107,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             cost,
             filter,
             protection_from,
+            amount,
         })
     }
 }

@@ -1500,3 +1500,152 @@ fn a_certified_trigger_header_with_its_condition_reaches_the_trigger_decision() 
         CompileResult::Lowered { .. }
     ));
 }
+
+const JADE_AVENGER: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/177248b7-f3fd-42f8-b325-2625a2bb28ff.json");
+const THOR_ODINSON: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/ec9b74d0-e4fe-4764-b628-992a62f2a1cf.json");
+const HUNDRED_TALON_KAMI: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/100b4440-c588-423e-93d2-23c9b595614d.json");
+
+/// The one kernel node of a triggered program.
+fn sole_node(ability: &TriggeredAbility) -> &kir::Node {
+    let [Instruction::Kernel { node, .. }] = ability.program.instructions.as_slice() else {
+        panic!("expected one kernel instruction: {ability:?}");
+    };
+    node
+}
+
+/// CR 702.108a, 702.45a, 702.46a: each printed instance lowers to its
+/// defining trigger from the exact keyword and N, and a keyword the source
+/// list, the printed line or the card type does not support rejects.
+#[test]
+fn triggered_keywords_lower_their_defining_triggers_or_reject() {
+    let lowers = |raw: &str| lower(accepted_manifest(R5).unwrap(), raw);
+    let pump = |node: &kir::Node| match node.verb() {
+        Some(kir::Verb::ModifyUntil {
+            what: kir::SetExpr::One {
+                object: kir::Ref::Source,
+            },
+            change: kir::Change::PowerToughness { power, toughness },
+            until: kir::Until::EndOfTurn,
+            ..
+        }) => (power.clone(), toughness.clone()),
+        other => panic!("expected a source pump: {other:?}"),
+    };
+    let fixed = |n: i64| kir::Amount::fixed(n);
+
+    let jade = lowers(JADE_AVENGER).unwrap();
+    let [bushido] = jade.triggered.as_slice() else {
+        panic!("one bushido trigger");
+    };
+    assert_eq!(
+        *bushido.condition.pattern(),
+        EventPattern::AnyOf {
+            first: Box::new(EventPattern::Blocks {
+                blocker: kir::Pred::source()
+            }),
+            second: Box::new(EventPattern::BecomesBlocked {
+                attacker: kir::Pred::source()
+            }),
+        }
+    );
+    assert_eq!(pump(sole_node(bushido)), (fixed(2), fixed(2)));
+
+    // "Flying, vigilance, prowess, prowess": two evergreen keywords and two
+    // separate prowess triggers (CR 702.108b).
+    let thor = lowers(THOR_ODINSON).unwrap();
+    assert_eq!(
+        thor.keywords,
+        [KeywordAbility::Flying, KeywordAbility::Vigilance]
+    );
+    assert_eq!(thor.triggered.len(), 2);
+    for prowess in &thor.triggered {
+        assert!(matches!(
+            prowess.condition.pattern(),
+            EventPattern::Cast { caster, spell, nth: None, targets_source: false }
+                if caster.is_you() && spell.0 == [kir::Atom::NotType { kind: CardKind::Creature }]
+        ));
+        assert_eq!(pump(sole_node(prowess)), (fixed(1), fixed(1)));
+    }
+
+    let kami = lowers(HUNDRED_TALON_KAMI).unwrap();
+    let [soulshift] = kami.triggered.as_slice() else {
+        panic!("one soulshift trigger");
+    };
+    assert_eq!(
+        *soulshift.condition.pattern(),
+        EventPattern::Dies {
+            object: kir::Pred::source()
+        }
+    );
+    let [target] = soulshift.program.targets.as_slice() else {
+        panic!("one soulshift target");
+    };
+    assert_eq!(target.domain, TargetDomain::OwnGraveyardCard);
+    assert_eq!(
+        target.filter.as_ref().and_then(|f| f.predicate.clone()),
+        Some(kir::Pred(vec![
+            kir::Atom::Subtype {
+                subtype: "Spirit".into()
+            },
+            kir::Atom::ManaValue {
+                cmp: kir::Cmp::AtMost,
+                value: fixed(4),
+            },
+        ]))
+    );
+    assert!(matches!(sole_node(soulshift), kir::Node::Optional { .. }));
+
+    // A consistently changed N lowers that N.
+    let renumbered = |row: &mut serde_json::Value, from: &str, to: &str, n: serde_json::Value| {
+        let text = row["source"]["oracle_text"]
+            .as_str()
+            .unwrap()
+            .replace(from, to);
+        row["source"]["oracle_text"] = text.into();
+        row["faces"][0]["result"]["lines"][0]["text"] = to.into();
+        row["faces"][0]["result"]["abilities"][0]["keywords"][0]["amount"] = n;
+    };
+    let three = lowers(&changed(JADE_AVENGER, |row| {
+        renumbered(row, "Bushido 2", "Bushido 3", json!(3))
+    }))
+    .unwrap();
+    assert_eq!(pump(sole_node(&three.triggered[0])), (fixed(3), fixed(3)));
+    // An X amount, an N the line does not print and a keyword the source
+    // list does not name all reject.
+    for bad in [
+        changed(JADE_AVENGER, |row| {
+            row["faces"][0]["result"]["abilities"][0]["keywords"][0]["amount"] = json!("x");
+        }),
+        changed(JADE_AVENGER, |row| {
+            row["faces"][0]["result"]["abilities"][0]["keywords"][0]["amount"] = json!(3);
+        }),
+        changed(JADE_AVENGER, |row| {
+            row["source"]["keywords"] = json!([]);
+        }),
+        changed(THOR_ODINSON, |row| {
+            row["faces"][0]["result"]["abilities"][0]["keywords"][3] =
+                json!({"keyword":"prowess","amount":1});
+        }),
+    ] {
+        assert!(lowers(&bad).is_err());
+    }
+
+    // "This creature" keywords need a creature card; "this permanent"
+    // keywords any permanent card.
+    let keyword =
+        |raw: serde_json::Value| -> SourceKeyword { serde_json::from_value(raw).unwrap() };
+    let prowess = keyword(json!({"keyword":"prowess"}));
+    let afterlife = keyword(json!({"keyword":"afterlife","amount":1}));
+    let soulshift = keyword(json!({"keyword":"soulshift","amount":2}));
+    assert!(keywords::triggered(&card(CardKind::Artifact), &prowess, 0).is_err());
+    assert!(keywords::triggered(&card(CardKind::Artifact), &afterlife, 0).is_ok());
+    assert!(keywords::triggered(&card(CardKind::Instant), &soulshift, 0).is_err());
+    for missing in [
+        json!({"keyword":"bushido"}),
+        json!({"keyword":"afterlife","amount":0}),
+    ] {
+        assert!(serde_json::from_value::<SourceKeyword>(missing).is_err());
+    }
+}

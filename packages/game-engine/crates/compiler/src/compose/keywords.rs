@@ -77,6 +77,7 @@ pub(super) fn changeling() -> SourceKeyword {
         cost: None,
         filter: None,
         protection_from: None,
+        amount: None,
     }
 }
 
@@ -433,6 +434,238 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
     Err(unsupported("keyword", "keyword:enchant:filter"))
 }
 
+/// Printed keyword abilities that are triggered abilities. Each instance
+/// lowers to the complete trigger its rule defines and triggers separately
+/// (CR 702.108b, 702.45b, 702.91b, 702.135b, 702.46b). The `bool` states
+/// whether the keyword prints a fixed N.
+const TRIGGERED: &[(&str, bool)] = &[
+    ("prowess", false),
+    ("battle cry", false),
+    ("bushido", true),
+    ("afterlife", true),
+    ("soulshift", true),
+];
+
+pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
+    TRIGGERED.iter().any(|(name, _)| *name == keyword.keyword)
+}
+
+/// The printed spelling of one triggered keyword instance ("bushido 2").
+fn spelling(keyword: &SourceKeyword) -> Option<String> {
+    let (name, parameterized) = TRIGGERED.iter().find(|(n, _)| *n == keyword.keyword)?;
+    match (parameterized, keyword.amount) {
+        (false, None) => Some((*name).to_owned()),
+        (true, Some(n)) => Some(format!("{name} {n}")),
+        _ => None,
+    }
+}
+
+/// The keyword line prints each listed keyword in order, separated by commas
+/// or semicolons, and every triggered instance exactly as its rule spells it
+/// with its N. Scryfall's keyword list names each of them (CR 702.1).
+pub(super) fn triggered_printed(
+    keywords: &[SourceKeyword],
+    text: &str,
+    source: &serde_json::Value,
+) -> Result<(), Failure> {
+    let items: Vec<String> = text
+        .split([',', ';'])
+        .map(|item| item.trim().to_lowercase())
+        .collect();
+    if items.len() != keywords.len() {
+        return Err(unsupported("keyword", "keyword:triggered:printed"));
+    }
+    let listed: BTreeSet<String> = source["keywords"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|k| k.as_str().map(str::to_lowercase))
+        .collect();
+    for (keyword, item) in keywords.iter().zip(&items) {
+        if !is_triggered(keyword) {
+            continue;
+        }
+        let reject = || unsupported("keyword", format!("keyword:{}:printed", keyword.keyword));
+        if keyword.cost.is_some()
+            || keyword.filter.is_some()
+            || keyword.protection_from.is_some()
+            || spelling(keyword).as_ref() != Some(item)
+            || !listed.contains(&keyword.keyword)
+        {
+            return Err(reject());
+        }
+    }
+    Ok(())
+}
+
+fn trigger_on(pattern: EventPattern, program: SpellProgram) -> TriggeredAbility {
+    TriggeredAbility {
+        modal: None,
+        functioning_zone: FunctioningZone::Battlefield,
+        condition: TriggerCondition::Event {
+            pattern,
+            intervening_if: None,
+            once_each_turn: false,
+        },
+        program,
+    }
+}
+
+/// One kernel step of a triggered program, labelled with its printed block.
+fn kernel(node: kir::Node, block: u32) -> Instruction {
+    Instruction::Kernel {
+        source_block: block,
+        node,
+    }
+}
+
+/// "[What] gets +P/+T until end of turn" (CR 611.2a, 613.4c).
+fn pump(what: kir::SetExpr, power: u32, toughness: u32) -> kir::Node {
+    kir::Node::Do(kir::Verb::ModifyUntil {
+        what,
+        layer: kir::Layer::PowerToughnessModify,
+        change: kir::Change::PowerToughness {
+            power: kir::Amount::fixed(i64::from(power)),
+            toughness: kir::Amount::fixed(i64::from(toughness)),
+        },
+        until: kir::Until::EndOfTurn,
+    })
+}
+
+/// The complete defining trigger of one printed triggered keyword.
+/// "This creature" forms apply to creature cards only; "this permanent"
+/// forms to permanent cards. Pinned rules text:
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(super) fn triggered(
+    card: &Card<'_>,
+    keyword: &SourceKeyword,
+    block: u32,
+) -> Result<TriggeredAbility, Failure> {
+    use kir::{Atom, Node, Pred, Ref, SetExpr, Verb};
+    let source = || unsupported("keyword", format!("keyword:{}:source", keyword.keyword));
+    let creature = card.has_type(CardKind::Creature);
+    let permanent = !matches!(card.kind, CardKind::Instant | CardKind::Sorcery);
+    let n = keyword.amount.unwrap_or(1);
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
+    let this = SetExpr::One {
+        object: Ref::Source,
+    };
+    let pattern = match keyword.keyword.as_str() {
+        // CR 702.108a: "Whenever you cast a noncreature spell, this
+        // creature gets +1/+1 until end of turn."
+        "prowess" if creature => {
+            program.instructions.push(kernel(pump(this, 1, 1), block));
+            EventPattern::Cast {
+                caster: PlayerExpr::you(Context::Triggered),
+                spell: Pred(vec![Atom::NotType {
+                    kind: CardKind::Creature,
+                }]),
+                nth: None,
+                targets_source: false,
+            }
+        }
+        // CR 702.91a: "Whenever this creature attacks, each other attacking
+        // creature gets +1/+0 until end of turn." The set is captured as the
+        // effect begins (CR 611.2c).
+        "battle cry" if creature => {
+            let others = SetExpr::Matching {
+                zone: kir::ZoneExpr::Battlefield,
+                filter: Pred(vec![
+                    Atom::Type {
+                        kind: CardKind::Creature,
+                    },
+                    Atom::Attacking,
+                    Atom::IsNot {
+                        object: Ref::Source,
+                    },
+                ]),
+            };
+            program.instructions.push(kernel(pump(others, 1, 0), block));
+            EventPattern::Attacks {
+                attacker: Pred::source(),
+            }
+        }
+        // CR 702.45a: "Whenever this creature blocks or becomes blocked, it
+        // gets +N/+N until end of turn"; "it" is this creature.
+        "bushido" if creature => {
+            program.instructions.push(kernel(pump(this, n, n), block));
+            EventPattern::AnyOf {
+                first: Box::new(EventPattern::Blocks {
+                    blocker: Pred::source(),
+                }),
+                second: Box::new(EventPattern::BecomesBlocked {
+                    attacker: Pred::source(),
+                }),
+            }
+        }
+        // CR 702.135a: "When this permanent is put into a graveyard from the
+        // battlefield, create N 1/1 white and black Spirit creature tokens
+        // with flying."
+        "afterlife" if permanent => {
+            program.instructions.push(kernel(
+                Node::Do(Verb::CreateTokens {
+                    controller: PlayerExpr::you(Context::Triggered),
+                    count: kir::Amount::fixed(i64::from(n)),
+                    token: kir::TokenSpec::Creature {
+                        spec: CreatureToken {
+                            additional_types: vec![],
+                            colors: vec![Color::W, Color::B],
+                            subtypes: vec!["Spirit".into()],
+                            all_creature_types: false,
+                            power: Quantity::from(1),
+                            toughness: Quantity::from(1),
+                            keywords: vec![KeywordAbility::Flying],
+                        },
+                    },
+                    tapped: false,
+                }),
+                block,
+            ));
+            EventPattern::Dies {
+                object: Pred::source(),
+            }
+        }
+        // CR 702.46a: "When this permanent is put into a graveyard from the
+        // battlefield, you may return target Spirit card with mana value N
+        // or less from your graveyard to your hand."
+        "soulshift" if permanent => {
+            program.targets.push(
+                TargetSpec::new(0, "soulshift-card", TargetDomain::OwnGraveyardCard).with_filter(
+                    PermanentFilter {
+                        predicate: Some(Pred(vec![
+                            Atom::Subtype {
+                                subtype: "Spirit".into(),
+                            },
+                            Atom::ManaValue {
+                                cmp: kir::Cmp::AtMost,
+                                value: kir::Amount::fixed(i64::from(n)),
+                            },
+                        ])),
+                        ..PermanentFilter::any()
+                    },
+                ),
+            );
+            program.instructions.push(kernel(
+                Node::Optional {
+                    chooser: PlayerExpr::you(Context::Triggered),
+                    node: Box::new(Node::Do(Verb::Move {
+                        what: SetExpr::One {
+                            object: Ref::Target { slot: 0 },
+                        },
+                        to: kir::Destination::OwnerHand,
+                    })),
+                },
+                block,
+            ));
+            EventPattern::Dies {
+                object: Pred::source(),
+            }
+        }
+        _ => return Err(source()),
+    };
+    Ok(trigger_on(pattern, program))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,6 +704,7 @@ mod tests {
                 cost: None,
                 filter: Some(filter),
                 protection_from: None,
+                amount: None,
             };
             let spec = enchant(&keyword, line).unwrap();
             assert_eq!(spec.domain, domain);
@@ -482,6 +716,7 @@ mod tests {
             cost: None,
             filter: Some(json!({"types":["creature"],"control":"you"})),
             protection_from: None,
+            amount: None,
         };
         assert!(enchant(&constrained, "Enchant creature").is_err());
     }
