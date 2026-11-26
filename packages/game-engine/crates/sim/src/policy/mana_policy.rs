@@ -461,6 +461,41 @@ mod tests {
         }
     }
 
+    /// CR 113.10a, 106.7: a Forest that has a granted any-color ability is
+    /// planned through that ability for blue, and its controller's other
+    /// "could produce" reads see blue too.
+    #[test]
+    fn granted_any_color_land_is_planned_by_its_granted_identity() {
+        let c = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mut v = view();
+        let mut forest = land(&c, "Forest", 3);
+        forest.granted_mana = vec![ManaAbility {
+            restriction: None,
+            costs: mtg_contracts::PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
+                tap: true,
+                mana: None,
+                sacrifice: false,
+                pay_life: None,
+            },
+            production: ManaProduction::AnyColor,
+            riders: vec![],
+            source_block: 0,
+        }];
+        v.objects.push(forest);
+        let cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::U],
+        };
+        let plan = plan_for(&c, &v, &cost, None).expect("granted blue");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].ability, Some(ManaAbilityIdentity::Granted { index: 0 }));
+        let table = could_produce_table(&c, &v);
+        assert!(table.values().any(|(_, colors)| colors.contains(&Color::U)));
+        v.objects[0].granted_mana.clear();
+        assert!(plan_for(&c, &v, &cost, None).is_none());
+    }
+
     fn commander(owner: u8, color: Color) -> mtg_core::VisibleCommander {
         mtg_core::VisibleCommander {
             designation: format!("commander-{owner}"),

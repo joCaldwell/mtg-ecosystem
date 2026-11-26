@@ -388,3 +388,75 @@ fn forged_granted_mana_activations_reject() {
     }));
     assert!(forge(&|a| a["ability"]["production"] = serde_json::json!({"mana": "fixed", "symbols": ["G"]})));
 }
+
+/// CR 113.10a, 602.1: only the admitted grant shape validates. A recipient
+/// filter that reads tapped status, a guarding condition, or a cost, rider
+/// or restriction the activation could not keep stable rejects by name.
+#[test]
+fn unadmitted_mana_grant_shapes_reject() {
+    let lantern = lowered(LANTERN);
+    let index = lantern
+        .static_abilities
+        .iter()
+        .position(|s| matches!(s.effect, StaticEffect::Continuous { .. }))
+        .unwrap();
+    let edit = |change: &dyn Fn(&mut StaticEffect)| {
+        let mut d = lantern.clone();
+        change(&mut d.static_abilities[index].effect);
+        d.validate()
+    };
+    let ability = |edit_ability: &dyn Fn(&mut mtg_contracts::ManaAbility)| {
+        edit(&|effect: &mut StaticEffect| {
+            let StaticEffect::Continuous { changes, .. } = effect else {
+                unreachable!()
+            };
+            let [Change::AddManaAbilities { abilities }] = changes.as_mut_slice() else {
+                unreachable!()
+            };
+            edit_ability(&mut abilities[0]);
+        })
+    };
+    assert!(edit(&|_| {}).is_ok());
+    let rejected = |result: Result<(), String>| {
+        assert_eq!(result.unwrap_err(), "cell:static:continuous-change");
+    };
+    rejected(edit(&|effect| {
+        let StaticEffect::Continuous { affects, .. } = effect else {
+            unreachable!()
+        };
+        let Scope::Matching { filter } = affects else {
+            unreachable!()
+        };
+        filter.0.push(Atom::Untapped);
+    }));
+    rejected(ability(&|a| a.costs.sacrifice = true));
+    rejected(ability(&|a| {
+        a.costs.mana = Some(mtg_contracts::ManaCost {
+            generic: 1.into(),
+            colored: vec![],
+        })
+    }));
+    rejected(ability(&|a| a.costs.tap = false));
+    rejected(ability(&|a| {
+        a.restriction = Some(mtg_contracts::ManaActivationRestriction::OnceEachTurn)
+    }));
+    rejected(ability(&|a| {
+        a.production = ManaProduction::Fixed { symbols: vec![] }
+    }));
+    rejected(edit(&|effect| {
+        let StaticEffect::Continuous { changes, .. } = effect else {
+            unreachable!()
+        };
+        changes[0] = Change::AddManaAbilities { abilities: vec![] };
+    }));
+    // A guarded grant is rejected before its changes are read.
+    let guarded = edit(&|effect| {
+        let StaticEffect::Continuous { condition, .. } = effect else {
+            unreachable!()
+        };
+        *condition = Some(mtg_contracts::kir::Cond::ActivePlayer {
+            player: mtg_contracts::kir::PlayerExpr::static_controller(),
+        });
+    });
+    assert!(guarded.is_err());
+}

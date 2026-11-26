@@ -11,7 +11,8 @@
 //! renamed or retyped fields on the reached state; payloads of enum variants
 //! a representative never reaches are not covered. A third representative
 //! pays a spell with a pain land's colored mana ability, reaching a selected
-//! printed mana ability, its rider's damage transaction and a kept receipt.
+//! printed mana ability, its rider's damage transaction and a kept receipt; a
+//! fourth stops a granted mana ability at its color choice.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -19,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    68,
-    "6f3c99f1cffb0c62216551ce4985e87b56b4fa6f2c1dbfa25dc7083bca6dd101",
+    70,
+    "70c011ace3042c7fbbe9a12074e02e97b3fedbb92d3c7b46d7c3046d577cddbc",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    101,
-    "a2ca5fafcb3f74dbbc3958bbb304e77c46c1ba50cc01c36903913ad505037e94",
+    103,
+    "c7cd9047fc3c830071e536677b239f6aa2c0c09a97d31923ff9b5ce7c3222248",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -187,6 +188,75 @@ pub(super) fn cast_edict(prepared: Prepared) -> Game {
 /// ability, sampled at its color choice (a nonzero ability index), inside its
 /// damage rider's suspended transaction, and with its kept receipt retained
 /// by the cast.
+/// CR 113.10a: a granted mana ability waiting for its color, on a land
+/// whose synthetic artifact grants lands their controller controls "{T}:
+/// Add one mana of any color." Frozen witnesses live in `mtg-witness`.
+fn granted_mana() -> Game {
+    use mtg_contracts::kir::{Atom, Change, Pred, Scope, StaticEffect};
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let relic = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Darksteel Relic")
+        .unwrap();
+    relic.source_labels = None;
+    relic.static_abilities.push(mtg_contracts::StaticAbility {
+        functioning_zone: mtg_contracts::FunctioningZone::Battlefield,
+        effect: StaticEffect::continuous(
+            Scope::Matching {
+                filter: Pred(vec![
+                    Atom::Type {
+                        kind: CardKind::Land,
+                    },
+                    Atom::ControlledBy {
+                        player: mtg_contracts::kir::PlayerExpr::static_controller(),
+                    },
+                ]),
+            },
+            vec![Change::AddManaAbilities {
+                abilities: vec![mtg_contracts::ManaAbility {
+                    restriction: None,
+                    costs: mtg_contracts::PermanentActivationCosts {
+                        remove_source_plus_one_counters: None,
+                        tap: true,
+                        mana: None,
+                        sacrifice: false,
+                        pay_life: None,
+                    },
+                    production: mtg_contracts::ManaProduction::AnyColor,
+                    riders: vec![],
+                    source_block: 0,
+                }],
+            }],
+        ),
+    });
+    relic.capabilities = relic.requirements();
+    relic.validate().unwrap();
+    let prepared = Board::new(catalog, "granted-mana-format-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .permanent_or_hand("Darksteel Relic", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .libraries("Forest", 4)
+        .prepare();
+    let mut game = Game::new(prepared);
+    let forest = Driver::object(&game, 1);
+    let activate = game.next_test_decision().activate_mana(forest);
+    Driver::answer(&mut game, u64::MAX, activate);
+    let d = Driver::request(&mut game, u64::MAX);
+    let answer = d
+        .pick_one(&Candidate::ManaAbility {
+            ability: ManaAbilityIdentity::Granted { index: 0 },
+        })
+        .unwrap();
+    game.respond(d.player, d.id, answer).unwrap();
+    assert!(matches!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::ManaColor { .. }
+    ));
+    game
+}
+
 fn mana_riders() -> Vec<Game> {
     let prepared = Board::new(
         FixtureCatalog::Witness.get().clone(),
@@ -526,6 +596,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())
+        .chain([granted_mana()])
         .chain(chosen_cost_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
