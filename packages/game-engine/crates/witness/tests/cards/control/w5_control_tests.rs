@@ -347,19 +347,29 @@ fn deathcap_marionette_offers_milling_only_a_whole_library_amount() {
 
 #[test]
 fn bestiary_requires_colored_payment_before_drawing() {
-    for (accept, fund) in [(false, false), (true, false), (true, true)] {
-        let mut g = Game::new(prepared(&[
+    for (source, accept, fund) in [
+        (Some("Forest"), false, false),
+        (Some("Island"), true, false),
+        (Some("Forest"), true, true),
+        (None, false, false),
+    ] {
+        let mut cards = vec![
             ("Grizzly Bears", 0, true),
             ("Forest", 0, false),
             ("Forest", 0, false),
-            ("Forest", 0, false),
             ("Lifecrafter's Bestiary", 0, false),
-        ]));
+        ];
+        if let Some(land) = source {
+            cards.push((land, 0, false));
+        }
+        let mut g = Game::new(prepared(&cards));
         cast_bears(&mut g);
         let before = hand(&g, 0);
-        choose(&mut g, 0, accept);
+        if source.is_some() {
+            choose(&mut g, 0, accept);
+        }
         if fund {
-            Driver::pay(&mut g, &[3]);
+            Driver::pay(&mut g, &[4]);
         } else if accept {
             Driver::answer(
                 &mut g,

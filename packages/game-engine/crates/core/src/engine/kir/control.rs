@@ -772,7 +772,17 @@ impl RulesTxn {
                         }
                     }
                     Payment::Mana { mana: cost } => {
-                        self.begin_kernel_payment(task, player, cost.clone())?;
+                        // CR 605.3a: the payer may activate mana abilities
+                        // here. With no usable source, only the pool can fund it.
+                        if self.can_pay(player, cost)?
+                            || self.state.rules.objects.values().any(|object| {
+                                self.validate_mana_activation(player, object.id).is_ok()
+                            })
+                        {
+                            self.begin_kernel_payment(task, player, cost.clone())?;
+                        } else {
+                            self.paid(task, &node, false)?;
+                        }
                     }
                     Payment::Generic { amount } => {
                         let amount = self.control_amount(&task, amount)?;

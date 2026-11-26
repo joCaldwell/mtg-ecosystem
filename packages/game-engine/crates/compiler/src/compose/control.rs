@@ -15,10 +15,13 @@
 //!   Its body is made of verbs whose feasibility the continuation decides
 //!   before offering the choice (CR 701.26a: tapping a tapped permanent is
 //!   impossible).
-//! * CR 118.12a: "unless [player] pays {N}" / "N life" is
-//!   [`Node::UnlessPays`].
+//! * CR 118.12a: "unless [player] pays" is [`Node::UnlessPays`] for
+//!   fixed mana, life or a single artifact discard.
 //! * CR 118.12, 608.2c: "[player] may pay [cost]. If they do/don't, ..."
 //!   is [`Node::IfPays`] / [`Node::UnlessPays`] over the next sentence.
+//!   A controller's optional sacrifice of one creature uses the same route.
+//! * CR 614.15: an "instead" step that changes only the amount of the
+//!   original effect is one [`Node::If`] with both branches.
 //! * CR 608.2c: "if"/"unless" is [`Node::If`] over a board condition the
 //!   continuation evaluates on resolution: a count of permanents a player
 //!   controls (CR 109.5).
@@ -26,9 +29,9 @@
 //! A wrapped step whose instruction range is empty, a wrap that overlaps
 //! another, a chooser or payer the resolution does not bind to a kernel
 //! player, and any condition outside these rows reject under
-//! `compose.control:<detail>`. "If you do" (CR 608.2c, 603.12) needs a
-//! performed-step condition no kernel cell admits yet and stays rejected
-//! under `compose.control:you_do`. A destroy step keeps its own optional row
+//! `compose.control:<detail>`. Dependent clauses outside the admitted
+//! resolution costs reject under `compose.control:you_do`. A destroy step
+//! keeps its own optional row
 //! (`Cell::OptionalTargetDestroy`).
 //!
 //! Pinned Comprehensive Rules 2026-09-25:
