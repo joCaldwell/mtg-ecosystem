@@ -777,6 +777,8 @@ impl Walk<'_, '_> {
                         Ok(())
                     }
                     Change::Controller { player } => self.player(player),
+                    // CR 113.10: resolving ability grants are not admitted.
+                    Change::AddManaAbilities { .. } => kind("resolving mana ability grant"),
                 }
             }
             Verb::CreateDelayedTrigger { event, node } => {

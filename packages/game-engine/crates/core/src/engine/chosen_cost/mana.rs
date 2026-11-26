@@ -111,7 +111,7 @@ impl RulesTxn {
         let Ok(choices) = self.mixed_mana_choices(player, source) else {
             return Ok(vec![]);
         };
-        let definition = self.copiable_definition(source)?;
+        let current = self.current_mana_abilities(source)?;
         let one = Quantity::from(1);
         let mut options = vec![];
         for choice in choices {
@@ -119,8 +119,12 @@ impl RulesTxn {
                 ManaAbilityIdentity::Intrinsic { color } => {
                     options.push(vec![(color, one.clone())])
                 }
-                ManaAbilityIdentity::Printed { index } => {
-                    let ability = &definition.mana_abilities[index as usize];
+                ManaAbilityIdentity::Printed { .. } | ManaAbilityIdentity::Granted { .. } => {
+                    let Some((_, ability)) =
+                        current.iter().find(|(slot, _)| slot.identity() == choice)
+                    else {
+                        return Err("missing mana ability choice".into());
+                    };
                     // A conservative preflight can combine independent mana sources.
                     // Inputs, life and riders would require simulating their order.
                     if !ability.costs.tap

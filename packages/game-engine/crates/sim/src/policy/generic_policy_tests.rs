@@ -38,6 +38,7 @@ mod board {
             attached_to: None,
             attachments: vec![],
             keywords: d.keywords.clone(),
+            granted_mana: vec![],
             restrictions: vec![],
             token: None,
             plus_one_counters: 0.into(),

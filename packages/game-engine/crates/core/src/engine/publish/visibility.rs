@@ -193,6 +193,7 @@ type ObjectCores = std::cell::RefCell<Arc<BTreeMap<ObjectId, Arc<ObjectCore>>>>;
 struct ObjectCore {
     faces: Option<VisibleFaces>,
     keywords: Vec<KeywordAbility>,
+    granted_mana: Vec<ManaAbility>,
     restrictions: Vec<CreatureRestriction>,
     token: Option<VisibleToken>,
     mana_ability_used: Option<bool>,
@@ -665,6 +666,7 @@ impl RulesTxn {
                 mana_ability_used: None,
                 token: None,
                 keywords: vec![],
+                granted_mana: vec![],
                 restrictions: vec![],
                 attachments: vec![],
                 attached_to: None,
@@ -702,6 +704,7 @@ impl RulesTxn {
         let ObjectCore {
             faces,
             keywords,
+            granted_mana,
             restrictions,
             token,
             mana_ability_used,
@@ -728,6 +731,7 @@ impl RulesTxn {
             attached_to,
             attachments,
             keywords,
+            granted_mana,
             restrictions,
             token,
             mana_ability_used,
@@ -822,6 +826,11 @@ impl RulesTxn {
                     name: t.definition.name.clone(),
                     keywords: t.definition.keywords.clone(),
                 }),
+            granted_mana: self
+                .granted_mana_with_sources(object.id, static_sources)
+                .into_iter()
+                .map(|(_, a)| a.clone())
+                .collect(),
             mana_ability_used: self
                 .copiable_definition(object.id)?
                 .mana_abilities

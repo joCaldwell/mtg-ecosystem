@@ -700,9 +700,26 @@ impl Site<'_> {
                     && self.ability["effect"]["static"] == "entry-choice"))
         {
             Some(ControllerRole::EnteringController)
+        } else if self.quoted_ability() {
+            // CR 109.5, 113.10a: "you" in a granted activated ability is
+            // the player who activates it, on the object that has it.
+            Some(ControllerRole::AbilityController)
         } else {
             self.kind.controller()
         }
+    }
+
+    /// The reference is printed inside a static's quoted ability, and the
+    /// archive scoped it to that ability.
+    fn quoted_ability(&self) -> bool {
+        self.kind == BlockKind::Static
+            && self.scope.is_some_and(|scope| {
+                self.path.starts_with(&format!("{scope}/"))
+                    && scope
+                        .strip_suffix("/ability")
+                        .and_then(|grant| self.ability.pointer(grant))
+                        .is_some_and(|grant| grant["gained"] == "quoted")
+            })
     }
 
     /// A resolving-effect operand, not the owner object of a relation.

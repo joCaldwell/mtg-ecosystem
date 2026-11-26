@@ -680,13 +680,26 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
 /// also cost mana (CR 605.3a, 601.2g-h) or life (CR 119.4), and may perform
 /// admitted riders after adding mana ([`kir::mana_rider`]).
 /// CR 605.1a, 605.3: mana abilities do not use the stack.
-fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
+/// CR 106.1, 106.4, 106.7: the admitted productions.
+pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
     let distinct = |colors: &[Color]| {
         colors
             .iter()
             .enumerate()
             .all(|(i, c)| !colors[..i].contains(c))
     };
+    match production {
+        ManaProduction::Fixed { symbols } => !symbols.is_empty(),
+        ManaProduction::AnyColor
+        | ManaProduction::CommanderColor
+        | ManaProduction::LandsCouldProduce { .. } => true,
+        ManaProduction::Choose { colors, amount } => {
+            colors.len() >= 2 && distinct(colors) && *amount >= Quantity::from(1)
+        }
+    }
+}
+
+fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
     if !matches!(
         d.characteristics.kind,
         CardKind::Creature | CardKind::Artifact | CardKind::Land
@@ -702,15 +715,7 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
             .is_some_and(|life| *life < Quantity::from(1))
         || a.costs.remove_source_plus_one_counters.is_some()
         || a.restriction.is_some()
-        || !match &a.production {
-            ManaProduction::Fixed { symbols } => !symbols.is_empty(),
-            ManaProduction::AnyColor
-            | ManaProduction::CommanderColor
-            | ManaProduction::LandsCouldProduce { .. } => true,
-            ManaProduction::Choose { colors, amount } => {
-                colors.len() >= 2 && distinct(colors) && *amount >= Quantity::from(1)
-            }
-        }
+        || !mana_production_supported(&a.production)
     {
         return cell("mana", name(&a.production));
     }

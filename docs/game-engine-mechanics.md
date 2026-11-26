@@ -178,11 +178,16 @@ through a nested activation or a life payment (CR 119.4), and one production:
 fixed symbols, any color, commander color, N mana of one color chosen from a
 printed list, or one mana of a type the controller's or opponents' lands could
 produce. CR 106.7 is the least fixed point over battlefield lands, each read
-relative to its own controller from intrinsic and printed abilities, ignoring
+relative to its own controller from intrinsic, printed and granted abilities, ignoring
 costs and object order; if a departure leaves no defined type while the color is
 chosen, the ability adds nothing. A source with several mana abilities first
 asks which to activate (CR 605.3a). Riders follow in order: damage to the
 controller or life gain (CR 605.3b). A nested payment rechecks outer costs.
+
+Statics may grant quoted mana abilities in layer 6 (CR 113.10a, 613.1f). The
+recipient taps for its activator (CR 109.5, 302.6); printed then granted
+abilities drive activation, views, planning and saves. Grants admit only tap and
+life costs, without riders, restrictions, conditions or tapped-status filters.
 
 Reversal (CR 733.1) restores receipt-recorded mana, taps and counters; an
 activation that paid life or performed riders is kept, with every activation of
@@ -668,7 +673,7 @@ request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
 | Cost × route | The [costs](#cost-keywords-and-variable-costs) above, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition; reviewed patterns keep their capabilities, others use `EventTriggerV1`. |
-| Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics; the [mana abilities](#mana-abilities) (`kir::mana_ability_cells`); evergreen keywords without parameters. |
+| Static, mana, keyword | Own entry tapped, scoped continuous changes, mana grants and rule statics; the [mana abilities](#mana-abilities) (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
 | Card shell | Normal cards and [double-faced or adventurer cards](#double-faced-cards-and-adventurers) whose parts have complete bound source and supported spell costs and keywords. |
 

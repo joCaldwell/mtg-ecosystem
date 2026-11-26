@@ -189,6 +189,13 @@ impl StaticEffect {
                     },
                 condition: None,
             } if kind == CardKind::Creature => Capability::SacrificeV1,
+            Self::Continuous { changes, .. }
+                if changes
+                    .iter()
+                    .any(|c| matches!(c, Change::AddManaAbilities { .. })) =>
+            {
+                Capability::GrantedManaAbilitiesV1
+            }
             Self::Continuous {
                 affects: Scope::Matching { filter },
                 changes,
@@ -335,6 +342,47 @@ fn creature_scope(scope: &Scope, kind: CardKind) -> bool {
     }
 }
 
+/// CR 113.10a, 605.1a, 613.1f: the admitted quoted mana abilities. A
+/// granted ability belongs to each recipient, which pays its tap cost and
+/// optional life (CR 118.3, 119.4) and adds the mana itself; "you" is the
+/// player who activates it (CR 109.5). The activation must keep its
+/// ability while the activation is open, so no admitted cost or condition
+/// can change which objects have it: tapping cannot change a recipient
+/// filter without tapped status and no condition guards the grant or the
+/// granted ability. Riders, restrictions, mana costs and sacrifice need their
+/// own admission rows.
+pub fn granted_mana_supported(
+    affects: &Scope,
+    condition: Option<&Cond>,
+    abilities: &[crate::ManaAbility],
+) -> bool {
+    fn untap_status(filter: &Pred) -> bool {
+        filter.0.iter().any(|atom| match atom {
+            Atom::Tapped | Atom::Untapped => true,
+            Atom::AnyOf { alternatives } => alternatives.iter().any(untap_status),
+            _ => false,
+        })
+    }
+    let stable = affects.filter().is_none_or(|filter| !untap_status(filter));
+    stable
+        && condition.is_none()
+        && !abilities.is_empty()
+        && abilities.iter().all(|a| {
+            a.costs.tap
+                && !a.costs.sacrifice
+                && a.costs.mana.is_none()
+                && a.costs.remove_source_plus_one_counters.is_none()
+                && a.costs
+                    .pay_life
+                    .as_ref()
+                    .is_none_or(|life| *life >= Quantity::from(1))
+                && a.restriction.is_none()
+                && a.condition.is_none()
+                && a.riders.is_empty()
+                && super::tiers::mana_production_supported(&a.production)
+        })
+}
+
 impl crate::StaticAbility {
     pub(crate) fn validate_static(&self, definition: &crate::Definition) -> Result<(), String> {
         use crate::FunctioningZone::{Battlefield, Stack};
@@ -414,6 +462,9 @@ impl crate::StaticAbility {
                                         }
                                     }
                                 })
+                        }
+                        Change::AddManaAbilities { abilities } => {
+                            granted_mana_supported(affects, condition.as_ref(), abilities)
                         }
                         Change::RemoveKeywords { .. }
                         | Change::Controller { .. }

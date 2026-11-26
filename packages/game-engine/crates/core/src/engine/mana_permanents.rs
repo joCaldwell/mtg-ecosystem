@@ -36,9 +36,13 @@ pub enum ManaStage {
 pub struct ManaActivation {
     pub(super) player: PlayerId,
     pub source: ObjectId,
-    /// CR 605.3a: which of the source's printed mana abilities this is.
+    /// CR 605.3a: which of the source's printed (or, when `granted`,
+    /// granted) mana abilities this is.
     #[serde(default, skip_serializing_if = "is_zero")]
     index: u32,
+    /// CR 113.10a: the ability is one a battlefield static grants the source.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    granted: bool,
     ability: ManaAbility,
     /// CR 608.2c: the next rider to perform once the mana is added.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -54,10 +58,16 @@ impl ManaActivation {
         self.ability.costs.mana.clone()
     }
 
-    /// The activation is the source's printed mana ability `index`.
-    fn matches_definition(&self, definition: &Definition) -> bool {
-        definition.mana_abilities.get(self.index as usize) == Some(&self.ability)
-            && self.rider as usize <= self.ability.riders.len()
+    /// The printed ability's index; none for a granted one.
+    pub(crate) fn printed_index(&self) -> Option<u32> {
+        (!self.granted).then_some(self.index)
+    }
+    fn slot(&self) -> ManaSlot {
+        if self.granted {
+            ManaSlot::Granted(self.index)
+        } else {
+            ManaSlot::Printed(self.index)
+        }
     }
 
     /// CR 733.1: a player may reverse a legal mana ability, so reversal is
@@ -76,6 +86,22 @@ impl ManaActivation {
     }
 }
 
+/// CR 113.10a, 605.3a: one of an object's current mana abilities: printed on
+/// it, or granted by a battlefield static (in the granting effects'
+/// timestamp order, CR 613.7a).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ManaSlot {
+    Printed(u32),
+    Granted(u32),
+}
+impl ManaSlot {
+    pub(crate) fn identity(self) -> ManaAbilityIdentity {
+        match self {
+            Self::Printed(index) => ManaAbilityIdentity::Printed { index },
+            Self::Granted(index) => ManaAbilityIdentity::Granted { index },
+        }
+    }
+}
 /// CR 602.5b: restriction belongs to the ability on this incarnation, across
 /// control changes, during each player's turn. Index zero reserves the eventual
 /// selector without expanding the singleton public action.
@@ -146,6 +172,72 @@ pub(super) fn reversible_receipts(receipts: &[ManaActivationUndo]) -> bool {
 }
 
 impl RulesTxn {
+    /// CR 113.10a, 613.1f: the mana abilities battlefield statics grant
+    /// `object` now, with each granting object, in timestamp order.
+    pub(crate) fn granted_mana_abilities(&self, object: ObjectId) -> Vec<(ObjectId, &ManaAbility)> {
+        self.granted_mana_with_sources(object, None)
+    }
+    pub(super) fn granted_mana_with_sources<'a>(
+        &'a self,
+        object: ObjectId,
+        sources: Option<&'a [CardId]>,
+    ) -> Vec<(ObjectId, &'a ManaAbility)> {
+        if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
+            return vec![];
+        }
+        self.static_changes_by_source(object, mtg_contracts::kir::Layer::Ability, sources)
+            .into_iter()
+            .flat_map(|(_, grantor, change)| match change {
+                mtg_contracts::kir::Change::AddManaAbilities { abilities } => {
+                    abilities.iter().map(|a| (grantor, a)).collect()
+                }
+                _ => vec![],
+            })
+            .collect()
+    }
+    /// The object's current mana abilities: printed, then granted.
+    pub(crate) fn current_mana_abilities(
+        &self,
+        object: ObjectId,
+    ) -> Result<Vec<(ManaSlot, ManaAbility)>, String> {
+        let mut out = vec![];
+        for (index, a) in self
+            .copiable_definition(object)?
+            .mana_abilities
+            .iter()
+            .enumerate()
+        {
+            let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
+            out.push((ManaSlot::Printed(index), a.clone()));
+        }
+        for (index, (_, a)) in self.granted_mana_abilities(object).into_iter().enumerate() {
+            let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
+            out.push((ManaSlot::Granted(index), a.clone()));
+        }
+        Ok(out)
+    }
+    fn mana_ability_at(&self, source: ObjectId, slot: ManaSlot) -> Result<ManaAbility, String> {
+        match slot {
+            ManaSlot::Printed(index) => self
+                .copiable_definition(source)?
+                .mana_abilities
+                .get(index as usize)
+                .cloned(),
+            ManaSlot::Granted(index) => self
+                .granted_mana_abilities(source)
+                .get(index as usize)
+                .map(|(_, a)| (*a).clone()),
+        }
+        .ok_or_else(|| "missing mana ability".into())
+    }
+    /// The activation is still the source's current ability at its slot;
+    /// admitted grants cannot change while their activation is open.
+    fn activation_matches(&self, a: &ManaActivation) -> Result<bool, String> {
+        Ok(
+            self.mana_ability_at(a.source, a.slot()).ok().as_ref() == Some(&a.ability)
+                && a.rider as usize <= a.ability.riders.len(),
+        )
+    }
     pub(super) fn mana_use_key(&self, source: ObjectId, index: u32) -> ManaAbilityUse {
         ManaAbilityUse {
             source,
@@ -225,6 +317,7 @@ impl RulesTxn {
     pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
         self.copiable_definition(object)
             .is_ok_and(|d| !d.mana_abilities.is_empty())
+            || !self.granted_mana_abilities(object).is_empty()
     }
     pub(super) fn mana_colors(
         &self,
@@ -322,7 +415,8 @@ impl RulesTxn {
             let key = (o.id, o.controller);
             let mut types: BTreeSet<Color> =
                 self.intrinsic_mana_colors(o.id)?.into_iter().collect();
-            for ability in &self.copiable_definition(o.id)?.mana_abilities {
+            // CR 106.7: granted abilities are abilities the land has.
+            for (_, ability) in self.current_mana_abilities(o.id)? {
                 match &ability.production {
                     ManaProduction::LandsCouldProduce {
                         controller,
@@ -462,31 +556,41 @@ impl RulesTxn {
         if self.mana_ability_selection(source)? {
             return self.mixed_mana_choices(player, source).map(|_| ());
         }
-        self.validate_permanent_mana_costs(player, source, 0)
+        self.validate_permanent_mana_costs(player, source, self.only_mana_slot(source)?)
+    }
+
+    /// The single mana ability of a source that offers no selection.
+    fn only_mana_slot(&self, source: ObjectId) -> Result<ManaSlot, String> {
+        Ok(self
+            .current_mana_abilities(source)?
+            .first()
+            .ok_or("unsupported permanent mana source")?
+            .0)
     }
 
     /// CR 605.3a: the player chooses which mana ability of the source to
-    /// activate when it has an intrinsic one (CR 305.6) or several printed.
+    /// activate when it has an intrinsic one (CR 305.6) or several printed
+    /// or granted ones (CR 113.10a).
     fn mana_ability_selection(&self, source: ObjectId) -> Result<bool, String> {
-        let printed = self.copiable_definition(source)?.mana_abilities.len();
-        if printed == 0 {
+        let current = self.current_mana_abilities(source)?.len();
+        if current == 0 {
             return Err("unsupported permanent mana source".into());
         }
-        Ok(printed > 1 || !self.intrinsic_mana_colors(source)?.is_empty())
+        Ok(current > 1 || !self.intrinsic_mana_colors(source)?.is_empty())
     }
 
     fn validate_permanent_mana_costs(
         &self,
         player: PlayerId,
         source: ObjectId,
-        index: u32,
+        slot: ManaSlot,
     ) -> Result<(), String> {
         let o = self.current(source)?;
-        let d = self.copiable_definition(source)?;
-        let a = d
-            .mana_abilities
-            .get(index as usize)
-            .ok_or("missing mana ability")?;
+        let a = &self.mana_ability_at(source, slot)?;
+        let index = match slot {
+            ManaSlot::Printed(index) => Some(index),
+            ManaSlot::Granted(_) => None,
+        };
         if !o.present_on_battlefield()
             || o.controller != player
             || !self.is_live(player)
@@ -499,7 +603,8 @@ impl RulesTxn {
                 .remove_source_plus_one_counters
                 .as_ref()
                 .is_some_and(|n| o.plus_one_counters < *n)
-            || (a.restriction.is_some() && self.mana_ability_index_used(source, index))
+            || (a.restriction.is_some()
+                && index.is_none_or(|index| self.mana_ability_index_used(source, index)))
             || a.condition
                 .as_ref()
                 .is_some_and(|c| self.activation_condition_check(player, source, c).is_err())
@@ -518,20 +623,18 @@ impl RulesTxn {
         player: PlayerId,
         source: ObjectId,
     ) -> Result<Vec<ManaAbilityIdentity>, String> {
-        let definition = self.copiable_definition(source)?;
         let mut choices: Vec<_> = self
             .intrinsic_choice_colors(player, source)
             .unwrap_or_default()
             .into_iter()
             .map(|color| ManaAbilityIdentity::Intrinsic { color })
             .collect();
-        for index in 0..definition.mana_abilities.len() {
-            let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
+        for (slot, _) in self.current_mana_abilities(source)? {
             if self
-                .validate_permanent_mana_costs(player, source, index)
+                .validate_permanent_mana_costs(player, source, slot)
                 .is_ok()
             {
-                choices.push(ManaAbilityIdentity::Printed { index });
+                choices.push(slot.identity());
             }
         }
         if choices.is_empty() {
@@ -582,7 +685,10 @@ impl RulesTxn {
                     self.resume_mana(resume, vec![receipt])
                 }
                 ManaAbilityIdentity::Printed { index } => {
-                    self.start_mana_ability(&input, source, index, resume)
+                    self.start_mana_ability(&input, source, ManaSlot::Printed(index), resume)
+                }
+                ManaAbilityIdentity::Granted { index } => {
+                    self.start_mana_ability(&input, source, ManaSlot::Granted(index), resume)
                 }
             };
         }
@@ -634,7 +740,8 @@ impl RulesTxn {
             };
             Ok(())
         } else {
-            self.start_mana_ability(input, source, 0, resume)
+            let slot = self.only_mana_slot(source)?;
+            self.start_mana_ability(input, source, slot, resume)
         }
     }
 
@@ -642,19 +749,19 @@ impl RulesTxn {
         &mut self,
         input: &AcceptedInput,
         source: ObjectId,
-        index: u32,
+        slot: ManaSlot,
         resume: Frame,
     ) -> Result<(), String> {
-        let ability = self
-            .copiable_definition(source)?
-            .mana_abilities
-            .get(index as usize)
-            .ok_or("missing selected mana ability")?
-            .clone();
+        let ability = self.mana_ability_at(source, slot)?;
+        let (index, granted) = match slot {
+            ManaSlot::Printed(index) => (index, false),
+            ManaSlot::Granted(index) => (index, true),
+        };
         let activation = ManaActivation {
             player: input.player,
             source,
             index,
+            granted,
             rider: 0,
             decision_id: input.decision_id,
             ability,
@@ -734,7 +841,7 @@ impl RulesTxn {
                 // activation is cancelled and its legal nested ones remain.
                 if self.can_pay_offered(a.player, &cost)?
                     && self
-                        .validate_permanent_mana_costs(a.player, a.source, a.index)
+                        .validate_permanent_mana_costs(a.player, a.source, a.slot())
                         .is_ok()
                 {
                     a.stage = ManaStage::Spend;
@@ -768,7 +875,7 @@ impl RulesTxn {
         mut a: ManaActivation,
         spending: BTreeMap<Color, Quantity>,
     ) -> Result<(), String> {
-        self.validate_permanent_mana_costs(a.player, a.source, a.index)?;
+        self.validate_permanent_mana_costs(a.player, a.source, a.slot())?;
         // No costs are paid until the nested payment succeeds (601.2g-h).
         let pool = &self.state.rules.players[a.player.0 as usize].mana;
         let mut receipt = PermanentManaUndo {
@@ -778,8 +885,9 @@ impl RulesTxn {
             ability_use: a
                 .ability
                 .restriction
+                .filter(|_| !a.granted)
                 .map(|_| self.mana_use_key(a.source, a.index)),
-            previously_used: self.mana_ability_index_used(a.source, a.index),
+            previously_used: !a.granted && self.mana_ability_index_used(a.source, a.index),
             condition: a
                 .ability
                 .condition
@@ -1076,7 +1184,7 @@ impl RulesTxn {
             return Err("unbound mana rider damage".into());
         };
         if a.paid.is_none()
-            || !a.matches_definition(self.copiable_definition(a.source)?)
+            || !self.activation_matches(a)?
             || amount.as_fixed() != Some(&damage.original_amount)
             || tx.cause != a.cause()
             || damage.recipient != (DamageRecipient::Player { player: a.player })
@@ -1324,7 +1432,7 @@ impl RulesTxn {
             invalid |= !self.is_live(a.player)
                 || (a.paid.is_none()
                     && self
-                        .validate_permanent_mana_costs(a.player, a.source, a.index)
+                        .validate_permanent_mana_costs(a.player, a.source, a.slot())
                         .is_err());
             f = self.saved_frame(a.resume)?;
         }
@@ -1406,7 +1514,7 @@ impl RulesTxn {
         while let Frame::ManaAbility { activation: a } = f {
             if !self.is_live(a.player)
                 || !sources.insert(a.source)
-                || !a.matches_definition(self.copiable_definition(a.source)?)
+                || !self.activation_matches(a)?
                 || !self.mana_resume_player(self.saved_frame(a.resume)?, a.player)
                 || (a.stage == ManaStage::Color) != a.paid.is_some()
                 || a.receipts.iter().any(|r| r.player != a.player)

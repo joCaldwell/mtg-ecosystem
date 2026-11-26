@@ -566,6 +566,20 @@ impl RulesTxn {
         layer: Layer,
         sources: Option<&'a [CardId]>,
     ) -> Vec<(u64, &'a Change)> {
+        self.static_changes_by_source(target, layer, sources)
+            .into_iter()
+            .map(|(timestamp, _, change)| (timestamp, change))
+            .collect()
+    }
+
+    /// The layer's applicable static changes with the object whose static
+    /// ability generates each, in timestamp order (CR 613.7a).
+    pub(super) fn static_changes_by_source<'a>(
+        &'a self,
+        target: ObjectId,
+        layer: Layer,
+        sources: Option<&'a [CardId]>,
+    ) -> Vec<(u64, ObjectId, &'a Change)> {
         let Ok(target) = self.current(target) else {
             return Vec::new();
         };
@@ -610,11 +624,11 @@ impl RulesTxn {
                     changes
                         .iter()
                         .filter(|c| c.layer() == layer)
-                        .map(|change| (source.keyword_timestamp.unwrap_or(0), change)),
+                        .map(|change| (source.keyword_timestamp.unwrap_or(0), source.id, change)),
                 );
             }
         }
-        matching.sort_by_key(|(timestamp, _)| *timestamp);
+        matching.sort_by_key(|(timestamp, _, _)| *timestamp);
         matching
     }
 

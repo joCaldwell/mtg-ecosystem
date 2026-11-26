@@ -204,6 +204,7 @@ pub trait GameTestkit {
     fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId>;
     fn current(&self, id: ObjectId) -> Result<&Object, String>;
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility>;
+    fn granted_mana_abilities(&self, object: ObjectId) -> Vec<ManaAbility>;
 
     fn damage_effect_group(
         &self,
@@ -685,6 +686,12 @@ impl GameTestkit for Game {
     }
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
         RulesTxn::current_keywords(self, object)
+    }
+    fn granted_mana_abilities(&self, object: ObjectId) -> Vec<ManaAbility> {
+        RulesTxn::granted_mana_abilities(self, object)
+            .into_iter()
+            .map(|(_, a)| a.clone())
+            .collect()
     }
 
     fn damage_effect_group(

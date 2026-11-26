@@ -246,6 +246,7 @@ pub fn encode(
         for k in &o.restrictions {
             n[13] |= 1 << (*k as u32);
         }
+        n[10] = i32::try_from(o.granted_mana.len()).unwrap_or(i32::MAX);
         n[15] = -1;
         n[18] = -1;
     }
@@ -345,6 +346,7 @@ pub fn encode(
             Candidate::Color { color: c } => (4, -1, -1, color(*c) as i32, 0),
             Candidate::ManaAbility { ability } => match ability {
                 ManaAbilityIdentity::Printed { index } => (5, -1, -1, 1, *index as i32),
+                ManaAbilityIdentity::Granted { index } => (5, -1, -1, 2, *index as i32),
                 ManaAbilityIdentity::Intrinsic { color: c } => (5, -1, -1, 0, color(*c) as i32),
             },
             Candidate::AdditionalCost { mana, .. } => {

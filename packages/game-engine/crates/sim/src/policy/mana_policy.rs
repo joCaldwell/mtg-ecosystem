@@ -300,7 +300,8 @@ fn could_produce_table(
             .iter()
             .filter_map(|s| basic_land_color(s))
             .collect();
-        for ability in &d.mana_abilities {
+        // CR 106.7, 113.10a: granted abilities are abilities the land has.
+        for ability in d.mana_abilities.iter().chain(&o.granted_mana) {
             match &ability.production {
                 ManaProduction::LandsCouldProduce {
                     controller,
@@ -370,20 +371,47 @@ pub(super) fn plan_for(
     }
     let mut sources = vec![];
     for (object_index, o) in view.objects.iter().enumerate() {
-        if !controlled_permanent(view, o) || o.token.is_some() || exclude == Some(&o.handle) {
+        if !controlled_permanent(view, o) || exclude == Some(&o.handle) {
             continue;
         }
-        let Ok(d) = definition(catalog, &o.oracle_id) else {
+        // A token plans only the abilities statics grant it (CR 113.10a);
+        // its own printed and intrinsic mana are not planned.
+        let d = match (&o.token, definition(catalog, &o.oracle_id)) {
+            (None, Ok(d)) => Some(d),
+            (None, Err(_)) => continue,
+            (Some(_), _) if o.granted_mana.is_empty() => continue,
+            (Some(_), _) => None,
+        };
+        let Some(c) = o.characteristics.as_ref().or(d.map(|d| &d.characteristics)) else {
             continue;
         };
-        let land = d.characteristics.has_type(CardKind::Land);
+        let land = c.has_type(CardKind::Land);
         let life = view
             .players
             .iter()
             .find(|p| p.player == view.viewer)
             .map(|p| p.life.clone())
             .unwrap_or_default();
-        for (index, ability) in d.mana_abilities.iter().enumerate() {
+        let printed = d
+            .iter()
+            .flat_map(|d| d.mana_abilities.iter().enumerate())
+            .map(|(index, a)| {
+                (
+                    ManaAbilityIdentity::Printed {
+                        index: index as u32,
+                    },
+                    a,
+                )
+            });
+        let granted = o.granted_mana.iter().enumerate().map(|(index, a)| {
+            (
+                ManaAbilityIdentity::Granted {
+                    index: index as u32,
+                },
+                a,
+            )
+        });
+        for (identity, ability) in printed.chain(granted) {
             if !usable_printed(ability, o, &life)
                 || !condition_holds(view, o, ability.condition.as_ref())
             {
@@ -395,9 +423,7 @@ pub(super) fn plan_for(
             }
             sources.push(Source {
                 object_index,
-                ability: ManaAbilityIdentity::Printed {
-                    index: index as u32,
-                },
+                ability: identity,
                 handle: &o.handle,
                 amount: match &ability.production {
                     ManaProduction::Choose { amount, .. } => amount.clone(),
@@ -410,8 +436,7 @@ pub(super) fn plan_for(
                 harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
             });
         }
-        if land && available_tap(o) {
-            let c = o.characteristics.as_ref().unwrap_or(&d.characteristics);
+        if land && d.is_some() && available_tap(o) {
             for color in c
                 .subtypes
                 .iter()
@@ -523,6 +548,7 @@ mod tests {
             attached_to: None,
             attachments: vec![],
             keywords: vec![],
+            granted_mana: vec![],
             restrictions: vec![],
             token: None,
             plus_one_counters: 0.into(),
@@ -536,6 +562,66 @@ mod tests {
             zone: Zone::Battlefield,
             tapped: false,
         }
+    }
+
+    /// CR 113.10a, 106.7: a Forest that has a granted any-color ability is
+    /// planned through that ability for blue, and its controller's other
+    /// "could produce" reads see blue too.
+    #[test]
+    fn granted_any_color_land_is_planned_by_its_granted_identity() {
+        let c = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mut v = view();
+        let mut forest = land(&c, "Forest", 3);
+        forest.granted_mana = vec![ManaAbility {
+            restriction: None,
+            condition: None,
+            costs: mtg_contracts::PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
+                tap: true,
+                mana: None,
+                sacrifice: false,
+                pay_life: None,
+            },
+            production: ManaProduction::AnyColor,
+            riders: vec![],
+            source_block: 0,
+        }];
+        v.objects.push(forest);
+        let cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::U],
+        };
+        let plan = plan_for(&c, &v, &cost, None).expect("granted blue");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(
+            plan[0].ability,
+            Some(ManaAbilityIdentity::Granted { index: 0 })
+        );
+        let table = could_produce_table(&c, &v);
+        assert!(table.values().any(|(_, colors)| colors.contains(&Color::U)));
+        let granted = v.objects[0].granted_mana.clone();
+        v.objects[0].granted_mana.clear();
+        assert!(plan_for(&c, &v, &cost, None).is_none());
+
+        // A token with no catalog definition (a creature token under
+        // Cryptolith Rite) plans only its granted ability.
+        let token = &mut v.objects[0];
+        token.oracle_id.clear();
+        token.token = Some(mtg_core::VisibleToken {
+            name: "Saproling".into(),
+            keywords: vec![],
+        });
+        let green = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::G],
+        };
+        assert!(plan_for(&c, &v, &green, None).is_none());
+        v.objects[0].granted_mana = granted;
+        let plan = plan_for(&c, &v, &cost, None).expect("granted token blue");
+        assert_eq!(
+            plan[0].ability,
+            Some(ManaAbilityIdentity::Granted { index: 0 })
+        );
     }
 
     fn commander(owner: u8, color: Color) -> mtg_core::VisibleCommander {

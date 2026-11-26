@@ -444,6 +444,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
             attached_to: None,
             attachments: vec![],
             keywords: vec![],
+            granted_mana: vec![],
             restrictions: vec![],
             token: None,
             plus_one_counters: Quantity::zero(),
