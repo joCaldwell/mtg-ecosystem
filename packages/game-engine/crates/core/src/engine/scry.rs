@@ -4,6 +4,18 @@
 use super::*;
 
 impl RulesTxn {
+    /// CR 111.6–8, 121.1, 704.5d–e: a tucked token or spell copy can stay
+    /// in the library zone until state-based actions, with no card to draw.
+    pub(super) fn top_library_card(&self, player: PlayerId) -> Option<CardId> {
+        self.state
+            .rules
+            .libraries
+            .get(&player)?
+            .iter()
+            .copied()
+            .find(|card| !self.state.rules.tokens.contains_key(card))
+    }
+
     pub(crate) fn library_prefix(
         &self,
         player: PlayerId,
@@ -228,6 +240,43 @@ impl RulesTxn {
         )
     }
 
+    pub(super) fn apply_library_prefix_to_bottom(
+        &mut self,
+        player: PlayerId,
+        looked: &[ObjectId],
+        bottom: &[ObjectId],
+    ) -> Result<EventOutcome, String> {
+        let count = Quantity::from(i64::try_from(looked.len()).map_err(|_| "look limit")?);
+        if !self.is_live(player)
+            || looked.is_empty()
+            || self.library_prefix(player, &count)? != looked
+        {
+            return Err("invalid library prefix for bottom placement".into());
+        }
+        Self::library_partition(looked, [bottom, &[]])?;
+        let cards = self
+            .rules_mut()
+            .libraries
+            .get_mut(&player)
+            .ok_or("missing library")?;
+        cards.drain(..looked.len());
+        cards.extend(bottom.iter().map(|object| object.card));
+        let sequence = self.state.knowledge.visibility[player.0 as usize]
+            .own_knowledge
+            .len();
+        self.remember_library_action(
+            player,
+            OwnKnowledgeAction::LibrarySelected {
+                bottom: self.remembered(bottom, &format!("memory-{sequence}-bottom"))?,
+            },
+        )?;
+        Ok(EventOutcome::LibraryPrefixBottomed {
+            player,
+            looked: looked.to_vec(),
+            bottom: bottom.to_vec(),
+        })
+    }
+
     /// CR 701.24a-b: randomize the library with the seeded Fisher-Yates
     /// stream, excluding the found card on a search that puts it on top.
     pub(super) fn apply_library_shuffle(
@@ -253,6 +302,13 @@ impl RulesTxn {
                 .ok_or("found card missing from shuffled library")?;
             library.remove(index);
         }
+        // CR 111.6, 701.24a, 707.10: only cards participate in the
+        // permutation. Noncard objects stay in the zone until SBAs.
+        let positions: Vec<_> = library
+            .iter()
+            .enumerate()
+            .filter_map(|(i, card)| (!rules.tokens.contains_key(card)).then_some(i))
+            .collect();
         let state = rules
             .match_state
             .as_mut()
@@ -262,7 +318,7 @@ impl RulesTxn {
         }
         let ordinal = &mut state.library_shuffles[player.0 as usize];
         let stream = setup::stream_id(setup::LIBRARY_SHUFFLE, player, *ordinal)?;
-        for index in (1..library.len()).rev() {
+        for index in (1..positions.len()).rev() {
             let upper = u32::try_from(index + 1).map_err(|_| "shuffle range")?;
             let selected = loop {
                 let word = state.random.word(stream)?;
@@ -270,7 +326,7 @@ impl RulesTxn {
                     break selected;
                 }
             };
-            library.swap(index, selected as usize);
+            library.swap(positions[index], positions[selected as usize]);
         }
         *ordinal = ordinal
             .checked_add(1)

@@ -79,6 +79,54 @@ pub(super) fn reorder_top(cx: &mut StepCx<'_>, steps: &[Step]) -> Result<Instruc
     }))
 }
 
+/// CR 401.2, 608.2c-d, 701.20e: the hand choice and the bottom order
+/// partition exactly the preceding private look. R5's binding proves
+/// the same pool and its remainder across both sentences.
+pub(super) fn look_choose_hand(
+    look: &Sentence,
+    move_cards: &Sentence,
+    context: Context,
+) -> Result<Option<Verb>, Failure> {
+    let [Step::LookAt { who, what }] = look.steps.as_slice() else {
+        return Ok(None);
+    };
+    let [Step::Simultaneous { steps: members }] = move_cards.steps.as_slice() else {
+        return Ok(None);
+    };
+    if [look, move_cards].into_iter().any(|sentence| {
+        sentence.condition.is_some()
+            || sentence.condition_kind.is_some()
+            || !sentence.bindings.is_empty()
+    }) || *who != json!({"player":"you"})
+        || members
+            != &[
+                json!({
+                    "effect": "move-zone",
+                    "what": {"ref":"from-pool","pool":{"ref":"them"},"count":{"amount":"fixed","value":1}},
+                    "to": {"zone":"hand","owner":"your"},
+                }),
+                json!({
+                    "effect":"move-zone", "what":{"ref":"rest"},
+                    "to":{"zone":"library","owner":"your","position":"bottom"},
+                    "order":"any",
+                }),
+            ]
+    {
+        return Ok(None);
+    }
+    let Some(top) = what.get("top") else {
+        return Ok(None);
+    };
+    if *what != json!({"top":top,"of":{"zone":"library","owner":"your"}}) {
+        return Ok(None);
+    }
+    let amount = fixed_positive_amount(&typed::<ast::Amount>(top, "amount")?)?;
+    Ok(Some(Verb::LookChooseHand {
+        player: PlayerExpr::you(context),
+        amount: Amount::Fixed { value: amount },
+    }))
+}
+
 /// CR 701.23a, 608.2c: lower the search run starting at `steps[0]`.
 /// Returns its instructions and the number of printed steps it consumed.
 pub(super) fn search(
@@ -136,6 +184,48 @@ pub(super) fn search(
             at + 2,
         ));
     }
+    // CR 608.2c, d, f: reveal both before choosing the one that enters
+    // tapped. Put the remainder into hand in the same movement event.
+    if you
+        && reveal
+        && up_to
+        && maximum == 2
+        && matches!(cx.context, Context::Spell | Context::Activated)
+        && matches!(steps.get(1), Some(Step::Reveal { what, .. })
+            if *what == json!({"ref":"them"})
+                || *what == json!({"ref":"that","filter":{"cls":"card"},"plural":true}))
+        && let Some(Step::Simultaneous { steps: members }) = steps.get(at)
+        && split_basic_lands(members)
+        && matches!(
+            &filter.0[..],
+            [
+                kir::Atom::Basic,
+                kir::Atom::Type {
+                    kind: CardKind::Land
+                }
+            ] | [
+                kir::Atom::Type {
+                    kind: CardKind::Land
+                },
+                kir::Atom::Basic
+            ]
+        )
+    {
+        validate_search_shuffle(
+            steps.get(at + 1).ok_or_else(|| search_error("shuffle"))?,
+            &who_value,
+        )?;
+        let search = cx.act(Verb::Search {
+            player: player.clone(),
+            search: kir::SearchSpec {
+                filter,
+                maximum: Amount::fixed(maximum),
+                to: Destination::OneTappedRestOwnerHand,
+                reveal,
+            },
+        });
+        return Ok((vec![search, cx.act(Verb::Shuffle { player })], at + 2));
+    }
     let Some(Step::MoveZone {
         what,
         to,
@@ -167,6 +257,24 @@ pub(super) fn search(
     });
     let shuffle = cx.act(Verb::Shuffle { player });
     Ok((vec![search, shuffle], at + 1))
+}
+
+fn split_basic_lands(members: &[Value]) -> bool {
+    members
+        == [
+            json!({
+                "effect": "move-zone",
+                "what": {"ref": "from-pool", "pool": {"ref": "them"},
+                    "count": {"amount": "fixed", "value": 1}},
+                "to": {"zone": "battlefield"},
+                "tapped": true,
+            }),
+            json!({
+                "effect": "move-zone",
+                "what": {"ref": "rest"},
+                "to": {"zone": "hand", "owner": "your"},
+            }),
+        ]
 }
 
 /// CR 701.24a: the mandatory shuffle of the library that was searched.
@@ -206,6 +314,48 @@ pub(super) fn shuffle(
     }
     Ok(cx.act(Verb::Shuffle {
         player: PlayerExpr::you(cx.context),
+    }))
+}
+
+/// CR 701.24c: shuffle this resolving spell, or the sole announced
+/// permanent, into the physical object's owner's library.
+pub(super) fn shuffle_into(
+    cx: &mut StepCx<'_>,
+    who: &PlayerSelector,
+    what: &[Value],
+    library: &Value,
+) -> Result<Instruction, Failure> {
+    uncounted(cx)?;
+    let reject = || step("shuffle-into-library", "object_or_owner");
+    if cx.context != Context::Spell {
+        return Err(reject());
+    }
+    let [what] = what else {
+        return Err(reject());
+    };
+    let who = typed::<ast::PlayerRef>(who, "player")?;
+    let object = match who {
+        ast::PlayerRef::You(_)
+            if *what == json!({"ref":"this","noun":"spell"})
+                && *library == json!({"zone":"library","owner":"its-owner"}) =>
+        {
+            SetExpr::source()
+        }
+        ast::PlayerRef::Owner(owner)
+            if *what == json!({"ref":"it"})
+                && *library == json!({"zone":"library","owner":"their"}) =>
+        {
+            let slot = bind_permanent_target(cx.program, cx.slots, &owner.of)?;
+            if cx.program.optional_target {
+                return Err(reject());
+            }
+            SetExpr::target(slot)
+        }
+        _ => return Err(reject()),
+    };
+    Ok(cx.act(Verb::Move {
+        what: object,
+        to: Destination::OwnerLibraryShuffled,
     }))
 }
 

@@ -105,7 +105,17 @@ pub(crate) fn append_spell_effects(
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
     let source_block = source_block(block)?;
-    for sentence in effects {
+    let mut sentences = effects.iter().peekable();
+    while let Some(sentence) = sentences.next() {
+        if let Some(next) = sentences.peek()
+            && let Some(verb) = library::look_choose_hand(sentence, next, context)?
+        {
+            program
+                .instructions
+                .push(Instruction::act(verb, source_block));
+            sentences.next();
+            continue;
+        }
         if sentence.condition.is_some() || sentence.condition_kind.is_some() {
             return Err(unsupported(
                 "effects.condition",
@@ -300,6 +310,11 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
         Step::AdditionalLandPlays { .. } => Err(step("additional-land-plays", "unlowered")),
         Step::LookAt { .. } => Err(step("look-at", "unlowered")),
         Step::Simultaneous { .. } => Err(step("simultaneous", "unlowered")),
+        Step::ShuffleIntoLibrary {
+            who,
+            what,
+            library: into,
+        } => library::shuffle_into(cx, who, what, into),
         Step::Scry { amount } => library::look(cx, amount, false),
         Step::Surveil { amount } => library::look(cx, amount, true),
         Step::AddMana { .. } => Err(step("add-mana", "unlowered")),

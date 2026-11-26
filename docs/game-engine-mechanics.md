@@ -132,8 +132,9 @@ damage tracks physical source and recipient across control and zone changes. A
 replaced draw of a tucked commander completes once and preserves the next card.
 
 **Library choices** are private to their chooser and replay-proven: only the
-chooser sees the cards looked at (a searcher its whole library, CR 701.23a), and
-no other seat learns identity, count or order. Scry picks bottom cards, then
+chooser sees the cards looked at (a searcher its whole library, CR 701.23a).
+Other seats see only the identities and counts that a printed reveal makes
+public, without the library order. Scry picks bottom cards, then
 orders both groups; surveil picks graveyard cards, then orders the rest (CR
 701.22a, 701.25a); orders are asked only for two or more cards. Each
 manipulation is one atomic event, and other seats forget remembered positions in
@@ -412,8 +413,33 @@ the library, as does a found instant or sorcery (CR 303.4g, 304.4). Revealed
 hand cards are a public minimum count per owner and Oracle identity, never an
 incarnation (CR 701.23e); a reversed cast restores what its announcement
 consumed. A search can also put one found card on top after shuffling the rest
-(CR 701.24b); a printed reveal publishes it without a library handle. Splitting
-found cards among destinations or ordering several after shuffling rejects.
+(CR 701.24b); a printed reveal publishes it without a library handle.
+A spell or activated ability can let its controller search for up to two basic
+lands, reveal them, choose one for tapped battlefield entry, put the other into
+hand, and shuffle. If the search
+finds only one land, that land enters tapped. The split choice offers only the
+found cards to the searcher and shows revealed identities to everyone without
+library handles or positions (CR 608.2c–f, 701.20a, 701.23b–e). Other search
+partitions and ordering several cards after shuffling remain unsupported.
+
+**Library placement and shuffle** can put a single announced permanent on the
+bottom of its owner's library, retain the existing single-creature top
+placement, or shuffle a single announced permanent into its owner's library.
+The shuffle still happens if the owner's commander goes to the command zone
+instead. An audited follow-up lets the target's owner draw two cards. A spell
+can shuffle itself into its owner's library as its final instruction. It
+applies its stack-departure replacements first and uses the owner's normal
+shuffle stream (CR 400.3, 401.4, 608.2n, 701.24c, 903.9b).
+Tucked tokens and spell copies remain in the zone until state-based actions.
+They are absent from card counts, the shuffle permutation and draws
+(CR 111.6–8, 121.1, 704.5d–e, 707.10).
+
+A **private top-card selection** looks at a fixed positive prefix of the
+controller's library, chooses one card for hand, and puts the remainder on
+the bottom in a private order (CR 401.2, 401.4, 608.2d, 701.20e). The
+commander hand replacement still applies. Filtered or optional selection,
+public top-card reveals, random bottom ordering, and other destinations
+remain unsupported for this procedure.
 
 ## Battlefield entry replacements
 

@@ -43,6 +43,16 @@ impl RulesTxn {
                 mtg_contracts::kir::PlayerExpr::Is {
                     who: mtg_contracts::kir::Ref::Controller { .. },
                 } => Ok(self.entry(frame.stack_id)?.controller),
+                // CR 108.3, 608.2h: the physical card's owner stays the
+                // same after the preceding instruction shuffled the object.
+                mtg_contracts::kir::PlayerExpr::OwnerOf {
+                    object: mtg_contracts::kir::Ref::Target { slot },
+                } => {
+                    let target = self
+                        .bound_object_target(self.entry(frame.stack_id)?, *slot as usize)
+                        .ok_or("missing target for owner draw")?;
+                    Ok(self.state.rules.cards[&target.card].owner)
+                }
                 _ => Err("unsupported draw recipient".into()),
             },
 

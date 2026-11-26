@@ -381,6 +381,10 @@ pub enum Capability {
     OwnGraveyardCardReturnV1,
     PrivateLibraryReorderV1,
     SearchLibraryTopV1,
+    SearchSplitBasicLandsV1,
+    OwnerLibraryBottomMoveV1,
+    OwnerLibraryShuffleMoveV1,
+    PrivateLibrarySelectionV1,
     BasicLandSearchV1,
 
     CreatureAnthemV1,

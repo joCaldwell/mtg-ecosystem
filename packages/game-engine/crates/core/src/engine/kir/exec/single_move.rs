@@ -12,6 +12,9 @@ impl RulesTxn {
         source_block: u32,
     ) -> Result<(), String> {
         let entry = self.entry(frame.stack_id)?;
+        if object == Ref::Source && to == Destination::OwnerLibraryShuffled {
+            return self.shuffle_resolving_spell(frame, source_block);
+        }
         let (target, from_graveyard) = match object {
             Ref::Target { slot } => {
                 let slot = slot as usize;
@@ -39,6 +42,9 @@ impl RulesTxn {
                 object.present_on_battlefield()
             }
         }) {
+            if to == Destination::OwnerLibraryShuffled {
+                self.shuffle_absent_object_owner(&frame, target, source_block)?;
+            }
             return self
                 .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
         }
@@ -55,7 +61,9 @@ impl RulesTxn {
         let owner = self.state.rules.cards[&target.card].owner;
         let destination = match to {
             Destination::OwnerHand => Zone::Hand { owner },
-            Destination::OwnerLibraryTop => Zone::Library { owner },
+            Destination::OwnerLibraryTop
+            | Destination::OwnerLibraryBottom
+            | Destination::OwnerLibraryShuffled => Zone::Library { owner },
             // CR 110.2a, 614.1c: the target is in the invocation controller's
             // own graveyard. Its owner controls it there and on entry.
             // Admission restricts this move to creatures, excluding Auras
@@ -92,9 +100,88 @@ impl RulesTxn {
                 return Err("missing tapped entry outcome".into());
             };
             movement.clone()
+        } else if to == Destination::OwnerLibraryShuffled {
+            self.move_and_shuffle_owner_library(target, destination, cause)?
+        } else if to == Destination::OwnerLibraryBottom {
+            // The ordinary Move appends to the bottom (CR 401.4).
+            self.move_object_for(target, destination, cause)?
         } else {
             self.move_instruction_object(target, destination, cause)?
         };
         self.finish_instruction(frame, InstructionOutcome::Moved { movement })
+    }
+
+    /// CR 701.24c: the movement and shuffle are ordered in one transaction.
+    /// The object's owner shuffles even if a replacement diverted the move.
+    pub(in crate::engine) fn move_and_shuffle_owner_library(
+        &mut self,
+        object: ObjectId,
+        destination: Zone,
+        cause: BatchCause,
+    ) -> Result<MoveOutcome, String> {
+        let player = self.state.rules.cards[&object.card].owner;
+        let batch = self.commit_batch(
+            cause,
+            EventGroup::Ordered {
+                children: vec![
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Move {
+                            object,
+                            destination,
+                        },
+                    },
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::ShuffleLibrary { player },
+                    },
+                ],
+            },
+        )?;
+        let Some(EventOutcome::Moved { movement }) = batch.result(&[0]) else {
+            return Err("missing movement before library shuffle".into());
+        };
+        Ok(movement.clone())
+    }
+
+    pub(in crate::engine) fn shuffle_absent_object_owner(
+        &mut self,
+        frame: &Resolving,
+        object: ObjectId,
+        source_block: u32,
+    ) -> Result<(), String> {
+        let player = self.state.rules.cards[&object.card].owner;
+        if self.is_live(player) {
+            self.commit(
+                ProposedEvent::ShuffleLibrary { player },
+                self.instruction_cause(frame, source_block)?,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// CR 608.2n, 701.24c: move the resolving spell itself, applying its
+    /// stack-departure replacement if any, then shuffle and finish resolution.
+    fn shuffle_resolving_spell(
+        &mut self,
+        frame: Resolving,
+        source_block: u32,
+    ) -> Result<(), String> {
+        let entry = self.entry(frame.stack_id)?;
+        let program = self.program_for(entry)?;
+        if !entry.kind.is_spell() || frame.cursor as usize + 1 != program.instructions.len() {
+            return Err("resolving spell shuffle is not its final instruction".into());
+        }
+        if let Some(index) = self.resolving_entry_index(entry.id)? {
+            let object = entry.source;
+            let owner = self.state.rules.cards[&object.card].owner;
+            let destination = self.stack_departure(entry, Zone::Library { owner });
+            self.move_and_shuffle_owner_library(
+                object,
+                destination,
+                self.instruction_cause(&frame, source_block)?,
+            )?;
+            self.unstack(index).map_err(|e| e.to_string())?;
+        }
+        self.complete_spell_resolution(frame.stack_id, true)
+            .map_err(|e| e.to_string())
     }
 }

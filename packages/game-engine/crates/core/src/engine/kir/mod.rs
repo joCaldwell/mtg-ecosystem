@@ -257,6 +257,7 @@ impl RulesTxn {
             Verb::Search { .. }
                 | Verb::Shuffle { .. }
                 | Verb::ReorderLibraryTop { .. }
+                | Verb::LookChooseHand { .. }
                 | Verb::Scry { .. }
                 | Verb::Surveil { .. }
         ) {
@@ -308,6 +309,8 @@ impl RulesTxn {
                 to:
                     to @ (Destination::OwnerHand
                     | Destination::OwnerLibraryTop
+                    | Destination::OwnerLibraryBottom
+                    | Destination::OwnerLibraryShuffled
                     | Destination::Battlefield { .. }),
             } => self.kernel_single_move(frame, object, to, source_block),
             Verb::Move {
