@@ -530,6 +530,20 @@ pub(super) fn evoke(
     })
 }
 
+/// CR 702.109a: "Dash [cost]" is an alternative cost of this creature
+/// spell; its haste and end-step return follow from paying it.
+pub(super) fn dash(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<OptionalAdditionalManaCost, Failure> {
+    Ok(OptionalAdditionalManaCost {
+        identity: mtg_contracts::DASH_COST.into(),
+        source_block: block,
+        mana: keyword_mana(keyword, "Dash", text)?,
+    })
+}
+
 /// CR 702.30a: "Echo [cost]" is the upkeep trigger
 /// [`TriggeredAbility::echo`] paying one fixed mana cost.
 pub(super) fn echo(
@@ -554,6 +568,69 @@ pub(super) fn unearth(
         block,
         keyword_mana(keyword, "Unearth", text)?,
     ))
+}
+
+/// CR 702.141a: "Encore [cost]" is the graveyard ability
+/// [`ActivatedAbility::encore`] paying one fixed mana cost.
+pub(super) fn encore(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<ActivatedAbility, Failure> {
+    Ok(ActivatedAbility::encore(
+        block,
+        keyword_mana(keyword, "Encore", text)?,
+    ))
+}
+
+/// CR 702.138a: "Escape—[mana], Exile [N] other cards from your
+/// graveyard.", printed exactly; other escape costs reject.
+pub(super) fn escape(keyword: &SourceKeyword, text: &str) -> Result<EscapeCost, Failure> {
+    let reject = || unsupported("keyword", "keyword:escape:cost");
+    let [
+        SourceCost::Mana { symbols },
+        SourceCost::Exile { what, from: None },
+    ] = keyword.cost.as_deref().unwrap_or_default()
+    else {
+        return Err(reject());
+    };
+    let words = [
+        "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    ];
+    let count = what
+        .pointer("/count/value")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|n| (2..=10).contains(n))
+        .ok_or_else(reject)?;
+    let expected = serde_json::json!({
+        "ref": "filter",
+        "filter": {"other": true, "cls": "card", "zone": {"zone": "graveyard", "owner": "your"}},
+        "count": {"amount": "fixed", "value": count},
+    });
+    if *what != expected
+        || keyword.filter.is_some()
+        || symbols.is_empty()
+        || symbols
+            .iter()
+            .any(|s| s.is_empty() || s.contains(['{', '}']))
+        || text
+            != format!(
+                "Escape\u{2014}{}, Exile {} other cards from your graveyard.",
+                printed_mana(symbols),
+                words[count as usize - 2]
+            )
+    {
+        return Err(reject());
+    }
+    let mana = mana_cost(&printed_mana(symbols)).map_err(|_| reject())?;
+    if mana.colored.contains(&Color::C) {
+        return Err(reject());
+    }
+    Ok(EscapeCost {
+        mana,
+        exile_other: count,
+    })
 }
 
 /// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
