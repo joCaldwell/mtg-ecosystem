@@ -127,6 +127,9 @@ impl RulesTxn {
         if matches!(node, Node::Do(Verb::ReturnCapturedExile {})) {
             return self.execute_captured_return(frame, source_block);
         }
+        if matches!(node, Node::Do(Verb::ExileCapturedReturn {})) {
+            return self.execute_captured_exile(frame, source_block);
+        }
         // CR 119.3: the standalone drain pair uses the actual loss total.
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;
@@ -253,6 +256,12 @@ impl RulesTxn {
             } else {
                 self.execute_effect_instruction(frame, instruction)
             };
+        }
+        // CR 701.21a: "sacrifice it" names one exact permanent, never a choice.
+        if let Node::Do(Verb::Sacrifice { player, filter, .. }) = &node
+            && *filter == mtg_contracts::kir::Pred::source()
+        {
+            return self.kernel_sacrifice_source(frame, player, source_block);
         }
         // CR 701.17a, 701.9a-b, 701.21a: mill, discard and sacrifice keep
         // their executors, choices and recovery checks.

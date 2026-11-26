@@ -1462,7 +1462,7 @@ impl RulesTxn {
                                     object.controller,
                                     object.id,
                                     &observers.object_before(object.id)?,
-                                    if *condition == kir::Intervening::SourceCastByController {
+                                    if matches!(condition, kir::Intervening::SourceCastByController | kir::Intervening::SourceCostPaid { .. }) {
                                         before.and_then(|(prior, cause)| prior.completed_entry_cast(cause, &witness))
                                     } else {
                                         None
