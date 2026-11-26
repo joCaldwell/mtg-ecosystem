@@ -1763,3 +1763,14 @@ fn organic_extinction_improvises_generic_only() {
     }
     panic!("Organic Extinction did not complete payment");
 }
+
+#[test]
+fn charging_binox_rejects_assist_by_name() {
+    const BINOX: &str = record!("0f10f9d1-f9f9-4356-9208-0f21f44bfb97");
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, BINOX);
+    assert!(
+        matches!(&result, mtg_compiler::CompileResult::Unsupported { reason, .. }
+            if reason.contains("keyword:assist")),
+        "unexpected assist admission: {result:?}",
+    );
+}

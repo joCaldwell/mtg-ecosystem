@@ -269,6 +269,8 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   (CR 601.2h, 702.51). Summoning sickness does not limit this payment.
 - **Improvise** lets the caster tap untapped artifacts they control for
   generic mana after the mana ability window (CR 601.2h, 702.126).
+- **Assist** reports `keyword:assist`. It requires a second player’s mana
+  ability window and generic allocation before the caster pays (CR 702.132).
 - **Cycling**: a hand activation on any card type paying fixed mana and
   discarding the card, then drawing one (CR 702.29a). **Typecycling** pays the
   same, then searches for one card of its type (basic land, or an allowlisted
