@@ -5200,6 +5200,15 @@
       "ast_sha256": "22025cce49bd72defb2ba3f20b0cd1eea76cf39263598fe094e0f40cb6448a9d",
       "archive": "archive-manifest-phase1-r5.json",
       "archive_line": 2844
+    },
+    {
+      "file": "phase1-r5/f3c40943-1d7c-4ea2-b34f-8df8b6775701.json",
+      "oracle_id": "f3c40943-1d7c-4ea2-b34f-8df8b6775701",
+      "record_sha256": "749b4694b03e28b5391ba64f9fe4f16916f4762912ab04cc09cb753f1f6c4943",
+      "source_sha256": "f5034c89a04ddb362badeaa46ae9ed953da1cdcb28f367962d9266db16b594aa",
+      "ast_sha256": "9aff0b66071a2efa67ec8ad193cbef4e36275da75847e571d050709e23c6b5fd",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 36871
     }
   ]
 }

@@ -344,6 +344,8 @@ Battlefield targets use one legality check for castability, announcement and
 resolution (CR 601.2c, 608.2b). Criteria can combine card types, subtypes
 (including changeling), supertypes, colors, supported keywords, token status,
 control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
+A creature target can name alternatives by subtype, with each alternative
+requiring a creature in the admitted card types (CR 205.3d).
 An ability with one target occurrence can exclude its source with “another.”
 Graveyard targets check the announced incarnation, its owner's graveyard and
 its printed criteria, including secondary card types and fixed mana-value bounds

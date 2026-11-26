@@ -442,3 +442,39 @@ mod target_filters;
 mod target_groups;
 
 mod graveyard;
+
+/// CR 205.3d, 601.2c, 608.2b: each printed subtype is an alternative.
+#[test]
+fn animal_sanctuary_targets_creature_subtype_alternatives() {
+    let prepared = board(&[
+        (
+            record!("f3c40943-1d7c-4ea2-b34f-8df8b6775701"),
+            &[Cell::PlusOneCountersTarget],
+            Tiers::EXECUTES,
+        ),
+        (
+            record!("338f0ab6-f744-4e5a-a358-05e71b93758d"),
+            &[],
+            Tiers::ALL,
+        ),
+    ])
+    .permanent_or_hand("Animal Sanctuary", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Woodland Changeling", 1, 1, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let changeling = Driver::object(&g, 3);
+    activate(&mut g, 0, 0);
+    let d = targets(&mut g);
+    assert!(offers(&d, changeling));
+    assert!(!offers(&d, Driver::object(&g, 4)));
+    answer_targets(&mut g, &d, &[changeling]);
+    Driver::pay(&mut g, &[1, 2]);
+    settle(&mut g);
+    assert_eq!(
+        g.current(changeling).unwrap().plus_one_counters,
+        Quantity::from(1)
+    );
+}

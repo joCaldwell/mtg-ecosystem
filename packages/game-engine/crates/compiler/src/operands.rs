@@ -1584,12 +1584,25 @@ pub(crate) fn bind_creature_target(
     }
     // CR 601.2c, 608.2b: a qualified "target creature" is a permanent
     // target whose criteria prove a creature.
-    let (filter, ..) = target_occurrence(what)?;
-    let (_, lowered) = lower_target_filter(filter)?;
+    let (filter, selection, optional) = target_occurrence(what)?;
+    let (domain, mut lowered) = lower_target_filter(filter)?;
+    // CR 205.3d: every arm of a creature-subtype alternative requires a
+    // creature in the admitted type universe (which excludes kindred).
+    if lowered.types.is_empty() && lowered.predicate.as_ref().is_some_and(requires_creature) {
+        lowered.types.push(CardKind::Creature);
+    }
     if lowered.types != [CardKind::Creature] {
         return Err(creature_target(what).expect_err("not a plain creature target"));
     }
-    bind_permanent_target(program, slots, what)
+    bind_filtered_object_target(program, slots, selection, domain, optional, lowered)
+}
+
+fn requires_creature(predicate: &Pred) -> bool {
+    predicate.0.iter().any(|atom| match atom {
+        Atom::Subtype { subtype } => kir::is_creature_subtype(subtype),
+        Atom::AnyOf { alternatives } => alternatives.iter().all(requires_creature),
+        _ => false,
+    })
 }
 
 /// A damage recipient named by one target occurrence: "target creature" or,
@@ -1623,6 +1636,17 @@ pub(crate) fn bind_permanent_target(
 ) -> Result<u32, Failure> {
     let (filter, selection, optional) = target_occurrence(what)?;
     let (domain, filter) = lower_target_filter(filter)?;
+    bind_filtered_object_target(program, slots, selection, domain, optional, filter)
+}
+
+fn bind_filtered_object_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    selection: &str,
+    domain: TargetDomain,
+    optional: bool,
+    filter: PermanentFilter,
+) -> Result<u32, Failure> {
     let slot = bind_object_target(program, slots, selection, domain, optional)?;
     let target = &mut program.targets[slot as usize];
     if target.filter.as_ref().is_some_and(|old| *old != filter) {
