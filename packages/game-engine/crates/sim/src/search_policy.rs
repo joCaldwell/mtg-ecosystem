@@ -97,8 +97,11 @@ pub fn choose(
                     Candidate::Player{player}=>(*player==view.viewer)==beneficial,
                     Candidate::Object{object}=>view.objects.iter().any(|o|o.handle==*object && (o.controller==view.viewer)==beneficial),
                     _=>false
-                }).or_else(||legal.into_iter().next()).ok_or("empty rollout target domain")?;
-                picks.push(vec![i]);
+                }).or_else(||legal.clone().next()).ok_or("empty rollout target domain")?;
+                // CR 115.3: a counted group slot names `min` distinct objects.
+                let mut pick=vec![i];
+                pick.extend(legal.filter(|j|*j!=i).take((slot.min as usize).saturating_sub(1)));
+                picks.push(pick);
             }
             Answer::Pick{picks}
         }

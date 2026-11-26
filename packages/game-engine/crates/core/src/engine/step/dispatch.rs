@@ -210,9 +210,16 @@ impl RulesTxn {
                     // CR 115.1d, 608.2b: choosing zero doesn't stop the spell
                     // or ability. Only its independently targeted leaves do nothing.
                     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                    if program.optional_target
-                        && frame.legal_targets.is_empty()
-                        && !mtg_contracts::kir::target_slots(node).is_empty()
+                    // CR 115.3, 608.2b: a group leaf whose object was not
+                    // chosen, or is now an illegal target, does nothing.
+                    let skipped_leaf = program.target_group().is_some()
+                        && node.group_leaf_slot().is_some_and(|slot| {
+                            frame.legal_targets.get(slot as usize) != Some(&true)
+                        });
+                    if skipped_leaf
+                        || (program.optional_target
+                            && frame.legal_targets.is_empty()
+                            && !mtg_contracts::kir::target_slots(node).is_empty())
                     {
                         self.finish_instruction(
                             frame,

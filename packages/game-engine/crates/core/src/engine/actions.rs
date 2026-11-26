@@ -151,6 +151,19 @@ impl RulesTxn {
         if program.optional_target {
             return true;
         }
+        // CR 115.3, 601.2c: a counted occurrence needs that many distinct
+        // legal objects. Group domains are object domains only.
+        if let (Some(count), Some(spec)) = (program.target_group(), program.targets.first()) {
+            // The shared legality test the announcement and resolution use.
+            let eligible = self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| self.object_target_legal_by(o.id, player, source, None, spec))
+                .count();
+            return eligible >= count;
+        }
         program.targets.iter().all(|spec| match spec.domain {
             TargetDomain::PlayerGraveyardCards { .. } => false,
             TargetDomain::AnyDamageTarget => {
@@ -1116,12 +1129,24 @@ impl RulesTxn {
                         failed,
                     },
                 ) => {
+                    // CR 608.2h: a resolution count was read once, as the
+                    // draws began; later instructions of the same program may
+                    // change it, so the recorded attempts are that number.
+                    let counted = match instruction {
+                        kernel!(Draw { amount, .. }) if amount.is_resolution_count() => {
+                            Some(crate::engine::kir::resolution_count_bound(amount))
+                        }
+                        _ => None,
+                    };
                     if *player != self.draw_player_for_instruction(frame, instruction)?
                         || attempted.is_negative()
-                        || *attempted > amount
+                        || counted
+                            .as_ref()
+                            .is_some_and(|bound| bound.as_ref().is_some_and(|b| attempted > b))
+                        || (counted.is_none() && *attempted > amount)
                         || failed.is_negative()
                         || failed > attempted
-                        || (*attempted != amount && self.is_live(*player))
+                        || (counted.is_none() && *attempted != amount && self.is_live(*player))
                     {
                         return Err("counted draw completed outcome invariant".into());
                     }

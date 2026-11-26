@@ -173,6 +173,44 @@ impl Walk<'_, '_> {
                 }
                 _ => unaudited("pump set"),
             },
+            // CR 608.2h, 611.2c, 613.4c: a P/T change by a resolution count,
+            // read once as the effect begins, of the exact source of an
+            // ability, one announced creature or a board-wide creature set.
+            // Both counted deltas read the same count; announced X is never
+            // mixed in.
+            (
+                Layer::PowerToughnessModify,
+                change @ Change::PowerToughnessX { power, toughness },
+                Until::EndOfTurn,
+            ) if change.counted_x().is_some() => {
+                let x = change.counted_x().expect("guarded");
+                if [power, toughness].iter().any(|delta| {
+                    matches!(delta, PumpDelta::X { .. })
+                        || delta.counted().is_some_and(|amount| amount != x)
+                }) {
+                    return unaudited("mixed pump counts");
+                }
+                Self::audit_verb_amount(x)?;
+                match what {
+                    SetExpr::One {
+                        object: Ref::Source,
+                    } if self.env.context != Context::Spell => Ok(Cell::PumpCounted),
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    } if self.creature_target(*slot)? => Ok(Cell::PumpCounted),
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Battlefield,
+                        filter,
+                    } if filter.0.contains(&Atom::Type {
+                        kind: CardKind::Creature,
+                    }) =>
+                    {
+                        Self::audited_filter(&ZoneExpr::Battlefield, filter)
+                            .map(|()| Cell::PumpCounted)
+                    }
+                    _ => unaudited("counted pump recipient"),
+                }
+            }
             (
                 Layer::PowerToughnessModify,
                 Change::PowerToughnessX { power, toughness },

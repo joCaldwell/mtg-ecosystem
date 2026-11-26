@@ -13,13 +13,13 @@ impl Walk<'_, '_> {
         player: &PlayerExpr,
         amount: &Amount,
     ) -> Result<Cell, KirError> {
-        if let Amount::Count { set } = amount {
+        if amount.is_resolution_count() {
             let single_recipient = player.is_you()
                 || self.player_target(player)? == Some(TargetDomain::AnyPlayer)
                 || matches!(player, PlayerExpr::Is { who: Ref::EventPlayer { role } }
                     if Self::recipient_role(*role));
             return if single_recipient {
-                Self::audit_verb_count(set).map(|()| Cell::LifeCounted)
+                Self::audit_verb_amount(amount).map(|()| Cell::LifeCounted)
             } else {
                 unaudited("counted life recipient")
             };

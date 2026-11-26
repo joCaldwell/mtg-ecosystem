@@ -296,10 +296,19 @@ certified "it" or "that" can reuse the block's sole announced incarnation, and
 
 One optional battlefield or own-graveyard target can bind independent destroy,
 tap, untap, move, counter and end-of-turn leaves; zero targets skips the
-instruction. Tap and untap also take one `Pick` of up to a fixed two through
-seven distinct targets, affecting legal survivors simultaneously (CR 115.3,
-701.26). Mixed required and optional occurrences and optional permanent spells
-reject. Already-matching tap status emits no event and combat membership is
+instruction. A counted occurrence ("two target", "up to three target", two
+through seven) is the program's only occurrence: one `Pick` of exactly or up to
+N distinct objects, needing N legal objects to cast or place (CR 115.3, 601.2c).
+Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one
+simultaneous event; P/T, keyword, counter and combat-restriction leaves, a
+spell's own damage and own-graveyard returns to hand or exile run per member.
+An unchosen or illegal member skips its leaves; all illegal counters the spell
+(CR 608.2b). Per-member damage is separate events; recheck that once batched or
+creature-damage triggers are admitted. Graveyard groups entering the
+battlefield, "any number" and X counts, mixed required and optional occurrences
+and optional permanent spells reject. "Target player or planeswalker" announces
+players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
+120.3). Already-matching tap status emits no event and combat membership is
 preserved. "Put a +1/+1 counter on each [creature filter]" applies
 simultaneously to the current set.
 
@@ -672,10 +681,20 @@ earn `Executes` (`modal_choice_v1`). "Up to one", "any number", repeats,
 entwine, escalate, spree, costed modes, upgrades, other text in the block,
 two-target selections and mana modes reject.
 
-"[One] for each [filter]" on a draw or life step is `Amount::Count`, counted once
-(CR 608.2h), over objects you or opponents control, graveyard cards, or (life
-only) your hand. Other amounts, step-result filters and another player's
-referents reject.
+### Resolution-time counts
+
+"[N] for each [filter]" and a sentence's "where X is [number]" are read as the
+step that prints them is performed (CR 107.3, 608.2h), after earlier steps of
+the same program: `Amount::Count` over objects you or opponents control,
+graveyard cards or (not for draws) your hand, `Times` for N above one,
+`Greatest` power, toughness or mana value among permanents (never below zero,
+CR 107.1b) and your devotion (CR 700.5). Draws, life changes, set or player
+damage and P/T changes read them; a P/T change keeps its value in the saved
+effect (CR 611.2c) and a counted draw its recorded attempts. Several steps may
+re-read one X only across draws, life changes and damage. A step that cannot
+read X, a hand count re-read, announced or minimum quantities, event results
+("this way"), another player's referents and per-object iteration reject under
+`bindings:*` or `operand:bindings:*`.
 
 ## Derived capability tiers
 

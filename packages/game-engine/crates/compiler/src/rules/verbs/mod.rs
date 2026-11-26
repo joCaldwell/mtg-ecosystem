@@ -25,6 +25,7 @@ mod regenerate;
 mod return_to_hand;
 mod sacrifice;
 mod tap;
+mod target_group;
 mod tokens;
 mod transform;
 
@@ -35,15 +36,56 @@ pub(crate) struct StepCx<'a> {
     pub player_binding: PlayerBinding,
     pub context: Context,
     pub source_block: u32,
-    /// CR 107.3, 608.2h: the sentence binds X to the number of creatures on
-    /// the battlefield.
-    pub counted: bool,
+    /// CR 107.3, 608.2h: the sentence's bound X ("where X is ..."), offered
+    /// only to a step that reads X. Its lowerer must consume it.
+    pub x: Option<kir::Amount>,
+    /// The lowerer read [`Self::x`] for every X the step prints.
+    pub x_consumed: bool,
 }
 
 impl StepCx<'_> {
     pub(crate) fn act(&self, verb: Verb) -> Instruction {
         Instruction::act(verb, self.source_block)
     }
+    /// The bound X, marking it consumed. A caller uses it for every X of
+    /// its step.
+    pub(crate) fn bound_x(&mut self) -> Option<kir::Amount> {
+        self.x_consumed |= self.x.is_some();
+        self.x.clone()
+    }
+}
+
+/// CR 608.2h: a bound X is read as each reading step is performed. When
+/// several steps read it, every step from the first reader up to the last
+/// one must be a draw, life change or damage, which move no permanent or
+/// graveyard card and change no power, so each read sees the same number.
+/// A count of your hand changes as you draw and is read by one step only.
+/// "Damage changes no power" holds only while wither, infect and loyalty
+/// damage stay unmodelled; admitting them must narrow this list.
+fn stable_rereads(sentence: &Sentence, x: &kir::Amount) -> Result<(), Failure> {
+    let readers: Vec<usize> = (0..sentence.steps.len())
+        .filter(|&i| sentence.reads_x.get(i) == Some(&true))
+        .collect();
+    let (Some(&first), Some(&last)) = (readers.first(), readers.last()) else {
+        return Err(unsupported("bindings", "unused X"));
+    };
+    if first == last {
+        return Ok(());
+    }
+    if x.counts_hand()
+        || !sentence.steps[first..last].iter().all(|step| {
+            matches!(
+                step,
+                Step::Draw { .. }
+                    | Step::GainLife { .. }
+                    | Step::LoseLife { .. }
+                    | Step::Damage { .. }
+            )
+        })
+    {
+        return Err(operand("bindings", "reread_after_change"));
+    }
+    Ok(())
 }
 
 /// A step outside every verb module's rows: `verb:<effect>:<detail>`.
@@ -70,14 +112,20 @@ pub(crate) fn append_spell_effects(
                 "unconsumed conditional instruction",
             ));
         }
-        let counted = counts_creatures(&sentence.bindings)?;
-        // The counted X is read only by one damage step.
-        if counted && !matches!(sentence.steps.as_slice(), [Step::Damage { .. }]) {
-            return Err(unsupported("bindings", "unconsumed count binding"));
-        }
         if sentence.steps.is_empty() {
             return Err(invalid("effects.steps", "empty instruction group"));
         }
+        let bound = lower_x_binding(&sentence.bindings, context)?;
+        if let Some(x) = &bound {
+            stable_rereads(sentence, x)?;
+        }
+        let reads = |range: std::ops::Range<usize>| {
+            bound.is_some()
+                && sentence
+                    .reads_x
+                    .get(range)
+                    .is_some_and(|r| r.contains(&true))
+        };
         let mut at = 0;
         while let Some(s) = sentence.steps.get(at) {
             if player_binding == PlayerBinding::Unbound
@@ -91,23 +139,46 @@ pub(crate) fn append_spell_effects(
                 player_binding,
                 context,
                 source_block,
-                counted,
+                x: None,
+                x_consumed: false,
             };
             // CR 701.23a, 701.24a: a search run spans its reveal, move and
-            // shuffle steps.
+            // shuffle steps. Neither run reads a bound X.
             if matches!(s, Step::Search { .. }) {
                 let (instructions, consumed) = library::search(&mut cx, &sentence.steps[at..])?;
+                if reads(at..at + consumed) {
+                    return Err(unsupported("bindings", "unconsumed count binding"));
+                }
                 program.instructions.extend(instructions);
                 at += consumed;
                 continue;
             }
             if matches!(s, Step::LookAt { .. }) {
                 let instruction = library::reorder_top(&mut cx, &sentence.steps[at..])?;
+                if reads(at..at + 2) {
+                    return Err(unsupported("bindings", "unconsumed count binding"));
+                }
                 program.instructions.push(instruction);
                 at += 2;
                 continue;
             }
+            // A group step that reads a bound X stays on the single-target
+            // path, which rejects the counted occurrence: one printed count
+            // is never re-evaluated per member (CR 608.2h).
+            if !reads(at..at + 1)
+                && let Some(instructions) = target_group::lower(&mut cx, s)?
+            {
+                program.instructions.extend(instructions);
+                at += 1;
+                continue;
+            }
+            if reads(at..at + 1) {
+                cx.x = bound.clone();
+            }
             let instruction = lower_step(&mut cx, s)?;
+            if cx.x.is_some() && !cx.x_consumed {
+                return Err(unsupported("bindings", "unconsumed count binding"));
+            }
             program.instructions.push(instruction);
             at += 1;
         }
@@ -178,7 +249,8 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             power,
             toughness,
             duration,
-        } => pump::lower(cx, what, power, toughness, duration),
+            for_each,
+        } => pump::lower(cx, what, power, toughness, duration, for_each.as_ref()),
         Step::Damage {
             source,
             amount,
@@ -246,9 +318,9 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
     }
 }
 
-/// Only the damage verb reads the counted X.
+/// A lowerer that never reads a bound X rejects a step that prints one.
 pub(crate) fn uncounted(cx: &StepCx<'_>) -> Result<(), Failure> {
-    if cx.counted {
+    if cx.x.is_some() {
         return Err(unsupported("bindings", "unconsumed count binding"));
     }
     Ok(())

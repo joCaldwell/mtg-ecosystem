@@ -149,7 +149,7 @@ pub(super) fn object_effect(
                     TargetDomain::AnyDamageTarget,
                 )?,
                 DamageDestination::Object { reference } if reference["ref"] == "target" => {
-                    bind_creature_target(&mut program, &mut slots, &object(reference)?)?
+                    bind_damage_object_target(&mut program, &mut slots, &object(reference)?)?
                 }
                 _ => return Ok(None),
             };
@@ -188,6 +188,7 @@ pub(super) fn object_effect(
             power,
             toughness,
             duration,
+            for_each: None,
             ..
         } if pattern.object() == Some(&Pred::source()) => {
             until_end_of_turn(duration)?;
