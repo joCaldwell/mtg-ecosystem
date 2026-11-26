@@ -488,9 +488,14 @@ grants, combat restrictions and signed stats to the current host. Attack and
 combat-damage triggers match the host at the event; dies triggers read the
 pre-event attachment (CR 603.10a).
 
-Treasure, Food and Clue use standard artifact token templates paid through the
-normal mana and activation paths; restore rebuilds them from creating source and
-token identity.
+Token creation supports fixed quantities, announced X and supported resolution
+counts, including a fixed quantity per matched object. Each instruction creates
+one simultaneous batch (CR 111.1–4, 608.2h). Creature recipes preserve supported
+printed keywords, secondary types and tapped entry. Treasure, Gold, Food and
+Clue use their CR 111.10 templates through the normal mana and activation paths.
+Restore rebuilds the template from the creating source and token identity.
+Printed abilities, other predefined recipes, copy recipes in this path,
+event-result counts and token-creation replacement abilities reject.
 
 ### Keyword actions and counters
 
@@ -710,7 +715,7 @@ the same program: `Amount::Count` over objects you or opponents control,
 graveyard cards or (not for draws) your hand, `Times` for N above one,
 `Greatest` power, toughness or mana value among permanents (never below zero,
 CR 107.1b) and your devotion (CR 700.5). Draws, life changes, set or player
-damage and P/T changes read them; a P/T change keeps its value in the saved
+damage, token creation and P/T changes read them; a P/T change keeps its value in the saved
 effect (CR 611.2c) and a counted draw its recorded attempts. Several steps may
 re-read one X only across draws, life changes and damage. A step that cannot
 read X, a hand count re-read, announced or minimum quantities, event results

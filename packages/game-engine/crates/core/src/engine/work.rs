@@ -117,6 +117,7 @@ pub enum Query {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// The captured decision uses the public joint-rule vocabulary in saved work.
 pub struct ObservationWork {
     pub cursor: u32,
     pub view: PermittedView,

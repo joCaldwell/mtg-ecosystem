@@ -20,16 +20,16 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    77,
-    "fe72a2c8e53a700ac5285c5a96f532bdc64cd671a3a03c2ed219921cadb16fc7",
+    78,
+    "c7d646abbb1becea0e150d5054f8b311f57426f9dfa6d8fff2a41cf02b1d8bde",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    109,
+    110,
     "b7388a74b62c2c2ca0b79bf4bec7580588474dc70daa7bc4de638aea9ff40401",
 );
 const WORK_PIN: (u32, &str) = (
-    58,
-    "39506ea16df427a3bae68c471c200f940293aaf26a571db3110859e29094e92f",
+    59,
+    "457d166e0eb8fafe7caadb513d8df47defbd2fb78904b44cf008fef8d55e6e45",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -798,6 +798,95 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     );
 }
 
+/// Fingerprint a saved block decision in the captured search wire shape.
+fn search_with_blocker_limit() -> String {
+    use mtg_contracts::kir::{BlockRestriction, Scope, StaticEffect, StaticRule};
+
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let attacker = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    attacker.source_labels = None;
+    attacker.static_abilities.push(StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::Rule {
+            rule: StaticRule::Block {
+                affects: Scope::Source,
+                restriction: BlockRestriction::AtMost { count: 1 },
+            },
+            condition: None,
+        },
+    });
+    attacker.capabilities = attacker.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "formats-search-blocker-limit")
+            .seats(2)
+            .step(TurnStep::BeginningCombat)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .prepare(),
+    );
+    let attackers = loop {
+        let decision = Driver::request(&mut game, u64::MAX);
+        if decision.reason == Reason::Attackers {
+            break decision;
+        }
+        assert_eq!(decision.reason, Reason::Priority);
+        Driver::pass(&mut game);
+    };
+    let answer = attackers.attack(vec![(Driver::object(&game, 0), PlayerId(1))]);
+    game.respond(attackers.player, attackers.id, answer)
+        .unwrap();
+    let blockers = loop {
+        let decision = Driver::request(&mut game, u64::MAX);
+        if decision.reason == Reason::Blockers {
+            break decision;
+        }
+        assert_eq!(decision.reason, Reason::Priority);
+        Driver::pass(&mut game);
+    };
+    let QueryResult::Incomplete { work, .. } = game.observe(blockers.player, Budget::new(1)) else {
+        panic!("block decision observation should suspend");
+    };
+    let raw = game.save_work(&work).unwrap();
+    let restored = game.restore_work(&raw).unwrap();
+    assert_eq!(game.save_work(&restored).unwrap(), raw);
+    let saved: Value = serde_json::from_str(&raw).unwrap();
+    let decision = &saved["data"]["task"]["builder"]["decision"];
+    assert_eq!(decision["shape"]["rules"][0]["rule"], "picked_at_most");
+    assert_eq!(decision["shape"]["rules"][0]["count"], 1);
+
+    // Search admission is priority-only. Fingerprint its captured decision
+    // slots with the real block decision without admitting combat searches.
+    let mut root = Game::new(
+        Board::new(FixtureCatalog::Witness.get().clone(), "formats-search-root")
+            .seats(2)
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .prepare(),
+    );
+    let priority = Driver::request(&mut root, u64::MAX);
+    assert_eq!(priority.reason, Reason::Priority);
+    let viewer = priority.player;
+    let units = root.observation_work_units(viewer).unwrap() + 1;
+    let QueryResult::Incomplete { work, .. } =
+        root.search_context(viewer, "formats".into(), Budget::new(units))
+    else {
+        panic!("search should suspend after capturing an observation");
+    };
+    let search = root.save_work(&work).unwrap();
+    root.restore_work(&search).unwrap();
+    let mut saved: Value = serde_json::from_str(&search).unwrap();
+    let task = &mut saved["data"]["task"];
+    assert!(task["observation"].is_object());
+    task["observation"]["decision"] = decision.clone();
+    task["builder"]["decision"] = decision.clone();
+    serde_json::to_string(&saved).unwrap()
+}
+
 #[test]
 fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
     // Suspended observation and decision queries; a query finishing within its
@@ -831,7 +920,7 @@ fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
     );
     game.restore_work(&raw).unwrap();
     samples.push(raw);
-    assert!(!samples.is_empty(), "no suspended work to fingerprint");
+    samples.push(search_with_blocker_limit());
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();
         assert_eq!(value["work_version"], WORK_VERSION);

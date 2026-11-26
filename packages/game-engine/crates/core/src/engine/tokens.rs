@@ -270,6 +270,17 @@ impl RulesTxn {
         );
         id
     }
+    /// CR 614.1c: a token created tapped is tapped as it enters.
+    fn enter_token_tapped(&mut self, card: CardId, tapped: bool) -> Result<(), String> {
+        if tapped {
+            self.rules_mut()
+                .objects
+                .get_mut(&card)
+                .ok_or("missing created token")?
+                .tapped = true;
+        }
+        Ok(())
+    }
     // CR 111.7, 704.5d/e: a permanent spell copy is still a spell on the
     // stack. Off it, only its resolved battlefield incarnation survives.
     pub(super) fn cessation(&self, object: &Object) -> Option<ProposedEvent> {
@@ -291,10 +302,18 @@ impl RulesTxn {
         let (event, block) = match instruction {
             kernel!(CreateTokens {
                 controller: player,
-                count: fixed!(count),
-                token: mtg_contracts::kir::TokenSpec::Predefined { kind },
+                count,
+                token,
+                tapped,
             } @ source_block) => {
-                let count = count.to_u32().ok_or("token count overflow")?;
+                // CR 107.3, 608.2h: a fixed number, the announced X or a
+                // resolution count read now; zero creates nothing.
+                let count = self.kernel_amount(&frame, &count)?;
+                if count <= Quantity::zero() {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                let count = count.to_u32().unwrap_or(u32::MAX);
                 let kir::Players::One(controller) = self.kernel_players(&frame, &player)? else {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -304,37 +323,27 @@ impl RulesTxn {
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 self.check_token_capacity(count)?;
+                let source = self.entry(frame.stack_id)?.source;
                 (
-                    ProposedEvent::CreatePredefinedTokens {
-                        controller,
-                        source: self.entry(frame.stack_id)?.source,
-                        count,
-                        kind,
-                    },
-                    source_block,
-                )
-            }
-            kernel!(CreateTokens {
-                controller: player,
-                count: fixed!(count),
-                token: mtg_contracts::kir::TokenSpec::Creature { spec: token },
-            } @ source_block) => {
-                let count = count.to_u32().ok_or("token count overflow")?;
-                let kir::Players::One(controller) = self.kernel_players(&frame, &player)? else {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                };
-                if !self.is_live(controller) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                self.check_token_capacity(count)?;
-                (
-                    ProposedEvent::CreateCreatureTokens {
-                        controller,
-                        source: self.entry(frame.stack_id)?.source,
-                        count,
-                        token: Box::new(token),
+                    match token {
+                        mtg_contracts::kir::TokenSpec::Predefined { kind } => {
+                            ProposedEvent::CreatePredefinedTokens {
+                                controller,
+                                source,
+                                count,
+                                kind,
+                                tapped,
+                            }
+                        }
+                        mtg_contracts::kir::TokenSpec::Creature { spec: token } => {
+                            ProposedEvent::CreateCreatureTokens {
+                                controller,
+                                source,
+                                count,
+                                token: Box::new(token),
+                                tapped,
+                            }
+                        }
                     },
                     source_block,
                 )
@@ -464,6 +473,7 @@ impl RulesTxn {
                 source,
                 count,
                 kind,
+                tapped,
             } => {
                 if !self.is_live(*controller) || *count == 0 {
                     return Err("invalid predefined token controller or count".into());
@@ -488,6 +498,7 @@ impl RulesTxn {
                         Zone::Battlefield,
                         identity,
                     ));
+                    self.enter_token_tapped(card, *tapped)?;
                 }
                 Ok(EventOutcome::PredefinedTokensCreated {
                     objects,
@@ -500,6 +511,7 @@ impl RulesTxn {
                 source,
                 count,
                 token,
+                tapped,
             } => {
                 if !self.is_live(*controller) || *count == 0 {
                     return Err("invalid token creator/count".into());
@@ -517,6 +529,7 @@ impl RulesTxn {
                     };
                     let id =
                         self.insert_token_identity(card, *controller, Zone::Battlefield, identity);
+                    self.enter_token_tapped(card, *tapped)?;
                     objects.push(id);
                 }
                 Ok(EventOutcome::TokensCreated {
