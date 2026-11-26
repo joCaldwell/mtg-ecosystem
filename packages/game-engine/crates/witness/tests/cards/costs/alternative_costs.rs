@@ -1,6 +1,6 @@
 //! Alternative-cost and graveyard keywords from exact frozen R5 source on
-//! private boards: evoke (CR 702.74a, 118.9, 601.2b/f-h) and unearth (CR
-//! 702.84a, 603.7, 614.1a). Every choice is checked for state validity and
+//! private boards: evoke (CR 702.74a, 118.9, 601.2b/f-h), unearth (CR
+//! 702.84a, 603.7, 614.1a) and encore (CR 702.141a, 508.1d). Every choice is checked for state validity and
 //! an exact snapshot round trip; finished resolutions replay from their
 //! journal.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -21,6 +21,7 @@ const SHRIEKMAW: &str = record!("717bbb9d-0a5b-4979-a24b-9d54aac7657a");
 const DREGSCAPE_ZOMBIE: &str = record!("be9d1346-4416-4ade-ae84-7a4121e0bd12");
 const GRIPTIDE: &str = record!("5a6bbc45-6cb8-40ff-9f7c-7b2c5713dd78");
 const GOD_PHARAOHS_STATUE: &str = record!("183954d2-7b40-4c7e-adfa-d80191ab5ad6");
+const IMPULSIVE_PILFERER: &str = record!("7d9fc9e7-d80b-49c3-871c-ed25b3059ae8");
 
 fn evoke_candidate(d: &Decision<Rules>) -> bool {
     matches!(
@@ -458,5 +459,123 @@ fn simulator_plans_evoke_only_from_the_engine_quote() {
             },
             "the planned cast announces evoke"
         );
+    }
+}
+
+/// Impulsive Pilferer: "When this creature dies, create a Treasure token.
+/// Encore {3}{R}." With three opponents, encore exiles the graveyard card
+/// as its cost and creates three hasty token copies, each of which must
+/// attack its own opponent this turn (CR 702.141a, 508.1d): a declaration
+/// sending a token at another opponent, or omitting one, is illegal. A hand card
+/// offers no encore. With `bolted`, Lightning Bolt kills one token first;
+/// at the next end step the delayed trigger sacrifices the survivors only,
+/// and every copy's own dies trigger makes a Treasure (CR 603.7, 707.2).
+#[test]
+fn impulsive_pilferer_encore_copies_attack_each_opponent_and_are_sacrificed() {
+    for bolted in [false, true] {
+        let mut fixture = board(&[(IMPULSIVE_PILFERER, &[Cell::Encore])])
+            .card(
+                "Impulsive Pilferer",
+                0,
+                0,
+                Zone::Graveyard { owner: PlayerId(0) },
+            )
+            .permanent_or_hand("Impulsive Pilferer", 0, 0, true);
+        for _ in 0..4 {
+            fixture = fixture.permanent_or_hand("Mountain", 0, 0, false);
+        }
+        if bolted {
+            fixture = fixture
+                .permanent_or_hand("Lightning Bolt", 0, 0, true)
+                .permanent_or_hand("Mountain", 0, 0, false);
+        }
+        let mut g = Game::with_trace(
+            fixture.libraries("Island", 4).prepare(),
+            TraceMode::Detailed,
+        );
+        let encore = |g: &Game, card| Action::ActivateAbility {
+            object: Driver::object(g, card),
+            ability: 0,
+        };
+        let (from_graveyard, from_hand) = (encore(&g, 0), encore(&g, 1));
+        let offered = actions(&mut g);
+        assert!(offered.contains(&from_graveyard));
+        assert!(!offered.contains(&from_hand), "a hand card offers no encore");
+        Driver::action(&mut g, from_graveyard);
+        Driver::pay(&mut g, &[2, 3, 4, 5]);
+        assert_eq!(zone(&g, 0), Some(Zone::Exile), "the cost exiles the card");
+        resolve_all(&mut g);
+        let mut tokens: Vec<_> = g
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.id.card.0 >= 1 << 31 && o.zone == Zone::Battlefield)
+            .map(|o| o.id)
+            .collect();
+        tokens.sort();
+        assert_eq!(tokens.len(), 3, "one copy for each opponent");
+        for token in &tokens {
+            assert_eq!(g.state.rules.objects[&token.card].controller, PlayerId(0));
+            assert_eq!(
+                g.state.rules.tokens[&token.card].definition.name,
+                "Impulsive Pilferer"
+            );
+        }
+        if bolted {
+            Driver::cast(&mut g, CardId(6));
+            Driver::pick_object(&mut g, tokens[1]);
+            Driver::pay(&mut g, &[7]);
+            resolve_all(&mut g);
+            assert!(g.zone(tokens[1]).is_none(), "the bolted token ceased");
+        }
+        let living: Vec<_> = tokens
+            .iter()
+            .copied()
+            .filter(|t| g.zone(*t) == Some(Zone::Battlefield))
+            .collect();
+        let d = advance(&mut g, &[], |_, d| d.reason == Reason::Attackers);
+        // Each surviving token may attack only its own opponent, and must.
+        let seat = |token: &ObjectId| tokens.iter().position(|t| t == token).unwrap() as u8;
+        let defender = |token: &ObjectId| PlayerId(seat(token) + 1);
+        let other = |token: &ObjectId| PlayerId((seat(token) + 1) % 3 + 1);
+        let wrong = d.attack(living.iter().map(|t| (*t, other(t))).collect());
+        assert!(g.respond(d.player, d.id, wrong).is_err());
+        assert!(g.respond(d.player, d.id, d.attack(vec![])).is_err());
+        g.respond(
+            d.player,
+            d.id,
+            d.attack(living.iter().map(|t| (*t, defender(t))).collect()),
+        )
+        .unwrap();
+        checked(&g);
+        advance(&mut g, &[], |g, d| {
+            d.reason == Reason::Priority
+                && g.state.rules.turn.step == TurnStep::End
+                && g.state.rules.stack.is_empty()
+                && tokens.iter().all(|t| g.zone(*t).is_none())
+        });
+        checked(&g);
+        assert_recoverable((&g).into());
+        for seat in [1, 3] {
+            assert_eq!(life(&g, seat), plus(&Quantity::from(40), -1), "seat {seat}");
+        }
+        assert_eq!(
+            life(&g, 2),
+            plus(&Quantity::from(40), if bolted { 0 } else { -1 }),
+        );
+        let treasures = g
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| {
+                o.zone == Zone::Battlefield
+                    && g.state.rules.tokens.get(&o.id.card).is_some_and(|t| {
+                        t.definition.characteristics.subtypes == ["Treasure"]
+                    })
+            })
+            .count();
+        assert_eq!(treasures, 3, "each copy that died made a Treasure");
     }
 }

@@ -47,6 +47,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "evoke"
                 | "echo"
                 | "unearth"
+                | "encore"
                 | "affinity"
                 | "cycling"
                 | "typecycling"
@@ -65,7 +66,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
         }
         let allowed = match keyword.as_str() {
             "bestow" | "equip" | "kicker" | "buyback" | "evoke" | "echo" | "unearth"
-            | "cycling" | "flashback" => ["keyword", "cost"].as_slice(),
+            | "encore" | "cycling" | "flashback" => ["keyword", "cost"].as_slice(),
             "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             "protection" => ["keyword", "from"].as_slice(),

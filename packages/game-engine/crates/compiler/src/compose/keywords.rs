@@ -556,6 +556,19 @@ pub(super) fn unearth(
     ))
 }
 
+/// CR 702.141a: "Encore [cost]" is the graveyard ability
+/// [`ActivatedAbility::encore`] paying one fixed mana cost.
+pub(super) fn encore(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<ActivatedAbility, Failure> {
+    Ok(ActivatedAbility::encore(
+        block,
+        keyword_mana(keyword, "Encore", text)?,
+    ))
+}
+
 /// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
 pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost, Failure> {
     keyword_mana(keyword, "Flashback", text)

@@ -743,6 +743,28 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         if a.restriction.is_some() {
             return cell("activated", "off_battlefield_restriction");
         }
+        // CR 702.141a: encore is exactly the reviewed graveyard ability of a
+        // single-faced creature card; its tokens copy that card.
+        let encore = a.program.instructions.iter().any(|i| {
+            matches!(
+                i,
+                Instruction::Kernel {
+                    node: kir::Node::Delayed {
+                        event: kir::DelayedEvent::NextEndStepAfterEncore,
+                        ..
+                    },
+                    ..
+                }
+            )
+        });
+        if encore
+            && (!a.is_encore()
+                || d.characteristics.kind != CardKind::Creature
+                || d.layout != FaceLayout::Single
+                || d.back_face.is_some())
+        {
+            return cell("activated", "encore");
+        }
         cost(d, a, &a.program)?;
         return program(&a.program, Context::Activated, None, false);
     }

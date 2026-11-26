@@ -225,9 +225,11 @@ impl RulesTxn {
         }
         // CR 702.84a, 611.2c: an unearthed incarnation gains haste for as
         // long as it remains that object.
-        if self
+        // CR 702.141a: so does an encore token.
+        if (self
             .current(object)
             .is_ok_and(|o| o.id == object && o.unearthed && o.zone == Zone::Battlefield)
+            || self.encore_mark(object).is_some())
             && !keywords.contains(&KeywordAbility::Haste)
         {
             keywords.push(KeywordAbility::Haste);

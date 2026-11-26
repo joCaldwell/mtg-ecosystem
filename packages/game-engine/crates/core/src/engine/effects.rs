@@ -3669,7 +3669,12 @@ impl RulesTxn {
                                     && (self.historical_granted_keyword(*keyword)
                                         // CR 702.84a: unearth grants haste.
                                         || (*keyword == KeywordAbility::Haste
-                                            && d.source.unearthed))))
+                                            && (d.source.unearthed
+                                                // CR 702.141a: so does encore.
+                                                || matches!(
+                                                    self.state.rules.tokens.get(&d.source.object.card),
+                                                    Some(tokens::TokenIdentity { spec: tokens::TokenTemplate::EncoreCopy { .. }, .. })
+                                                ))))))
                     });
             if !keywords_valid {
                 return Err(

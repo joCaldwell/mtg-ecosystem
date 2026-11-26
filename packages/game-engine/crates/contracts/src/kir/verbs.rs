@@ -314,6 +314,11 @@ pub enum DelayedEvent {
     /// the battlefield; the trigger exiles it at the next end step.
     #[serde(deserialize_with = "no_operands")]
     NextEndStepAfterUnearth,
+    /// CR 702.141a: for each opponent, create a token copy of the source
+    /// card that has haste and attacks that opponent this turn if able; the
+    /// trigger sacrifices those tokens at the next end step.
+    #[serde(deserialize_with = "no_operands")]
+    NextEndStepAfterEncore,
     #[serde(deserialize_with = "no_operands")]
     EndOfCombat,
     /// An ordinary event pattern, watched until `until` (CR 603.7c).
@@ -507,6 +512,9 @@ pub enum Verb {
     /// CR 702.84a, 603.7: exile the permanent the creating ability returned,
     /// if it is still that object on the battlefield.
     ExileCapturedReturn {},
+    /// CR 702.141a, 603.7: sacrifice the encore tokens the creating ability
+    /// created that the trigger's controller still controls.
+    SacrificeEncoreTokens {},
     CreateDelayedTrigger {
         event: DelayedEvent,
         node: Box<Node>,

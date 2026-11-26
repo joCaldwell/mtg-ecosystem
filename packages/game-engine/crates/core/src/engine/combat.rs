@@ -187,6 +187,16 @@ impl RulesTxn {
         self.combat_requirements(object, None)
             .any(|rule| rule == CombatRequirement::AttackEachCombat)
     }
+    /// CR 508.1d, 702.141a: an encore token attacks its opponent this turn
+    /// if able. Attacking that player obeys every other admitted requirement
+    /// too, so the token may attack no other player while it can attack them.
+    fn required_defender(&self, object: ObjectId) -> Option<PlayerId> {
+        let (defender, turn) = self.encore_mark(object)?;
+        (turn == self.state.rules.turn.number
+            && self.is_live(defender)
+            && self.attack_permitted(object, defender))
+        .then_some(defender)
+    }
 
     fn hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
@@ -229,10 +239,17 @@ impl RulesTxn {
                 for subject in subjects {
                     let subject_index =
                         candidate_index(&mut candidates, Candidate::Object { object: subject });
+                    let required = attacking
+                        .then(|| self.required_defender(subject))
+                        .flatten();
                     let allowed: Vec<_> = if attacking {
                         self.live_players()
                             .into_iter()
-                            .filter(|p| *p != player && self.attack_permitted(subject, *p))
+                            .filter(|p| {
+                                *p != player
+                                    && self.attack_permitted(subject, *p)
+                                    && required.is_none_or(|d| d == *p)
+                            })
                             .map(|p| {
                                 candidate_index(&mut candidates, Candidate::Player { player: p })
                             })
@@ -259,7 +276,9 @@ impl RulesTxn {
                         },
                         subject: Some(subject_index),
                         min: u32::from(
-                            attacking && !allowed.is_empty() && self.must_attack(subject),
+                            attacking
+                                && !allowed.is_empty()
+                                && (required.is_some() || self.must_attack(subject)),
                         ),
                         allowed,
                         max: 1,
@@ -386,6 +405,7 @@ impl RulesTxn {
                 || *p == player
                 || !self.is_live(*p)
                 || !self.attack_permitted(*o, *p)
+                || self.required_defender(*o).is_some_and(|d| d != *p)
         }) {
             return Err("invalid complete attack declaration".into());
         }
@@ -394,7 +414,7 @@ impl RulesTxn {
         // combat model, which has no restriction across creatures.
         if eligible.iter().any(|&object| {
             !seen.contains(&object)
-                && self.must_attack(object)
+                && (self.required_defender(object).is_some() || self.must_attack(object))
                 && (0..4)
                     .map(PlayerId)
                     .any(|p| p != player && self.is_live(p) && self.attack_permitted(object, p))

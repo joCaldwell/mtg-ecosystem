@@ -308,6 +308,9 @@ pub enum Cell {
     /// CR 702.84a: the graveyard return, haste, departure exile and the
     /// end-step exile of the returned permanent.
     Unearth,
+    /// CR 702.141a: the graveyard exile cost, per-opponent token copies with
+    /// haste and their attack requirement, and the end-step sacrifice.
+    Encore,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -457,6 +460,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Evoke
         | C::Echo
         | C::Unearth
+        | C::Encore
         | C::SacrificeSource => Tiers::EXECUTES,
     }
 }

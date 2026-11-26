@@ -102,7 +102,8 @@ impl ResolutionTrigger {
         match event {
             DelayedEvent::NextEndStep
             | DelayedEvent::NextEndStepAfterExile { .. }
-            | DelayedEvent::NextEndStepAfterUnearth => {
+            | DelayedEvent::NextEndStepAfterUnearth
+            | DelayedEvent::NextEndStepAfterEncore => {
                 let offset = u64::from(matches!(self.step, TurnStep::End | TurnStep::Cleanup));
                 step == TurnStep::End && self.turn.checked_add(offset) == Some(turn)
             }
@@ -277,6 +278,34 @@ impl RulesTxn {
                     target: source,
                     actual,
                 });
+            }
+            // CR 702.141a, 707.2: one token copy of the encore card (its
+            // copiable values, though the cost exiled it) for each opponent
+            // alive now, all created at once.
+            DelayedEvent::NextEndStepAfterEncore => {
+                let entry = self.entry(frame.stack_id)?;
+                let (source, controller) = (entry.source, entry.controller);
+                let defenders: Vec<_> = (1..4)
+                    .map(|n| PlayerId((controller.0 + n) % 4))
+                    .filter(|p| self.is_live(*p))
+                    .collect();
+                if !defenders.is_empty() && self.is_live(controller) {
+                    let actual = self.commit(
+                        ProposedEvent::CreateEncoreTokens {
+                            controller,
+                            source,
+                            defenders,
+                        },
+                        self.instruction_cause(&frame, block)?,
+                    )?;
+                    self.register_resolution_trigger(&frame, None, None)?;
+                    return self.finish_instruction(
+                        frame,
+                        InstructionOutcome::Effect {
+                            actual: Some(actual),
+                        },
+                    );
+                }
             }
             DelayedEvent::TargetLeavesAfterExilingSource { slot } => {
                 watched = self.resolving_creature(&frame, slot)?;
@@ -561,6 +590,64 @@ impl RulesTxn {
             }
         }
         Ok(false)
+    }
+
+    /// CR 702.141a, 701.21a: the trigger's controller sacrifices the encore
+    /// tokens its creating ability made that they still control.
+    pub(super) fn execute_encore_sacrifice(
+        &mut self,
+        frame: Resolving,
+        block: u32,
+    ) -> Result<(), String> {
+        let entry = self.entry(frame.stack_id)?;
+        let StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Followup { creator },
+            ..
+        } = entry.kind
+        else {
+            return Err("encore sacrifice has no delayed invocation".into());
+        };
+        let controller = entry.controller;
+        let row = self
+            .state
+            .rules
+            .resolution_triggers
+            .get(&creator)
+            .ok_or("missing encore sacrifice origin")?;
+        let original = row.source;
+        let occurrences: Vec<_> = self
+            .state
+            .rules
+            .tokens
+            .iter()
+            .filter(|(_, t)| {
+                matches!(t.spec, TokenTemplate::EncoreCopy { encore_of, .. } if encore_of == original)
+            })
+            .filter_map(|(card, _)| self.state.rules.objects.get(card))
+            .filter(|o| o.present_on_battlefield() && o.controller == controller)
+            .map(|o| ProposedEvent::Sacrifice {
+                object: o.id,
+                player: controller,
+            })
+            .collect();
+        if occurrences.is_empty() || !self.is_live(controller) {
+            return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+        }
+        let group = if occurrences.len() == 1 {
+            EventGroup::Occurrence {
+                proposed: occurrences.into_iter().next().expect("one occurrence"),
+            }
+        } else {
+            EventGroup::Simultaneous { occurrences }
+        };
+        self.complete_graveyard_group(
+            self.instruction_cause(&frame, block)?,
+            group,
+            GroupFinish::Instruction {
+                frame,
+                result: GroupResult::Effect,
+            },
+        )
     }
 
     /// CR 702.84a, 603.7c: exile the returned permanent if it is still the
@@ -899,7 +986,8 @@ impl RulesTxn {
                     let due = match event {
                         DelayedEvent::NextEndStep
                         | DelayedEvent::NextEndStepAfterExile { .. }
-                        | DelayedEvent::NextEndStepAfterUnearth => {
+                        | DelayedEvent::NextEndStepAfterUnearth
+                        | DelayedEvent::NextEndStepAfterEncore => {
                             clock.end.as_ref().is_some_and(after)
                         }
                         DelayedEvent::NextTurnUpkeep => clock

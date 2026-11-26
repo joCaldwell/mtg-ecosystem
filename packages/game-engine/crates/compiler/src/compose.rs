@@ -1117,6 +1117,20 @@ fn compose_face(
                                 .push(keywords::unearth(one, label, text)?);
                             labels.activated.push(label);
                         }
+                        // CR 702.141a: encore is a graveyard ability of a
+                        // creature card.
+                        [one] if one.keyword == "encore" => {
+                            if spell_kind
+                                || definition.spell.is_none()
+                                || definition.characteristics.kind != CardKind::Creature
+                            {
+                                return Err(unsupported("keyword", "keyword:encore:source"));
+                            }
+                            definition
+                                .activated
+                                .push(keywords::encore(one, label, text)?);
+                            labels.activated.push(label);
+                        }
                         // CR 702.30a: echo is a triggered ability of a permanent.
                         [one] if one.keyword == "echo" => {
                             if spell_kind || definition.spell.is_none() {

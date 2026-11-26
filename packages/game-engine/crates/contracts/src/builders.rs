@@ -236,6 +236,45 @@ impl ActivatedAbility {
         }
     }
 
+    /// CR 702.141a: "Encore [cost]" means "[Cost], Exile this card from
+    /// your graveyard: For each opponent, create a token that's a copy of
+    /// this card that attacks that opponent this turn if able. The tokens
+    /// gain haste. Sacrifice them at the beginning of the next end step.
+    /// Activate only as a sorcery." The keyword line `block` prints it.
+    pub fn encore(block: u32, cost: ManaCost) -> Self {
+        let mut body = SpellProgram::instructions(SpellTiming::Instant);
+        body.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::SacrificeEncoreTokens {}),
+        });
+        let mut program = SpellProgram::instructions(SpellTiming::MainPhase);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Delayed {
+                event: kir::DelayedEvent::NextEndStepAfterEncore,
+                program: Box::new(body),
+            },
+        });
+        Self {
+            functioning_zone: FunctioningZone::Graveyard,
+            restriction: None,
+            cost: ActivationCost::ExileSource { mana: cost },
+            program,
+            modal: None,
+        }
+    }
+
+    /// CR 702.141a: this is exactly an encore ability.
+    pub fn is_encore(&self) -> bool {
+        let ActivationCost::ExileSource { mana } = &self.cost else {
+            return false;
+        };
+        let block = self.program.instructions.first().map(|i| match i {
+            Instruction::Kernel { source_block, .. } => *source_block,
+        });
+        block.is_some_and(|block| *self == Self::encore(block, mana.clone()))
+    }
+
     /// CR 702.84a: this is exactly an unearth ability.
     pub fn is_unearth(&self) -> bool {
         let ActivationCost::Mana { cost } = &self.cost else {

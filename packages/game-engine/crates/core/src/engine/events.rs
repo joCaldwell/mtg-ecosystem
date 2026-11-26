@@ -371,6 +371,10 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             BTreeSet::from([FactKey::TokenAllocation, FactKey::Object(original.card)]),
             BTreeSet::from([FactKey::TokenAllocation]),
         ),
+        ProposedEvent::CreateEncoreTokens { source, .. } => (
+            BTreeSet::from([FactKey::TokenAllocation, FactKey::Object(source.card)]),
+            BTreeSet::from([FactKey::TokenAllocation]),
+        ),
         ProposedEvent::CreateCreatureTokens { .. }
         | ProposedEvent::CreatePredefinedTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
@@ -710,6 +714,7 @@ fn collect<'a>(
                             | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateTokenCopy { .. }
+                            | ProposedEvent::CreateEncoreTokens { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::CreatePredefinedTokens { .. }
                             | ProposedEvent::FreezeLifeUntilNextTurn { .. }
@@ -918,7 +923,8 @@ impl RulesTxn {
                     players.insert(*controller);
                     objects.insert(*original);
                 }
-                ProposedEvent::CreateCreatureTokens { controller, .. }
+                ProposedEvent::CreateEncoreTokens { controller, .. }
+                | ProposedEvent::CreateCreatureTokens { controller, .. }
                 | ProposedEvent::CreatePredefinedTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
@@ -2495,6 +2501,7 @@ impl RulesTxn {
                 }
             }
             event @ (ProposedEvent::CreateTokenCopy { .. }
+            | ProposedEvent::CreateEncoreTokens { .. }
             | ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::CreatePredefinedTokens { .. }
             | ProposedEvent::CeaseToken { .. }

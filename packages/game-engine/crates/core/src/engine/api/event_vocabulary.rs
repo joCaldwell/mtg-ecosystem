@@ -104,6 +104,13 @@ pub enum ProposedEvent {
         source: ObjectId,
         original: ObjectId,
     },
+    /// CR 702.141a: one token copy of the encore card `source` for each
+    /// listed opponent, created at once.
+    CreateEncoreTokens {
+        controller: PlayerId,
+        source: ObjectId,
+        defenders: Vec<PlayerId>,
+    },
     CreatePredefinedTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -348,6 +355,11 @@ pub enum EventOutcome {
     },
     TokenCopied {
         object: ObjectId,
+        controller: PlayerId,
+        original: ObjectId,
+    },
+    EncoreTokensCreated {
+        objects: Vec<ObjectId>,
         controller: PlayerId,
         original: ObjectId,
     },
