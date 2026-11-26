@@ -556,6 +556,9 @@ fn decided(node: &Node) -> bool {
     use kir::Verb;
     match node {
         Node::Seq(nodes) => nodes.iter().all(decided),
+        Node::Do(Verb::CreateTokens {
+            controller, count, ..
+        }) => controller.is_you() && count.as_fixed().is_some(),
         Node::Do(
             Verb::Draw { .. } | Verb::GainLife { .. } | Verb::LoseLife { .. } | Verb::Mill { .. },
         ) => true,

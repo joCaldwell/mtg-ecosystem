@@ -586,3 +586,62 @@ fn avenger_landfall_optional_counter_set() {
         );
     }
 }
+
+/// CR 111.2, 608.2d: the player controlling the ability decides whether
+/// to create tokens. A departing controller's pending ability is removed.
+#[test]
+fn emeria_angel_optional_creation() {
+    const ANGEL: &str = include_str!(concat!(
+        "../../../../../tests/fixtures/phase1-r5/",
+        "ea6616e4-db8d-4905-80f8-cb0162906850.json"
+    ));
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, ANGEL);
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("Emeria Angel did not lower: {result:?}");
+    };
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let board = || {
+        let mut game = Game::new(
+            Board::new(catalog.clone(), "emeria-angel-landfall")
+                .step(TurnStep::PrecombatMain)
+                .seats(3)
+                .permanent_or_hand("Emeria Angel", 1, 0, false)
+                .permanent_or_hand("Plains", 0, 0, true)
+                .libraries("Forest", 4)
+                .prepare(),
+        );
+        let object = Driver::object(&game, 1);
+        Driver::action(&mut game, Action::PlayLand { object });
+        game
+    };
+
+    for accept in [false, true] {
+        let mut game = board();
+        choose(&mut game, 0, accept);
+        settle(&mut game);
+        let birds: Vec<_> = game
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| game.state.rules.tokens.contains_key(&object.id.card))
+            .collect();
+        assert_eq!(birds.len(), usize::from(accept));
+        assert!(birds.iter().all(|bird| bird.controller == PlayerId(0)));
+    }
+    let mut game = board();
+    let decision = next_choice(&mut game);
+    assert_eq!(decision.reason, Reason::OptionalEffect);
+    checked(&game);
+    game.concede(PlayerId(0)).unwrap();
+    assert_ne!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::OptionalEffect
+    );
+    assert!(game.state.rules.tokens.is_empty());
+    checked(&game);
+}

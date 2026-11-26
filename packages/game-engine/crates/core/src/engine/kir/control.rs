@@ -906,6 +906,15 @@ impl RulesTxn {
             Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
             Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
             Node::Do(Verb::PutCounters { on, .. }) => present(on, &|_| true)?,
+            Node::Do(Verb::CreateTokens {
+                controller, count, ..
+            }) => {
+                self.control_amount(task, count)? > Quantity::zero()
+                    && self
+                        .control_players(task, controller)?
+                        .into_iter()
+                        .any(|p| self.is_live(p))
+            }
             // CR 701.27c-f: the source can still turn over.
             Node::Do(Verb::Transform { what: Ref::Source }) => {
                 self.source_transformable(self.entry(self.kernel_root()?.stack_id)?)?

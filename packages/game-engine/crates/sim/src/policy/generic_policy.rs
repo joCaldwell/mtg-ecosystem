@@ -1448,7 +1448,7 @@ impl Strategy<'_> {
                 block == Some(*source_block)
                     && matches!(node, kir::Node::Optional { node, .. } if matches!(
                         node.as_ref(),
-                        kir::Node::Do(kir::Verb::PutCounters {
+                        kir::Node::Do(kir::Verb::CreateTokens { .. } | kir::Verb::PutCounters {
                             on: kir::SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, .. },
                             ..
                         })
