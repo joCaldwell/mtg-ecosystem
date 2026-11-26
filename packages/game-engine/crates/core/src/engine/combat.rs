@@ -83,7 +83,11 @@ impl RulesTxn {
                     })
                     && (!attacking
                         || ((o.attack_ready || self.has_keyword(o.id, KeywordAbility::Haste))
-                            && !self.has_keyword(o.id, KeywordAbility::Defender)))
+                            && (!self.has_keyword(o.id, KeywordAbility::Defender)
+                                // CR 609.4, 702.3b.
+                                || self.combat_requirements(o.id, None).any(|rule| {
+                                    rule == CombatRequirement::AttackAsThoughNoDefender
+                                }))))
             })
             .map(|o| o.id)
             .collect()
@@ -178,8 +182,9 @@ impl RulesTxn {
                 _ => true,
             })
     }
+    // CR 508.1d: static and resolved "attacks each combat/this turn if able".
     fn must_attack(&self, object: ObjectId) -> bool {
-        self.combat_statics(object, None)
+        self.combat_requirements(object, None)
             .any(|rule| rule == CombatRequirement::AttackEachCombat)
     }
 

@@ -143,6 +143,9 @@ pub enum CombatRequirement {
     CantBeBlocked,
     CanBlockOnlyFlying,
     AttackEachCombat,
+    /// CR 609.4, 702.3b: the creature can attack as though it didn't have
+    /// defender; it lifts no other restriction.
+    AttackAsThoughNoDefender,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

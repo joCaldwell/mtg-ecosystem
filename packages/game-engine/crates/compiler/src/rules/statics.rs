@@ -733,6 +733,14 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                 qualified_condition(x.condition.as_deref(), x.condition_kind)?,
             )
         }
+        C::AsThough(x)
+            if x.defenders.is_none() && x.attackers.is_none() && lacks_defender_to_attack(x) =>
+        {
+            (
+                CombatRequirement::AttackAsThoughNoDefender,
+                qualified_condition(x.condition.as_deref(), x.condition_kind)?,
+            )
+        }
         C::BlockerFilter(x) => {
             return declaration_rule(what, x.condition.as_deref(), x.condition_kind, |_| {
                 Ok(kir::BlockRestriction::Blockers {
@@ -1225,4 +1233,30 @@ fn modify(
     }
     rules.extend(every_type);
     Ok(rules)
+}
+
+/// CR 609.4, 702.3b: "can attack as though it didn't have defender".
+pub(crate) fn lacks_defender_to_attack(x: &ast::CombatRuleAsThough) -> bool {
+    x.action == ast::CombatRuleAsThoughAction::Attack
+        && matches!(&*x.pretense, ast::CombatPretense::Keyword(p)
+        if p.pretend == ast::CombatPretenseKeywordPretend::LacksKeyword
+            && p.of == ast::CombatPretenseKeywordOf::AffectedCreature
+            && *p.keyword == ast::KeywordInstance {
+                keyword: "defender".into(),
+                cost: None,
+                cost_modifications: None,
+                restriction: None,
+                amount: None,
+                bindings: None,
+                variable_constraints: None,
+                from: None,
+                filter: None,
+                materials: None,
+                companion: None,
+                paired_with: None,
+                enchant_player: None,
+                prototype: None,
+                additional_costs: None,
+                gift: None,
+            })
 }

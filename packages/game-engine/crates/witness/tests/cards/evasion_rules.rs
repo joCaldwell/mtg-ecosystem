@@ -321,3 +321,104 @@ fn attack_restrictions_remove_defenders_before_requirements() {
     g.respond(d.player, d.id.clone(), d.attack(vec![])).unwrap();
     checked(&g);
 }
+
+const MOBILE_FORT: &str = record!("0547e426-e23e-4c60-ba6b-cfd4b5ff8485");
+const BRISTLEPACK_SENTRY: &str = record!("05852d99-8f30-4318-913c-d0b1eaf8c222");
+const HECKLING_FIENDS: &str = record!("4b8fb8dc-f1c5-4994-8a58-4849e7e85539");
+const ROLLING_STONES: &str = record!("7ce533d0-8b6e-46d8-b21e-a2932bdffb67");
+const BOILING_BLOOD: &str = record!("cd55a003-da0d-4522-b08a-d0731b1050c6");
+const RETURNED_PHALANX: &str = record!("f8d64a8e-1bff-4960-bc36-1fbb4fc18c8f");
+
+const TURN_SOURCES: &[&str] = &[
+    MOBILE_FORT,
+    HECKLING_FIENDS,
+    ROLLING_STONES,
+    RETURNED_PHALANX,
+];
+
+/// Activate the board object's first ability, paying and resolving it.
+fn activate(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
+    let object = Driver::object(g, id);
+    Driver::action(g, Action::ActivateAbility { object, ability: 0 });
+    mtg_witness::equipped::pay_and_resolve(g, u64::MAX, targets);
+    checked(g);
+}
+
+/// CR 609.4, 702.3b: "can attack as though it didn't have defender",
+/// statically for Walls and until end of turn for an activated source.
+#[test]
+fn defender_pretense_offers_the_creature_as_an_attacker() {
+    use mtg_contracts::kir::CombatRequirement as R;
+    assert!(matches!(
+        rule(&lowered(ROLLING_STONES)),
+        StaticRule::Combat {
+            requirement: R::AttackAsThoughNoDefender,
+            ..
+        }
+    ));
+    // "As long as you control a creature with power 4 or greater" is not an
+    // admitted static condition.
+    assert_eq!(rejected(BRISTLEPACK_SENTRY), "cell:static:rule-condition");
+    let mut g = game(
+        TURN_SOURCES,
+        &[
+            ("Rolling Stones", 0, B),
+            ("Mobile Fort", 0, B),
+            ("Returned Phalanx", 0, B),
+        ],
+    );
+    let d = until(&mut g, &Reason::Attackers);
+    let offer = attack_offer(&g, &d);
+    assert!(offer.contains_key(&1));
+    assert!(!offer.contains_key(&2));
+
+    let mut g = game(
+        TURN_SOURCES,
+        &[
+            ("Returned Phalanx", 0, B),
+            ("Island", 0, B),
+            ("Island", 0, B),
+        ],
+    );
+    let phalanx = Driver::object(&g, 0);
+    assert!(!g.creatures(PlayerId(0), true).contains(&phalanx));
+    activate(&mut g, 0, vec![]);
+    let d = until(&mut g, &Reason::Attackers);
+    assert_eq!(attack_offer(&g, &d)[&0], (vec![1, 2, 3], 0));
+    g.respond(
+        d.player,
+        d.id.clone(),
+        d.attack(vec![(phalanx, PlayerId(1))]),
+    )
+    .unwrap();
+    checked(&g);
+}
+
+/// CR 508.1d, 611.2c: "Target creature attacks this turn if able" makes
+/// the announced creature's slot required for this turn only.
+#[test]
+fn attacks_this_turn_if_able_requires_the_target() {
+    assert!(lowered(BOILING_BLOOD).validate().is_ok());
+    let mut g = game(
+        TURN_SOURCES,
+        &[
+            ("Heckling Fiends", 0, B),
+            ("Grizzly Bears", 0, B),
+            ("Mountain", 0, B),
+            ("Mountain", 0, B),
+            ("Mountain", 0, B),
+        ],
+    );
+    let bears = Driver::object(&g, 1);
+    activate(&mut g, 0, vec![TargetEntity::Object { object: bears }]);
+    let d = until(&mut g, &Reason::Attackers);
+    let offer = attack_offer(&g, &d);
+    assert_eq!(offer[&1], (vec![1, 2, 3], 1));
+    assert_eq!(offer[&0].1, 0);
+    let before = g.snapshot().unwrap();
+    assert!(g.respond(d.player, d.id.clone(), d.attack(vec![])).is_err());
+    assert_eq!(g.snapshot().unwrap(), before);
+    g.respond(d.player, d.id.clone(), d.attack(vec![(bears, PlayerId(2))]))
+        .unwrap();
+    checked(&g);
+}

@@ -2308,6 +2308,17 @@ impl RulesTxn {
                                     e.target_handles.len() == 4
                                         && self.state.rules.cards.contains_key(&target.card)
                                 }
+                                // CR 611.2c: the ability's own source.
+                                (
+                                    S::Target {
+                                        target: Ref::Source,
+                                    },
+                                    S::Target { target },
+                                ) => {
+                                    *target == e.origin.source
+                                        && e.target_handles.len() == 4
+                                        && self.state.rules.cards.contains_key(&target.card)
+                                }
                                 (S::Creatures {}, S::Creatures {})
                                 | (S::CreaturesWithoutFlying {}, S::CreaturesWithoutFlying {}) => {
                                     e.target_handles.is_empty()

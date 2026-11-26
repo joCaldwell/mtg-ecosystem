@@ -106,6 +106,23 @@ impl Walk<'_, '_> {
             ) if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
                 Ok(Cell::CombatProhibitionUntilEndOfTurn)
             }
+            // CR 508.1d, 609.4: "attacks this turn if able" and "can attack
+            // this turn as though it didn't have defender" on one announced
+            // creature or the ability's own source.
+            (
+                CombatProhibitionScope::Target {
+                    target: Ref::Target { slot },
+                },
+                R::AttackEachCombat | R::AttackAsThoughNoDefender,
+            ) if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
+                Ok(Cell::CombatProhibitionUntilEndOfTurn)
+            }
+            (
+                CombatProhibitionScope::Target {
+                    target: Ref::Source,
+                },
+                R::AttackEachCombat | R::AttackAsThoughNoDefender,
+            ) => Ok(Cell::CombatProhibitionUntilEndOfTurn),
             (
                 CombatProhibitionScope::Creatures {}
                 | CombatProhibitionScope::CreaturesWithoutFlying {},

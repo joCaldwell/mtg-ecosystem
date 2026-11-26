@@ -542,7 +542,10 @@ order, expire at cleanup and affect only their captured incarnations (CR 400.7,
 - `RestrictCombat` is a rules effect, not a characteristic change (CR 613.11).
   "Can't attack", "can't block", "can't attack or block" and "can't be blocked"
   this turn bind one announced creature; "can't block" can also name all
-  creatures or creatures without flying, read at each declaration.
+  creatures or creatures without flying, read at each declaration. "Attacks
+  this turn if able" and "can attack this turn as though it didn't have
+  defender" bind one announced creature or the ability's source incarnation
+  (CR 508.1d, 609.4); the latter is also a static rule.
 - Printed protection from one or two fixed colors, or each color, lowers to
   separate per-color abilities on creatures matching the keyword line exactly
   (CR 702.16a, g, h); other qualities reject. Static grants of hexproof, shroud

@@ -511,6 +511,11 @@ pub(crate) enum Step {
         action: Box<ast::CantAction>,
         duration: SourceDuration,
     },
+    CombatRule {
+        what: Box<ast::ObjectRef>,
+        rule: Box<ast::CombatRule>,
+        duration: SourceDuration,
+    },
     Pump {
         what: serde_json::Value,
         power: ast::SignedAmount,
