@@ -873,6 +873,7 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
     };
     match production {
         ManaProduction::Fixed { symbols } => !symbols.is_empty(),
+        ManaProduction::Counted { .. } => true,
         ManaProduction::Bundles { options } => {
             (2..=128).contains(&options.len())
                 && options.iter().enumerate().all(|(i, bundle)| {

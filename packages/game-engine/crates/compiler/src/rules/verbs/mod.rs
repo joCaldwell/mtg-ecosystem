@@ -319,6 +319,24 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
         } => library::shuffle_into(cx, who, what, into),
         Step::Scry { amount } => library::look(cx, amount, false),
         Step::Surveil { amount } => library::look(cx, amount, true),
+        Step::AddMana {
+            who,
+            mana,
+            for_each: Some(filter),
+            spend_restriction: None,
+            riders: None,
+        } if cx.context == Context::Spell
+            && who.player == "you"
+            && who.selection_id.is_none()
+            && who.of.is_none() =>
+        {
+            uncounted(cx)?;
+            let (color, amount) = super::activations::counted_mana(mana, filter, cx.context)?;
+            Ok(cx.act(Verb::AddMana {
+                player: kir::PlayerExpr::you(cx.context),
+                mana: kir::ManaSpec::Color { color, amount },
+            }))
+        }
         Step::AddMana { .. } => Err(step("add-mana", "unlowered")),
         Step::Reveal { .. } => Err(step("reveal", "unlowered")),
         // A search run is lowered from its first step by the sentence loop.

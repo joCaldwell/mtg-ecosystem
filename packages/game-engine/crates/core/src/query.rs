@@ -489,10 +489,23 @@ impl ObjectFacts for VisibleObject {
 pub struct InView<'a> {
     view: &'a PermittedView,
     object: &'a VisibleObject,
+    tapped: bool,
 }
 
 pub fn in_view<'a>(view: &'a PermittedView, object: &'a VisibleObject) -> InView<'a> {
-    InView { view, object }
+    InView {
+        view,
+        object,
+        tapped: object.tapped,
+    }
+}
+
+impl InView<'_> {
+    /// Evaluate a predicate after a simulated tap in a payment plan.
+    pub fn after_tap(mut self) -> Self {
+        self.tapped = true;
+        self
+    }
 }
 
 impl ObjectFacts for InView<'_> {
@@ -509,7 +522,7 @@ impl ObjectFacts for InView<'_> {
         self.object.phased_out
     }
     fn tapped(&self) -> bool {
-        self.object.tapped
+        self.tapped
     }
     fn is_token(&self) -> bool {
         self.object.is_token()

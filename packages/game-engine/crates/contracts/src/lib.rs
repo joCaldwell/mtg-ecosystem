@@ -1429,6 +1429,12 @@ pub enum ManaProduction {
     Fixed {
         symbols: Vec<Color>,
     },
+    /// CR 605.3b, 608.2h: multiply the symbol by a battlefield count after costs.
+    Counted {
+        color: Color,
+        filter: kir::Pred,
+        factor: Quantity,
+    },
     Bundles {
         options: Vec<Vec<Color>>,
     },

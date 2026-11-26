@@ -148,6 +148,9 @@ impl RulesTxn {
                         ),
                         ManaProduction::Choose { colors, amount } => options
                             .extend(colors.iter().map(|&color| vec![(color, amount.clone())])),
+                        // This solver uses independent static source bundles. A
+                        // counted activation needs the board after earlier taps.
+                        ManaProduction::Counted { .. } => {}
                         production => options.extend(
                             self.mana_colors(player, production)?
                                 .into_iter()

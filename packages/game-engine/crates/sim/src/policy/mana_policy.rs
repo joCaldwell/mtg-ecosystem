@@ -19,6 +19,7 @@ struct Source<'a> {
     ability: ManaAbilityIdentity,
     handle: &'a ObjectHandle,
     land: bool,
+    taps: bool,
     amount: Quantity,
     production: ManaProduction,
     choose_bundle: bool,
@@ -28,13 +29,38 @@ struct Source<'a> {
     harm: bool,
 }
 struct Planner<'a> {
+    catalog: &'a Catalog,
+    view: &'a PermittedView,
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
+    tapped: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
     scoped_mana: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
 }
 impl Planner<'_> {
+    fn amount(&self, source: &Source<'_>) -> Quantity {
+        let ManaProduction::Counted { filter, factor, .. } = &source.production else {
+            return source.amount.clone();
+        };
+        let count = self
+            .view
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(index, object)| {
+                let mut facts = mtg_core::query::in_view(self.view, object);
+                if *index == source.object_index || self.tapped[*index] {
+                    facts = facts.after_tap();
+                }
+                mtg_core::query::matches_battlefield_pred(&facts, self.view.viewer, filter).is_yes()
+            })
+            .count();
+        let mut amount = Quantity::from(i64::try_from(count).expect("bounded visible objects"));
+        amount.multiply(factor);
+        amount
+    }
+
     fn balance(&self, color: &Color, nested: bool) -> Quantity {
         let mut amount = self.pool.get(color).cloned().unwrap_or_default();
         if !nested && let Some(spell) = self.scoped_mana.get(color) {
@@ -88,9 +114,10 @@ impl Planner<'_> {
                         ManaProduction::Fixed { symbols } => symbols.as_slice(),
                         _ => color.as_slice(),
                     };
+                    let output = self.amount(source);
                     for symbol in symbols {
                         if let Some(missing) = needed.get_mut(symbol) {
-                            let amount = missing.clone().min(source.amount.clone());
+                            let amount = missing.clone().min(output.clone());
                             missing.subtract(&amount);
                             useful.add(&amount);
                         }
@@ -115,16 +142,33 @@ impl Planner<'_> {
                 return false;
             };
             let source = &self.sources[i];
+            let colors = if matches!(source.production, ManaProduction::LandsCouldProduce { .. })
+                && (source.taps || self.tapped.iter().any(|tapped| *tapped))
+            {
+                let mut view = self.view.clone();
+                for (index, object) in view.objects.iter_mut().enumerate() {
+                    object.tapped |=
+                        self.tapped[index] || (index == source.object_index && source.taps);
+                }
+                production_colors(self.catalog, &view, &source.production, view.viewer)
+            } else {
+                source.colors.clone()
+            };
             let color = match source.production {
-                ManaProduction::Fixed { .. } => None,
-                _ => deficit.or_else(|| source.colors.first().copied()),
+                ManaProduction::Fixed { .. } | ManaProduction::Counted { .. } => None,
+                _ => deficit
+                    .filter(|color| colors.contains(color))
+                    .or_else(|| colors.first().copied()),
             };
             let symbols = match &source.production {
+                ManaProduction::Counted { color, .. } => std::slice::from_ref(color),
                 ManaProduction::Fixed { symbols } => symbols.as_slice(),
                 _ => color.as_slice(),
             };
+            let amount = self.amount(source);
+            self.tapped[source.object_index] = source.taps;
             for &c in symbols {
-                self.pool.entry(c).or_default().add(&source.amount);
+                self.pool.entry(c).or_default().add(&amount);
             }
             self.plan.push(PlannedMana {
                 source: source.handle.clone(),
@@ -282,6 +326,7 @@ fn production_colors(
 ) -> Vec<Color> {
     match mana {
         ManaProduction::Fixed { symbols } => symbols.clone(),
+        ManaProduction::Counted { color, .. } => vec![*color],
         ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
         ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
         ManaProduction::CommanderColor => commander_colors(view, controller),
@@ -336,6 +381,18 @@ fn could_produce_table(
                     controller,
                     colors_only,
                 } => reads.push((index, *controller, *colors_only)),
+                ManaProduction::Counted { color, filter, .. } => {
+                    if view.objects.iter().any(|object| {
+                        mtg_core::query::matches_battlefield_pred(
+                            &mtg_core::query::in_view(view, object),
+                            o.controller,
+                            filter,
+                        )
+                        .is_yes()
+                    }) {
+                        types.insert(*color);
+                    }
+                }
                 production => {
                     types.extend(production_colors(catalog, view, production, o.controller))
                 }
@@ -482,6 +539,7 @@ pub(super) fn plan_for_payment(
                         _ => 1.into(),
                     },
                     land,
+                    taps: ability.costs.tap,
                     production,
                     choose_bundle,
                     colors,
@@ -502,6 +560,7 @@ pub(super) fn plan_for_payment(
                     handle: &o.handle,
                     amount: 1.into(),
                     land,
+                    taps: true,
                     production: ManaProduction::Fixed {
                         symbols: vec![color],
                     },
@@ -514,8 +573,11 @@ pub(super) fn plan_for_payment(
         }
     }
     let mut planner = Planner {
+        catalog,
+        view,
         sources,
         used: vec![false; view.objects.len()],
+        tapped: vec![false; view.objects.len()],
         pool,
         scoped_mana,
         plan: vec![],
@@ -822,14 +884,65 @@ mod tests {
     }
 
     #[test]
+    fn counted_mana_plan_reads_taps_in_payment_order() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { mut definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/7c427c3d-ecd8-45ef-bebd-8f10f4a311db.json"
+            ),
+        ) else {
+            panic!("frozen Cradle must lower")
+        };
+        let ManaProduction::Counted { filter, .. } = &mut definition.mana_abilities[0].production
+        else {
+            panic!("expected counted production")
+        };
+        filter.0.push(mtg_contracts::kir::Atom::Untapped);
+        catalog.definitions.push(*definition);
+
+        let mut view = view();
+        view.objects.push(land(&catalog, "Gaea's Cradle", 3));
+        let mut island = land(&catalog, "Island", 3);
+        island
+            .characteristics
+            .as_mut()
+            .unwrap()
+            .additional_types
+            .push(CardKind::Creature);
+        view.objects.push(island);
+        let mut creature = land(&catalog, "Forest", 3);
+        let facts = creature.characteristics.as_mut().unwrap();
+        facts.kind = CardKind::Creature;
+        facts.subtypes.clear();
+        view.objects.push(creature);
+
+        let mut cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::U, Color::G],
+        };
+        let plan =
+            plan_for(&catalog, &view, &cost, None).expect("Island and one untapped creature");
+        assert_eq!(plan[0].source, view.objects[1].handle);
+        assert_eq!(plan[1].source, view.objects[0].handle);
+        cost.colored.push(Color::G);
+        assert!(plan_for(&catalog, &view, &cost, None).is_none());
+    }
+
+    #[test]
     fn any_color_source_is_planned_in_the_missing_color() {
         let source = ObjectHandle("any-color-provider".into());
+        let view = view();
+        let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
         let mut planner = Planner {
+            catalog: &catalog,
+            view: &view,
             sources: vec![Source {
                 object_index: 0,
                 ability: ManaAbilityIdentity::Printed { index: 0 },
                 handle: &source,
                 land: false,
+                taps: true,
                 amount: 1.into(),
                 production: ManaProduction::AnyColor,
                 choose_bundle: false,
@@ -838,6 +951,7 @@ mod tests {
                 harm: false,
             }],
             used: vec![false],
+            tapped: vec![false],
             pool: BTreeMap::new(),
             scoped_mana: BTreeMap::new(),
             plan: vec![],

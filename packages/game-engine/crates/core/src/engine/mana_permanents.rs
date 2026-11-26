@@ -333,6 +333,13 @@ impl RulesTxn {
     ) -> Result<Vec<Color>, String> {
         Ok(match production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
+            ManaProduction::Counted { color, filter, .. } => {
+                if self.mana_count(player, filter) == 0 {
+                    vec![]
+                } else {
+                    vec![*color]
+                }
+            }
             ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
             ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
             ManaProduction::Choose { colors, .. } => colors.clone(),
@@ -964,7 +971,9 @@ impl RulesTxn {
             .collect();
         a.paid = Some(Box::new(receipt));
         match a.ability.production {
-            ManaProduction::Fixed { .. } => self.resolve_mana_ability(a, None),
+            ManaProduction::Fixed { .. } | ManaProduction::Counted { .. } => {
+                self.resolve_mana_ability(a, None)
+            }
             // CR 106.7: no type of mana is defined, so the ability adds none.
             _ if self
                 .mana_colors(a.player, &a.ability.production)?
@@ -1048,12 +1057,40 @@ impl RulesTxn {
         }
         Ok(())
     }
+    fn mana_count(&self, player: PlayerId, filter: &mtg_contracts::kir::Pred) -> usize {
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(|object| {
+                crate::query::matches_battlefield_pred(&self.object_facts(object), player, filter)
+                    .is_yes()
+            })
+            .count()
+    }
+
     fn resolve_mana_ability(
         &mut self,
         a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
         let units = match &a.ability.production {
+            ManaProduction::Counted {
+                color,
+                factor,
+                filter,
+            } => {
+                let count = self.mana_count(a.player, filter);
+                let mut amount = Quantity::from(
+                    i64::try_from(count).map_err(|_| "mana count exceeds object limit")?,
+                );
+                amount.multiply(factor);
+                if amount == Quantity::zero() {
+                    vec![]
+                } else {
+                    vec![(*color, amount)]
+                }
+            }
             ManaProduction::Fixed { symbols } => {
                 symbols.iter().map(|c| (*c, Quantity::from(1))).collect()
             }

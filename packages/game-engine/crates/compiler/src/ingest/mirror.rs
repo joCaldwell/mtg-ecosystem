@@ -491,6 +491,8 @@ pub(crate) enum Step {
     AddMana {
         who: PlayerSelector,
         mana: SourceMana,
+        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
+        for_each: Option<serde_json::Value>,
         #[serde(
             default,
             rename = "restriction",

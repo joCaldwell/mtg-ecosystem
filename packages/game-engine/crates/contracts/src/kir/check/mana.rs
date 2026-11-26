@@ -46,6 +46,13 @@ pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Ce
         ManaProduction::Fixed { .. }
         | ManaProduction::AnyColor
         | ManaProduction::CommanderColor => {}
+        ManaProduction::Counted { filter, factor, .. } => {
+            if *factor < Quantity::from(1) {
+                return unaudited("counted mana factor");
+            }
+            super::Walk::audited_filter(&crate::kir::ZoneExpr::Battlefield, filter)?;
+            cells.insert(Cell::ManaCounted);
+        }
         ManaProduction::Choose { .. } | ManaProduction::Bundles { .. } => {
             cells.insert(Cell::ManaChoose);
         }

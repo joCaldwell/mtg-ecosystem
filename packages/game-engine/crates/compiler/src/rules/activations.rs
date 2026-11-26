@@ -103,6 +103,29 @@ fn collect_bundles(
     }
 }
 
+/// CR 106.4, 608.2h: a repeated bundle of one mana type counts the set once.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(super) fn counted_mana(
+    mana: &SourceMana,
+    for_each: &serde_json::Value,
+    context: kir::Context,
+) -> Result<(Color, kir::Amount), Failure> {
+    if let SourceMana::Fixed { symbols } = mana
+        && let Some(&color) = symbols.first()
+        && symbols.iter().all(|symbol| *symbol == color)
+    {
+        let value = i64::try_from(symbols.len())
+            .map_err(|_| unsupported("mana", "counted symbol quantity"))?;
+        let amount = crate::operands::lower_for_each(
+            for_each,
+            &crate::ast::Amount::Fixed(Box::new(crate::ast::AmountFixed { value })),
+            context,
+        )?;
+        return Ok((color, amount));
+    }
+    Err(unsupported("mana", "counted symbol bundle"))
+}
+
 /// CR 106.1a, 106.7: the complete production of the ability's one AddMana
 /// step. A choice lists distinct fixed bundles. A "could produce" over anything but one land
 /// controlled by "you" or "an opponent" rejects.
@@ -329,6 +352,7 @@ pub(crate) fn lower_mana_ability(
     let Some(Step::AddMana {
         who,
         mana,
+        for_each,
         spend_restriction,
         riders: spend_riders,
     }) = steps.next()
@@ -343,7 +367,30 @@ pub(crate) fn lower_mana_ability(
     if *who != you {
         return Err(unsupported("mana", "unsupported mana recipient"));
     }
-    let production = production(mana, &you)?;
+    let production = if let Some(for_each) = for_each {
+        let (color, amount) = counted_mana(mana, for_each, kir::Context::Activated)?;
+        let (factor, count) = match amount {
+            kir::Amount::Times { factor, of } => (factor, *of),
+            count => (Quantity::from(1), count),
+        };
+        let kir::Amount::Count {
+            set:
+                kir::SetExpr::Matching {
+                    zone: kir::ZoneExpr::Battlefield,
+                    filter,
+                },
+        } = count
+        else {
+            return Err(unsupported("mana", "counted ability zone"));
+        };
+        ManaProduction::Counted {
+            color,
+            factor,
+            filter,
+        }
+    } else {
+        production(mana, &you)?
+    };
     let spend_restriction =
         lower_spend_restriction(spend_restriction.as_ref(), spend_riders.as_ref())?;
     let riders = steps
