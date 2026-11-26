@@ -177,8 +177,9 @@ through source-owner departure.
 A mana ability (CR 605.1a) is a tap cost, optionally with a mana cost paid
 through a nested activation or a life payment (CR 119.4), and one production:
 fixed symbols, any color, commander color, N mana of one color chosen from a
-printed list, or one mana of a type the controller's or opponents' lands could
-produce. CR 106.7 is the least fixed point over battlefield lands, each read
+printed list, one of the printed fixed bundles, up to five mana in any
+combination of colors, or one mana of a type the controller's or opponents'
+lands could produce. A bundle is chosen in full as the ability resolves. CR 106.7 is the least fixed point over battlefield lands, each read
 relative to its own controller from intrinsic, printed and granted abilities, ignoring
 costs and object order; if a departure leaves no defined type while the color is
 chosen, the ability adds nothing. A source with several mana abilities first

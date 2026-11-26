@@ -138,6 +138,11 @@ impl RulesTxn {
                     match &ability.production {
                         ManaProduction::Fixed { symbols } => options
                             .push(symbols.iter().map(|&color| (color, one.clone())).collect()),
+                        ManaProduction::Bundles { options: bundles } => options.extend(
+                            bundles
+                                .iter()
+                                .map(|symbols| symbols.iter().map(|&c| (c, one.clone())).collect()),
+                        ),
                         ManaProduction::Choose { colors, amount } => options
                             .extend(colors.iter().map(|&color| vec![(color, amount.clone())])),
                         production => options.extend(

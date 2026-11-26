@@ -1397,6 +1397,9 @@ pub enum ManaProduction {
     Fixed {
         symbols: Vec<Color>,
     },
+    Bundles {
+        options: Vec<Vec<Color>>,
+    },
     AnyColor,
     CommanderColor,
     /// `amount` mana of one color its controller chooses from `colors` as

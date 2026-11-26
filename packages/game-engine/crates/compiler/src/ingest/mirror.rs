@@ -893,6 +893,10 @@ pub(crate) enum SourceMana {
     AnyColor {
         amount: Count,
     },
+    Combination {
+        amount: serde_json::Value,
+        options: serde_json::Value,
+    },
     AnyOneColor {
         amount: serde_json::Value,
     },

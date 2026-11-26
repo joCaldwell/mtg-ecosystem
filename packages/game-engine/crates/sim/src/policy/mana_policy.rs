@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 pub(super) struct PlannedMana {
     pub source: ObjectHandle,
     pub color: Option<Color>,
+    pub bundle: Option<Vec<Color>>,
     pub ability: Option<ManaAbilityIdentity>,
 }
 struct Source<'a> {
@@ -20,6 +21,7 @@ struct Source<'a> {
     land: bool,
     amount: Quantity,
     production: ManaProduction,
+    choose_bundle: bool,
     colors: Vec<Color>,
     cost: Option<ManaCost>,
     /// Pays life or performs a rider (damage, life gain): used last.
@@ -72,6 +74,30 @@ impl Planner<'_> {
                 .min_by_key(|i| {
                     (
                         self.sources[*i].harm,
+                        std::cmp::Reverse(self.sources[*i].choose_bundle.then(|| {
+                            let ManaProduction::Fixed { symbols } = &self.sources[*i].production
+                            else {
+                                unreachable!("a planned bundle has fixed symbols");
+                            };
+                            let mut needed = required.clone();
+                            for (color, amount) in &mut needed {
+                                amount.subtract(&amount.clone().min(self.balance(color, nested)));
+                            }
+                            let one = Quantity::from(1);
+                            symbols
+                                .iter()
+                                .filter(|color| {
+                                    let Some(amount) = needed.get_mut(color) else {
+                                        return false;
+                                    };
+                                    if *amount < one {
+                                        return false;
+                                    }
+                                    amount.subtract(&one);
+                                    true
+                                })
+                                .count()
+                        })),
                         self.sources[*i].colors.len(),
                         self.sources[*i].land,
                         usize::from(self.sources[*i].cost.is_some()),
@@ -103,6 +129,7 @@ impl Planner<'_> {
                 source: source.handle.clone(),
                 ability: Some(source.ability),
                 color,
+                bundle: source.choose_bundle.then(|| symbols.to_vec()),
             });
         }
         false
@@ -254,6 +281,7 @@ fn production_colors(
 ) -> Vec<Color> {
     match mana {
         ManaProduction::Fixed { symbols } => symbols.clone(),
+        ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
         ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
         ManaProduction::CommanderColor => commander_colors(view, controller),
         ManaProduction::Choose { colors, .. } => colors.clone(),
@@ -417,24 +445,35 @@ pub(super) fn plan_for(
             {
                 continue;
             }
-            let colors = production_colors(catalog, view, &ability.production, view.viewer);
-            if colors.is_empty() {
-                continue;
+            let productions = match &ability.production {
+                ManaProduction::Bundles { options } => options
+                    .iter()
+                    .cloned()
+                    .map(|symbols| (ManaProduction::Fixed { symbols }, true))
+                    .collect(),
+                production => vec![(production.clone(), false)],
+            };
+            for (production, choose_bundle) in productions {
+                let colors = production_colors(catalog, view, &production, view.viewer);
+                if colors.is_empty() {
+                    continue;
+                }
+                sources.push(Source {
+                    object_index,
+                    ability: identity,
+                    handle: &o.handle,
+                    amount: match &production {
+                        ManaProduction::Choose { amount, .. } => amount.clone(),
+                        _ => 1.into(),
+                    },
+                    land,
+                    production,
+                    choose_bundle,
+                    colors,
+                    cost: ability.costs.mana.clone(),
+                    harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
+                });
             }
-            sources.push(Source {
-                object_index,
-                ability: identity,
-                handle: &o.handle,
-                amount: match &ability.production {
-                    ManaProduction::Choose { amount, .. } => amount.clone(),
-                    _ => 1.into(),
-                },
-                land,
-                production: ability.production.clone(),
-                colors,
-                cost: ability.costs.mana.clone(),
-                harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
-            });
         }
         if land && d.is_some() && available_tap(o) {
             for color in c
@@ -451,6 +490,7 @@ pub(super) fn plan_for(
                     production: ManaProduction::Fixed {
                         symbols: vec![color],
                     },
+                    choose_bundle: false,
                     colors: vec![color],
                     cost: None,
                     harm: false,
@@ -583,6 +623,7 @@ mod tests {
                 pay_life: None,
             },
             production: ManaProduction::AnyColor,
+            choose_bundle: false,
             riders: vec![],
             source_block: 0,
         }];
@@ -723,6 +764,7 @@ mod tests {
                 land: false,
                 amount: 1.into(),
                 production: ManaProduction::AnyColor,
+                choose_bundle: false,
                 colors: vec![Color::W, Color::U, Color::B, Color::R, Color::G],
                 cost: None,
                 harm: false,

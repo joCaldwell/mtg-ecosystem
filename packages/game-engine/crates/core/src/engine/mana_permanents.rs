@@ -326,6 +326,7 @@ impl RulesTxn {
     ) -> Result<Vec<Color>, String> {
         Ok(match production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
+            ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
             ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
             ManaProduction::Choose { colors, .. } => colors.clone(),
             ManaProduction::LandsCouldProduce {
@@ -791,11 +792,18 @@ impl RulesTxn {
                 a.stage == ManaStage::Payment,
             ),
             ManaStage::Color => {
-                let candidates = self
-                    .mana_colors(a.player, &a.ability.production)?
-                    .into_iter()
-                    .map(|color| Candidate::Color { color })
-                    .collect();
+                let candidates = match &a.ability.production {
+                    ManaProduction::Bundles { options } => options
+                        .iter()
+                        .cloned()
+                        .map(|symbols| Candidate::ManaBundle { symbols })
+                        .collect(),
+                    production => self
+                        .mana_colors(a.player, production)?
+                        .into_iter()
+                        .map(|color| Candidate::Color { color })
+                        .collect(),
+                };
                 Ok(self.pick(
                     a.player,
                     Reason::ManaColor {
@@ -860,12 +868,13 @@ impl RulesTxn {
             } if a.stage == ManaStage::Spend => {
                 self.pay_mana_ability(a, unrestricted.clone())?;
             }
-            Answer::Pick { .. } if a.stage == ManaStage::Color => {
-                let Candidate::Color { color } = *input.one()? else {
-                    return Err("invalid mana color".into());
-                };
-                self.resolve_mana_ability(a, Some(color))?;
-            }
+            Answer::Pick { .. } if a.stage == ManaStage::Color => match input.one()? {
+                Candidate::Color { color } => self.resolve_mana_ability(a, Some(*color))?,
+                Candidate::ManaBundle { symbols } => {
+                    self.produce_mana_units(a, symbols.iter().map(|&c| (c, 1.into())).collect())?;
+                }
+                _ => return Err("invalid mana production choice".into()),
+            },
             _ => return Err("nested mana frame/input invariant".into()),
         }
         Ok(())

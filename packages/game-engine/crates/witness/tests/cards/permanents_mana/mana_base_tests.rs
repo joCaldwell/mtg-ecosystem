@@ -739,3 +739,88 @@ fn unrelated_concession_keeps_the_mana_ability_choice() {
     assert_eq!(life(&g, 0), Quantity::from(LIFE - 1));
     checked(&g);
 }
+
+#[test]
+fn combination_output_is_one_choice_of_a_complete_bundle() {
+    let mut catalog = catalog();
+    let raw = include_str!(
+        "../../../../../tests/fixtures/phase1-r5/d98b4250-3492-4864-9c4c-42db09b3ccd4.json"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(MANIFEST, raw)
+    else {
+        panic!("Cascading Cataracts must lower");
+    };
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let mut board = Board::new(catalog, "combination-mana-witness")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Cascading Cataracts", 0, 0, false);
+    for _ in 0..5 {
+        board = board.permanent_or_hand("Forest", 0, 0, false);
+    }
+    let mut game = Game::new(board.libraries("Forest", 4).prepare());
+    for card in 1..=5 {
+        activate(&mut game, card);
+    }
+    activate(&mut game, 0);
+    pick(
+        &mut game,
+        |reason| matches!(reason, Reason::ManaAbility { .. }),
+        &[printed(0), printed(1)],
+        printed(1),
+    );
+    let pay = Driver::request(&mut game, u64::MAX);
+    game.respond(
+        pay.player,
+        pay.id,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    )
+    .unwrap();
+    let pay = Driver::request(&mut game, u64::MAX);
+    game.respond(
+        pay.player,
+        pay.id,
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([(Color::G, 5.into())]),
+            },
+        },
+    )
+    .unwrap();
+    let choice = Driver::request(&mut game, u64::MAX);
+    assert_eq!(choice.candidates.len(), 126);
+    checked(&game);
+    let mut symbols = vec![Color::R, Color::G, Color::R, Color::U, Color::W];
+    symbols.sort();
+    let answer = choice.pick_one(&Candidate::ManaBundle { symbols }).unwrap();
+    game.respond(choice.player, choice.id, answer).unwrap();
+    priority(&mut game);
+    assert_eq!(
+        pool(&game, 0),
+        BTreeMap::from([
+            (Color::R, 2.into()),
+            (Color::G, 1.into()),
+            (Color::U, 1.into()),
+            (Color::W, 1.into()),
+        ])
+    );
+    checked(&game);
+}
+
+#[test]
+fn bundle_with_hybrid_activation_input_is_still_rejected() {
+    let raw = include_str!(
+        "../../../../../tests/fixtures/phase1-r5/dc974eb4-72b9-4213-887b-8ee684b93420.json"
+    );
+    let result = mtg_witness::compile(MANIFEST, raw);
+    assert!(
+        !matches!(result, mtg_compiler::CompileResult::Lowered { .. }),
+        "a bundle cannot bypass its activation cost"
+    );
+}

@@ -46,6 +46,7 @@ pub struct PolicyMemory {
     mulligans: [u8; 4],
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
+    mana_bundle: Option<Vec<Color>>,
     mana_ability: Option<mtg_core::ManaAbilityIdentity>,
     payment: PaymentAttempt,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
@@ -104,6 +105,7 @@ impl PolicyMemory {
         self.payment.next_priority(view);
         self.mana_plan.clear();
         self.mana_color = None;
+        self.mana_bundle = None;
         self.mana_ability = None;
         self.hybrid_choices.clear();
     }
@@ -276,6 +278,7 @@ impl Strategy<'_> {
                     }
                 } else if let Some(next) = self.memory.mana_plan.pop_front() {
                     self.memory.mana_color = next.color;
+                    self.memory.mana_bundle = next.bundle;
                     self.memory.mana_ability = next.ability;
                     payment_source(d, next.source)?
                 } else {
@@ -624,8 +627,17 @@ impl Strategy<'_> {
             }
             (Reason::ManaColor { .. }, Shape::Pick { slots, .. }) => {
                 let preferred = self.memory.mana_color.take();
+                let bundle = self.memory.mana_bundle.take();
                 let allowed = &slots[0].allowed;
-                let n=allowed.iter().find(|i|matches!(d.candidates[**i as usize],Candidate::Color{color} if Some(color)==preferred)).or(allowed.first()).ok_or("empty mana color slot")?;
+                let n = allowed
+                    .iter()
+                    .find(|i| match &d.candidates[**i as usize] {
+                        Candidate::Color { color } => Some(*color) == preferred,
+                        Candidate::ManaBundle { symbols } => Some(symbols) == bundle.as_ref(),
+                        _ => false,
+                    })
+                    .or(allowed.first())
+                    .ok_or("empty mana production slot")?;
                 Answer::Pick {
                     picks: vec![vec![*n]],
                 }
