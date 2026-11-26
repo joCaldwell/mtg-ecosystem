@@ -117,7 +117,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
             | kir::Cond::CastBy { .. }
             | kir::Cond::TurnHistory { .. }
             | kir::Cond::ControlsOwnCommander { .. }
-            | kir::Cond::OpponentControlsMore { .. } => {}
+            | kir::Cond::OpponentControlsMore { .. }
+            | kir::Cond::ControlledSinceLastUpkeep {} => {}
         }
     }
     match node {
@@ -745,6 +746,27 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         cost(d, a, &a.program)?;
         return program(&a.program, Context::Activated, None, false);
     }
+    // CR 702.84a: unearth is a sorcery-speed graveyard ability of a
+    // permanent card paying one fixed mana cost.
+    if a.functioning_zone == FunctioningZone::Graveyard
+        && matches!(a.cost, ActivationCost::Mana { .. })
+    {
+        let ActivationCost::Mana { cost } = &a.cost else {
+            unreachable!()
+        };
+        if !a.is_unearth()
+            || !matches!(
+                d.characteristics.kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+            )
+            || cost.generic.is_negative()
+            || cost.colored.contains(&Color::C)
+            || (cost.generic == Quantity::zero() && cost.colored.is_empty())
+        {
+            return cell("activated", "unearth");
+        }
+        return program(&a.program, Context::Activated, None, false);
+    }
     // CR 702.29a/e, 602.2a: cycling and typecycling use fixed mana and the
     // exact hand card, then draw one or search, reveal and shuffle.
     if a.functioning_zone == FunctioningZone::Hand {
@@ -1299,6 +1321,82 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
             || cost.colored.contains(&Color::C))
     {
         return cell("keyword", "flashback");
+    }
+    // CR 702.74a, 118.9: evoke is a fixed mana alternative cost of a
+    // permanent card whose own cost announces no X or hybrid choice, and the
+    // definition carries exactly the one sacrifice trigger that reads it.
+    let evoke_triggers = d
+        .triggered
+        .iter()
+        .filter(|t| {
+            matches!(
+                t.condition.intervening_if(),
+                Some(kir::Cond::CostPaid { .. })
+            )
+        })
+        .collect::<Vec<_>>();
+    match &d.alternative_cost {
+        None if evoke_triggers.is_empty() => {}
+        Some(cost)
+            if cost.identity == crate::EVOKE_COST
+                && matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                )
+                && !d.x_mana_cost
+                && c.hybrid_mana.is_empty()
+                && !cost.mana.generic.is_negative()
+                && !cost.mana.colored.contains(&Color::C)
+                && matches!(evoke_triggers.as_slice(), [t]
+                    if **t == TriggeredAbility::evoke_sacrifice(cost.source_block)) => {}
+        _ => return cell("keyword", "evoke"),
+    }
+    // CR 702.30a: an echo trigger is exactly the keyword's own ability on a
+    // permanent card, paying one fixed mana cost.
+    for t in &d.triggered {
+        if matches!(
+            t.condition.intervening_if(),
+            Some(kir::Cond::ControlledSinceLastUpkeep {})
+        ) {
+            let echo = t.program.instructions.first().and_then(|i| match i {
+                Instruction::Kernel {
+                    node:
+                        kir::Node::UnlessPays {
+                            payment: kir::Payment::Mana { mana },
+                            ..
+                        },
+                    source_block,
+                } => Some((*source_block, mana.clone())),
+                Instruction::Kernel {
+                    node:
+                        kir::Node::UnlessPays {
+                            payment: kir::Payment::Generic { amount },
+                            ..
+                        },
+                    source_block,
+                } => amount.as_fixed().map(|generic| {
+                    (
+                        *source_block,
+                        ManaCost {
+                            generic: generic.clone(),
+                            colored: vec![],
+                        },
+                    )
+                }),
+                _ => None,
+            });
+            if !matches!(
+                c.kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+            ) || !echo.is_some_and(|(block, mana)| {
+                !mana.generic.is_negative()
+                    && !mana.colored.contains(&Color::C)
+                    && (mana.generic > Quantity::zero() || !mana.colored.is_empty())
+                    && *t == TriggeredAbility::echo(block, mana)
+            }) {
+                return cell("keyword", "echo");
+            }
+        }
     }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         if let Some(modal) = &d.modal_spell {

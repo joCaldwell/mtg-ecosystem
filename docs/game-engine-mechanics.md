@@ -272,6 +272,19 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   On successful resolution the paid spell goes to its owner’s hand. A copy
   ceases to exist and flashback still exiles the original on departure (CR
   702.27a, 702.34a, 707.10a).
+- **Evoke** (permanent without X or hybrid): a fixed alternative mana cost
+  announced with the optional costs on hand or command-zone casts; it
+  replaces the mana cost, not the mana value, and a copy keeps it (CR
+  118.9, 702.74a, 707.10). The entry trigger reads the completed cast and its
+  controller sacrifices that exact permanent (`SacrificeSource`, CR 603.4,
+  701.21a). Develop evokes only when the full cost cannot be funded.
+- **Unearth** (permanent, fixed mana): a sorcery-speed graveyard ability
+  whose delayed trigger returns the exact card, captures the move and exiles
+  that permanent at the next end step. The returned incarnation has haste and
+  is exiled instead of leaving the battlefield for any other zone; a card
+  that left the graveyard returns nothing (CR 400.7, 603.7, 614.1a, 702.84a).
+  Dash, encore, rebound, retrace, escape, cumulative upkeep, eternalize,
+  embalm, madness and scavenge reject as `keyword:<name>`.
 - **Flashback** (instant/sorcery without X or hybrid): cast from its owner's
   graveyard at normal timing (CR 702.34a, 118.9), exiled instead of leaving the
   stack any other way; an abandoned cast returns it to the graveyard (CR 733.1).
@@ -546,7 +559,12 @@ controller's noncreature cast. Bushido N pumps +N/+N when the creature blocks or
 becomes blocked. Afterlife N creates N 1/1 white and black flying Spirits when the
 permanent dies. Soulshift N may return a target Spirit card with mana value N or
 less from your graveyard to your hand. These rules are CR 702.108, 702.45, 702.135
-and 702.46. The keyword line must print each N, and the source keyword list must
+and 702.46. Echo [fixed mana] on a permanent is "at the beginning of your
+upkeep, if this came under your control since your last upkeep began,
+sacrifice it unless you pay": each player counts upkeeps begun and each
+permanent records that count when it came under its controller's control,
+also in last-known information (CR 603.4, 702.30a). Other echo costs reject.
+The keyword line must print each N, and the source keyword list must
 name each keyword. X amounts reject. So do the remaining triggered keywords, such as
 battle cry (an "other" set filter), exalted (attacks alone), undying/persist
 (counter memory and entry counters) and extort (hybrid resolution payment).

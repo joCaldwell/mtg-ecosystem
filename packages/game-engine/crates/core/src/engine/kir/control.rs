@@ -305,7 +305,8 @@ impl RulesTxn {
             | Cond::CastBy { .. }
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
-            | Cond::OpponentControlsMore { .. } => {
+            | Cond::OpponentControlsMore { .. }
+            | Cond::ControlledSinceLastUpkeep {} => {
                 return Err("intervening condition in a resolving node".into());
             }
             Cond::CostPaid { identity } => self
