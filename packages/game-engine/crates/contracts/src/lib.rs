@@ -345,6 +345,9 @@ pub enum Capability {
     InterveningIfV1,
     /// CR 603.2: an admitted event pattern outside the reviewed event rows.
     EventTriggerV1,
+    /// CR 603.2: a turn ordinal or "triggers only once each turn", read from
+    /// the public per-turn ledger.
+    TriggerTurnHistoryV1,
     ResolutionTriggerV1,
     CreatureOrPlaneswalkerTargetV1,
 
@@ -1492,6 +1495,10 @@ pub enum TriggerCondition {
         pattern: kir::EventPattern,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         intervening_if: Option<kir::Cond>,
+        /// "This ability triggers only once each turn": each incarnation of
+        /// the source triggers this ability at most once per turn (CR 400.7).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        once_each_turn: bool,
     },
 }
 impl TriggerCondition {
@@ -1500,6 +1507,12 @@ impl TriggerCondition {
         Self::Event {
             pattern,
             intervening_if: None,
+            once_each_turn: false,
+        }
+    }
+    pub fn once_each_turn(&self) -> bool {
+        match self {
+            Self::Event { once_each_turn, .. } => *once_each_turn,
         }
     }
     pub fn pattern(&self) -> &kir::EventPattern {
@@ -2006,6 +2019,9 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
     let mut caps = vec![];
     if ability.condition.intervening_if().is_some() {
         caps.push(Capability::InterveningIfV1);
+    }
+    if ability.condition.once_each_turn() || pattern.nth().is_some() {
+        caps.push(Capability::TriggerTurnHistoryV1);
     }
     // CR 700.4: a creature you control (optionally another, nontoken or
     // non-Spirit) dying, any creature dying, or the host of this Aura or

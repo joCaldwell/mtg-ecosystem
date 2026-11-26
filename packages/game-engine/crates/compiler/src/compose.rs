@@ -109,6 +109,8 @@ enum Block {
         condition: Option<serde_json::Value>,
         trigger: Box<serde_json::Value>,
         effects: Vec<serde_json::Value>,
+        /// "This ability triggers only once each turn."
+        limit: Option<serde_json::Value>,
     },
     Spell {
         #[serde(rename = "abilityWord")]
@@ -398,7 +400,95 @@ fn activation(
     })
 }
 
+/// CR 603.2: "your/their Nth [filtered] spell or card each turn" qualifies
+/// the event it is printed on. The event lowers without it, then the
+/// ordinal is attached to the cast, draw or life-gain pattern it counts;
+/// any other qualified event, period or count rejects by name.
 fn trigger(
+    card: &Card<'_>,
+    raw: &serde_json::Value,
+    parts: Vec<Part>,
+    condition: Option<&serde_json::Value>,
+    block: usize,
+) -> Result<TriggeredAbility, Failure> {
+    // CR 115.1, 601.2c: "a spell that targets this [permanent]" lowers the
+    // cast event without the target clause, then names the source.
+    if raw["trigger"] == "cast"
+        && let Some(targets) = raw["what"].get("targets")
+        && (*targets == serde_json::json!({"ref": "self"})
+            || targets["ref"] == "this"
+                && targets.as_object().map(|o| o.len()) == Some(2)
+                && targets["noun"]
+                    .as_str()
+                    .is_some_and(|noun| card.is_self(noun)))
+    {
+        let mut stripped = raw.clone();
+        if let Some(what) = stripped["what"].as_object_mut() {
+            what.remove("targets");
+        }
+        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
+        let EventPattern::Cast { targets_source, .. } = pattern else {
+            return Err(unsupported("compose.block", "trigger:targets:event"));
+        };
+        *targets_source = true;
+        return Ok(ability);
+    }
+    let Some(occurrence) = raw.get("occurrence") else {
+        return trigger_event(card, raw, parts, condition, block);
+    };
+    let reject =
+        |detail: &str| unsupported("compose.block", format!("trigger:occurrence:{detail}"));
+    let fields = occurrence.as_object().ok_or_else(|| reject("shape"))?;
+    let nth = fields
+        .get("ordinal")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|n| (1..=4).contains(n))
+        .ok_or_else(|| reject("ordinal"))?;
+    let per_player = match fields.get("per") {
+        None => false,
+        Some(per) if per == "player" => true,
+        Some(_) => return Err(reject("per")),
+    };
+    if fields.get("period") != Some(&serde_json::json!("turn"))
+        || fields
+            .keys()
+            .any(|k| !matches!(k.as_str(), "ordinal" | "period" | "per"))
+    {
+        return Err(reject("period"));
+    }
+    let mut stripped = raw.clone();
+    if let Some(object) = stripped.as_object_mut() {
+        object.remove("occurrence");
+    }
+    let mut ability = trigger_event(card, &stripped, parts, condition, block)?;
+    let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
+    // "your Nth" and "their Nth" count the event player's own events; only
+    // "the Nth spell of a turn" (each player, no per-player count) counts
+    // every player's. "An opponent's Nth" without a per-player count is
+    // not a printed form.
+    let ordinal = |player: &PlayerExpr, cast: bool| -> Result<kir::TurnOrdinal, Failure> {
+        let any_player = match player {
+            _ if per_player => false,
+            PlayerExpr::EachPlayer if cast => true,
+            p if p.is_you() => false,
+            _ => return Err(reject("player")),
+        };
+        Ok(kir::TurnOrdinal { nth, any_player })
+    };
+    match pattern {
+        EventPattern::Cast {
+            caster, nth: slot, ..
+        } => *slot = Some(ordinal(caster, true)?),
+        EventPattern::Draws { player, nth: slot }
+        | EventPattern::GainsLife { player, nth: slot } => *slot = Some(ordinal(player, false)?),
+        other => return Err(reject(other.reporting_key())),
+    }
+    Ok(ability)
+}
+
+fn trigger_event(
     card: &Card<'_>,
     raw: &serde_json::Value,
     parts: Vec<Part>,
@@ -421,11 +511,17 @@ fn trigger(
         return Ok(ability);
     }
     let mut reviewed = None;
-    let reviewed_effects = !parts.iter().any(|part| match part {
-        Part::Typed(_) => false,
-        Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
-        Part::Reflexive(..) | Part::Departure(_) => true,
-    });
+    // CR 601.2i: a cast event whose effects include step-table rows binds
+    // the reviewed cast pattern here and lowers its rows below, as the
+    // general event table's events do.
+    let cast_table = matches!(narrow, Ok(SourceTrigger::Cast { .. }))
+        && parts.iter().any(|part| matches!(part, Part::Table(_)));
+    let reviewed_effects = !cast_table
+        && !parts.iter().any(|part| match part {
+            Part::Typed(_) => false,
+            Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
+            Part::Reflexive(..) | Part::Departure(_) => true,
+        });
     if table.is_none()
         && reviewed_effects
         && let (Ok(t), Ok(c)) = (&narrow, &narrow_condition)
@@ -466,9 +562,17 @@ fn trigger(
             }
         }
     }
-    let event = match table {
-        Some(event) => event,
-        None => match events::general(card, raw)? {
+    let event = match (table, &narrow) {
+        (Some(event), _) => event,
+        (
+            None,
+            Ok(SourceTrigger::Cast {
+                who,
+                what,
+                not_from,
+            }),
+        ) if cast_table => cast_event(who, what, not_from.as_ref())?,
+        (None, _) => match events::general(card, raw)? {
             Some(event) => event,
             None => {
                 return Err(reviewed.unwrap_or_else(|| {
@@ -504,6 +608,7 @@ fn trigger(
     let condition = TriggerCondition::Event {
         pattern: event,
         intervening_if: intervening.map(|i| i.condition()),
+        once_each_turn: false,
     };
     if let [Part::Departure(parent)] = parts.as_slice() {
         program = parent.clone();
@@ -533,6 +638,64 @@ fn trigger(
         condition,
         program,
     })
+}
+
+/// "This ability triggers only once each turn" (CR 603.2): the one printed
+/// limit, at most one triggering per source incarnation each turn. Other
+/// counts or periods reject by name.
+fn trigger_limit(limit: Option<&serde_json::Value>) -> Result<bool, Failure> {
+    match limit {
+        None => Ok(false),
+        Some(limit) if *limit == serde_json::json!({"maximum": 1, "period": "turn"}) => Ok(true),
+        Some(_) => Err(unsupported("compose.block", "trigger:limit:period")),
+    }
+}
+
+/// CR 603.2c: "Whenever one or more [objects] ..." triggers once per event
+/// however many objects it affects. Limited to once each turn, it triggers
+/// exactly when the first occurrence of the turn would trigger the
+/// per-object form, so it lowers as that form when nothing in the ability
+/// refers to the event's objects or players and no intervening condition
+/// could tell the occurrences apart.
+fn grouped_once(
+    event: Box<serde_json::Value>,
+    once_each_turn: bool,
+) -> (Box<serde_json::Value>, bool) {
+    if !once_each_turn || event.get("grouping") != Some(&serde_json::json!("one-or-more")) {
+        return (event, false);
+    }
+    let mut event = event;
+    if let Some(fields) = event.as_object_mut() {
+        fields.remove("grouping");
+    }
+    (event, true)
+}
+
+fn references_trigger_event(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(value) => {
+            matches!(value.as_str(), "event_object" | "event_player")
+        }
+        serde_json::Value::Array(values) => values.iter().any(references_trigger_event),
+        serde_json::Value::Object(fields) => fields.values().any(references_trigger_event),
+        _ => false,
+    }
+}
+
+fn limit_trigger(ability: &mut TriggeredAbility, once: bool, grouped: bool) -> Result<(), Failure> {
+    if grouped {
+        let program = serde_json::to_value(ability.programs().collect::<Vec<_>>())
+            .map_err(|e| unsupported("compose.block", e.to_string()))?;
+        if ability.condition.intervening_if().is_some() || references_trigger_event(&program) {
+            return Err(unsupported(
+                "compose.block",
+                "trigger:grouping:event-reference",
+            ));
+        }
+    }
+    let TriggerCondition::Event { once_each_turn, .. } = &mut ability.condition;
+    *once_each_turn = once;
+    Ok(())
 }
 
 /// Every number printed in a block, outside mana symbols, reminder text and
@@ -1170,7 +1333,10 @@ fn compose_face(
                     condition,
                     trigger: event,
                     effects,
+                    limit,
                 } if !spell_kind => {
+                    let once_each_turn = trigger_limit(limit.as_ref())?;
+                    let (event, grouped) = grouped_once(event, once_each_turn);
                     ability_word(&word, &result.lines[block].text)?;
                     printed::intervening_if(
                         &result.lines[block].text,
@@ -1198,6 +1364,7 @@ fn compose_face(
                             |a: &mut TriggeredAbility| &mut a.program,
                         )?;
                         ability.modal = Some(modal);
+                        limit_trigger(&mut ability, once_each_turn, grouped)?;
                         labels.triggered.push(label);
                         definition.triggered.push(ability);
                         return printed::choices_printed(
@@ -1250,6 +1417,8 @@ fn compose_face(
                         )?;
                         ability
                     };
+                    let mut ability = ability;
+                    limit_trigger(&mut ability, once_each_turn, grouped)?;
                     labels.triggered.push(label);
                     definition.triggered.push(ability);
                 }
