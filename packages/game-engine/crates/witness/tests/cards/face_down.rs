@@ -17,6 +17,7 @@ const HERMIT: &str = record!("69d2e5f3-2f4d-4a36-bcd5-181164ecd894");
 const AINOK: &str = record!("7a5dae5f-29ab-4996-b236-c754de8769bc");
 const CAVERN: &str = record!("3763de30-28e1-4689-a71c-07d2fea3a466");
 const AKROMA: &str = record!("2b80faaf-92fd-4fa0-a3f6-8bb263e7ff1d");
+const NAMELESS: &str = record!("bd8d0498-53f9-484c-a59a-78daca468859");
 
 fn lower(raw: &str) -> Definition {
     match mtg_witness::compile(mtg_witness::R5_MANIFEST, raw) {
@@ -27,7 +28,7 @@ fn lower(raw: &str) -> Definition {
 
 fn board() -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
-    for record in [HERMIT, AINOK, CAVERN, AKROMA] {
+    for record in [HERMIT, AINOK, CAVERN, AKROMA, NAMELESS] {
         catalog.definitions.push(lower(record));
     }
     catalog
@@ -664,5 +665,29 @@ fn a_reversed_face_down_cast_returns_the_card_unrevealed() {
     assert!(after.view.known_searched_hand.is_empty());
     assert_eq!(after.view.objects, before.view.objects);
     game.validate_state().unwrap();
+    assert_recoverable((&game).into());
+}
+
+#[test]
+fn a_face_down_card_has_no_characteristic_defining_power_and_toughness() {
+    let mut game = Game::new(
+        lands(
+            board().permanent_or_hand("Nameless One", 0, 0, true),
+            "Island",
+            6,
+        )
+        .permanent_or_hand("Azure Mage", 1, 1, false)
+        .permanent_or_hand("Temporal Adept", 1, 1, false)
+        .prepare(),
+    );
+    // CR 708.2, 604.3: face down it has no ability defining its P/T.
+    let nameless = cast_face_down(&mut game);
+    assert_face_down_characteristics(&game.characteristics(nameless).unwrap());
+    Driver::action(&mut game, Action::TurnFaceUp { object: nameless });
+    Driver::pay(&mut game, &[1, 5, 6]);
+    // Face up, it counts the Wizards: itself, Azure Mage and Temporal Adept (CR 208.2a).
+    let c = game.characteristics(nameless).unwrap();
+    assert_eq!((c.power, c.toughness), (Some(3.into()), Some(3.into())));
+    assert_eq!(c.subtypes, ["Wizard", "Avatar"]);
     assert_recoverable((&game).into());
 }
