@@ -18,6 +18,7 @@ macro_rules! record {
     };
 }
 
+mod keyword_triggers;
 mod object_events;
 mod observed_events;
 mod resolution_triggers;

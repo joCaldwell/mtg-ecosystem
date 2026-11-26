@@ -77,6 +77,7 @@ pub(super) fn changeling() -> SourceKeyword {
         cost: None,
         filter: None,
         protection_from: None,
+        amount: None,
     }
 }
 
@@ -84,6 +85,23 @@ pub(super) fn lower(
     kind: CardKind,
     keywords: &[SourceKeyword],
     text: &str,
+) -> Result<Vec<KeywordAbility>, Failure> {
+    lower_with_protection_text(kind, keywords, Some(text))
+}
+
+/// Companion evergreen/protection/landwalk keywords sharing a triggered-keyword
+/// line; `triggered_printed` validates the entire line's token spelling.
+pub(super) fn lower_triggered_companion(
+    kind: CardKind,
+    keywords: &[SourceKeyword],
+) -> Result<Vec<KeywordAbility>, Failure> {
+    lower_with_protection_text(kind, keywords, None)
+}
+
+fn lower_with_protection_text(
+    kind: CardKind,
+    keywords: &[SourceKeyword],
+    protection_text: Option<&str>,
 ) -> Result<Vec<KeywordAbility>, Failure> {
     if keywords.is_empty() {
         return Err(unsupported("abilities.keywords", "empty keyword block"));
@@ -101,7 +119,13 @@ pub(super) fn lower(
             ));
         }
         if let Some(from) = &keyword.protection_from {
-            lowered.extend(fixed_color_protection(kind, from, text)?);
+            if keyword.keyword != "protection" {
+                return Err(unsupported(
+                    "keyword",
+                    format!("keyword:{}:parameters", keyword.keyword),
+                ));
+            }
+            lowered.extend(fixed_color_protection(kind, from, protection_text)?);
         } else {
             let ability = TABLE
                 .iter()
@@ -120,7 +144,7 @@ pub(super) fn lower(
 fn fixed_color_protection(
     kind: CardKind,
     from: &[SourceProtectionQuality],
-    text: &str,
+    text: Option<&str>,
 ) -> Result<Vec<KeywordAbility>, Failure> {
     use SourceProtectionQuality::{AllColors, Color};
     use mtg_contracts::fixed_color_protection::{KEYWORDS, keyword_for_name};
@@ -143,10 +167,12 @@ fn fixed_color_protection(
         ),
         _ => return Err(gap("quality_list")),
     };
-    let text = text.to_ascii_lowercase();
-    let clause = format!("protection from {phrase}");
-    if text != clause && !text.ends_with(&format!(", {clause}")) {
-        return Err(gap("printed_quality"));
+    if let Some(text) = text {
+        let text = text.to_ascii_lowercase();
+        let clause = format!("protection from {phrase}");
+        if text != clause && !text.ends_with(&format!(", {clause}")) {
+            return Err(gap("printed_quality"));
+        }
     }
     Ok(abilities)
 }
@@ -433,6 +459,518 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
     Err(unsupported("keyword", "keyword:enchant:filter"))
 }
 
+/// Printed keyword abilities that are triggered abilities. Each instance
+/// lowers to the complete trigger its rule defines and triggers separately
+/// (CR 702.108b, 702.45b, 702.135b, 702.46b). The `bool` states
+/// whether the keyword prints a fixed N.
+const TRIGGERED: &[(&str, bool)] = &[
+    ("prowess", false),
+    ("bushido", true),
+    ("afterlife", true),
+    ("soulshift", true),
+];
+
+pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
+    TRIGGERED.iter().any(|(name, _)| *name == keyword.keyword)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LineToken {
+    Word { value: String, possessive: bool },
+    Number(String),
+    Symbol,
+    Punct(char),
+}
+
+/// Tokenize a normalized Oracle line using the same word/number/symbol
+/// boundaries, horizontal-whitespace handling, and possessive flags as
+/// `packages/oracle-parser/src/lexer.ts`. Notably letters and ASCII digits never
+/// merge (`"afterlife1"` lexes to `afterlife`, `1`).
+fn lex_line(line: &str) -> Vec<LineToken> {
+    const CONTRACTIONS: &[&str] = &[
+        "can't",
+        "don't",
+        "doesn't",
+        "isn't",
+        "aren't",
+        "won't",
+        "wasn't",
+        "weren't",
+        "hasn't",
+        "haven't",
+        "hadn't",
+        "didn't",
+        "couldn't",
+        "shouldn't",
+        "wouldn't",
+        "it's",
+        "that's",
+        "there's",
+        "they're",
+        "you're",
+        "you've",
+        "he's",
+        "she's",
+        "what's",
+        "who's",
+        "let's",
+    ];
+    let chars: Vec<char> = line.chars().collect();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == ' ' || c == '\t' {
+            i += 1;
+            continue;
+        }
+        if c == '{'
+            && let Some(rel) = chars[i + 1..].iter().position(|&d| d == '}')
+        {
+            tokens.push(LineToken::Symbol);
+            i += rel + 2;
+            continue;
+        }
+        if c.is_ascii_digit() {
+            let start = i;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            tokens.push(LineToken::Number(chars[start..i].iter().collect()));
+            continue;
+        }
+        if c.is_alphabetic() {
+            let start = i;
+            while i < chars.len() {
+                let d = chars[i];
+                if d.is_alphabetic()
+                    || ((d == '\'' || d == '-')
+                        && chars.get(i + 1).is_some_and(|n| n.is_alphabetic()))
+                {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let mut value: String = chars[start..i].iter().collect::<String>().to_lowercase();
+            let mut possessive = false;
+            if !CONTRACTIONS.contains(&value.as_str()) {
+                if let Some(stem) = value.strip_suffix("'s") {
+                    value = stem.to_owned();
+                    possessive = true;
+                } else if chars.get(i) == Some(&'\'') && value.ends_with('s') {
+                    i += 1;
+                    possessive = true;
+                }
+            }
+            tokens.push(LineToken::Word { value, possessive });
+            continue;
+        }
+        tokens.push(LineToken::Punct(c));
+        i += 1;
+    }
+    tokens
+}
+
+fn consume_word<'a>(tokens: &'a [LineToken], expected: &str) -> Option<&'a [LineToken]> {
+    match tokens {
+        [
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == expected => Some(tail),
+        _ => None,
+    }
+}
+
+fn consume_words<'a>(mut tokens: &'a [LineToken], words: &[&str]) -> Option<&'a [LineToken]> {
+    for word in words {
+        tokens = consume_word(tokens, word)?;
+    }
+    Some(tokens)
+}
+
+/// Consume one inter-keyword separator matching `parseKeywordLine`
+/// (`packages/oracle-parser/src/parser/keywords.ts:524-533`): `,`, `;`, `, and`,
+/// `; and`, or bare non-possessive `and`.
+fn consume_separator(tokens: &[LineToken]) -> Option<&[LineToken]> {
+    match tokens {
+        [
+            LineToken::Punct(',' | ';'),
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => Some(tail),
+        [LineToken::Punct(',' | ';'), tail @ ..] => Some(tail),
+        [
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => Some(tail),
+        _ => None,
+    }
+}
+
+/// Consume one two-color protection separator matching `parseProtectionScopes`
+/// (`packages/oracle-parser/src/parser/keywords.ts:248-252`): `, from`,
+/// `, and from`, or `and from`.
+fn consume_protection_separator(tokens: &[LineToken]) -> Option<&[LineToken]> {
+    let after_sep = match tokens {
+        [
+            LineToken::Punct(','),
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => tail,
+        [LineToken::Punct(','), tail @ ..] => tail,
+        [
+            LineToken::Word {
+                value,
+                possessive: false,
+            },
+            tail @ ..,
+        ] if value == "and" => tail,
+        _ => return None,
+    };
+    consume_word(after_sep, "from")
+}
+
+/// Consume one supported keyword token-for-token using the non-possessive
+/// word/number rules of `packages/oracle-parser/src/parser/keywords.ts`.
+fn consume_keyword<'a>(
+    keyword: &SourceKeyword,
+    tokens: &'a [LineToken],
+) -> Option<&'a [LineToken]> {
+    if is_triggered(keyword) {
+        if keyword.cost.is_some() || keyword.filter.is_some() || keyword.protection_from.is_some() {
+            return None;
+        }
+        let (name, parameterized) = TRIGGERED.iter().find(|(n, _)| *n == keyword.keyword)?;
+        let rest = consume_word(tokens, name)?;
+        return match (parameterized, keyword.amount) {
+            (false, None) => Some(rest),
+            (true, Some(n)) => match rest {
+                [LineToken::Number(digits), tail @ ..] if *digits == n.to_string() => Some(tail),
+                _ => None,
+            },
+            _ => None,
+        };
+    }
+    if keyword.cost.is_some() || keyword.amount.is_some() {
+        return None;
+    }
+    if keyword.keyword == "landwalk" {
+        if keyword.protection_from.is_some() {
+            return None;
+        }
+        let ability = basic_landwalk(keyword.filter.as_ref()?)?;
+        let name = LANDWALK
+            .iter()
+            .find(|(_, a)| *a == ability)
+            .map(|(name, _)| format!("{}walk", name.to_ascii_lowercase()))?;
+        return consume_word(tokens, &name);
+    }
+    if keyword.filter.is_some() {
+        return None;
+    }
+    if let Some(from) = &keyword.protection_from {
+        if keyword.keyword != "protection" {
+            return None;
+        }
+        use SourceProtectionQuality::{AllColors, Color};
+        use mtg_contracts::fixed_color_protection::keyword_for_name;
+        let rest = consume_words(tokens, &["protection", "from"])?;
+        return match from.as_slice() {
+            [AllColors {}] => consume_words(rest, &["each", "color"])
+                .or_else(|| consume_words(rest, &["all", "colors"])),
+            [Color { color }] if keyword_for_name(color).is_some() => {
+                consume_word(rest, &color.to_ascii_lowercase())
+            }
+            [Color { color }, Color { color: other }]
+                if color != other
+                    && keyword_for_name(color).is_some()
+                    && keyword_for_name(other).is_some() =>
+            {
+                let rest = consume_word(rest, &color.to_ascii_lowercase())?;
+                let rest = consume_protection_separator(rest)?;
+                consume_word(rest, &other.to_ascii_lowercase())
+            }
+            _ => None,
+        };
+    }
+    let (name, _) = TABLE.iter().find(|(name, _)| *name == keyword.keyword)?;
+    let mut rest = tokens;
+    for part in name.split(' ') {
+        rest = consume_word(rest, part)?;
+    }
+    Some(rest)
+}
+
+/// The keyword line prints each listed keyword left-to-right under the parser
+/// token grammar (`lexer.ts` + `parseKeywordLine`) with at most one terminal
+/// period, and every triggered instance matches its rule spelling and
+/// `source["keywords"]` entry (CR 702.1).
+pub(super) fn triggered_printed(
+    keywords: &[SourceKeyword],
+    text: &str,
+    source: &serde_json::Value,
+) -> Result<(), Failure> {
+    let tokens = lex_line(text);
+    let body = tokens
+        .strip_suffix(&[LineToken::Punct('.')])
+        .unwrap_or(tokens.as_slice());
+    let listed: BTreeSet<String> = source["keywords"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|k| k.as_str().map(str::to_lowercase))
+        .collect();
+    let mut rest = body;
+    for (index, keyword) in keywords.iter().enumerate() {
+        let triggered = is_triggered(keyword);
+        let reject = || {
+            if triggered {
+                unsupported("keyword", format!("keyword:{}:printed", keyword.keyword))
+            } else {
+                unsupported("keyword", "keyword:triggered:printed")
+            }
+        };
+        if index > 0 {
+            rest = consume_separator(rest)
+                .ok_or_else(|| unsupported("keyword", "keyword:triggered:printed"))?;
+        }
+        rest = consume_keyword(keyword, rest).ok_or_else(reject)?;
+        if triggered && !listed.contains(&keyword.keyword) {
+            return Err(reject());
+        }
+    }
+    if !rest.is_empty() {
+        return Err(unsupported("keyword", "keyword:triggered:printed"));
+    }
+    Ok(())
+}
+
+/// CR 702.1, 113.2c: every occurrence of a reviewed triggered keyword anywhere
+/// on a face's normalized lines (parser-aligned token scan across every block
+/// kind) must be accounted for by the exact lowered AST keyword instance at the
+/// same block, in order, with the same spelling.
+pub(super) fn triggered_instances_printed(
+    lines: &[String],
+    abilities: &serde_json::Value,
+) -> Result<(), Failure> {
+    let mismatch = || unsupported("keyword", "keyword:triggered:printed_instances");
+    let abilities = abilities.as_array().ok_or_else(mismatch)?;
+    if abilities.len() != lines.len() {
+        return Err(mismatch());
+    }
+    let mut printed = Vec::new();
+    for (block, line) in lines.iter().enumerate() {
+        let tokens = lex_line(line);
+        let mut i = 0;
+        while i < tokens.len() {
+            if let LineToken::Word { value: word, .. } = &tokens[i]
+                && let Some((name, parameterized)) =
+                    TRIGGERED.iter().find(|(n, _)| *n == word.as_str())
+            {
+                if *parameterized {
+                    if let Some(LineToken::Number(n)) = tokens.get(i + 1) {
+                        printed.push((block, format!("{name} {n}")));
+                        i += 2;
+                        continue;
+                    }
+                    if let Some(LineToken::Word { value: w, .. }) = tokens.get(i + 1)
+                        && w == "x"
+                    {
+                        printed.push((block, format!("{name} x")));
+                        i += 2;
+                        continue;
+                    }
+                }
+                printed.push((block, (*name).to_owned()));
+            }
+            i += 1;
+        }
+    }
+    let mut parsed = Vec::new();
+    for (block, ability) in abilities.iter().enumerate() {
+        if ability["kind"] != "keywords" {
+            continue;
+        }
+        for keyword in ability["keywords"].as_array().ok_or_else(mismatch)? {
+            let Some(name) = keyword["keyword"].as_str() else {
+                return Err(mismatch());
+            };
+            if let Some((name, parameterized)) = TRIGGERED.iter().find(|(n, _)| *n == name) {
+                let item = match (parameterized, keyword.get("amount")) {
+                    (false, None) => (*name).to_owned(),
+                    (true, Some(n)) if n.as_u64().is_some() => format!("{name} {n}"),
+                    _ => return Err(mismatch()),
+                };
+                parsed.push((block, item));
+            }
+        }
+    }
+    if printed != parsed {
+        return Err(mismatch());
+    }
+    Ok(())
+}
+
+fn trigger_on(pattern: EventPattern, program: SpellProgram) -> TriggeredAbility {
+    TriggeredAbility {
+        modal: None,
+        functioning_zone: FunctioningZone::Battlefield,
+        condition: TriggerCondition::Event {
+            pattern,
+            intervening_if: None,
+            once_each_turn: false,
+        },
+        program,
+    }
+}
+
+/// One kernel step of a triggered program, labelled with its printed block.
+fn kernel(node: kir::Node, block: u32) -> Instruction {
+    Instruction::Kernel {
+        source_block: block,
+        node,
+    }
+}
+
+/// "[What] gets +P/+T until end of turn" (CR 611.2a, 613.4c).
+fn pump(what: kir::SetExpr, power: u32, toughness: u32) -> kir::Node {
+    kir::Node::Do(kir::Verb::ModifyUntil {
+        what,
+        layer: kir::Layer::PowerToughnessModify,
+        change: kir::Change::PowerToughness {
+            power: kir::Amount::fixed(i64::from(power)),
+            toughness: kir::Amount::fixed(i64::from(toughness)),
+        },
+        until: kir::Until::EndOfTurn,
+    })
+}
+
+/// The complete defining trigger of one printed triggered keyword.
+/// "This creature" forms apply to creature cards only; "this permanent"
+/// forms to permanent cards. Pinned rules text:
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(super) fn triggered(
+    card: &Card<'_>,
+    keyword: &SourceKeyword,
+    block: u32,
+) -> Result<TriggeredAbility, Failure> {
+    use kir::{Atom, Node, Pred, Ref, SetExpr, Verb};
+    let source = || unsupported("keyword", format!("keyword:{}:source", keyword.keyword));
+    let creature = card.has_type(CardKind::Creature);
+    let permanent = !matches!(card.kind, CardKind::Instant | CardKind::Sorcery);
+    let n = keyword.amount.unwrap_or(1);
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
+    let this = SetExpr::One {
+        object: Ref::Source,
+    };
+    let pattern = match keyword.keyword.as_str() {
+        // CR 702.108a: "Whenever you cast a noncreature spell, this
+        // creature gets +1/+1 until end of turn."
+        "prowess" if creature => {
+            program.instructions.push(kernel(pump(this, 1, 1), block));
+            EventPattern::Cast {
+                caster: PlayerExpr::you(Context::Triggered),
+                spell: Pred(vec![Atom::NotType {
+                    kind: CardKind::Creature,
+                }]),
+                nth: None,
+                targets_source: false,
+            }
+        }
+        // CR 702.45a: "Whenever this creature blocks or becomes blocked, it
+        // gets +N/+N until end of turn"; "it" is this creature.
+        "bushido" if creature => {
+            program.instructions.push(kernel(pump(this, n, n), block));
+            EventPattern::AnyOf {
+                first: Box::new(EventPattern::Blocks {
+                    blocker: Pred::source(),
+                }),
+                second: Box::new(EventPattern::BecomesBlocked {
+                    attacker: Pred::source(),
+                }),
+            }
+        }
+        // CR 702.135a: "When this permanent is put into a graveyard from the
+        // battlefield, create N 1/1 white and black Spirit creature tokens
+        // with flying."
+        "afterlife" if permanent => {
+            program.instructions.push(kernel(
+                Node::Do(Verb::CreateTokens {
+                    controller: PlayerExpr::you(Context::Triggered),
+                    count: kir::Amount::fixed(i64::from(n)),
+                    token: kir::TokenSpec::Creature {
+                        spec: CreatureToken {
+                            additional_types: vec![],
+                            colors: vec![Color::W, Color::B],
+                            subtypes: vec!["Spirit".into()],
+                            all_creature_types: false,
+                            power: Quantity::from(1),
+                            toughness: Quantity::from(1),
+                            keywords: vec![KeywordAbility::Flying],
+                        },
+                    },
+                    tapped: false,
+                }),
+                block,
+            ));
+            EventPattern::Dies {
+                object: Pred::source(),
+            }
+        }
+        // CR 702.46a: "When this permanent is put into a graveyard from the
+        // battlefield, you may return target Spirit card with mana value N
+        // or less from your graveyard to your hand."
+        "soulshift" if permanent => {
+            program.targets.push(
+                TargetSpec::new(0, "soulshift-card", TargetDomain::OwnGraveyardCard).with_filter(
+                    PermanentFilter {
+                        predicate: Some(Pred(vec![
+                            Atom::Subtype {
+                                subtype: "Spirit".into(),
+                            },
+                            Atom::ManaValue {
+                                cmp: kir::Cmp::AtMost,
+                                value: kir::Amount::fixed(i64::from(n)),
+                            },
+                        ])),
+                        ..PermanentFilter::any()
+                    },
+                ),
+            );
+            program.instructions.push(kernel(
+                Node::Optional {
+                    chooser: PlayerExpr::you(Context::Triggered),
+                    node: Box::new(Node::Do(Verb::Move {
+                        what: SetExpr::One {
+                            object: Ref::Target { slot: 0 },
+                        },
+                        to: kir::Destination::OwnerHand,
+                    })),
+                },
+                block,
+            ));
+            EventPattern::Dies {
+                object: Pred::source(),
+            }
+        }
+        _ => return Err(source()),
+    };
+    Ok(trigger_on(pattern, program))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,6 +1009,7 @@ mod tests {
                 cost: None,
                 filter: Some(filter),
                 protection_from: None,
+                amount: None,
             };
             let spec = enchant(&keyword, line).unwrap();
             assert_eq!(spec.domain, domain);
@@ -482,6 +1021,7 @@ mod tests {
             cost: None,
             filter: Some(json!({"types":["creature"],"control":"you"})),
             protection_from: None,
+            amount: None,
         };
         assert!(enchant(&constrained, "Enchant creature").is_err());
     }

@@ -509,6 +509,18 @@ animations, whose creature-subtype replacement removes it (CR 613.3, 613.7).
 Scopes that reach other zones, conditional grants and resolving grants or
 removals reject.
 
+Printed triggered keywords lower to the triggers their rules define, and each
+instance triggers separately. Prowess and bushido N need a creature card. Afterlife N
+and soulshift N need a permanent card. Prowess pumps the source +1/+1 on its
+controller's noncreature cast. Bushido N pumps +N/+N when the creature blocks or
+becomes blocked. Afterlife N creates N 1/1 white and black flying Spirits when the
+permanent dies. Soulshift N may return a target Spirit card with mana value N or
+less from your graveyard to your hand. These rules are CR 702.108, 702.45, 702.135
+and 702.46. The keyword line must print each N, and the source keyword list must
+name each keyword. X amounts reject. So do the remaining triggered keywords, such as
+battle cry (an "other" set filter), exalted (attacks alone), undying/persist
+(counter memory and entry counters) and extort (hybrid resolution payment).
+
 Static guards can read the active player, public battlefield or graveyard
 counts, and devotion (CR 700.5). Rule statics apply combat prohibitions and
 attack requirements (CR 508.1c–d), countering prohibitions and flash timing.
