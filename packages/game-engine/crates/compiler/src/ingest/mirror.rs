@@ -48,6 +48,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "echo"
                 | "unearth"
                 | "encore"
+                | "retrace"
                 | "affinity"
                 | "delve"
                 | "convoke"

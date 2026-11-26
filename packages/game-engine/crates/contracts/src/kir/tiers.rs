@@ -300,6 +300,9 @@ pub enum Cell {
     /// CR 702.34a: casting from the graveyard for the flashback cost, and
     /// exile as the spell leaves the stack.
     Flashback,
+    /// CR 702.81a: casting from the graveyard for the mana cost plus a
+    /// discarded land card.
+    Retrace,
     /// CR 702.66: exile graveyard cards for generic mana during spell payment.
     Delve,
     /// CR 702.51: tap creatures to pay colored or generic mana costs.
@@ -463,6 +466,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Kicker
         | C::Buyback
         | C::Flashback
+        | C::Retrace
         | C::Delve
         | C::Convoke
         | C::Improvise
@@ -731,6 +735,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if d.flashback.is_some() {
         cells.insert(Cell::Flashback);
+    }
+    if d.retrace {
+        cells.insert(Cell::Retrace);
     }
     if d.alternative_cost.is_some() {
         cells.insert(Cell::Evoke);

@@ -1,6 +1,7 @@
 //! Alternative-cost and graveyard keywords from exact frozen R5 source on
 //! private boards: evoke (CR 702.74a, 118.9, 601.2b/f-h), unearth (CR
-//! 702.84a, 603.7, 614.1a) and encore (CR 702.141a, 508.1d). Every choice is checked for state validity and
+//! 702.84a, 603.7, 614.1a), encore (CR 702.141a, 508.1d) and retrace (CR
+//! 702.81a, 601.2h). Every choice is checked for state validity and
 //! an exact snapshot round trip; finished resolutions replay from their
 //! journal.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -22,6 +23,7 @@ const DREGSCAPE_ZOMBIE: &str = record!("be9d1346-4416-4ade-ae84-7a4121e0bd12");
 const GRIPTIDE: &str = record!("5a6bbc45-6cb8-40ff-9f7c-7b2c5713dd78");
 const GOD_PHARAOHS_STATUE: &str = record!("183954d2-7b40-4c7e-adfa-d80191ab5ad6");
 const IMPULSIVE_PILFERER: &str = record!("7d9fc9e7-d80b-49c3-871c-ed25b3059ae8");
+const FLAME_JAB: &str = record!("05eccdee-84f8-42d5-b79c-36d081656915");
 
 fn evoke_candidate(d: &Decision<Rules>) -> bool {
     matches!(
@@ -650,4 +652,65 @@ fn impulsive_pilferer_encore_copies_attack_each_opponent_and_are_sacrificed() {
             .count();
         assert_eq!(treasures, 3, "each copy that died made a Treasure");
     }
+}
+
+/// Flame Jab: "Flame Jab deals 1 damage to any target. Retrace." Without a
+/// land card in hand the graveyard card offers no cast. With one, the cast
+/// pays {R} and then discards a land card (a nonland card is not offered),
+/// and the resolved spell returns to its owner's graveyard rather than
+/// exile, so it can be retraced again (CR 702.81a, 601.2h).
+#[test]
+fn flame_jab_retraces_from_the_graveyard_by_discarding_a_land() {
+    let game = |land: bool| {
+        Game::with_trace(
+            board(&[(FLAME_JAB, &[Cell::Retrace])])
+                .card("Flame Jab", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
+                .permanent_or_hand("Mountain", 0, 0, false)
+                .permanent_or_hand("Lightning Bolt", 0, 0, true)
+                .permanent_or_hand(if land { "Forest" } else { "Lightning Bolt" }, 0, 0, true)
+                .libraries("Island", 4)
+                .prepare(),
+            TraceMode::Detailed,
+        )
+    };
+    let retrace = |g: &Game| Action::Cast {
+        card: Driver::object(g, 0),
+    };
+    let mut g = game(false);
+    let offered = actions(&mut g);
+    assert!(!offered.contains(&retrace(&g)), "no land card to discard");
+    let mut g = game(true);
+    let offered = actions(&mut g);
+    assert!(offered.contains(&retrace(&g)));
+    let forest = Driver::object(&g, 3);
+    let cast = retrace(&g);
+    Driver::action(&mut g, cast);
+    let d = Driver::request(&mut g, u64::MAX);
+    let target = d.pick_one(&Candidate::Player { player: PlayerId(1) }).unwrap();
+    g.respond(d.player, d.id, target).unwrap();
+    Driver::pay(&mut g, &[1]);
+    let d = expect(
+        &mut g,
+        0,
+        Reason::ChosenObjectCost {
+            action: mtg_contracts::ChosenCostAction::Discard,
+        },
+    );
+    assert_eq!(
+        d.candidates,
+        vec![Candidate::Object { object: forest }],
+        "only the land card can pay retrace"
+    );
+    checked(&g);
+    g.respond(d.player, d.id, d.pick_one(&d.candidates[0]).unwrap())
+        .unwrap();
+    resolve_all(&mut g);
+    assert_eq!(zone(&g, 3), Some(Zone::Graveyard { owner: PlayerId(0) }));
+    assert_eq!(life(&g, 1), plus(&Quantity::from(40), -1));
+    assert_eq!(
+        zone(&g, 0),
+        Some(Zone::Graveyard { owner: PlayerId(0) }),
+        "a retraced spell is not exiled"
+    );
+    assert_eq!(zone(&g, 2), Some(Zone::Hand { owner: PlayerId(0) }));
 }

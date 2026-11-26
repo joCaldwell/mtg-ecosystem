@@ -38,7 +38,7 @@ impl RulesTxn {
             || (object.zone == (Zone::Command { owner: player })
                 && self.state.rules.commanders.history(card).is_some())
             || (object.zone == (Zone::Graveyard { owner: player })
-                && definition.flashback.is_some())
+                && (definition.flashback.is_some() || definition.retrace))
             || (object.zone == Zone::Exile
                 && object.adventure_player == Some(player)
                 && face == CardFace::Front))
@@ -61,6 +61,19 @@ impl RulesTxn {
             self.spell_proposal_obstacle(program, player, &definition.characteristics)
         {
             return Err(reason.into());
+        }
+        // CR 702.81a, 601.2b: a retrace cast needs a land card to discard.
+        if definition.retrace
+            && object.zone == (Zone::Graveyard { owner: player })
+            && !self.state.rules.objects.values().any(|o| {
+                o.zone == (Zone::Hand { owner: player })
+                    && !self.state.rules.tokens.contains_key(&o.id.card)
+                    && self
+                        .characteristics(o.id)
+                        .is_ok_and(|c| c.has_type(CardKind::Land))
+            })
+        {
+            return Err("retrace requires a land card to discard".into());
         }
         if let Some(modal) = &definition.modal_spell
             && !self.modal_has_selection(modal, player, &definition.characteristics, None)
@@ -340,7 +353,13 @@ impl RulesTxn {
             && self.definition(entry.source.card)?.layout == FaceLayout::Adventurer)
     }
     pub(super) fn stack_departure(&self, entry: &StackInstance, destination: Zone) -> Zone {
-        if entry.kind.is_spell() && matches!(entry.cast_from, Zone::Graveyard { .. }) {
+        // CR 702.81a: a retrace spell has no departure replacement.
+        if entry.kind.is_spell()
+            && matches!(entry.cast_from, Zone::Graveyard { .. })
+            && self
+                .stack_definition(entry)
+                .is_ok_and(|d| d.flashback.is_some())
+        {
             Zone::Exile
         } else {
             destination

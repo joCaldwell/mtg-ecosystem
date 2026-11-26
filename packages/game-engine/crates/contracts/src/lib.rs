@@ -1864,6 +1864,10 @@ pub struct Definition {
     /// and is exiled whenever it would leave the stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flashback: Option<ManaCost>,
+    /// CR 702.81a: this instant or sorcery may also be cast from its owner's
+    /// graveyard by discarding a land card as an additional cost.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub retrace: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub delve: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

@@ -1167,10 +1167,18 @@ fn compose_face(
                             definition.triggered.push(keywords::echo(one, label, text)?);
                             labels.triggered.push(label);
                         }
+                        // CR 702.81a: retrace lets an instant or sorcery be
+                        // cast from its owner's graveyard for a land discard.
+                        [one] if one.keyword == "retrace" => {
+                            if !spell_kind || definition.retrace || definition.flashback.is_some() {
+                                return Err(unsupported("keyword", "keyword:retrace:source"));
+                            }
+                            definition.retrace = true;
+                        }
                         // CR 702.34a: flashback is an instant's or sorcery's
                         // alternative cost from its owner's graveyard.
                         [one] if one.keyword == "flashback" => {
-                            if !spell_kind || definition.flashback.is_some() {
+                            if !spell_kind || definition.flashback.is_some() || definition.retrace {
                                 return Err(unsupported("keyword", "keyword:flashback:source"));
                             }
                             definition.flashback = Some(keywords::flashback(one, text)?);

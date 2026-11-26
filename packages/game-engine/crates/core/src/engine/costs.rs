@@ -178,6 +178,11 @@ impl RulesTxn {
                 // CR 702.34a, 118.9: the flashback cost replaces the mana cost
                 // of a spell cast from its owner's graveyard.
                 let mut cost = match from {
+                    // CR 702.81a: retrace pays the mana cost; its land
+                    // discard is a chosen-object cost.
+                    Zone::Graveyard { .. } if definition.retrace => {
+                        definition.characteristics.mana_cost.clone()
+                    }
                     Zone::Graveyard { .. } => {
                         if x.is_some() || hybrid.is_some() {
                             return Err("flashback cost announces no X or hybrid".into());

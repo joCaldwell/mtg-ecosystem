@@ -1058,7 +1058,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         || source["color_identity"]
             != serde_json::to_value(&d.characteristics.color_identity).map_err(|e| e.to_string())?
         || [d, back].into_iter().zip(printed).any(|(face, source)| {
-            source["name"] != face.name || face.source_labels.is_none() || face.flashback.is_some()
+            source["name"] != face.name || face.source_labels.is_none() || face.flashback.is_some() || face.retrace
         })
         || d.characteristics.front_face_mana_value.is_some()
         || adventure_subtype(d)
@@ -1373,6 +1373,16 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
             || cost.colored.contains(&Color::C))
     {
         return cell("keyword", "flashback");
+    }
+    // CR 702.81a: retrace is a graveyard permission of an instant or sorcery
+    // without another graveyard route; its cast announces no X.
+    if d.retrace
+        && (!matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+            || d.flashback.is_some()
+            || d.x_mana_cost
+            || d.spell.is_none())
+    {
+        return cell("keyword", "retrace");
     }
     // CR 702.74a, 118.9: evoke is a fixed mana alternative cost of a
     // permanent card whose own cost announces no X or hybrid choice, and the
