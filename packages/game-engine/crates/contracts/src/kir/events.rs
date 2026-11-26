@@ -99,8 +99,18 @@ pub enum EventPattern {
     /// CR 701.21a: a player sacrifices a permanent, matched on the
     /// battlefield immediately before the event (CR 603.10a).
     Sacrifices { player: PlayerExpr, object: Pred },
-    /// CR 701.9a: a player discards a card.
-    Discards { player: PlayerExpr },
+    /// CR 701.9a: a player discards a card. `card` is matched on the
+    /// discarded card in the zone it was put into (CR 603.10); with `cycled`
+    /// only a card discarded to pay its own cycling or typecycling cost
+    /// matches (CR 702.29a, 702.29f). "Cycles or discards" is one discard
+    /// event (CR 702.29d).
+    Discards {
+        player: PlayerExpr,
+        #[serde(default, skip_serializing_if = "Pred::is_empty")]
+        card: Pred,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cycled: bool,
+    },
     /// CR 603.6c, 603.10a: a permanent moves from the battlefield to another
     /// zone, matched on the battlefield immediately before the move.
     LeavesBattlefield { object: Pred },
@@ -185,6 +195,7 @@ impl EventPattern {
             | Self::BecomesTapped { object }
             | Self::BecomesTarget { object, .. }
             | Self::Sacrifices { object, .. }
+            | Self::Discards { card: object, .. }
             | Self::LeavesBattlefield { object }
             | Self::IsDealtDamage { object, .. } => Some(object),
             Self::Blocks { blocker } => Some(blocker),
@@ -195,7 +206,6 @@ impl EventPattern {
             Self::StepBegins { .. }
             | Self::Draws { .. }
             | Self::GainsLife { .. }
-            | Self::Discards { .. }
             | Self::AnyOf { .. } => None,
         }
     }
@@ -432,7 +442,7 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         EventPattern::Draws { player, .. }
         | EventPattern::GainsLife { player, .. }
         | EventPattern::Sacrifices { player, .. }
-        | EventPattern::Discards { player } => &[player],
+        | EventPattern::Discards { player, .. } => &[player],
         EventPattern::BecomesTarget { by, .. } => &[by],
         EventPattern::DealsDamage { recipient, .. } => &[recipient],
         _ => &[],
@@ -492,6 +502,35 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             )
         }) {
             return Err(KirError::Unaudited("event object excludes the host".into()));
+        }
+        // CR 701.9a, 109.1: a discarded card in a graveyard or exile has
+        // printed characteristics only: no controller, status or token
+        // facts, and it is never this permanent, so only "another" names
+        // the source.
+        if matches!(pattern, EventPattern::Discards { .. })
+            && any_atom(object, &|a| {
+                !matches!(
+                    a,
+                    Atom::Type { .. }
+                        | Atom::NotType { .. }
+                        | Atom::AnyType { .. }
+                        | Atom::Subtype { .. }
+                        | Atom::NotSubtype { .. }
+                        | Atom::Color { .. }
+                        | Atom::NotColor { .. }
+                        | Atom::Legendary
+                        | Atom::NotLegendary
+                        | Atom::Basic
+                        | Atom::NotBasic
+                        | Atom::ManaValue { .. }
+                        | Atom::AnyOf { .. }
+                        | Atom::IsNot {
+                            object: Ref::Source
+                        }
+                )
+            })
+        {
+            return Err(KirError::Unaudited("discarded card atom".into()));
         }
         // CR 701.26a: the collector observes only the source's own tap.
         if matches!(pattern, EventPattern::BecomesTapped { .. }) && *object != Pred::source() {

@@ -241,6 +241,14 @@ pub enum TriggerEventWitness {
         player: PlayerId,
         movement: MoveOutcome,
         controller_at_match: PlayerId,
+        /// CR 702.29a, 702.29f: discarded to pay its own cycling or
+        /// typecycling cost.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cycled: bool,
+        /// CR 603.10: the discarded card where it was put, retained only
+        /// when the pattern read its characteristics.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        card: Option<Box<ObjectBefore>>,
     },
     /// CR 509.3a: a declared blocker, as it was before the declaration.
     Blocked {
@@ -1037,10 +1045,24 @@ impl RulesTxn {
                     });
                 }
                 EventOutcome::CardDiscarded { player, movement } => {
+                    // CR 702.29a, 702.29c, 702.29f: the card was discarded to
+                    // pay its own cycling or typecycling cost.
+                    let cycled = match cause {
+                        BatchCause::AbilityActivation {
+                            source, ability, ..
+                        } if *source == movement.previous => before
+                            .copiable_definition(*source)?
+                            .activated
+                            .get(*ability as usize)
+                            .is_some_and(mtg_contracts::hand_discard_activation),
+                        _ => false,
+                    };
                     witnesses.push(TriggerEventWitness::Discarded {
                         player: *player,
                         movement: movement.clone(),
                         controller_at_match: *player,
+                        cycled,
+                        card: None,
                     });
                 }
                 _ => {}
@@ -1342,9 +1364,22 @@ impl RulesTxn {
                         matches!(&witness, TriggerEventWitness::LifeGained { player: gaining, .. }
                             if player_in(player, Some(*gaining), you))
                     }
-                    EventPattern::Discards { player } => {
-                        matches!(&witness, TriggerEventWitness::Discarded { player: discarding, .. }
-                            if player_in(player, Some(*discarding), you))
+                    // CR 603.10, 702.29d: the discarded card as it is now;
+                    // a cycle is a discard.
+                    EventPattern::Discards { player, card, cycled } => {
+                        matches!(&witness, TriggerEventWitness::Discarded {
+                                player: discarding, movement, cycled: was_cycled, ..
+                            }
+                            if player_in(player, Some(*discarding), you)
+                                && (!*cycled || *was_cycled)
+                                && if card.reads_characteristics() {
+                                    observers.current(movement.successor).is_ok_and(|c| {
+                                        holds(card, Some(&observers.object_facts(c)), you,
+                                            movement.successor, &identity)
+                                    })
+                                } else {
+                                    identity_holds(card, movement.successor, &identity)
+                                })
                     }
                     // CR 603.10a: the sacrificed permanent as it last
                     // existed on the battlefield.
@@ -1429,6 +1464,13 @@ impl RulesTxn {
                         | TriggerEventWitness::LifeGained { nth: slot, .. } => *slot = nth,
                         TriggerEventWitness::SpellCast { cast } => cast.nth = nth,
                         _ => {}
+                    }
+                    // The discarded card is evidence only when the pattern
+                    // read its characteristics.
+                    if let TriggerEventWitness::Discarded { movement, card, .. } = &mut matched_witness
+                        && pattern.object().is_some_and(Pred::reads_characteristics)
+                    {
+                        *card = Some(Box::new(observers.object_before(movement.successor)?));
                     }
                     if let TriggerEventWitness::DamageDealt { match_source, .. } =
                         &mut matched_witness
@@ -2498,13 +2540,31 @@ impl RulesTxn {
                 player,
                 movement,
                 controller_at_match,
+                cycled,
+                card,
             } => {
+                if let Some(facts) = card {
+                    self.validate_fact_identity(facts)?;
+                }
                 *controller_at_match == controller
                     && self.state.rules.original_seating.contains(player)
                     && movement.from == (Zone::Hand { owner: *player })
                     && matches!(movement.destination, Zone::Graveyard { .. })
-                    && matches!(pattern, EventPattern::Discards { player: expected }
-                        if player_in(expected, Some(*player), controller))
+                    && matches!(pattern, EventPattern::Discards { player: expected, card: pred, cycled: cycle }
+                        if player_in(expected, Some(*player), controller)
+                            && (!*cycle || *cycled)
+                            // Accepted-input replay proves the cost that
+                            // discarded it and the frozen card facts.
+                            && match card {
+                                Some(facts) => pred.reads_characteristics()
+                                    && facts.object == movement.successor
+                                    && facts.owner == *player
+                                    && holds(pred, Some(&frozen(facts)), controller,
+                                        facts.object, &identity(facts.object)),
+                                None => !pred.reads_characteristics()
+                                    && identity_holds(pred, movement.successor,
+                                        &identity(movement.successor)),
+                            })
                     && death_controller.is_none()
             }
             TriggerEventWitness::Blocked {

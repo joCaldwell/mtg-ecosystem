@@ -296,11 +296,26 @@ pub(super) fn general(
         let what: ast::ObjectRef = typed(what, "trigger.what")?;
         Ok(Some((kind, subject(card, &what)?)))
     }
-    // CR 119.9, 701.9a, 701.21a: a player event named by "you", "an
-    // opponent" or "a player". A sacrificed permanent is matched on the
-    // battlefield immediately before it moved (CR 603.10a); a discarded or
-    // life-gain event has no object filter here.
-    if let Some(kind @ ("gains-life" | "discards" | "sacrifices")) = trigger["trigger"].as_str() {
+    if matches!(trigger["trigger"].as_str(), Some("discards" | "cycle")) {
+        return discard_event(trigger);
+    }
+    // CR 702.29d: "cycles or discards" a card is one discard event, the
+    // two alternatives naming the same player and card.
+    if trigger["trigger"] == "any-of"
+        && trigger.as_object().is_some_and(|fields| fields.len() == 2)
+        && let Some([cycle, discard]) = trigger["events"].as_array().map(Vec::as_slice)
+        && cycle["trigger"] == "cycle"
+        && discard["trigger"] == "discards"
+        && cycle.as_object().map(serde_json::Map::len) == discard.as_object().map(serde_json::Map::len)
+        && cycle["who"] == discard["who"]
+        && cycle["what"] == discard["what"]
+    {
+        return discard_event(discard);
+    }
+    // CR 119.9, 701.21a: a player event named by "you", "an opponent" or
+    // "a player". A sacrificed permanent is matched on the battlefield
+    // immediately before it moved (CR 603.10a).
+    if let Some(kind @ ("gains-life" | "sacrifices")) = trigger["trigger"].as_str() {
         let Some(fields) = trigger.as_object() else {
             return Ok(None);
         };
@@ -318,7 +333,6 @@ pub(super) fn general(
         };
         return Ok(Some(match kind {
             "gains-life" => EventPattern::GainsLife { player, nth: None },
-            "discards" => EventPattern::Discards { player },
             _ => {
                 let what = &trigger["what"];
                 let object = if what.get("ref").is_some() {
@@ -503,6 +517,76 @@ pub(super) fn general(
         }])
     };
     Ok(Some(kind.pattern(object)))
+}
+
+/// The event player "you", "an opponent" or "a player" (CR 109.5, 102.3).
+fn event_player(who: &serde_json::Value) -> Option<PlayerExpr> {
+    match who {
+        who if *who == serde_json::json!({"player": "you"}) => Some(PlayerExpr::you(Context::Triggered)),
+        who if *who == serde_json::json!({"player": "an-opponent"}) => Some(PlayerExpr::EachOpponent),
+        who if *who == serde_json::json!({"player": "a-player"}) => Some(PlayerExpr::EachPlayer),
+        _ => None,
+    }
+}
+
+/// CR 701.9a, 702.29a: "[player] discards [a filtered card]" or "[player]
+/// cycles [a card]", one event per card. The card is matched where it was
+/// put (CR 603.10); "another" excludes this permanent, which a battlefield
+/// ability's discarded card never is. "This card" functions from the zone
+/// the card was put into (CR 702.29c) and rejects by name, as do a cause,
+/// a grouping and the remaining qualifiers.
+fn discard_event(trigger: &serde_json::Value) -> Result<Option<EventPattern>, Failure> {
+    let reject = |detail: &str| Err(unsupported("compose.block", format!("trigger:discard:{detail}")));
+    let Some(fields) = trigger.as_object() else {
+        return Ok(None);
+    };
+    let cycled = trigger["trigger"] == "cycle";
+    if let Some(field) = fields
+        .keys()
+        .find(|k| !matches!(k.as_str(), "trigger" | "who" | "what"))
+    {
+        return reject(field);
+    }
+    let Some(player) = event_player(&trigger["who"]) else {
+        return reject("player");
+    };
+    let card = match fields.get("what") {
+        None if !cycled => Pred::default(),
+        Some(what) if what["ref"] == "this" || what["ref"] == "self" => return reject("source-card"),
+        Some(what)
+            if what["ref"] == "filter"
+                && what.as_object().map(serde_json::Map::len) == Some(3)
+                && what["count"] == serde_json::json!({"amount": "fixed", "value": 1}) =>
+        {
+            // CR 108.1: the printed "card" class names the discarded object
+            // itself, here and in each alternative.
+            fn strip(filter: &mut serde_json::Value) -> bool {
+                let Some(fields) = filter.as_object_mut() else {
+                    return false;
+                };
+                if fields.remove("cls") != Some(serde_json::json!("card")) {
+                    return false;
+                }
+                match fields.get_mut("anyOf").and_then(|a| a.as_array_mut()) {
+                    Some(children) => children.iter_mut().all(|child| {
+                        child.get("cls").is_none() || strip(child) && child.as_object().is_some_and(|c| !c.is_empty())
+                    }),
+                    None => true,
+                }
+            }
+            let mut filter = what["filter"].clone();
+            if !strip(&mut filter) {
+                return reject("filter");
+            }
+            lower_event_filter(&typed(&filter, "trigger.what")?)?
+        }
+        _ => return reject("what"),
+    };
+    Ok(Some(EventPattern::Discards {
+        player,
+        card,
+        cycled,
+    }))
 }
 
 /// The object an event names: the source (by "this" noun or by name) or one
