@@ -28,6 +28,10 @@ pub struct EntryCast {
     pub stack_id: StackId,
     pub spell: ObjectId,
     pub caster: PlayerId,
+    /// CR 118.9, 702.74a: the caster announced and paid the spell's printed
+    /// alternative cost.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub alternative_cost_paid: bool,
 }
 
 /// The actual value read for an intervening comparison (CR 603.4).
@@ -76,6 +80,12 @@ pub enum InterveningCheck {
         controller: PlayerId,
         cast: Option<EntryCast>,
     },
+    /// CR 702.74a: whether the entry's spell paid its alternative cost.
+    SourceCostPaid {
+        entrant: ObjectId,
+        controller: PlayerId,
+        cast: Option<EntryCast>,
+    },
     ControlsOwnCommander {
         controller: PlayerId,
         commander: Option<ObjectId>,
@@ -117,6 +127,15 @@ pub enum InterveningCheck {
         minimum_power: Quantity,
         qualifying: Option<QualifyingCreature>,
     },
+    /// CR 702.30a: the controller's upkeep count when the source came
+    /// under that player's control (absent if another player controls it
+    /// or it never entered), and the controller's upkeep count now.
+    ControlledSinceLastUpkeep {
+        controller: PlayerId,
+        source: ObjectId,
+        since: Option<u64>,
+        upkeeps: u64,
+    },
 }
 impl InterveningCheck {
     pub fn passed(&self) -> bool {
@@ -132,6 +151,11 @@ impl InterveningCheck {
             Self::SourceCastByController {
                 controller, cast, ..
             } => cast.is_some_and(|c| c.caster == *controller),
+            Self::SourceCostPaid { cast, .. } => cast.is_some_and(|c| c.alternative_cost_paid),
+            // The last upkeep is the one before the current count.
+            Self::ControlledSinceLastUpkeep { since, upkeeps, .. } => {
+                since.is_some_and(|n| n.saturating_add(1) >= *upkeeps)
+            }
         }
     }
     fn validates(
@@ -165,6 +189,14 @@ impl InterveningCheck {
             (
                 Intervening::SourceCastByController,
                 Self::SourceCastByController {
+                    entrant,
+                    controller: checked,
+                    cast,
+                },
+            )
+            | (
+                Intervening::SourceCostPaid { .. },
+                Self::SourceCostPaid {
                     entrant,
                     controller: checked,
                     cast,
@@ -241,6 +273,15 @@ impl InterveningCheck {
                     && *expected == tap_status(*wanted)
                     && *passed == (*wanted == *tapped)
             }
+            (
+                Intervening::SourceControlledSinceLastUpkeep,
+                Self::ControlledSinceLastUpkeep {
+                    controller: c,
+                    source: s,
+                    since,
+                    upkeeps,
+                },
+            ) => *c == controller && *s == source && since.is_none_or(|n| n <= *upkeeps),
             (
                 Intervening::BattlefieldCount { cmp, value, .. },
                 Self::BattlefieldCount {
@@ -353,6 +394,16 @@ impl RulesTxn {
             return None;
         };
         let spell = self.state.rules.stack.last()?;
+        let alternative_cost_paid = self
+            .offered_alternative_cost(spell)
+            .ok()
+            .flatten()
+            .is_some_and(|cost| {
+                spell
+                    .selected_additional_costs
+                    .as_ref()
+                    .is_some_and(|selected| selected.contains(&cost.identity))
+            });
         (movement.from == Zone::Stack
             && movement.destination == Zone::Battlefield
             && movement.previous == *source
@@ -368,6 +419,7 @@ impl RulesTxn {
             stack_id: *stack_id,
             spell: *source,
             caster: *player,
+            alternative_cost_paid,
         })
     }
     // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone
@@ -428,6 +480,27 @@ impl RulesTxn {
                 controller,
                 cast,
             },
+            Intervening::SourceCostPaid { .. } => InterveningCheck::SourceCostPaid {
+                entrant: source,
+                controller,
+                cast,
+            },
+            // CR 603.4, 608.2h: the present source, or its last known
+            // information once it has left the battlefield.
+            Intervening::SourceControlledSinceLastUpkeep => {
+                let (holder, since) = match self.current(source) {
+                    Ok(o) if o.id == source && o.zone == Zone::Battlefield => {
+                        (o.controller, o.control_upkeeps)
+                    }
+                    _ => (last_known.controller, last_known.control_upkeeps),
+                };
+                InterveningCheck::ControlledSinceLastUpkeep {
+                    controller,
+                    source,
+                    since: since.filter(|_| holder == controller),
+                    upkeeps: self.state.rules.players[controller.0 as usize].upkeeps,
+                }
+            }
             Intervening::ControlsOwnCommander => {
                 let commander = self
                     .state
@@ -635,7 +708,10 @@ impl RulesTxn {
                 .as_ref()
                 .ok_or("missing trigger source facts")?,
             match match_condition {
-                Some(InterveningCheck::SourceCastByController { cast, .. }) => *cast,
+                Some(
+                    InterveningCheck::SourceCastByController { cast, .. }
+                    | InterveningCheck::SourceCostPaid { cast, .. },
+                ) => *cast,
                 _ => None,
             },
         )?;
@@ -669,8 +745,10 @@ impl RulesTxn {
             Some(definition) => intervening(definition)?,
             _ => None,
         };
-        if expected == Some(Intervening::SourceCastByController)
-            && !matches!(&entry.kind, StackKind::Triggered { match_condition, .. }
+        if matches!(
+            expected,
+            Some(Intervening::SourceCastByController | Intervening::SourceCostPaid { .. })
+        ) && !matches!(&entry.kind, StackKind::Triggered { match_condition, .. }
                 if match_condition == &frame.condition_check)
         {
             return Err("cast-entry resolution lost its match evidence".into());
@@ -764,11 +842,18 @@ impl RulesTxn {
                 Err("resolution trigger has an intervening condition".into())
             };
         }
-        if let Some(InterveningCheck::SourceCastByController {
-            entrant,
-            cast: Some(cast),
-            ..
-        }) = check
+        if let Some(
+            InterveningCheck::SourceCastByController {
+                entrant,
+                cast: Some(cast),
+                ..
+            }
+            | InterveningCheck::SourceCostPaid {
+                entrant,
+                cast: Some(cast),
+                ..
+            },
+        ) = check
             && (cast.stack_id.0 >= self.state.rules.next_stack_id
                 || self.state.rules.tokens.contains_key(&cast.spell.card)
                 || !matches!(witness, TriggerEventWitness::Moved { movement } if movement.from == Zone::Stack

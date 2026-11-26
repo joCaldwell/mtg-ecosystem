@@ -246,9 +246,12 @@ impl RulesTxn {
         );
         Arc::make_mut(&mut self.rules_mut().tokens).insert(card, identity);
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
+        let control_upkeeps = (zone == Zone::Battlefield)
+            .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
         self.rules_mut().objects.insert(
             card,
             Object {
+                control_upkeeps,
                 hideaway: None,
                 phased_out: None,
                 attached_to: None,
@@ -260,6 +263,7 @@ impl RulesTxn {
                 adventure_player: None,
                 marked_damage: Quantity::zero(),
                 deathtouch_damage: false,
+                unearthed: false,
                 attack_ready: false,
                 id,
                 controller,

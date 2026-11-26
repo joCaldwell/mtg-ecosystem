@@ -380,7 +380,7 @@ impl RulesTxn {
                         cost.colored.remove(index);
                     }
                     None if cost.generic > Quantity::zero() => cost.generic.subtract(&1.into()),
-                    _ => return Err("invalid tap payment payment".into()),
+                    _ => return Err("invalid tap payment".into()),
                 }
             }
         }

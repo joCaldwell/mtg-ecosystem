@@ -67,6 +67,7 @@ pub(crate) fn shell(
         delve: false,
         convoke: false,
         improvise: false,
+        alternative_cost: None,
         oracle_id: r.oracle_identity.clone(),
         name: source.name,
         characteristics: Characteristics {
