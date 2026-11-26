@@ -179,7 +179,15 @@ through a nested activation or a life payment (CR 119.4), and one production:
 fixed symbols, any color, commander color, N mana of one color chosen from a
 printed list, one of the printed fixed bundles, up to five mana in any
 combination of colors, or one mana of a type the controller's or opponents'
-lands could produce. A bundle is chosen in full as the ability resolves.
+lands could produce. A printed mana bundle of one type may multiply by an
+audited battlefield or public graveyard count after the activation costs
+(CR 605.3b, 608.2h). The planner applies earlier simulated taps and the source's own tap
+before reading the count from the permitted view. When quoting a spell with
+convoke or improvise, a reserved permanent contributes only if it matches
+both before and after its reserved tap. Mana production precedes those costs
+(CR 601.2g–h). A zero count adds no mana.
+A bundle is chosen in full as the ability resolves. A devotion choice offers
+all five colors, then reads devotion to the chosen color (CR 700.5).
 CR 106.7 is the least fixed point over battlefield lands, each read
 relative to its own controller from intrinsic, printed and granted abilities,
 ignoring costs and object order. If a departure leaves no defined type while
@@ -359,9 +367,12 @@ control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
 An ability with one target occurrence can exclude its source with “another.”
 Graveyard targets check the announced incarnation, its owner's graveyard and
 its printed criteria, including secondary card types and fixed mana-value bounds
-(CR 400.7). Exile and return to the owner's hand can target a card in any
-graveyard or an opponent's graveyard. A permanent returned from your graveyard
+(CR 400.7). Exile, return to the owner's hand and placement on top of the
+owner's library can target a card in any graveyard or an opponent's graveyard. A permanent returned from your graveyard
 uses the battlefield entry procedure for Aura attachment and land entry choices.
+A creature can enter from any or an opponent’s graveyard under the specified
+controller while retaining its owner (CR 110.2, 110.2a). A following life-loss
+instruction can read that card’s last-known mana value (CR 202.3, 608.2h).
 An exiled target's printed creature type can govern a later “if it was a
 creature card” instruction. A certified "it" or "that" can reuse the block's sole announced incarnation, and
 "this [permanent]" names the current source for tap, untap and owner-zone moves

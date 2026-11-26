@@ -290,6 +290,10 @@ enum FactKey {
 #[derive(Clone, Copy)]
 pub(super) enum EntryOverride {
     ForceTapped,
+    CreatureController {
+        player: PlayerId,
+        tapped: bool,
+    },
     /// CR 614.12: the entry choice was made (life paid or card revealed)
     /// or declined.
     Choice {
@@ -3210,8 +3214,15 @@ impl RulesTxn {
                 };
                 let (force_tapped, payment) = match entry {
                     Some(EntryOverride::ForceTapped) => (true, None),
+                    Some(EntryOverride::CreatureController { tapped, .. }) => (tapped, None),
                     Some(EntryOverride::Choice { accepted }) => (false, Some(accepted)),
                     None => (false, None),
+                };
+                let intended = match entry {
+                    Some(EntryOverride::CreatureController { player, .. }) => {
+                        Some((player, object.face))
+                    }
+                    _ => intended,
                 };
                 self.apply_move(
                     *object,

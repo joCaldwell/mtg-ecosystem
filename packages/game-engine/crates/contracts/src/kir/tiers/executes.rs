@@ -917,6 +917,7 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
     };
     match production {
         ManaProduction::Fixed { symbols } => !symbols.is_empty(),
+        ManaProduction::Counted { .. } => true,
         ManaProduction::Bundles { options } => {
             (2..=128).contains(&options.len())
                 && options.iter().enumerate().all(|(i, bundle)| {
@@ -927,6 +928,7 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
         }
         ManaProduction::AnyColor
         | ManaProduction::CommanderColor
+        | ManaProduction::ChooseDevotion {}
         | ManaProduction::LandsCouldProduce { .. } => true,
         ManaProduction::Choose { colors, amount } => {
             colors.len() >= 2 && distinct(colors) && *amount >= Quantity::from(1)

@@ -83,10 +83,8 @@ impl RulesTxn {
             Destination::OwnerLibraryTop
             | Destination::OwnerLibraryBottom
             | Destination::OwnerLibraryShuffled => Zone::Library { owner },
-            // CR 110.2a, 614.1c: the target is in the invocation controller's
-            // own graveyard. Its owner controls it there and on entry.
-            // Admission restricts this move to creatures, excluding Auras
-            // and the land-only entry life payment cell.
+            // CR 110.2a, 614.1c: creature entry can specify a controller
+            // and tapped status. Aura and land entry use the choice path.
             Destination::Battlefield { .. } => Zone::Battlefield,
             _ => return Err("unsupported destination for a single move".into()),
         };
@@ -104,7 +102,27 @@ impl RulesTxn {
             return Ok(());
         }
         let cause = self.instruction_cause(&frame, source_block)?;
-        let movement = if matches!(to, Destination::Battlefield { tapped: true, .. }) {
+        let movement = if let Destination::Battlefield { controller, tapped } = &to {
+            if !controller.is_you() {
+                return Err("battlefield move requires an audited controller".into());
+            }
+            let player = self.entry(frame.stack_id)?.controller;
+            if !self.is_live(player) {
+                return self
+                    .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+            }
+            let entry_override = if player != owner {
+                Some(events::EntryOverride::CreatureController {
+                    player,
+                    tapped: *tapped,
+                })
+            } else {
+                tapped.then_some(events::EntryOverride::ForceTapped)
+            };
+            let Some(entry_override) = entry_override else {
+                let movement = self.move_instruction_object(target, destination, cause)?;
+                return self.finish_instruction(frame, InstructionOutcome::Moved { movement });
+            };
             let batch = self.commit_entry_batch(
                 cause,
                 EventGroup::Occurrence {
@@ -113,7 +131,7 @@ impl RulesTxn {
                         destination,
                     },
                 },
-                &[(target, events::EntryOverride::ForceTapped)],
+                &[(target, entry_override)],
             )?;
             let Some(EventOutcome::Moved { movement }) = batch.result(&[]) else {
                 return Err("missing tapped entry outcome".into());

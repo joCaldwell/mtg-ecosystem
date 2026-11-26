@@ -109,6 +109,7 @@ pub enum Cell {
     LifeTargetPlayerX,
     LifeTargetController,
     LifeTargetControllerPower,
+    LifeGraveyardCreatureManaValue,
     LifeCounted,
     /// CR 119.3, 608.2c: the each-opponent drain pair.
     Drain,
@@ -150,7 +151,9 @@ pub enum Cell {
     ExileGraveyardTarget,
     GraveyardTargetWasCreature,
     MoveGraveyardTargetToOwnerHand,
+    MoveGraveyardTargetToOwnerLibraryTop,
     MoveOwnGraveyardCreatureToBattlefield,
+    MoveGraveyardCreatureToBattlefield,
     MoveOwnGraveyardCardToBattlefield,
     ExileTargetGraveyard,
     ExileGraveyards,
@@ -250,6 +253,9 @@ pub enum Cell {
     // commander-color surface.
     /// CR 106.1a: N mana of one color chosen from a printed list.
     ManaChoose,
+    ManaCounted,
+    ManaChooseDevotion,
+    SpellManaCounted,
     /// CR 106.6: restrictions and riders carried by mana until it is spent.
     ManaSpendRestriction,
     /// CR 106.7: one mana of a type some lands could produce.
@@ -358,6 +364,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeEachOpponent
         | C::LifeTargetPlayerX
         | C::LifeTargetController
+        | C::LifeGraveyardCreatureManaValue
         | C::LifeTargetControllerPower
         | C::LifeCounted
         | C::Drain
@@ -379,9 +386,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ChooseObjectOwnerHand
         | C::GraveyardTargetWasCreature
         | C::ExileGraveyardTarget
+        | C::MoveGraveyardTargetToOwnerLibraryTop
         | C::MoveGraveyardTargetToOwnerHand
         | C::MoveOwnGraveyardTargetToHand
         | C::MoveOwnGraveyardCardToBattlefield
+        | C::MoveGraveyardCreatureToBattlefield
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
@@ -448,6 +457,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SurveilController
         | C::ResolutionTrigger
         | C::Control
+        | C::ManaCounted
+        | C::ManaChooseDevotion
+        | C::SpellManaCounted
         | C::ManaChoose
         | C::ManaSpendRestriction
         | C::ManaLandsCouldProduce

@@ -327,11 +327,7 @@ fn dregscape_zombie_unearths_with_haste_and_is_exiled() {
         assert_recoverable((&g).into());
         assert_eq!(zone(&g, 0), Some(exile));
         if !bolted {
-            assert_eq!(
-                life(&g, 1),
-                plus(&Quantity::from(40), -3),
-                "the 3/1 attacked"
-            );
+            assert_eq!(life(&g, 1), plus(&Quantity::from(40), -2), "it attacked");
         }
     }
 }
