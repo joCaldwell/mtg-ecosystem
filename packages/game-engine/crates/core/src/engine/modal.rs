@@ -14,11 +14,12 @@ impl RulesTxn {
         modal: &ModalSpell,
         player: PlayerId,
         source: &Characteristics,
+        source_object: Option<ObjectId>,
     ) -> bool {
         modal
             .selections
             .values()
-            .any(|program| self.has_target_domain(program, player, source))
+            .any(|program| self.has_target_domain(program, player, source, source_object))
     }
 
     /// The printed mode declaration of this stack occurrence's spell or
@@ -70,7 +71,9 @@ impl RulesTxn {
         let candidates: Vec<_> = modal
             .selections
             .iter()
-            .filter(|(_, program)| self.has_target_domain(program, entry.controller, &source))
+            .filter(|(_, program)| {
+                self.has_target_domain(program, entry.controller, &source, Some(entry.source))
+            })
             .map(|(&mask, _)| Candidate::Modes {
                 mask,
                 labels: modal

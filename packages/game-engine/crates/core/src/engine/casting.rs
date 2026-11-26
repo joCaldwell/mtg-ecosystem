@@ -63,7 +63,7 @@ impl RulesTxn {
             return Err(reason.into());
         }
         if let Some(modal) = &definition.modal_spell
-            && !self.modal_has_selection(modal, player, &definition.characteristics)
+            && !self.modal_has_selection(modal, player, &definition.characteristics, None)
         {
             return Err("no legal mode selection for this proposal".into());
         }
@@ -91,7 +91,8 @@ impl RulesTxn {
         {
             return Some("no payable sacrifice cost");
         }
-        if !self.has_target_domain(program, player, source) {
+        // A spell names no battlefield source, so no target excludes one.
+        if !self.has_target_domain(program, player, source, None) {
             return Some("no legal target for this proposal");
         }
         None

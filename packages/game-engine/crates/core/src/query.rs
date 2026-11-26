@@ -104,6 +104,16 @@ pub fn matches_permanent_filter(
     you: PlayerId,
     filter: &PermanentFilter,
 ) -> Tri {
+    matches_permanent_filter_with_source(object, you, filter, None)
+}
+
+/// The caller can bind the source-identity fact for a targeting invocation.
+pub(crate) fn matches_permanent_filter_with_source(
+    object: &impl ObjectFacts,
+    you: PlayerId,
+    filter: &PermanentFilter,
+    is_source: Option<bool>,
+) -> Tri {
     if !present(object)
         || (filter.opponent && object.controller() == you)
         || (filter.tapped && !object.tapped())
@@ -120,7 +130,18 @@ pub fn matches_permanent_filter(
                 .any(|color| filter.non_colors.contains(color))
     });
     if let Some(predicate) = &filter.predicate {
-        typed = typed.and(matches_pred(object, you, predicate));
+        typed = predicate.0.iter().fold(typed, |result, atom| {
+            let matched = match (atom, is_source) {
+                (
+                    Atom::IsNot {
+                        object: Ref::Source,
+                    },
+                    Some(is_source),
+                ) => (!is_source).into(),
+                _ => matches_atom(object, you, atom),
+            };
+            result.and(matched)
+        });
     }
     if typed == Tri::No {
         return Tri::No;
