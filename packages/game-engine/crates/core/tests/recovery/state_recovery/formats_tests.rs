@@ -184,10 +184,6 @@ pub(super) fn cast_edict(prepared: Prepared) -> Game {
     game
 }
 
-/// CR 605.3a-b, 733.1: a cast paid by Yavimaya Coast's second printed mana
-/// ability, sampled at its color choice (a nonzero ability index), inside its
-/// damage rider's suspended transaction, and with its kept receipt retained
-/// by the cast.
 /// CR 113.10a: a granted mana ability waiting for its color, on a land
 /// whose synthetic artifact grants lands their controller controls "{T}:
 /// Add one mana of any color." Frozen witnesses live in `mtg-witness`.
@@ -258,6 +254,10 @@ fn granted_mana() -> Game {
     game
 }
 
+/// CR 605.3a-b, 733.1: a cast paid by Yavimaya Coast's second printed mana
+/// ability, sampled at its color choice (a nonzero ability index), inside its
+/// damage rider's suspended transaction, and with its kept receipt retained
+/// by the cast.
 fn mana_riders() -> Vec<Game> {
     let prepared = Board::new(
         FixtureCatalog::Witness.get().clone(),

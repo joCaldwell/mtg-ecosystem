@@ -86,9 +86,6 @@ impl ManaActivation {
     }
 }
 
-/// CR 602.5b: restriction belongs to the ability on this incarnation, across
-/// control changes, during each player's turn. Index zero reserves the eventual
-/// selector without expanding the singleton public action.
 /// CR 113.10a, 605.3a: one of an object's current mana abilities: printed on
 /// it, or granted by a battlefield static (in the granting effects'
 /// timestamp order, CR 613.7a).
@@ -105,6 +102,9 @@ impl ManaSlot {
         }
     }
 }
+/// CR 602.5b: restriction belongs to the ability on this incarnation, across
+/// control changes, during each player's turn. Index zero reserves the eventual
+/// selector without expanding the singleton public action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ManaAbilityKind {
