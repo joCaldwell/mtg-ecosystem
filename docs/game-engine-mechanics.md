@@ -322,12 +322,29 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   that permanent at the next end step. The returned incarnation has haste and
   is exiled instead of leaving the battlefield for any other zone; a card
   that left the graveyard returns nothing (CR 400.7, 603.7, 614.1a, 702.84a).
-  Dash, encore, rebound, retrace, escape, cumulative upkeep, eternalize,
-  embalm, madness and scavenge reject as `keyword:<name>`.
+- **Encore** (single-faced creature, fixed mana): a sorcery-speed graveyard
+  ability exiling the card as its cost; its copies follow
+  [delayed triggers](game-engine-board-mechanics.md#delayed-and-reflexive-triggers)
+  (CR 702.141a).
+- **Dash** (creature without X or hybrid): a fixed alternative mana cost
+  announced like evoke; haste and the return follow
+  [delayed triggers](game-engine-board-mechanics.md#delayed-and-reflexive-triggers)
+  (CR 702.109a). Rebound, cumulative upkeep, eternalize, embalm, madness and
+  scavenge reject as `keyword:<name>`.
 - **Flashback** (instant/sorcery without X or hybrid): cast from its owner's
   graveyard at normal timing (CR 702.34a, 118.9), exiled instead of leaving the
   stack any other way; an abandoned cast returns it to the graveyard (CR 733.1).
   The public stack entry marks it.
+- **Retrace** (instant/sorcery without X or flashback): also cast from its
+  owner's graveyard at normal timing for its mana cost, discarding one land
+  card from hand as a chosen-object cost after mana; not offered without one,
+  and the spell leaves the stack normally (CR 702.81a, 601.2h).
+- **Escape** ("Escape—[mana], Exile N other cards from your graveyard", no X,
+  hybrid, delve or other graveyard route): a graveyard cast whose fixed mana
+  replaces the mana cost and whose exile picks N other own graveyard cards
+  after mana; not offered with fewer, and the spell leaves the stack
+  normally (CR 118.9, 702.138a). Other escape costs and "escapes with"
+  reject. Develop plans retrace and escape only from the engine quote.
 - **Additional sacrifice**: "As an additional cost to cast this spell, sacrifice
   a/an [quality]" is paid after mana and not offered with nothing to sacrifice
   (CR 601.2b, 701.21a). Other additional costs reject as

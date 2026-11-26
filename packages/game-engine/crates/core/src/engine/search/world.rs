@@ -393,6 +393,7 @@ impl SampleBuildWork {
                     face_down: false,
                     deathtouch_damage: false,
                     unearthed: false,
+                    dashed: false,
                     id: object,
                     zone: row.zone,
                     controller,

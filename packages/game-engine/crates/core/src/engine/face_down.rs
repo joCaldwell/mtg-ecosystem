@@ -20,6 +20,8 @@ static FACE_DOWN: LazyLock<Definition> = LazyLock::new(|| Definition {
     delve: false,
     convoke: false,
     improvise: false,
+    retrace: false,
+    escape: None,
     oracle_id: String::new(),
     name: String::new(),
     characteristics: Characteristics {

@@ -47,6 +47,10 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "evoke"
                 | "echo"
                 | "unearth"
+                | "encore"
+                | "retrace"
+                | "dash"
+                | "escape"
                 | "affinity"
                 | "delve"
                 | "convoke"
@@ -69,8 +73,10 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "bestow" | "equip" | "kicker" | "buyback" | "evoke" | "echo" | "unearth"
-            | "cycling" | "flashback" | "morph" | "megamorph" => ["keyword", "cost"].as_slice(),
+            "bestow" | "equip" | "kicker" | "buyback" | "evoke" | "echo" | "unearth" | "encore"
+            | "dash" | "escape" | "cycling" | "flashback" | "morph" | "megamorph" => {
+                ["keyword", "cost"].as_slice()
+            }
             "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             "protection" => ["keyword", "from"].as_slice(),

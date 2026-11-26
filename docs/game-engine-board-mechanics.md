@@ -436,6 +436,16 @@ mana undo restores watchers of reversed sacrifices. Phased-out sources use the
 parent's last-known facts. Step watermarks and retired receipts prevent
 duplicate firings. These one-shot rows earn `Executes` (`ResolutionTriggerV1`).
 
+Two keyword rows extend this. Encore's creates at once one copy of the
+card's copiable values per living opponent; each has haste and, that turn,
+may attack only that opponent and must if able, unless that player left or
+now controls it (CR 508.1d). At the next end step its controller sacrifices
+the copies they still control. A card whose own entry replacement would apply
+rejects (CR 614.1c). A resolved dash spell's permanent (or its copy's) has
+haste, and its row returns that exact permanent to its owner's hand at the
+next end step (CR 603.7, 702.109a, 702.141a). Phased-out permanents are
+skipped (CR 702.26b).
+
 ### Printed choices, payments and conditions
 
 Each printed "may", "if", "unless" and "up to" must match its AST carriers in

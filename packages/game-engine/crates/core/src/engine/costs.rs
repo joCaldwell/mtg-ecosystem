@@ -186,6 +186,22 @@ impl RulesTxn {
                         }
                         FaceDownCast::cast_cost()
                     }
+                    // CR 702.81a: retrace pays the mana cost; its land
+                    // discard is a chosen-object cost.
+                    Zone::Graveyard { .. } if definition.retrace => {
+                        definition.characteristics.mana_cost.clone()
+                    }
+                    // CR 702.138a, 118.9: the escape cost replaces it.
+                    Zone::Graveyard { .. } if definition.escape.is_some() => {
+                        if x.is_some() || hybrid.is_some() {
+                            return Err("escape cost announces no X or hybrid".into());
+                        }
+                        definition
+                            .escape
+                            .as_ref()
+                            .map(|e| e.mana.clone())
+                            .ok_or("missing escape cost")?
+                    }
                     Zone::Graveyard { .. } => {
                         if x.is_some() || hybrid.is_some() {
                             return Err("flashback cost announces no X or hybrid".into());

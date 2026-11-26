@@ -743,6 +743,44 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         if a.restriction.is_some() {
             return cell("activated", "off_battlefield_restriction");
         }
+        // CR 702.141a: encore is exactly the reviewed graveyard ability of a
+        // single-faced creature card; its tokens copy that card.
+        let encore = a.program.instructions.iter().any(|i| {
+            matches!(
+                i,
+                Instruction::Kernel {
+                    node: kir::Node::Delayed {
+                        event: kir::DelayedEvent::NextEndStepAfterEncore,
+                        ..
+                    },
+                    ..
+                }
+            )
+        });
+        if encore
+            && (!a.is_encore()
+                || d.characteristics.kind != CardKind::Creature
+                || d.layout != FaceLayout::Single
+                || d.back_face.is_some())
+        {
+            return cell("activated", "encore");
+        }
+        // CR 614.1c, 614.12: the copies' own entry replacements would
+        // modify their simultaneous creation, which has no entry stage.
+        if encore
+            && d.static_abilities.iter().any(|s| {
+                matches!(
+                    s.effect,
+                    StaticEffect::EntersTapped
+                        | StaticEffect::PayLifeOrEnterTapped { .. }
+                        | StaticEffect::RevealOrEnterTapped { .. }
+                        | StaticEffect::EntersTappedIf { .. }
+                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                )
+            })
+        {
+            return cell("activated", "encore:entry-replacement");
+        }
         cost(d, a, &a.program)?;
         return program(&a.program, Context::Activated, None, false);
     }
@@ -1038,7 +1076,11 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         || source["color_identity"]
             != serde_json::to_value(&d.characteristics.color_identity).map_err(|e| e.to_string())?
         || [d, back].into_iter().zip(printed).any(|(face, source)| {
-            source["name"] != face.name || face.source_labels.is_none() || face.flashback.is_some()
+            source["name"] != face.name
+                || face.source_labels.is_none()
+                || face.flashback.is_some()
+                || face.retrace
+                || face.escape.is_some()
         })
         || d.characteristics.front_face_mana_value.is_some()
         || adventure_subtype(d)
@@ -1366,6 +1408,31 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     {
         return cell("keyword", "morph");
     }
+    // CR 702.81a: retrace is a graveyard permission of an instant or sorcery
+    // without another graveyard route; its cast announces no X.
+    if d.retrace
+        && (!matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+            || d.flashback.is_some()
+            || d.x_mana_cost
+            || d.spell.is_none())
+    {
+        return cell("keyword", "retrace");
+    }
+    // CR 702.138a: escape is the only graveyard route of a card whose own
+    // cost announces no X or hybrid choice; delve would race its exile.
+    if let Some(cost) = &d.escape
+        && (d.flashback.is_some()
+            || d.retrace
+            || d.delve
+            || d.spell.is_none()
+            || d.x_mana_cost
+            || !c.hybrid_mana.is_empty()
+            || cost.exile_other == 0
+            || cost.mana.generic.is_negative()
+            || cost.mana.colored.contains(&Color::C))
+    {
+        return cell("keyword", "escape");
+    }
     // CR 702.74a, 118.9: evoke is a fixed mana alternative cost of a
     // permanent card whose own cost announces no X or hybrid choice, and the
     // definition carries exactly the one sacrifice trigger that reads it.
@@ -1393,6 +1460,16 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && !cost.mana.colored.contains(&Color::C)
                 && matches!(evoke_triggers.as_slice(), [t]
                     if **t == TriggeredAbility::evoke_sacrifice(cost.source_block)) => {}
+        // CR 702.109a: dash is a fixed mana alternative cost of a creature
+        // card whose own cost announces no X or hybrid choice.
+        Some(cost)
+            if cost.identity == crate::DASH_COST
+                && evoke_triggers.is_empty()
+                && c.kind == CardKind::Creature
+                && !d.x_mana_cost
+                && c.hybrid_mana.is_empty()
+                && !cost.mana.generic.is_negative()
+                && !cost.mana.colored.contains(&Color::C) => {}
         _ => return cell("keyword", "evoke"),
     }
     // CR 702.30a: an echo trigger is exactly the keyword's own ability on a

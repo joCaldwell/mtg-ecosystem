@@ -79,6 +79,14 @@ pub enum TokenTemplate {
     Predefined {
         kind: PredefinedToken,
     },
+    /// CR 702.141a: a token copy of the encore card `encore_of` (the
+    /// graveyard incarnation the ability exiled). It has haste and must
+    /// attack `attacks` during `turn` if able.
+    EncoreCopy {
+        encore_of: ObjectId,
+        attacks: PlayerId,
+        turn: u64,
+    },
     TokenCopy {
         original: ObjectId,
     },
@@ -150,6 +158,18 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
     d
 }
 impl RulesTxn {
+    /// CR 702.141a: the opponent an encore token must attack, and the turn
+    /// of that requirement, while it is this battlefield object.
+    pub(super) fn encore_mark(&self, object: ObjectId) -> Option<(PlayerId, u64)> {
+        let TokenTemplate::EncoreCopy { attacks, turn, .. } =
+            self.state.rules.tokens.get(&object.card)?.spec
+        else {
+            return None;
+        };
+        self.current(object)
+            .is_ok_and(|o| o.id == object && o.zone == Zone::Battlefield)
+            .then_some((attacks, turn))
+    }
     pub fn typed_fault(&self) -> Option<&RuleFault> {
         self.state.rules.typed_fault.as_ref()
     }
@@ -281,6 +301,7 @@ impl RulesTxn {
                 marked_damage: Quantity::zero(),
                 deathtouch_damage: false,
                 unearthed: false,
+                dashed: false,
                 attack_ready: false,
                 id,
                 controller,
@@ -489,6 +510,50 @@ impl RulesTxn {
                     original: *original,
                 })
             }
+            ProposedEvent::CreateEncoreTokens {
+                controller,
+                source,
+                defenders,
+            } => {
+                if !self.is_live(*controller)
+                    || defenders.is_empty()
+                    || defenders
+                        .iter()
+                        .enumerate()
+                        .any(|(i, d)| *d == *controller || defenders[..i].contains(d))
+                    || self.state.rules.tokens.contains_key(&source.card)
+                {
+                    return Err("invalid encore token creation".into());
+                }
+                let count = u32::try_from(defenders.len()).map_err(|_| "encore token count")?;
+                self.check_token_capacity(count)?;
+                let original = self.copiable_definition(source)?.clone();
+                let turn = self.state.rules.turn.number;
+                let mut objects = vec![];
+                for defender in defenders {
+                    let card = self.next_token_card()?;
+                    let identity = TokenIdentity {
+                        source: *source,
+                        spec: TokenTemplate::EncoreCopy {
+                            encore_of: *source,
+                            attacks: *defender,
+                            turn,
+                        },
+                        definition: token_copy_definition(&original, card),
+                    };
+                    objects.push(self.insert_token_identity(
+                        card,
+                        *controller,
+                        Zone::Battlefield,
+                        identity,
+                    ));
+                }
+                Ok(EventOutcome::EncoreTokensCreated {
+                    objects,
+                    controller: *controller,
+                    original: *source,
+                })
+            }
             ProposedEvent::CreatePredefinedTokens {
                 controller,
                 source,
@@ -673,6 +738,25 @@ impl RulesTxn {
                             return Err("snapshot token copy provenance invariant".into());
                         }
                         token_copy_definition(&prior.definition, *id)
+                    }
+                    // CR 702.141a: the encore ability's own resolution
+                    // copied this exact nontoken card for one opponent.
+                    TokenTemplate::EncoreCopy {
+                        encore_of,
+                        attacks,
+                        turn,
+                    } => {
+                        if *encore_of != t.source
+                            || !encore_of.face.is_front()
+                            || self.state.rules.tokens.contains_key(&encore_of.card)
+                            || attacks.0 >= 4
+                            || *attacks == self.state.rules.cards[id].owner
+                            || *turn > self.state.rules.turn.number
+                            || !source.activated.iter().any(ActivatedAbility::is_encore)
+                        {
+                            return Err("snapshot encore token provenance invariant".into());
+                        }
+                        token_copy_definition(source, *id)
                     }
                     TokenTemplate::SpellCopy { .. } => {
                         return Err("unsupported spell copy source".into());

@@ -57,6 +57,18 @@ impl RulesTxn {
                     .ok_or("missing Aura target")?;
                 self.finish_spell_aura_entry(source, controller, target, id)?;
             } else {
+                // CR 702.109a: a spell (or its copy) whose dash cost was paid.
+                let dashed = destination == Zone::Battlefield
+                    && (stack.paid.is_some() || self.is_spell_copy(stack))
+                    && stack
+                        .selected_additional_costs
+                        .as_ref()
+                        .is_some_and(|costs| costs.iter().any(|c| c == mtg_contracts::DASH_COST));
+                let facts = if dashed {
+                    Some(self.object_before(source)?)
+                } else {
+                    None
+                };
                 let movement = self.move_object_for(
                     source,
                     destination,
@@ -66,6 +78,12 @@ impl RulesTxn {
                         source,
                     },
                 )?;
+                if let Some(facts) = facts
+                    && movement.destination == Zone::Battlefield
+                    && self.current(movement.successor).map(|o| o.id) == Ok(movement.successor)
+                {
+                    self.register_dash_return(id, controller, facts, movement.clone())?;
+                }
                 // CR 715.3d: for as long as it remains exiled, its controller
                 // may play it, though not as an Adventure.
                 if adventure && movement.destination == Zone::Exile {

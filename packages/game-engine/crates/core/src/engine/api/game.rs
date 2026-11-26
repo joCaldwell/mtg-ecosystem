@@ -112,6 +112,7 @@ impl RulesTxn {
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         unearthed: false,
+                        dashed: false,
                         attack_ready: c.zone == Zone::Battlefield,
                         id: ObjectId {
                             face: Default::default(),
