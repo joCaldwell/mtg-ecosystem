@@ -223,10 +223,7 @@ impl RulesTxn {
         {
             // CR 613.7m: simultaneous sources go in APNAP order (one
             // controller's ties are rejected at stabilization).
-            let rank = u64::from(
-                self.current(key.source)
-                    .map_or(0, |o| o.keyword_rank),
-            ) << 1;
+            let rank = u64::from(self.current(key.source).map_or(0, |o| o.keyword_rank)) << 1;
             match change {
                 Change::AddKeywords { keywords } => {
                     rows.push(((timestamp, 0, rank | 1), Row::Grant(keywords)))

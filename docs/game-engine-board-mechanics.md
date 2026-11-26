@@ -186,6 +186,8 @@ permanent that stops being a creature leaves combat (CR 506.4), and one that
 is no longer an Aura or Equipment becomes unattached (CR 704.5p). Layer 4 is
 ordered across the battlefield: the earliest effect that depends on nothing
 outside its own loop applies, then dependencies are re-evaluated (CR 613.8).
+An effect depends on another that changes its existence, its recipients or
+whether each of its changes takes effect on them.
 A basic land type set on a land removes its rules-text abilities and the
 effects they generate, the setting effect excepted, and the intrinsic mana
 follows the new types (CR 305.6-7). Layer 6 removes all, all other or listed
@@ -193,8 +195,8 @@ keywords, and "can't have" applies last. Printed abilities precede any
 removal; grants and removals then apply by timestamp, so a later grant
 survives, while an effect whose source loses its abilities never applies
 unless it started in an earlier layer (CR 613.6, 613.8a). Simultaneous
-timestamps go in APNAP order; one controller's tie that would decide a
-layer-4 or layer-6 result is rejected at stabilization (CR 613.7m). Without
+timestamps go in APNAP order, fixed when assigned, in every layer; one
+controller's tie that would decide a result is rejected (CR 613.7m). Without
 its card's abilities a permanent has no triggered, activated, mana, static or
 characteristic-defining ability, and an entering one lacks its own entry
 replacements (CR 604.3a, 614.12). Resolving loss, color addition, conditional

@@ -195,11 +195,7 @@ impl RulesTxn {
         // CR 613.7m: simultaneous sources go in APNAP order; a removal
         // precedes a grant of the same rank.
         let order = |time: u64, key: &ability_layers::StaticKey| {
-            (
-                time,
-                self.current(key.source)
-                    .map_or(0, |o| o.keyword_rank),
-            )
+            (time, self.current(key.source).map_or(0, |o| o.keyword_rank))
         };
         let removals: Vec<_> = changes
             .iter()

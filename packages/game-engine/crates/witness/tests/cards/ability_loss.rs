@@ -899,7 +899,11 @@ fn simultaneous_base_pt_setters_follow_apnap() {
         let (kenrith, bears) = (object(&g, 1), object(&g, 2));
         forge_attached(&mut g, kenrith, bears);
         Driver::request(&mut g, u64::MAX);
-        assert_eq!(pt(&g, bears), (q(expected), q(expected)), "Humility seat {humility}");
+        assert_eq!(
+            pt(&g, bears),
+            (q(expected), q(expected)),
+            "Humility seat {humility}"
+        );
         assert!(keywords(&g, bears).is_empty());
         // A forged board has no replay journal to restore from.
         g.validate_state().unwrap();

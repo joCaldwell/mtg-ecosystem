@@ -575,7 +575,13 @@ impl RulesTxn {
                     .attached_to
                     .and_then(|t| self.current(t).ok())
                     .filter(|t| t.present_on_battlefield())
-                    && self.static_matches(affects, source, target, facts(target.id)?, target.controller)
+                    && self.static_matches(
+                        affects,
+                        source,
+                        target,
+                        facts(target.id)?,
+                        target.controller,
+                    )
                 {
                     recipients.push(target.id);
                 }
@@ -588,7 +594,13 @@ impl RulesTxn {
                     .values()
                     .filter(|o| o.present_on_battlefield())
                 {
-                    if self.static_matches(affects, source, target, facts(target.id)?, target.controller) {
+                    if self.static_matches(
+                        affects,
+                        source,
+                        target,
+                        facts(target.id)?,
+                        target.controller,
+                    ) {
                         recipients.push(target.id);
                     }
                 }

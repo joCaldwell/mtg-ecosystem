@@ -1016,7 +1016,9 @@ impl RulesTxn {
         let colors = statics
             .into_iter()
             .filter_map(|(time, source, change)| match change {
-                Change::SetColors { colors } => Some(((time, Some(self.source_rank(source))), colors)),
+                Change::SetColors { colors } => {
+                    Some(((time, Some(self.source_rank(source))), colors))
+                }
                 _ => None,
             });
         let resolved = self
