@@ -321,6 +321,45 @@ pub(super) fn general(
             }
         }));
     }
+    // CR 603.6c, 509.3a, 509.3c, 120.3: an object event whose only other
+    // printed field is a combat-damage restriction or "or becomes blocked".
+    if let Some(kind @ ("leaves" | "blocks" | "becomes-blocked" | "is-dealt-damage")) =
+        trigger["trigger"].as_str()
+    {
+        let Some(fields) = trigger.as_object() else {
+            return Ok(None);
+        };
+        let extra = match kind {
+            "blocks" => "orBecomesBlocked",
+            "is-dealt-damage" => "combat",
+            _ => "",
+        };
+        if fields
+            .keys()
+            .any(|k| !matches!(k.as_str(), "trigger" | "what") && k != extra)
+            || fields
+                .get(extra)
+                .is_some_and(|v| *v != serde_json::json!(true))
+        {
+            return Ok(None);
+        }
+        let object = subject(card, &typed(&trigger["what"], "trigger.what")?)?;
+        return Ok(Some(match kind {
+            "leaves" => EventPattern::LeavesBattlefield { object },
+            "becomes-blocked" => EventPattern::BecomesBlocked { attacker: object },
+            "is-dealt-damage" => EventPattern::IsDealtDamage {
+                object,
+                combat: fields.contains_key("combat"),
+            },
+            _ if fields.contains_key(extra) => EventPattern::AnyOf {
+                first: Box::new(EventPattern::Blocks {
+                    blocker: object.clone(),
+                }),
+                second: Box::new(EventPattern::BecomesBlocked { attacker: object }),
+            },
+            _ => EventPattern::Blocks { blocker: object },
+        }));
+    }
     if trigger["trigger"] == "becomes-target"
         && trigger.as_object().is_some_and(|fields| fields.len() == 3)
     {

@@ -224,6 +224,23 @@ pub enum TriggerEventWitness {
         movement: MoveOutcome,
         controller_at_match: PlayerId,
     },
+    /// CR 509.3a: a declared blocker, as it was before the declaration.
+    Blocked {
+        blocker: Box<ObjectBefore>,
+        controller_at_match: PlayerId,
+    },
+    /// CR 509.3c: an attacker that became blocked, as it was before.
+    BecameBlocked {
+        attacker: Box<ObjectBefore>,
+        controller_at_match: PlayerId,
+    },
+    /// CR 120.3, 603.2c: a permanent dealt positive damage by one
+    /// simultaneous damage event, as it was when the damage was dealt.
+    PermanentDamaged {
+        kind: DamageKind,
+        recipient: Box<ObjectBefore>,
+        controller_at_match: PlayerId,
+    },
     /// CR 701.21a, 603.10a: a sacrificed permanent, with its battlefield
     /// facts immediately before the move.
     Sacrificed {
@@ -298,6 +315,9 @@ impl TriggerEventWitness {
             }
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::Sacrificed { object, .. } => Some(object.object),
+            Self::Blocked { blocker: o, .. }
+            | Self::BecameBlocked { attacker: o, .. }
+            | Self::PermanentDamaged { recipient: o, .. } => Some(o.object),
             Self::Discarded { movement, .. } => Some(movement.previous),
             Self::LifeGained { .. }
             | Self::StepBegan { .. }
@@ -320,7 +340,11 @@ impl TriggerEventWitness {
     }
     /// CR 603.10a: leaves-the-battlefield events look back in time.
     fn looks_back(&self) -> bool {
-        self.dies() || matches!(self, Self::Sacrificed { .. })
+        self.leaves() || matches!(self, Self::Sacrificed { .. })
+    }
+    /// CR 603.6c: a move from the battlefield to another zone.
+    fn leaves(&self) -> bool {
+        matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && m.destination != Zone::Battlefield)
     }
     fn dies(&self) -> bool {
         matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && matches!(m.destination, Zone::Graveyard { .. }))
@@ -342,7 +366,11 @@ impl TriggerEventWitness {
         match (&**second, self) {
             (EventPattern::Dies { .. }, witness) if witness.dies() => Some(second),
             (EventPattern::Attacks { .. }, Self::CreatureAttacked { .. })
-            | (EventPattern::Cast { .. }, Self::SpellCast { .. }) => Some(second),
+            | (EventPattern::Cast { .. }, Self::SpellCast { .. })
+            | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. }) => Some(second),
+            (_, Self::Blocked { .. }) if matches!(**first, EventPattern::Blocks { .. }) => {
+                Some(first)
+            }
             _ => None,
         }
     }
@@ -843,6 +871,79 @@ impl RulesTxn {
                         nth: None,
                     }),
             );
+            // CR 509.3a, 509.3c: each declared blocker once, and each attacker
+            // that was unblocked until this declaration, as they were before.
+            if let EventOutcome::BlockersDeclared { blocks, .. } = &occurrence.actual {
+                let (mut blockers, mut attackers) = (BTreeSet::new(), BTreeSet::new());
+                for (blocker, attacker) in blocks {
+                    if blockers.insert(*blocker) {
+                        let facts = before.object_before(*blocker)?;
+                        witnesses.push(TriggerEventWitness::Blocked {
+                            controller_at_match: facts.controller,
+                            blocker: Box::new(facts),
+                        });
+                    }
+                    if attackers.insert(*attacker)
+                        && before
+                            .state
+                            .rules
+                            .combat
+                            .iter()
+                            .any(|a| a.attacker == *attacker && !a.blocked)
+                    {
+                        let facts = before.object_before(*attacker)?;
+                        witnesses.push(TriggerEventWitness::BecameBlocked {
+                            controller_at_match: facts.controller,
+                            attacker: Box::new(facts),
+                        });
+                    }
+                }
+            }
+            // CR 120.3, 603.2c: each permanent dealt positive damage by this
+            // simultaneous event, once however many sources dealt it.
+            let damaged: Vec<(DamageKind, ObjectId)> = match &occurrence.actual {
+                EventOutcome::DamageCommitted { actual, .. } => {
+                    let kind = before.damage_transaction()?.kind;
+                    actual
+                        .iter()
+                        .filter(|d| d.amount > Quantity::zero())
+                        .filter_map(|d| match d.recipient {
+                            DamageRecipient::Creature { object } => Some((kind, object)),
+                            DamageRecipient::Player { .. } => None,
+                        })
+                        .collect()
+                }
+                EventOutcome::NoncombatDamageDealt { damage, .. } => match damage.recipient {
+                    DamageRecipient::Creature { object } if damage.amount > Quantity::zero() => {
+                        vec![(DamageKind::Noncombat, object)]
+                    }
+                    _ => vec![],
+                },
+                EventOutcome::DamageDealt { damage, .. } => damage
+                    .iter()
+                    .filter(|d| d.amount > Quantity::zero())
+                    .filter_map(|d| match d.recipient {
+                        DamageRecipient::Creature { object } => Some((DamageKind::Combat, object)),
+                        DamageRecipient::Player { .. } => None,
+                    })
+                    .collect(),
+                _ => vec![],
+            };
+            let mut recipients = BTreeSet::new();
+            for (kind, object) in damaged {
+                if recipients.insert(object)
+                    && before
+                        .current(object)
+                        .is_ok_and(|o| o.present_on_battlefield())
+                {
+                    let facts = before.object_before(object)?;
+                    witnesses.push(TriggerEventWitness::PermanentDamaged {
+                        kind,
+                        controller_at_match: facts.controller,
+                        recipient: Box::new(facts),
+                    });
+                }
+            }
             // CR 701.9a, 701.21a: the discard or sacrifice itself, beside the
             // zone change it caused.
             match &occurrence.actual {
@@ -877,7 +978,11 @@ impl RulesTxn {
                             | TriggerEventWitness::LifeGained { .. }
                             | TriggerEventWitness::Discarded { .. }
                             | TriggerEventWitness::Sacrificed { .. }
+                            | TriggerEventWitness::Blocked { .. }
+                            | TriggerEventWitness::BecameBlocked { .. }
+                            | TriggerEventWitness::PermanentDamaged { .. }
                     )
+                    || witness.leaves()
                 {
                     self.collect_trigger_witness(
                         Some((before, cause)),
@@ -1012,7 +1117,7 @@ impl RulesTxn {
         };
         // CR 700.4, 603.10a: a dying object is read on the battlefield
         // immediately before the event.
-        let dying = if dies {
+        let dying = if dies || witness.leaves() {
             let subject = subject.ok_or("missing object trigger subject")?;
             observers
                 .current(subject)
@@ -1072,7 +1177,7 @@ impl RulesTxn {
                             holds(pred, None::<&Frozen>, you, subject, &identity)
                         }
                     },
-                    EventPattern::Dies { object: pred } => dying.is_some_and(|dying| {
+                    EventPattern::Dies { object: pred } => dies && dying.is_some_and(|dying| {
                         holds(pred, Some(&observers.object_facts(dying)), you, dying.id, &identity)
                     }),
                     EventPattern::BecomesTapped { object: pred } => {
@@ -1163,6 +1268,37 @@ impl RulesTxn {
                                     live: observers.is_live(sacrificed.controller),
                                 }), you, sacrificed.object, &identity))
                     }
+                    EventPattern::LeavesBattlefield { object: pred } => {
+                        witness.leaves()
+                            && dying.is_some_and(|leaving| {
+                                holds(pred, Some(&observers.object_facts(leaving)), you, leaving.id, &identity)
+                            })
+                    }
+                    EventPattern::Blocks { blocker: pred } => {
+                        matches!(&witness, TriggerEventWitness::Blocked { blocker: facts, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts,
+                                token: token(facts.object),
+                                live: observers.is_live(facts.controller),
+                            }), you, facts.object, &identity))
+                    }
+                    EventPattern::BecomesBlocked { attacker: pred } => {
+                        matches!(&witness, TriggerEventWitness::BecameBlocked { attacker: facts, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts,
+                                token: token(facts.object),
+                                live: observers.is_live(facts.controller),
+                            }), you, facts.object, &identity))
+                    }
+                    EventPattern::IsDealtDamage { object: pred, combat } => {
+                        matches!(&witness, TriggerEventWitness::PermanentDamaged { kind, recipient: facts, .. }
+                            if (!*combat || *kind == DamageKind::Combat)
+                                && holds(pred, Some(&Frozen {
+                                    facts,
+                                    token: token(facts.object),
+                                    live: observers.is_live(facts.controller),
+                                }), you, facts.object, &identity))
+                    }
                     EventPattern::BecomesTarget { .. } | EventPattern::AnyOf { .. } => false,
                 };
                 // CR 603.2: an ordinal event triggers only as the turn's Nth
@@ -1191,7 +1327,10 @@ impl RulesTxn {
                         | TriggerEventWitness::AttackerUnblocked { controller_at_match, .. }
                         | TriggerEventWitness::LifeGained { controller_at_match, .. }
                         | TriggerEventWitness::Discarded { controller_at_match, .. }
-                        | TriggerEventWitness::Sacrificed { controller_at_match, .. } = &mut matched_witness
+                        | TriggerEventWitness::Sacrificed { controller_at_match, .. }
+                        | TriggerEventWitness::Blocked { controller_at_match, .. }
+                        | TriggerEventWitness::BecameBlocked { controller_at_match, .. }
+                        | TriggerEventWitness::PermanentDamaged { controller_at_match, .. } = &mut matched_witness
                     {
                         *controller_at_match = you;
                     }
@@ -2250,6 +2389,72 @@ impl RulesTxn {
                         if player_in(expected, Some(*player), controller))
                     && death_controller.is_none()
             }
+            TriggerEventWitness::Blocked {
+                blocker: facts,
+                controller_at_match,
+            }
+            | TriggerEventWitness::BecameBlocked {
+                attacker: facts,
+                controller_at_match,
+            }
+            | TriggerEventWitness::PermanentDamaged {
+                recipient: facts,
+                controller_at_match,
+                ..
+            } => {
+                self.validate_fact_identity(facts)?;
+                let matched = match (witness, pattern) {
+                    (
+                        TriggerEventWitness::Blocked { .. },
+                        EventPattern::Blocks { blocker: pred },
+                    )
+                    | (
+                        TriggerEventWitness::BecameBlocked { .. },
+                        EventPattern::BecomesBlocked { attacker: pred },
+                    ) => {
+                        facts.characteristics.has_type(CardKind::Creature)
+                            && holds(
+                                pred,
+                                Some(&frozen(facts)),
+                                controller,
+                                facts.object,
+                                &identity(facts.object),
+                            )
+                    }
+                    (
+                        TriggerEventWitness::PermanentDamaged { kind, .. },
+                        EventPattern::IsDealtDamage {
+                            object: pred,
+                            combat,
+                        },
+                    ) => {
+                        (!*combat || *kind == DamageKind::Combat)
+                            && holds(
+                                pred,
+                                Some(&frozen(facts)),
+                                controller,
+                                facts.object,
+                                &identity(facts.object),
+                            )
+                    }
+                    _ => false,
+                };
+                matched
+                    && *controller_at_match == controller
+                    && facts.zone == Zone::Battlefield
+                    && self
+                        .state
+                        .rules
+                        .original_seating
+                        .contains(&facts.controller)
+                    && self
+                        .state
+                        .rules
+                        .cards
+                        .get(&facts.object.card)
+                        .is_some_and(|c| c.owner == facts.owner)
+                    && death_controller.is_none()
+            }
             TriggerEventWitness::Sacrificed {
                 player,
                 object,
@@ -2352,6 +2557,10 @@ impl RulesTxn {
                                     })
                                 && identity_holds(pred, subject, &identity(subject))
                                 && creature_card(pred, subject)?
+                        }
+                        // CR 603.6c: replay proves the departed facts.
+                        EventPattern::LeavesBattlefield { object: pred } => {
+                            witness.leaves() && identity_holds(pred, subject, &identity(subject))
                         }
                         // An entry whose pattern read characteristics
                         // retains them as `Entered`.

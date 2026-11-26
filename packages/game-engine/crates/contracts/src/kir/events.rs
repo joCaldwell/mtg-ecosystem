@@ -96,6 +96,19 @@ pub enum EventPattern {
     Sacrifices { player: PlayerExpr, object: Pred },
     /// CR 701.9a: a player discards a card.
     Discards { player: PlayerExpr },
+    /// CR 603.6c, 603.10a: a permanent moves from the battlefield to another
+    /// zone, matched on the battlefield immediately before the move.
+    LeavesBattlefield { object: Pred },
+    /// CR 509.3a: a creature is declared as a blocker, once per declaration
+    /// however many attackers it blocks; matched as it was before.
+    Blocks { blocker: Pred },
+    /// CR 509.3c: an unblocked attacking creature becomes blocked by the
+    /// declared blockers, matched as it was before the declaration.
+    BecomesBlocked { attacker: Pred },
+    /// CR 120.3, 603.2c: a permanent is dealt positive damage, once per
+    /// simultaneous damage event however many sources dealt it. `combat`
+    /// restricts it to combat damage.
+    IsDealtDamage { object: Pred, combat: bool },
     /// CR 503.1a, 504.1, 505.1, 513.1: a step begins in the turn of a player
     /// in `active`. Each player also matches a turn whose active player has
     /// left the game (CR 800.4j).
@@ -141,6 +154,10 @@ impl EventPattern {
             Self::GainsLife { .. } => "gains_life",
             Self::Sacrifices { .. } => "sacrifices",
             Self::Discards { .. } => "discards",
+            Self::LeavesBattlefield { .. } => "leaves_battlefield",
+            Self::Blocks { .. } => "blocks",
+            Self::BecomesBlocked { .. } => "becomes_blocked",
+            Self::IsDealtDamage { .. } => "is_dealt_damage",
             Self::StepBegins { .. } => "step_begins",
             Self::DealsDamage { .. } => "deals_damage",
             Self::AnyOf { .. } => "any_of",
@@ -162,7 +179,11 @@ impl EventPattern {
             | Self::Dies { object }
             | Self::BecomesTapped { object }
             | Self::BecomesTarget { object, .. }
-            | Self::Sacrifices { object, .. } => Some(object),
+            | Self::Sacrifices { object, .. }
+            | Self::LeavesBattlefield { object }
+            | Self::IsDealtDamage { object, .. } => Some(object),
+            Self::Blocks { blocker } => Some(blocker),
+            Self::BecomesBlocked { attacker } => Some(attacker),
             Self::Attacks { attacker } | Self::AttacksUnblocked { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
@@ -362,6 +383,13 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             {
                 Ok(())
             }
+            // CR 509.1a: a blocking creature is never also an attacker
+            // becoming blocked, so one declaration cannot match both.
+            (EventPattern::Blocks { blocker }, EventPattern::BecomesBlocked { attacker })
+                if *blocker == Pred::source() && *attacker == Pred::source() =>
+            {
+                Ok(())
+            }
             (EventPattern::Enters { .. }, EventPattern::Cast { .. }) => {
                 check_event(first, attachment)?;
                 check_event(second, attachment)
@@ -416,7 +444,10 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         // status read there would not be the declared attacker's.
         if matches!(
             pattern,
-            EventPattern::Cast { .. } | EventPattern::Attacks { .. }
+            EventPattern::Cast { .. }
+                | EventPattern::Attacks { .. }
+                | EventPattern::Blocks { .. }
+                | EventPattern::BecomesBlocked { .. }
         ) && any_atom(object, &|a| matches!(a, Atom::Tapped | Atom::Untapped))
         {
             return Err(KirError::Unaudited("event status atom".into()));
