@@ -75,27 +75,44 @@ are trusted host APIs. Public reads mint no handles and publish no history, and
 public revisions change only with permitted information. Real restore rejects
 sampled origins ([search](game-engine-search.md) owns hypothetical origins).
 
-## Modal double-faced cards
+<a id="modal-double-faced-cards"></a>
 
-The layout allowlist admits Scryfall `normal` and `modal_dfc`. An MDFC needs two
-ordered R4 faces with matching parses and complete resolution; each face passes
-the shell and block checks and the card requires both faces' capabilities. It
-keeps one physical identity and the frozen color identity (CR 903.4d); deck
-construction and commander eligibility use the front face (CR 712.8a, 903.3).
+## Double-faced cards and adventurers
 
-Each legal face is a separate priority action with its own timing, targets,
-costs or land-entry rules (CR 712.11b–c, 712.12). On the stack and battlefield
-the chosen face supplies every characteristic, including mana value (CR 202.3,
-712.8f), and a resolving permanent spell keeps it (CR 712.13).
-Every other entry and zone uses the front face (CR 712.14). A stale
-ability source keeps its incarnation's face. Back-face state is invalid for
-single-faced cards, outside stack or battlefield, on a land spell, or on an
-instant or sorcery permanent. A viewer permitted to identify the card sees both
-names and the active face; hidden zones expose neither (CR 712.6–7).
+The layout allowlist admits Scryfall `normal`, `modal_dfc`, `transform` and
+`adventure`. Both Archive R4 parts must lower completely; the card requires
+both parts' capabilities and keeps one frozen color identity (CR 903.4d).
+Deck construction, commander eligibility and zones other than the stack or
+battlefield use the front or normal characteristics. Every zone change
+creates a fresh front-face incarnation (CR 400.7, 712.8a, 712.14, 715.4).
 
-MDFCs are `Executes` only. Transform/convert, flashback on an MDFC, and other
-layouts (transforming, Adventure, split, flip, meld, prototype) reject naming the
-archived layout.
+A modal card offers each legal face as its own cast or land play, with that
+face's timing, targets, costs and entry rules; the cast face stays up
+(CR 712.11b–c, 712.12–13, 202.3).
+
+A transforming card is cast and enters front face up. Its own activated or
+triggered ability, plain, optional or conditional, turns the same object
+over: effects, counters, damage and status stay (CR 701.27a, 712.18). It
+transforms only if it has not transformed since the ability was stacked or
+the delayed trigger created (CR 701.27f). Abilities, delayed triggers and
+activation limits keep the face they came from (CR 113.7a). The back face's
+mana value uses the front cost (CR 202.3b). Both faces must be permanents,
+both creatures or neither, with no transform-event trigger.
+
+An adventurer may be cast as its Adventure, which has only the inset spell's
+characteristics on the stack (CR 715.3a–b). A resolving Adventure is exiled;
+its controller may cast or play the card normally from exile until it leaves
+(CR 715.3d). A countered or fizzled Adventure goes to the graveyard.
+
+Identifying viewers see the layout, part names, active face and adventure
+exile; hidden zones show neither part (CR 712.6–7). Decision context names
+the chosen part after restore. Snapshots reject a face, transform count,
+permission, ability face or baseline the card or zone cannot have.
+
+Support is provisional at `Executes`. Split, flip, meld, prototype, Omen and
+Room layouts, battle and planeswalker faces, daybound, disturb, craft,
+casting or entering transformed and two-part flashback stay rejected.
+
 
 ## Commander and hidden information
 
@@ -646,7 +663,7 @@ request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition; reviewed patterns keep their capabilities, others use `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics; the [mana abilities](#mana-abilities) (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
-| Card shell | Normal cards and [modal double-faced cards](#modal-double-faced-cards) whose faces have complete bound source and supported spell costs and keywords. |
+| Card shell | Normal cards and [double-faced or adventurer cards](#double-faced-cards-and-adventurers) whose parts have complete bound source and supported spell costs and keywords. |
 
 Sentences resolve in printed order (CR 608.2c); sorcery-speed activations use
 main-phase timing (CR 602.5d); tokens recover from the creating recipe.

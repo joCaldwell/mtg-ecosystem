@@ -253,6 +253,9 @@ impl RulesTxn {
             Verb::Draw { player, amount } => {
                 self.kernel_draw(frame, &player, &amount, source_block)
             }
+            Verb::Transform { what: Ref::Source } => {
+                self.kernel_transform_source(frame, source_block)
+            }
             Verb::Tap {
                 what: SetExpr::Matching { zone, filter },
             } => self.kernel_tap_set(frame, &zone, &filter, true, source_block),

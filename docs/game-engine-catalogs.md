@@ -40,10 +40,12 @@ source/archive paths to provenance. Digest files hold SHA-256 without a newline.
 
 Nonland records with empty printed mana costs reject: absent cost is unpayable,
 distinct from `{0}` (CR 118.6/118.6a), and the IR cannot yet represent it. Lands
-may have empty cost. Missing/null/malformed mana-cost fields reject. Optional
-AST filters (cast, attacker, recursive damage-source class/type/Boolean,
-attacker-control relations) reject explicit null; omission and valid nonempty
-filters keep their meanings.
+may have empty cost. A transforming card's back face is never cast and requires
+an empty cost, recording its front face's mana value instead (CR 202.3b).
+Missing/null/malformed mana-cost fields reject. Optional AST filters (cast,
+attacker, recursive damage-source class/type/Boolean, attacker-control
+relations) reject explicit null; omission and valid nonempty filters keep their
+meanings.
 
 `extract` requires each exact case-sensitive name/Oracle selector to resolve
 once. It hashes the whole archive before writing, preserves raw lines and

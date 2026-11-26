@@ -47,6 +47,7 @@ impl RulesTxn {
     pub(crate) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
+            transforms: o.transforms,
             battlefield_entry_turn: o.battlefield_entry_turn,
             keyword_timestamp: o.keyword_timestamp,
             keywords: { self.current_keywords(object) },
@@ -269,7 +270,7 @@ impl RulesTxn {
             return Err("targeted activation kind".into());
         };
         {
-            match &self.copiable_definition(entry.source)?.activated[ability as usize].cost {
+            match &self.stack_definition(&entry)?.activated[ability as usize].cost {
                 ActivationCost::ChooseObjects(cost) => {
                     let mut cast = cast;
                     self.rules_mut().frame = if cost.mana.is_some() {
@@ -319,7 +320,7 @@ impl RulesTxn {
                 && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
         });
         if !source_payable
-            || self.copiable_definition(entry.source)?.activated[ability as usize].cost
+            || self.stack_definition(&entry)?.activated[ability as usize].cost
                 != ActivationCost::TapSource
         {
             return self.reverse_cast(cast, "activation source no longer payable", true);
@@ -348,7 +349,11 @@ impl RulesTxn {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            self.validate_characteristic_identity(entry.source, &fact.characteristics)?;
+            self.validate_characteristic_identity(
+                entry.source,
+                fact.transforms,
+                &fact.characteristics,
+            )?;
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {

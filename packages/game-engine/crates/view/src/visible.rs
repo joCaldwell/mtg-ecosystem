@@ -132,13 +132,20 @@ impl<O> VisiblePlayer<O> {
         }
     }
 }
-/// Available only when the viewer can identify the card (CR 712.6-7).
+/// The two printed parts of a double-faced or adventurer card. Available
+/// only when the viewer can identify the card (CR 712.6-7).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct VisibleModalFaces {
+pub struct VisibleFaces {
+    pub layout: FaceLayout,
     pub front_name: String,
+    /// The back face, or an adventurer's Adventure (CR 715.2).
     pub back_name: String,
+    /// The face up, or the Adventure while cast as one (CR 712.8, 715.3b).
     pub active_face: CardFace,
+    /// CR 715.3d: exiled as a resolving Adventure; its controller may play it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub on_adventure: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -147,7 +154,7 @@ pub struct VisibleModalFaces {
 #[serde(bound(deserialize = "H: Deserialize<'de>"))]
 pub struct VisibleObject<H = ObjectHandle> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub modal_faces: Option<VisibleModalFaces>,
+    pub faces: Option<VisibleFaces>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -185,7 +192,7 @@ pub struct VisibleObject<H = ObjectHandle> {
 impl<H> VisibleObject<H> {
     pub fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleObject<T> {
         VisibleObject {
-            modal_faces: self.modal_faces,
+            faces: self.faces,
             face_down: self.face_down,
             exiled_by: self.exiled_by.map(&mut convert),
             phased_out: self.phased_out,

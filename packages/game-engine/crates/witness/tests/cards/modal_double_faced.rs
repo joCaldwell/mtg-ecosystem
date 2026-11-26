@@ -71,7 +71,7 @@ fn settle_stack(game: &mut Game) {
 fn modal_double_faced_land_choice_uses_one_land_play_and_resets_on_bounce() {
     let printed = lower(PATHWAY);
     assert_eq!(printed.characteristics.color_identity, [Color::B, Color::W]);
-    let back = printed.modal_back.as_ref().unwrap();
+    let back = printed.back_face.as_ref().unwrap();
     assert_eq!(back.characteristics.color_identity, [Color::B, Color::W]);
     assert_eq!(
         mtg_contracts::kir::definition_tiers(&printed).unwrap(),
@@ -97,7 +97,7 @@ fn modal_double_faced_land_choice_uses_one_land_play_and_resets_on_bounce() {
         .iter()
         .find(|o| o.oracle_id == printed.oracle_id)
         .unwrap();
-    let faces = hand_row.modal_faces.as_ref().unwrap();
+    let faces = hand_row.faces.as_ref().unwrap();
     assert_eq!(faces.front_name, "Brightclimb Pathway");
     assert_eq!(faces.back_name, "Grimclimb Pathway");
     assert_eq!(faces.active_face, CardFace::Front);
@@ -143,10 +143,7 @@ fn modal_double_faced_land_choice_uses_one_land_play_and_resets_on_bounce() {
         .iter()
         .find(|o| o.oracle_id == printed.oracle_id)
         .unwrap();
-    assert_eq!(
-        row.modal_faces.as_ref().unwrap().active_face,
-        CardFace::Back
-    );
+    assert_eq!(row.faces.as_ref().unwrap().active_face, CardFace::Back);
     assert_eq!(
         row.characteristics.as_ref().unwrap().printed_mana_value(),
         0.into()
@@ -208,10 +205,7 @@ fn modal_double_faced_entry_payment_uses_the_chosen_land() {
         );
         let hand = &owner.view.objects[0];
         assert_eq!(hand.zone, Zone::Hand { owner: PlayerId(0) });
-        assert_eq!(
-            hand.modal_faces.as_ref().unwrap().active_face,
-            CardFace::Front
-        );
+        assert_eq!(hand.faces.as_ref().unwrap().active_face, CardFace::Front);
         assert_eq!(
             hand.characteristics.as_ref().unwrap().kind,
             CardKind::Creature
@@ -278,8 +272,6 @@ fn modal_double_faced_front_spell_and_back_land_have_distinct_zone_characteristi
 #[test]
 fn modal_double_faced_rejects_unreviewed_layouts_by_name() {
     let cases = [
-        ("transform", record!("0272ca81-e727-4f4b-b06e-072d70bb5558")),
-        ("adventure", record!("0296d57e-e5b9-456f-bb21-eb584adefb4c")),
         ("split", record!("03d3fee8-f7de-4152-8c18-6d279cc6c125")),
         ("prototype", record!("02457c7f-eced-4bf3-9b61-309b4ceab2d5")),
         ("flip", record!("0664dcc8-fa68-4802-936f-ecd2979ebf3c")),

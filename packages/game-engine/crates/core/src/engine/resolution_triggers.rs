@@ -32,6 +32,13 @@ struct Firing {
 #[serde(deny_unknown_fields)]
 pub struct ResolutionTrigger {
     source: ObjectId,
+    /// CR 113.7a, 712.18: the face whose program created this trigger.
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    source_face: CardFace,
+    /// CR 701.27f: the source's transform count when this trigger was
+    /// created.
+    #[serde(default, skip_serializing_if = "state::is_zero_count")]
+    source_transforms: u32,
     controller: PlayerId,
     creator_program: CreatorProgram,
     cursor: u32,
@@ -116,7 +123,7 @@ impl ResolutionTrigger {
 
 impl RulesTxn {
     fn resolution_trigger_node(&self, row: &ResolutionTrigger) -> Result<&Node, String> {
-        let definition = self.copiable_definition(row.source)?;
+        let definition = self.face_definition(row.source.card, row.source_face)?;
         let program = row
             .creator_program
             .program(definition)
@@ -129,6 +136,28 @@ impl RulesTxn {
             return Err("resolution trigger creator must finish its program".into());
         };
         Ok(node)
+    }
+
+    /// CR 113.7a: the face whose program created this trigger.
+    pub(super) fn resolution_trigger_face(&self, creator: StackId) -> Result<CardFace, String> {
+        Ok(self
+            .state
+            .rules
+            .resolution_triggers
+            .get(&creator)
+            .ok_or("missing resolution trigger creator")?
+            .source_face)
+    }
+
+    /// CR 701.27f: the creating source's transform count at creation.
+    pub(super) fn resolution_trigger_transforms(&self, creator: StackId) -> Result<u32, String> {
+        Ok(self
+            .state
+            .rules
+            .resolution_triggers
+            .get(&creator)
+            .ok_or("missing resolution trigger creator")?
+            .source_transforms)
     }
 
     pub(super) fn resolution_trigger_program(
@@ -162,6 +191,8 @@ impl RulesTxn {
         let source_facts = self.source_facts(entry)?;
         let row = ResolutionTrigger {
             source: entry.source,
+            source_face: entry.program_face(),
+            source_transforms: self.current(entry.source).map_or(0, |o| o.transforms),
             controller: entry.controller,
             creator_program: CreatorProgram::of(entry)?,
             cursor: frame.cursor,
@@ -675,10 +706,16 @@ impl RulesTxn {
                     && self.is_live(row.controller)
                     && !self.watch_removed_with_owner(row))
                 || in_flight.contains(&creator) != (row.firing.is_some() && !row.retired)
+                // CR 712.18: only a transforming card changes face or count.
+                || ((row.source_face != row.source.face || row.source_transforms > 0)
+                    && !self.definition(row.source.card)?.transforms())
+                || rules.objects.get(&row.source.card).is_some_and(|object| {
+                    object.id == row.source && object.transforms < row.source_transforms
+                })
             {
                 return Err("resolution trigger origin invariant".into());
             }
-            self.validate_characteristic_identity(row.source, &row.source_facts.characteristics)?;
+            self.validate_fact_identity(&row.source_facts)?;
             if matches!(row.creator_program, CreatorProgram::Spell { .. })
                 && (row.source_facts.zone != Zone::Stack
                     || row.source_facts.controller != row.controller)
