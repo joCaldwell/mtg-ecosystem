@@ -138,6 +138,11 @@ pub enum Node {
         count: u32,
         removal: GroupRemoval,
     },
+    /// CR 118.12, 608.2b: sacrifice one controlled creature if able;
+    /// on doing so return the legal announced creature cards together.
+    SacrificeForTappedReturn {
+        count: u32,
+    },
     /// CR 118.12a: perform `node` unless `payer` pays.
     UnlessPays {
         payer: PlayerExpr,
@@ -256,6 +261,7 @@ impl Node {
             | Self::Delayed { .. }
             | Self::ChooseObject { .. }
             | Self::TapTargets { .. }
+            | Self::SacrificeForTappedReturn { .. }
             | Self::RemoveTargets { .. } => false,
         }
     }

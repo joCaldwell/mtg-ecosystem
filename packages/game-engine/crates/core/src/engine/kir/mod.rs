@@ -76,6 +76,17 @@ impl RulesTxn {
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
+        if let Node::SacrificeForTappedReturn { .. } = node {
+            let player = self.entry(frame.stack_id)?.controller;
+            self.rules_mut().frame = Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::Sacrifice {
+                    player,
+                    source_block,
+                },
+            };
+            return Ok(());
+        }
         if let Node::TapTargets { tap, .. } = node {
             let objects = self
                 .entry(frame.stack_id)?
@@ -260,6 +271,7 @@ impl RulesTxn {
             Verb::Search { .. }
                 | Verb::Shuffle { .. }
                 | Verb::ReorderLibraryTop { .. }
+                | Verb::LookChooseHand { .. }
                 | Verb::Scry { .. }
                 | Verb::Surveil { .. }
         ) {
@@ -311,6 +323,8 @@ impl RulesTxn {
                 to:
                     to @ (Destination::OwnerHand
                     | Destination::OwnerLibraryTop
+                    | Destination::OwnerLibraryBottom
+                    | Destination::OwnerLibraryShuffled
                     | Destination::Battlefield { .. }),
             } => self.kernel_single_move(frame, object, to, source_block),
             Verb::Move {

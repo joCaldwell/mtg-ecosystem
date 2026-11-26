@@ -40,6 +40,28 @@ pub(super) fn lower(
     }
     let player = match typed::<ast::PlayerRef>(who, "player")? {
         ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
+        ast::PlayerRef::Owner(owner)
+            if cx.context == Context::Spell
+                && bound.is_none()
+                && matches!(amount, DrawAmount::Fixed { value: 2 }) =>
+        {
+            let slot = bind_permanent_target(cx.program, cx.slots, &owner.of)?;
+            if !matches!(
+                cx.program.instructions.last().and_then(Instruction::verb),
+                Some(Verb::Move {
+                    what: SetExpr::One { object: kir::Ref::Target { slot: moved } },
+                    to: Destination::OwnerLibraryShuffled,
+                }) if *moved == slot
+            ) {
+                return Err(step("draw", "owner_of_unbound_target"));
+            }
+            return Ok(cx.act(Verb::Draw {
+                player: PlayerExpr::OwnerOf {
+                    object: kir::Ref::Target { slot },
+                },
+                amount: Amount::fixed(2),
+            }));
+        }
         who => lower_player_ref(
             cx.program,
             cx.slots,

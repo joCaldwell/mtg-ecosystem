@@ -450,6 +450,11 @@ pub(crate) enum Step {
     Simultaneous {
         steps: Vec<serde_json::Value>,
     },
+    ShuffleIntoLibrary {
+        who: PlayerSelector,
+        what: Vec<serde_json::Value>,
+        library: serde_json::Value,
+    },
     Scry {
         amount: serde_json::Value,
     },

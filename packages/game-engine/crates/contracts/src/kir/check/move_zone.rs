@@ -13,6 +13,12 @@ impl Walk<'_, '_> {
                 },
                 Destination::OwnerHand | Destination::OwnerLibraryTop,
             ) if self.env.context != Context::Spell => Ok(Cell::MoveSourceOwnerZone),
+            (
+                SetExpr::One {
+                    object: Ref::Source,
+                },
+                Destination::OwnerLibraryShuffled,
+            ) if self.env.context == Context::Spell => Ok(Cell::ShuffleResolvingSpell),
             // CR 400.3, 400.7, 608.2b: one announced permanent to exile, its
             // owner's hand or the top of its owner's library.
             (
@@ -31,6 +37,20 @@ impl Walk<'_, '_> {
                 ) if controller == &PlayerExpr::you(self.env.context) => {
                     Ok(Cell::MoveOwnGraveyardCreatureToBattlefield)
                 }
+                (Destination::Battlefield { controller, .. }, TargetDomain::OwnGraveyardCard)
+                    if controller == &PlayerExpr::you(self.env.context) =>
+                {
+                    Ok(Cell::MoveOwnGraveyardCardToBattlefield)
+                }
+                (Destination::OwnerHand, TargetDomain::GraveyardCard { .. }) => {
+                    Ok(Cell::MoveGraveyardTargetToOwnerHand)
+                }
+                (
+                    Destination::Exile,
+                    TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+                    | TargetDomain::GraveyardCard { .. },
+                ) => Ok(Cell::ExileGraveyardTarget),
                 (Destination::Exile, TargetDomain::BattlefieldPermanent) => {
                     Ok(Cell::MoveTargetExile)
                 }
@@ -45,6 +65,15 @@ impl Walk<'_, '_> {
                 ) => Ok(Cell::MoveTargetOwnerHand),
                 (Destination::OwnerLibraryTop, _) if self.creature_target(*slot)? => {
                     Ok(Cell::MoveTargetOwnerLibraryTop)
+                }
+                (
+                    Destination::OwnerLibraryTop | Destination::OwnerLibraryBottom,
+                    TargetDomain::BattlefieldPermanent | TargetDomain::BattlefieldCreature,
+                ) => Ok(Cell::MoveTargetOwnerLibraryPosition),
+                (Destination::OwnerLibraryShuffled, TargetDomain::BattlefieldPermanent)
+                    if self.env.context == Context::Spell && self.env.targets.len() == 1 =>
+                {
+                    Ok(Cell::ShuffleTargetOwnerLibrary)
                 }
                 _ => unaudited("move target destination"),
             },
@@ -104,6 +133,8 @@ pub(super) fn capabilities(what: &SetExpr, to: &Destination, out: &mut BTreeSet<
             out.insert(match to {
                 Destination::OwnerHand => Capability::OwnerHandMoveV1,
                 Destination::OwnerLibraryTop => Capability::OwnerLibraryTopMoveV1,
+                Destination::OwnerLibraryBottom => Capability::OwnerLibraryBottomMoveV1,
+                Destination::OwnerLibraryShuffled => Capability::OwnerLibraryShuffleMoveV1,
                 Destination::Battlefield { .. } => Capability::GraveyardRecursionV1,
                 _ => Capability::PermanentRemovalV1,
             });

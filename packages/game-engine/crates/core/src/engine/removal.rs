@@ -73,7 +73,8 @@ impl RulesTxn {
                 CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }
                 | CommanderContinuation::ResolutionDraw { frame, .. }
-                | CommanderContinuation::Search { frame, .. } => Some(frame),
+                | CommanderContinuation::Search { frame, .. }
+                | CommanderContinuation::LookHand { frame, .. } => Some(frame),
                 CommanderContinuation::StateBased { .. }
                 | CommanderContinuation::StateBasedBatch { .. } => None,
 

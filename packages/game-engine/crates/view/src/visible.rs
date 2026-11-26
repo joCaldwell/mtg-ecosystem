@@ -397,6 +397,10 @@ pub struct PermittedView<O = ObjectHandle> {
     pub known_searched_hand: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_library_positions: Vec<KnownLibraryPosition>,
+    /// CR 701.20a: library identities revealed while a spell resolves.
+    /// A reveal gives neither a position nor an object handle.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub revealed_library_cards: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifice_choices: Vec<(PlayerId, O)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

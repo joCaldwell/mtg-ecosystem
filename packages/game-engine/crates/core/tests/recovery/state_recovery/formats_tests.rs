@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    81,
-    "c892cbdeaf7e7f492af860152157868d1383de1880457fde5eea20fce73e22a8",
+    83,
+    "6e663bc0965e0345e794fd5848a0fadf9601ee111880caa3d0e8df294c892272",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    112,
-    "5a43c25fb14200d481ec045d3c30428f5567baa38414dc2b95420171552ced3f",
+    114,
+    "28cd7b1be5f90c2b678f99f972316b3b49146bb358b430270f7f0e73df408c0a",
 );
 const WORK_PIN: (u32, &str) = (
     59,
@@ -417,6 +417,7 @@ fn library_entry_shapes() -> Vec<String> {
         serde_json::to_value(ResolutionChoice::SearchEntry {
             player: PlayerId(0),
             found: vec![object],
+            command_choices: vec![(object, false)],
             hosts: vec![(object, object)],
             paid: vec![(object, true)],
             revealed: vec![(object, Some(object)), (object, None)],
@@ -437,6 +438,7 @@ fn library_entry_shapes() -> Vec<String> {
     let Frame::ResolutionChoice { frame, .. } = &game.state.rules.frame else {
         unreachable!("fixture has a resolving choice")
     };
+    let choice_frame = frame.clone();
     let mut frame = frame.clone();
     frame.cursor = 1;
     frame.outcomes = vec![InstructionOutcome::Effect {
@@ -448,10 +450,60 @@ fn library_entry_shapes() -> Vec<String> {
     }];
     let mut completed = search.clone();
     completed["state"]["rules"]["frame"] = serde_json::to_value(Frame::Resolve { frame }).unwrap();
-    [search, entry, reorder, completed]
-        .iter()
-        .map(|value| serde_json::to_string(value).unwrap())
-        .collect()
+    let mut split = search.clone();
+    split["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::SearchSplit {
+            player: PlayerId(0),
+            found: [object, object],
+            source_block: 0,
+        })
+        .unwrap();
+    let mut look = search.clone();
+    look["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::LookChooseHand {
+            player: PlayerId(0),
+            looked: vec![object],
+            source_block: 0,
+        })
+        .unwrap();
+    let mut order = search.clone();
+    order["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::LookOrderBottom {
+            player: PlayerId(0),
+            looked: vec![object],
+            hand: object,
+            source_block: 0,
+        })
+        .unwrap();
+    let mut commander = search.clone();
+    commander["state"]["rules"]["frame"] = serde_json::to_value(Frame::CommanderReturn {
+        object,
+        destination: Zone::Hand { owner: PlayerId(0) },
+        continuation: CommanderContinuation::LookHand {
+            frame: choice_frame,
+            player: PlayerId(0),
+            looked: vec![object],
+            bottom: vec![object],
+            source_block: 0,
+        },
+    })
+    .unwrap();
+    let mut bottomed = completed.clone();
+    bottomed["state"]["rules"]["frame"]["frame"]["outcomes"][0] =
+        serde_json::to_value(InstructionOutcome::Effect {
+            actual: Some(EventOutcome::LibraryPrefixBottomed {
+                player: PlayerId(0),
+                looked: vec![object],
+                bottom: vec![object],
+            }),
+        })
+        .unwrap();
+    [
+        search, entry, reorder, completed, split, look, order, commander, bottomed,
+    ]
+    .iter()
+    .map(|value| serde_json::to_string(value).unwrap())
+    .collect()
 }
 
 /// CR 608.2d: the open object choice carries only the resolving frame and a tag.

@@ -80,6 +80,28 @@ impl Walk<'_, '_> {
             // battlefield, under their own control.
             Destination::Battlefield { controller, .. } if controller == player => {}
             Destination::OwnerHand | Destination::OwnerGraveyard => {}
+            Destination::OneTappedRestOwnerHand
+                if !target_controller
+                    && matches!(self.env.context, Context::Spell | Context::Activated)
+                    && search.maximum.as_fixed() == Some(&Quantity::from(2))
+                    && search.reveal
+                    && matches!(
+                        &search.filter.0[..],
+                        [
+                            Atom::Basic,
+                            Atom::Type {
+                                kind: CardKind::Land
+                            }
+                        ] | [
+                            Atom::Type {
+                                kind: CardKind::Land
+                            },
+                            Atom::Basic
+                        ]
+                    ) =>
+            {
+                return Ok(Cell::SearchSplitBasicLands);
+            }
             // CR 701.24b: this search includes the shuffle of everything
             // except its one found card, followed by positioning that card.
             Destination::OwnerLibraryTop

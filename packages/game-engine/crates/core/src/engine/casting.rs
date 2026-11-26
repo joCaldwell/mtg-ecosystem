@@ -264,6 +264,7 @@ impl RulesTxn {
                 | TargetDomain::CreatureOrPlaneswalker
                 | TargetDomain::BlockingBattlefieldCreature
                 | TargetDomain::OwnGraveyardCreatureCard
+                | TargetDomain::GraveyardCard { .. }
                 | TargetDomain::OwnGraveyardCard,
             ) => Frame::Targets { cast },
         })

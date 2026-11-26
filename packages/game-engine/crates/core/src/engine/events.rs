@@ -392,6 +392,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             (keys.clone(), keys)
         }
         ProposedEvent::ReorderLibraryTop { player, looked, .. }
+        | ProposedEvent::PutLibraryPrefixOnBottom { player, looked, .. }
         | ProposedEvent::Scry { player, looked, .. }
         | ProposedEvent::Surveil { player, looked, .. } => {
             let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
@@ -929,6 +930,7 @@ impl RulesTxn {
                     }
                 }
                 ProposedEvent::ReorderLibraryTop { player, looked, .. }
+                | ProposedEvent::PutLibraryPrefixOnBottom { player, looked, .. }
                 | ProposedEvent::Scry { player, looked, .. }
                 | ProposedEvent::Surveil { player, looked, .. } => {
                     libraries.insert(*player);
@@ -2202,6 +2204,11 @@ impl RulesTxn {
                 looked,
                 top,
             } => self.apply_library_top_reorder(*player, looked, top)?,
+            ProposedEvent::PutLibraryPrefixOnBottom {
+                player,
+                looked,
+                bottom,
+            } => self.apply_library_prefix_to_bottom(*player, looked, bottom)?,
             ProposedEvent::Scry {
                 player,
                 looked,
@@ -2221,14 +2228,11 @@ impl RulesTxn {
                 self.apply_library_shuffle(*player, *found)?
             }
             ProposedEvent::EnterTapped { object } => {
-                if self.current(*object)?.zone
-                    != (Zone::Library {
-                        owner: self.state.rules.cards[&object.card].owner,
-                    })
-                {
-                    return Err("tapped entry outside its owner's library".into());
-                }
                 let owner = self.state.rules.cards[&object.card].owner;
+                if !matches!(self.current(*object)?.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } if p == owner)
+                {
+                    return Err("tapped entry outside owner's library or graveyard".into());
+                }
                 // CR 614.1c: a forced tapped entry needs no entry payment.
                 self.apply_move(
                     *object,
@@ -2272,10 +2276,10 @@ impl RulesTxn {
                 {
                     let characteristics = self.structural_characteristics(*object)?;
                     // CR 303.4f: an Aura entering without being cast (from its
-                    // owner's library, by a search) enchants a chosen object it
+                    // owner's library or graveyard) enchants a chosen object it
                     // could enchant; that choice does not target.
                     let owner = self.state.rules.cards[&object.card].owner;
-                    let chosen = source.zone == (Zone::Library { owner });
+                    let chosen = matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } if p == owner);
                     if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]
@@ -2759,14 +2763,7 @@ impl RulesTxn {
             }
             ProposedEvent::CombatDamage { damage } => self.apply_damage(damage)?,
             ProposedEvent::FailedDraw { player } => {
-                if !self.is_live(*player)
-                    || self
-                        .state
-                        .rules
-                        .libraries
-                        .get(player)
-                        .is_none_or(|l| !l.is_empty())
-                {
+                if !self.is_live(*player) || self.top_library_card(*player).is_some() {
                     return Err("invalid failed draw".into());
                 }
                 self.rules_mut().players[player.0 as usize].failed_draw = true;

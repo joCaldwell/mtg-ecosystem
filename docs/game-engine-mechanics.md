@@ -132,8 +132,9 @@ damage tracks physical source and recipient across control and zone changes. A
 replaced draw of a tucked commander completes once and preserves the next card.
 
 **Library choices** are private to their chooser and replay-proven: only the
-chooser sees the cards looked at (a searcher its whole library, CR 701.23a), and
-no other seat learns identity, count or order. Scry picks bottom cards, then
+chooser sees the cards looked at (a searcher its whole library, CR 701.23a).
+Other seats see only the identities and counts that a printed reveal makes
+public, without the library order. Scry picks bottom cards, then
 orders both groups; surveil picks graveyard cards, then orders the rest (CR
 701.22a, 701.25a); orders are asked only for two or more cards. Each
 manipulation is one atomic event, and other seats forget remembered positions in
@@ -296,9 +297,13 @@ resolution (CR 601.2c, 608.2b). Criteria can combine card types, subtypes
 (including changeling), supertypes, colors, supported keywords, token status,
 control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
 An ability with one target occurrence can exclude its source with “another.”
-Own-graveyard routes check their zone, owner and printed criteria against the
-announced incarnation (CR 400.7). Other graveyard scopes reject. A
-certified "it" or "that" can reuse the block's sole announced incarnation, and
+Graveyard targets check the announced incarnation, its owner's graveyard and
+its printed criteria, including secondary card types and fixed mana-value bounds
+(CR 400.7). Exile and return to the owner's hand can target a card in any
+graveyard or an opponent's graveyard. A permanent returned from your graveyard
+uses the battlefield entry procedure for Aura attachment and land entry choices.
+An exiled target's printed creature type can govern a later “if it was a
+creature card” instruction. A certified "it" or "that" can reuse the block's sole announced incarnation, and
 "this [permanent]" names the current source for tap, untap and owner-zone moves
 (CR 400.7).
 
@@ -309,16 +314,19 @@ through seven) is the program's only occurrence: one `Pick` of exactly or up to
 N distinct objects, needing N legal objects to cast or place (CR 115.3, 601.2c).
 Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one
 simultaneous event; P/T, keyword, counter and combat-restriction leaves, a
-spell's own damage and own-graveyard returns to hand or exile run per member.
+spell's own damage and graveyard returns to hand or exile run per member.
 An unchosen or illegal member skips its leaves; all illegal counters the spell
 (CR 608.2b). Per-member damage is separate events; recheck that once batched or
-creature-damage triggers are admitted. Graveyard groups entering the
-battlefield, "any number" and X counts, mixed required and optional occurrences
+creature-damage triggers are admitted. Victimize declares its creature-card
+targets before the sacrifice. A successful sacrifice returns the legal survivors
+tapped simultaneously. Other graveyard group entries, "any number" and X
+counts, mixed required and optional occurrences
 and optional permanent spells reject. "Target player or planeswalker" announces
 players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
 120.3). Already-matching tap status emits no event and combat membership is
 preserved. "Put a +1/+1 counter on each [creature filter]" applies
-simultaneously to the current set.
+simultaneously to the current set. “Tap all creatures target player controls”
+reads that player’s creatures at resolution.
 
 `ChooseObject` returns one controlled permanent chosen at resolution (CR
 608.2d); departures that change the offer invalidate pending answers, empty sets
@@ -422,8 +430,33 @@ the library, as does a found instant or sorcery (CR 303.4g, 304.4). Revealed
 hand cards are a public minimum count per owner and Oracle identity, never an
 incarnation (CR 701.23e); a reversed cast restores what its announcement
 consumed. A search can also put one found card on top after shuffling the rest
-(CR 701.24b); a printed reveal publishes it without a library handle. Splitting
-found cards among destinations or ordering several after shuffling rejects.
+(CR 701.24b); a printed reveal publishes it without a library handle.
+A spell or activated ability can let its controller search for up to two basic
+lands, reveal them, choose one for tapped battlefield entry, put the other into
+hand, and shuffle. If the search
+finds only one land, that land enters tapped. The split choice offers only the
+found cards to the searcher and shows revealed identities to everyone without
+library handles or positions (CR 608.2c–f, 701.20a, 701.23b–e). Other search
+partitions and ordering several cards after shuffling remain unsupported.
+
+**Library placement and shuffle** can put a single announced permanent on the
+bottom of its owner's library, retain the existing single-creature top
+placement, or shuffle a single announced permanent into its owner's library.
+The shuffle still happens if the owner's commander goes to the command zone
+instead. An audited follow-up lets the target's owner draw two cards. A spell
+can shuffle itself into its owner's library as its final instruction. It
+applies its stack-departure replacements first and uses the owner's normal
+shuffle stream (CR 400.3, 401.4, 608.2n, 701.24c, 903.9b).
+Tucked tokens and spell copies remain in the zone until state-based actions.
+They are absent from card counts, the shuffle permutation and draws
+(CR 111.6–8, 121.1, 704.5d–e, 707.10).
+
+A **private top-card selection** looks at a fixed positive prefix of the
+controller's library, chooses one card for hand, and puts the remainder on
+the bottom in a private order (CR 401.2, 401.4, 608.2d, 701.20e). The
+commander hand replacement still applies. Filtered or optional selection,
+public top-card reveals, random bottom ordering, and other destinations
+remain unsupported for this procedure.
 
 ## Battlefield entry replacements
 

@@ -43,50 +43,21 @@ impl RulesTxn {
                 mtg_contracts::kir::PlayerExpr::Is {
                     who: mtg_contracts::kir::Ref::Controller { .. },
                 } => Ok(self.entry(frame.stack_id)?.controller),
+                // CR 108.3, 608.2h: the physical card's owner stays the
+                // same after the preceding instruction shuffled the object.
+                mtg_contracts::kir::PlayerExpr::OwnerOf {
+                    object: mtg_contracts::kir::Ref::Target { slot },
+                } => {
+                    let target = self
+                        .bound_object_target(self.entry(frame.stack_id)?, *slot as usize)
+                        .ok_or("missing target for owner draw")?;
+                    Ok(self.state.rules.cards[&target.card].owner)
+                }
                 _ => Err("unsupported draw recipient".into()),
             },
 
             _ => Err("not draw instruction".into()),
         }
-    }
-
-    pub(crate) fn graveyard_target_legal(
-        &self,
-        object: &Object,
-        player: PlayerId,
-        domain: TargetDomain,
-    ) -> bool {
-        self.player_graveyard_card(object, player)
-            && match domain {
-                TargetDomain::OwnGraveyardCard => true,
-                TargetDomain::OwnGraveyardCreatureCard => self
-                    .definition(object.id.card)
-                    .is_ok_and(|d| d.characteristics.has_type(CardKind::Creature)),
-                _ => false,
-            }
-    }
-    /// CR 205.2b, 601.2c, 608.2b: any printed type alternative may
-    /// satisfy a card target, including a card's secondary type.
-    pub(super) fn graveyard_target_legal_for(
-        &self,
-        object: &Object,
-        player: PlayerId,
-        spec: &mtg_contracts::TargetSpec,
-    ) -> bool {
-        self.graveyard_target_legal(object, player, spec.domain)
-            && spec.filter.as_ref().is_none_or(|filter| {
-                (filter.types.is_empty()
-                    || self.copiable_definition(object.id).is_ok_and(|definition| {
-                        filter
-                            .types
-                            .iter()
-                            .any(|kind| definition.characteristics.has_type(*kind))
-                    }))
-                    && filter.predicate.as_ref().is_none_or(|predicate| {
-                        crate::query::matches_pred(&self.object_facts(object), player, predicate)
-                            .is_yes()
-                    })
-            })
     }
 
     pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
@@ -140,7 +111,9 @@ impl RulesTxn {
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
                 self.permanent_target_legal(object, controller, source_object, spec)
             }
-            TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
+            TargetDomain::GraveyardCard { .. }
+            | TargetDomain::OwnGraveyardCreatureCard
+            | TargetDomain::OwnGraveyardCard => self
                 .current(object)
                 .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec)),
             TargetDomain::CreatureOrPlaneswalker => {

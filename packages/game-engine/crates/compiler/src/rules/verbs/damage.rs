@@ -31,11 +31,6 @@ pub(super) fn lower(
     let amount: ast::Amount = typed(amount, "amount")?;
     let refs = match to {
         DamageDestination::AnyTarget { selection_id } => {
-            // Directed damage has previously reviewed tiers. The new source
-            // forms enter through the separately audited set/player cells.
-            if *source != (DamageSource::SelfReference {}) {
-                return Err(step("damage", "source:directed"));
-            }
             uncounted(cx)?;
             return Ok(Instruction::damage_target(
                 bind_target(

@@ -47,6 +47,14 @@ pub enum Destination {
     OwnerLibraryTop,
     #[serde(deserialize_with = "no_operands")]
     OwnerLibraryBottom,
+    /// CR 701.24c: put one object into its owner's library and shuffle it,
+    /// even when the object changes destination or is no longer present.
+    #[serde(deserialize_with = "no_operands")]
+    OwnerLibraryShuffled,
+    /// Search only: choose one found card to enter tapped under the
+    /// searcher's control, then put the remainder into the owner's hand.
+    #[serde(deserialize_with = "no_operands")]
+    OneTappedRestOwnerHand,
     #[serde(deserialize_with = "no_operands")]
     OwnerGraveyard,
     Battlefield {
@@ -516,6 +524,12 @@ pub enum Verb {
     },
     /// CR 701.22.
     ReorderLibraryTop {
+        player: PlayerExpr,
+        amount: Amount,
+    },
+    /// CR 401.2, 608.2d, 701.20e: look at a private prefix, put one card
+    /// into hand, and privately order the rest on the bottom.
+    LookChooseHand {
         player: PlayerExpr,
         amount: Amount,
     },

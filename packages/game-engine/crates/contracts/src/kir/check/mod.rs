@@ -328,6 +328,7 @@ impl Walk<'_, '_> {
                     | TargetDomain::BlockingBattlefieldCreature
                     | TargetDomain::CreatureOrPlaneswalker
                     | TargetDomain::OwnGraveyardCreatureCard
+                    | TargetDomain::GraveyardCard { .. }
                     | TargetDomain::OwnGraveyardCard => RefKind::Object,
                     TargetDomain::AnyDamageTarget => RefKind::Entity,
                     TargetDomain::AnyPlayer
@@ -576,6 +577,8 @@ impl Walk<'_, '_> {
             | Destination::OwnerHand
             | Destination::OwnerLibraryTop
             | Destination::OwnerLibraryBottom
+            | Destination::OwnerLibraryShuffled
+            | Destination::OneTappedRestOwnerHand
             | Destination::OwnerGraveyard => Ok(()),
         }
     }
@@ -695,6 +698,30 @@ impl Walk<'_, '_> {
             }
             Cond::Not { condition } => self.condition(condition),
             Cond::All { conditions } => conditions.iter().try_for_each(|c| self.condition(c)),
+            Cond::Satisfies {
+                object: Ref::Target { slot },
+                filter,
+            } if self.scan
+                || (matches!(
+                    self.domain(*slot)?,
+                    TargetDomain::GraveyardCard { .. }
+                        | TargetDomain::OwnGraveyardCard
+                        | TargetDomain::OwnGraveyardCreatureCard
+                ) && filter.0.as_slice()
+                    == [Atom::Type {
+                        kind: CardKind::Creature,
+                    }]) =>
+            {
+                self.expect(
+                    &Ref::Target { slot: *slot },
+                    &[RefKind::Object],
+                    "graveyard card type",
+                )?;
+                if !self.scan {
+                    self.out.cells.insert(Cell::GraveyardTargetWasCreature);
+                }
+                Ok(())
+            }
             // CR 603.4: only an intervening "if" reads these, through
             // [`Intervening`]; no resolving control node does.
             Cond::Satisfies { .. }
@@ -732,6 +759,7 @@ impl Walk<'_, '_> {
             | Verb::Mill { player, amount }
             | Verb::Discard { player, amount, .. }
             | Verb::ReorderLibraryTop { player, amount }
+            | Verb::LookChooseHand { player, amount }
             | Verb::Scry { player, amount }
             | Verb::Surveil { player, amount } => {
                 self.player(player)?;
@@ -756,6 +784,14 @@ impl Walk<'_, '_> {
             | Verb::Tap { what }
             | Verb::Untap { what }
             | Verb::Regenerate { what } => self.set(what),
+            // CR 701.24c: this is the resolving spell itself, rather than a
+            // reference to one of the ordinary object domains.
+            Verb::Move {
+                what: SetExpr::One {
+                    object: Ref::Source,
+                },
+                to: Destination::OwnerLibraryShuffled,
+            } if self.env.context == Context::Spell => Ok(()),
             Verb::Move { what, to } => {
                 self.set(what)?;
                 self.destination(to)
@@ -1093,6 +1129,30 @@ impl Walk<'_, '_> {
                 }
                 Ok(())
             }
+            Node::SacrificeForTappedReturn { count } => {
+                if !(2..=7).contains(count) {
+                    return unaudited("sacrifice return group bounds");
+                }
+                self.out.target_slots.extend(0..*count);
+                if !self.scan {
+                    if in_control
+                        || self.env.context != Context::Spell
+                        || self.env.targets.len() != *count as usize
+                        || self
+                            .env
+                            .targets
+                            .iter()
+                            .any(|t| t.domain != TargetDomain::OwnGraveyardCreatureCard)
+                    {
+                        return unaudited("sacrifice return target group");
+                    }
+                    self.out.cells.insert(Cell::SacrificeForTappedReturn);
+                    self.out
+                        .capabilities
+                        .extend([Capability::SacrificeV1, Capability::GraveyardRecursionV1]);
+                }
+                Ok(())
+            }
             Node::RemoveTargets { count, .. } => {
                 // CR 115.3, 601.2c, 608.2b: one occurrence, exactly or at most N distinct
                 // objects. The program admits these slots only as one group.
@@ -1320,6 +1380,10 @@ impl Walk<'_, '_> {
 
     fn audit_nested_leaf(verb: &Verb) -> Result<(), KirError> {
         match verb {
+            Verb::Move {
+                to: Destination::OwnerLibraryShuffled,
+                ..
+            } => unaudited("library shuffle movement needs a top-level instruction"),
             // These executors authenticate against top-level instructions
             // after the temporary leaf program has been removed.
             Verb::CreateTokens { .. }
@@ -1343,7 +1407,7 @@ impl Walk<'_, '_> {
             }
             // The completed reorder is validated against its own fixed
             // amount at the resolving instruction's cursor.
-            Verb::ReorderLibraryTop { .. } => {
+            Verb::ReorderLibraryTop { .. } | Verb::LookChooseHand { .. } => {
                 unaudited("library reorder needs a top-level instruction")
             }
             // CR 121.2: counted draws retain attempt progress and finish
@@ -1525,6 +1589,9 @@ impl Walk<'_, '_> {
             Verb::ReorderLibraryTop { player, amount } => {
                 self.audit_look(player, amount, Cell::ReorderLibraryTop)
             }
+            Verb::LookChooseHand { player, amount } => {
+                self.audit_look(player, amount, Cell::LookChooseHand)
+            }
             Verb::Scry { player, amount } => self.audit_look(player, amount, Cell::ScryController),
             Verb::Surveil { player, amount } => {
                 self.audit_look(player, amount, Cell::SurveilController)
@@ -1666,8 +1733,14 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
             out.insert(Capability::SearchLibraryTopV1);
         }
+        Verb::Search { search, .. } if search.to == Destination::OneTappedRestOwnerHand => {
+            out.insert(Capability::SearchSplitBasicLandsV1);
+        }
         Verb::ReorderLibraryTop { .. } => {
             out.insert(Capability::PrivateLibraryReorderV1);
+        }
+        Verb::LookChooseHand { .. } => {
+            out.insert(Capability::PrivateLibrarySelectionV1);
         }
         Verb::Scry { .. }
         | Verb::Surveil { .. }
@@ -1702,6 +1775,9 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         }
         if matches!(node, Node::TapTargets { .. }) {
             out.insert(Capability::OptionalTargetGroupV1);
+        }
+        if matches!(node, Node::SacrificeForTappedReturn { .. }) {
+            out.extend([Capability::SacrificeV1, Capability::GraveyardRecursionV1]);
         }
         if matches!(node, Node::RemoveTargets { .. }) {
             out.insert(Capability::TargetGroupRemovalV1);
@@ -1779,6 +1855,7 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         | Node::Reflexive { .. }
         | Node::ChooseObject { .. }
         | Node::TapTargets { .. }
+        | Node::SacrificeForTappedReturn { .. }
         | Node::RemoveTargets { .. } => {}
     }
 }

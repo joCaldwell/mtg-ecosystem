@@ -7,6 +7,23 @@ use super::*;
 pub(super) fn tap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     let what = object(what)?;
+    // CR 115.1a, 608.2h: the player is targeted; the creatures they
+    // control are determined when the instruction resolves.
+    if let ast::ObjectRef::All(all) = &what
+        && let Some(player @ ast::PlayerRef::TargetPlayer(_)) = all.filter.controlled_by.as_deref()
+        && present_fields(&all.filter) == ["types", "controlled_by"]
+        && matches!(all.filter.types.as_deref(), Some([kind]) if kind == "creature")
+    {
+        let player = lower_player_ref(cx.program, cx.slots, player.clone(), cx.context, None)?;
+        return Ok(cx.act(Verb::Tap {
+            what: SetExpr::battlefield(Pred(vec![
+                Atom::Type {
+                    kind: CardKind::Creature,
+                },
+                Atom::ControlledBy { player },
+            ])),
+        }));
+    }
     if is_set(&what) {
         return Ok(cx.act(Verb::Tap {
             what: lower_board_set(&what, cx.context)?,

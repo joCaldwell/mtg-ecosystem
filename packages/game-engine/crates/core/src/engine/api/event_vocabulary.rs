@@ -29,6 +29,13 @@ pub enum ProposedEvent {
         looked: Vec<ObjectId>,
         top: Vec<ObjectId>,
     },
+    /// CR 401.2, 401.4: move the remaining privately inspected prefix to
+    /// the bottom, still in the library and in the selected order.
+    PutLibraryPrefixOnBottom {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        bottom: Vec<ObjectId>,
+    },
     /// CR 701.22a: `looked` is the library's top; `top` goes back on top in
     /// that order and `bottom` beneath the rest in that order.
     Scry {
@@ -55,7 +62,7 @@ pub enum ProposedEvent {
         player: PlayerId,
         found: Option<ObjectId>,
     },
-    /// CR 110.2, 614.1c: a searched card enters under its owner's control,
+    /// CR 110.2, 614.1c: a card from a library or graveyard enters under its owner's control,
     /// already tapped.
     EnterTapped {
         object: ObjectId,
@@ -282,6 +289,11 @@ pub enum EventOutcome {
         player: PlayerId,
         looked: Vec<ObjectId>,
         top: Vec<ObjectId>,
+    },
+    LibraryPrefixBottomed {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        bottom: Vec<ObjectId>,
     },
     Scried {
         player: PlayerId,

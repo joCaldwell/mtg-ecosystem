@@ -223,6 +223,10 @@ pub enum Reason<S: Space> {
     Proliferate,
     /// CR 608.2d: choose a public object while applying an instruction.
     ResolveObjectChoice,
+    /// CR 608.2d: the found land to put onto the battlefield tapped.
+    SearchSplitBattlefield,
+    /// CR 701.20e: choose a looked-at card to put into hand.
+    LookChooseHand,
 }
 
 impl<S: Space> Reason<S> {
@@ -265,6 +269,8 @@ impl<S: Space> Reason<S> {
             Self::Proliferate => 34,
             Self::ChosenObjectCost { .. } => 32,
             Self::ResolveObjectChoice => 35,
+            Self::SearchSplitBattlefield => 36,
+            Self::LookChooseHand => 37,
         }
     }
 }

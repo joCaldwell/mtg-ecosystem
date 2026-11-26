@@ -15,7 +15,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 use crate::engine::battlefield_entry::EntryChoice;
-use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchSpec};
+use mtg_contracts::kir::{self, Destination, Node, PlayerExpr, SearchSpec};
 
 /// The bounds of a search: the cards that may be found, in object order, and
 /// how many must and may be found (CR 701.23b, d).
@@ -139,6 +139,7 @@ impl RulesTxn {
             Verb::Search { player, .. }
             | Verb::Shuffle { player }
             | Verb::ReorderLibraryTop { player, .. }
+            | Verb::LookChooseHand { player, .. }
             | Verb::Scry { player, .. }
             | Verb::Surveil { player, .. } => player.clone(),
             _ => return Err("not a library verb".into()),
@@ -189,6 +190,22 @@ impl RulesTxn {
                 self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::ReorderLibraryTop {
+                        player: actor,
+                        looked,
+                        source_block,
+                    },
+                };
+                Ok(())
+            }
+            Verb::LookChooseHand { ref amount, .. } => {
+                let looked = self.library_prefix(actor, &self.kernel_amount(&frame, amount)?)?;
+                if looked.is_empty() {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                self.rules_mut().frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::LookChooseHand {
                         player: actor,
                         looked,
                         source_block,
@@ -254,6 +271,7 @@ impl RulesTxn {
         };
         let to = match search.to {
             Destination::Battlefield { tapped, .. } => (!tapped).then_some(Zone::Battlefield),
+            Destination::OneTappedRestOwnerHand => None,
             Destination::OwnerHand => Some(Zone::Hand { owner: player }),
             Destination::OwnerGraveyard => Some(Zone::Graveyard { owner: player }),
             _ => return Err("search destination has no audited executor".into()),
@@ -268,16 +286,28 @@ impl RulesTxn {
         frame: &Resolving,
         found: &[ObjectId],
     ) -> Result<Vec<ObjectId>, String> {
-        let (_, to) = self.search_destination(frame)?;
-        Ok(if matches!(to, Some(Zone::Hand { .. })) {
-            found
-                .iter()
-                .copied()
-                .filter(|o| self.state.rules.commanders.history(o.card).is_some())
-                .collect()
+        let (search, _) = self.search_destination(frame)?;
+        Ok(Self::search_hand_cards(&search.to, found)
+            .iter()
+            .copied()
+            .filter(|o| self.state.rules.commanders.history(o.card).is_some())
+            .collect())
+    }
+
+    fn search_hand_cards<'a>(destination: &Destination, found: &'a [ObjectId]) -> &'a [ObjectId] {
+        match destination {
+            Destination::OwnerHand => found,
+            Destination::OneTappedRestOwnerHand => found.get(1..).unwrap_or(&[]),
+            _ => &[],
+        }
+    }
+
+    fn entry_cards<'a>(destination: &Destination, found: &'a [ObjectId]) -> &'a [ObjectId] {
+        if *destination == Destination::OneTappedRestOwnerHand {
+            &found[..found.len().min(1)]
         } else {
-            vec![]
-        })
+            found
+        }
     }
 
     /// CR 701.23a, e, 903.9b: reveal printed found cards once, still in the
@@ -325,6 +355,29 @@ impl RulesTxn {
                 },
             );
         }
+        if search.to == Destination::OneTappedRestOwnerHand
+            && let [first, second] = found.as_slice()
+        {
+            self.rules_mut().frame = Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::SearchSplit {
+                    player,
+                    found: [*first, *second],
+                    source_block,
+                },
+            };
+            return Ok(());
+        }
+        self.route_found_cards(frame, player, found, source_block)
+    }
+
+    fn route_found_cards(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        found: Vec<ObjectId>,
+        source_block: u32,
+    ) -> Result<(), String> {
         let remaining = self.found_commanders(&frame, &found)?;
         self.continue_search(frame, player, found, remaining, vec![], source_block)
     }
@@ -363,17 +416,18 @@ impl RulesTxn {
         // CR 303.4f, 614.1c: an entry onto the battlefield first collects
         // each found Aura's host and each entrant's entry life payment.
         if self.search_onto_battlefield(&frame)? {
-            return self.continue_search_entry(
+            return self.continue_card_entry(
                 frame,
                 player,
                 found,
+                choices,
                 vec![],
                 vec![],
                 vec![],
                 source_block,
             );
         }
-        self.commit_search(frame, player, found, &choices, &[], &[], &[], source_block)
+        self.commit_card_moves(frame, player, found, &choices, &[], &[], &[], source_block)
     }
 
     /// The admitted search puts its found cards onto the battlefield,
@@ -381,17 +435,18 @@ impl RulesTxn {
     fn search_onto_battlefield(&self, frame: &Resolving) -> Result<bool, String> {
         Ok(matches!(
             self.search_destination(frame)?.0.to,
-            Destination::Battlefield { .. }
+            Destination::Battlefield { .. } | Destination::OneTappedRestOwnerHand
         ))
     }
 
-    /// CR 303.4f, 119.4, 614.1c, 614.12: ask the next entry question of a
-    /// battlefield search, or enter every entrant once all were asked.
-    pub(in crate::engine) fn continue_search_entry(
+    /// CR 303.4f, 119.4, 614.1c, 614.12: ask the next entry question for found or
+    /// targeted cards, then move the entrants together.
+    pub(in crate::engine) fn continue_card_entry(
         &mut self,
         frame: Resolving,
         player: PlayerId,
         found: Vec<ObjectId>,
+        command_choices: Vec<(ObjectId, bool)>,
         hosts: Vec<(ObjectId, ObjectId)>,
         paid: Vec<(ObjectId, bool)>,
         revealed: EntryReveals,
@@ -402,7 +457,7 @@ impl RulesTxn {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         if self
-            .next_entry_question(player, &found, &hosts, &paid, &revealed)?
+            .card_entry_question(&frame, player, &found, &hosts, &paid, &revealed)?
             .is_some()
         {
             self.rules_mut().frame = Frame::ResolutionChoice {
@@ -410,6 +465,7 @@ impl RulesTxn {
                 choice: ResolutionChoice::SearchEntry {
                     player,
                     found,
+                    command_choices,
                     hosts,
                     paid,
                     revealed,
@@ -418,11 +474,11 @@ impl RulesTxn {
             };
             return Ok(());
         }
-        self.commit_search(
+        self.commit_card_moves(
             frame,
             player,
             found,
-            &[],
+            &command_choices,
             &hosts,
             &paid,
             &revealed,
@@ -430,8 +486,28 @@ impl RulesTxn {
         )
     }
 
+    pub(in crate::engine) fn card_entry_question(
+        &self,
+        frame: &Resolving,
+        player: PlayerId,
+        found: &[ObjectId],
+        hosts: &[(ObjectId, ObjectId)],
+        paid: &[(ObjectId, bool)],
+        revealed: &[(ObjectId, Option<ObjectId>)],
+    ) -> Result<Option<EntryQuestion>, String> {
+        let entrants = match self.library_verb(frame)?.0 {
+            Verb::Search { search, .. } => Self::entry_cards(&search.to, found),
+            Verb::Move {
+                to: Destination::Battlefield { .. },
+                ..
+            } => found,
+            _ => return Err("entry choice lost its instruction".into()),
+        };
+        self.next_entry_question(player, entrants, hosts, paid, revealed)
+    }
+
     /// CR 304.4, 307.4: an instant or sorcery never enters the battlefield.
-    fn may_enter_battlefield(&self, card: CardId) -> Result<bool, String> {
+    pub(in crate::engine) fn may_enter_battlefield(&self, card: CardId) -> Result<bool, String> {
         let kind = self.definition(card)?.characteristics.kind;
         Ok(!matches!(kind, CardKind::Instant | CardKind::Sorcery))
     }
@@ -440,7 +516,10 @@ impl RulesTxn {
     /// the battlefield already, never chosen as a target (Hexproof and
     /// Shroud do not apply), but never one with protection from it. `None`
     /// for a card that is no Aura.
-    fn entry_hosts(&self, aura: ObjectId) -> Result<Option<Vec<ObjectId>>, String> {
+    pub(in crate::engine) fn entry_hosts(
+        &self,
+        aura: ObjectId,
+    ) -> Result<Option<Vec<ObjectId>>, String> {
         let characteristics = self.structural_characteristics(aura)?;
         if characteristics.kind != CardKind::Enchantment || characteristics.subtypes != ["Aura"] {
             return Ok(None);
@@ -494,7 +573,7 @@ impl RulesTxn {
             match self.entry_hosts(*object)? {
                 None => entrants.push((*object, None)),
                 // CR 303.4g: a chosen host that has since left (its
-                // controller conceded) leaves the Aura in the library.
+                // controller conceded) leaves the Aura in its original zone.
                 Some(legal) => {
                     if let Some((_, host)) = hosts.iter().find(|(aura, _)| aura == object)
                         && legal.contains(host)
@@ -515,7 +594,7 @@ impl RulesTxn {
     /// with an entry reveal, whether or not a hand card matches (CR
     /// 701.20a). `hosts`, `paid` and `revealed` must be exactly the answers
     /// given so far, in that order.
-    pub(in crate::engine) fn next_entry_question(
+    fn next_entry_question(
         &self,
         player: PlayerId,
         found: &[ObjectId],
@@ -762,7 +841,7 @@ impl RulesTxn {
     /// Aura attached to its chosen host, tapped when printed (a shockland
     /// paid for still enters tapped then). Revealed cards that reach the
     /// hand stay publicly counted there by Oracle identity.
-    fn commit_search(
+    fn commit_card_moves(
         &mut self,
         frame: Resolving,
         player: PlayerId,
@@ -773,15 +852,32 @@ impl RulesTxn {
         revealed: &[(ObjectId, Option<ObjectId>)],
         source_block: u32,
     ) -> Result<(), String> {
-        let (search, to) = self.search_destination(&frame)?;
-        let battlefield = matches!(search.to, Destination::Battlefield { .. });
-        let tapped = matches!(search.to, Destination::Battlefield { tapped: true, .. });
+        let (destination, to, reveal) = match self.library_verb(&frame)?.0 {
+            Verb::Move {
+                to: to @ Destination::Battlefield { tapped, .. },
+                ..
+            } => (to, (!tapped).then_some(Zone::Battlefield), false),
+            _ => {
+                let (search, to) = self.search_destination(&frame)?;
+                (search.to, to, search.reveal)
+            }
+        };
+        let battlefield = matches!(
+            destination,
+            Destination::Battlefield { .. } | Destination::OneTappedRestOwnerHand
+        );
+        let tapped = battlefield && to.is_none();
+        let split_hand = if destination == Destination::OneTappedRestOwnerHand {
+            Self::search_hand_cards(&destination, &found)
+        } else {
+            &[]
+        };
         let entering: Vec<(ObjectId, Option<ObjectId>)> = if battlefield {
-            self.search_entrants(&found, hosts)?
+            self.search_entrants(Self::entry_cards(&destination, &found), hosts)?
         } else {
             found.iter().map(|o| (*o, None)).collect()
         };
-        if entering.is_empty() {
+        if entering.is_empty() && split_hand.is_empty() {
             return self.finish_instruction(
                 frame,
                 InstructionOutcome::SetMoved {
@@ -791,7 +887,14 @@ impl RulesTxn {
             );
         }
         let cause = self.instruction_cause(&frame, source_block)?;
-        let occurrences = entering
+        let hand_destination = |object| {
+            if choices.iter().any(|(o, yes)| *o == object && *yes) {
+                Zone::Command { owner: player }
+            } else {
+                Zone::Hand { owner: player }
+            }
+        };
+        let mut occurrences: Vec<_> = entering
             .iter()
             .map(|(object, host)| {
                 let command = choices.iter().any(|(o, yes)| o == object && *yes);
@@ -812,6 +915,10 @@ impl RulesTxn {
                 }
             })
             .collect();
+        occurrences.extend(split_hand.iter().map(|object| ProposedEvent::Move {
+            object: *object,
+            destination: hand_destination(*object),
+        }));
         let entries = EventGroup::Simultaneous { occurrences };
         // CR 614.1c, 614.12: entrants with an entry life cost enter paid or
         // tapped as chosen; the payments precede the one simultaneous entry.
@@ -875,10 +982,10 @@ impl RulesTxn {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        if movements.len() != entering.len() {
+        if movements.len() != entering.len() + split_hand.len() {
             return Err("search movement invariant".into());
         }
-        if search.reveal {
+        if reveal {
             let revealed: Vec<_> = movements
                 .iter()
                 .filter(|m| m.destination == (Zone::Hand { owner: player }))
@@ -927,7 +1034,8 @@ impl RulesTxn {
         let commanders = self.found_commanders(frame, found)?;
         let asked: Vec<_> = choices.iter().map(|(o, _)| *o).collect();
         Ok(Self::subset(&bounds.candidates, found)
-            && found.windows(2).all(|w| w[0] < w[1])
+            && (search.to == Destination::OneTappedRestOwnerHand
+                || found.windows(2).all(|w| w[0] < w[1]))
             && (bounds.minimum..=bounds.maximum).contains(&found.len())
             && remaining.first() == Some(&object)
             && asked.iter().chain(remaining).copied().collect::<Vec<_>>() == commanders)
@@ -962,6 +1070,9 @@ impl RulesTxn {
                     bounds.maximum as u32,
                 ))
             }
+            ResolutionChoice::SearchSplit { player, found, .. } if self.is_live(*player) => {
+                Some(self.pick(*player, Reason::SearchSplitBattlefield, objects(found), 1, 1))
+            }
             // CR 303.4f: the host a found Aura enters attached to; CR 119.4,
             // 614.1c: whether to pay the next entrant's entry life cost. The
             // entrant is the slot's subject, so the answer binds to it.
@@ -975,7 +1086,7 @@ impl RulesTxn {
             // No question: the last open one lost its subject (CR 303.4g)
             // and the step commits the entry without a decision.
             } if self.is_live(*player) => self
-                .next_entry_question(*player, found, hosts, paid, revealed)?
+                .card_entry_question(frame, *player, found, hosts, paid, revealed)?
                 .map(|question| match question {
                     EntryQuestion::Attach { aura, hosts } => {
                         let mut candidates = vec![Candidate::Object { object: aura }];
@@ -1004,6 +1115,13 @@ impl RulesTxn {
                 }),
             ResolutionChoice::ReorderLibraryTop { player, looked, .. } if self.is_live(*player) => {
                 Some(self.order(*player, Reason::OrderLibraryTop, objects(looked), looked.len() as u32))
+            }
+            ResolutionChoice::LookChooseHand { player, looked, .. } if self.is_live(*player) => {
+                Some(self.pick(*player, Reason::LookChooseHand, objects(looked), 1, 1))
+            }
+            ResolutionChoice::LookOrderBottom { player, looked, hand, .. } if self.is_live(*player) => {
+                let rest = Self::rest(looked, &[*hand]);
+                Some(self.order(*player, Reason::OrderLibraryBottom, objects(&rest), rest.len() as u32))
             }
             ResolutionChoice::Scry {
                 player,
@@ -1080,14 +1198,18 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let player = match &choice {
             ResolutionChoice::Search { player, .. }
+            | ResolutionChoice::SearchSplit { player, .. }
             | ResolutionChoice::SearchEntry { player, .. }
             | ResolutionChoice::ReorderLibraryTop { player, .. }
+            | ResolutionChoice::LookChooseHand { player, .. }
+            | ResolutionChoice::LookOrderBottom { player, .. }
             | ResolutionChoice::Scry { player, .. }
             | ResolutionChoice::Surveil { player, .. } => *player,
             _ => return Err("not a library choice".into()),
         };
         if let ResolutionChoice::SearchEntry {
             found,
+            command_choices,
             hosts,
             paid,
             revealed,
@@ -1096,17 +1218,18 @@ impl RulesTxn {
         } = &choice
             && self.is_live(player)
             && self
-                .next_entry_question(player, found, hosts, paid, revealed)?
+                .card_entry_question(&frame, player, found, hosts, paid, revealed)?
                 .is_none()
         {
             // The open question lost its subject: enter what remains.
             self.rules_mut().pending = None;
             let (found, hosts, paid, revealed) =
                 (found.clone(), hosts.clone(), paid.clone(), revealed.clone());
-            return self.continue_search_entry(
+            return self.continue_card_entry(
                 frame,
                 player,
                 found,
+                command_choices.clone(),
                 hosts,
                 paid,
                 revealed,
@@ -1128,6 +1251,7 @@ impl RulesTxn {
         }
         if let ResolutionChoice::SearchEntry {
             found,
+            command_choices,
             mut hosts,
             mut paid,
             mut revealed,
@@ -1136,7 +1260,7 @@ impl RulesTxn {
         } = choice
         {
             match self
-                .next_entry_question(player, &found, &hosts, &paid, &revealed)?
+                .card_entry_question(&frame, player, &found, &hosts, &paid, &revealed)?
                 .ok_or("search entry answer without a question")?
             {
                 EntryQuestion::Attach { aura, hosts: legal } => {
@@ -1151,10 +1275,11 @@ impl RulesTxn {
                     revealed.push((entrant, Self::entry_reveal_answer(&input, &cards)?));
                 }
             }
-            return self.continue_search_entry(
+            return self.continue_card_entry(
                 frame,
                 player,
                 found,
+                command_choices,
                 hosts,
                 paid,
                 revealed,
@@ -1179,6 +1304,48 @@ impl RulesTxn {
             ResolutionChoice::Search { source_block, .. } => {
                 self.complete_search(frame, player, chosen, source_block)
             }
+            ResolutionChoice::SearchSplit {
+                mut found,
+                source_block,
+                ..
+            } => {
+                match chosen.as_slice() {
+                    [first] if *first == found[0] => {}
+                    [first] if *first == found[1] => found.swap(0, 1),
+                    _ => return Err("search split answer is outside the found cards".into()),
+                }
+                self.route_found_cards(frame, player, found.to_vec(), source_block)
+            }
+            ResolutionChoice::LookChooseHand {
+                looked,
+                source_block,
+                ..
+            } => {
+                let [hand] = chosen.as_slice() else {
+                    return Err("expected one looked-at card".into());
+                };
+                let rest = Self::rest(&looked, &[*hand]);
+                if rest.len() > 1 {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
+                        frame,
+                        choice: ResolutionChoice::LookOrderBottom {
+                            player,
+                            looked,
+                            hand: *hand,
+                            source_block,
+                        },
+                    };
+                    Ok(())
+                } else {
+                    self.route_look_selection(frame, player, looked, *hand, rest, source_block)
+                }
+            }
+            ResolutionChoice::LookOrderBottom {
+                looked,
+                hand,
+                source_block,
+                ..
+            } => self.route_look_selection(frame, player, looked, hand, chosen, source_block),
             ResolutionChoice::Scry {
                 looked,
                 bottom: None,
@@ -1230,6 +1397,125 @@ impl RulesTxn {
             ),
             _ => Err("not a library choice".into()),
         }
+    }
+
+    fn route_look_selection(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        hand: ObjectId,
+        bottom: Vec<ObjectId>,
+        source_block: u32,
+    ) -> Result<(), String> {
+        if !self.valid_look_selection(&frame, player, &looked, hand, &bottom, source_block)? {
+            return Err("invalid library prefix selection".into());
+        }
+        let destination = Zone::Hand { owner: player };
+        if self.state.rules.commanders.history(hand.card).is_some() {
+            self.rules_mut().frame = Frame::CommanderReturn {
+                object: hand,
+                destination,
+                continuation: CommanderContinuation::LookHand {
+                    frame,
+                    player,
+                    looked,
+                    bottom,
+                    source_block,
+                },
+            };
+            Ok(())
+        } else {
+            self.commit_look_selection(
+                frame,
+                player,
+                looked,
+                hand,
+                bottom,
+                destination,
+                source_block,
+            )
+        }
+    }
+
+    pub(in crate::engine) fn valid_look_selection(
+        &self,
+        frame: &Resolving,
+        player: PlayerId,
+        looked: &[ObjectId],
+        hand: ObjectId,
+        bottom: &[ObjectId],
+        source_block: u32,
+    ) -> Result<bool, String> {
+        let (
+            Verb::LookChooseHand {
+                player: chooser,
+                amount,
+            },
+            block,
+        ) = self.library_verb(frame)?
+        else {
+            return Ok(false);
+        };
+        Ok(block == source_block
+            && self.library_actor(frame, &chooser)? == Some(player)
+            && looked.contains(&hand)
+            && Self::same_cards(&Self::rest(looked, &[hand]), bottom)
+            && self.library_prefix(player, &self.kernel_amount(frame, &amount)?)? == looked)
+    }
+
+    pub(in crate::engine) fn commit_look_selection(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        hand: ObjectId,
+        bottom: Vec<ObjectId>,
+        destination: Zone,
+        source_block: u32,
+    ) -> Result<(), String> {
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        let cause = self.instruction_cause(&frame, source_block)?;
+        let move_card = ProposedEvent::Move {
+            object: hand,
+            destination,
+        };
+        let actual = if bottom.is_empty() {
+            self.commit(move_card, cause)?
+        } else {
+            // No priority or intervening trigger processing. The hand
+            // movement clears the chosen card from the inspected prefix.
+            let batch = self.commit_batch(
+                cause,
+                EventGroup::Ordered {
+                    children: vec![
+                        EventGroup::Occurrence {
+                            proposed: move_card,
+                        },
+                        EventGroup::Occurrence {
+                            proposed: ProposedEvent::PutLibraryPrefixOnBottom {
+                                player,
+                                looked: Self::rest(&looked, &[hand]),
+                                bottom,
+                            },
+                        },
+                    ],
+                },
+            )?;
+            batch
+                .result(&[1])
+                .cloned()
+                .ok_or("missing bottom placement")?
+        };
+        self.finish_instruction(
+            frame,
+            InstructionOutcome::Effect {
+                actual: Some(actual),
+            },
+        )
     }
 
     /// CR 701.22a: an order of one card or none needs no decision.
@@ -1336,22 +1622,72 @@ impl RulesTxn {
         )
     }
 
+    /// CR 701.20a: the split choice follows a public reveal of the found
+    /// cards. Only their Oracle identities leave the private choice.
+    pub(in crate::engine) fn revealed_split_search_cards(
+        &self,
+    ) -> Result<Vec<(PlayerId, String)>, String> {
+        let (frame, player, found): (_, _, &[_]) = match &self.state.rules.frame {
+            Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::SearchSplit { player, found, .. },
+            } => (frame, player, found),
+            Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::SearchEntry { player, found, .. },
+            }
+            | Frame::CommanderReturn {
+                continuation:
+                    CommanderContinuation::Search {
+                        frame,
+                        player,
+                        found,
+                        ..
+                    },
+                ..
+            } => (frame, player, found),
+            _ => return Ok(vec![]),
+        };
+        if !self.is_live(*player)
+            || !matches!(self.library_verb(frame)?.0, Verb::Search { search, .. }
+                if search.to == Destination::OneTappedRestOwnerHand)
+        {
+            return Ok(vec![]);
+        }
+        let mut revealed = found
+            .iter()
+            .map(|object| Ok((*player, self.definition(object.card)?.oracle_id.clone())))
+            .collect::<Result<Vec<_>, String>>()?;
+        revealed.sort();
+        Ok(revealed)
+    }
+
     /// A library card the viewer is choosing among right now.
     pub(in crate::engine) fn library_choice_visible(
         &self,
         viewer: PlayerId,
         object: ObjectId,
     ) -> bool {
-        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
-            return false;
+        let choice = match &self.state.rules.frame {
+            Frame::ResolutionChoice { choice, .. } => choice,
+            Frame::CommanderReturn {
+                continuation: CommanderContinuation::LookHand { player, looked, .. },
+                ..
+            } => return *player == viewer && looked.contains(&object),
+            _ => return false,
         };
         match choice {
             ResolutionChoice::ReorderLibraryTop { player, looked, .. }
+            | ResolutionChoice::LookChooseHand { player, looked, .. }
+            | ResolutionChoice::LookOrderBottom { player, looked, .. }
             | ResolutionChoice::Scry { player, looked, .. }
             | ResolutionChoice::Surveil { player, looked, .. } => {
                 *player == viewer && looked.contains(&object)
             }
             // The searcher still sees the found cards whose entry it decides.
+            ResolutionChoice::SearchSplit { player, found, .. } => {
+                *player == viewer && found.contains(&object)
+            }
             ResolutionChoice::SearchEntry { player, found, .. } => {
                 *player == viewer && found.contains(&object)
             }
@@ -1379,7 +1715,22 @@ impl RulesTxn {
                 player,
                 source_block,
             }
+            | ResolutionChoice::SearchSplit {
+                player,
+                source_block,
+                ..
+            }
             | ResolutionChoice::ReorderLibraryTop {
+                player,
+                source_block,
+                ..
+            }
+            | ResolutionChoice::LookChooseHand {
+                player,
+                source_block,
+                ..
+            }
+            | ResolutionChoice::LookOrderBottom {
                 player,
                 source_block,
                 ..
@@ -1401,9 +1752,56 @@ impl RulesTxn {
             } => (*player, *source_block),
             _ => return Ok(false),
         };
+        // CR 601.2c, 608.2b, 303.4f: an entry choice from a graveyard
+        // move belongs solely to the legal, announced incarnation at this
+        // cursor. The same question/answer and atomic entry code handles
+        // both a found card and a targeted one.
+        if let (
+            ResolutionChoice::SearchEntry {
+                found,
+                command_choices,
+                hosts,
+                paid,
+                revealed,
+                ..
+            },
+            Verb::Move {
+                what:
+                    kir::SetExpr::One {
+                        object: kir::Ref::Target { slot },
+                    },
+                to: Destination::Battlefield { .. },
+            },
+        ) = (choice, &verb)
+        {
+            let entry = self.entry(frame.stack_id)?;
+            let slot = *slot as usize;
+            let [target] = found.as_slice() else {
+                return Ok(false);
+            };
+            return Ok(source_block == block
+                && entry.controller == player
+                && command_choices.is_empty()
+                && frame.legal_targets.get(slot) == Some(&true)
+                && self
+                    .program_for(entry)?
+                    .targets
+                    .get(slot)
+                    .is_some_and(|spec| spec.domain == TargetDomain::OwnGraveyardCard)
+                && self.bound_object_target(entry, slot) == Some(target)
+                && self.valid_entry_answers(player, 1, found, hosts, paid, revealed)?
+                && (!self.is_live(player)
+                    || (self
+                        .current(*target)
+                        .is_ok_and(|o| self.player_graveyard_card(o, player))
+                        && self
+                            .next_entry_question(player, found, hosts, paid, revealed)?
+                            .is_some())));
+        }
         let expected = match &verb {
             Verb::Search { player, .. }
             | Verb::ReorderLibraryTop { player, .. }
+            | Verb::LookChooseHand { player, .. }
             | Verb::Scry { player, .. }
             | Verb::Surveil { player, .. } => match self.kernel_players(frame, player)? {
                 Players::One(player) => player,
@@ -1418,15 +1816,33 @@ impl RulesTxn {
         // answers well formed, before the departure fast path accepts it.
         let staged = match (choice, &verb) {
             (ResolutionChoice::Search { .. }, Verb::Search { .. }) => true,
+            (ResolutionChoice::SearchSplit { found, .. }, Verb::Search { search, .. }) => {
+                search.to == Destination::OneTappedRestOwnerHand
+                    && found[0].card < found[1].card
+                    && self.valid_looked(frame, player, found, &search.maximum)?
+            }
             (
                 ResolutionChoice::ReorderLibraryTop { looked, .. },
                 Verb::ReorderLibraryTop { amount, .. },
             ) => self.valid_looked(frame, player, looked, amount)?,
+            (
+                ResolutionChoice::LookChooseHand { looked, .. },
+                Verb::LookChooseHand { amount, .. },
+            ) => self.valid_looked(frame, player, looked, amount)?,
+            (
+                ResolutionChoice::LookOrderBottom { looked, hand, .. },
+                Verb::LookChooseHand { amount, .. },
+            ) => {
+                looked.len() > 2
+                    && looked.contains(hand)
+                    && self.valid_looked(frame, player, looked, amount)?
+            }
             // A battlefield search's saved answers, checked before the
             // departure fast path accepts them.
             (
                 ResolutionChoice::SearchEntry {
                     found,
+                    command_choices,
                     hosts,
                     paid,
                     revealed,
@@ -1440,8 +1856,20 @@ impl RulesTxn {
                     .and_then(Quantity::to_u32)
                     .ok_or("search maximum has no audited evaluation")?
                     as usize;
-                matches!(search.to, Destination::Battlefield { .. })
-                    && self.valid_entry_answers(player, maximum, found, hosts, paid, revealed)?
+                self.search_onto_battlefield(frame)?
+                    && self.valid_looked(frame, player, found, &search.maximum)?
+                    && command_choices
+                        .iter()
+                        .map(|(o, _)| *o)
+                        .eq(self.found_commanders(frame, found)?)
+                    && self.valid_entry_answers(
+                        player,
+                        maximum,
+                        Self::entry_cards(&search.to, found),
+                        hosts,
+                        paid,
+                        revealed,
+                    )?
             }
             (
                 ResolutionChoice::Scry {
@@ -1490,6 +1918,9 @@ impl RulesTxn {
             (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => {
                 self.search_bounds(player, search)?.needs_choice()
             }
+            (ResolutionChoice::SearchSplit { found, .. }, Verb::Search { search, .. }) => {
+                Self::subset(&self.search_bounds(player, search)?.candidates, found)
+            }
             (
                 ResolutionChoice::SearchEntry {
                     found,
@@ -1504,12 +1935,20 @@ impl RulesTxn {
                 Self::subset(&bounds.candidates, found)
                     && (bounds.minimum..=bounds.maximum).contains(&found.len())
                     && self
-                        .next_entry_question(player, found, hosts, paid, revealed)
+                        .card_entry_question(frame, player, found, hosts, paid, revealed)
                         .is_ok_and(|next| next.is_some())
             }
             (
                 ResolutionChoice::ReorderLibraryTop { looked, .. },
                 Verb::ReorderLibraryTop { amount, .. },
+            )
+            | (
+                ResolutionChoice::LookChooseHand { looked, .. },
+                Verb::LookChooseHand { amount, .. },
+            )
+            | (
+                ResolutionChoice::LookOrderBottom { looked, .. },
+                Verb::LookChooseHand { amount, .. },
             )
             | (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
             | (ResolutionChoice::Surveil { looked, .. }, Verb::Surveil { amount, .. }) => {
@@ -1589,6 +2028,64 @@ impl RulesTxn {
             return Err(invalid());
         }
         Ok(())
+    }
+
+    /// CR 401.4, 701.20e: a completed private selection can retain an
+    /// ordered remainder or the one movement when the prefix was a singleton.
+    pub(in crate::engine) fn validate_look_selection_outcome(
+        &self,
+        frame: &Resolving,
+        instruction: &Instruction,
+        outcome: &InstructionOutcome,
+    ) -> Result<(), String> {
+        let result = match outcome {
+            InstructionOutcome::Effect {
+                actual: Some(actual),
+            } => Some(actual),
+            _ => None,
+        };
+        let Some(Verb::LookChooseHand { amount, .. }) = instruction.verb() else {
+            return if matches!(result, Some(EventOutcome::LibraryPrefixBottomed { .. })) {
+                Err("snapshot bottom placement on another instruction".into())
+            } else {
+                Ok(())
+            };
+        };
+        let player = self.entry(frame.stack_id)?.controller;
+        let valid = match result {
+            Some(EventOutcome::LibraryPrefixBottomed {
+                player: actor,
+                looked,
+                bottom,
+            }) => {
+                *actor == player
+                    && self.valid_looked(frame, player, looked, amount)?
+                    && Quantity::from(looked.len() as i64) < self.kernel_amount(frame, amount)?
+                    && Self::same_cards(looked, bottom)
+            }
+            Some(EventOutcome::Moved { movement }) => {
+                movement.from == (Zone::Library { owner: player })
+                    && (movement.destination == (Zone::Hand { owner: player })
+                        || (movement.destination == (Zone::Command { owner: player })
+                            && self
+                                .state
+                                .rules
+                                .commanders
+                                .history(movement.previous.card)
+                                .is_some()))
+            }
+            None => {
+                matches!(outcome, InstructionOutcome::Effect { actual: None })
+                    || matches!(outcome, InstructionOutcome::PlayerActionSkipped { player: actor }
+                    if *actor == player && !self.is_live(player))
+            }
+            _ => false,
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err("snapshot completed library selection invariant".into())
+        }
     }
 
     /// CR 701.22a, 701.25a: the looked-at cards are distinct cards of the

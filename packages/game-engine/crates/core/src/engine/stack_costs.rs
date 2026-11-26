@@ -370,6 +370,7 @@ impl RulesTxn {
             | TargetDomain::ControlledBattlefieldPermanent
             | TargetDomain::BattlefieldCreature
             | TargetDomain::BattlefieldPermanent
+            | TargetDomain::GraveyardCard { .. }
             | TargetDomain::OwnGraveyardCard
             | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
             _ => Frame::EntityTargets { cast },
@@ -686,6 +687,7 @@ impl RulesTxn {
                             | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::BattlefieldPermanent
+                            | TargetDomain::GraveyardCard { .. }
                             | TargetDomain::OwnGraveyardCard
                             | TargetDomain::OwnGraveyardCreatureCard
                     )
