@@ -237,7 +237,7 @@ in cleanup of the beneficiary's next actual turn (CR 400.7j, 514.2, 611.2a).
 
 ### Cost keywords and variable costs
 
-Each surface here is its own `Executes`-only cell in `kir::cell_tiers`.
+Cost keywords with dedicated announcement or payment cells are `Executes`-only.
 
 - **Spell mana symbols**: one leading `{X}`, announced nonnegative before targets
   and frozen (CR 107.3a, 601.2b); two-color hybrid, announced as one alternative;

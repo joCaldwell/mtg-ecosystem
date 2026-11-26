@@ -11,6 +11,54 @@ use mtg_contracts::{
 use mtg_core::query::{self, Tri};
 use std::collections::BTreeSet;
 
+/// Quote source-only generic reductions whose battlefield count is visible.
+fn apply_source_cost_reductions(
+    view: &PermittedView,
+    definition: &Definition,
+    cost: &mut ManaCost,
+) {
+    for ability in &definition.static_abilities {
+        if ability.functioning_zone != FunctioningZone::Stack {
+            continue;
+        }
+        let StaticEffect::Rule {
+            rule:
+                kir::StaticRule::SpellCost {
+                    affects: kir::Scope::Source,
+                    caster,
+                    change: kir::SpellCostChange::Reduce { mana },
+                    multiplier:
+                        Some(kir::Amount::Count {
+                            set:
+                                SetExpr::Matching {
+                                    zone: kir::ZoneExpr::Battlefield,
+                                    filter,
+                                },
+                        }),
+                },
+            condition: None,
+        } = &ability.effect
+        else {
+            continue;
+        };
+        if *caster != kir::PlayerExpr::static_controller() || !mana.colored.is_empty() {
+            continue;
+        }
+        let count = view
+            .objects
+            .iter()
+            .filter(|object| {
+                query::matches_battlefield_pred(&query::in_view(view, object), view.viewer, filter)
+                    .is_yes()
+            })
+            .count();
+        let mut reduction = mana.generic.clone();
+        reduction.multiply(&Quantity::from(count as i64));
+        cost.generic.subtract(&reduction);
+    }
+    cost.generic = std::mem::take(&mut cost.generic).max(Quantity::zero());
+}
+
 /// CR 613.4c: the kernel set and negative toughness of an end-of-turn set
 /// shrink.
 fn set_shrink(i: &I) -> Option<(&SetExpr, &Quantity)> {
@@ -1089,6 +1137,7 @@ impl Strategy<'_> {
             let x = Quantity::from(n as i64);
             let mut cost = d.characteristics.mana_cost.clone();
             cost.generic.add(&x);
+            apply_source_cost_reductions(v, d, &mut cost);
             if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
                 .is_none()
             {
@@ -1245,6 +1294,7 @@ impl Strategy<'_> {
             cost.generic.add(&tax);
             cost.generic.add(&tax);
         }
+        apply_source_cost_reductions(v, d, &mut cost);
         let unchanged_cost = d.characteristics.hybrid_mana.is_empty()
             && d.spell
                 .as_ref()
