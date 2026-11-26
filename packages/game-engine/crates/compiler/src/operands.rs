@@ -1285,6 +1285,30 @@ pub(crate) fn bind_creature_target(
     )
 }
 
+/// A damage recipient named by one target occurrence: "target creature" or,
+/// CR 115.1, 120.3, "target player or planeswalker". The closed scenario
+/// admits no planeswalker, so that domain's inhabitants are players; an
+/// "up to" player occurrence rejects.
+pub(crate) fn bind_damage_object_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &ast::ObjectRef,
+) -> Result<u32, Failure> {
+    if let Ok((filter, selection, false)) = target_occurrence(what)
+        && filter.or_player == Some(true)
+        && present_fields(filter) == ["types", "or_player"]
+        && matches!(filter.types.as_deref(), Some([kind]) if kind == "planeswalker")
+    {
+        return bind_target(
+            program,
+            slots,
+            selection,
+            TargetDomain::PlayerOrPlaneswalker,
+        );
+    }
+    bind_creature_target(program, slots, what)
+}
+
 pub(crate) fn bind_permanent_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
@@ -1430,20 +1454,16 @@ pub(crate) fn signed_fixed(value: &ast::SignedAmount) -> Result<Quantity, Failur
 }
 
 /// CR 120.3, 107.3, 608.2h: the quantity of a damage step: a positive fixed
-/// number, the announced X (or, under a counted binding, the number of
-/// creatures on the battlefield), or the total mana value of the other
-/// spells you cast this turn.
+/// number, the announced X (or the sentence's bound X), or the total mana
+/// value of the other spells you cast this turn.
 pub(crate) fn lower_damage_amount(
     amount: &ast::Amount,
-    counted: bool,
+    bound_x: Option<&kir::Amount>,
     context: Context,
 ) -> Result<kir::Amount, Failure> {
     match amount {
-        ast::Amount::X(_) if counted => Ok(kir::Amount::Count {
-            set: SetExpr::battlefield(kir::Pred::creatures()),
-        }),
+        ast::Amount::X(_) if bound_x.is_some() => Ok(bound_x.expect("guarded").clone()),
         ast::Amount::X(_) => Ok(kir::Amount::announced_x()),
-        _ if counted => Err(unsupported("binding", "unused X")),
         ast::Amount::CastManaValueSum(sum) => match (&*sum.who, &*sum.excluding) {
             (ast::PlayerRef::You(_), ast::ObjectRef::This(this)) if this.noun == "spell" => {
                 Ok(kir::Amount::OtherCastsManaValue {
@@ -1511,49 +1531,102 @@ pub(crate) fn lower_count(count: &ast::AmountCount, context: Context) -> Result<
     })
 }
 
-/// CR 608.2h: "[one] for each [filter]" is the number of objects the
-/// filter matches as the step is performed, counted once. Only a unit
-/// quantity per object lowers; a filter term outside the count tables, or
-/// an object reference ("for each creature destroyed this way"), rejects.
+/// CR 608.2h: "[N] for each [filter]" is N times the number of objects the
+/// filter matches as the step is performed, counted once. A filter term
+/// outside the count tables, or an object reference ("for each creature
+/// destroyed this way"), rejects.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(crate) fn lower_for_each(
     for_each: &serde_json::Value,
     per_object: &ast::Amount,
     context: Context,
 ) -> Result<Amount, Failure> {
-    if !matches!(per_object, ast::Amount::Fixed(n) if n.value == 1) {
-        return Err(operand("forEach", "per_object_amount"));
-    }
+    let factor = match per_object {
+        ast::Amount::Fixed(n) if n.value > 0 && u32::try_from(n.value).is_ok() => n.value,
+        _ => return Err(operand("forEach", "per_object_amount")),
+    };
     let of: ast::ObjectFilter = typed(for_each, "forEach")?;
-    lower_count(&ast::AmountCount { of: Box::new(of) }, context)
+    let count = lower_count(&ast::AmountCount { of: Box::new(of) }, context)?;
+    Ok(if factor == 1 {
+        count
+    } else {
+        Amount::Times {
+            factor: Quantity::from(factor),
+            of: Box::new(count),
+        }
+    })
 }
 
-/// CR 107.3, 608.2h: the sentence binding "where X is the number of
-/// creatures on the battlefield", the one X definition a step reads.
-pub(crate) fn counts_creatures(bindings: &[serde_json::Value]) -> Result<bool, Failure> {
+/// CR 107.3, 608.2h: the sentence binding "where X is [a number]" as the
+/// amount each step that reads X evaluates when it is performed: a count
+/// of a public set, the greatest power, toughness or mana value among
+/// permanents, or your devotion (CR 700.5). A count announced at casting,
+/// another player's referent or any other quantity rejects by name.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(crate) fn lower_x_binding(
+    bindings: &[serde_json::Value],
+    context: Context,
+) -> Result<Option<kir::Amount>, Failure> {
     let bindings: Vec<ast::SentenceBindingsItem> = typed(&bindings, "bindings")?;
-    match bindings.as_slice() {
-        [] => Ok(false),
-        [
-            ast::SentenceBindingsItem {
-                value, as_of: None, ..
-            },
-        ] => match &**value {
-            ast::Amount::Count(count)
-                if present_fields(&count.of) == ["types", "zone"]
-                    && count.of.types.as_deref() == Some(&["creature".to_owned()])
-                    && count.of.zone.as_deref().is_some_and(|zone| {
-                        zone.zone == ast::Zone::Battlefield
-                            && zone.position.is_none()
-                            && zone.depth.is_none()
-                            && zone.owner.is_none()
-                    }) =>
-            {
-                Ok(true)
+    let [binding] = bindings.as_slice() else {
+        return if bindings.is_empty() {
+            Ok(None)
+        } else {
+            Err(operand("bindings", "several"))
+        };
+    };
+    // The archive binds only X (`LitX`); decoding has already proved it.
+    let ast::LitX::X = binding.variable;
+    if binding.as_of.is_some() {
+        return Err(operand("bindings", "as_of"));
+    }
+    match &*binding.value {
+        ast::Amount::Count(count) => lower_count(count, context).map(Some),
+        ast::Amount::AttributeExtremum(extremum) => {
+            if extremum.extremum != ast::AmountAttributeExtremumExtremum::Maximum {
+                return Err(operand("bindings", "attribute_extremum:minimum"));
             }
-            other => Err(operand("bindings", variant(other))),
-        },
-        _ => Err(operand("bindings", "several")),
+            let Amount::Count {
+                set:
+                    set @ SetExpr::Matching {
+                        zone: kir::ZoneExpr::Battlefield,
+                        ..
+                    },
+            } = lower_count(
+                &ast::AmountCount {
+                    of: extremum.among.clone(),
+                },
+                context,
+            )?
+            else {
+                return Err(operand("bindings", "attribute_extremum:zone"));
+            };
+            Ok(Some(Amount::Greatest {
+                set,
+                stat: match extremum.attribute {
+                    ast::ObjectFilterImplicitComparisonAttribute::Power => kir::Stat::Power,
+                    ast::ObjectFilterImplicitComparisonAttribute::Toughness => kir::Stat::Toughness,
+                    ast::ObjectFilterImplicitComparisonAttribute::ManaValue => kir::Stat::ManaValue,
+                },
+            }))
+        }
+        ast::Amount::Devotion(devotion) => {
+            if !matches!(*devotion.who, ast::PlayerRef::You(_)) {
+                return Err(operand("bindings", "devotion:player"));
+            }
+            let colors = match &*devotion.colors {
+                ast::AmountDevotionColors::Array((a,)) => vec![color(a)],
+                ast::AmountDevotionColors::Array2((a, b)) => vec![color(a), color(b)],
+                ast::AmountDevotionColors::Choice(_) => {
+                    return Err(operand("bindings", "devotion:chosen"));
+                }
+            };
+            Ok(Some(Amount::Devotion {
+                player: PlayerExpr::you(context),
+                colors,
+            }))
+        }
+        other => Err(operand("bindings", variant(other))),
     }
 }
 

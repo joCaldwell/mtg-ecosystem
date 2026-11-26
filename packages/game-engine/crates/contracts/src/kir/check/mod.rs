@@ -126,6 +126,12 @@ pub(super) fn audit_target_predicate(filter: &Pred, graveyard: bool) -> Result<(
     Walk::library_card_filter(filter)
 }
 
+/// CR 205, 208, 202.3: a hidden card's printed characteristics, as the
+/// core evaluates them for a card in a library or hand.
+pub(in crate::kir) fn hidden_card_filter(filter: &Pred) -> bool {
+    Walk::library_card_filter(filter).is_ok()
+}
+
 /// The target occurrences a node names, without judging the node. Program
 /// validation uses this to prove every announced target is read (CR 601.2c);
 /// [`check`] remains the admission decision.
@@ -455,6 +461,8 @@ impl Walk<'_, '_> {
             Amount::StatOf { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
+            Amount::Greatest { set, .. } => self.set(set),
+            Amount::Times { of, .. } => self.amount(of),
             Amount::Devotion { player, .. }
             | Amount::LifeOf { player }
             | Amount::OtherCastsManaValue { caster: player } => self.player(player),
@@ -760,9 +768,22 @@ impl Walk<'_, '_> {
                         self.amount(power)?;
                         self.amount(toughness)
                     }
-                    Change::PowerToughnessX { .. } => self
-                        .expect(&Ref::AnnouncedX, &[RefKind::Number], "announced pump X")
-                        .map(drop),
+                    Change::PowerToughnessX { power, toughness } => {
+                        for delta in [power, toughness] {
+                            match delta {
+                                PumpDelta::Fixed { .. } => {}
+                                PumpDelta::X { .. } => self
+                                    .expect(
+                                        &Ref::AnnouncedX,
+                                        &[RefKind::Number],
+                                        "announced pump X",
+                                    )
+                                    .map(drop)?,
+                                PumpDelta::Counted { amount, .. } => self.amount(amount)?,
+                            }
+                        }
+                        Ok(())
+                    }
                     Change::AddKeywords { keywords } | Change::RemoveKeywords { keywords } => {
                         if keywords.is_empty() {
                             return kind("empty keyword change");
@@ -971,6 +992,34 @@ impl Walk<'_, '_> {
                     self.out
                         .capabilities
                         .insert(Capability::OptionalTargetGroupV1);
+                }
+                Ok(())
+            }
+            Node::RemoveTargets { count, .. } => {
+                // CR 115.3, 601.2c, 608.2b: one occurrence, exactly or at most N distinct
+                // objects. The program admits these slots only as one group.
+                if !(2..=7).contains(count) {
+                    return unaudited("removal target group bounds");
+                }
+                self.out.target_slots.extend(0..*count);
+                if !self.scan {
+                    if in_control
+                        || self.env.targets.len() != *count as usize
+                        || self.env.targets.iter().any(|t| {
+                            !matches!(
+                                t.domain,
+                                TargetDomain::BattlefieldCreature
+                                    | TargetDomain::BattlefieldPermanent
+                                    | TargetDomain::ControlledBattlefieldPermanent
+                            )
+                        })
+                    {
+                        return unaudited("removal target group");
+                    }
+                    self.out.cells.insert(Cell::RemoveTargetGroup);
+                    self.out
+                        .capabilities
+                        .insert(Capability::TargetGroupRemovalV1);
                 }
                 Ok(())
             }
@@ -1246,6 +1295,35 @@ impl Walk<'_, '_> {
     }
 
     /// CR 608.2h: counts evaluated by the flat verb executor.
+    /// CR 608.2h: a number the game state supplies as the verb reads it: a
+    /// count of an audited set, the greatest power, toughness or mana value
+    /// among an audited battlefield set, or the controller's devotion
+    /// (CR 700.5).
+    pub(super) fn audit_verb_amount(amount: &Amount) -> Result<(), KirError> {
+        match amount {
+            Amount::Count { set } => Self::audit_verb_count(set),
+            Amount::Greatest {
+                set:
+                    SetExpr::Matching {
+                        zone: zone @ ZoneExpr::Battlefield,
+                        filter,
+                    },
+                ..
+            } => Self::audited_filter(zone, filter),
+            Amount::Devotion { player, colors }
+                if player.is_you() && !colors.is_empty() && !colors.contains(&Color::C) =>
+            {
+                Ok(())
+            }
+            Amount::Times { factor, of }
+                if *factor > Quantity::from(1) && !matches!(**of, Amount::Times { .. }) =>
+            {
+                Self::audit_verb_amount(of)
+            }
+            _ => unaudited("resolution count"),
+        }
+    }
+
     fn audit_verb_count(set: &SetExpr) -> Result<(), KirError> {
         match set {
             SetExpr::Matching {
@@ -1513,6 +1591,9 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         if matches!(node, Node::TapTargets { .. }) {
             out.insert(Capability::OptionalTargetGroupV1);
         }
+        if matches!(node, Node::RemoveTargets { .. }) {
+            out.insert(Capability::TargetGroupRemovalV1);
+        }
         if matches!(node, Node::ChooseObject { .. }) {
             out.insert(Capability::ResolutionObjectChoiceV1);
         }
@@ -1585,7 +1666,8 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         Node::Delayed { .. }
         | Node::Reflexive { .. }
         | Node::ChooseObject { .. }
-        | Node::TapTargets { .. } => {}
+        | Node::TapTargets { .. }
+        | Node::RemoveTargets { .. } => {}
     }
 }
 

@@ -11,7 +11,7 @@ pub(super) fn lower(
     amount: &serde_json::Value,
     for_each: Option<&serde_json::Value>,
 ) -> Result<Instruction, Failure> {
-    uncounted(cx)?;
+    let bound = cx.bound_x();
     let amount: ast::Amount = typed(amount, "amount")?;
     // CR 608.2h: "N life for each [filter]" with a unit N is that count.
     if let Some(for_each) = for_each {
@@ -59,6 +59,7 @@ pub(super) fn lower(
             )?,
             match &amount {
                 ast::Amount::Count(count) => lower_count(count, cx.context)?,
+                ast::Amount::X(_) if bound.is_some() => bound.expect("guarded"),
                 ast::Amount::X(_) => Amount::announced_x(),
                 _ => Amount::Fixed {
                     value: fixed_positive_amount(&amount)?,

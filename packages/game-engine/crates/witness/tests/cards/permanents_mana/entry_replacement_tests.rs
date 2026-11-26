@@ -24,6 +24,17 @@ fn catalog() -> Catalog {
         include_str!(
             "../../../../../tests/fixtures/phase1-r5/f1750962-a87c-49f6-b731-02ae971ac6ea.json"
         ),
+        // Port Town and Gilt-Leaf Palace (entry reveals).
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/458d2b12-f578-4392-98d3-c3bc83f316c4.json"
+        ),
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/85573a3d-2993-491a-8f8d-bbdb844fa84e.json"
+        ),
+        // Woodland Changeling: every creature type in every zone (CR 702.73a).
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/338f0ab6-f744-4e5a-a358-05e71b93758d.json"
+        ),
     ] {
         let compiled = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
@@ -31,7 +42,9 @@ fn catalog() -> Catalog {
         };
         definition.validate().unwrap();
         definition_cells(&definition).unwrap();
-        assert_eq!(definition_tiers(&definition).unwrap(), Tiers::EXECUTES);
+        // The changeling hand card also earns higher tiers.
+        let tiers = definition_tiers(&definition).unwrap();
+        assert!(tiers == Tiers::EXECUTES || definition.name == "Woodland Changeling");
         catalog.definitions.push(*definition);
     }
     catalog
@@ -216,4 +229,206 @@ fn departing_entrant_controller_cancels_a_suspended_land_play() {
     assert!(game.current(object).is_err());
     game.validate_state().unwrap();
     assert_recoverable(JournalCase::from(&game));
+}
+
+/// "As this land enters, you may reveal a Plains or Island card from your
+/// hand. If you don't, this land enters tapped." (Port Town); the same for an
+/// Elf card (Gilt-Leaf Palace), which a changeling card in hand is. CR 614.12, 701.20a: only matching hand cards
+/// other than the entrant are offered (none: Decline alone); a reveal enters
+/// untapped and makes the revealed card's identity public in that hand.
+#[test]
+fn entry_reveal_offers_matching_hand_cards_and_publishes_the_reveal() {
+    for (land, hand, offered, reveal) in [
+        (
+            "Port Town",
+            &["Island", "Forest"][..],
+            &["Island"][..],
+            true,
+        ),
+        (
+            "Port Town",
+            &["Plains", "Island"][..],
+            &["Plains", "Island"][..],
+            false,
+        ),
+        (
+            "Port Town",
+            &["Plains", "Island"][..],
+            &["Plains", "Island"][..],
+            true,
+        ),
+        ("Port Town", &["Forest"][..], &[][..], false),
+        ("Port Town", &[][..], &[][..], false),
+        (
+            "Gilt-Leaf Palace",
+            &["Forest", "Llanowar Elves"][..],
+            &["Llanowar Elves"][..],
+            true,
+        ),
+        (
+            "Gilt-Leaf Palace",
+            &["Llanowar Elves"][..],
+            &["Llanowar Elves"][..],
+            false,
+        ),
+        ("Gilt-Leaf Palace", &["Island"][..], &[][..], false),
+        (
+            "Gilt-Leaf Palace",
+            &["Woodland Changeling"][..],
+            &["Woodland Changeling"][..],
+            true,
+        ),
+    ] {
+        let catalog = catalog();
+        let definition = catalog.definitions.iter().find(|d| d.name == land).unwrap();
+        assert!(definition.static_abilities.iter().any(|a| matches!(
+            a.effect,
+            mtg_contracts::kir::StaticEffect::RevealOrEnterTapped { .. }
+        )));
+        let mut board = Board::new(catalog.clone(), "entry-reveal-witness")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand(land, 0, 0, true);
+        for card in hand {
+            board = board.permanent_or_hand(card, 0, 0, true);
+        }
+        let mut game = Game::new(board.libraries("Forest", 4).prepare());
+        let object = Driver::object(&game, 0);
+        Driver::action(&mut game, Action::PlayLand { object });
+        let decision = Driver::request(&mut game, u64::MAX);
+        let tapped = {
+            // Always asked, with Decline alone when nothing matches, so the
+            // wait itself discloses nothing about the hand.
+            assert_eq!(decision.reason, Reason::OptionalEffect, "{land} {hand:?}");
+            // Decline, the entrant as the slot's subject, then exactly the
+            // matching hand cards in object order (CR 614.12).
+            let cards: Vec<_> = offered
+                .iter()
+                .map(|name| {
+                    let index = 1 + hand.iter().position(|c| c == name).unwrap() as u32;
+                    Driver::object(&game, index)
+                })
+                .collect();
+            let mut expected = vec![
+                Candidate::Flag {
+                    flag: Flag::Decline,
+                },
+                Candidate::Object { object },
+            ];
+            expected.extend(
+                cards
+                    .iter()
+                    .map(|object| Candidate::Object { object: *object }),
+            );
+            assert_eq!(decision.candidates, expected);
+            let Shape::Pick { slots, .. } = &decision.shape else {
+                panic!("{decision:?}")
+            };
+            let mut allowed = vec![0];
+            allowed.extend(2..expected.len() as u32);
+            assert_eq!((slots[0].subject, &slots[0].allowed), (Some(1), &allowed));
+            assert_eq!(
+                game.current(object).unwrap().zone,
+                Zone::Hand { owner: PlayerId(0) }
+            );
+            // The offer is private to its controller and recoverable.
+            let QueryResult::Complete(QueryValue::Observation(theirs)) =
+                game.observe(PlayerId(1), Budget::unlimited())
+            else {
+                panic!("an opponent observes")
+            };
+            assert!(theirs.decision.is_none());
+            game.validate_state().unwrap();
+            let snapshot = game.snapshot().unwrap();
+            let restored = Game::restore(game.prepared.as_ref().clone(), &snapshot).unwrap();
+            assert_eq!(restored.snapshot().unwrap(), snapshot);
+            assert_recoverable(JournalCase::from(&game));
+            // Reveal the last offered card.
+            let pick = if reveal {
+                Candidate::Object {
+                    object: *cards.last().unwrap(),
+                }
+            } else {
+                Candidate::Flag {
+                    flag: Flag::Decline,
+                }
+            };
+            let answer = decision.pick_one(&pick).unwrap();
+            game.respond(decision.player, decision.id, answer).unwrap();
+            let _ = Driver::request(&mut game, u64::MAX);
+            !reveal
+        };
+        let successor = Driver::object(&game, 0);
+        assert_ne!(successor, object);
+        let entered = game.current(successor).unwrap();
+        assert_eq!(
+            (entered.zone, entered.tapped),
+            (Zone::Battlefield, tapped),
+            "{land} {hand:?}"
+        );
+        assert_eq!(game.state.rules.turn.lands_played, 1);
+        // Every seat sees the revealed identity in that hand, and nothing
+        // when the reveal was declined or impossible.
+        let QueryResult::Complete(QueryValue::Observation(theirs)) =
+            game.observe(PlayerId(1), Budget::unlimited())
+        else {
+            panic!("an opponent observes")
+        };
+        let expected: Vec<_> = offered
+            .last()
+            .filter(|_| reveal)
+            .map(|name| (PlayerId(0), oracle_id(&catalog, name).to_owned()))
+            .into_iter()
+            .collect();
+        assert_eq!(theirs.view.known_searched_hand, expected);
+        game.validate_state().unwrap();
+        assert_recoverable(JournalCase::from(&game));
+    }
+}
+
+/// A reveal land moved onto the battlefield by a rule with no entry
+/// continuation is refused while its controller is live, whatever the hand
+/// holds, so the refusal discloses nothing (CR 400.2, 614.12).
+#[test]
+fn entry_reveal_always_needs_a_continuation_for_a_live_controller() {
+    for hand in [&["Forest"][..], &["Plains"][..]] {
+        let mut board = Board::new(catalog(), "entry-reveal-move-witness")
+            .step(TurnStep::PrecombatMain)
+            .card("Port Town", 0, 0, Zone::Graveyard { owner: PlayerId(0) });
+        for card in hand {
+            board = board.permanent_or_hand(card, 0, 0, true);
+        }
+        let mut game = Game::new(board.libraries("Forest", 4).prepare());
+        let object = Driver::object(&game, 0);
+        let before = game.state_digest().unwrap();
+        assert_eq!(
+            game.move_object(object, Zone::Battlefield).unwrap_err(),
+            "payable entry requires a battlefield entry continuation"
+        );
+        assert_eq!(game.state_digest().unwrap(), before);
+        game.validate_state().unwrap();
+    }
+}
+
+/// CR 400.2: an opponent observes the same paused land play whether or not
+/// the hand holds a matching card.
+#[test]
+fn entry_reveal_wait_is_the_same_for_opponents_with_or_without_a_match() {
+    let opponent_view = |card: &str| {
+        let board = Board::new(catalog(), "entry-reveal-privacy-witness")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Port Town", 0, 0, true)
+            .permanent_or_hand(card, 0, 0, true);
+        let mut game = Game::new(board.libraries("Forest", 4).prepare());
+        let object = Driver::object(&game, 0);
+        Driver::action(&mut game, Action::PlayLand { object });
+        let decision = Driver::request(&mut game, u64::MAX);
+        assert_eq!(decision.reason, Reason::OptionalEffect);
+        let QueryResult::Complete(QueryValue::Observation(theirs)) =
+            game.observe(PlayerId(1), Budget::unlimited())
+        else {
+            panic!("an opponent observes")
+        };
+        serde_json::to_value(&theirs).unwrap()
+    };
+    assert_eq!(opponent_view("Island"), opponent_view("Forest"));
 }

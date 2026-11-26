@@ -156,6 +156,8 @@ pub enum Cell {
     TapTarget,
     TapTargetGroup,
     TapStatusSource,
+    /// CR 115.3, 608.2b: one simultaneous removal of a counted target group.
+    RemoveTargetGroup,
     TapSet,
     UntapTarget,
     UntapSet,
@@ -196,6 +198,8 @@ pub enum Cell {
     PumpTarget,
     PumpSet,
     PumpAnnouncedX,
+    /// CR 608.2h: a P/T change by a resolution count, read once.
+    PumpCounted,
     SourceKeywordsUntilEndOfTurn,
     TargetKeywordsUntilEndOfTurn,
     SetKeywordsUntilEndOfTurn,
@@ -332,6 +336,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::RegenerateTarget
         | C::TapTarget
         | C::TapTargetGroup
+        | C::RemoveTargetGroup
         | C::TapStatusSource
         | C::TapSet
         | C::UntapTarget
@@ -359,6 +364,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::PlusOneCountersEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
+        | C::PumpCounted
         | C::SourceKeywordsUntilEndOfTurn
         | C::TargetKeywordsUntilEndOfTurn
         | C::SetKeywordsUntilEndOfTurn
@@ -504,6 +510,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::EntryPlusOneCountersV1
         | C::ConditionalEntryTappedV1
         | C::EntryLifePaymentV1
+        | C::EntryRevealV1
         | C::EntersTappedV1
         | C::TypedNonbasicIntrinsicManaV1
         | C::FlashV1
@@ -534,6 +541,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ResolutionObjectChoiceV1
         | C::TargetCharacteristicsV1
         | C::OptionalTargetGroupV1
+        | C::CountedTargetGroupV1
+        | C::TargetGroupRemovalV1
         | C::EntryGraveyardExileV1
         | C::ControlledLandEntryV1
         | C::CreatureOrPlaneswalkerTargetV1

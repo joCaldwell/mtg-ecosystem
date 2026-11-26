@@ -14,6 +14,7 @@
 //! skipped.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
+use crate::engine::battlefield_entry::EntryChoice;
 use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchSpec};
 
 /// The bounds of a search: the cards that may be found, in object order, and
@@ -45,7 +46,15 @@ pub(in crate::engine) enum EntryQuestion {
     },
     /// Whether to pay a found entrant's entry life cost.
     Pay { entrant: ObjectId },
+    /// Which hand card, if any, to reveal for a found entrant.
+    Reveal {
+        entrant: ObjectId,
+        cards: Vec<ObjectId>,
+    },
 }
+
+/// CR 701.20a, 614.12: each asked entrant's reveal, `None` when declined.
+type EntryReveals = Vec<(ObjectId, Option<ObjectId>)>;
 
 impl RulesTxn {
     /// The admitted library verb at this frame's cursor.
@@ -354,9 +363,17 @@ impl RulesTxn {
         // CR 303.4f, 614.1c: an entry onto the battlefield first collects
         // each found Aura's host and each entrant's entry life payment.
         if self.search_onto_battlefield(&frame)? {
-            return self.continue_search_entry(frame, player, found, vec![], vec![], source_block);
+            return self.continue_search_entry(
+                frame,
+                player,
+                found,
+                vec![],
+                vec![],
+                vec![],
+                source_block,
+            );
         }
-        self.commit_search(frame, player, found, &choices, &[], &[], source_block)
+        self.commit_search(frame, player, found, &choices, &[], &[], &[], source_block)
     }
 
     /// The admitted search puts its found cards onto the battlefield,
@@ -377,6 +394,7 @@ impl RulesTxn {
         found: Vec<ObjectId>,
         hosts: Vec<(ObjectId, ObjectId)>,
         paid: Vec<(ObjectId, bool)>,
+        revealed: EntryReveals,
         source_block: u32,
     ) -> Result<(), String> {
         if !self.is_live(player) {
@@ -384,7 +402,7 @@ impl RulesTxn {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         if self
-            .next_entry_question(player, &found, &hosts, &paid)?
+            .next_entry_question(player, &found, &hosts, &paid, &revealed)?
             .is_some()
         {
             self.rules_mut().frame = Frame::ResolutionChoice {
@@ -394,12 +412,22 @@ impl RulesTxn {
                     found,
                     hosts,
                     paid,
+                    revealed,
                     source_block,
                 },
             };
             return Ok(());
         }
-        self.commit_search(frame, player, found, &[], &hosts, &paid, source_block)
+        self.commit_search(
+            frame,
+            player,
+            found,
+            &[],
+            &hosts,
+            &paid,
+            &revealed,
+            source_block,
+        )
     }
 
     /// CR 304.4, 307.4: an instant or sorcery never enters the battlefield.
@@ -483,14 +511,17 @@ impl RulesTxn {
     /// Aura's host, in object order (CR 303.4f; an Aura with no legal host
     /// is never asked and stays in the library, CR 303.4g), then each
     /// entrant whose entry life cost its controller can still pay after
-    /// the payments already chosen (CR 119.4, 614.1c). `hosts` and `paid`
-    /// must be exactly the answers given so far, in that order.
+    /// the payments already chosen (CR 119.4, 614.1c), then each entrant
+    /// with an entry reveal, whether or not a hand card matches (CR
+    /// 701.20a). `hosts`, `paid` and `revealed` must be exactly the answers
+    /// given so far, in that order.
     pub(in crate::engine) fn next_entry_question(
         &self,
         player: PlayerId,
         found: &[ObjectId],
         hosts: &[(ObjectId, ObjectId)],
         paid: &[(ObjectId, bool)],
+        revealed: &[(ObjectId, Option<ObjectId>)],
     ) -> Result<Option<EntryQuestion>, String> {
         let mut attached = hosts.iter().peekable();
         for object in found {
@@ -529,7 +560,7 @@ impl RulesTxn {
             if attached.peek().is_some() {
                 return Err("search entry attachment order".into());
             }
-            if !paid.is_empty() {
+            if !paid.is_empty() || !revealed.is_empty() {
                 return Err("search entry payment before an attachment".into());
             }
             return Ok(Some(EntryQuestion::Attach {
@@ -558,11 +589,40 @@ impl RulesTxn {
                     }
                 }
                 Some(_) => return Err("search entry payment order".into()),
-                None => return Ok(Some(EntryQuestion::Pay { entrant: object })),
+                None if revealed.is_empty() => {
+                    return Ok(Some(EntryQuestion::Pay { entrant: object }));
+                }
+                None => return Err("search entry reveal before a payment".into()),
             }
         }
         if answered.next().is_some() {
             return Err("search entry payment without an entrant".into());
+        }
+        let mut answered = revealed.iter();
+        for (object, _) in self.search_entrants(found, hosts)? {
+            let Some(EntryChoice::Reveal(filter)) = self.entry_choice(object)? else {
+                continue;
+            };
+            // Asked even with no matching card, so the hidden hand stays
+            // hidden (CR 400.2).
+            let cards = self.entry_reveal_candidates(player, object, &filter);
+            match answered.next() {
+                Some((asked, card)) if *asked == object => {
+                    if card.is_some_and(|card| !cards.contains(&card)) {
+                        return Err("search entry reveal is not a qualifying card".into());
+                    }
+                }
+                Some(_) => return Err("search entry reveal order".into()),
+                None => {
+                    return Ok(Some(EntryQuestion::Reveal {
+                        entrant: object,
+                        cards,
+                    }));
+                }
+            }
+        }
+        if answered.next().is_some() {
+            return Err("search entry reveal without an entrant".into());
         }
         Ok(None)
     }
@@ -580,6 +640,7 @@ impl RulesTxn {
         found: &[ObjectId],
         hosts: &[(ObjectId, ObjectId)],
         paid: &[(ObjectId, bool)],
+        revealed: &[(ObjectId, Option<ObjectId>)],
     ) -> Result<bool, String> {
         let owned = |o: &ObjectId| {
             self.state
@@ -621,6 +682,19 @@ impl RulesTxn {
             }
         }
         let asked: Vec<_> = paid.iter().map(|(o, _)| *o).collect();
+        let shown: Vec<_> = revealed.iter().map(|(o, _)| *o).collect();
+        for (entrant, card) in revealed {
+            let reveals = self
+                .definition(entrant.card)?
+                .static_abilities
+                .iter()
+                .any(|a| matches!(a.effect, StaticEffect::RevealOrEnterTapped { .. }));
+            if !reveals
+                || card.is_some_and(|card| card.card == entrant.card || found.contains(&card))
+            {
+                return Ok(false);
+            }
+        }
         if found.is_empty()
             || found.len() > maximum
             || !found
@@ -629,6 +703,7 @@ impl RulesTxn {
             || !found.iter().all(owned)
             || !ordered(&auras)
             || !ordered(&asked)
+            || !ordered(&shown)
             || hosts
                 .iter()
                 .any(|(aura, host)| aura == host || found.contains(host))
@@ -695,6 +770,7 @@ impl RulesTxn {
         choices: &[(ObjectId, bool)],
         hosts: &[(ObjectId, ObjectId)],
         paid: &[(ObjectId, bool)],
+        revealed: &[(ObjectId, Option<ObjectId>)],
         source_block: u32,
     ) -> Result<(), String> {
         let (search, to) = self.search_destination(&frame)?;
@@ -742,22 +818,42 @@ impl RulesTxn {
         let mut overrides = vec![];
         let mut payments = vec![];
         if battlefield {
+            let mut shown = vec![];
             for (object, host) in &entering {
-                let amount = self.entry_life_cost(*object)?;
-                let pays = paid.iter().any(|(o, yes)| o == object && *yes);
-                if let (Some(amount), true) = (&amount, pays) {
-                    payments.push(EventGroup::Occurrence {
-                        proposed: ProposedEvent::LoseLife {
-                            player,
-                            amount: amount.clone(),
-                        },
-                    });
-                }
-                if tapped && (amount.is_some() || host.is_some()) {
+                let choice = self.entry_choice(*object)?;
+                let accepted = match &choice {
+                    Some(EntryChoice::Life(amount)) => {
+                        let pays = paid.iter().any(|(o, yes)| o == object && *yes);
+                        if pays {
+                            payments.push(EventGroup::Occurrence {
+                                proposed: ProposedEvent::LoseLife {
+                                    player,
+                                    amount: amount.clone(),
+                                },
+                            });
+                        }
+                        pays
+                    }
+                    Some(EntryChoice::Reveal(_)) => {
+                        let card = revealed
+                            .iter()
+                            .find(|(o, _)| o == object)
+                            .and_then(|(_, card)| *card);
+                        shown.extend(card);
+                        card.is_some()
+                    }
+                    None => false,
+                };
+                if tapped && (choice.is_some() || host.is_some()) {
                     overrides.push((*object, events::EntryOverride::ForceTapped));
-                } else if amount.is_some() {
-                    overrides.push((*object, events::EntryOverride::LifePayment { paid: pays }));
+                } else if choice.is_some() {
+                    overrides.push((*object, events::EntryOverride::Choice { accepted }));
                 }
+            }
+            // CR 701.20a: the revealed cards stay in the searcher's hand,
+            // publicly known there by identity.
+            if !shown.is_empty() {
+                self.remember_revealed_hand_cards(player, &shown)?;
             }
         }
         let batch = if overrides.is_empty() {
@@ -874,11 +970,12 @@ impl RulesTxn {
                 found,
                 hosts,
                 paid,
+                revealed,
                 ..
             // No question: the last open one lost its subject (CR 303.4g)
             // and the step commits the entry without a decision.
             } if self.is_live(*player) => self
-                .next_entry_question(*player, found, hosts, paid)?
+                .next_entry_question(*player, found, hosts, paid, revealed)?
                 .map(|question| match question {
                     EntryQuestion::Attach { aura, hosts } => {
                         let mut candidates = vec![Candidate::Object { object: aura }];
@@ -901,6 +998,9 @@ impl RulesTxn {
                         )
                     }
                     EntryQuestion::Pay { entrant } => self.entry_payment_decision(*player, entrant),
+                    EntryQuestion::Reveal { entrant, cards } => {
+                        self.entry_reveal_decision(*player, entrant, &cards)
+                    }
                 }),
             ResolutionChoice::ReorderLibraryTop { player, looked, .. } if self.is_live(*player) => {
                 Some(self.order(*player, Reason::OrderLibraryTop, objects(looked), looked.len() as u32))
@@ -990,18 +1090,28 @@ impl RulesTxn {
             found,
             hosts,
             paid,
+            revealed,
             source_block,
             ..
         } = &choice
             && self.is_live(player)
             && self
-                .next_entry_question(player, found, hosts, paid)?
+                .next_entry_question(player, found, hosts, paid, revealed)?
                 .is_none()
         {
             // The open question lost its subject: enter what remains.
             self.rules_mut().pending = None;
-            let (found, hosts, paid) = (found.clone(), hosts.clone(), paid.clone());
-            return self.continue_search_entry(frame, player, found, hosts, paid, *source_block);
+            let (found, hosts, paid, revealed) =
+                (found.clone(), hosts.clone(), paid.clone(), revealed.clone());
+            return self.continue_search_entry(
+                frame,
+                player,
+                found,
+                hosts,
+                paid,
+                revealed,
+                *source_block,
+            );
         }
         if self.library_request(&frame, &choice)?.is_none() {
             self.rules_mut().pending = None;
@@ -1020,12 +1130,13 @@ impl RulesTxn {
             found,
             mut hosts,
             mut paid,
+            mut revealed,
             source_block,
             ..
         } = choice
         {
             match self
-                .next_entry_question(player, &found, &hosts, &paid)?
+                .next_entry_question(player, &found, &hosts, &paid, &revealed)?
                 .ok_or("search entry answer without a question")?
             {
                 EntryQuestion::Attach { aura, hosts: legal } => {
@@ -1036,8 +1147,19 @@ impl RulesTxn {
                     hosts.push((aura, host));
                 }
                 EntryQuestion::Pay { entrant } => paid.push((entrant, input.flag(Flag::Accept)?)),
+                EntryQuestion::Reveal { entrant, cards } => {
+                    revealed.push((entrant, Self::entry_reveal_answer(&input, &cards)?));
+                }
             }
-            return self.continue_search_entry(frame, player, found, hosts, paid, source_block);
+            return self.continue_search_entry(
+                frame,
+                player,
+                found,
+                hosts,
+                paid,
+                revealed,
+                source_block,
+            );
         }
         let chosen = input.objects()?;
         match choice {
@@ -1304,7 +1426,11 @@ impl RulesTxn {
             // departure fast path accepts them.
             (
                 ResolutionChoice::SearchEntry {
-                    found, hosts, paid, ..
+                    found,
+                    hosts,
+                    paid,
+                    revealed,
+                    ..
                 },
                 Verb::Search { search, .. },
             ) => {
@@ -1315,7 +1441,7 @@ impl RulesTxn {
                     .ok_or("search maximum has no audited evaluation")?
                     as usize;
                 matches!(search.to, Destination::Battlefield { .. })
-                    && self.valid_entry_answers(player, maximum, found, hosts, paid)?
+                    && self.valid_entry_answers(player, maximum, found, hosts, paid, revealed)?
             }
             (
                 ResolutionChoice::Scry {
@@ -1366,7 +1492,11 @@ impl RulesTxn {
             }
             (
                 ResolutionChoice::SearchEntry {
-                    found, hosts, paid, ..
+                    found,
+                    hosts,
+                    paid,
+                    revealed,
+                    ..
                 },
                 Verb::Search { search, .. },
             ) => {
@@ -1374,7 +1504,7 @@ impl RulesTxn {
                 Self::subset(&bounds.candidates, found)
                     && (bounds.minimum..=bounds.maximum).contains(&found.len())
                     && self
-                        .next_entry_question(player, found, hosts, paid)
+                        .next_entry_question(player, found, hosts, paid, revealed)
                         .is_ok_and(|next| next.is_some())
             }
             (

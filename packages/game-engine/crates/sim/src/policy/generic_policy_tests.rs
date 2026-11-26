@@ -1551,3 +1551,123 @@ fn life_payment_activation_respects_frozen_life_and_offered_candidates() {
         Action::Pass
     );
 }
+
+/// CR 614.12, 701.20a: the policy reveals the first offered hand card, and
+/// plays a land that would enter untapped before a reveal land with no
+/// matching hand card.
+#[test]
+fn generic_policy_reveals_for_entry_and_prefers_untapped_land_plays() {
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
+    let plains = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Plains")
+        .unwrap();
+    plains.source_labels = None;
+    plains.static_abilities.push(mtg_contracts::StaticAbility {
+        functioning_zone: mtg_contracts::FunctioningZone::Battlefield,
+        effect: kir::StaticEffect::RevealOrEnterTapped {
+            filter: kir::Pred(vec![kir::Atom::Subtype {
+                subtype: "Elf".into(),
+            }]),
+        },
+    });
+    plains.capabilities = plains.requirements();
+    let mut v = board::view();
+    let viewer = v.viewer;
+    v.active = Some(viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 0;
+    let hand = Zone::Hand { owner: viewer };
+    v.objects = vec![
+        board::card(&c, "Plains", viewer.0, hand),
+        board::card(&c, "Forest", viewer.0, hand),
+    ];
+    let play = |v: &PermittedView| strategy(&c).priority(&observation(v.clone())).unwrap();
+    assert_eq!(
+        play(&v),
+        Action::PlayLand {
+            object: ObjectHandle("Forest".into())
+        }
+    );
+    v.objects
+        .push(board::card(&c, "Llanowar Elves", viewer.0, hand));
+    assert_eq!(
+        play(&v),
+        Action::PlayLand {
+            object: ObjectHandle("Plains".into())
+        }
+    );
+    let mut o = observation(v);
+    o.decision = Some(Decision {
+        id: mtg_core::DecisionToken("policy-fixture".into()),
+        player: viewer,
+        reason: Reason::OptionalEffect,
+        candidates: vec![
+            Candidate::Flag {
+                flag: Flag::Decline,
+            },
+            Candidate::Object {
+                object: ObjectHandle("Plains".into()),
+            },
+            Candidate::Object {
+                object: ObjectHandle("Llanowar Elves".into()),
+            },
+        ],
+        shape: Shape::Pick {
+            slots: vec![mtg_core::Slot {
+                role: mtg_core::SlotRole::Choice,
+                subject: Some(1),
+                allowed: vec![0, 2],
+                min: 1,
+                max: 1,
+                repeat: false,
+            }],
+            rules: vec![],
+        },
+    });
+    assert_eq!(
+        strategy(&c).choose(&o).unwrap(),
+        Answer::Pick {
+            picks: vec![vec![2]]
+        }
+    );
+}
+
+/// CR 400.2: a reveal with no matching hand card offers Decline alone.
+#[test]
+fn generic_policy_declines_a_decline_only_entry_reveal() {
+    let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
+    let mut o = observation(board::view());
+    let viewer = o.view.viewer;
+    o.decision = Some(Decision {
+        id: mtg_core::DecisionToken("policy-fixture".into()),
+        player: viewer,
+        reason: Reason::OptionalEffect,
+        candidates: vec![
+            Candidate::Flag {
+                flag: Flag::Decline,
+            },
+            Candidate::Object {
+                object: ObjectHandle("Plains".into()),
+            },
+        ],
+        shape: Shape::Pick {
+            slots: vec![mtg_core::Slot {
+                role: mtg_core::SlotRole::Choice,
+                subject: Some(1),
+                allowed: vec![0],
+                min: 1,
+                max: 1,
+                repeat: false,
+            }],
+            rules: vec![],
+        },
+    });
+    assert_eq!(
+        strategy(&c).choose(&o).unwrap(),
+        Answer::Pick {
+            picks: vec![vec![0]]
+        }
+    );
+}

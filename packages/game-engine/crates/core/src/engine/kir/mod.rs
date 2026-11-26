@@ -24,6 +24,24 @@ mod exec;
 mod object_choice;
 pub use control::{LeafProgram, Task};
 
+/// CR 608.2h: an upper bound on a resolution count recorded when its step
+/// was performed. Later instructions of the same program may change the
+/// number, so a saved value is bounded, never re-derived. A count is bounded
+/// by every object that could exist; a greatest stat or devotion only by
+/// being nonnegative.
+pub(super) fn resolution_count_bound(amount: &Amount) -> Option<Quantity> {
+    match amount {
+        Amount::Count { .. } => Some(Quantity::from(
+            (4 * capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize) as i64,
+        )),
+        Amount::Times { factor, of } => resolution_count_bound(of).map(|mut bound| {
+            bound.multiply(factor);
+            bound
+        }),
+        _ => None,
+    }
+}
+
 /// The players a player expression denotes for one resolving invocation.
 pub(super) enum Players {
     One(PlayerId),
@@ -67,6 +85,23 @@ impl RulesTxn {
                 .filter_map(|(&object, &legal)| legal.then_some(object))
                 .collect();
             return self.kernel_tap_objects(frame, objects, tap, source_block);
+        }
+        // CR 115.3, 608.2b: the legal announced members leave or are
+        // destroyed in one simultaneous event (CR 603.10a look-back).
+        if let Node::RemoveTargets { removal, .. } = node {
+            let objects = self
+                .entry(frame.stack_id)?
+                .targets
+                .iter()
+                .zip(&frame.legal_targets)
+                .filter_map(|(&object, &legal)| legal.then_some(object))
+                .collect();
+            let action = match removal {
+                mtg_contracts::kir::GroupRemoval::Destroy => wipes::SetMove::Destroy,
+                mtg_contracts::kir::GroupRemoval::Exile => wipes::SetMove::Exile,
+                mtg_contracts::kir::GroupRemoval::OwnerHand => wipes::SetMove::Hand,
+            };
+            return self.move_board_objects(frame, objects, action, source_block, false);
         }
         if matches!(node, Node::ChooseObject { .. }) {
             self.rules_mut().frame = Frame::ResolutionChoice {
@@ -408,6 +443,38 @@ impl RulesTxn {
                     i64::try_from(count).map_err(|_| "kernel count exceeds object limit")?,
                 ))
             }
+            // CR 608.2h: the greatest current power or toughness (CR 613.4)
+            // or mana value (CR 202.3) among the matching permanents. Zero
+            // when none match, and never below zero (CR 107.1b).
+            Amount::Greatest {
+                set:
+                    SetExpr::Matching {
+                        zone: zone @ ZoneExpr::Battlefield,
+                        filter,
+                    },
+                stat,
+            } => {
+                let mut greatest = Quantity::zero();
+                for object in self.kernel_set(frame, zone, filter)?.0 {
+                    let c = self.characteristics(object)?;
+                    let value = match stat {
+                        mtg_contracts::kir::Stat::Power => c.power.unwrap_or_default(),
+                        mtg_contracts::kir::Stat::Toughness => c.toughness.unwrap_or_default(),
+                        mtg_contracts::kir::Stat::ManaValue => c.printed_mana_value(),
+                    };
+                    greatest = greatest.max(value);
+                }
+                Ok(greatest)
+            }
+            Amount::Times { factor, of } => {
+                let mut value = self.kernel_amount(frame, of)?;
+                value.multiply(factor);
+                Ok(value)
+            }
+            // CR 700.5: the controller's devotion as the verb reads it.
+            Amount::Devotion { player, colors } if player.is_you() => self
+                .devotion(self.entry(frame.stack_id)?.controller, colors)
+                .ok_or_else(|| "missing devotion definition".into()),
             Amount::OtherCastsManaValue { caster } if caster.is_you() => {
                 self.other_casts_mana_value(self.entry(frame.stack_id)?)
             }

@@ -210,7 +210,7 @@ pub(crate) fn lower_trigger(
             })
     }
     if has_draw_quantity(effects)
-        && !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty()
+        && !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None, ..}] if bindings.is_empty()
             && matches!(steps.as_slice(), [Step::Draw {amount: DrawAmount::ThatMuch {}, ..}]))
     {
         // Prior effects may produce another quantity. This finite binder only
@@ -317,6 +317,7 @@ pub(crate) fn lower_trigger(
                 steps,
                 condition: None,
                 condition_kind: None,
+                ..
             },
         ] = effects
         && bindings.is_empty()

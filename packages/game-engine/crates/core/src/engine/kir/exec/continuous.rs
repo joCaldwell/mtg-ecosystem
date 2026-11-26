@@ -79,7 +79,18 @@ impl RulesTxn {
                 if !self.target_is_creature(targets[0]) {
                     return Ok(None);
                 }
-                let x = entry.x.clone().ok_or("missing announced pump X")?;
+                // CR 608.2h, 611.2c: a counted change reads its count once,
+                // now; the saved effect keeps that value.
+                let x = match verb {
+                    Verb::ModifyUntil { change, .. } if change.counted_x().is_some() => {
+                        let x = self.kernel_amount(frame, change.counted_x().expect("guarded"))?;
+                        if x.is_negative() {
+                            return Err("negative counted pump".into());
+                        }
+                        x
+                    }
+                    _ => entry.x.clone().ok_or("missing announced pump X")?,
+                };
                 ResolvedEffectKind::PumpAnnouncedX {
                     targets,
                     modifier: CreatureStatModifier {

@@ -132,7 +132,8 @@ fn lower(
                         return Err(gap("enters-tapped:nested-conditional"));
                     }
                     StaticEffect::EntersTapped => return Err(gap("enters-tapped:conditional")),
-                    StaticEffect::PayLifeOrEnterTapped { .. } => {
+                    StaticEffect::PayLifeOrEnterTapped { .. }
+                    | StaticEffect::RevealOrEnterTapped { .. } => {
                         return Err(gap("entry-choice:conditional"));
                     }
                     StaticEffect::EntersWithPlusOneCounters { .. } => {
@@ -234,15 +235,27 @@ fn lower(
         S::AsTurnedFaceUp(_) => return Err(gap("as-turned-face-up")),
         S::AsTransforms(_) => return Err(gap("as-transforms")),
         S::EntryChoice(x) => {
-            let [ast::Cost::PayLife(cost)] = x.costs.as_slice() else {
-                return Err(gap("entry-choice:cost"));
-            };
             if !matches!(&*x.what, ast::ObjectRef::SelfObject(_))
                 && !matches!(&*x.what, ast::ObjectRef::This(x) if x.noun == "land")
             {
                 return Err(gap("entry-choice:source"));
             }
-            if !matches!(&*x.who, ast::PlayerRef::You(_)) || cost.multiplier.is_some() {
+            if !matches!(&*x.who, ast::PlayerRef::You(_)) {
+                return Err(gap("entry-choice:payer"));
+            }
+            let cost = match x.costs.as_slice() {
+                [ast::Cost::PayLife(cost)] => cost,
+                [ast::Cost::Reveal(cost)] => {
+                    return Ok(vec![ability(
+                        Battlefield,
+                        StaticEffect::RevealOrEnterTapped {
+                            filter: entry_reveal_filter(cost)?,
+                        },
+                    )]);
+                }
+                _ => return Err(gap("entry-choice:cost")),
+            };
+            if cost.multiplier.is_some() {
                 return Err(gap("entry-choice:payer"));
             }
             let amount = fixed_nonnegative(&cost.amount)?;
@@ -455,6 +468,43 @@ fn qualified_condition(
         (Some(value), _) => condition(value).map(Some),
         (None, Some(_)) => Err(gap("conditional:missing")),
     }
+}
+
+/// CR 614.12, 701.20a: "you may reveal a [filter] card from your hand":
+/// exactly one card, from the entering controller's own hand, by printed
+/// characteristics (the library-card filter vocabulary).
+fn entry_reveal_filter(cost: &ast::CostReveal) -> Result<Pred, Failure> {
+    use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+    let ast::ObjectRef::Filter(what) = &*cost.what else {
+        return Err(gap("entry-choice:reveal:object"));
+    };
+    let one = matches!(&*what.count, ast::Amount::Fixed(n) if n.value == 1);
+    if cost.from.is_some()
+        || !one
+        || what.up_to.is_some()
+        || what.group_constraints.is_some()
+        || what.random.is_some()
+    {
+        return Err(gap("entry-choice:reveal:count"));
+    }
+    let mut filter = (*what.filter).clone();
+    match filter.zone.take().as_deref() {
+        Some(ast::ZoneRef {
+            zone: ast::Zone::Hand,
+            owner,
+            depth: None,
+            position: None,
+        }) if owner.as_deref() == Some(&Owner::Your) => {}
+        _ => return Err(gap("entry-choice:reveal:zone")),
+    }
+    if filter.cls != Some(ast::ObjectFilterCls::Card) {
+        return Err(gap("entry-choice:reveal:class"));
+    }
+    let pred = lower_card_filter(&filter)?;
+    if pred.0.is_empty() {
+        return Err(gap("entry-choice:reveal:unfiltered"));
+    }
+    Ok(pred)
 }
 
 fn entry_condition(value: &ast::Condition) -> Result<EntryCondition, Failure> {

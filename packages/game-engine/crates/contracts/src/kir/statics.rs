@@ -47,6 +47,11 @@ pub enum StaticEffect {
     PayLifeOrEnterTapped {
         amount: Quantity,
     },
+    /// CR 614.12, 701.20a: the entering controller may reveal one card
+    /// matching `filter` from their hand; otherwise it enters tapped.
+    RevealOrEnterTapped {
+        filter: Pred,
+    },
     EntersTappedIf {
         condition: EntryCondition,
     },
@@ -172,6 +177,7 @@ impl StaticEffect {
         match self {
             Self::EntersTappedIf { .. } => Capability::ConditionalEntryTappedV1,
             Self::PayLifeOrEnterTapped { .. } => Capability::EntryLifePaymentV1,
+            Self::RevealOrEnterTapped { .. } => Capability::EntryRevealV1,
             Self::EntersTapped => Capability::EntersTappedV1,
             Self::EntersWithPlusOneCounters { .. } => Capability::EntryPlusOneCountersV1,
             Self::Rule {
@@ -398,6 +404,17 @@ impl crate::StaticAbility {
                     Ok(())
                 } else {
                     invalid("entry-life-payment")
+                }
+            }
+            StaticEffect::RevealOrEnterTapped { filter } => {
+                if on_battlefield
+                    && kind == CardKind::Land
+                    && !filter.0.is_empty()
+                    && super::check::hidden_card_filter(filter)
+                {
+                    Ok(())
+                } else {
+                    invalid("entry-reveal")
                 }
             }
             StaticEffect::EntersTappedIf { condition } => {
