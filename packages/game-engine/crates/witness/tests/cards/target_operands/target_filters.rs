@@ -66,7 +66,7 @@ fn another_excludes_source_from_castability_and_choice() {
 fn elf_filter_offers_changeling_and_excludes_other_creatures() {
     let prepared = board(&[
         (LODGE, &[Cell::UntapTarget], Tiers::EXECUTES),
-        (AUTOMATON, &[], Tiers::EXECUTES),
+        (AUTOMATON, &[], Tiers::HOSTING),
     ])
     .permanent_or_hand("Wirewood Lodge", 0, 0, false)
     .permanent_or_hand("Forest", 0, 0, false)
