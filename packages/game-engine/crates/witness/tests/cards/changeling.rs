@@ -15,6 +15,8 @@ macro_rules! record {
     };
 }
 
+const LORD_OF_ATLANTIS: &str = record!("cc7f290f-ca00-4285-9bdb-4b4402444f30");
+const HIVESTONE: &str = record!("72aeed80-653b-4c53-ba65-a339aad14b9a");
 const MUSCLE_SLIVER: &str = record!("06e0459f-d691-4470-884a-27c09b6612d2");
 const RUNED_STALACTITE: &str = record!("1c169307-71f5-4679-8b5a-d60c1109b9db");
 const WOODLAND_CHANGELING: &str = record!("338f0ab6-f744-4e5a-a358-05e71b93758d");
@@ -246,4 +248,43 @@ fn equipment_makes_the_equipped_creature_every_creature_type() {
     // 2/2 +1/+1 (Stalactite) +1/+1 (Sliver).
     assert_eq!(pt(&g, 2), (q(4), q(4)));
     assert_recoverable((&g).into());
+}
+
+/// CR 205.3m, 613.1f, 613.4c, 702.14: changelings on either side get
+/// the lord's bonus and islandwalk, while the source excludes itself.
+#[test]
+fn subtype_anthem_grants_a_keyword_to_other_creatures() {
+    let g = game(&[LORD_OF_ATLANTIS, WOODLAND_CHANGELING], |b| {
+        b.permanent_or_hand("Lord of Atlantis", 0, 0, false)
+            .permanent_or_hand("Woodland Changeling", 0, 0, false)
+            .permanent_or_hand("Woodland Changeling", 1, 1, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    });
+    use mtg_contracts::KeywordAbility::Islandwalk;
+    for (id, stats, has_grant) in [(0, 2, false), (1, 3, true), (2, 3, true), (3, 2, false)] {
+        assert_eq!(pt(&g, id), (q(stats), q(stats)));
+        assert_eq!(
+            g.current_keywords(Driver::object(&g, id))
+                .contains(&Islandwalk),
+            has_grant
+        );
+    }
+    checked(&g);
+}
+
+/// CR 205.1b, 613.1d, 613.4c: an additive creature subtype changes the
+/// set of recipients of a layer-7c anthem while retaining printed subtypes.
+#[test]
+fn added_creature_subtype_feeds_anthem_across_layers() {
+    let g = game(&[HIVESTONE, MUSCLE_SLIVER], |b| {
+        b.permanent_or_hand("Muscle Sliver", 0, 0, false)
+            .permanent_or_hand("Hivestone", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    });
+    let facts = g.characteristics(Driver::object(&g, 2)).unwrap();
+    assert!(facts.has_subtype("Sliver") && facts.has_subtype("Bear"));
+    assert_eq!(pt(&g, 2), (q(3), q(3)));
+    assert_eq!(pt(&g, 3), (q(2), q(2)));
+    checked(&g);
 }

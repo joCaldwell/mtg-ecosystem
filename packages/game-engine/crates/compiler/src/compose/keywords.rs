@@ -48,24 +48,26 @@ fn landwalk(kind: CardKind, keyword: &SourceKeyword) -> Result<KeywordAbility, F
         return Err(reject());
     }
     let filter = keyword.filter.as_ref().ok_or_else(reject)?;
-    let object = filter.as_object().ok_or_else(reject)?;
+    basic_landwalk(filter).ok_or_else(reject)
+}
+
+pub(crate) fn basic_landwalk(filter: &serde_json::Value) -> Option<KeywordAbility> {
+    let object = filter.as_object()?;
     if object.len() != 2 || object.get("types") != Some(&serde_json::json!(["land"])) {
-        return Err(reject());
+        return None;
     }
     let [subtype] = object
         .get("subtypes")
         .and_then(|s| s.as_array())
-        .map(Vec::as_slice)
-        .ok_or_else(reject)?
+        .map(Vec::as_slice)?
     else {
-        return Err(reject());
+        return None;
     };
-    let subtype = subtype.as_str().ok_or_else(reject)?;
+    let subtype = subtype.as_str()?;
     LANDWALK
         .iter()
         .find(|(name, _)| *name == subtype)
         .map(|(_, ability)| *ability)
-        .ok_or_else(reject)
 }
 
 /// The bare printed changeling keyword (CR 702.73a).
