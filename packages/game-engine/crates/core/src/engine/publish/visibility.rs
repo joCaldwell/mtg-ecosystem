@@ -905,6 +905,7 @@ impl RulesTxn {
             StackKind::Activated {
                 ability,
                 source_handles,
+                ..
             } => (
                 None,
                 Some(VisibleAbility {

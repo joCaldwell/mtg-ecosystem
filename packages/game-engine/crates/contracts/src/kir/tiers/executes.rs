@@ -572,10 +572,13 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     {
         return cell("activated", "source");
     }
-    if a.restriction.is_some_and(|r| {
-        r.window.is_none() && !r.once_each_turn
+    if let Some(r) = &a.restriction
+        && (r.window.is_none() && !r.once_each_turn && r.condition.is_none()
             || r.window.is_some() && a.program.timing == SpellTiming::MainPhase
-    }) {
+            || r.condition
+                .as_ref()
+                .is_some_and(|c| kir::ActivationCondition::of(c).is_err()))
+    {
         return cell("activated", "restriction");
     }
     if a.programs()
@@ -703,6 +706,14 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
     }
     if let Some(error) = a.riders.iter().find_map(|r| kir::mana_rider(r).err()) {
         return cell("mana", format!("rider:{error}"));
+    }
+    // A mana cost would pay nested mana after the condition was read; no
+    // admitted conditioned mana ability needs that order.
+    if a.condition
+        .as_ref()
+        .is_some_and(|c| kir::ActivationCondition::of(c).is_err() || a.costs.mana.is_some())
+    {
+        return cell("mana", "condition");
     }
     Ok(())
 }
@@ -1257,6 +1268,7 @@ mod tests {
                 let mut d = with(|d| {
                     d.mana_abilities.push(ManaAbility {
                         restriction: None,
+                        condition: None,
                         costs: PermanentActivationCosts {
                             remove_source_plus_one_counters: None,
                             tap: true,

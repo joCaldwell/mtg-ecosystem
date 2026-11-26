@@ -45,6 +45,7 @@ fn no_operands<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<(), 
     NoOperands::deserialize(deserializer).map(|_| ())
 }
 
+mod activation;
 mod amount;
 mod check;
 mod events;
@@ -55,6 +56,7 @@ mod statics;
 mod tiers;
 mod verbs;
 
+pub use activation::*;
 pub use amount::*;
 pub use check::*;
 pub use events::*;
