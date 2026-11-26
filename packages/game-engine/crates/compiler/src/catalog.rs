@@ -835,7 +835,7 @@ mod guard_tests {
             "header",
             "version",
         ] {
-            // Two pinned Archive R4 rows that composition lowers.
+            // Two pinned Archive R5 rows that composition lowers.
             let manifest = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":["../phase1-r5/compose-strip-mine.json","../phase1-r5/compose-hire-a-crew.json"],"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
             let result = build_with(Path::new("catalogs/r4.json"), |p| {
                 let raw = if p == Path::new("catalogs/r4.json") {
@@ -890,7 +890,7 @@ mod guard_tests {
                 }
             });
             if change == "none" {
-                let (_, catalog) = result.expect("pinned R4 rows build unchanged");
+                let (_, catalog) = result.expect("pinned R5 rows build unchanged");
                 assert_eq!(catalog.definitions.len(), 2);
                 continue;
             }

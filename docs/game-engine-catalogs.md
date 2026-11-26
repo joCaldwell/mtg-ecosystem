@@ -10,7 +10,10 @@ The executable source is Archive R5. The full archive stays outside Git;
 `tests/fixtures/phase1-r5/` holds only the extracted records a manifest, witness
 or compiler test uses. `accepted-archives.json` pins the whole file, header,
 parser and corpus, and each `provenance.json` row pins its exact card line.
-R4 remains registered for frozen-archive comparisons. Oracle parser tests own their pre-R4 records under
+R4 (same corpus, older parser) stays registered without record pins so its
+bulk IR can still be rebuilt for comparison. The header records the generating
+Git revision, so a regenerated archive is accepted only if it is byte-identical
+to the registered file. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
 From repository root (`engine:dev` builds `mtg-sim` under the target lock):
