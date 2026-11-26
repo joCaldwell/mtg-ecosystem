@@ -40,6 +40,17 @@ impl RulesTxn {
                 && matches!(entry.cast_from, Zone::Graveyard { .. })
             {
                 let definition = self.stack_definition(entry)?;
+                // CR 702.138a: escape exiles other graveyard cards.
+                if let Some(escape) = &definition.escape {
+                    return Ok(Some(ChosenObjectCost {
+                        action: ExileFromGraveyard,
+                        filter: ChosenCostFilter::Any,
+                        count: escape.exile_other,
+                        another: true,
+                        tap_source: false,
+                        mana: Some(escape.mana.clone()),
+                    }));
+                }
                 if definition.retrace {
                     return Ok(Some(ChosenObjectCost {
                         action: Discard,

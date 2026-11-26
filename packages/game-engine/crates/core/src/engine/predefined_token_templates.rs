@@ -43,6 +43,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     d.x_mana_cost = false;
     d.flashback = None;
     d.retrace = false;
+    d.escape = None;
     let mana_token = matches!(kind, PredefinedToken::Treasure | PredefinedToken::Gold);
     let costs = PermanentActivationCosts {
         remove_source_plus_one_counters: None,

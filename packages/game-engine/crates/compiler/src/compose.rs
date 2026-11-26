@@ -1179,10 +1179,26 @@ fn compose_face(
                             definition.triggered.push(keywords::echo(one, label, text)?);
                             labels.triggered.push(label);
                         }
+                        // CR 702.138a: escape casts the card from its owner's
+                        // graveyard for an alternative cost.
+                        [one] if one.keyword == "escape" => {
+                            if definition.spell.is_none()
+                                || definition.escape.is_some()
+                                || definition.retrace
+                                || definition.flashback.is_some()
+                            {
+                                return Err(unsupported("keyword", "keyword:escape:source"));
+                            }
+                            definition.escape = Some(keywords::escape(one, text)?);
+                        }
                         // CR 702.81a: retrace lets an instant or sorcery be
                         // cast from its owner's graveyard for a land discard.
                         [one] if one.keyword == "retrace" => {
-                            if !spell_kind || definition.retrace || definition.flashback.is_some() {
+                            if !spell_kind
+                                || definition.retrace
+                                || definition.flashback.is_some()
+                                || definition.escape.is_some()
+                            {
                                 return Err(unsupported("keyword", "keyword:retrace:source"));
                             }
                             definition.retrace = true;
@@ -1190,7 +1206,11 @@ fn compose_face(
                         // CR 702.34a: flashback is an instant's or sorcery's
                         // alternative cost from its owner's graveyard.
                         [one] if one.keyword == "flashback" => {
-                            if !spell_kind || definition.flashback.is_some() || definition.retrace {
+                            if !spell_kind
+                                || definition.flashback.is_some()
+                                || definition.retrace
+                                || definition.escape.is_some()
+                            {
                                 return Err(unsupported("keyword", "keyword:flashback:source"));
                             }
                             definition.flashback = Some(keywords::flashback(one, text)?);

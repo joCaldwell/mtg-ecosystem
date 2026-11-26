@@ -583,6 +583,56 @@ pub(super) fn encore(
     ))
 }
 
+/// CR 702.138a: "Escape—[mana], Exile [N] other cards from your
+/// graveyard.", printed exactly; other escape costs reject.
+pub(super) fn escape(keyword: &SourceKeyword, text: &str) -> Result<EscapeCost, Failure> {
+    let reject = || unsupported("keyword", "keyword:escape:cost");
+    let [
+        SourceCost::Mana { symbols },
+        SourceCost::Exile { what, from: None },
+    ] = keyword.cost.as_deref().unwrap_or_default()
+    else {
+        return Err(reject());
+    };
+    let words = [
+        "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    ];
+    let count = what
+        .pointer("/count/value")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|n| (2..=10).contains(n))
+        .ok_or_else(reject)?;
+    let expected = serde_json::json!({
+        "ref": "filter",
+        "filter": {"other": true, "cls": "card", "zone": {"zone": "graveyard", "owner": "your"}},
+        "count": {"amount": "fixed", "value": count},
+    });
+    if *what != expected
+        || keyword.filter.is_some()
+        || symbols.is_empty()
+        || symbols
+            .iter()
+            .any(|s| s.is_empty() || s.contains(['{', '}']))
+        || text
+            != format!(
+                "Escape\u{2014}{}, Exile {} other cards from your graveyard.",
+                printed_mana(symbols),
+                words[count as usize - 2]
+            )
+    {
+        return Err(reject());
+    }
+    let mana = mana_cost(&printed_mana(symbols)).map_err(|_| reject())?;
+    if mana.colored.contains(&Color::C) {
+        return Err(reject());
+    }
+    Ok(EscapeCost {
+        mana,
+        exile_other: count,
+    })
+}
+
 /// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
 pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost, Failure> {
     keyword_mana(keyword, "Flashback", text)

@@ -1,7 +1,7 @@
 //! Alternative-cost and graveyard keywords from exact frozen R5 source on
 //! private boards: evoke (CR 702.74a, 118.9, 601.2b/f-h), unearth (CR
 //! 702.84a, 603.7, 614.1a), encore (CR 702.141a, 508.1d), retrace (CR
-//! 702.81a, 601.2h) and dash (CR 702.109a). Every choice is checked for state validity and
+//! 702.81a, 601.2h), dash (CR 702.109a) and escape (CR 702.138a). Every choice is checked for state validity and
 //! an exact snapshot round trip; finished resolutions replay from their
 //! journal.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -25,6 +25,7 @@ const GOD_PHARAOHS_STATUE: &str = record!("183954d2-7b40-4c7e-adfa-d80191ab5ad6"
 const IMPULSIVE_PILFERER: &str = record!("7d9fc9e7-d80b-49c3-871c-ed25b3059ae8");
 const FLAME_JAB: &str = record!("05eccdee-84f8-42d5-b79c-36d081656915");
 const MARDU_SCOUT: &str = record!("c18ab011-c5e0-4174-b623-d89e4d745ce6");
+const GLIMPSE_OF_FREEDOM: &str = record!("02d78e76-8151-4851-bb4e-e0a1fa98756f");
 
 fn evoke_candidate(d: &Decision<Rules>) -> bool {
     matches!(
@@ -326,7 +327,11 @@ fn dregscape_zombie_unearths_with_haste_and_is_exiled() {
         assert_recoverable((&g).into());
         assert_eq!(zone(&g, 0), Some(exile));
         if !bolted {
-            assert_eq!(life(&g, 1), plus(&Quantity::from(40), -3), "the 3/1 attacked");
+            assert_eq!(
+                life(&g, 1),
+                plus(&Quantity::from(40), -3),
+                "the 3/1 attacked"
+            );
         }
     }
 }
@@ -764,7 +769,11 @@ fn mardu_scout_dash_gives_haste_and_returns_it_at_end_step() {
             .iter()
             .any(|c| matches!(c, Candidate::Object { object } if *object == scout));
         assert_eq!(offered, dash, "only a dashed Scout has haste");
-        let attack = if dash { vec![(scout, PlayerId(1))] } else { vec![] };
+        let attack = if dash {
+            vec![(scout, PlayerId(1))]
+        } else {
+            vec![]
+        };
         g.respond(d.player, d.id, d.attack(attack)).unwrap();
         advance(&mut g, &[], |g, d| {
             d.reason == Reason::Priority
@@ -775,11 +784,198 @@ fn mardu_scout_dash_gives_haste_and_returns_it_at_end_step() {
         checked(&g);
         assert_recoverable((&g).into());
         if dash {
-            assert_eq!(life(&g, 1), plus(&Quantity::from(40), -3), "the 3/1 attacked");
+            assert_eq!(
+                life(&g, 1),
+                plus(&Quantity::from(40), -3),
+                "the 3/1 attacked"
+            );
             assert_eq!(zone(&g, 0), Some(Zone::Hand { owner: PlayerId(0) }));
         } else {
             assert_eq!(life(&g, 1), Quantity::from(40));
             assert_eq!(g.zone(scout), Some(Zone::Battlefield), "it stays");
+        }
+    }
+}
+
+/// Glimpse of Freedom: "Draw a card. Escape—{2}{U}, Exile five other cards
+/// from your graveyard." With four other graveyard cards it offers no cast.
+/// With six, the graveyard cast pays {2}{U} instead of {1}{U} (CR 118.9),
+/// then exiles exactly five other cards, chosen one at a time; the
+/// resolved spell returns to the graveyard, not exile (CR 702.138a).
+#[test]
+fn glimpse_of_freedom_escapes_by_exiling_five_other_cards() {
+    for others in [4u32, 6] {
+        let mut fixture = board(&[(GLIMPSE_OF_FREEDOM, &[Cell::Escape])]).card(
+            "Glimpse of Freedom",
+            0,
+            0,
+            Zone::Graveyard { owner: PlayerId(0) },
+        );
+        for _ in 0..3 {
+            fixture = fixture.permanent_or_hand("Island", 0, 0, false);
+        }
+        for _ in 0..others {
+            fixture = fixture.card("Forest", 0, 0, Zone::Graveyard { owner: PlayerId(0) });
+        }
+        let mut g = Game::with_trace(
+            fixture.libraries("Island", 4).prepare(),
+            TraceMode::Detailed,
+        );
+        let escape = Action::Cast {
+            card: Driver::object(&g, 0),
+        };
+        let offered = actions(&mut g);
+        if others < 5 {
+            assert!(!offered.contains(&escape), "too few other cards to exile");
+            continue;
+        }
+        assert!(offered.contains(&escape));
+        Driver::action(&mut g, escape);
+        Driver::request(&mut g, u64::MAX);
+        assert_eq!(
+            g.state.rules.stack.last().unwrap().total_cost.generic,
+            Quantity::from(2),
+            "the escape cost replaces the mana cost"
+        );
+        Driver::pay(&mut g, &[1, 2, 3]);
+        for _ in 0..5 {
+            let d = expect(
+                &mut g,
+                0,
+                Reason::ChosenObjectCost {
+                    action: mtg_contracts::ChosenCostAction::ExileFromGraveyard,
+                },
+            );
+            checked(&g);
+            g.respond(d.player, d.id, d.pick_one(&d.candidates[0]).unwrap())
+                .unwrap();
+        }
+        resolve_all(&mut g);
+        assert_eq!(hand_size(&g, 0), 1, "it drew a card");
+        assert_eq!(
+            zone(&g, 0),
+            Some(Zone::Graveyard { owner: PlayerId(0) }),
+            "an escaped instant is not exiled"
+        );
+        let exiled = (4..4 + others)
+            .filter(|card| zone(&g, *card) == Some(Zone::Exile))
+            .count();
+        assert_eq!(exiled, 5);
+    }
+}
+
+/// The Develop policy plans retrace, escape and dash casts only from the
+/// engine quote, which includes God-Pharaoh's Statue's increase for its
+/// controller's opponents (CR 601.2f). With the Statue none is affordable
+/// and the policy passes; without it each is cast (and dash announced). An
+/// observation alone plans no graveyard cast and no dash.
+#[test]
+fn simulator_plans_graveyard_casts_and_dash_only_from_the_engine_quote() {
+    use mtg_sim::policy::{Policy, Strategy};
+    // (record, card, zone, lands on the battlefield, quoted generic without/with the Statue)
+    let cases: [(&str, &str, bool, &[&str], i64); 3] = [
+        (FLAME_JAB, "Flame Jab", true, &["Mountain"], 0),
+        (
+            GLIMPSE_OF_FREEDOM,
+            "Glimpse of Freedom",
+            true,
+            &["Island", "Island", "Island"],
+            2,
+        ),
+        (
+            MARDU_SCOUT,
+            "Mardu Scout",
+            false,
+            &["Mountain", "Forest"],
+            1,
+        ),
+    ];
+    for (record, name, graveyard, lands, generic) in cases {
+        for statue in [false, true] {
+            let zone = if graveyard {
+                Zone::Graveyard { owner: PlayerId(0) }
+            } else {
+                Zone::Hand { owner: PlayerId(0) }
+            };
+            let mut fixture = board(&[(record, &[]), (GOD_PHARAOHS_STATUE, &[])])
+                .card(name, 0, 0, zone)
+                // A land card to discard; the policy may play another first.
+                .permanent_or_hand("Plains", 0, 0, true)
+                .permanent_or_hand("Plains", 0, 0, true);
+            for land in lands {
+                fixture = fixture.permanent_or_hand(land, 0, 0, false);
+            }
+            for _ in 0..5 {
+                fixture = fixture.card("Swamp", 0, 0, Zone::Graveyard { owner: PlayerId(0) });
+            }
+            if statue {
+                fixture = fixture.permanent_or_hand("God-Pharaoh's Statue", 1, 1, false);
+            }
+            let mut g = Game::new(fixture.libraries("Island", 4).prepare());
+            let catalog = g.prepared.catalog.clone();
+            let mut strategy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
+            let pass = Candidate::Action {
+                action: Action::Pass,
+            };
+            let (answer, d) = loop {
+                let request = Driver::request(&mut g, u64::MAX);
+                let o = observation(&g, 0);
+                let d = o.decision.clone().unwrap();
+                assert_eq!(d.reason, Reason::Priority);
+                let answer = strategy.choose_with_game(&o, &g).unwrap();
+                let land = |a: &Answer| {
+                    matches!(a, Answer::Pick { picks } if matches!(
+                        d.candidate(picks[0][0]),
+                        Ok(Candidate::Action { action: Action::PlayLand { .. } })
+                    ))
+                };
+                if land(&answer) {
+                    g.respond(request.player, request.id, answer).unwrap();
+                    continue;
+                }
+                // An observation alone plans none of these casts.
+                let mut blind = Strategy::new(&catalog, Policy::Develop, [0; 4]);
+                let guess = blind.choose(&o).unwrap();
+                assert!(
+                    land(&guess) || guess == d.pick_one(&pass).unwrap(),
+                    "{name}: {guess:?}"
+                );
+                break (answer, d);
+            };
+            let cast = d
+                .candidates
+                .iter()
+                .find(|c| {
+                    matches!(
+                        c,
+                        Candidate::Action {
+                            action: Action::Cast { .. }
+                        }
+                    )
+                })
+                .unwrap()
+                .clone();
+            let Candidate::Action {
+                action: Action::Cast { card },
+            } = &cast
+            else {
+                unreachable!()
+            };
+            let quote = if graveyard {
+                g.quote_cast_cost(PlayerId(0), card, None).unwrap()
+            } else {
+                g.quote_alternative_cast_cost(PlayerId(0), card)
+                    .unwrap()
+                    .unwrap()
+                    .1
+            };
+            let increase = if statue { 2 } else { 0 };
+            assert_eq!(quote.generic, Quantity::from(generic + increase), "{name}");
+            if statue {
+                assert_eq!(answer, d.pick_one(&pass).unwrap(), "{name} with the Statue");
+                continue;
+            }
+            assert_eq!(answer, d.pick_one(&cast).unwrap(), "{name}");
         }
     }
 }

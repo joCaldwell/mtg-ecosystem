@@ -38,7 +38,9 @@ impl RulesTxn {
             || (object.zone == (Zone::Command { owner: player })
                 && self.state.rules.commanders.history(card).is_some())
             || (object.zone == (Zone::Graveyard { owner: player })
-                && (definition.flashback.is_some() || definition.retrace))
+                && (definition.flashback.is_some()
+                    || definition.retrace
+                    || definition.escape.is_some()))
             || (object.zone == Zone::Exile
                 && object.adventure_player == Some(player)
                 && face == CardFace::Front))
@@ -74,6 +76,24 @@ impl RulesTxn {
             })
         {
             return Err("retrace requires a land card to discard".into());
+        }
+        // CR 702.138a, 601.2b: an escape cast needs enough other cards to exile.
+        if let Some(escape) = &definition.escape
+            && object.zone == (Zone::Graveyard { owner: player })
+            && self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| {
+                    o.zone == (Zone::Graveyard { owner: player })
+                        && o.id.card != card
+                        && !self.state.rules.tokens.contains_key(&o.id.card)
+                })
+                .count()
+                < escape.exile_other as usize
+        {
+            return Err("escape requires other graveyard cards to exile".into());
         }
         if let Some(modal) = &definition.modal_spell
             && !self.modal_has_selection(modal, player, &definition.characteristics, None)

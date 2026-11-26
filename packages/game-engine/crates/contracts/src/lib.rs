@@ -1268,6 +1268,15 @@ pub const EVOKE_COST: &str = "evoke";
 /// haste and returns it to its owner's hand at the next end step.
 pub const DASH_COST: &str = "dash";
 
+/// CR 702.138a: "Escape—[mana], Exile [N] other cards from your graveyard":
+/// an alternative cost of a cast from its owner's graveyard.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EscapeCost {
+    pub mana: ManaCost,
+    #[schemars(range(min = 1))]
+    pub exile_other: u32,
+}
 /// CR 702.33a/e: one source-bound optional fixed mana declaration. The
 /// identity names the exact archived keyword; conditions cannot link by position.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1871,6 +1880,9 @@ pub struct Definition {
     /// graveyard by discarding a land card as an additional cost.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub retrace: bool,
+    /// CR 702.138a: the escape cost of a cast from its owner's graveyard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escape: Option<EscapeCost>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub delve: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

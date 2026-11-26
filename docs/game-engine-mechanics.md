@@ -303,8 +303,8 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   announced like evoke. The permanent a dashed spell or its copy becomes has
   haste, and its resolution creates the delayed trigger that returns that
   exact permanent to its owner's hand at the next end step (CR 603.7,
-  702.109a). Rebound, escape, cumulative upkeep, eternalize, embalm, madness
-  and scavenge reject as `keyword:<name>`.
+  702.109a). Rebound, cumulative upkeep, eternalize, embalm, madness and
+  scavenge reject as `keyword:<name>`.
 - **Flashback** (instant/sorcery without X or hybrid): cast from its owner's
   graveyard at normal timing (CR 702.34a, 118.9), exiled instead of leaving the
   stack any other way; an abandoned cast returns it to the graveyard (CR 733.1).
@@ -313,6 +313,12 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   owner's graveyard at normal timing for its mana cost, discarding one land
   card from hand as a chosen-object cost after mana; not offered without one,
   and the spell leaves the stack normally (CR 702.81a, 601.2h).
+- **Escape** ("Escape—[mana], Exile N other cards from your graveyard", no X,
+  hybrid, delve or other graveyard route): a graveyard cast whose fixed mana
+  replaces the mana cost and whose exile picks N other own graveyard cards
+  after mana; not offered with fewer, and the spell leaves the stack
+  normally (CR 118.9, 702.138a). Other escape costs and "escapes with"
+  reject. Develop plans retrace and escape only from the engine quote.
 - **Additional sacrifice**: "As an additional cost to cast this spell, sacrifice
   a/an [quality]" is paid after mana and not offered with nothing to sacrifice
   (CR 601.2b, 701.21a). Other additional costs reject as

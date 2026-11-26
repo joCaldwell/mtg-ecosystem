@@ -303,6 +303,9 @@ pub enum Cell {
     /// CR 702.81a: casting from the graveyard for the mana cost plus a
     /// discarded land card.
     Retrace,
+    /// CR 702.138a: casting from the graveyard for the escape mana while
+    /// exiling other graveyard cards.
+    Escape,
     /// CR 702.66: exile graveyard cards for generic mana during spell payment.
     Delve,
     /// CR 702.51: tap creatures to pay colored or generic mana costs.
@@ -470,6 +473,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Buyback
         | C::Flashback
         | C::Retrace
+        | C::Escape
         | C::Delve
         | C::Convoke
         | C::Improvise
@@ -742,6 +746,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if d.retrace {
         cells.insert(Cell::Retrace);
+    }
+    if d.escape.is_some() {
+        cells.insert(Cell::Escape);
     }
     match d.alternative_cost.as_ref().map(|c| c.identity.as_str()) {
         Some(crate::DASH_COST) => {

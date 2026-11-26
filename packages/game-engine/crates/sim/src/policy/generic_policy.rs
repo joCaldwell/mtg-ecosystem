@@ -1268,6 +1268,17 @@ impl Strategy<'_> {
         // CR 702.34a: a graveyard cast pays the flashback cost; CR 702.81a:
         // a retrace cast pays the mana cost and discards a land card.
         let flashback = o.zone == (Zone::Graveyard { owner: v.viewer }) && !d.retrace;
+        // CR 702.138a: an escape cast exiles other graveyard cards.
+        if o.zone == (Zone::Graveyard { owner: v.viewer })
+            && let Some(escape) = &d.escape
+            && v.objects
+                .iter()
+                .filter(|g| g.zone == o.zone && g.handle != o.handle && g.token.is_none())
+                .count()
+                < escape.exile_other as usize
+        {
+            return None;
+        }
         if o.zone == (Zone::Graveyard { owner: v.viewer })
             && d.retrace
             && !v.objects.iter().any(|h| {
@@ -1289,6 +1300,12 @@ impl Strategy<'_> {
         };
         let mut cost = match quote {
             Some((game, card)) => game.quote_cast_cost(v.viewer, card, x.as_ref()).ok()?,
+            // CR 601.2f, 702.81a, 702.138a: only the engine quote includes
+            // the increases and reductions that lock with a retrace or
+            // escape cast; an observation alone plans neither.
+            None if o.zone == (Zone::Graveyard { owner: v.viewer }) && !flashback => {
+                return None;
+            }
             None => {
                 let mut cost = match (&d.flashback, flashback) {
                     (Some(flashback), true) => flashback.clone(),
@@ -1751,7 +1768,7 @@ impl Strategy<'_> {
                     continue;
                 }
                 let d = definition(self.catalog, &o.oracle_id)?;
-                if graveyard && d.flashback.is_none() && !d.retrace {
+                if graveyard && d.flashback.is_none() && !d.retrace && d.escape.is_none() {
                     continue;
                 }
                 let Some(p) = &d.spell else { continue };

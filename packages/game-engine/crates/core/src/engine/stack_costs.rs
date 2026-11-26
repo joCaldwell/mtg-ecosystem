@@ -820,7 +820,7 @@ impl RulesTxn {
                     Zone::Graveyard { owner: from } => {
                         from == owner && {
                             let d = self.stack_definition(entry)?;
-                            d.flashback.is_some() || d.retrace
+                            d.flashback.is_some() || d.retrace || d.escape.is_some()
                         }
                     }
                     // CR 715.3d: an adventurer exiled by its resolving

@@ -1062,6 +1062,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
                 || face.source_labels.is_none()
                 || face.flashback.is_some()
                 || face.retrace
+                || face.escape.is_some()
         })
         || d.characteristics.front_face_mana_value.is_some()
         || adventure_subtype(d)
@@ -1386,6 +1387,21 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
             || d.spell.is_none())
     {
         return cell("keyword", "retrace");
+    }
+    // CR 702.138a: escape is the only graveyard route of a card whose own
+    // cost announces no X or hybrid choice; delve would race its exile.
+    if let Some(cost) = &d.escape
+        && (d.flashback.is_some()
+            || d.retrace
+            || d.delve
+            || d.spell.is_none()
+            || d.x_mana_cost
+            || !c.hybrid_mana.is_empty()
+            || cost.exile_other == 0
+            || cost.mana.generic.is_negative()
+            || cost.mana.colored.contains(&Color::C))
+    {
+        return cell("keyword", "escape");
     }
     // CR 702.74a, 118.9: evoke is a fixed mana alternative cost of a
     // permanent card whose own cost announces no X or hybrid choice, and the
