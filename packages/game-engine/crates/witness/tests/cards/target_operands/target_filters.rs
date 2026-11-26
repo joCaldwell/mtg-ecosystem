@@ -64,12 +64,15 @@ fn another_excludes_source_from_castability_and_choice() {
 
 #[test]
 fn elf_filter_offers_changeling_and_excludes_other_creatures() {
-    let prepared = board(&[(LODGE, &[Cell::UntapTarget], Tiers::EXECUTES)])
-        .permanent_or_hand("Wirewood Lodge", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Universal Automaton", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .prepare();
+    let prepared = board(&[
+        (LODGE, &[Cell::UntapTarget], Tiers::EXECUTES),
+        (AUTOMATON, &[], Tiers::EXECUTES),
+    ])
+    .permanent_or_hand("Wirewood Lodge", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Universal Automaton", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     activate(&mut g, 0, 0);
     let d = targets(&mut g);

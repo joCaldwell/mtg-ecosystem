@@ -119,6 +119,21 @@ fn target_occurrences_name_their_qualifier() {
         controlled.targets[0].filter.as_ref().unwrap().types,
         [CardKind::Creature]
     );
+    let mut grounded = program();
+    bind_creature_target(
+        &mut grounded,
+        &mut BTreeMap::new(),
+        &target(
+            json!({"filter":{"types":["creature"],"control":"you","withoutAbility":["flying"]}}),
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        grounded.targets[0].filter.as_ref().unwrap().predicate,
+        Some(Pred(vec![Atom::NotKeyword {
+            keyword: KeywordAbility::Flying
+        }]))
+    );
     for (extra, expected) in [
         (json!({"upTo":false}), "operand:target:up_to"),
         (
@@ -130,8 +145,8 @@ fn target_occurrences_name_their_qualifier() {
             "operand:target:count",
         ),
         (
-            json!({"filter":{"types":["creature"],"control":"you","withoutAbility":["flying"]}}),
-            "operand:creature_target:control",
+            json!({"filter":{"types":["creature"],"control":"you","withoutAbility":["banding"]}}),
+            "operand:target_filter:without_ability:banding",
         ),
     ] {
         let failure = bind_creature_target(&mut program(), &mut BTreeMap::new(), &target(extra))

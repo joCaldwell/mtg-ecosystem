@@ -3,7 +3,6 @@
 //! 903.9a and 903.10a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::PermanentFilter;
 use mtg_contracts::kir::{Ref, SetExpr};
 
 // See docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.

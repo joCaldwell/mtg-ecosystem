@@ -886,7 +886,10 @@ impl GameTestkit for Game {
         controller: PlayerId,
         f: &PermanentFilter,
     ) -> bool {
-        RulesTxn::matches_permanent_filter(self, object, controller, f)
+        self.current(object).is_ok_and(|current| {
+            crate::query::matches_permanent_filter(&self.object_facts(current), controller, f)
+                .is_yes()
+        })
     }
 
     fn mixed_mana_choices(
