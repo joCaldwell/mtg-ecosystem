@@ -759,7 +759,8 @@ impl Walk<'_, '_> {
         match verb {
             Verb::ReturnCapturedExile {}
             | Verb::ExileCapturedReturn {}
-            | Verb::SacrificeEncoreTokens {} => Ok(()),
+            | Verb::SacrificeEncoreTokens {}
+            | Verb::ReturnDashedToHand {} => Ok(()),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::GiveCounters { player, amount, .. }
@@ -1635,6 +1636,7 @@ impl Walk<'_, '_> {
             | Verb::ReturnCapturedExile {}
             | Verb::ExileCapturedReturn {}
             | Verb::SacrificeEncoreTokens {}
+            | Verb::ReturnDashedToHand {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
             | Verb::SetDesignation { .. }
@@ -1778,6 +1780,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::ReturnCapturedExile {}
         | Verb::ExileCapturedReturn {}
         | Verb::SacrificeEncoreTokens {}
+        | Verb::ReturnDashedToHand {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::SetDesignation { .. }

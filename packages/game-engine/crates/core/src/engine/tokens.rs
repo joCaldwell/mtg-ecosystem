@@ -284,6 +284,7 @@ impl RulesTxn {
                 marked_damage: Quantity::zero(),
                 deathtouch_damage: false,
                 unearthed: false,
+                dashed: false,
                 attack_ready: false,
                 id,
                 controller,

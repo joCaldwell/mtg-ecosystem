@@ -239,9 +239,7 @@ impl RulesTxn {
                 for subject in subjects {
                     let subject_index =
                         candidate_index(&mut candidates, Candidate::Object { object: subject });
-                    let required = attacking
-                        .then(|| self.required_defender(subject))
-                        .flatten();
+                    let required = attacking.then(|| self.required_defender(subject)).flatten();
                     let allowed: Vec<_> = if attacking {
                         self.live_players()
                             .into_iter()

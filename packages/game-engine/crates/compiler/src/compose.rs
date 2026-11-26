@@ -1134,6 +1134,18 @@ fn compose_face(
                                 .push(TriggeredAbility::evoke_sacrifice(label));
                             labels.triggered.push(label);
                         }
+                        // CR 702.109a: dash is an alternative cost of a
+                        // creature spell; the engine creates its return.
+                        [one] if one.keyword == mtg_contracts::DASH_COST => {
+                            if spell_kind
+                                || definition.spell.is_none()
+                                || definition.alternative_cost.is_some()
+                                || definition.characteristics.kind != CardKind::Creature
+                            {
+                                return Err(unsupported("keyword", "keyword:dash:source"));
+                            }
+                            definition.alternative_cost = Some(keywords::dash(one, label, text)?);
+                        }
                         // CR 702.84a: unearth is a graveyard ability of a
                         // permanent card.
                         [one] if one.keyword == "unearth" => {

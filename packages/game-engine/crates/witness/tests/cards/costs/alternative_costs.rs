@@ -1,7 +1,7 @@
 //! Alternative-cost and graveyard keywords from exact frozen R5 source on
 //! private boards: evoke (CR 702.74a, 118.9, 601.2b/f-h), unearth (CR
-//! 702.84a, 603.7, 614.1a), encore (CR 702.141a, 508.1d) and retrace (CR
-//! 702.81a, 601.2h). Every choice is checked for state validity and
+//! 702.84a, 603.7, 614.1a), encore (CR 702.141a, 508.1d), retrace (CR
+//! 702.81a, 601.2h) and dash (CR 702.109a). Every choice is checked for state validity and
 //! an exact snapshot round trip; finished resolutions replay from their
 //! journal.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -24,6 +24,7 @@ const GRIPTIDE: &str = record!("5a6bbc45-6cb8-40ff-9f7c-7b2c5713dd78");
 const GOD_PHARAOHS_STATUE: &str = record!("183954d2-7b40-4c7e-adfa-d80191ab5ad6");
 const IMPULSIVE_PILFERER: &str = record!("7d9fc9e7-d80b-49c3-871c-ed25b3059ae8");
 const FLAME_JAB: &str = record!("05eccdee-84f8-42d5-b79c-36d081656915");
+const MARDU_SCOUT: &str = record!("c18ab011-c5e0-4174-b623-d89e4d745ce6");
 
 fn evoke_candidate(d: &Decision<Rules>) -> bool {
     matches!(
@@ -325,7 +326,7 @@ fn dregscape_zombie_unearths_with_haste_and_is_exiled() {
         assert_recoverable((&g).into());
         assert_eq!(zone(&g, 0), Some(exile));
         if !bolted {
-            assert_eq!(life(&g, 1), plus(&Quantity::from(40), -2), "it attacked");
+            assert_eq!(life(&g, 1), plus(&Quantity::from(40), -3), "the 3/1 attacked");
         }
     }
 }
@@ -574,7 +575,10 @@ fn impulsive_pilferer_encore_copies_attack_each_opponent_and_are_sacrificed() {
         let (from_graveyard, from_hand) = (encore(&g, 0), encore(&g, 1));
         let offered = actions(&mut g);
         assert!(offered.contains(&from_graveyard));
-        assert!(!offered.contains(&from_hand), "a hand card offers no encore");
+        assert!(
+            !offered.contains(&from_hand),
+            "a hand card offers no encore"
+        );
         Driver::action(&mut g, from_graveyard);
         Driver::pay(&mut g, &[2, 3, 4, 5]);
         assert_eq!(zone(&g, 0), Some(Zone::Exile), "the cost exiles the card");
@@ -645,9 +649,11 @@ fn impulsive_pilferer_encore_copies_attack_each_opponent_and_are_sacrificed() {
             .values()
             .filter(|o| {
                 o.zone == Zone::Battlefield
-                    && g.state.rules.tokens.get(&o.id.card).is_some_and(|t| {
-                        t.definition.characteristics.subtypes == ["Treasure"]
-                    })
+                    && g.state
+                        .rules
+                        .tokens
+                        .get(&o.id.card)
+                        .is_some_and(|t| t.definition.characteristics.subtypes == ["Treasure"])
             })
             .count();
         assert_eq!(treasures, 3, "each copy that died made a Treasure");
@@ -686,7 +692,11 @@ fn flame_jab_retraces_from_the_graveyard_by_discarding_a_land() {
     let cast = retrace(&g);
     Driver::action(&mut g, cast);
     let d = Driver::request(&mut g, u64::MAX);
-    let target = d.pick_one(&Candidate::Player { player: PlayerId(1) }).unwrap();
+    let target = d
+        .pick_one(&Candidate::Player {
+            player: PlayerId(1),
+        })
+        .unwrap();
     g.respond(d.player, d.id, target).unwrap();
     Driver::pay(&mut g, &[1]);
     let d = expect(
@@ -713,4 +723,63 @@ fn flame_jab_retraces_from_the_graveyard_by_discarding_a_land() {
         "a retraced spell is not exiled"
     );
     assert_eq!(zone(&g, 2), Some(Zone::Hand { owner: PlayerId(0) }));
+}
+
+/// Mardu Scout: "Dash {1}{R}." Announcing dash replaces {R}{R} with {1}{R}
+/// (CR 118.9); the permanent it becomes has haste, attacks the turn it
+/// arrives, and the delayed trigger returns it to its owner's hand at the
+/// next end step (CR 702.109a, 603.7). Declining pays {R}{R}: the Scout has
+/// no haste, is not offered as an attacker and stays on the battlefield.
+#[test]
+fn mardu_scout_dash_gives_haste_and_returns_it_at_end_step() {
+    for dash in [true, false] {
+        let mut g = Game::with_trace(
+            board(&[(MARDU_SCOUT, &[Cell::Dash])])
+                .permanent_or_hand("Mardu Scout", 0, 0, true)
+                .permanent_or_hand("Mountain", 0, 0, false)
+                .permanent_or_hand(if dash { "Forest" } else { "Mountain" }, 0, 0, false)
+                .libraries("Island", 4)
+                .prepare(),
+            TraceMode::Detailed,
+        );
+        Driver::cast(&mut g, CardId(0));
+        let d = expect(&mut g, 0, Reason::AdditionalCosts);
+        assert!(
+            matches!(d.candidates.as_slice(), [Candidate::AdditionalCost { id, mana }]
+                if id == mtg_contracts::DASH_COST && mana.generic == Quantity::from(1)),
+            "{d:?}"
+        );
+        let picks = if dash { vec![0] } else { vec![] };
+        g.respond(d.player, d.id, Answer::Pick { picks: vec![picks] })
+            .unwrap();
+        Driver::request(&mut g, u64::MAX);
+        checked(&g);
+        Driver::pay(&mut g, &[1, 2]);
+        resolve_all(&mut g);
+        let scout = Driver::object(&g, 0);
+        assert_eq!(g.zone(scout), Some(Zone::Battlefield));
+        let d = advance(&mut g, &[], |_, d| d.reason == Reason::Attackers);
+        let offered = d
+            .candidates
+            .iter()
+            .any(|c| matches!(c, Candidate::Object { object } if *object == scout));
+        assert_eq!(offered, dash, "only a dashed Scout has haste");
+        let attack = if dash { vec![(scout, PlayerId(1))] } else { vec![] };
+        g.respond(d.player, d.id, d.attack(attack)).unwrap();
+        advance(&mut g, &[], |g, d| {
+            d.reason == Reason::Priority
+                && g.state.rules.turn.step == TurnStep::End
+                && g.state.rules.stack.is_empty()
+                && (!dash || zone(g, 0) == Some(Zone::Hand { owner: PlayerId(0) }))
+        });
+        checked(&g);
+        assert_recoverable((&g).into());
+        if dash {
+            assert_eq!(life(&g, 1), plus(&Quantity::from(40), -3), "the 3/1 attacked");
+            assert_eq!(zone(&g, 0), Some(Zone::Hand { owner: PlayerId(0) }));
+        } else {
+            assert_eq!(life(&g, 1), Quantity::from(40));
+            assert_eq!(g.zone(scout), Some(Zone::Battlefield), "it stays");
+        }
+    }
 }

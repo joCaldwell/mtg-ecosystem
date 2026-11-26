@@ -320,6 +320,9 @@ pub enum Cell {
     /// CR 702.141a: the graveyard exile cost, per-opponent token copies with
     /// haste and their attack requirement, and the end-step sacrifice.
     Encore,
+    /// CR 702.109a: the dash alternative cost, the haste it grants and the
+    /// end-step return of the permanent the spell became.
+    Dash,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -474,6 +477,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Echo
         | C::Unearth
         | C::Encore
+        | C::Dash
         | C::SacrificeSource => Tiers::EXECUTES,
     }
 }
@@ -739,8 +743,14 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     if d.retrace {
         cells.insert(Cell::Retrace);
     }
-    if d.alternative_cost.is_some() {
-        cells.insert(Cell::Evoke);
+    match d.alternative_cost.as_ref().map(|c| c.identity.as_str()) {
+        Some(crate::DASH_COST) => {
+            cells.insert(Cell::Dash);
+        }
+        Some(_) => {
+            cells.insert(Cell::Evoke);
+        }
+        None => {}
     }
     if d.triggered.iter().any(|t| {
         matches!(

@@ -123,6 +123,9 @@ pub struct ObjectBefore {
     /// CR 702.84a: `Object::unearthed` as last known.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unearthed: bool,
+    /// CR 702.109a: `Object::dashed` as last known.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dashed: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2087,6 +2090,7 @@ impl RulesTxn {
                 attack_ready: false,
                 deathtouch_damage: false,
                 unearthed: false,
+                dashed: false,
                 id: successor,
                 controller,
                 default_controller: controller,

@@ -1264,6 +1264,9 @@ pub const BUYBACK_COST: &str = "buyback";
 /// CR 702.74a: the alternative cost whose payment makes the entering
 /// permanent's controller sacrifice it.
 pub const EVOKE_COST: &str = "evoke";
+/// CR 702.109a: the alternative cost whose payment gives the permanent
+/// haste and returns it to its owner's hand at the next end step.
+pub const DASH_COST: &str = "dash";
 
 /// CR 702.33a/e: one source-bound optional fixed mana declaration. The
 /// identity names the exact archived keyword; conditions cannot link by position.

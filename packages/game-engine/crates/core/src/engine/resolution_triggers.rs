@@ -8,9 +8,18 @@ use mtg_contracts::kir::{DelayedEvent, Node};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CreatorProgram {
-    Spell { mode: Option<u8> },
-    Activated { index: u32 },
-    Triggered { index: u32 },
+    Spell {
+        mode: Option<u8>,
+    },
+    /// CR 702.109a: a resolved spell whose dash cost was paid; the row
+    /// carries the delayed trigger, which no program prints.
+    Dash,
+    Activated {
+        index: u32,
+    },
+    Triggered {
+        index: u32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +59,9 @@ pub struct ResolutionTrigger {
     watched: Option<ObjectId>,
     firing: Option<Firing>,
     retired: bool,
+    /// CR 702.109a: the engine-created dash return (`CreatorProgram::Dash`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dash_return: Option<Node>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +105,7 @@ impl CreatorProgram {
             Self::Triggered { index } => {
                 definition.triggered.get(index as usize).map(|a| &a.program)
             }
+            Self::Dash => None,
         }
     }
 }
@@ -103,7 +116,8 @@ impl ResolutionTrigger {
             DelayedEvent::NextEndStep
             | DelayedEvent::NextEndStepAfterExile { .. }
             | DelayedEvent::NextEndStepAfterUnearth
-            | DelayedEvent::NextEndStepAfterEncore => {
+            | DelayedEvent::NextEndStepAfterEncore
+            | DelayedEvent::NextEndStepAfterDash => {
                 let offset = u64::from(matches!(self.step, TurnStep::End | TurnStep::Cleanup));
                 step == TurnStep::End && self.turn.checked_add(offset) == Some(turn)
             }
@@ -125,7 +139,16 @@ impl ResolutionTrigger {
 }
 
 impl RulesTxn {
-    fn resolution_trigger_node(&self, row: &ResolutionTrigger) -> Result<&Node, String> {
+    fn resolution_trigger_node<'a>(
+        &'a self,
+        row: &'a ResolutionTrigger,
+    ) -> Result<&'a Node, String> {
+        if row.creator_program == CreatorProgram::Dash {
+            return row
+                .dash_return
+                .as_ref()
+                .ok_or_else(|| "missing dash return".into());
+        }
         let definition = self.face_definition(row.source.card, row.source_face)?;
         let program = row
             .creator_program
@@ -207,6 +230,7 @@ impl RulesTxn {
             watched,
             firing: None,
             retired: false,
+            dash_return: None,
         };
         if self
             .rules_mut()
@@ -218,6 +242,104 @@ impl RulesTxn {
         }
         self.check_history_capacity()?;
         Ok(())
+    }
+
+    /// CR 702.109a, 603.7: a spell whose dash cost was paid resolved into
+    /// `movement`'s permanent: mark it (haste) and create the trigger that
+    /// returns it to its owner's hand at the next end step.
+    pub(super) fn register_dash_return(
+        &mut self,
+        creator: StackId,
+        controller: PlayerId,
+        source_facts: ObjectBefore,
+        movement: MoveOutcome,
+    ) -> Result<(), String> {
+        let block = self
+            .copiable_definition(source_facts.object)?
+            .alternative_cost
+            .as_ref()
+            .filter(|c| c.identity == mtg_contracts::DASH_COST)
+            .ok_or("dash return without a dash cost")?
+            .source_block;
+        self.rules_mut()
+            .objects
+            .get_mut(&movement.successor.card)
+            .ok_or("missing dashed permanent")?
+            .dashed = true;
+        if !self.is_live(controller) {
+            return Ok(());
+        }
+        let row = ResolutionTrigger {
+            source: source_facts.object,
+            source_face: source_facts.object.face,
+            source_transforms: 0,
+            controller,
+            creator_program: CreatorProgram::Dash,
+            cursor: 0,
+            first_batch: self.state.rules.next_batch_id,
+            turn: self.state.rules.turn.number,
+            step: self.state.rules.turn.step,
+            capture: Some(Capture {
+                target: source_facts.object,
+                actual: movement,
+            }),
+            source_facts,
+            watched: None,
+            firing: None,
+            retired: false,
+            dash_return: Some(Node::dash_return(block)),
+        };
+        if self
+            .rules_mut()
+            .resolution_triggers
+            .insert(creator, row)
+            .is_some()
+        {
+            return Err("duplicate resolution trigger creator".into());
+        }
+        self.check_history_capacity()?;
+        Ok(())
+    }
+
+    /// CR 702.109a, 603.7c: return the dashed permanent to its owner's hand
+    /// if it is still the object the spell became.
+    pub(super) fn execute_dash_return(
+        &mut self,
+        frame: Resolving,
+        block: u32,
+    ) -> Result<(), String> {
+        let entry = self.entry(frame.stack_id)?;
+        let StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Followup { creator },
+            ..
+        } = entry.kind
+        else {
+            return Err("dash return has no delayed invocation".into());
+        };
+        let row = self
+            .state
+            .rules
+            .resolution_triggers
+            .get(&creator)
+            .ok_or("missing dash return origin")?;
+        let target = row.capture.as_ref().map(|capture| capture.actual.successor);
+        let actual = match target {
+            Some(target)
+                if self.current(target).is_ok_and(|object| {
+                    object.id == target && object.zone == Zone::Battlefield
+                }) =>
+            {
+                let owner = self.state.rules.cards[&target.card].owner;
+                let movement = self.move_object_for(
+                    target,
+                    Zone::Hand { owner },
+                    self.instruction_cause(&frame, block)?,
+                )?;
+                Some(EventOutcome::Moved { movement })
+            }
+            _ => None,
+        };
+        self.finish_instruction(frame, InstructionOutcome::Effect { actual })
     }
 
     pub(super) fn execute_delayed_trigger(
@@ -882,9 +1004,23 @@ impl RulesTxn {
                 return Err("resolution trigger origin invariant".into());
             }
             self.validate_fact_identity(&row.source_facts)?;
-            if matches!(row.creator_program, CreatorProgram::Spell { .. })
-                && (row.source_facts.zone != Zone::Stack
-                    || row.source_facts.controller != row.controller)
+            // CR 702.109a: only a resolved dash spell creates its own return.
+            if (row.creator_program == CreatorProgram::Dash) != row.dash_return.is_some()
+                || row.dash_return.as_ref().is_some_and(|node| {
+                    self.copiable_definition(row.source)
+                        .ok()
+                        .and_then(|d| d.alternative_cost.as_ref())
+                        .filter(|c| c.identity == mtg_contracts::DASH_COST)
+                        .is_none_or(|c| *node != Node::dash_return(c.source_block))
+                })
+            {
+                return Err("resolution trigger dash return invariant".into());
+            }
+            if matches!(
+                row.creator_program,
+                CreatorProgram::Spell { .. } | CreatorProgram::Dash
+            ) && (row.source_facts.zone != Zone::Stack
+                || row.source_facts.controller != row.controller)
             {
                 return Err("resolution trigger spell controller invariant".into());
             }
@@ -919,12 +1055,22 @@ impl RulesTxn {
                     if let Some(capture) = &row.capture {
                         let movement = &capture.actual;
                         // CR 702.84a: unearth captures its own return.
-                        let landed = if *event == DelayedEvent::NextEndStepAfterUnearth {
+                        let landed = if matches!(
+                            event,
+                            DelayedEvent::NextEndStepAfterUnearth
+                                | DelayedEvent::NextEndStepAfterDash
+                        ) {
                             Zone::Battlefield
                         } else {
                             Zone::Exile
                         };
                         let bound = match event {
+                            // CR 702.109a: the spell's own resolution.
+                            DelayedEvent::NextEndStepAfterDash => {
+                                movement.from == Zone::Stack
+                                    && capture.target == row.source
+                                    && row.creator_program == CreatorProgram::Dash
+                            }
                             DelayedEvent::NextEndStepAfterUnearth => {
                                 movement.from
                                     == (Zone::Graveyard {
@@ -976,6 +1122,7 @@ impl RulesTxn {
                         event,
                         DelayedEvent::NextEndStepAfterExile { .. }
                             | DelayedEvent::NextEndStepAfterUnearth
+                            | DelayedEvent::NextEndStepAfterDash
                     ) {
                         return Err("resolution trigger lacks exile movement".into());
                     }
@@ -987,7 +1134,8 @@ impl RulesTxn {
                         DelayedEvent::NextEndStep
                         | DelayedEvent::NextEndStepAfterExile { .. }
                         | DelayedEvent::NextEndStepAfterUnearth
-                        | DelayedEvent::NextEndStepAfterEncore => {
+                        | DelayedEvent::NextEndStepAfterEncore
+                        | DelayedEvent::NextEndStepAfterDash => {
                             clock.end.as_ref().is_some_and(after)
                         }
                         DelayedEvent::NextTurnUpkeep => clock

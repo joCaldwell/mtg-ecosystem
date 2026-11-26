@@ -3670,6 +3670,8 @@ impl RulesTxn {
                                         // CR 702.84a: unearth grants haste.
                                         || (*keyword == KeywordAbility::Haste
                                             && (d.source.unearthed
+                                                // CR 702.109a: so does dash.
+                                                || d.source.dashed
                                                 // CR 702.141a: so does encore.
                                                 || matches!(
                                                     self.state.rules.tokens.get(&d.source.object.card),

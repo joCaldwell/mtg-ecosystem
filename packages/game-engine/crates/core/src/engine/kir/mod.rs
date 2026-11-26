@@ -130,6 +130,9 @@ impl RulesTxn {
         if matches!(node, Node::Do(Verb::ExileCapturedReturn {})) {
             return self.execute_captured_exile(frame, source_block);
         }
+        if matches!(node, Node::Do(Verb::ReturnDashedToHand {})) {
+            return self.execute_dash_return(frame, source_block);
+        }
         if matches!(node, Node::Do(Verb::SacrificeEncoreTokens {})) {
             return self.execute_encore_sacrifice(frame, source_block);
         }

@@ -530,6 +530,20 @@ pub(super) fn evoke(
     })
 }
 
+/// CR 702.109a: "Dash [cost]" is an alternative cost of this creature
+/// spell; its haste and end-step return follow from paying it.
+pub(super) fn dash(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<OptionalAdditionalManaCost, Failure> {
+    Ok(OptionalAdditionalManaCost {
+        identity: mtg_contracts::DASH_COST.into(),
+        source_block: block,
+        mana: keyword_mana(keyword, "Dash", text)?,
+    })
+}
+
 /// CR 702.30a: "Echo [cost]" is the upkeep trigger
 /// [`TriggeredAbility::echo`] paying one fixed mana cost.
 pub(super) fn echo(

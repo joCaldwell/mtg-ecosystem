@@ -1058,7 +1058,10 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         || source["color_identity"]
             != serde_json::to_value(&d.characteristics.color_identity).map_err(|e| e.to_string())?
         || [d, back].into_iter().zip(printed).any(|(face, source)| {
-            source["name"] != face.name || face.source_labels.is_none() || face.flashback.is_some() || face.retrace
+            source["name"] != face.name
+                || face.source_labels.is_none()
+                || face.flashback.is_some()
+                || face.retrace
         })
         || d.characteristics.front_face_mana_value.is_some()
         || adventure_subtype(d)
@@ -1411,6 +1414,16 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && !cost.mana.colored.contains(&Color::C)
                 && matches!(evoke_triggers.as_slice(), [t]
                     if **t == TriggeredAbility::evoke_sacrifice(cost.source_block)) => {}
+        // CR 702.109a: dash is a fixed mana alternative cost of a creature
+        // card whose own cost announces no X or hybrid choice.
+        Some(cost)
+            if cost.identity == crate::DASH_COST
+                && evoke_triggers.is_empty()
+                && c.kind == CardKind::Creature
+                && !d.x_mana_cost
+                && c.hybrid_mana.is_empty()
+                && !cost.mana.generic.is_negative()
+                && !cost.mana.colored.contains(&Color::C) => {}
         _ => return cell("keyword", "evoke"),
     }
     // CR 702.30a: an echo trigger is exactly the keyword's own ability on a

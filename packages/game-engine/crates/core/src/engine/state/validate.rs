@@ -191,9 +191,9 @@ impl RulesTxn {
         if s.rules
             .objects
             .values()
-            .any(|o| o.unearthed && o.zone != Zone::Battlefield)
+            .any(|o| (o.unearthed || o.dashed) && o.zone != Zone::Battlefield)
         {
-            return Err("unearthed object off the battlefield".into());
+            return Err("unearthed or dashed object off the battlefield".into());
         }
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.

@@ -136,6 +136,24 @@ impl SpellProgram {
     }
 }
 
+/// CR 702.109a, 603.7: the delayed trigger a resolving spell whose dash
+/// cost was paid creates: "return the permanent this spell becomes to its
+/// owner's hand at the beginning of the next end step". The dash keyword
+/// line `block` prints it.
+impl kir::Node {
+    pub fn dash_return(block: u32) -> Self {
+        let mut body = SpellProgram::instructions(SpellTiming::Instant);
+        body.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::ReturnDashedToHand {}),
+        });
+        kir::Node::Delayed {
+            event: kir::DelayedEvent::NextEndStepAfterDash,
+            program: Box::new(body),
+        }
+    }
+}
+
 impl TriggeredAbility {
     /// CR 702.74a: "When this permanent enters, if its evoke cost was paid,
     /// its controller sacrifices it." The keyword line `block` prints it.
