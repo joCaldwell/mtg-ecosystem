@@ -1134,14 +1134,18 @@ impl RulesTxn {
             } => {
                 use mtg_contracts::kir::DistinctCharacteristic as D;
                 let mut seen = BTreeSet::new();
+                // CR 205.2a: card types are counted over every represented
+                // type (`CardKind::CARD_TYPES`, exhaustive by construction).
+                let mut types = [false; CardKind::CARD_TYPES.len()];
                 for (_, c) in self.characteristic_set(source, set)? {
                     match characteristic {
-                        // CR 205.2a: each card type the object has.
-                        D::CardType => seen.extend(
-                            std::iter::once(c.kind)
-                                .chain(c.additional_types.iter().copied())
-                                .map(|kind| format!("{kind:?}")),
-                        ),
+                        D::CardType => {
+                            for kind in
+                                std::iter::once(c.kind).chain(c.additional_types.iter().copied())
+                            {
+                                types[kind.card_type_index()] = true;
+                            }
+                        }
                         // CR 205.3i: the five basic land types.
                         D::BasicLandType => seen.extend(
                             c.subtypes
@@ -1163,7 +1167,8 @@ impl RulesTxn {
                         ),
                     }
                 }
-                Quantity::from(seen.len() as i64)
+                let card_types = types.iter().filter(|counted| **counted).count();
+                Quantity::from((seen.len() + card_types) as i64)
             }
             _ => return Err("characteristic-defining amount has no evaluation".into()),
         })

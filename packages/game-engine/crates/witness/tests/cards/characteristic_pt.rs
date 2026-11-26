@@ -19,6 +19,9 @@ const TARMOGOYF: &str = record!("45900b2f-f6a9-4c42-9642-008f3c1cf6dd");
 const LHURGOYF: &str = record!("0fe76004-b2f4-4b11-abce-75fd76f68b4d");
 const PSYCHOSIS_CRAWLER: &str = record!("2876e74f-a242-4995-9702-0b737a1ab67a");
 const SOUL_OF_ETERNITY: &str = record!("4d211447-9f18-4d23-8f19-cdf6ad3c68ba");
+const GODHEAD_OF_AWE: &str = record!("1ed5751a-4b45-4cd2-b19c-ac84508de4f8");
+const SQUAWKROASTER: &str = record!("6b79404b-2fae-41fb-994c-d4cd895e8f09");
+const NISHOBA_BRAWLER: &str = record!("c501e577-5137-4dd6-b923-95408b78258a");
 
 fn lowered(raw: &str) -> Definition {
     let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
@@ -215,4 +218,83 @@ fn zero_toughness_cda_creature_dies() {
     assert_eq!(g.zone(Driver::object(&g, 1)), Some(Zone::Battlefield));
     assert_eq!(pt(&g, 0), (q(0), q(0)));
     assert_recoverable((&g).into());
+}
+
+/// CR 205.2a: Tarmogoyf counts every represented card type once, so one
+/// graveyard card of each type makes it `CARD_TYPES.len()` / that plus 1;
+/// an artifact creature adds no new type.
+#[test]
+fn tarmogoyf_counts_every_represented_card_type() {
+    let g = game(&[TARMOGOYF], |b| {
+        let b = b.permanent_or_hand("Tarmogoyf", 0, 0, false);
+        [
+            "Forest",
+            "Grizzly Bears",
+            "Lightning Bolt",
+            "Sign in Blood",
+            "Glorious Anthem",
+            "Sol Ring",
+            "Darksteel Myr",
+        ]
+        .into_iter()
+        .fold(b, |b, name| b.card(name, 1, 1, graveyard(1)))
+    });
+    let all = i64::try_from(CardKind::CARD_TYPES.len()).unwrap();
+    assert_eq!(pt(&g, 0), (q(all), q(all + 1)));
+    checked(&g);
+}
+
+/// CR 205.3i, 305.6: domain counts the basic land types among lands its
+/// controller controls; a nonbasic land without a basic land type and an
+/// opponent's Mountain add nothing.
+#[test]
+fn domain_counts_basic_land_types_you_control() {
+    let g = game(&[NISHOBA_BRAWLER], |b| {
+        b.permanent_or_hand("Nishoba Brawler", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Yavimaya Coast", 0, 0, false)
+            .permanent_or_hand("Mountain", 1, 1, false)
+    });
+    assert_eq!(pt(&g, 0).0, q(2));
+    checked(&g);
+}
+
+/// CR 105.1, 105.2: colors among permanents you control, the source
+/// included; colorless permanents and an opponent's colors add nothing.
+#[test]
+fn vivid_counts_colors_among_your_permanents() {
+    let g = game(&[SQUAWKROASTER], |b| {
+        b.permanent_or_hand("Squawkroaster", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Storm Crow", 0, 0, false)
+            .permanent_or_hand("Sol Ring", 0, 0, false)
+            .permanent_or_hand("Typhoid Rats", 1, 1, false)
+    });
+    assert_eq!(pt(&g, 0).0, q(3));
+    checked(&g);
+}
+
+/// CR 613.4a-c: Godhead of Awe's base 1/1 (layer 7b) overrides the CDA's
+/// 7a value, and Glorious Anthem's +1/+1 (7c) still applies after it.
+#[test]
+fn a_later_base_setter_overrides_the_cda() {
+    let g = game(&[TARMOGOYF, GODHEAD_OF_AWE], |b| {
+        b.permanent_or_hand("Tarmogoyf", 0, 0, false)
+            .permanent_or_hand("Godhead of Awe", 1, 1, false)
+            .permanent_or_hand("Glorious Anthem", 0, 0, false)
+            .card("Grizzly Bears", 1, 1, graveyard(1))
+            .card("Lightning Bolt", 1, 1, graveyard(1))
+    });
+    assert_eq!(pt(&g, 0), (q(2), q(2)));
+    // Without the setter the 7a value is 2/3, plus the anthem.
+    let g = game(&[TARMOGOYF], |b| {
+        b.permanent_or_hand("Tarmogoyf", 0, 0, false)
+            .permanent_or_hand("Glorious Anthem", 0, 0, false)
+            .card("Grizzly Bears", 1, 1, graveyard(1))
+            .card("Lightning Bolt", 1, 1, graveyard(1))
+    });
+    assert_eq!(pt(&g, 0), (q(3), q(4)));
+    checked(&g);
 }

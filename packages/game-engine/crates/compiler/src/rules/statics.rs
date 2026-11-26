@@ -241,7 +241,15 @@ fn cda_set(filter: &ast::ObjectFilter) -> Result<SetExpr, Failure> {
     if zone != ZoneExpr::Battlefield && terms.cls == Some(ast::ObjectFilterCls::Card) {
         terms.cls = None;
     }
-    let filter = static_filter(&terms)?;
+    // A filter term outside the static tables (snow, face-down, ...)
+    // rejects in the CDA family.
+    let filter = lower_static_filter(&terms).map_err(|e| {
+        let term = e
+            .reason
+            .strip_prefix("operand:filter:")
+            .unwrap_or(&e.reason);
+        gap(&format!("cda-pt:filter:{term}"))
+    })?;
     if matches!(zone, ZoneExpr::Hand { .. }) && !filter.0.is_empty() {
         return Err(gap("cda-pt:filtered-hand"));
     }

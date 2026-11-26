@@ -515,7 +515,8 @@ stat (`StaticEffect::DefinePowerToughness`, functioning zone `Any`; CR 208.2a,
 and counters (CR 613.4a), whenever it is read; nothing locks it in, so SBAs see
 a live zero toughness (CR 704.5f). Values: counts of permanents, graveyard cards
 or whole hands; `Times`, `Sum` (the printed `N` is its one fixed term), greatest
-mana value, devotion and `Distinct` card types, basic land types or colors. They
+mana value, devotion and `Distinct` card types (exhaustive over
+`CardKind::CARD_TYPES`, CR 205.2a), basic land types or colors. They
 read layers 1–5 of other objects, never P/T or abilities. Chosen players, life
 totals, counters, event objects, exile and other values reject under
 `static:cda-pt:*`; a star without a CDA rejects under `source.power` or

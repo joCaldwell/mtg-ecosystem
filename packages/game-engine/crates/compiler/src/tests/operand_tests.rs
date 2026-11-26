@@ -516,4 +516,20 @@ fn printed_stars_need_their_characteristic_defining_ability() {
     .unwrap()
     .unwrap_err();
     assert_eq!(code(life), "static:cda-pt:amount:life_total");
+    for (filter, expected) in [
+        (
+            json!({"control":"you","supertypes":["snow"]}),
+            "static:cda-pt:filter:supertypes:snow",
+        ),
+        (
+            json!({"types":["creature"],"status":["face-down"]}),
+            "static:cda-pt:filter:status:face-down",
+        ),
+    ] {
+        let failure = characteristic_pt(&json!({"static":"cda-pt","what":{"ref":"self"},
+            "stat":"both","value":{"amount":"count","of":filter}}))
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(code(failure), expected);
+    }
 }
