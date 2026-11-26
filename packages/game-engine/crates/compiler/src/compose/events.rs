@@ -205,6 +205,7 @@ pub(super) fn object_effect(
             .map(|raw| intervening(raw, &pattern))
             .transpose()?
             .map(|i| i.condition()),
+        once_each_turn: false,
         pattern,
     };
     program.instructions.push(instruction);
@@ -285,6 +286,40 @@ pub(super) fn general(
         };
         let what: ast::ObjectRef = typed(what, "trigger.what")?;
         Ok(Some((kind, subject(card, &what)?)))
+    }
+    // CR 119.9, 701.9a, 701.21a: a player event named by "you", "an
+    // opponent" or "a player". A sacrificed permanent is matched on the
+    // battlefield immediately before it moved (CR 603.10a); a discarded or
+    // life-gain event has no object filter here.
+    if let Some(kind @ ("gains-life" | "discards" | "sacrifices")) = trigger["trigger"].as_str() {
+        let Some(fields) = trigger.as_object() else {
+            return Ok(None);
+        };
+        let allowed = if kind == "sacrifices" { 3 } else { 2 };
+        if fields.len() != allowed || (kind == "sacrifices") != fields.contains_key("what") {
+            return Ok(None);
+        }
+        let player = match &trigger["who"] {
+            who if *who == serde_json::json!({"player": "you"}) => {
+                PlayerExpr::you(Context::Triggered)
+            }
+            who if *who == serde_json::json!({"player": "an-opponent"}) => PlayerExpr::EachOpponent,
+            who if *who == serde_json::json!({"player": "a-player"}) => PlayerExpr::EachPlayer,
+            _ => return Ok(None),
+        };
+        return Ok(Some(match kind {
+            "gains-life" => EventPattern::GainsLife { player, nth: None },
+            "discards" => EventPattern::Discards { player },
+            _ => {
+                let what = &trigger["what"];
+                let object = if what.get("ref").is_some() {
+                    subject(card, &typed(what, "trigger.what")?)?
+                } else {
+                    lower_event_filter(&typed(what, "trigger.what")?)?
+                };
+                EventPattern::Sacrifices { player, object }
+            }
+        }));
     }
     if trigger["trigger"] == "becomes-target"
         && trigger.as_object().is_some_and(|fields| fields.len() == 3)

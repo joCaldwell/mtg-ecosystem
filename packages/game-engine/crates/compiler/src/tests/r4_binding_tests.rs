@@ -42,6 +42,7 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
             TriggerCondition::on(EventPattern::Cast {
                 caster: PlayerExpr::EachOpponent,
                 spell: Pred::default(),
+                nth: None,
             }),
         ),
         (
@@ -49,6 +50,7 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
             "draws",
             TriggerCondition::on(EventPattern::Draws {
                 player: PlayerExpr::EachOpponent,
+                nth: None,
             }),
         ),
     ] {

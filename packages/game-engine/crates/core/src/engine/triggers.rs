@@ -91,14 +91,39 @@ struct TriggerOccurrences<'a> {
     )>,
 }
 
-/// Semantic successful-cast ledger, independent of observers and tracing.
-/// Original physical seats never compact on departure (CR 601.2i/800.4).
+/// Semantic per-turn player ledger, independent of observers and tracing:
+/// successful casts, draws and life-gain events since the turn began, whether
+/// or not any observer was on the battlefield (CR 603.2). Original physical
+/// seats never compact on departure (CR 601.2i/800.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TurnCastHistory {
     pub any_cast: bool,
     pub exile_cast: bool,
     pub mana_value: Quantity,
+    /// CR 601.2i: each spell this player cast this turn, frozen on the stack
+    /// as it became cast, in order ("your Nth [filtered] spell").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spells: Vec<ObjectBefore>,
+    /// CR 121.2: cards this player drew this turn.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub draws: u32,
+    /// CR 119.9: life-gain events of this player this turn.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub life_gains: u32,
+}
+pub fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+/// CR 400.7: "This ability triggers only once each turn" was used this turn
+/// by this incarnation's intrinsic ability on this face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriggerUse {
+    pub source: ObjectId,
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub face: CardFace,
+    pub ability: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,6 +145,10 @@ testkit_fields! {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub(crate) priority_paid_exile: bool,
         pub spell: ObjectBefore,
+        /// CR 603.2: the spell's count among the matching spells of the
+        /// observer's turn ordinal, recorded only for such an observer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub nth: Option<u32>,
     }
 }
 /// The event subject's resolving binding (CR 400.7, 608.2h).
@@ -176,6 +205,30 @@ pub enum TriggerEventWitness {
     },
     CardDrawn {
         player: PlayerId,
+        controller_at_match: PlayerId,
+        /// The draw's count this turn, recorded for a turn-ordinal observer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<u32>,
+    },
+    /// CR 119.9: one source's positive life gain for one player.
+    LifeGained {
+        player: PlayerId,
+        amount: Quantity,
+        controller_at_match: PlayerId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<u32>,
+    },
+    /// CR 701.9a: a completed discard from hand to graveyard.
+    Discarded {
+        player: PlayerId,
+        movement: MoveOutcome,
+        controller_at_match: PlayerId,
+    },
+    /// CR 701.21a, 603.10a: a sacrificed permanent, with its battlefield
+    /// facts immediately before the move.
+    Sacrificed {
+        player: PlayerId,
+        object: Box<ObjectBefore>,
         controller_at_match: PlayerId,
     },
     SpellCast {
@@ -244,7 +297,10 @@ impl TriggerEventWitness {
                 Some(attacker.object)
             }
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
-            Self::StepBegan { .. }
+            Self::Sacrificed { object, .. } => Some(object.object),
+            Self::Discarded { movement, .. } => Some(movement.previous),
+            Self::LifeGained { .. }
+            | Self::StepBegan { .. }
             | Self::SpellCast { .. }
             | Self::CardDrawn { .. }
             | Self::ResolutionPaid { .. } => None,
@@ -253,11 +309,18 @@ impl TriggerEventWitness {
     pub(super) fn event_player(&self) -> Option<PlayerId> {
         match self {
             Self::StepBegan { active, .. } => *active,
-            Self::CardDrawn { player, .. } => Some(*player),
+            Self::CardDrawn { player, .. }
+            | Self::LifeGained { player, .. }
+            | Self::Discarded { player, .. }
+            | Self::Sacrificed { player, .. } => Some(*player),
             Self::AttackerUnblocked { defender, .. } => Some(*defender),
             Self::SpellCast { cast } => Some(cast.caster),
             _ => None,
         }
+    }
+    /// CR 603.10a: leaves-the-battlefield events look back in time.
+    fn looks_back(&self) -> bool {
+        self.dies() || matches!(self, Self::Sacrificed { .. })
     }
     fn dies(&self) -> bool {
         matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && matches!(m.destination, Zone::Graveyard { .. }))
@@ -388,6 +451,12 @@ fn player_in(expr: &PlayerExpr, player: Option<PlayerId>, you: PlayerId) -> bool
         } => player == Some(you),
         _ => false,
     }
+}
+
+/// CR 603.2: an ordinal pattern's witness records the count it matched at,
+/// and only such a witness does. Replay proves the count itself.
+fn ordinal_evidence(pattern: &EventPattern, nth: Option<u32>) -> bool {
+    pattern.nth().map(|ordinal| ordinal.nth) == nth
 }
 
 fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
@@ -563,7 +632,7 @@ impl RulesTxn {
             if !self.state.rules.resolution_triggers.is_empty() {
                 self.collect_resolution_departure(occurrence, before)?;
             }
-            let witnesses = match &occurrence.actual {
+            let mut witnesses = match &occurrence.actual {
                 // CR 120.4b/120.8, 510.2, 603.2c/g, 615.6: match actual
                 // positive members against their frozen pre-commit transaction.
                 // Aggregate life results are not damage occurrences. The combat
@@ -733,6 +802,7 @@ impl RulesTxn {
                     vec![TriggerEventWitness::CardDrawn {
                         player,
                         controller_at_match: player,
+                        nth: None,
                     }]
                 }
                 EventOutcome::Milled { movements, .. }
@@ -750,6 +820,48 @@ impl RulesTxn {
                     })
                     .unwrap_or_default(),
             };
+            // CR 119.9, 120.3f: each source's positive life gain is its own
+            // life-gain event; lifelink gains arrive grouped by source.
+            let gains: Vec<(PlayerId, &Quantity)> = match &occurrence.actual {
+                EventOutcome::LifeGained { player, amount, .. } => vec![(*player, amount)],
+                EventOutcome::DamageCommitted { life_gains, .. }
+                | EventOutcome::NoncombatDamageDealt { life_gains, .. }
+                | EventOutcome::DamageDealt { life_gains, .. } => life_gains
+                    .iter()
+                    .map(|gain| (gain.player, &gain.amount))
+                    .collect(),
+                _ => vec![],
+            };
+            witnesses.extend(
+                gains
+                    .into_iter()
+                    .filter(|(_, amount)| **amount > Quantity::zero())
+                    .map(|(player, amount)| TriggerEventWitness::LifeGained {
+                        player,
+                        amount: amount.clone(),
+                        controller_at_match: player,
+                        nth: None,
+                    }),
+            );
+            // CR 701.9a, 701.21a: the discard or sacrifice itself, beside the
+            // zone change it caused.
+            match &occurrence.actual {
+                EventOutcome::Sacrificed { player, movement } => {
+                    witnesses.push(TriggerEventWitness::Sacrificed {
+                        player: *player,
+                        object: Box::new(before.object_before(movement.previous)?),
+                        controller_at_match: *player,
+                    });
+                }
+                EventOutcome::CardDiscarded { player, movement } => {
+                    witnesses.push(TriggerEventWitness::Discarded {
+                        player: *player,
+                        movement: movement.clone(),
+                        controller_at_match: *player,
+                    });
+                }
+                _ => {}
+            }
             for witness in witnesses {
                 self.collect_resolution_step(&occurrence.id, &witness)?;
                 if witness.dies()
@@ -762,6 +874,9 @@ impl RulesTxn {
                             | TriggerEventWitness::AttackerUnblocked { .. }
                             | TriggerEventWitness::DamageDealt { .. }
                             | TriggerEventWitness::Tapped { .. }
+                            | TriggerEventWitness::LifeGained { .. }
+                            | TriggerEventWitness::Discarded { .. }
+                            | TriggerEventWitness::Sacrificed { .. }
                     )
                 {
                     self.collect_trigger_witness(
@@ -801,6 +916,7 @@ impl RulesTxn {
                 cast_from: entry.cast_from,
                 priority_paid_exile: entry.cast_from == Zone::Exile,
                 spell: self.object_before(entry.source)?,
+                nth: None,
             }),
         };
         self.collect_trigger_witness(
@@ -850,14 +966,32 @@ impl RulesTxn {
             row.any_cast = true;
             row.exile_cast |= cast.cast_from == Zone::Exile;
             row.mana_value.add(&mana_value);
+            row.spells.push(cast.spell.clone());
+        }
+        // CR 121.2, 119.9: count the turn's draws and life-gain events.
+        if let TriggerEventWitness::CardDrawn { player, .. }
+        | TriggerEventWitness::LifeGained { player, .. } = &witness
+        {
+            let draw = matches!(witness, TriggerEventWitness::CardDrawn { .. });
+            let row = self
+                .rules_mut()
+                .cast_history
+                .get_mut(player.0 as usize)
+                .ok_or("invalid turn history seat")?;
+            let count = if draw {
+                &mut row.draws
+            } else {
+                &mut row.life_gains
+            };
+            *count = count.checked_add(1).ok_or("turn history count limit")?;
         }
         let dies = witness.dies();
         let enters = witness.enters();
 
         let subject = witness.subject();
-        let observers = if dies {
+        let observers = if witness.looks_back() {
             before
-                .ok_or("death trigger requires actual pre-event lookback")?
+                .ok_or("leave trigger requires actual pre-event lookback")?
                 .0
         } else {
             &*self
@@ -955,7 +1089,7 @@ impl RulesTxn {
                                 live: observers.is_live(attacker.controller),
                             }), you, attacker.object, &identity))
                     }
-                    EventPattern::Cast { caster, spell } => {
+                    EventPattern::Cast { caster, spell, .. } => {
                         matches!(&witness, TriggerEventWitness::SpellCast { cast }
                             if player_in(caster, Some(cast.caster), you)
                                 && holds(spell, Some(&Frozen {
@@ -972,7 +1106,7 @@ impl RulesTxn {
                                 live: observers.is_live(attacker.controller),
                             }), you, attacker.object, &identity))
                     }
-                    EventPattern::Draws { player } => {
+                    EventPattern::Draws { player, .. } => {
                         matches!(&witness, TriggerEventWitness::CardDrawn { player: drawing, .. }
                             if player_in(player, Some(*drawing), you))
                     }
@@ -1009,17 +1143,63 @@ impl RulesTxn {
                                     identity_holds(pred, damage.source.object, &identity)
                                 })
                     }
+                    EventPattern::GainsLife { player, .. } => {
+                        matches!(&witness, TriggerEventWitness::LifeGained { player: gaining, .. }
+                            if player_in(player, Some(*gaining), you))
+                    }
+                    EventPattern::Discards { player } => {
+                        matches!(&witness, TriggerEventWitness::Discarded { player: discarding, .. }
+                            if player_in(player, Some(*discarding), you))
+                    }
+                    // CR 603.10a: the sacrificed permanent as it last
+                    // existed on the battlefield.
+                    EventPattern::Sacrifices { player, object: pred } => {
+                        matches!(&witness, TriggerEventWitness::Sacrificed { player: actor, object: sacrificed, .. }
+                            if player_in(player, Some(*actor), you)
+                                && sacrificed.zone == Zone::Battlefield
+                                && holds(pred, Some(&Frozen {
+                                    facts: sacrificed,
+                                    token: token(sacrificed.object),
+                                    live: observers.is_live(sacrificed.controller),
+                                }), you, sacrificed.object, &identity))
+                    }
                     EventPattern::BecomesTarget { .. } | EventPattern::AnyOf { .. } => false,
                 };
+                // CR 603.2: an ordinal event triggers only as the turn's Nth
+                // matching event, counted from the ledger it already joined.
+                let nth = match pattern.nth() {
+                    Some(ordinal) if matches => self
+                        .turn_count(pattern, &witness, you)?
+                        .filter(|count| *count == ordinal.nth),
+                    _ => None,
+                };
+                // "Triggers only once each turn": this incarnation's use, read
+                // from the live ledger so simultaneous occurrences see it.
+                let use_key = definition.condition.once_each_turn().then(|| TriggerUse {
+                    source: object.id,
+                    face: object.face(),
+                    ability: ability as u32,
+                });
                 if matches
+                    && (pattern.nth().is_none() || nth.is_some())
+                    && use_key.is_none_or(|key| !self.state.rules.trigger_uses.contains(&key))
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
                 {
                     let mut matched_witness = entry_witness.unwrap_or_else(|| witness.clone());
                     if let TriggerEventWitness::CardDrawn { controller_at_match, .. }
-                        | TriggerEventWitness::AttackerUnblocked { controller_at_match, .. } = &mut matched_witness
+                        | TriggerEventWitness::AttackerUnblocked { controller_at_match, .. }
+                        | TriggerEventWitness::LifeGained { controller_at_match, .. }
+                        | TriggerEventWitness::Discarded { controller_at_match, .. }
+                        | TriggerEventWitness::Sacrificed { controller_at_match, .. } = &mut matched_witness
                     {
                         *controller_at_match = you;
+                    }
+                    match &mut matched_witness {
+                        TriggerEventWitness::CardDrawn { nth: slot, .. }
+                        | TriggerEventWitness::LifeGained { nth: slot, .. } => *slot = nth,
+                        TriggerEventWitness::SpellCast { cast } => cast.nth = nth,
+                        _ => {}
                     }
                     if let TriggerEventWitness::DamageDealt { match_source, .. } =
                         &mut matched_witness
@@ -1069,6 +1249,7 @@ impl RulesTxn {
                             .transpose()?,
                         matched_witness,
                         observed,
+                        use_key,
                 ));
                 }
             }
@@ -1079,11 +1260,18 @@ impl RulesTxn {
         // their ordinary diagnostic below, but consume no trigger capacity.
         let emission = matched
             .iter()
-            .filter(|(_, _, _, condition, _, _)| condition.as_ref().is_none_or(|c| c.passed()))
+            .filter(|(_, _, _, condition, _, _, _)| condition.as_ref().is_none_or(|c| c.passed()))
             .count();
         self.preflight_trigger_emission(emission)?;
-        for (death_controller, source_facts, ability, match_condition, mut witness, observed) in
-            matched
+        for (
+            death_controller,
+            source_facts,
+            ability,
+            match_condition,
+            mut witness,
+            observed,
+            use_key,
+        ) in matched
         {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
@@ -1098,6 +1286,12 @@ impl RulesTxn {
                 if !check.passed() {
                     continue;
                 }
+            }
+            // CR 603.4: only an ability that actually triggered uses its limit.
+            if let Some(key) = use_key
+                && !self.rules_mut().trigger_uses.insert(key)
+            {
+                return Err("trigger limit already used".into());
             }
             if let Some(facts) = observed {
                 let binding = match &mut witness {
@@ -1122,6 +1316,95 @@ impl RulesTxn {
         }
         self.check_history_capacity()?;
         Ok(())
+    }
+    /// The turn ledger's spells are this turn's frozen casts by their row's
+    /// seat; a limited trigger's use names a card of this game. Replay
+    /// proves the counts and uses themselves.
+    pub(super) fn validate_turn_history(&self) -> Result<(), String> {
+        for (seat, row) in self.state.rules.cast_history.iter().enumerate() {
+            for spell in &row.spells {
+                self.validate_fact_identity(spell)?;
+                if spell.controller.0 as usize != seat
+                    || spell.zone != Zone::Stack
+                    || self
+                        .state
+                        .rules
+                        .cards
+                        .get(&spell.object.card)
+                        .is_none_or(|c| c.owner != spell.owner)
+                {
+                    return Err("snapshot turn cast history invariant".into());
+                }
+            }
+        }
+        if self
+            .state
+            .rules
+            .trigger_uses
+            .iter()
+            .any(|key| !self.state.rules.cards.contains_key(&key.source.card))
+        {
+            return Err("snapshot trigger use invariant".into());
+        }
+        Ok(())
+    }
+    /// CR 603.2: the event's count among the current turn's events that
+    /// match an ordinal pattern, from the turn ledger the event has joined.
+    /// "Your/their Nth" counts the event player's events; `any_player`
+    /// counts every player's spells. A filtered spell ordinal counts only
+    /// spells that matched the filter as they were cast.
+    fn turn_count(
+        &self,
+        pattern: &EventPattern,
+        witness: &TriggerEventWitness,
+        you: PlayerId,
+    ) -> Result<Option<u32>, String> {
+        let rows = &self.state.rules.cast_history;
+        let row = |player: PlayerId| {
+            rows.get(player.0 as usize)
+                .ok_or_else(|| "invalid turn history seat".to_string())
+        };
+        Ok(match (pattern, witness) {
+            (
+                EventPattern::Cast {
+                    spell,
+                    nth: Some(ordinal),
+                    ..
+                },
+                TriggerEventWitness::SpellCast { cast },
+            ) => {
+                let seats: Vec<&TurnCastHistory> = if ordinal.any_player {
+                    rows.iter().collect()
+                } else {
+                    vec![row(cast.caster)?]
+                };
+                let count = seats
+                    .into_iter()
+                    .flat_map(|r| &r.spells)
+                    .filter(|facts| {
+                        holds(
+                            spell,
+                            Some(&Frozen {
+                                facts,
+                                token: false,
+                                live: self.is_live(facts.controller),
+                            }),
+                            you,
+                            facts.object,
+                            &|_: &Ref| None,
+                        )
+                    })
+                    .count();
+                Some(u32::try_from(count).map_err(|_| "turn history count limit")?)
+            }
+            (EventPattern::Draws { .. }, TriggerEventWitness::CardDrawn { player, .. }) => {
+                Some(row(*player)?.draws)
+            }
+            (EventPattern::GainsLife { .. }, TriggerEventWitness::LifeGained { player, .. }) => {
+                Some(row(*player)?.life_gains)
+            }
+            _ => None,
+        })
     }
     pub(super) fn enqueue_trigger(
         &mut self,
@@ -1931,15 +2214,68 @@ impl RulesTxn {
             TriggerEventWitness::CardDrawn {
                 player,
                 controller_at_match,
+                nth,
             } => {
                 *controller_at_match == controller
                     && self.state.rules.original_seating.contains(player)
-                    && matches!(pattern, EventPattern::Draws { player: expected }
+                    && ordinal_evidence(pattern, *nth)
+                    && matches!(pattern, EventPattern::Draws { player: expected, .. }
                         if player_in(expected, Some(*player), controller))
+            }
+            // CR 119.9: replay proves the actual gain and its turn count.
+            TriggerEventWitness::LifeGained {
+                player,
+                amount,
+                controller_at_match,
+                nth,
+            } => {
+                *controller_at_match == controller
+                    && *amount > Quantity::zero()
+                    && self.state.rules.original_seating.contains(player)
+                    && ordinal_evidence(pattern, *nth)
+                    && matches!(pattern, EventPattern::GainsLife { player: expected, .. }
+                        if player_in(expected, Some(*player), controller))
+                    && death_controller.is_none()
+            }
+            TriggerEventWitness::Discarded {
+                player,
+                movement,
+                controller_at_match,
+            } => {
+                *controller_at_match == controller
+                    && self.state.rules.original_seating.contains(player)
+                    && movement.from == (Zone::Hand { owner: *player })
+                    && matches!(movement.destination, Zone::Graveyard { .. })
+                    && matches!(pattern, EventPattern::Discards { player: expected }
+                        if player_in(expected, Some(*player), controller))
+                    && death_controller.is_none()
+            }
+            TriggerEventWitness::Sacrificed {
+                player,
+                object,
+                controller_at_match,
+            } => {
+                self.validate_fact_identity(object)?;
+                *controller_at_match == controller
+                    && object.zone == Zone::Battlefield
+                    && object.controller == *player
+                    && self.state.rules.original_seating.contains(player)
+                    && self
+                        .state
+                        .rules
+                        .cards
+                        .get(&object.object.card)
+                        .is_some_and(|c| c.owner == object.owner)
+                    && matches!(pattern, EventPattern::Sacrifices { player: expected, object: pred }
+                        if player_in(expected, Some(*player), controller)
+                            && holds(pred, Some(&frozen(object)), controller, object.object,
+                                &identity(object.object)))
+                    && death_controller.is_none()
             }
             TriggerEventWitness::SpellCast { cast } => {
                 self.valid_cast_facts(cast)?
-                    && matches!(pattern, EventPattern::Cast { caster, spell }
+                    && ordinal_evidence(pattern, cast.nth)
+                    && matches!(pattern, EventPattern::Cast { caster, spell, .. }
                         if player_in(caster, Some(cast.caster), controller)
                             && holds(spell, Some(&Frozen { facts: &cast.spell, token: false,
                                 live: true }), controller,

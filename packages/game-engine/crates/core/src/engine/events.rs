@@ -2929,6 +2929,7 @@ impl RulesTxn {
                     self.rules_mut().players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.rules_mut().mana_ability_uses.clear();
                     self.rules_mut().activation_uses.clear();
+                    self.rules_mut().trigger_uses.clear();
                     self.rules_mut().cast_history =
                         std::array::from_fn(|_| triggers::TurnCastHistory::default());
                     let active = self.state.rules.active;

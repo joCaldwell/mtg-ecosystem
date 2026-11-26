@@ -13,7 +13,7 @@ pub(crate) mod controller_library {
         program: &mut SpellProgram,
     ) -> Result<Option<Instruction>, Failure> {
         // Trigger lowering has already bound the damage source to the invocation.
-        let EventPattern::Cast { caster, spell } = condition.pattern() else {
+        let EventPattern::Cast { caster, spell, .. } = condition.pattern() else {
             return Ok(None);
         };
         if !caster.is_you() || !matches!(spell.0.as_slice(), [Atom::Color { .. }]) {

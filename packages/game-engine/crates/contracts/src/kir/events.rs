@@ -33,6 +33,19 @@ impl TargetingKind {
     }
 }
 
+/// CR 603.2: "your/their Nth [filtered] spell/card each turn", or with
+/// `any_player` "the Nth [filtered] spell of a turn": the event triggers only
+/// when it is the `nth` matching event of the current turn, counted from the
+/// turn's start whether or not the source was on the battlefield then.
+/// Events of the event's player count, or of every player with `any_player`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TurnOrdinal {
+    pub nth: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub any_player: bool,
+}
+
 /// One event an ordinary triggered ability triggers on (CR 603.2).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
@@ -53,7 +66,12 @@ pub enum EventPattern {
     AttacksUnblocked { attacker: Pred },
     /// CR 601.2i: a player casts a spell. The spell is matched on its frozen
     /// characteristics on the stack.
-    Cast { caster: PlayerExpr, spell: Pred },
+    Cast {
+        caster: PlayerExpr,
+        spell: Pred,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<TurnOrdinal>,
+    },
     /// CR 115.1, 601.2c, 602.2b, 603.3d: a stack object targets a permanent.
     BecomesTarget {
         object: Pred,
@@ -61,7 +79,23 @@ pub enum EventPattern {
         kind: TargetingKind,
     },
     /// CR 121.1–2: a player successfully draws one card.
-    Draws { player: PlayerExpr },
+    Draws {
+        player: PlayerExpr,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<TurnOrdinal>,
+    },
+    /// CR 119.9, 120.3f: a source causes a player to gain a positive amount
+    /// of life; each source's gain is its own event.
+    GainsLife {
+        player: PlayerExpr,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<TurnOrdinal>,
+    },
+    /// CR 701.21a: a player sacrifices a permanent, matched on the
+    /// battlefield immediately before the event (CR 603.10a).
+    Sacrifices { player: PlayerExpr, object: Pred },
+    /// CR 701.9a: a player discards a card.
+    Discards { player: PlayerExpr },
     /// CR 503.1a, 504.1, 505.1, 513.1: a step begins in the turn of a player
     /// in `active`. Each player also matches a turn whose active player has
     /// left the game (CR 800.4j).
@@ -85,6 +119,14 @@ pub enum EventPattern {
 }
 
 impl EventPattern {
+    /// The turn ordinal this event is counted against, if any.
+    pub fn nth(&self) -> Option<TurnOrdinal> {
+        match self {
+            Self::Cast { nth, .. } | Self::Draws { nth, .. } | Self::GainsLife { nth, .. } => *nth,
+            _ => None,
+        }
+    }
+
     /// Stable reporting vocabulary, independent of the serde representation.
     pub fn reporting_key(&self) -> &'static str {
         match self {
@@ -96,6 +138,9 @@ impl EventPattern {
             Self::Cast { .. } => "cast",
             Self::BecomesTarget { .. } => "becomes_target",
             Self::Draws { .. } => "draws",
+            Self::GainsLife { .. } => "gains_life",
+            Self::Sacrifices { .. } => "sacrifices",
+            Self::Discards { .. } => "discards",
             Self::StepBegins { .. } => "step_begins",
             Self::DealsDamage { .. } => "deals_damage",
             Self::AnyOf { .. } => "any_of",
@@ -116,11 +161,16 @@ impl EventPattern {
             Self::Enters { object }
             | Self::Dies { object }
             | Self::BecomesTapped { object }
-            | Self::BecomesTarget { object, .. } => Some(object),
+            | Self::BecomesTarget { object, .. }
+            | Self::Sacrifices { object, .. } => Some(object),
             Self::Attacks { attacker } | Self::AttacksUnblocked { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
-            Self::StepBegins { .. } | Self::Draws { .. } | Self::AnyOf { .. } => None,
+            Self::StepBegins { .. }
+            | Self::Draws { .. }
+            | Self::GainsLife { .. }
+            | Self::Discards { .. }
+            | Self::AnyOf { .. } => None,
         }
     }
 
@@ -322,13 +372,31 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
     let players: &[&PlayerExpr] = match pattern {
         EventPattern::Cast { caster, .. } => &[caster],
         EventPattern::StepBegins { active, .. } => &[active],
-        EventPattern::Draws { player } => &[player],
+        EventPattern::Draws { player, .. }
+        | EventPattern::GainsLife { player, .. }
+        | EventPattern::Sacrifices { player, .. }
+        | EventPattern::Discards { player } => &[player],
         EventPattern::BecomesTarget { by, .. } => &[by],
         EventPattern::DealsDamage { recipient, .. } => &[recipient],
         _ => &[],
     };
     if let Some(player) = players.iter().find(|p| !event_players(p)) {
         return Err(KirError::Unaudited(format!("event player {player:?}")));
+    }
+    // CR 603.2: the first four ordinals are printed; "the Nth ... of a
+    // turn" counts every caster's spells, so it names each caster.
+    if let Some(nth) = pattern.nth()
+        && (!(1..=4).contains(&nth.nth)
+            || (nth.any_player
+                && !matches!(
+                    pattern,
+                    EventPattern::Cast {
+                        caster: PlayerExpr::EachPlayer,
+                        ..
+                    }
+                )))
+    {
+        return Err(KirError::Unaudited("event turn ordinal".into()));
     }
     if let Some(object) = pattern.object() {
         event_pred(object, 0)?;
