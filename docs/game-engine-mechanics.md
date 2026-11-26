@@ -672,22 +672,27 @@ wrapped step range under one kernel control node:
 | Printed | Kernel IR |
 | --- | --- |
 | "you may [step]", "you may [steps]" | `Optional` (CR 608.2d) |
-| "[step] unless [player] pays {N} / N life" | `UnlessPays` (CR 118.12a) |
+| "[step] unless [player] pays fixed mana or life, or discards an artifact card" | `UnlessPays` (CR 118.12a) |
 | "[player] may pay [cost]. If they do / don't, [steps]" | `IfPays` / `UnlessPays` (CR 118.12) |
 | "if/unless you control a [filter]", "N or more [filter]", not/all of these | `If` over a battlefield count read on resolution (CR 608.2c) |
 
 The optional chooser is the controller; a `decidedBy` chooser would need CR
 800.4g reassignment and rejects, except a filtered target's controller choosing
 to search their own library (CR 800.4a). A payer is the controller or the
-trigger's event player. An optional body is a draw, life change, mill, search,
+trigger's event player. Object payments are controller-only. An optional
+sacrifice of one creature followed by a dependent clause shares the payment
+continuation. The controller selects an eligible object or declines. A private
+discard always offers decline, even with no eligible card (CR 400.2). An optional body is a draw, life change, mill, search,
 shuffle, scry or surveil, or a tap, untap, move or counter verb on a target or
 the source. Impossible choices are not offered and are withdrawn if they become
 impossible while pending (CR 608.2d): no object can still change or move, no
 live player, a zero amount, or a library smaller than the mill (CR 701.17b).
-`IfPays` acts only after payment; a departed payer pays nothing. These earn
+`IfPays` acts only after payment. A departed payer pays nothing. A
+self-replacement that only changes an action's amount selects one admitted
+branch before the action, retaining its original announcement (CR 614.15). These earn
 `Executes` (`Cell::Control`, `kernel_control_v1`). Everything else rejects
 under `compose.control:<detail>`, including "if you do"
-after a non-payment action, other conditions, nested leaves needing persistent
+after unsupported actions, other conditions, nested leaves needing persistent
 provenance, and `forEach` amounts (CR 121.2a).
 
 ### Modal spells and abilities

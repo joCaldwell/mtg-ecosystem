@@ -933,3 +933,70 @@ fn a_pending_optional_choice_is_withdrawn_once_it_is_impossible() {
         assert_eq!(game.state.rules.players[seat].life, expected);
     }
 }
+
+fn creature_payment_game(has_creature: bool) -> Game {
+    let mut prepared = super::formats_tests::actions_scenario();
+    if has_creature {
+        prepared.config.cards[1].controller = PlayerId(0);
+    }
+    let catalog = Arc::make_mut(&mut prepared.catalog);
+    let program = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Cruel Edict")
+        .unwrap()
+        .spell
+        .as_mut()
+        .unwrap();
+    program.instructions = vec![Instruction::Kernel {
+        node: Node::IfPays {
+            payer: controller(),
+            payment: Payment::SacrificeCreature {},
+            node: Box::new(gain(controller(), Amount::fixed(5))),
+        },
+        source_block: 0,
+    }];
+    prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
+    super::formats_tests::cast_edict(prepared)
+}
+
+pub(super) fn suspended_creature_payment() -> Game {
+    let mut game = creature_payment_game(true);
+    assert_eq!(next_reason(&mut game), Reason::OptionalEffect);
+    game.validate_state().unwrap();
+    game
+}
+
+#[test]
+fn creature_payment_checks_feasibility_and_restores_the_exact_choice() {
+    let mut unavailable = creature_payment_game(false);
+    let starting_life = unavailable.state.rules.players[0].life.clone();
+    assert_eq!(next_reason(&mut unavailable), Reason::Priority);
+    assert_eq!(unavailable.state.rules.players[0].life, starting_life);
+
+    for pay in [true, false] {
+        let original = suspended_creature_payment();
+        let mut game = Game::restore(
+            original.prepared.as_ref().clone(),
+            &original.snapshot().unwrap(),
+        )
+        .unwrap();
+        let creature = game.object_id(CardId(1)).unwrap();
+        let choice = if pay {
+            Candidate::Object { object: creature }
+        } else {
+            Candidate::Flag {
+                flag: Flag::Decline,
+            }
+        };
+        let response = game.next_test_decision().select(choice);
+        answer(&mut game, response);
+        assert_eq!(next_reason(&mut game), Reason::Priority);
+        game.validate_state().unwrap();
+        let mut expected = starting_life.clone();
+        if pay {
+            expected.add(&Quantity::from(5));
+        }
+        assert_eq!(game.state.rules.players[0].life, expected);
+    }
+}

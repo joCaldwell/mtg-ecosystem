@@ -1308,6 +1308,30 @@ impl Strategy<'_> {
             return false;
         };
 
+        // The mana window already plans and spends the exact colored cost.
+        // Open it only when it funds our conditional benefit or avoids an
+        // opponent's effect.
+        if p.instructions.iter().any(|instruction| {
+            let I::Kernel { node, source_block } = instruction;
+            if block.is_some_and(|expected| expected != *source_block) {
+                return false;
+            }
+            let mana = match node {
+                kir::Node::IfPays {
+                    payment: kir::Payment::Mana { mana },
+                    ..
+                } if s.controller == v.viewer => mana,
+                kir::Node::UnlessPays {
+                    payment: kir::Payment::Mana { mana },
+                    ..
+                } if s.controller != v.viewer => mana,
+                _ => return false,
+            };
+            mana_policy::plan_for(self.catalog, v, mana, None).is_some()
+        }) {
+            return true;
+        }
+
         let optional_slots = p
             .instructions
             .iter()

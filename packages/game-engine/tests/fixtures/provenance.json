@@ -4291,6 +4291,42 @@
       "ast_sha256": "cf1cbb66a638b4860a516671fb74850e6ccf787fe6c4c8d29e9c04efe880bd05",
       "archive": "archive-manifest-phase1-r5.json",
       "archive_line": 11298
+    },
+    {
+      "file": "phase1-r5/5f2a3797-28aa-4c7a-ba2b-fd243a1747fd.json",
+      "oracle_id": "5f2a3797-28aa-4c7a-ba2b-fd243a1747fd",
+      "record_sha256": "eb46caff98ba9f241a0945ad7508d0d59aea25769a01673c22961fa814a69a74",
+      "source_sha256": "d3dadc57d2e7ea8d958abccccd0e990b7e82e59d93bf125a02345327f41aada1",
+      "ast_sha256": "521f734935929e5b28e327eede1650f968fbd670f49a4705b1a8fb86c6f2615f",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 14283
+    },
+    {
+      "file": "phase1-r5/939e6f71-185e-41f2-9d54-72cce06f1dce.json",
+      "oracle_id": "939e6f71-185e-41f2-9d54-72cce06f1dce",
+      "record_sha256": "47d4091af72cf2978d00e1bb9365eed9dba18b2771f567294aad82a3a20b7ee4",
+      "source_sha256": "fea5341540ea86751d69b8045b0d0c897abb2c4d9b14a9423b5d621274160f26",
+      "ast_sha256": "3f25bbac9f361604a9263d44e193bc3394b6689c4cd1caf7e4ca71b04d7f9e76",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 22264
+    },
+    {
+      "file": "phase1-r5/75c626fb-9dfc-4a94-b59f-f0e45c7b2f56.json",
+      "oracle_id": "75c626fb-9dfc-4a94-b59f-f0e45c7b2f56",
+      "record_sha256": "c3ff2b6b316f950b3c7d8190e693064a3e4c16a1b388c3e0875a6adb431e0c55",
+      "source_sha256": "944e22bc22a2f5d4701400f1a9d4590e5abad8705bbabe00c1250f3b2e0e867f",
+      "ast_sha256": "cc5ef79c7bac4e73bcd4c1faf739f7cc2330954329f7ff5637b44d14b9f06b8d",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 17721
+    },
+    {
+      "file": "phase1-r5/77e319da-d782-4258-bf0e-626755e5adc9.json",
+      "oracle_id": "77e319da-d782-4258-bf0e-626755e5adc9",
+      "record_sha256": "9ba87dee543f8e076379dbbb81cf58ae4acfb8ddb12d4b8fae4e6bc69971b46d",
+      "source_sha256": "0f22c4ded661b4186f0e4878fd5cd475a92ca7104e5c7084a49f83b625bcf5eb",
+      "ast_sha256": "f9927fac5aa49d427415f05801749590b3d431ecc7062fa519495a8f5a9fadf7",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 18049
     }
   ]
 }

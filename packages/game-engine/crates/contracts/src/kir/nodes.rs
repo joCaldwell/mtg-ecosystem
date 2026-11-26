@@ -75,6 +75,9 @@ pub enum Domain {
 pub enum Payment {
     Generic { amount: Amount },
     Life { amount: Amount },
+    Mana { mana: ManaCost },
+    SacrificeCreature {},
+    DiscardArtifact {},
 }
 
 /// The instruction performed on a single public object selected at resolution.
