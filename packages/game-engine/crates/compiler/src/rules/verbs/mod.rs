@@ -233,7 +233,12 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             optional,
             regeneration_forbidden,
         } => destroy::lower(cx, what, *optional, *regeneration_forbidden),
-        Step::CreateToken { who, count, token } => tokens::lower(cx, who.as_ref(), count, token),
+        Step::CreateToken {
+            who,
+            count,
+            token,
+            for_each,
+        } => tokens::lower(cx, who.as_ref(), count, token, for_each.as_ref()),
         Step::KeywordAction { action, who, times } => {
             keyword_actions::lower(cx, action, who, times.as_ref())
         }

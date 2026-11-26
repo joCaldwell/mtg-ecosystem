@@ -442,15 +442,16 @@ revealed copies. Other entry costs (behold, multiple cards) reject.
 
 Battlefield static abilities use KIR scopes, predicates, conditions and
 characteristic changes; the first applicable layer selects recipients for every
-change of the effect (CR 611.3, 613.6). Layer 4 adds artifact or enchantment
-types, layer 5 sets colors, layer 6 grants supported keywords, layer 7b sets
-base power and toughness, and layer 7c applies signed modifiers (including fixed
-controller-relative ones, reselected by live controller and creature type) and
-counters (CR 613.4c). Scopes that could depend on another change in the same
-layer reject, including creature-subtype filters in layer 4 and color filters in
-layer 5 (CR 613.8). Ordered setters apply by source or creation timestamp (CR
-613.7); simultaneous competing setters need a timestamp choice and reject (CR
-613.7m).
+change of the effect (CR 611.3, 613.6). Layer 4 adds artifact and enchantment
+types or named creature subtypes. Layer 5 sets colors, and layer 6 grants
+supported keywords, including basic landwalk. Layer 7b sets base power and
+toughness. Layer 7c applies signed modifiers, including anthems filtered by
+live controller or subtype, and counters (CR 613.4c). An “other” filter
+excludes the source. Layer-4 creature-subtype filters and layer-5 color
+filters reject. Additive creature subtypes can read Creature membership after
+a resolving animation grants it (CR 613.8). Ordered setters apply by source
+or creation timestamp (CR 613.7). Simultaneous competing setters need a
+timestamp choice and reject (CR 613.7m).
 
 Changeling and a self "is every creature type" CDA are a printed characteristic
 in every zone (CR 702.73a, 604.3), as is changeling on a token. Every subtype
@@ -488,9 +489,14 @@ grants, combat restrictions and signed stats to the current host. Attack and
 combat-damage triggers match the host at the event; dies triggers read the
 pre-event attachment (CR 603.10a).
 
-Treasure, Food and Clue use standard artifact token templates paid through the
-normal mana and activation paths; restore rebuilds them from creating source and
-token identity.
+Token creation supports fixed quantities, announced X and supported resolution
+counts, including a fixed quantity per matched object. Each instruction creates
+one simultaneous batch (CR 111.1–4, 608.2h). Creature recipes preserve supported
+printed keywords, secondary types and tapped entry. Treasure, Gold, Food and
+Clue use their CR 111.10 templates through the normal mana and activation paths.
+Restore rebuilds the template from the creating source and token identity.
+Printed abilities, other predefined recipes, copy recipes in this path,
+event-result counts and token-creation replacement abilities reject.
 
 ### Keyword actions and counters
 
@@ -715,7 +721,7 @@ the same program: `Amount::Count` over objects you or opponents control,
 graveyard cards or (not for draws) your hand, `Times` for N above one,
 `Greatest` power, toughness or mana value among permanents (never below zero,
 CR 107.1b) and your devotion (CR 700.5). Draws, life changes, set or player
-damage and P/T changes read them; a P/T change keeps its value in the saved
+damage, token creation and P/T changes read them; a P/T change keeps its value in the saved
 effect (CR 611.2c) and a counted draw its recorded attempts. Several steps may
 re-read one X only across draws, life changes and damage. A step that cannot
 read X, a hand count re-read, announced or minimum quantities, event results

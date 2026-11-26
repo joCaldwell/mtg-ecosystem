@@ -143,6 +143,8 @@ pub enum Change {
     SetColors { colors: Vec<Color> },
     /// Layer 4.
     AddTypes { kinds: Vec<CardKind> },
+    /// Layer 4 (CR 205.1b): retain existing creature subtypes.
+    AddCreatureSubtypes { subtypes: Vec<String> },
     /// Layer 4 (CR 205.3m): the recipient is every creature type.
     AllCreatureTypes,
     /// Layer 2.
@@ -161,7 +163,9 @@ impl Change {
             | Self::RemoveKeywords { .. }
             | Self::AddManaAbilities { .. } => Layer::Ability,
             Self::SetColors { .. } => Layer::Color,
-            Self::AddTypes { .. } | Self::AllCreatureTypes => Layer::Type,
+            Self::AddTypes { .. } | Self::AddCreatureSubtypes { .. } | Self::AllCreatureTypes => {
+                Layer::Type
+            }
             Self::Controller { .. } => Layer::Control,
         }
     }
@@ -413,6 +417,9 @@ pub enum Verb {
         controller: PlayerExpr,
         count: Amount,
         token: TokenSpec,
+        /// CR 111.1, 614.1c: the tokens enter tapped.
+        #[serde(default, skip_serializing_if = "is_false")]
+        tapped: bool,
     },
     /// CR 701.17.
     Mill {

@@ -421,12 +421,32 @@ fn scope_valid(scope: &Scope, d: &crate::Definition, layer: Layer) -> bool {
     bound && scope.filter().is_none_or(|p| predicate_in_layer(p, layer))
 }
 
+// CR 613.8: only the Creature term can depend on a layer-4 change.
+// The interpreter settles that term against resolving animation first.
+fn only_stable_creature_filter(filter: &Pred) -> bool {
+    filter.0.iter().all(|atom| {
+        matches!(
+            atom,
+            Atom::Type {
+                kind: CardKind::Creature
+            }
+        ) || (predicate_in_layer(&Pred(vec![atom.clone()]), Layer::Type)
+            && !matches!(
+                atom,
+                Atom::Subtype { .. } | Atom::NotSubtype { .. } | Atom::AnyOf { .. }
+            ))
+    })
+}
+
 fn creature_scope(scope: &Scope, kind: CardKind) -> bool {
     match scope {
         Scope::Source => kind == CardKind::Creature,
         Scope::Matching { filter } | Scope::Attachment { filter, .. } => {
-            filter.0.contains(&Atom::Type {
-                kind: CardKind::Creature,
+            filter.0.iter().any(|atom| match atom {
+                Atom::Type { kind } => *kind == CardKind::Creature,
+                // CR 205.3d,m: admitted definitions have no kindred card type.
+                Atom::Subtype { subtype } => is_creature_subtype(subtype),
+                _ => false,
             })
         }
     }
@@ -530,7 +550,19 @@ impl crate::StaticAbility {
                     return invalid("empty-continuous");
                 };
                 if !on_battlefield
-                    || !scope_valid(affects, definition, first_layer)
+                    || !scope_valid(
+                        affects,
+                        definition,
+                        if changes
+                            .iter()
+                            .any(|change| matches!(change, Change::AddCreatureSubtypes { .. }))
+                            && affects.filter().is_some_and(only_stable_creature_filter)
+                        {
+                            Layer::Color
+                        } else {
+                            first_layer
+                        },
+                    )
                     || condition
                         .as_ref()
                         .is_some_and(|c| first_layer <= Layer::Type || !condition_supported(c))
@@ -557,10 +589,7 @@ impl crate::StaticAbility {
                                         KeywordAbility::Flash
                                         | KeywordAbility::ProtectionFromEverything
                                         | KeywordAbility::ProtectionFromEachColor => false,
-                                        _ => {
-                                            k.basic_landwalk_type().is_none()
-                                                && creature_scope(affects, kind)
-                                        }
+                                        _ => creature_scope(affects, kind),
                                     }
                                 })
                         }
@@ -572,6 +601,13 @@ impl crate::StaticAbility {
                         | Change::PowerToughnessX { .. } => false,
                         Change::SetColors { colors } => {
                             colors.iter().all(|color| *color != Color::C)
+                        }
+                        Change::AddCreatureSubtypes { subtypes } => {
+                            creature_scope(affects, kind)
+                                && affects.filter().is_none_or(only_stable_creature_filter)
+                                && !subtypes.is_empty()
+                                && subtypes.iter().all(|s| is_creature_subtype(s))
+                                && changes.iter().filter(|c| c.layer() == Layer::Type).count() == 1
                         }
                         Change::AddTypes { kinds } => {
                             !kinds.is_empty()

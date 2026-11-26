@@ -18,7 +18,7 @@ mod activation_restrictions;
 mod control;
 mod costs;
 mod events;
-mod keywords;
+pub(crate) mod keywords;
 mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
@@ -207,6 +207,20 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
                 .map_err(|e| mirror_gap(sentence, &e))
         })
         .collect()
+}
+
+/// A reviewed trigger lowers typed sentences only. A sentence of step table
+/// rows (predefined tokens) is also a typed sentence the shared step
+/// lowerer reads (CR 111.10); any other part needs a table event.
+fn reviewed_sentence(part: Part) -> Result<Sentence, Failure> {
+    let table = || unsupported("compose.step", "step table rows require a table event");
+    match part {
+        Part::Typed(sentence) => Ok(sentence),
+        Part::Table(steps) => {
+            serde_json::from_value(serde_json::json!({ "steps": steps })).map_err(|_| table())
+        }
+        Part::Reflexive(..) | Part::Departure(_) => Err(table()),
+    }
 }
 
 /// The complete typed AST (`crate::ast`) has already decoded this sentence;
@@ -515,13 +529,7 @@ fn trigger_event(
         let typed: Vec<Sentence> = parts
             .clone()
             .into_iter()
-            .map(|p| match p {
-                Part::Typed(s) => Ok(s),
-                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(unsupported(
-                    "compose.step",
-                    "step table rows require a table event",
-                )),
-            })
+            .map(reviewed_sentence)
             .collect::<Result<_, _>>()?;
         match lower_trigger(t, &typed, c.as_ref(), block) {
             Ok(ability) => return Ok(ability),
@@ -540,13 +548,7 @@ fn trigger_event(
         let typed: Vec<Sentence> = parts
             .clone()
             .into_iter()
-            .map(|p| match p {
-                Part::Typed(s) => Ok(s),
-                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(unsupported(
-                    "compose.step",
-                    "step table rows require a table event",
-                )),
-            })
+            .map(reviewed_sentence)
             .collect::<Result<_, _>>()?;
         match lower_trigger(t, &typed, None, block) {
             Ok(mut ability) => {

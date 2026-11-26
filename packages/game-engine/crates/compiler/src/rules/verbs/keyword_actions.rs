@@ -19,6 +19,7 @@ pub(super) fn lower(
             token: kir::TokenSpec::Predefined {
                 kind: PredefinedToken::Clue,
             },
+            tapped: false,
         },
         "populate" => Verb::Populate { player },
         "proliferate" => Verb::Proliferate { player },

@@ -475,3 +475,39 @@ fn dega_sanctuary_replaces_the_original_life_gain() {
         checked(&g);
     }
 }
+
+#[test]
+fn highborn_announces_a_player_then_offers_its_controller_black_mana_payment() {
+    for pay in [false, true] {
+        let mut g = Game::new(prepared(&[
+            ("Lightning Bolt", 0, true),
+            ("Mountain", 0, false),
+            ("Kalastria Highborn", 1, false),
+            ("Swamp", 1, false),
+        ]));
+        let highborn = Driver::object(&g, 2);
+        cast_with(&mut g, 0, vec![TargetEntity::Object { object: highborn }]);
+
+        let targets = next_choice(&mut g);
+        assert!(matches!(targets.reason, Reason::Targets { .. }));
+        assert_eq!(targets.player, PlayerId(1));
+        checked(&g);
+        let target = Candidate::Player {
+            player: PlayerId(0),
+        };
+        g.respond(
+            targets.player,
+            targets.id,
+            targets.pick_one(&target).unwrap(),
+        )
+        .unwrap();
+
+        choose(&mut g, 1, pay);
+        if pay {
+            Driver::pay(&mut g, &[3]);
+        }
+        settle(&mut g);
+        assert_eq!(life(&g, 0), (LIFE - if pay { 2 } else { 0 }).into());
+        assert_eq!(life(&g, 1), (LIFE + if pay { 2 } else { 0 }).into());
+    }
+}
