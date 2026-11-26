@@ -303,10 +303,12 @@ Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one
 simultaneous event; P/T, keyword, counter and combat-restriction leaves, a
 spell's own damage and own-graveyard returns to hand or exile run per member.
 An unchosen or illegal member skips its leaves; all illegal counters the spell
-(CR 608.2b). Graveyard groups entering the battlefield, "any number" and X
-counts, mixed required and optional occurrences and optional permanent spells
-reject. "Target player or planeswalker" announces players for spells and
-triggers: planeswalker faces are not admitted (CR 115.4). Already-matching tap status emits no event and combat membership is
+(CR 608.2b). Per-member damage is separate events; recheck that once batched or
+creature-damage triggers are admitted. Graveyard groups entering the
+battlefield, "any number" and X counts, mixed required and optional occurrences
+and optional permanent spells reject. "Target player or planeswalker" announces
+players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
+120.3). Already-matching tap status emits no event and combat membership is
 preserved. "Put a +1/+1 counter on each [creature filter]" applies
 simultaneously to the current set.
 

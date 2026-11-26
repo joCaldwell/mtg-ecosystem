@@ -248,7 +248,7 @@ impl RulesTxn {
                 return Err("dependent targets need their player".into());
             }
             Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
-            // CR 115.4: planeswalker cards are not admitted, so the domain's
+            // CR 115.1, 120.3: planeswalker cards are not admitted, so the domain's
             // inhabitants are players.
             Some(
                 TargetDomain::OpponentPlayer

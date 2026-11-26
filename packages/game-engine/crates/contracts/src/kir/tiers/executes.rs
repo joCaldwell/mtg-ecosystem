@@ -68,7 +68,7 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         TargetDomain::StackSpell
         | TargetDomain::ControlledCreatureSpell
         | TargetDomain::StackActivatedOrTriggeredAbility => (Route::Stack, SPELL | ACTIVATED),
-        // CR 115.4: planeswalker faces are not admitted (see mechanics), so
+        // CR 115.1, 120.3: planeswalker faces are not admitted (see mechanics), so
         // the closed scenario's inhabitants are players, announced as
         // AnyPlayer is.
         TargetDomain::PlayerOrPlaneswalker => (Route::Player, SPELL | TRIGGERED),
@@ -243,6 +243,26 @@ fn program(
     Ok(())
 }
 
+/// A group leaf with its member slot erased: equal shapes are the same
+/// action applied to different members.
+fn group_leaf_shape(node: &kir::Node) -> Option<serde_json::Value> {
+    fn erase(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if map.get("ref").and_then(|r| r.as_str()) == Some("target") {
+                    map.insert("slot".into(), 0.into());
+                }
+                map.values_mut().for_each(erase);
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(erase),
+            _ => {}
+        }
+    }
+    let mut value = serde_json::to_value(node).ok()?;
+    erase(&mut value);
+    Some(value)
+}
+
 pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<(), String> {
     if p.targets
         .iter()
@@ -290,27 +310,33 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
             && matches!(targeted.as_slice(),
                 [kir::Node::TapTargets { count: c, .. } | kir::Node::RemoveTargets { count: c, .. }]
                     if *c as usize == count);
-        let mut read = BTreeSet::new();
-        let leaves = targeted.iter().all(|node| {
-            let order_free = match node.verb() {
-                Some(
-                    kir::Verb::ModifyUntil { .. }
-                    | kir::Verb::PutCounters { .. }
-                    | kir::Verb::RestrictCombat { .. },
-                ) => battlefield,
-                Some(kir::Verb::Damage { .. }) => battlefield && context == Some(Context::Spell),
-                Some(kir::Verb::Move {
-                    to: kir::Destination::OwnerHand | kir::Destination::Exile,
-                    ..
-                }) => graveyard,
-                _ => false,
-            };
-            order_free
-                && node.group_leaf_slot().is_some_and(|slot| {
-                    read.insert(slot);
-                    true
+        // Leaves come in runs of `count`: member `k` of a run reads slot `k`
+        // and the run's leaves are one action up to that slot, so a leaf that
+        // reads only some members cannot silently skip the rest.
+        let order_free = |node: &kir::Node| match node.verb() {
+            Some(
+                kir::Verb::ModifyUntil { .. }
+                | kir::Verb::PutCounters { .. }
+                | kir::Verb::RestrictCombat { .. },
+            ) => battlefield,
+            Some(kir::Verb::Damage { .. }) => battlefield && context == Some(Context::Spell),
+            Some(kir::Verb::Move {
+                to: kir::Destination::OwnerHand | kir::Destination::Exile,
+                ..
+            }) => graveyard,
+            _ => false,
+        };
+        let leaves = !targeted.is_empty()
+            && targeted.len().is_multiple_of(count)
+            && targeted.chunks(count).all(|run| {
+                let shape = group_leaf_shape(run[0]);
+                run.iter().enumerate().all(|(k, node)| {
+                    order_free(node)
+                        && node.group_leaf_slot() == Some(k as u32)
+                        && shape.is_some()
+                        && group_leaf_shape(node) == shape
                 })
-        }) && read.len() == count;
+            });
         if !(batch || leaves) {
             return cell("target", "group_requires_batch_or_order_free_leaves");
         }
@@ -1667,6 +1693,25 @@ mod tests {
         assert!(
             super::program(&program(leaf(enter, 2), cards), Context::Spell, None, false).is_err()
         );
+        // Order-free leaves need one identical action per member: a follow-up
+        // leaf on member zero alone would skip the other member.
+        let counter = |slot| Verb::PutCounters {
+            on: kir::SetExpr::target(slot),
+            counter: kir::CounterKind::PlusOnePlusOne,
+            amount: kir::Amount::fixed(1),
+        };
+        let both = program(leaf(counter, 2), creatures.clone());
+        super::program(&both, Context::Spell, None, false).unwrap();
+        let mut partial = both.clone();
+        partial.instructions.push(Instruction::act(counter(0), 0));
+        assert!(
+            super::program(&partial, Context::Spell, None, false)
+                .unwrap_err()
+                .contains("group_requires_batch_or_order_free_leaves")
+        );
+        let mut mismatched = both;
+        mismatched.instructions[1] = Instruction::act(destroy(1), 0);
+        assert!(super::program(&mismatched, Context::Spell, None, false).is_err());
         // A group identity outside one whole group, and a batch without one.
         let mut split = creatures.clone();
         split[1].selection_id = "line:0:9/1".into();

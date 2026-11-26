@@ -3,7 +3,7 @@
 //! to N, distinct objects in one pick; battlefield removal of the group is one
 //! simultaneous event; a member that left before resolution is skipped and
 //! the spell is countered only when every member is illegal.
-//! Pinned CR 115.1d, 115.3, 115.4, 601.2c, 608.2b, 903.9b:
+//! Pinned CR 115.1, 115.1d, 115.3, 120.3, 601.2c, 608.2b, 903.9b:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -275,7 +275,7 @@ fn symbiosis_pumps_the_remaining_target_after_one_departs() {
 }
 
 /// "Target player or planeswalker": no planeswalker is admitted, so only
-/// players are offered, the caster included (CR 115.4, 120.3).
+/// players are offered, the caster included (CR 115.1, 120.3).
 #[test]
 fn lava_spike_offers_players_and_damages_the_chosen_one() {
     let prepared = board(&[(LAVA_SPIKE, &[Cell::DamageTarget], Tiers::EXECUTES)])
@@ -312,4 +312,32 @@ fn lava_spike_offers_players_and_damages_the_chosen_one() {
     hit.add(&Quantity::from(-3));
     assert_eq!(life(&g, 1), hit);
     assert_eq!(zone(&g, 2), Zone::Battlefield);
+}
+
+/// The simultaneous group destruction leaves an indestructible member on
+/// the battlefield and destroys the other (CR 702.12b, 701.8); the
+/// untargeted life loss still happens.
+#[test]
+fn wicked_pact_group_spares_an_indestructible_member() {
+    let prepared = board(&[(WICKED_PACT, &[Cell::RemoveTargetGroup], Tiers::EXECUTES)])
+        .permanent_or_hand("Wicked Pact", 0, 0, true)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .permanent_or_hand("Darksteel Myr", 1, 1, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let (bears, myr) = (Driver::object(&g, 4), Driver::object(&g, 5));
+    let before = life(&g, 0);
+    Driver::cast(&mut g, CardId(0));
+    let d = targets(&mut g);
+    answer_targets(&mut g, &d, &[bears, myr]);
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 4), Zone::Graveyard { owner: PlayerId(1) });
+    assert_eq!(zone(&g, 5), Zone::Battlefield);
+    let mut paid = before;
+    paid.add(&Quantity::from(-5));
+    assert_eq!(life(&g, 0), paid);
 }

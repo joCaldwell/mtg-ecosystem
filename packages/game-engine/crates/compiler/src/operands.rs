@@ -1275,7 +1275,7 @@ pub(crate) fn bind_creature_target(
 }
 
 /// A damage recipient named by one target occurrence: "target creature" or,
-/// CR 115.4, 120.3, "target player or planeswalker". The closed scenario
+/// CR 115.1, 120.3, "target player or planeswalker". The closed scenario
 /// admits no planeswalker, so that domain's inhabitants are players; an
 /// "up to" player occurrence rejects.
 pub(crate) fn bind_damage_object_target(
