@@ -143,6 +143,11 @@ const TARGET_FILTER_KEYWORDS: [KeywordAbility; 17] = [
     KeywordAbility::Forestwalk,
 ];
 
+/// Whether a live permanent target may test this keyword.
+pub fn target_filter_keyword(keyword: KeywordAbility) -> bool {
+    TARGET_FILTER_KEYWORDS.contains(&keyword)
+}
+
 /// CR 601.2c, 608.2b: a battlefield target's characteristic, status and
 /// keyword terms, evaluated on the permanent's current derived facts at
 /// announcement and again at resolution (CR 110.5, 506.4, 509.1g,
@@ -168,11 +173,13 @@ fn battlefield_target_atom(atom: &Atom, top: bool) -> Result<(), KirError> {
         | Atom::Token
         | Atom::NotToken => Ok(()),
         Atom::Keyword { keyword } | Atom::NotKeyword { keyword }
-            if TARGET_FILTER_KEYWORDS.contains(keyword) =>
+            if target_filter_keyword(*keyword) =>
         {
             Ok(())
         }
-        Atom::Power { value, .. } | Atom::Toughness { value, .. } | Atom::ManaValue { value, .. }
+        Atom::Power { value, .. }
+        | Atom::Toughness { value, .. }
+        | Atom::ManaValue { value, .. }
             if value.as_fixed().is_some() =>
         {
             Ok(())
@@ -184,8 +191,8 @@ fn battlefield_target_atom(atom: &Atom, top: bool) -> Result<(), KirError> {
             if alternatives.len() >= 2 && alternatives.iter().all(|a| !a.0.is_empty()) =>
         {
             alternatives
-            .iter()
-            .flat_map(|alternative| &alternative.0)
+                .iter()
+                .flat_map(|alternative| &alternative.0)
                 .try_for_each(|atom| battlefield_target_atom(atom, false))
         }
         _ => unaudited("battlefield target predicate atom"),

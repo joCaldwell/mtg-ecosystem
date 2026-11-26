@@ -1190,20 +1190,20 @@ pub(crate) fn bind_optional_target_group(
 }
 
 /// CR 601.2c, 608.2b: the permanent criteria of a target. `types` lists
-/// alternatives here, whereas `ObjectFilter.types` requires every type
-/// (oracle-parser/src/ast.ts), so a printed conjunction rejects rather than
-/// widening the criteria (CR 205.2b). CR 110.5: a status term tests the
-/// permanent's current status. Every other printed term becomes one
+/// alternatives, whereas `ObjectFilter.types` requires every type.
+/// A printed conjunction keeps one type in the list and adds predicate
+/// atoms for the rest (CR 205.2b). Every other term becomes a
 /// predicate conjunct, rechecked with the rest at resolution (CR 608.2b).
 /// "Another" (CR 109.2, 201.5) excludes the targeting source; admission
 /// limits it to a permanent's ability with one target occurrence.
 fn lower_target_filter(
     filter: &ast::ObjectFilter,
 ) -> Result<(TargetDomain, PermanentFilter), Failure> {
-    const TERMS: [&str; 17] = [
+    const TERMS: [&str; 18] = [
         "cls",
         "types",
         "all_of",
+        "any_of",
         "non_types",
         "supertypes",
         "non_supertypes",
@@ -1230,7 +1230,8 @@ fn lower_target_filter(
     // CR 205.2b: "artifact creature" requires both types. The alternative
     // list keeps one of them (creature when printed) and the rest conjoin.
     let mut conjoined = vec![];
-    if let Some(printed) = &filter.types {
+    if filter.types.is_some() {
+        let printed = listed(&filter.types, "types")?;
         let mut kinds = printed
             .iter()
             .map(|kind| card_kind(kind, "target_filter"))
@@ -1248,6 +1249,9 @@ fn lower_target_filter(
     atoms.append(&mut conjoined);
     if let Some(all_of) = &filter.all_of {
         target_alternative_groups(all_of, &mut types, &mut atoms, 0)?;
+    }
+    if let Some(alternatives) = &filter.any_of {
+        lower_target_alternatives(alternatives, &mut types, &mut atoms)?;
     }
     let token = match &filter.cls {
         None => false,
@@ -1318,6 +1322,7 @@ fn lower_target_filter(
         && filter.cls.is_none()
         && filter.subtypes.is_none()
         && filter.all_of.is_none()
+        && filter.any_of.is_none()
     {
         return Err(operand("target_filter", "untyped"));
     }
@@ -1350,43 +1355,59 @@ fn target_alternative_groups(
         return Err(operand("target_filter", "all_of:group"));
     }
     for group in groups {
-        match (only_field(group), group.any_of.as_deref(), group.all_of.as_deref()) {
+        match (
+            only_field(group),
+            group.any_of.as_deref(),
+            group.all_of.as_deref(),
+        ) {
             (Some("all_of"), _, Some(inner)) => {
                 target_alternative_groups(inner, types, atoms, depth + 1)?
             }
-            (Some("any_of"), Some(alternatives), _) if alternatives.len() >= 2 => {
-                fn single_type(a: &ast::ObjectFilter) -> Option<&str> {
-                    match (only_field(a), a.types.as_deref()) {
-                        (Some("types"), Some([kind])) => Some(kind.as_str()),
-                        _ => None,
-                    }
-                }
-                if alternatives.iter().all(|a| single_type(a).is_some()) {
-                    if !types.is_empty() {
-                        return Err(operand("target_filter", "all_of:mixed"));
-                    }
-                    let mut kinds = vec![];
-                    for kind in alternatives.iter().filter_map(single_type) {
-                        match kind {
-                            "planeswalker" | "battle" => {}
-                            kind => kinds.push(card_kind(kind, "target_filter")?),
-                        }
-                    }
-                    if kinds.is_empty() {
-                        return Err(operand("target_filter", "all_of:unadmitted_types"));
-                    }
-                    *types = kinds;
-                } else {
-                    atoms.push(Atom::AnyOf {
-                        alternatives: alternatives
-                            .iter()
-                            .map(target_alternative)
-                            .collect::<Result<_, _>>()?,
-                    });
-                }
+            (Some("any_of"), Some(alternatives), _) => {
+                lower_target_alternatives(alternatives, types, atoms)?
             }
             _ => return Err(operand("target_filter", "all_of:group")),
         }
+    }
+    Ok(())
+}
+
+fn lower_target_alternatives(
+    alternatives: &[ast::ObjectFilter],
+    types: &mut Vec<CardKind>,
+    atoms: &mut Vec<Atom>,
+) -> Result<(), Failure> {
+    if alternatives.len() < 2 {
+        return Err(operand("target_filter", "any_of:arity"));
+    }
+    fn single_type(a: &ast::ObjectFilter) -> Option<&str> {
+        match (only_field(a), a.types.as_deref()) {
+            (Some("types"), Some([kind])) => Some(kind.as_str()),
+            _ => None,
+        }
+    }
+    if alternatives.iter().all(|a| single_type(a).is_some()) {
+        if !types.is_empty() {
+            return Err(operand("target_filter", "all_of:mixed"));
+        }
+        let mut kinds = vec![];
+        for kind in alternatives.iter().filter_map(single_type) {
+            match kind {
+                "planeswalker" | "battle" => {}
+                kind => kinds.push(card_kind(kind, "target_filter")?),
+            }
+        }
+        if kinds.is_empty() {
+            return Err(operand("target_filter", "all_of:unadmitted_types"));
+        }
+        *types = kinds;
+    } else {
+        atoms.push(Atom::AnyOf {
+            alternatives: alternatives
+                .iter()
+                .map(target_alternative)
+                .collect::<Result<_, _>>()?,
+        });
     }
     Ok(())
 }
@@ -1429,28 +1450,6 @@ fn status_atom(status: &str) -> Result<Atom, Failure> {
         other => return Err(operand("target_filter", format!("status:{other}"))),
     })
 }
-
-/// The evergreen keywords a target filter tests on the derived permanent
-/// (CR 613.1f): those whose presence is a plain fact of its abilities.
-const TARGET_FILTER_KEYWORDS: [KeywordAbility; 17] = [
-    KeywordAbility::Defender,
-    KeywordAbility::Flying,
-    KeywordAbility::Reach,
-    KeywordAbility::Vigilance,
-    KeywordAbility::Haste,
-    KeywordAbility::Lifelink,
-    KeywordAbility::Deathtouch,
-    KeywordAbility::Indestructible,
-    KeywordAbility::Trample,
-    KeywordAbility::FirstStrike,
-    KeywordAbility::DoubleStrike,
-    KeywordAbility::Menace,
-    KeywordAbility::Plainswalk,
-    KeywordAbility::Islandwalk,
-    KeywordAbility::Swampwalk,
-    KeywordAbility::Mountainwalk,
-    KeywordAbility::Forestwalk,
-];
 
 /// Supertype, subtype, color, token and keyword terms, each one conjunct
 /// (CR 105, 111.1, 205.3-4, 702).
@@ -1509,9 +1508,14 @@ fn target_characteristic_atoms(
         (&filter.without_ability, "without_ability", false),
     ] {
         for ability in listed(list, field)? {
-            let keyword = serde_json::from_value::<KeywordAbility>(serde_json::json!(ability))
+            let name = match ability.as_str() {
+                "first-strike" => "first strike",
+                "double-strike" => "double strike",
+                other => other,
+            };
+            let keyword = serde_json::from_value::<KeywordAbility>(serde_json::json!(name))
                 .ok()
-                .filter(|keyword| TARGET_FILTER_KEYWORDS.contains(keyword))
+                .filter(|keyword| kir::target_filter_keyword(*keyword))
                 .ok_or_else(|| operand("target_filter", format!("{field}:{ability}")))?;
             atoms.push(if has {
                 Atom::Keyword { keyword }

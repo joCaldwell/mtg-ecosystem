@@ -177,9 +177,7 @@ impl RulesTxn {
                     .into_iter()
                     .any(|p| self.targetable_player(p))
                     || self.state.rules.objects.values().any(|o| {
-                        self.is_battlefield_creature(o.id)
-                            && self.targetable_by(o.id, player)
-                            && !self.protected_from(o.id, source)
+                        self.object_target_legal_by(o.id, player, source, source_object, spec)
                     })
             }
             domain @ (TargetDomain::AnyPlayer
@@ -190,39 +188,12 @@ impl RulesTxn {
             | TargetDomain::StackActivatedOrTriggeredAbility => !self
                 .eligible_stack_targets_for(spec, player, None)
                 .is_empty(),
-            TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
-                self.state.rules.objects.values().any(|o| {
-                    !self.protected_from(o.id, source)
-                        && self.permanent_target_legal(o.id, player, source_object, spec)
-                })
-            }
-            TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
+            _ => self
                 .state
                 .rules
                 .objects
                 .values()
-                .any(|object| self.graveyard_target_legal_for(object, player, spec)),
-            TargetDomain::BlockingBattlefieldCreature => {
-                self.state.rules.blocking_creatures.iter().any(|o| {
-                    self.is_blocking_creature(*o)
-                        && self.targetable_by(*o, player)
-                        && !self.protected_from(*o, source)
-                })
-            }
-            domain @ (TargetDomain::CreatureOrPlaneswalker
-            | TargetDomain::BattlefieldCreature
-            | TargetDomain::ControlledBattlefieldCreature) => {
-                self.state.rules.objects.values().any(|o| {
-                    (if domain == TargetDomain::CreatureOrPlaneswalker {
-                        self.creature_or_planeswalker(o.id)
-                    } else {
-                        self.is_battlefield_creature(o.id)
-                    }) && self.targetable_by(o.id, player)
-                        && !self.protected_from(o.id, source)
-                        && (domain != TargetDomain::ControlledBattlefieldCreature
-                            || o.controller == player)
-                })
-            }
+                .any(|o| self.object_target_legal_by(o.id, player, source, source_object, spec)),
         })
     }
     pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
