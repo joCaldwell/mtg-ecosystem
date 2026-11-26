@@ -10,4 +10,5 @@ mod tap_tests;
 mod tapped_target_tests;
 mod untap_tests;
 
+mod counted_mana_tests;
 mod entry_replacement_tests;

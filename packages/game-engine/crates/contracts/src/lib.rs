@@ -185,6 +185,26 @@ impl Characteristics {
             .any(|s| matches!(s.as_str(), "Aura" | "Equipment"))
     }
 
+    /// CR 700.5a: a hybrid symbol contributes at most once.
+    pub fn devotion_symbols(&self, colors: &[Color]) -> usize {
+        self.mana_cost
+            .colored
+            .iter()
+            .filter(|color| colors.contains(color))
+            .count()
+            + self
+                .hybrid_mana
+                .iter()
+                .filter(|symbol| {
+                    symbol
+                        .colors
+                        .iter()
+                        .filter_map(|payment| payment.color())
+                        .any(|color| colors.contains(&color))
+                })
+                .count()
+    }
+
     pub fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
@@ -1434,6 +1454,13 @@ pub enum ManaProduction {
     Fixed {
         symbols: Vec<Color>,
     },
+    /// CR 605.3b, 608.2h: multiply the symbol by a public count after costs.
+    Counted {
+        color: Color,
+        zone: kir::ZoneExpr,
+        filter: kir::Pred,
+        factor: Quantity,
+    },
     Bundles {
         options: Vec<Vec<Color>>,
     },
@@ -1447,6 +1474,8 @@ pub enum ManaProduction {
         #[schemars(range(min = 1))]
         amount: Quantity,
     },
+    /// CR 700.5, 605.3b: choose a color and add its current devotion in mana.
+    ChooseDevotion {},
     /// CR 106.7: one mana of a type that a land controlled by `controller`
     /// could produce, chosen as the ability resolves. `colors_only` reads
     /// "any color" and excludes colorless; otherwise "any type".
