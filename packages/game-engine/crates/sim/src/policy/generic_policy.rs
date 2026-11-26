@@ -1060,6 +1060,9 @@ impl Strategy<'_> {
                             .chain(&o.granted_mana)
                             .map(|a| match &a.production {
                                 mtg_contracts::ManaProduction::Fixed { symbols } => symbols.len(),
+                                mtg_contracts::ManaProduction::Bundles { options } => {
+                                    options.iter().map(Vec::len).max().unwrap_or_default()
+                                }
                                 mtg_contracts::ManaProduction::Choose { amount, .. } => {
                                     amount.to_u32().map_or(1, |n| n as usize)
                                 }
@@ -1559,6 +1562,7 @@ impl Strategy<'_> {
         self.memory.mana_plan.clear();
         self.memory.mana_ability = None;
         self.memory.mana_color = None;
+        self.memory.mana_bundle = None;
         self.memory.hybrid_choices.clear();
         self.memory.planned_x = None;
         if let Some(r) = self.reactive_spells_with_game(v, game)? {

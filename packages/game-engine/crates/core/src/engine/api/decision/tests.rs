@@ -112,6 +112,7 @@ fn payment_separates_available_sources_from_exact_expenditure() {
         },
         pool: ManaPool {
             unrestricted: [(Color::G, 2.into()), (Color::R, 3.into())].into(),
+            restricted: vec![],
         },
         step: PayStep::Produce { sources: vec![3] },
     };

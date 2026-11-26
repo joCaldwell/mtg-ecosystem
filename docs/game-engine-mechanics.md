@@ -177,11 +177,13 @@ through source-owner departure.
 A mana ability (CR 605.1a) is a tap cost, optionally with a mana cost paid
 through a nested activation or a life payment (CR 119.4), and one production:
 fixed symbols, any color, commander color, N mana of one color chosen from a
-printed list, or one mana of a type the controller's or opponents' lands could
-produce. CR 106.7 is the least fixed point over battlefield lands, each read
-relative to its own controller from intrinsic, printed and granted abilities, ignoring
-costs and object order; if a departure leaves no defined type while the color is
-chosen, the ability adds nothing. A source with several mana abilities first
+printed list, one of the printed fixed bundles, up to five mana in any
+combination of colors, or one mana of a type the controller's or opponents'
+lands could produce. A bundle is chosen in full as the ability resolves.
+CR 106.7 is the least fixed point over battlefield lands, each read
+relative to its own controller from intrinsic, printed and granted abilities,
+ignoring costs and object order. If a departure leaves no defined type while
+the color is chosen, the ability adds nothing. A source with several mana abilities first
 asks which to activate (CR 605.3a). Riders follow in order: damage to the
 controller or life gain (CR 605.3b). A nested payment rechecks outer costs.
 
@@ -190,10 +192,20 @@ recipient taps for its activator (CR 109.5, 302.6); printed then granted
 abilities drive activation, views, planning and saves. Grants admit only tap and
 life costs, without riders, restrictions, conditions or tapped-status filters.
 
-Reversal (CR 733.1) restores receipt-recorded mana, taps and counters; an
-activation that paid life or performed riders is kept, with every activation of
-that attempt. Spend-restricted mana has no producer or spend answer, so payment
-never counts it (CR 106.6).
+Reversal (CR 733.1) restores receipt-recorded unrestricted and restricted
+mana, taps and counters. An activation that paid life or performed riders is
+kept with every activation of that attempt.
+
+CR 106.6 spending predicates distinguish spells, activated abilities and
+resolution payments. The spend decision offers only eligible buckets and
+validates the exact unrestricted and bucket allocation. The finite rows
+cover spell types, colorless spells, artifact spells and battlefield artifact
+abilities, colorless Eldrazi spells and battlefield colorless Eldrazi
+abilities, and activated abilities generally. Mana with an uncounterable
+rider protects the paid spell only when that allocation spends the mana.
+The legendary row restricts the payment itself. The instant-or-sorcery row
+can pay other costs without protecting them. Mana still empties at step and
+phase boundaries (CR 106.4, 500.4).
 
 ## Casting, costs, targets and stack
 

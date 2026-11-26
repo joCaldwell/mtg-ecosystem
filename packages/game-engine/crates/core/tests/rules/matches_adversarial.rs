@@ -1242,6 +1242,7 @@ fn dual_yargle_returns() -> (Prepared, Game) {
                         pool:
                             ManaPool {
                                 unrestricted: available,
+                                ..
                             },
                         ..
                     },
@@ -1681,6 +1682,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                         pool:
                             ManaPool {
                                 unrestricted: available,
+                                ..
                             },
                         ..
                     },

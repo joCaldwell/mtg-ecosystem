@@ -81,9 +81,9 @@ pub fn choose(
         }
         (Reason::CommanderReturn{..},_)=>crate::policy::flag(d,Flag::CommandZone)?,
         (Reason::Mulligan{..},_)=>crate::policy::flag(d,Flag::Keep)?,
-        (_,Shape::Pay{cost,pool,step:PayStep::Spend})=>crate::mana_spend::spend_answer(cost,&pool.unrestricted).ok_or("cannot spend rollout cost")?,
+        (_,Shape::Pay{cost,pool,step:PayStep::Spend})=>crate::mana_spend::pool_spend_answer(cost,pool).ok_or("cannot spend rollout cost")?,
         (_,Shape::Pay{cost,pool,step:PayStep::Produce{..}})=>{
-            if search_candidates::spend(cost,&pool.unrestricted).is_none() && let Some((sources,_))=search_candidates::funding(catalog,observation,cost) && let Some(object)=sources.first() {
+            if search_candidates::spend(cost,&pool.available()).is_none() && let Some((sources,_))=search_candidates::funding(catalog,observation,cost) && let Some(object)=sources.first() {
                 crate::policy::payment_source(d,object.clone())?
             }else{Answer::Pay{pay:PayAnswer::Finish{undo_on_failure:true}}}
         }
