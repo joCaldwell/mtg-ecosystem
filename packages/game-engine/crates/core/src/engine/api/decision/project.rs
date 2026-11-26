@@ -137,6 +137,9 @@ impl RulesTxn {
             Candidate::Object { object } => Candidate::Object {
                 object: handle(object)?,
             },
+            Candidate::Stack { stack } => Candidate::Stack {
+                stack: self.stack_handle_for(viewer, stack)?,
+            },
             Candidate::Player { player } => Candidate::Player { player },
             Candidate::Trigger { trigger } => Candidate::Trigger {
                 trigger: self.visible_pending_trigger(viewer, trigger)?.handle,

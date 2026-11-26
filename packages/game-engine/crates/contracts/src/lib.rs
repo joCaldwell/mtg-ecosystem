@@ -124,12 +124,20 @@ pub struct Characteristics {
     pub color_identity: Vec<Color>,
     pub power: Option<Quantity>,
     pub toughness: Option<Quantity>,
+    /// CR 202.3b, 712.8e: the back face of a nonmodal double-faced card has
+    /// no mana cost, but its mana value is calculated from its front face's
+    /// mana cost. Present only on such a back face.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub front_face_mana_value: Option<Quantity>,
 }
 fn is_false(value: &bool) -> bool {
     !*value
 }
 impl Characteristics {
     pub fn printed_mana_value(&self) -> Quantity {
+        if let Some(value) = &self.front_face_mana_value {
+            return value.clone();
+        }
         let mut value = self.mana_cost.generic.clone();
         value.add(&Quantity::from(
             (self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64,
@@ -235,6 +243,12 @@ pub enum Capability {
 
     NormalLayoutV1,
     ModalDoubleFacedV1,
+    /// CR 712.2, 701.27: a nonmodal double-faced card that transforms.
+    TransformingDoubleFacedV1,
+    /// CR 715: an adventurer card and its Adventure spell.
+    AdventurerV1,
+    /// CR 701.27a,f: an ability of a permanent transforms that permanent.
+    TransformSourceV1,
 
     BasicLandManaV1,
     LandPlayV1,
@@ -274,6 +288,7 @@ pub enum Capability {
     StackSpellTargetV1,
     StackAbilityTargetV1,
     CounterStackObjectV1,
+    RegenerationShieldV1,
 
     ControlledCreatureSpellCopyV1,
     TapSourceCostV1,
@@ -653,6 +668,7 @@ impl CreatureToken {
             color_identity: self.colors.clone(),
             power: Some(self.power.clone()),
             toughness: Some(self.toughness.clone()),
+            front_face_mana_value: None,
         }
     }
 
@@ -1660,8 +1676,9 @@ impl<'de> Deserialize<'de> for KeywordAbility {
         }
     }
 }
-/// CR 712.8a,f: a modal card has front characteristics until its back
-/// face is chosen for the stack or battlefield.
+/// CR 712.8a,d-f and 715.4: a two-part card has its front (or normal)
+/// characteristics until its back face (or Adventure) is chosen for the
+/// stack or battlefield, or the permanent transforms.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -1675,15 +1692,50 @@ impl CardFace {
     pub fn is_front(&self) -> bool {
         *self == Self::Front
     }
+    /// CR 701.27a: the other face of a two-faced object.
+    pub fn other(self) -> Self {
+        match self {
+            Self::Front => Self::Back,
+            Self::Back => Self::Front,
+        }
+    }
+}
+
+/// How the two printed parts of one physical card relate (CR 712, 715).
+/// <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum FaceLayout {
+    /// One printed face.
+    #[default]
+    Single,
+    /// CR 712.3, 712.11b, 712.12: either face may be cast or played.
+    ModalDoubleFaced,
+    /// CR 712.2, 712.11, 712.14: cast and enters front face up; the
+    /// permanent turns over only when it transforms (CR 701.27).
+    Transforming,
+    /// CR 715.3: cast normally or as its Adventure (the back part).
+    Adventurer,
+}
+impl FaceLayout {
+    pub fn is_single(&self) -> bool {
+        *self == Self::Single
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
-    /// The other printed face of a modal double-faced card. Only a physical
-    /// card's root definition owns this face.
+    /// How `back_face` relates to this front face.
+    #[serde(default, skip_serializing_if = "FaceLayout::is_single")]
+    pub layout: FaceLayout,
+    /// The other printed part of a two-part card: a double-faced card's back
+    /// face or an adventurer's Adventure. Only a physical card's root
+    /// definition owns it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub modal_back: Option<Box<Definition>>,
+    pub back_face: Option<Box<Definition>>,
     /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_labels: Option<SourceLabels>,
@@ -1721,12 +1773,24 @@ impl Definition {
     pub fn face(&self, face: CardFace) -> Option<&Self> {
         match face {
             CardFace::Front => Some(self),
-            CardFace::Back => self.modal_back.as_deref(),
+            CardFace::Back => self.back_face.as_deref(),
         }
     }
 
+    /// The parts a player may choose to cast or play from a zone other than
+    /// the battlefield (CR 712.11b, 712.12, 715.3). A transforming card's
+    /// back face is never chosen this way (CR 712.11).
     pub fn faces(&self) -> impl Iterator<Item = CardFace> {
-        std::iter::once(CardFace::Front).chain(self.modal_back.as_ref().map(|_| CardFace::Back))
+        let back = matches!(
+            self.layout,
+            FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer
+        ) && self.back_face.is_some();
+        std::iter::once(CardFace::Front).chain(back.then_some(CardFace::Back))
+    }
+
+    /// CR 712.9: only a nonmodal double-faced card's permanent transforms.
+    pub fn transforms(&self) -> bool {
+        self.layout == FaceLayout::Transforming && self.back_face.is_some()
     }
 
     /// Executable versions of the spell program. For a modal spell the base
@@ -1865,8 +1929,12 @@ impl Definition {
         for ability in &self.static_abilities {
             set.insert(ability.effect.capability(self.characteristics.kind));
         }
-        if let Some(back) = &self.modal_back {
-            set.insert(Capability::ModalDoubleFacedV1);
+        if let Some(back) = &self.back_face {
+            set.insert(match self.layout {
+                FaceLayout::Transforming => Capability::TransformingDoubleFacedV1,
+                FaceLayout::Adventurer => Capability::AdventurerV1,
+                FaceLayout::Single | FaceLayout::ModalDoubleFaced => Capability::ModalDoubleFacedV1,
+            });
             set.extend(back.requirements());
         }
         set

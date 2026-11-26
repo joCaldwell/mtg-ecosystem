@@ -453,7 +453,7 @@ pub(crate) fn color(color: &ast::Color) -> Color {
 }
 
 /// A printed list term: present lists are never empty.
-fn listed<'a, T>(list: &'a Option<Vec<T>>, field: &str) -> Result<&'a [T], Failure> {
+pub(crate) fn listed<'a, T>(list: &'a Option<Vec<T>>, field: &str) -> Result<&'a [T], Failure> {
     match list {
         None => Ok(&[]),
         Some(items) if items.is_empty() => Err(operand("filter", format!("{field}:empty"))),
@@ -462,7 +462,10 @@ fn listed<'a, T>(list: &'a Option<Vec<T>>, field: &str) -> Result<&'a [T], Failu
 }
 
 /// "artifact or enchantment": one `allOf` group of single-type alternatives.
-fn type_alternatives(all_of: &[ast::ObjectFilter], kind: &str) -> Result<Vec<CardKind>, Failure> {
+pub(crate) fn type_alternatives(
+    all_of: &[ast::ObjectFilter],
+    kind: &str,
+) -> Result<Vec<CardKind>, Failure> {
     let [group] = all_of else {
         return Err(operand(kind, "all_of:conjunction"));
     };
@@ -611,7 +614,7 @@ fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred,
 }
 
 /// CR 208.1, 202.3: a fixed comparison of power, toughness or mana value.
-fn lower_fixed_property(property: &ast::PropertyConstraint) -> Result<Atom, Failure> {
+pub(crate) fn lower_fixed_property(property: &ast::PropertyConstraint) -> Result<Atom, Failure> {
     let ast::Amount::Fixed(bound) = &*property.comparison.value else {
         return Err(operand(
             "filter",

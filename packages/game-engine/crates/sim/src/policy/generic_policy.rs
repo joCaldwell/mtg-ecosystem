@@ -359,6 +359,9 @@ impl Strategy<'_> {
             kernel!(PutCounters {
                 on: target_object!(target_slot),
                 ..
+            })
+            | kernel!(Regenerate {
+                what: target_object!(target_slot)
             }) => *target_slot == slot,
             kernel!(ModifyUntil {
                 what: target_object!(target_slot),
@@ -570,7 +573,7 @@ impl Strategy<'_> {
         v.stack
             .iter()
             .filter(|s| {
-                s.controller != v.viewer
+                (s.controller == v.viewer) == (t.domain == TargetDomain::ControlledCreatureSpell)
                     && s.cast_complete
                     && s.handle
                         .as_ref()
@@ -584,9 +587,19 @@ impl Strategy<'_> {
                     s.spell.is_some()
                         && t.filter.as_ref().is_none_or(|f| {
                             self.entry_program(v, s).is_some_and(|(d, _)| {
-                                query::spell_matches_filter(&d.characteristics, f)
+                                let mana_value = s
+                                    .mana_value
+                                    .clone()
+                                    .unwrap_or_else(|| d.characteristics.printed_mana_value());
+                                query::spell_matches_filter(&d.characteristics, &mana_value, f)
                             })
                         })
+                }
+                TargetDomain::ControlledCreatureSpell => {
+                    s.spell.is_some()
+                        && self
+                            .entry_program(v, s)
+                            .is_some_and(|(d, _)| d.characteristics.has_type(CardKind::Creature))
                 }
                 _ => false,
             })
@@ -1155,8 +1168,9 @@ impl Strategy<'_> {
         }
         p.targets.iter().all(|t| match t.domain {
             TargetDomain::PlayerGraveyardCards { .. } => true, // The owning player is mandatory, cards are optional.
-            TargetDomain::ControlledCreatureSpell => false,
-            TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
+            TargetDomain::StackSpell
+            | TargetDomain::ControlledCreatureSpell
+            | TargetDomain::StackActivatedOrTriggeredAbility => {
                 self.stack_target(v, t, None).is_some()
             }
             TargetDomain::PlayerOrPlaneswalker => !v.live_turn_order.is_empty(),

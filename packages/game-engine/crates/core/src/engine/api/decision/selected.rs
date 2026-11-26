@@ -71,6 +71,15 @@ impl PendingInput {
             })
             .collect()
     }
+    pub(in crate::engine) fn stack_targets(&self) -> Result<Vec<StackId>, String> {
+        self.rows()?
+            .into_iter()
+            .map(|c| match c {
+                Candidate::Stack { stack } => Ok(*stack),
+                _ => Err("expected a stack target".into()),
+            })
+            .collect()
+    }
     pub(in crate::engine) fn entities(&self) -> Result<Vec<TargetEntity>, String> {
         self.rows()?
             .into_iter()

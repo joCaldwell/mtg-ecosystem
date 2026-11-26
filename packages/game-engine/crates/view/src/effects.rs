@@ -100,6 +100,7 @@ macro_rules! visible_effects {
 visible_effects! {
     RegenerationShield(handle) {
         origin: VisibleEffectSource<O> => nested,
+        target: VisibleTarget<O> => nested,
         expires_in_cleanup_of_turn: u64,
     },
     ProtectControllerUntilNextTurn(handle) {

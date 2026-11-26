@@ -1,46 +1,42 @@
 # Engine development
 
-Read [the current map](../../docs/game-engine-current.md),
-[development](../../docs/game-engine-development.md), and affected
-[runtime invariants](../../docs/game-engine-mechanics.md#runtime-invariants) before edits. This
-package owns Rust contracts/compiler/core/simulator; server/parser have their own
-manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semantics.
+This package owns the Rust contracts, compiler, core and simulator; server and
+parser have their own manuals. Read [the current map](../../docs/game-engine-current.md),
+[development](../../docs/game-engine-development.md) (environment, checks,
+publication) and the affected [runtime invariants](../../docs/game-engine-mechanics.md#runtime-invariants)
+before edits. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semantics.
 
-- Lower complete exact archived source or reject. Use frozen fixtures/pinned rules
-  and meaningful positive/rejection tests; never bless a changed expected outcome
-  without source/rules review. Card names/IDs identify witnesses, never mechanics.
-- Deterministic core imports IR and permitted-view contracts only: no compiler/parser runtime dependency,
-  I/O, clocks, OS randomness, async inference or unsafe code. Compiler test fixtures
-  are development-only; [structure checks](../../docs/game-engine-catalogs.md#ir-and-build-identity)
+- Lower complete exact archived source or reject. Use frozen fixtures, pinned
+  rules and meaningful positive/rejection tests; never bless a changed expected
+  outcome without source/rules review. Card names/IDs identify witnesses, never
+  mechanics.
+- Core imports only IR and permitted-view contracts: no compiler/parser
+  dependency, I/O, clocks, OS randomness, async inference or unsafe code.
+  Compiler test fixtures are development-only. [Structure checks](../../docs/game-engine-catalogs.md#ir-and-build-identity)
   enforce declared boundaries.
-- Rust IR types own executable contracts. Active schema stays 1 in place, with
-  strict capabilities/shapes and exact build/catalog recovery fencing. Other format
-  versions and historical evidence remain separate; no old decoder/downgrade matrix.
+- Rust IR types own executable contracts; active schema stays 1, evolved in place
+  with strict capabilities/shapes and exact build/catalog recovery fencing. No old
+  decoder or downgrade matrix.
 - A new resolving effect is a [Kernel IR](../../docs/game-engine-catalogs.md#kernel-ir)
-  node: an audited `kir::check` cell and its interpreter arm. Extend the operand algebra when the complete source semantics require it.
-
-- All admitted catalogs share rules/capacities. Profiles are admission data;
-  hosting/search/analytics need the derived `Hosting`/`Search`/`HeadlessQualified`
-  [tier](../../docs/game-engine-mechanics.md#derived-capability-tiers). New IR fields
-  and cells require reviewing tier rows as well as exhaustive enum variants.
+  node: an audited `kir::check` cell and its interpreter arm. Extend the operand
+  algebra when the complete source semantics require it.
+- Profiles are admission data over shared rules/capacities; hosting, search and
+  analytics need the derived [tier](../../docs/game-engine-mechanics.md#derived-capability-tiers).
+  New IR fields and cells require reviewing tier rows as well as exhaustive enum
+  variants.
 - Preserve identity, ownership/control, exact arithmetic, atomic events, budget
   suspension, privacy and recovery. Resource faults/truncation are not rules
   outcomes; queries never mint handles/history or mutate semantics.
-- Use `rules` for rules assertions, `recovery` for the journal corpus, `cards`
-  for frozen-source witnesses and `host` for server integration. Prefer the
-  shared `testkit::Board` and `Driver` for private boards and keep adversarial
-  modules on public APIs. See the [test harnesses](../../docs/game-engine-development.md#engine-test-topology).
-- Use focused checks with actual executed selectors and explicit omissions.
-  One native owner per worktree target holds its Cargo lock; runners own it internally.
-  Iterate with `engine:dev` selectors and `check:engine`; run
-  [`check:engine:gate`](../../docs/game-engine-development.md#inner-loop-and-one-gate)
-  once, before publishing. Compiler-coverage work adds one whole-archive scan.
-- Preserve unrelated work and ignored source/evidence/cache paths. Commit/push
-  coherent focused checkpoints; no incidental merge, mechanic or pool expansion.
-  [Storage](../../docs/game-engine-storage.md) governs cleanup and retirement.
+- Put rules assertions in `rules`, the journal corpus in `recovery`, frozen-source
+  witnesses in `cards` and server integration in `host`; prefer `testkit::Board`
+  and `Driver` for private boards and keep adversarial modules on public APIs
+  ([test topology](../../docs/game-engine-development.md#engine-test-topology)).
+- Iterate with `engine:dev` selectors and run [`check:engine:gate`](../../docs/game-engine-development.md#inner-loop-and-one-gate)
+  once before publishing; never take the Cargo lock around a runner that owns it.
+  No incidental mechanic or pool expansion.
 
-[Catalogs/profiles](../../docs/game-engine-catalogs.md),
+Topical contracts: [catalogs/profiles](../../docs/game-engine-catalogs.md),
 [capacities](../../docs/game-engine-capacity-policy.md),
-[search](../../docs/game-engine-search.md) and [hosting](../../docs/game-engine-server.md)
-are topical contracts. [Evidence](../../docs/game-engine-evidence.md) keeps
-immutable historical locators only.
+[search](../../docs/game-engine-search.md), [hosting](../../docs/game-engine-server.md),
+[storage](../../docs/game-engine-storage.md) and immutable historical
+[evidence](../../docs/game-engine-evidence.md).

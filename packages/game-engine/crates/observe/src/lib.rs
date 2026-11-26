@@ -336,6 +336,9 @@ pub fn encode(
     for (i, k) in d.candidates.iter().enumerate() {
         let (kind, entity, seat, a, b) = match k {
             Candidate::Object { object: h } => (0, object(h), -1, 0, 0),
+            Candidate::Stack { stack: h } => {
+                (15, stack.get(h.0.as_str()).copied().unwrap_or(-1), -1, 0, 0)
+            }
             Candidate::Player { player } => (1, -1, relative(*player), 0, 0),
             Candidate::Trigger { .. } => (2, -1, -1, 0, 0),
             Candidate::DamageEffect { .. } => (3, -1, -1, 0, 0),

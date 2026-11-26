@@ -240,6 +240,8 @@ impl RulesTxn {
             Verb::Fight { first, second } => {
                 self.execute_fight(frame, &first, &second, source_block)
             }
+            Verb::Counter { what } => self.execute_counter(frame, what, source_block),
+            Verb::Regenerate { what } => self.execute_regenerate(frame, &what, source_block),
             Verb::Attach {
                 what: Ref::Source,
                 to: Ref::Target { slot: 0 },
@@ -252,6 +254,9 @@ impl RulesTxn {
             }
             Verb::Draw { player, amount } => {
                 self.kernel_draw(frame, &player, &amount, source_block)
+            }
+            Verb::Transform { what: Ref::Source } => {
+                self.kernel_transform_source(frame, source_block)
             }
             Verb::Tap {
                 what: SetExpr::Matching { zone, filter },

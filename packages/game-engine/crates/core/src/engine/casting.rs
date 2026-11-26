@@ -32,11 +32,16 @@ impl RulesTxn {
         let object = self.state.rules.objects.get(&card).ok_or("invalid cast")?;
         let definition = self.face_definition(card, face)?;
         // CR 702.34a: flashback permits casting from its owner's graveyard.
+        // CR 715.3d: an exiled Adventure's controller may cast its card, but
+        // not as an Adventure.
         if !(object.zone == (Zone::Hand { owner: player })
             || (object.zone == (Zone::Command { owner: player })
                 && self.state.rules.commanders.history(card).is_some())
             || (object.zone == (Zone::Graveyard { owner: player })
-                && definition.flashback.is_some()))
+                && definition.flashback.is_some())
+            || (object.zone == Zone::Exile
+                && object.adventure_player == Some(player)
+                && face == CardFace::Front))
             || self.state.rules.cards[&card].owner != player
             || definition.spell.is_none()
         {
@@ -173,6 +178,8 @@ impl RulesTxn {
             stack_targets: vec![],
             announced_stack_targets: vec![],
             kind: StackKind::Spell,
+            source_face: CardFace::Front,
+            source_transforms: 0,
             player_targets: vec![],
             id,
             source,
@@ -208,7 +215,7 @@ impl RulesTxn {
         if stack.id != cast.stack_id || !stack.kind.is_spell() || !cast.origin.is_spell() {
             return Err("spell announcement binding invariant".into());
         }
-        let definition = self.copiable_definition(stack.source)?;
+        let definition = self.stack_definition(stack)?;
         if definition.modal_spell.is_some() && stack.mode_mask.is_none() {
             return Ok(Frame::ChooseModes { cast });
         }
@@ -262,6 +269,23 @@ impl RulesTxn {
     /// CR 702.34a: a spell whose flashback cost was paid (the one way a spell
     /// is cast from a graveyard) is exiled instead of moving anywhere else as
     /// it leaves the stack. A copy was never cast and keeps `destination`.
+    /// CR 715.3d: a spell cast from exile with an Adventure's permission is
+    /// its card's normal characteristics.
+    pub(super) fn adventurer_cast_from_exile(&self, entry: &StackInstance) -> Result<bool, String> {
+        Ok(entry.kind.is_spell()
+            && entry.cast_from == Zone::Exile
+            && !self.is_spell_copy(entry)
+            && entry.source.face == CardFace::Front
+            && self.definition(entry.source.card)?.layout == FaceLayout::Adventurer)
+    }
+    /// CR 715.3b: the spell is on the stack as an Adventure.
+    /// A copy is never a card and is not exiled (CR 707.10, 715.3c-d).
+    pub(super) fn cast_as_adventure(&self, entry: &StackInstance) -> Result<bool, String> {
+        Ok(entry.kind.is_spell()
+            && !self.is_spell_copy(entry)
+            && entry.source.face == CardFace::Back
+            && self.definition(entry.source.card)?.layout == FaceLayout::Adventurer)
+    }
     pub(super) fn stack_departure(&self, entry: &StackInstance, destination: Zone) -> Zone {
         if entry.kind.is_spell() && matches!(entry.cast_from, Zone::Graveyard { .. }) {
             Zone::Exile

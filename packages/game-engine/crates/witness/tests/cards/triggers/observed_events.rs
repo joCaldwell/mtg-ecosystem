@@ -251,6 +251,26 @@ fn observed_events_becoming_target_survives_payment_only_for_completed_casts() {
         Driver::pick_object(&mut g, thorn);
         let _ = Driver::request(&mut g, u64::MAX);
         checked(&g);
+        for (field, value, error) in [
+            (
+                "source/controller",
+                serde_json::json!(0),
+                "target announcement witness invariant",
+            ),
+            (
+                "witness/target_controller_live",
+                serde_json::json!(false),
+                "trigger event witness invariant",
+            ),
+        ] {
+            let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+            let stack = forged.state.rules.stack.last_mut().unwrap();
+            let mut wire = serde_json::to_value(&*stack).unwrap();
+            let path = format!("/target_triggers/0/{field}");
+            *wire.pointer_mut(&path).unwrap() = value;
+            *stack = serde_json::from_value(wire).unwrap();
+            assert_forgery_rejected(&g, forged, error);
+        }
         Driver::pay(&mut g, if complete { &[4] } else { &[] });
         settle(&mut g);
         assert_eq!(g.state.rules.tokens.len(), usize::from(complete));
@@ -443,4 +463,49 @@ fn observed_events_warhound_compares_each_opponents_lands_separately() {
         }
         assert_recoverable((&g).into());
     }
+}
+
+#[test]
+fn observed_events_countering_the_trigger_does_not_target_its_permanent() {
+    const STIFLE: &str = record!("b3b00911-ece7-4484-bc36-f211ce72b6cc");
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[THORN_LIEUTENANT, STIFLE], TurnStep::PrecombatMain)
+                .permanent_or_hand("Thorn Lieutenant", 1, 1, false)
+                .permanent_or_hand("Lightning Bolt", 0, 0, true)
+                .permanent_or_hand("Stifle", 0, 0, true)
+                .permanent_or_hand("Mountain", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let thorn = Driver::object(&g, 0);
+    Driver::cast(&mut g, CardId(1));
+    Driver::pick_object(&mut g, thorn);
+    Driver::pay(&mut g, &[3]);
+    drive(&mut g, &[], triggered);
+    let target = g.state.rules.stack.last().unwrap().id;
+
+    Driver::cast(&mut g, CardId(2));
+    let d = Driver::request(&mut g, u64::MAX);
+    let answer = d.pick_one(&Candidate::Stack { stack: target }).unwrap();
+    g.respond(d.player, d.id, answer).unwrap();
+    Driver::pay(&mut g, &[4]);
+    settle(&mut g);
+
+    assert_eq!(
+        g.current(Driver::object(&g, 0)).unwrap().zone,
+        Zone::Graveyard { owner: PlayerId(1) }
+    );
+    assert!(g.state.rules.tokens.is_empty());
+    assert_eq!(
+        g.events()
+            .iter()
+            .filter(|event| matches!(event,
+                Event::TriggerCollected { source, .. } if *source == thorn
+            ))
+            .count(),
+        1
+    );
+    assert_recoverable((&g).into());
 }

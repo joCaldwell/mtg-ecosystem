@@ -432,6 +432,38 @@ impl Resolution {
         Ok(block.refs.iter().any(|entry| entry_path(entry) == path))
     }
 
+    pub(super) fn binds_counter_payer(
+        &self,
+        index: usize,
+        who: &str,
+        implicit: &str,
+        slot: u32,
+    ) -> Result<bool, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        let of = format!("{who}/of");
+        let selection = block.refs.iter().any(
+            |entry| matches!(entry, RefEntry::Evaluated(e) if e.path == who && e.scope.is_none()),
+        );
+        let target = block.refs.iter().any(|entry| {
+            matches!(entry, RefEntry::Ref(r) if r.path == of && r.scope.is_none()
+                && matches!(&*r.r#ref, ResolvedRef::Target(t) if t.slot == i64::from(slot)))
+        });
+        let payer = block
+            .refs
+            .iter()
+            .find(|entry| entry_path(entry) == implicit);
+        Ok(selection
+            && target
+            && payer.is_some_and(|entry| {
+                matches!(entry, RefEntry::Ref(r) if r.scope.is_none()
+                && matches!(&*r.r#ref, ResolvedRef::StepResult(p)
+                    if p.step == who && p.role == crate::ast::StepResultRole::Selection))
+            }))
+    }
+
     /// CR 109.5, 603.2, 608.2d: the kernel player a printed player operand
     /// of block `index` at `path` resolves to: the block's own controller
     /// ("you") or a kernel event player of its own trigger. Any other

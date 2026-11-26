@@ -15,6 +15,9 @@ pub fn is_zero(value: &u64) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PendingTrigger {
+    /// CR 113.7a, 712.18: the face whose ability triggered.
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub source_face: CardFace,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     death_controller: Option<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,6 +72,7 @@ enum TriggerMovement {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct TriggerMember<'a> {
     source: ObjectId,
+    face: CardFace,
     ability: EffectiveTriggerAbility,
     event: &'a TriggerOccurrenceId,
     subject: Option<ObjectId>,
@@ -78,7 +82,13 @@ struct TriggerMember<'a> {
 #[derive(Default)]
 struct TriggerOccurrences<'a> {
     members: BTreeSet<TriggerMember<'a>>,
-    movements: BTreeSet<(ObjectId, EffectiveTriggerAbility, ObjectId, TriggerMovement)>,
+    movements: BTreeSet<(
+        ObjectId,
+        CardFace,
+        EffectiveTriggerAbility,
+        ObjectId,
+        TriggerMovement,
+    )>,
 }
 
 /// Semantic successful-cast ledger, independent of observers and tracing.
@@ -159,6 +169,7 @@ pub enum TriggerEventWitness {
     },
     BecameTarget {
         target: Box<ObjectBefore>,
+        target_controller_live: bool,
         actor: PlayerId,
         is_spell: bool,
         controller_at_match: PlayerId,
@@ -1126,7 +1137,10 @@ impl RulesTxn {
         self.rules_mut().next_trigger_id += 1;
         let source = source_facts.object;
         let source_handles = self.capture_trigger_source_handles(source)?;
+        // CR 113.7a: the face the facts were captured with as it triggered.
+        let source_face = face_after(source_facts.object.face, source_facts.transforms);
         self.rules_mut().pending_triggers.push(PendingTrigger {
+            source_face,
             death_controller,
             match_condition,
             id,
@@ -1296,6 +1310,7 @@ impl RulesTxn {
                     let trigger = self.rules_mut().pending_triggers.remove(index);
                     self.validate_match_condition(
                         trigger.source,
+                        trigger.source_face,
                         trigger.ability,
                         trigger.controller,
                         trigger.match_condition.as_ref(),
@@ -1314,8 +1329,11 @@ impl RulesTxn {
                         .ok_or("stack ID resource limit")?;
                     let targeted = match trigger.ability {
                         EffectiveTriggerAbility::Intrinsic { .. } => {
-                            let ability =
-                                self.effective_trigger(trigger.source, trigger.ability)?;
+                            let ability = self.effective_trigger(
+                                trigger.source,
+                                trigger.source_face,
+                                trigger.ability,
+                            )?;
                             !ability.program.targets.is_empty() || ability.modal.is_some()
                         }
                         EffectiveTriggerAbility::Followup { creator } => {
@@ -1325,6 +1343,16 @@ impl RulesTxn {
                     let zero = ManaCost {
                         generic: Quantity::zero(),
                         colored: vec![],
+                    };
+                    // CR 701.27f: the transform count as an ability is put on
+                    // the stack, or as a delayed trigger was created.
+                    let source_transforms = match trigger.ability {
+                        EffectiveTriggerAbility::Followup { creator } => {
+                            self.resolution_trigger_transforms(creator)?
+                        }
+                        EffectiveTriggerAbility::Intrinsic { .. } => self
+                            .current(trigger.source)
+                            .map_or(trigger.source_facts.transforms, |o| o.transforms),
                     };
                     self.rules_mut().stack.push(StackInstance {
                         target_triggers: vec![],
@@ -1344,6 +1372,8 @@ impl RulesTxn {
                         announced_entity_targets: vec![],
                         stack_targets: vec![],
                         announced_stack_targets: vec![],
+                        source_face: trigger.source_face,
+                        source_transforms,
                         kind: StackKind::Triggered {
                             match_condition: trigger.match_condition,
                             ability: trigger.ability,
@@ -1543,6 +1573,7 @@ impl RulesTxn {
     fn validate_trigger_source(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         fact: &ObjectBefore,
@@ -1550,11 +1581,16 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let intrinsic = match ability {
             EffectiveTriggerAbility::Intrinsic { .. } => {
-                Some(self.effective_trigger(source, ability)?)
+                Some(self.effective_trigger(source, face, ability)?)
             }
             EffectiveTriggerAbility::Followup { .. } => None,
         };
+        // CR 712.18: only a transforming card's ability can come from a
+        // face other than the one its incarnation entered with. A bound
+        // entrant's witness preserves its controller at entry even if a
+        // later departure refreshes the source facts under different control.
         if controller.0 >= 4
+            || (face != source.face && !self.definition(source.card)?.transforms())
             || fact.object != source
             || fact.owner
                 != self
@@ -1578,7 +1614,7 @@ impl RulesTxn {
             return Err("snapshot trigger source invariant".into());
         }
         {
-            self.validate_characteristic_identity(source, &fact.characteristics)?;
+            self.validate_characteristic_identity(source, fact.transforms, &fact.characteristics)?;
         }
         Ok(())
     }
@@ -1587,7 +1623,7 @@ impl RulesTxn {
         entrant: &ObjectBefore,
         movement: Option<&MoveOutcome>,
     ) -> Result<bool, String> {
-        self.validate_characteristic_identity(entrant.object, &entrant.characteristics)?;
+        self.validate_fact_identity(entrant)?;
         let token = self.state.rules.tokens.get(&entrant.object.card);
         let actual_entry = match movement {
             Some(m) => {
@@ -1629,7 +1665,7 @@ impl RulesTxn {
                 .is_some_and(|c| c.owner == entrant.owner))
     }
     fn valid_cast_facts(&self, cast: &CastOccurrence) -> Result<bool, String> {
-        self.validate_characteristic_identity(cast.spell.object, &cast.spell.characteristics)?;
+        self.validate_fact_identity(&cast.spell)?;
         Ok(cast.history.turn_number > 0
             && cast.history.turn_number <= self.state.rules.turn.number
             && (!cast.history.first_from_exile || cast.cast_from == Zone::Exile)
@@ -1662,12 +1698,13 @@ impl RulesTxn {
     fn validate_trigger_witness(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         death_controller: Option<PlayerId>,
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
-        let definition = self.effective_trigger(source, ability)?;
+        let definition = self.effective_trigger(source, face, ability)?;
         let pattern = witness
             .branch(definition.condition.pattern())
             .ok_or("snapshot trigger witness has no matching alternative")?;
@@ -1726,7 +1763,7 @@ impl RulesTxn {
                 {
                     return Err("snapshot event object binding invariant".into());
                 }
-                self.validate_characteristic_identity(facts.object, &facts.characteristics)?;
+                self.validate_fact_identity(facts)?;
             }
             None if !binds_object => {}
             _ => return Err("snapshot missing or unexpected event object binding".into()),
@@ -1747,12 +1784,9 @@ impl RulesTxn {
                 match_source,
             } => {
                 let fact = &damage.source;
-                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                self.validate_fact_identity(fact)?;
                 if let Some(appearance) = match_source {
-                    self.validate_characteristic_identity(
-                        appearance.object,
-                        &appearance.characteristics,
-                    )?;
+                    self.validate_fact_identity(appearance)?;
                     if appearance.object != fact.object
                         || appearance.owner != fact.owner
                         || appearance.default_controller != fact.default_controller
@@ -1819,7 +1853,7 @@ impl RulesTxn {
                 if attacker.object == source && attacker.controller != controller {
                     return Err("snapshot invalid self-attack trigger controller".into());
                 }
-                self.validate_characteristic_identity(attacker.object, &attacker.characteristics)?;
+                self.validate_fact_identity(attacker)?;
                 attacker.zone == Zone::Battlefield
                     && !attacker.tapped
                     && (attacker.attack_ready || attacker.keywords.contains(&KeywordAbility::Haste))
@@ -1845,13 +1879,22 @@ impl RulesTxn {
             }
             TriggerEventWitness::BecameTarget {
                 target,
+                target_controller_live,
                 actor,
                 is_spell,
                 controller_at_match,
             } => {
                 *controller_at_match == controller
                     && self.valid_target_match(
-                        source, controller, pattern, target, *actor, *is_spell,
+                        source,
+                        controller,
+                        pattern,
+                        Frozen {
+                            live: *target_controller_live,
+                            ..frozen(target)
+                        },
+                        *actor,
+                        *is_spell,
                     )?
             }
             TriggerEventWitness::AttackerUnblocked {
@@ -1859,7 +1902,7 @@ impl RulesTxn {
                 defender,
                 controller_at_match,
             } => {
-                self.validate_characteristic_identity(attacker.object, &attacker.characteristics)?;
+                self.validate_fact_identity(attacker)?;
                 *controller_at_match == controller
                     && attacker.zone == Zone::Battlefield
                     && attacker.characteristics.has_type(CardKind::Creature)
@@ -2030,6 +2073,7 @@ impl RulesTxn {
 
     fn validate_trigger_occurrence<'a>(
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         event: &'a TriggerOccurrenceId,
         witness: &TriggerEventWitness,
@@ -2045,6 +2089,7 @@ impl RulesTxn {
         };
         if !seen.members.insert(TriggerMember {
             source,
+            face,
             ability,
             event,
             subject,
@@ -2063,7 +2108,9 @@ impl RulesTxn {
         };
         if let Some(movement) = movement
             && let Some(subject) = subject
-            && !seen.movements.insert((source, ability, subject, movement))
+            && !seen
+                .movements
+                .insert((source, face, ability, subject, movement))
         {
             return Err("snapshot duplicate trigger movement".into());
         }
@@ -2087,6 +2134,7 @@ impl RulesTxn {
         };
         self.validate_trigger_source(
             entry.source,
+            entry.program_face(),
             *ability,
             entry.controller,
             entry
@@ -2097,6 +2145,7 @@ impl RulesTxn {
         )?;
         self.validate_match_condition(
             entry.source,
+            entry.program_face(),
             *ability,
             entry.controller,
             match_condition.as_ref(),
@@ -2117,6 +2166,7 @@ impl RulesTxn {
         } else {
             self.validate_trigger_witness(
                 entry.source,
+                entry.program_face(),
                 *ability,
                 entry.controller,
                 entry.death_controller,
@@ -2165,6 +2215,7 @@ impl RulesTxn {
         for trigger in &self.state.rules.pending_triggers {
             self.validate_trigger_source(
                 trigger.source,
+                trigger.source_face,
                 trigger.ability,
                 trigger.controller,
                 &trigger.source_facts,
@@ -2172,6 +2223,7 @@ impl RulesTxn {
             )?;
             self.validate_match_condition(
                 trigger.source,
+                trigger.source_face,
                 trigger.ability,
                 trigger.controller,
                 trigger.match_condition.as_ref(),
@@ -2199,6 +2251,7 @@ impl RulesTxn {
             } else {
                 self.validate_trigger_witness(
                     trigger.source,
+                    trigger.source_face,
                     trigger.ability,
                     trigger.controller,
                     trigger.death_controller,
@@ -2207,6 +2260,7 @@ impl RulesTxn {
             }
             Self::validate_trigger_occurrence(
                 trigger.source,
+                trigger.source_face,
                 trigger.ability,
                 &trigger.event,
                 &trigger.witness,
@@ -2234,6 +2288,7 @@ impl RulesTxn {
             {
                 Self::validate_trigger_occurrence(
                     entry.source,
+                    entry.program_face(),
                     *ability,
                     event,
                     witness,
@@ -2385,11 +2440,12 @@ impl RulesTxn {
     pub(super) fn effective_trigger(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
     ) -> Result<std::borrow::Cow<'_, mtg_contracts::TriggeredAbility>, String> {
         match ability {
             EffectiveTriggerAbility::Intrinsic { index } => self
-                .copiable_definition(source)?
+                .face_definition(source.card, face)?
                 .triggered
                 .get(index as usize)
                 .map(std::borrow::Cow::Borrowed)

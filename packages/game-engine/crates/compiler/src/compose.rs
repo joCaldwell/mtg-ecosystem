@@ -612,7 +612,14 @@ fn compose(
     let mut lowered = Vec::new();
     for (index, face) in std::mem::take(&mut card.faces).into_iter().enumerate() {
         resolution.select_face(index)?;
-        let result = compose_face(archive, &card, face, &resolution, deferred.as_deref_mut());
+        let result = compose_face(
+            archive,
+            &card,
+            index,
+            face,
+            &resolution,
+            deferred.as_deref_mut(),
+        );
         match result {
             Ok(face) => lowered.push(face),
             Err(failure)
@@ -629,14 +636,14 @@ fn compose(
         return Err(unsupported("compose", BLOCKS_FAILED));
     }
     let back = if lowered.len() == 2 {
-        lowered.pop().map(Box::new)
+        lowered.pop()
     } else {
         None
     };
     let mut front = lowered
         .pop()
         .ok_or_else(|| invalid("faces", "no lowered face"))?;
-    if let Some(back) = back {
+    if let Some(mut back) = back {
         let keywords: Vec<_> = front
             .keywords
             .iter()
@@ -644,7 +651,27 @@ fn compose(
             .copied()
             .collect();
         keywords::printed(&card.shape, &keywords)?;
-        front.modal_back = Some(back);
+        match card.layout {
+            // CR 202.3b, 712.8e: the back face's mana value uses the front
+            // face's mana cost.
+            FaceLayout::Transforming => {
+                back.characteristics.front_face_mana_value =
+                    Some(front.characteristics.printed_mana_value());
+            }
+            // CR 202.2: the card's printed colors are its normal part's.
+            FaceLayout::Adventurer => {
+                let printed: BTreeSet<_> = card.printed_colors().into_iter().flatten().collect();
+                if front.characteristics.colors.iter().collect::<BTreeSet<_>>() != printed {
+                    return Err(invalid(
+                        "source.colors",
+                        "adventurer colors disagree with its mana cost",
+                    ));
+                }
+            }
+            FaceLayout::Single | FaceLayout::ModalDoubleFaced => {}
+        }
+        front.layout = card.layout;
+        front.back_face = Some(Box::new(back));
         front.capabilities = front.requirements();
     } else {
         keywords::printed(&card.shape, &front.keywords)?;
@@ -658,6 +685,7 @@ fn compose(
 fn compose_face(
     archive: &AcceptedArchive,
     card_source: &CardSource,
+    part: usize,
     (source, result): (SourceFace, ParseResult),
     resolution: &resolution::Resolution,
     mut deferred: Option<&mut Blockers>,
@@ -691,7 +719,10 @@ fn compose_face(
         binding_gate(resolution.referenced(&printed), &mut deferred)?;
         binding_gate(resolution.validate_delayed_returns(&printed), &mut deferred)?;
     }
-    let types = type_line::parse(&source.type_line)?;
+    let types = type_line::parse(
+        &source.type_line,
+        card_source.layout == FaceLayout::Adventurer && part == 1,
+    )?;
     let kind = types.kind;
     let noun = match kind {
         CardKind::Creature => "creature",
@@ -737,7 +768,7 @@ fn compose_face(
     let block_offset = resolution.block_offset();
     let spell_kind = matches!(kind, CardKind::Instant | CardKind::Sorcery);
     let (mut definition, mut labels) =
-        assemble::shell(archive, card_source, source, &result, types)?;
+        assemble::shell(archive, card_source, part, source, &result, types)?;
     let additional_types = definition.characteristics.additional_types.clone();
     let subtypes = definition.characteristics.subtypes.clone();
     let card = Card {

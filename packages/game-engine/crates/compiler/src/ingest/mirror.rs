@@ -435,6 +435,13 @@ pub(crate) enum Step {
     Tap {
         what: serde_json::Value,
     },
+    /// CR 701.27.
+    Transform {
+        what: serde_json::Value,
+        who: PlayerSelector,
+        #[serde(default)]
+        optional: bool,
+    },
     Destroy {
         what: serde_json::Value,
         #[serde(default, deserialize_with = "present_bool_field")]
@@ -717,9 +724,14 @@ pub(crate) struct CounterTarget {
 #[serde(tag = "cls", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum CounterFilter {
     Spell {
-        // ObjectFilter.allOf is optional in the parser AST; present null is not omission.
         #[serde(default, rename = "allOf", deserialize_with = "present_ast_field")]
-        all_of: Option<Vec<serde_json::Value>>,
+        all_of: Option<Vec<ast::ObjectFilter>>,
+        #[serde(default, deserialize_with = "present_ast_field")]
+        types: Option<Vec<String>>,
+        #[serde(default, rename = "nonTypes", deserialize_with = "present_ast_field")]
+        non_types: Option<Vec<String>>,
+        #[serde(default, deserialize_with = "present_ast_field")]
+        properties: Option<Vec<ast::PropertyConstraint>>,
     },
     Ability {
         #[serde(rename = "anyOf")]

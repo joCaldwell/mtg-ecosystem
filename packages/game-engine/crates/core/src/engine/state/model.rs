@@ -67,6 +67,15 @@ pub struct Object {
     pub(in crate::engine) battlefield_entry_turn: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    /// CR 701.27a, 712.18: how many times this permanent has transformed
+    /// since it entered; an odd count has its other face up. A zone change
+    /// starts a new object at zero (CR 400.7).
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub transforms: u32,
+    /// CR 715.3d: the player who may play this exiled card because it was
+    /// exiled as a resolving Adventure. Leaving exile ends the permission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adventure_player: Option<PlayerId>,
     pub marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deathtouch_damage: bool,
@@ -77,10 +86,35 @@ pub struct Object {
     pub zone: Zone,
     pub tapped: bool,
 }
+impl StackInstance {
+    /// CR 113.7a: the face whose program this spell or ability runs.
+    pub fn program_face(&self) -> CardFace {
+        if self.kind.is_spell() {
+            self.source.face
+        } else {
+            self.source_face
+        }
+    }
+}
 impl Object {
     pub fn present_on_battlefield(&self) -> bool {
         self.zone == Zone::Battlefield && self.phased_out.is_none()
     }
+    /// CR 701.27a, 712.8d-e: the face that is up.
+    pub fn face(&self) -> CardFace {
+        face_after(self.id.face, self.transforms)
+    }
+}
+/// CR 701.27a: each transformation turns the permanent over once.
+pub(crate) fn face_after(face: CardFace, transforms: u32) -> CardFace {
+    if transforms % 2 == 1 {
+        face.other()
+    } else {
+        face
+    }
+}
+pub(crate) fn is_zero_count(count: &u32) -> bool {
+    *count == 0
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -119,6 +153,14 @@ pub struct StackInstance {
     pub announced_stack_targets: Vec<Vec<publish::HandleId<b's'>>>,
     #[serde(default, skip_serializing_if = "StackKind::is_spell")]
     pub kind: StackKind,
+    /// CR 113.7a, 712.18: the face whose activated or triggered ability
+    /// this is, fixed when it was activated or triggered.
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub source_face: CardFace,
+    /// CR 701.27f: the source's transform count when this ability was put
+    /// onto the stack.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub source_transforms: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub player_targets: Vec<PlayerId>,
     pub id: StackId,

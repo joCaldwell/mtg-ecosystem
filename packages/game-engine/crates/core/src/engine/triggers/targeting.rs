@@ -8,6 +8,8 @@ use super::*;
 #[serde(deny_unknown_fields)]
 pub(in crate::engine) struct TargetTriggerDraft {
     source: Box<ObjectBefore>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_known: Option<Box<ObjectBefore>>,
     controller: PlayerId,
     ability: EffectiveTriggerAbility,
     witness: TriggerEventWitness,
@@ -20,7 +22,7 @@ impl TargetTriggerDraft {
 
     pub(in crate::engine) fn refresh_source(&mut self, facts: &ObjectBefore) {
         if self.source.object == facts.object {
-            *self.source = facts.clone();
+            self.last_known = Some(Box::new(facts.clone()));
         }
     }
 }
@@ -57,12 +59,21 @@ impl RulesTxn {
                 continue;
             }
             let target = self.object_before(subject)?;
+            let target_controller_live = self.is_live(target.controller);
+            if !target_controller_live {
+                continue;
+            }
+            let facts = Frozen {
+                facts: &target,
+                token: self.state.rules.tokens.contains_key(&subject.card),
+                live: target_controller_live,
+            };
             for object in self
                 .state
                 .rules
                 .objects
                 .values()
-                .filter(|o| o.present_on_battlefield())
+                .filter(|o| o.present_on_battlefield() && self.is_live(o.controller))
             {
                 let definition = self.copiable_definition(object.id)?;
                 for (index, ability) in definition.triggered.iter().enumerate() {
@@ -79,11 +90,6 @@ impl RulesTxn {
                         Ref::AttachedTo => object.attached_to,
                         _ => None,
                     };
-                    let facts = Frozen {
-                        facts: &target,
-                        token: self.state.rules.tokens.contains_key(&subject.card),
-                        live: self.is_live(target.controller),
-                    };
                     if kind.matches(is_spell)
                         && player_in(by, Some(actor), object.controller)
                         && holds(pred, Some(&facts), object.controller, subject, &identity)
@@ -93,6 +99,7 @@ impl RulesTxn {
                         }
                         drafts.push(TargetTriggerDraft {
                             source: Box::new(self.object_before(object.id)?),
+                            last_known: None,
                             controller: object.controller,
                             ability: EffectiveTriggerAbility::Intrinsic {
                                 index: u32::try_from(index)
@@ -100,6 +107,7 @@ impl RulesTxn {
                             },
                             witness: TriggerEventWitness::BecameTarget {
                                 target: Box::new(target.clone()),
+                                target_controller_live,
                                 actor,
                                 is_spell,
                                 controller_at_match: object.controller,
@@ -151,6 +159,15 @@ impl RulesTxn {
                         draft.witness,
                     ),
                 )?;
+                // Enqueue with the announcement face, then supply any later
+                // LKI to the pending invocation (CR 113.7a, 608.2h).
+                if let Some(last_known) = draft.last_known {
+                    self.rules_mut()
+                        .pending_triggers
+                        .last_mut()
+                        .ok_or("missing collected target trigger")?
+                        .source_facts = *last_known;
+                }
             }
         }
         Ok(())
@@ -161,19 +178,17 @@ impl RulesTxn {
         source: ObjectId,
         controller: PlayerId,
         pattern: &EventPattern,
-        target: &ObjectBefore,
+        facts: Frozen<'_>,
         actor: PlayerId,
         is_spell: bool,
     ) -> Result<bool, String> {
         let EventPattern::BecomesTarget { object, by, kind } = pattern else {
             return Ok(false);
         };
-        self.validate_characteristic_identity(target.object, &target.characteristics)?;
-        let facts = Frozen {
-            facts: target,
-            token: self.state.rules.tokens.contains_key(&target.object.card),
-            live: true,
-        };
+        // A departure after targeting cannot change the controller's
+        // liveness at the event. Replay authenticates the captured liveness.
+        let target = facts.facts;
+        self.validate_fact_identity(target)?;
         let identity = |reference: &Ref| match reference {
             Ref::Source => Some(source),
             Ref::AttachedTo => (target.object != source).then_some(target.object),
@@ -181,6 +196,7 @@ impl RulesTxn {
         };
         let seated = |id: PlayerId| self.state.rules.original_seating.contains(&id);
         Ok(kind.matches(is_spell)
+            && facts.live
             && seated(actor)
             && seated(target.controller)
             && seated(target.default_controller)
@@ -223,6 +239,7 @@ impl RulesTxn {
             };
             if *actor != entry.controller
                 || *is_spell != entry.kind.is_spell()
+                || draft.controller != draft.source.controller
                 || !targets.contains(&target.object)
                 || !seen.insert((draft.source.object, draft.ability, target.object))
                 || !self
@@ -230,11 +247,6 @@ impl RulesTxn {
                     .rules
                     .original_seating
                     .contains(&draft.controller)
-                || !self
-                    .state
-                    .rules
-                    .original_seating
-                    .contains(&draft.source.controller)
                 || draft.source.zone != Zone::Battlefield
                 || self
                     .state
@@ -245,12 +257,26 @@ impl RulesTxn {
             {
                 return Err("snapshot target announcement witness invariant".into());
             }
-            self.validate_characteristic_identity(
-                draft.source.object,
-                &draft.source.characteristics,
-            )?;
+            self.validate_fact_identity(&draft.source)?;
+            if let Some(last_known) = &draft.last_known {
+                if last_known.object != draft.source.object
+                    || last_known.owner != draft.source.owner
+                    || last_known.zone != Zone::Battlefield
+                    || last_known.transforms < draft.source.transforms
+                    || !self
+                        .state
+                        .rules
+                        .original_seating
+                        .contains(&last_known.controller)
+                {
+                    return Err("snapshot target announcement last-known source invariant".into());
+                }
+                self.validate_fact_identity(last_known)?;
+            }
+            let source_face = face_after(draft.source.object.face, draft.source.transforms);
             self.validate_trigger_witness(
                 draft.source.object,
+                source_face,
                 draft.ability,
                 draft.controller,
                 None,
