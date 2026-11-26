@@ -1423,3 +1423,57 @@ fn printed_windows_gate_activation_by_turn_and_step() {
         assert!(!ok(7, 1) && !ok(8, 1), "{step:?}");
     }
 }
+
+/// CR 702.27a: Whispers of the Muse draws a card with or without buyback.
+/// The original spell returns to its owner's hand only when the cost was paid.
+#[test]
+fn whispers_of_the_muse_buyback_changes_successful_departure() {
+    const WHISPERS: &str = record!("a4a8af4e-8686-45ba-94fd-ccf6cc8adaae");
+    for (buyback, can_pay) in [(false, true), (true, true), (true, false)] {
+        let mut fixture = board(&[(WHISPERS, &[Cell::Buyback])]).permanent_or_hand(
+            "Whispers of the Muse",
+            0,
+            0,
+            true,
+        );
+        let lands: Vec<u32> = (1..=if buyback && can_pay { 6 } else { 1 }).collect();
+        for _ in &lands {
+            fixture = fixture.permanent_or_hand("Island", 0, 0, false);
+        }
+        let mut g = Game::with_trace(
+            fixture.libraries("Island", 2).prepare(),
+            TraceMode::Detailed,
+        );
+        Driver::cast(&mut g, CardId(0));
+        let d = expect(&mut g, 0, Reason::AdditionalCosts);
+        assert!(matches!(
+            d.candidates.as_slice(),
+            [Candidate::AdditionalCost { id, .. }] if id == mtg_contracts::BUYBACK_COST
+        ));
+        let picks = if buyback { vec![0] } else { vec![] };
+        g.respond(d.player, d.id, Answer::Pick { picks: vec![picks] })
+            .unwrap();
+        // Finish with insufficient mana through the normal announcement
+        // reversal path. The draw and the buyback replacement never occur.
+        Driver::pay(&mut g, &lands);
+        if !can_pay {
+            expect(&mut g, 0, Reason::Priority);
+            settle(&mut g);
+            assert_eq!(hand_size(&g, 0), 1);
+            assert_eq!(zone(&g, 0), Some(Zone::Hand { owner: PlayerId(0) }));
+            continue;
+        }
+        expect(&mut g, 0, Reason::Priority);
+        settle(&mut g);
+        let owner = PlayerId(0);
+        assert_eq!(hand_size(&g, 0), if buyback { 2 } else { 1 });
+        assert_eq!(
+            zone(&g, 0),
+            Some(if buyback {
+                Zone::Hand { owner }
+            } else {
+                Zone::Graveyard { owner }
+            })
+        );
+    }
+}

@@ -250,6 +250,10 @@ Each surface here is its own `Executes`-only cell in `kir::cell_tiers`.
   702.29e–f).
 - **Kicker** (instant/sorcery): an optional additional mana cost; "if this spell
   was kicked" is `Cond::CostPaid` (CR 702.33a, d).
+- **Buyback** (instant/sorcery) uses an optional fixed additional mana cost.
+  On successful resolution the paid spell goes to its owner’s hand. A copy
+  ceases to exist and flashback still exiles the original on departure (CR
+  702.27a, 702.34a, 707.10a).
 - **Flashback** (instant/sorcery without X or hybrid): cast from its owner's
   graveyard at normal timing (CR 702.34a, 118.9), exiled instead of leaving the
   stack any other way; an abandoned cast returns it to the graveyard (CR 733.1).

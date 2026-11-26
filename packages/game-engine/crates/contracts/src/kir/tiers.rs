@@ -274,6 +274,8 @@ pub enum Cell {
     SpellAdditionalSacrifice,
     /// CR 702.33a, d: a spell's kicker cost and the conditions reading it.
     Kicker,
+    /// CR 702.27a: optional fixed mana and return to hand on resolution.
+    Buyback,
     /// CR 702.34a: casting from the graveyard for the flashback cost, and
     /// exile as the spell leaves the stack.
     Flashback,
@@ -406,6 +408,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeCostAnother
         | C::SpellAdditionalSacrifice
         | C::Kicker
+        | C::Buyback
         | C::Flashback => Tiers::EXECUTES,
     }
 }
@@ -655,8 +658,12 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         if p.additional_sacrifice.is_some() {
             cells.insert(Cell::SpellAdditionalSacrifice);
         }
-        if !p.optional_additional_costs.is_empty() {
-            cells.insert(Cell::Kicker);
+        for cost in &p.optional_additional_costs {
+            cells.insert(if cost.identity == crate::BUYBACK_COST {
+                Cell::Buyback
+            } else {
+                Cell::Kicker
+            });
         }
     }
     for a in &d.activated {

@@ -1030,11 +1030,34 @@ fn compose_face(
                             let spell = definition
                                 .spell
                                 .as_mut()
-                                .filter(|s| spell_kind && s.optional_additional_costs.is_empty())
+                                .filter(|s| {
+                                    spell_kind
+                                        && !s
+                                            .optional_additional_costs
+                                            .iter()
+                                            .any(|c| c.identity == keywords::KICKER)
+                                })
                                 .ok_or_else(|| unsupported("keyword", "keyword:kicker:source"))?;
                             spell
                                 .optional_additional_costs
                                 .push(keywords::kicker(one, label, text)?);
+                        }
+                        // CR 702.27a: buyback uses the same announcement as kicker.
+                        [one] if one.keyword == mtg_contracts::BUYBACK_COST => {
+                            let spell = definition
+                                .spell
+                                .as_mut()
+                                .filter(|s| {
+                                    spell_kind
+                                        && !s
+                                            .optional_additional_costs
+                                            .iter()
+                                            .any(|c| c.identity == mtg_contracts::BUYBACK_COST)
+                                })
+                                .ok_or_else(|| unsupported("keyword", "keyword:buyback:source"))?;
+                            spell
+                                .optional_additional_costs
+                                .push(keywords::buyback(one, label, text)?);
                         }
                         // CR 702.34a: flashback is an instant's or sorcery's
                         // alternative cost from its owner's graveyard.
