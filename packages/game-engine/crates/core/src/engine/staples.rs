@@ -115,36 +115,48 @@ impl RulesTxn {
         object: ObjectId,
         spec: &mtg_contracts::TargetSpec,
     ) -> bool {
-        if !self
-            .targeting_characteristics(entry)
-            .is_ok_and(|source| !self.protected_from(object, &source))
-        {
+        self.targeting_characteristics(entry).is_ok_and(|source| {
+            self.object_target_legal_by(object, entry.controller, &source, Some(entry.source), spec)
+        })
+    }
+
+    /// CR 115.1, 601.2c, 608.2b: whether `object` is a legal target of an
+    /// object domain for `controller`, with `source` the targeting
+    /// characteristics. Announcement before the stack entry exists and the
+    /// resolution recheck share this test; only a controlled-creature target
+    /// reads the source's own identity.
+    pub(super) fn object_target_legal_by(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+        source: &Characteristics,
+        source_object: Option<ObjectId>,
+        spec: &mtg_contracts::TargetSpec,
+    ) -> bool {
+        if self.protected_from(object, source) {
             return false;
         }
         match spec.domain {
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
-                self.permanent_target_legal(object, entry.controller, spec)
+                self.permanent_target_legal(object, controller, spec)
             }
             TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
                 .current(object)
-                .is_ok_and(|o| self.graveyard_target_legal_for(o, entry.controller, spec)),
+                .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec)),
             TargetDomain::CreatureOrPlaneswalker => {
-                self.creature_or_planeswalker(object)
-                    && self.targetable_by(object, entry.controller)
+                self.creature_or_planeswalker(object) && self.targetable_by(object, controller)
             }
             TargetDomain::ControlledBattlefieldCreature => {
                 self.is_battlefield_creature(object)
-                    && self.targetable_by(object, entry.controller)
+                    && self.targetable_by(object, controller)
                     && self
                         .current(object)
-                        .is_ok_and(|o| o.controller == entry.controller && o.id != entry.source)
+                        .is_ok_and(|o| o.controller == controller && Some(o.id) != source_object)
             }
             TargetDomain::BlockingBattlefieldCreature => {
-                self.is_blocking_creature(object) && self.targetable_by(object, entry.controller)
+                self.is_blocking_creature(object) && self.targetable_by(object, controller)
             }
-            _ => {
-                self.is_battlefield_creature(object) && self.targetable_by(object, entry.controller)
-            }
+            _ => self.is_battlefield_creature(object) && self.targetable_by(object, controller),
         }
     }
 

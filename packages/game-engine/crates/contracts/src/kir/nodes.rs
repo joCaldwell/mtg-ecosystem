@@ -6,6 +6,15 @@ use crate::{ManaCost, SpellProgram};
 // Control
 // ---------------------------------------------------------------------------
 
+/// The simultaneous battlefield removal a counted target group performs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupRemoval {
+    Destroy,
+    Exile,
+    OwnerHand,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "cond", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Cond {
@@ -119,6 +128,13 @@ pub enum Node {
         count: u32,
         tap: bool,
     },
+    /// CR 115.3, 608.2b, 701.8, 400.3: destroy, exile or return to owners'
+    /// hands every legal announced member of the single counted battlefield
+    /// target occurrence in one simultaneous event.
+    RemoveTargets {
+        count: u32,
+        removal: GroupRemoval,
+    },
     /// CR 118.12a: perform `node` unless `payer` pays.
     UnlessPays {
         payer: PlayerExpr,
@@ -171,6 +187,42 @@ impl Node {
         }
     }
 
+    /// CR 608.2b: the one announced object a target-group leaf acts on.
+    /// The leaf's whole action applies to that object, so it is skipped
+    /// when the object was not chosen or is an illegal target.
+    pub fn group_leaf_slot(&self) -> Option<u32> {
+        let one = |set: &SetExpr| match set {
+            SetExpr::One {
+                object: Ref::Target { slot },
+            } => Some(*slot),
+            _ => None,
+        };
+        let slot = match self.verb()? {
+            Verb::Destroy { what, .. }
+            | Verb::Move { what, .. }
+            | Verb::Tap { what }
+            | Verb::Untap { what }
+            | Verb::PutCounters { on: what, .. }
+            | Verb::ModifyUntil { what, .. } => one(what)?,
+            Verb::Damage {
+                source: Ref::Source,
+                to: DamageTo::Ref {
+                    who: Ref::Target { slot },
+                },
+                ..
+            } => *slot,
+            Verb::RestrictCombat {
+                affects:
+                    CombatProhibitionScope::Target {
+                        target: Ref::Target { slot },
+                    },
+                ..
+            } => *slot,
+            _ => return None,
+        };
+        (crate::kir::target_slots(self) == std::collections::BTreeSet::from([slot])).then_some(slot)
+    }
+
     pub(crate) fn optional_target_destroy(&self) -> Option<(&Verb, u32, bool)> {
         let Self::Optional { chooser, node } = self else {
             return None;
@@ -200,7 +252,8 @@ impl Node {
             Self::Do(_)
             | Self::Delayed { .. }
             | Self::ChooseObject { .. }
-            | Self::TapTargets { .. } => false,
+            | Self::TapTargets { .. }
+            | Self::RemoveTargets { .. } => false,
         }
     }
 }

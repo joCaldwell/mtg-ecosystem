@@ -364,7 +364,7 @@ impl GraveyardGroup {
                 let kind = match result {
                     GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature) || matches!(i, kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. })),
                     GroupResult::ActualEffect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldPermanent),
-                    GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..})),
+                    GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}) | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. }),
                     GroupResult::Discard { player } if matches!(i, kernel!(Discard {
                         player: you!(), amount: fixed!(_), random: true
                     })) => *player == entry.controller && matches!(entry.kind, StackKind::Triggered {
@@ -377,6 +377,8 @@ impl GraveyardGroup {
                     (i,ProposedEvent::DestroyPermanent {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| game.bound_object_target(entry,slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),
                     (i,ProposedEvent::DestroyCreature {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| entry.targets.get(slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),
                     (kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}),ProposedEvent::DestroyPermanent {..}) => true,
+                    // CR 608.2b: a group destroys only its legal announced members.
+                    (Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. },ProposedEvent::DestroyPermanent {object}) => entry.targets.iter().zip(&frame.legal_targets).any(|(target, legal)| target == object && *legal),
                     (kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false }),ProposedEvent::DiscardCard {..}) => true,
                     (_,ProposedEvent::DiscardCard {player,..}) => matches!(result, GroupResult::Discard {player:p} if p == player),
                     (kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. })|kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. }),ProposedEvent::Sacrifice {..}) => true,

@@ -329,60 +329,69 @@ impl Strategy<'_> {
                         picks.push(index.copied().into_iter().collect());
                         continue;
                     }
-                    let entities: Vec<_> = allowed
-                        .iter()
-                        .map(|i| match d.candidate(*i)? {
-                            Candidate::Player { player } => {
-                                Ok(PlayerTargetEntity::Player { player: *player })
+                    // CR 115.3: a counted group slot names `min` distinct
+                    // objects; choose them one at a time from the rest.
+                    let mut allowed = allowed;
+                    let mut chosen_slot = vec![];
+                    for _ in 0..slot.min.max(1) {
+                        let entities: Vec<_> = allowed
+                            .iter()
+                            .map(|i| match d.candidate(*i)? {
+                                Candidate::Player { player } => {
+                                    Ok(PlayerTargetEntity::Player { player: *player })
+                                }
+                                Candidate::Object { object } => Ok(PlayerTargetEntity::Object {
+                                    object: object.clone(),
+                                }),
+                                _ => Err("invalid target candidate".to_owned()),
+                            })
+                            .collect::<Result<_, _>>()?;
+                        let chosen = match spec.domain {
+                            mtg_contracts::TargetDomain::AnyDamageTarget => {
+                                self.damage_target(v, program, &entities)
                             }
-                            Candidate::Object { object } => Ok(PlayerTargetEntity::Object {
-                                object: object.clone(),
-                            }),
-                            _ => Err("invalid target candidate".to_owned()),
-                        })
-                        .collect::<Result<_, _>>()?;
-                    let chosen = match spec.domain {
-                        mtg_contracts::TargetDomain::AnyDamageTarget => {
-                            self.damage_target(v, program, &entities)
-                        }
-                        mtg_contracts::TargetDomain::AnyPlayer
-                        | mtg_contracts::TargetDomain::OpponentPlayer => {
-                            let players = entities
-                                .iter()
-                                .filter_map(|e| {
-                                    if let PlayerTargetEntity::Player { player } = e {
-                                        Some(*player)
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            self.player_target(
-                                v,
-                                &players,
-                                self.target_beneficial(definition, program, spec.slot),
-                            )
-                            .map(|player| PlayerTargetEntity::Player { player })
-                        }
-                        _ => {
-                            let objects = entities
-                                .iter()
-                                .filter_map(|e| {
-                                    if let PlayerTargetEntity::Object { object } = e {
-                                        Some(object.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            self.object_target(v, definition, program, spec, Some(&objects))
-                                .map(|object| PlayerTargetEntity::Object { object })
-                        }
-                    };
-                    let n = chosen
-                        .and_then(|e| entities.iter().position(|c| *c == e))
-                        .unwrap_or(0);
-                    picks.push(vec![*allowed.get(n).ok_or("empty target slot")?]);
+                            mtg_contracts::TargetDomain::AnyPlayer
+                            | mtg_contracts::TargetDomain::OpponentPlayer
+                            | mtg_contracts::TargetDomain::PlayerOrPlaneswalker => {
+                                let players = entities
+                                    .iter()
+                                    .filter_map(|e| {
+                                        if let PlayerTargetEntity::Player { player } = e {
+                                            Some(*player)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
+                                self.player_target(
+                                    v,
+                                    &players,
+                                    self.target_beneficial(definition, program, spec.slot),
+                                )
+                                .map(|player| PlayerTargetEntity::Player { player })
+                            }
+                            _ => {
+                                let objects = entities
+                                    .iter()
+                                    .filter_map(|e| {
+                                        if let PlayerTargetEntity::Object { object } = e {
+                                            Some(object.clone())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
+                                self.object_target(v, definition, program, spec, Some(&objects))
+                                    .map(|object| PlayerTargetEntity::Object { object })
+                            }
+                        };
+                        let n = chosen
+                            .and_then(|e| entities.iter().position(|c| *c == e))
+                            .unwrap_or(0);
+                        chosen_slot.push(*allowed.get(n).ok_or("empty target slot")?);
+                        allowed.remove(n);
+                    }
+                    picks.push(chosen_slot);
                 }
                 Answer::Pick { picks }
             }
@@ -405,7 +414,13 @@ impl Strategy<'_> {
                             _ => u8::MAX,
                         }
                     });
-                    picks.push(defender.filter(|_| attack).into_iter().collect());
+                    // CR 508.1d: a required attacker with a legal defender attacks.
+                    picks.push(
+                        defender
+                            .filter(|_| attack || slot.min > 0)
+                            .into_iter()
+                            .collect(),
+                    );
                 }
                 Answer::Pick { picks }
             }
@@ -423,19 +438,33 @@ impl Strategy<'_> {
                         ))
                     })
                     .collect::<Result<Vec<_>, String>>()?;
-                let menace_attackers = rules
-                    .iter()
-                    .filter_map(|r| {
-                        if let JointRule::PickedAtLeast { candidates, .. } = r {
-                            Some(candidates)
-                        } else {
-                            None
+                // CR 509.1b, 702.111b: (least, greatest) blockers of each
+                // attacker named by a count rule.
+                let mut counted: Vec<(_, usize, Option<usize>)> = vec![];
+                for r in rules {
+                    let (candidates, least, most) = match r {
+                        JointRule::PickedAtLeast { candidates, count } => {
+                            (candidates, *count as usize, None)
                         }
-                    })
-                    .flatten()
-                    .copied()
-                    .map(object)
-                    .collect::<Result<Vec<_>, _>>()?;
+                        JointRule::PickedAtMost { candidates, count } => {
+                            (candidates, 1, Some(*count as usize))
+                        }
+                        _ => continue,
+                    };
+                    for c in candidates {
+                        let attacker = object(*c)?;
+                        match counted.iter_mut().find(|(a, _, _)| *a == attacker) {
+                            Some((_, l, m)) => {
+                                *l = (*l).max(least);
+                                *m = match (*m, most) {
+                                    (Some(a), Some(b)) => Some(a.min(b)),
+                                    (a, b) => a.or(b),
+                                };
+                            }
+                            None => counted.push((attacker, least, most)),
+                        }
+                    }
+                }
                 let mut blocks = vec![];
                 let mut blocked = Vec::new();
                 if self.policy == Policy::Develop {
@@ -491,20 +520,32 @@ impl Strategy<'_> {
                         }
                     }
                 }
-                // CR702.111b: complete a menace pair with a remaining legal
-                // blocker, or withdraw the singleton. Observation/catalog only.
-                for attacker in &menace_attackers {
-                    if blocks.iter().filter(|(_, a)| a == attacker).count() == 1 {
-                        if let Some((blocker_handle, _)) =
+                // CR 509.1b, 702.111b: complete a counted block with remaining
+                // legal blockers, or withdraw it. Observation/catalog only.
+                for (attacker, least, most) in &counted {
+                    let n = blocks.iter().filter(|(_, a)| a == attacker).count();
+                    if n == 0 {
+                        continue;
+                    }
+                    let mut added = vec![];
+                    while n + added.len() < *least {
+                        let Some((blocker_handle, _)) =
                             legal_attackers.iter().find(|(blocker, allowed)| {
                                 allowed.contains(attacker)
                                     && !blocks.iter().any(|(b, _)| b == blocker)
+                                    && !added.contains(blocker)
                             })
-                        {
-                            blocks.push((blocker_handle.clone(), attacker.clone()));
-                        } else {
-                            blocks.retain(|(_, a)| a != attacker);
-                        }
+                        else {
+                            break;
+                        };
+                        added.push(blocker_handle.clone());
+                    }
+                    // CR 509.1b: least above most leaves no legal block.
+                    let total = n + added.len();
+                    if total < *least || most.is_some_and(|m| total > m) {
+                        blocks.retain(|(_, a)| a != attacker);
+                    } else {
+                        blocks.extend(added.into_iter().map(|b| (b, attacker.clone())));
                     }
                 }
 

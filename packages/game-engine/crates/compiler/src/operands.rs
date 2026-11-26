@@ -721,6 +721,71 @@ pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fa
     Ok(pred)
 }
 
+/// CR 509.1b, 613.11: a combat restriction's object filter, read from the
+/// current object at each declaration, so any keyword may be tested.
+pub(crate) fn lower_declaration_filter(filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
+    let mut plain = filter.clone();
+    let with = plain.with_ability.take();
+    let without = plain.without_ability.take();
+    let each = plain.all_of.take();
+    let any = plain.any_of.take();
+    if plain.other.is_some() {
+        return Err(operand("filter", "declaration:other"));
+    }
+    // "Walls and/or creatures with flying": a postmodifier after noun
+    // alternatives may name only the last noun, so the parse is ambiguous.
+    let nouns = |f: &ast::ObjectFilter| {
+        f.any_of.as_ref().is_some_and(|alternatives| {
+            alternatives.iter().any(|a| {
+                present_fields(a)
+                    .iter()
+                    .all(|f| matches!(*f, "types" | "subtypes"))
+            })
+        })
+    };
+    let postmodified = with.is_some() || without.is_some() || plain.properties.is_some();
+    if postmodified && (each.iter().flatten().any(nouns) || nouns(filter)) {
+        return Err(operand("filter", "declaration:postmodified_alternatives"));
+    }
+    let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller())?;
+    for (list, field, has) in [
+        (&with, "with_ability", true),
+        (&without, "without_ability", false),
+    ] {
+        for ability in listed(list, field)? {
+            let name = match ability.as_str() {
+                "first-strike" => "first strike",
+                "double-strike" => "double strike",
+                other => other,
+            };
+            let keyword = serde_json::from_value::<KeywordAbility>(serde_json::json!(name))
+                .map_err(|_| operand("filter", format!("{field}:{ability}")))?;
+            pred.0.push(if has {
+                Atom::Keyword { keyword }
+            } else {
+                Atom::NotKeyword { keyword }
+            });
+        }
+    }
+    for child in each.iter().flatten() {
+        pred.0.extend(lower_declaration_filter(child)?.0);
+    }
+    if let Some(children) = any {
+        if children.is_empty() {
+            return Err(operand("filter", "any_of:empty"));
+        }
+        let alternatives = children
+            .iter()
+            .map(lower_declaration_filter)
+            .collect::<Result<_, _>>()?;
+        pred.0.push(Atom::AnyOf { alternatives });
+    }
+    if each.as_ref().is_some_and(Vec::is_empty) {
+        return Err(operand("filter", "all_of:empty"));
+    }
+    Ok(pred)
+}
+
 /// CR 603.2, 109.5, 201.5: the object a trigger event names, relative to
 /// the ability's controller; "other" is not the source itself.
 pub(crate) fn lower_event_filter(filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
@@ -1300,6 +1365,30 @@ pub(crate) fn bind_creature_target(
         TargetDomain::BattlefieldCreature,
         optional,
     )
+}
+
+/// A damage recipient named by one target occurrence: "target creature" or,
+/// CR 115.1, 120.3, "target player or planeswalker". The closed scenario
+/// admits no planeswalker, so that domain's inhabitants are players; an
+/// "up to" player occurrence rejects.
+pub(crate) fn bind_damage_object_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &ast::ObjectRef,
+) -> Result<u32, Failure> {
+    if let Ok((filter, selection, false)) = target_occurrence(what)
+        && filter.or_player == Some(true)
+        && present_fields(filter) == ["types", "or_player"]
+        && matches!(filter.types.as_deref(), Some([kind]) if kind == "planeswalker")
+    {
+        return bind_target(
+            program,
+            slots,
+            selection,
+            TargetDomain::PlayerOrPlaneswalker,
+        );
+    }
+    bind_creature_target(program, slots, what)
 }
 
 pub(crate) fn bind_permanent_target(

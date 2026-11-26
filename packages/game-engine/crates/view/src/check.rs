@@ -105,6 +105,9 @@ fn check_picks(slots: &[Slot], rules: &[JointRule], picks: &[Vec<u32>]) -> Resul
                 let occurrences = picks.iter().flatten().filter(|i| *i == candidate).count();
                 occurrences == 0 || occurrences >= *count as usize
             }),
+            JointRule::PickedAtMost { candidates, count } => candidates.iter().all(|candidate| {
+                picks.iter().flatten().filter(|i| *i == candidate).count() <= *count as usize
+            }),
             JointRule::Total { min, max } => within(picks.iter().map(Vec::len).sum(), *min, *max),
         };
         if !satisfied {

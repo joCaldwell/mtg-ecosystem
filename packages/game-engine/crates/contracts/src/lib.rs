@@ -208,6 +208,7 @@ pub enum Capability {
     ProtectionFromEverythingV1,
 
     BasicLandwalkV1,
+    EvasionKeywordsV1,
     FixedColorProtectionV1,
     SourceCombatRestrictionsV1,
 
@@ -327,6 +328,10 @@ pub enum Capability {
     ResolutionObjectChoiceV1,
     TargetCharacteristicsV1,
     OptionalTargetGroupV1,
+    /// CR 115.3, 601.2c: one occurrence announces exactly N distinct objects.
+    CountedTargetGroupV1,
+    /// CR 115.3, 608.2b: a counted battlefield group removed simultaneously.
+    TargetGroupRemovalV1,
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
@@ -1631,6 +1636,13 @@ pub enum KeywordAbility {
     // CR 702.16j: intrinsic battlefield protection from every source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     ProtectionFromEverything,
+    // CR 702.13, 702.28, 702.31, 702.36, 702.118: evasion abilities that
+    // restrict which creatures can block (and, for shadow, be blocked by).
+    Intimidate,
+    Shadow,
+    Horsemanship,
+    Fear,
+    Skulk,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -1664,6 +1676,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "protection_from_everything" => Ok(Self::ProtectionFromEverything),
             "hexproof" => Ok(Self::Hexproof),
             "shroud" => Ok(Self::Shroud),
+            "intimidate" => Ok(Self::Intimidate),
+            "shadow" => Ok(Self::Shadow),
+            "horsemanship" => Ok(Self::Horsemanship),
+            "fear" => Ok(Self::Fear),
+            "skulk" => Ok(Self::Skulk),
 
             other => Err(de::Error::unknown_variant(
                 other,
@@ -1695,6 +1712,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "protection_from_everything",
                     "hexproof",
                     "shroud",
+                    "intimidate",
+                    "shadow",
+                    "horsemanship",
+                    "fear",
+                    "skulk",
                 ],
             )),
         }
@@ -2197,6 +2219,11 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
         | KeywordAbility::Swampwalk
         | KeywordAbility::Mountainwalk
         | KeywordAbility::Forestwalk => Capability::BasicLandwalkV1,
+        KeywordAbility::Intimidate
+        | KeywordAbility::Shadow
+        | KeywordAbility::Horsemanship
+        | KeywordAbility::Fear
+        | KeywordAbility::Skulk => Capability::EvasionKeywordsV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
     })
 }
@@ -2205,6 +2232,13 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
     if program.optional_target {
         set.insert(Capability::OptionalObjectTargetV1);
+    }
+    if program.target_group().is_some() {
+        set.insert(if program.optional_target {
+            Capability::OptionalTargetGroupV1
+        } else {
+            Capability::CountedTargetGroupV1
+        });
     }
     for target in &program.targets {
         if target.filter.is_some() {

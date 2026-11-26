@@ -296,10 +296,19 @@ certified "it" or "that" can reuse the block's sole announced incarnation, and
 
 One optional battlefield or own-graveyard target can bind independent destroy,
 tap, untap, move, counter and end-of-turn leaves; zero targets skips the
-instruction. Tap and untap also take one `Pick` of up to a fixed two through
-seven distinct targets, affecting legal survivors simultaneously (CR 115.3,
-701.26). Mixed required and optional occurrences and optional permanent spells
-reject. Already-matching tap status emits no event and combat membership is
+instruction. A counted occurrence ("two target", "up to three target", two
+through seven) is the program's only occurrence: one `Pick` of exactly or up to
+N distinct objects, needing N legal objects to cast or place (CR 115.3, 601.2c).
+Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one
+simultaneous event; P/T, keyword, counter and combat-restriction leaves, a
+spell's own damage and own-graveyard returns to hand or exile run per member.
+An unchosen or illegal member skips its leaves; all illegal counters the spell
+(CR 608.2b). Per-member damage is separate events; recheck that once batched or
+creature-damage triggers are admitted. Graveyard groups entering the
+battlefield, "any number" and X counts, mixed required and optional occurrences
+and optional permanent spells reject. "Target player or planeswalker" announces
+players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
+120.3). Already-matching tap status emits no event and combat membership is
 preserved. "Put a +1/+1 counter on each [creature filter]" applies
 simultaneously to the current set.
 
@@ -317,6 +326,19 @@ departure until combat ends (CR 509.1g, 511.3). Blocker and damage steps are
 skipped only when none attacked. First and double strike have distinct
 participant sets; trample and deathtouch assignment, dealt damage and
 prevention stay distinct.
+
+Declarations offer exactly the legal set and validate the whole declaration
+(CR 508.1c–d, 509.1b). Flying, reach, menace, printed basic landwalk,
+horsemanship, shadow, fear, intimidate and skulk restrict blocks per pair
+(CR 702.13b, 702.14c, 702.28b, 702.31b, 702.36b, 702.118b); other landwalk
+qualities reject. Static block restrictions ("can't be blocked by/except by",
+"can't block", "can block only") and blocker counts ("by more than N", "except
+by N or more", with menace) read keywords, colors, types and fixed power of
+both creatures at the declaration; counts are joint pick rules. "Can't attack
+you" removes that defender; with no attackable planeswalker or battle kinds,
+"or planeswalkers you control" adds nothing. A creature that attacks each
+combat if able must attack only while a defender remains (CR 508.1d). Relative
+powers and ambiguous "X and/or Y with Z" filters reject.
 
 Simultaneous damage is validated before life/history writes. Combat source
 validation reads the captured creature type and keywords from resolved and
@@ -529,7 +551,10 @@ order, expire at cleanup and affect only their captured incarnations (CR 400.7,
 - `RestrictCombat` is a rules effect, not a characteristic change (CR 613.11).
   "Can't attack", "can't block", "can't attack or block" and "can't be blocked"
   this turn bind one announced creature; "can't block" can also name all
-  creatures or creatures without flying, read at each declaration.
+  creatures or creatures without flying, read at each declaration. "Attacks
+  this turn if able" and "can attack this turn as though it didn't have
+  defender" bind one announced creature or the ability's source incarnation
+  (CR 508.1d, 609.4); the latter is also a static rule.
 - Printed protection from one or two fixed colors, or each color, lowers to
   separate per-color abilities on creatures matching the keyword line exactly
   (CR 702.16a, g, h); other qualities reject. Static grants of hexproof, shroud

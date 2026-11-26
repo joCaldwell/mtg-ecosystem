@@ -80,6 +80,27 @@ impl TargetSpec {
 }
 
 impl SpellProgram {
+    /// CR 115.3, 601.2c: the number of objects one printed counted target
+    /// occurrence ("two target", "up to three target") announces. Its slots
+    /// share one domain and filter; slot zero keeps the archive selection
+    /// identity and slot `k` appends `/k`. No other compiler route mints a
+    /// `/` identity, so the shape alone identifies the group. A group is one
+    /// decision whose picks are distinct objects.
+    pub fn target_group(&self) -> Option<usize> {
+        let [first, rest @ ..] = self.targets.as_slice() else {
+            return None;
+        };
+        (!rest.is_empty()
+            && !first.selection_id.contains('/')
+            && rest.iter().enumerate().all(|(index, spec)| {
+                spec.selection_id == format!("{}/{}", first.selection_id, index + 1)
+                    && spec.domain == first.domain
+                    && spec.filter == first.filter
+                    && spec.chooser == first.chooser
+                    && spec.stage == first.stage
+            }))
+        .then_some(self.targets.len())
+    }
     /// CR 608.2: a spell that resolves by following its instructions, cast
     /// from and functioning on the stack, with no costs or targets yet.
     pub fn instructions(timing: SpellTiming) -> Self {

@@ -151,6 +151,19 @@ impl RulesTxn {
         if program.optional_target {
             return true;
         }
+        // CR 115.3, 601.2c: a counted occurrence needs that many distinct
+        // legal objects. Group domains are object domains only.
+        if let (Some(count), Some(spec)) = (program.target_group(), program.targets.first()) {
+            // The shared legality test the announcement and resolution use.
+            let eligible = self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| self.object_target_legal_by(o.id, player, source, None, spec))
+                .count();
+            return eligible >= count;
+        }
         program.targets.iter().all(|spec| match spec.domain {
             TargetDomain::PlayerGraveyardCards { .. } => false,
             TargetDomain::AnyDamageTarget => {

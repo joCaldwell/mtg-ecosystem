@@ -97,14 +97,17 @@ pub fn choose(
                     Candidate::Player{player}=>(*player==view.viewer)==beneficial,
                     Candidate::Object{object}=>view.objects.iter().any(|o|o.handle==*object && (o.controller==view.viewer)==beneficial),
                     _=>false
-                }).or_else(||legal.into_iter().next()).ok_or("empty rollout target domain")?;
-                picks.push(vec![i]);
+                }).or_else(||legal.clone().next()).ok_or("empty rollout target domain")?;
+                // CR 115.3: a counted group slot names `min` distinct objects.
+                let mut pick=vec![i];
+                pick.extend(legal.filter(|j|*j!=i).take((slot.min as usize).saturating_sub(1)));
+                picks.push(pick);
             }
             Answer::Pick{picks}
         }
         (Reason::Attackers,Shape::Pick{slots,..})=>Answer::Pick{picks:slots.iter().map(|s|{
             let attack=s.subject.is_some_and(|i|matches!(&d.candidates[i as usize],Candidate::Object{object} if view.objects.iter().any(|o|o.handle==*object && o.characteristics.as_ref().and_then(|c|c.power.as_ref()).is_some_and(|p|p>&Quantity::zero()))));
-            s.allowed.iter().copied().min_by_key(|i|match d.candidates[*i as usize]{Candidate::Player{player}=>(player.0+4-view.viewer.0)%4,_=>u8::MAX}).filter(|_|attack).into_iter().collect()
+            s.allowed.iter().copied().min_by_key(|i|match d.candidates[*i as usize]{Candidate::Player{player}=>(player.0+4-view.viewer.0)%4,_=>u8::MAX}).filter(|_|attack||s.min>0).into_iter().collect()
         }).collect()},
         (Reason::Discard|Reason::ResolveDiscard|Reason::LegendRule{..},Shape::Pick{slots,..})=>Answer::Pick{picks:slots.iter().map(|s|s.allowed.iter().rev().take(s.min as usize).copied().collect()).collect()},
         (Reason::DamageEffect{..}|Reason::Sacrifice|Reason::Blockers,Shape::Pick{slots,..})=>Answer::Pick{picks:slots.iter().map(|s|s.allowed.iter().take(s.min as usize).copied().collect()).collect()},

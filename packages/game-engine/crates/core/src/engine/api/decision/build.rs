@@ -255,7 +255,9 @@ impl RulesTxn {
         let mut candidates = vec![];
         let mut slots = vec![];
         let program = self.program()?;
-        let grouped = program.optional_target && program.targets.len() > 1;
+        // CR 115.3, 601.2c: one counted occurrence is one pick of distinct
+        // objects: exactly its count, or any number up to it.
+        let grouped = program.target_group().is_some();
         let specs = if grouped {
             &program.targets[..1]
         } else {
@@ -274,7 +276,9 @@ impl RulesTxn {
                         candidate_index(&mut candidates, target)
                     })
                     .collect(),
-                TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => self
+                TargetDomain::AnyPlayer
+                | TargetDomain::OpponentPlayer
+                | TargetDomain::PlayerOrPlaneswalker => self
                     .eligible_players(spec.domain, entry.controller)
                     .into_iter()
                     .map(|player| candidate_index(&mut candidates, Candidate::Player { player }))
@@ -305,7 +309,11 @@ impl RulesTxn {
                 role: SlotRole::Target { spec: spec.slot },
                 subject: None,
                 allowed,
-                min: u32::from(!program.optional_target),
+                min: match (grouped, program.optional_target) {
+                    (_, true) => 0,
+                    (true, false) => program.targets.len() as u32,
+                    (false, false) => 1,
+                },
                 max: if grouped {
                     program.targets.len() as u32
                 } else {

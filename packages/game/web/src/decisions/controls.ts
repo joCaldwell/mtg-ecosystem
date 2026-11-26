@@ -425,9 +425,17 @@ export function draftError(control: LocalControl, draft: LocalDraft): string | n
           })
         )
           return `Choose each marked candidate at least ${rule.count} times or leave it unused.`;
-      } else {
+      } else if (rule.rule === 'total') {
         const n = answer.picks.flat().length;
         if (n < rule.min || n > rule.max) return 'Selection is outside the supplied total.';
+      } else {
+        // picked_at_most (CR 509.1b blocker counts) predates the next SDK
+        // refresh; any other unknown rule fails closed.
+        const counted = rule as unknown as { rule: string; candidates: number[]; count: number };
+        if (counted.rule !== 'picked_at_most') return 'This decision uses a rule this client cannot check.';
+        const indices = answer.picks.flat();
+        if (counted.candidates.some((c) => indices.filter((i) => i === c).length > counted.count))
+          return `Choose each marked candidate at most ${counted.count} times.`;
       }
     }
   }
