@@ -1631,6 +1631,28 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
     ] {
         assert!(lowers(&bad).is_err());
     }
+    // An AST that drops printed instances while the Oracle line and source
+    // keyword list keep them rejects instead of losing the triggers.
+    for kept in [2, 3] {
+        let dropped = changed(THOR_ODINSON, |row| {
+            let keywords = row["faces"][0]["result"]["abilities"][0]["keywords"]
+                .as_array_mut()
+                .unwrap();
+            keywords.truncate(kept);
+        });
+        // The line-level check sees a partial drop; the face-level check
+        // sees a block left with no triggered keyword at all.
+        let failure = lowers(&dropped).unwrap_err();
+        let expected = if kept == 2 {
+            "keyword:triggered:printed_instances"
+        } else {
+            "keyword:triggered:printed"
+        };
+        assert_eq!(
+            (failure.path.as_str(), failure.reason.as_str()),
+            ("keyword", expected)
+        );
+    }
 
     // "This creature" keywords need a creature card; "this permanent"
     // keywords any permanent card.

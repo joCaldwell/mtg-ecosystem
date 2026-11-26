@@ -436,11 +436,10 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
-/// (CR 702.108b, 702.45b, 702.91b, 702.135b, 702.46b). The `bool` states
+/// (CR 702.108b, 702.45b, 702.135b, 702.46b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
-    ("battle cry", false),
     ("bushido", true),
     ("afterlife", true),
     ("soulshift", true),
@@ -494,6 +493,63 @@ pub(super) fn triggered_printed(
         {
             return Err(reject());
         }
+    }
+    Ok(())
+}
+
+/// The triggered keyword instance an item of a printed keyword line spells
+/// ("bushido 2"), if it names one of the reviewed triggered keywords.
+fn printed_instance(item: &str) -> Option<&'static str> {
+    TRIGGERED
+        .iter()
+        .map(|(name, _)| *name)
+        .find(|name| item == *name || item.strip_prefix(name).is_some_and(|n| n.starts_with(' ')))
+}
+
+/// CR 702.1, 113.2c: every triggered keyword instance printed on a face's
+/// normalized lines is exactly one AST keyword instance of the same block, in
+/// printed order, with the same spelling. An AST that drops, adds, reorders or
+/// renumbers an instance rejects instead of losing or inventing a trigger.
+pub(super) fn triggered_instances_printed(
+    lines: &[String],
+    abilities: &serde_json::Value,
+) -> Result<(), Failure> {
+    let mismatch = || unsupported("keyword", "keyword:triggered:printed_instances");
+    let mut printed = Vec::new();
+    for (block, line) in lines.iter().enumerate() {
+        for item in line.split([',', ';']) {
+            let item = item.trim().to_lowercase();
+            if printed_instance(&item).is_some() {
+                printed.push((block, item));
+            }
+        }
+    }
+    let mut parsed = Vec::new();
+    for (block, ability) in abilities
+        .as_array()
+        .ok_or_else(mismatch)?
+        .iter()
+        .enumerate()
+    {
+        if ability["kind"] != "keywords" {
+            continue;
+        }
+        for keyword in ability["keywords"].as_array().ok_or_else(mismatch)? {
+            let Some(name) = keyword["keyword"].as_str() else {
+                return Err(mismatch());
+            };
+            if let Some((name, parameterized)) = TRIGGERED.iter().find(|(n, _)| *n == name) {
+                let item = match (parameterized, keyword.get("amount")) {
+                    (false, None) => (*name).to_owned(),
+                    (true, Some(n)) if n.as_u64().is_some() => format!("{name} {n}"),
+                    _ => return Err(mismatch()),
+                };
+                parsed.push((block, item));
+            }
+        }
+    }
+    if printed != parsed {
+        return Err(mismatch());
     }
     Ok(())
 }
@@ -562,27 +618,6 @@ pub(super) fn triggered(
                 }]),
                 nth: None,
                 targets_source: false,
-            }
-        }
-        // CR 702.91a: "Whenever this creature attacks, each other attacking
-        // creature gets +1/+0 until end of turn." The set is captured as the
-        // effect begins (CR 611.2c).
-        "battle cry" if creature => {
-            let others = SetExpr::Matching {
-                zone: kir::ZoneExpr::Battlefield,
-                filter: Pred(vec![
-                    Atom::Type {
-                        kind: CardKind::Creature,
-                    },
-                    Atom::Attacking,
-                    Atom::IsNot {
-                        object: Ref::Source,
-                    },
-                ]),
-            };
-            program.instructions.push(kernel(pump(others, 1, 0), block));
-            EventPattern::Attacks {
-                attacker: Pred::source(),
             }
         }
         // CR 702.45a: "Whenever this creature blocks or becomes blocked, it

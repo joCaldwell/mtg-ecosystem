@@ -1099,7 +1099,7 @@ fn compose_face(
                                     .extend(keywords::lower(card.kind, &rest, text)?);
                             }
                         }
-                        // CR 702.108a, 702.91a, 702.45a, 702.135a, 702.46a:
+                        // CR 702.108a, 702.45a, 702.135a, 702.46a:
                         // a triggered keyword is the trigger its rule
                         // defines; each printed instance is its own ability.
                         _ if keywords.iter().any(keywords::is_triggered) => {
@@ -1538,5 +1538,9 @@ fn compose_face(
     }) {
         return Err(unsupported("compose", BLOCKS_FAILED));
     }
+    // Checked once every block lowered, so a block that fails keeps its own
+    // first blocker.
+    let lines: Vec<String> = result.lines.iter().map(|l| l.text.clone()).collect();
+    keywords::triggered_instances_printed(&lines, &printed)?;
     Ok(assemble::finish(definition, labels))
 }

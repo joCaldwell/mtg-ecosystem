@@ -52,7 +52,6 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "changeling"
                 | "landwalk"
                 | "prowess"
-                | "battle cry"
                 | "bushido"
                 | "afterlife"
                 | "soulshift"
