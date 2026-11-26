@@ -496,11 +496,17 @@ fn trigger_event(
         return Ok(ability);
     }
     let mut reviewed = None;
-    let reviewed_effects = !parts.iter().any(|part| match part {
-        Part::Typed(_) => false,
-        Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
-        Part::Reflexive(..) | Part::Departure(_) => true,
-    });
+    // CR 601.2i: a cast event whose effects include step-table rows binds
+    // the reviewed cast pattern here and lowers its rows below, as the
+    // general event table's events do.
+    let cast_table = matches!(narrow, Ok(SourceTrigger::Cast { .. }))
+        && parts.iter().any(|part| matches!(part, Part::Table(_)));
+    let reviewed_effects = !cast_table
+        && !parts.iter().any(|part| match part {
+            Part::Typed(_) => false,
+            Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
+            Part::Reflexive(..) | Part::Departure(_) => true,
+        });
     if table.is_none()
         && reviewed_effects
         && let (Ok(t), Ok(c)) = (&narrow, &narrow_condition)
@@ -553,9 +559,17 @@ fn trigger_event(
             }
         }
     }
-    let event = match table {
-        Some(event) => event,
-        None => match events::general(card, raw)? {
+    let event = match (table, &narrow) {
+        (Some(event), _) => event,
+        (
+            None,
+            Ok(SourceTrigger::Cast {
+                who,
+                what,
+                not_from,
+            }),
+        ) if cast_table => cast_event(who, what, not_from.as_ref())?,
+        (None, _) => match events::general(card, raw)? {
             Some(event) => event,
             None => {
                 return Err(reviewed.unwrap_or_else(|| {
