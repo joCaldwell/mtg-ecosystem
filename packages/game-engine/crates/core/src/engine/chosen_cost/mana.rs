@@ -127,7 +127,8 @@ impl RulesTxn {
                     };
                     // A conservative preflight can combine independent mana sources.
                     // Inputs, life and riders would require simulating their order.
-                    if !ability.costs.tap
+                    if ability.spend_restriction.is_some()
+                        || !ability.costs.tap
                         || ability.costs.mana.is_some()
                         || ability.costs.pay_life.is_some()
                         || !ability.riders.is_empty()

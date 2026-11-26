@@ -882,6 +882,7 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
             .is_some_and(|life| *life < Quantity::from(1))
         || a.costs.remove_source_plus_one_counters.is_some()
         || a.restriction.is_some()
+        || a.spend_restriction.is_some_and(|r| !r.is_canonical())
         || !mana_production_supported(&a.production)
     {
         return cell("mana", name(&a.production));
@@ -1478,6 +1479,7 @@ mod tests {
                             pay_life,
                         },
                         production,
+                        spend_restriction: None,
                         riders,
                         source_block: 0,
                     })

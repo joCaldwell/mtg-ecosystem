@@ -20,15 +20,15 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    84,
-    "60db3899d6f630c466d44d17473758217f766a6aad7733d04dbc0d5e27f8a8a2",
+    85,
+    "1dd48b6f6534e75a8b598c11efdfead4bff13a9004a5ca1da0351ce54d9cda57",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    115,
+    116,
     "28cd7b1be5f90c2b678f99f972316b3b49146bb358b430270f7f0e73df408c0a",
 );
 const WORK_PIN: (u32, &str) = (
-    60,
+    61,
     "457d166e0eb8fafe7caadb513d8df47defbd2fb78904b44cf008fef8d55e6e45",
 );
 
@@ -221,6 +221,7 @@ fn granted_mana() -> Game {
                         pay_life: None,
                     },
                     production: mtg_contracts::ManaProduction::AnyColor,
+                    spend_restriction: None,
                     riders: vec![],
                     source_block: 0,
                 }],

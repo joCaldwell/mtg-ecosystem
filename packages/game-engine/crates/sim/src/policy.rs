@@ -250,21 +250,22 @@ impl Strategy<'_> {
                 Shape::Pay {
                     cost,
                     step: PayStep::Produce { .. },
-                    ..
+                    pool,
                 },
             ) => {
                 let outer = mana_ability_source.is_none();
-                let available = mana_policy::spendable_pool(v).ok_or("missing mana payer")?;
+                let available = pool.available();
                 let payable = payment(cost, &available).is_some();
                 if outer && self.memory.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
                     // price. Nested activations consume the outer plan in order.
                     if !payable {
-                        self.memory.mana_plan = mana_policy::plan_for(
+                        self.memory.mana_plan = mana_policy::plan_for_payment(
                             self.catalog,
                             v,
                             cost,
                             self.memory.payment.exclude.as_ref(),
+                            &pool.restricted,
                         )
                         .unwrap_or_default();
                     }
@@ -299,7 +300,7 @@ impl Strategy<'_> {
                     pool,
                     step: PayStep::Spend,
                 },
-            ) => crate::mana_spend::spend_answer(cost, &pool.unrestricted)
+            ) => crate::mana_spend::pool_spend_answer(cost, pool)
                 .ok_or("cannot spend announced cost")?,
             (Reason::Targets { specs }, Shape::Pick { slots, rules }) => {
                 let (definition, program) = self.top_program(v).ok_or("missing target program")?;

@@ -78,6 +78,7 @@ fn cast(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
                         pool:
                             ManaPool {
                                 unrestricted: available,
+                                ..
                             },
                         ..
                     },

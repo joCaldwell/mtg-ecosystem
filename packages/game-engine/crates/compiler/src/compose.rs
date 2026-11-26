@@ -831,6 +831,9 @@ fn compose(
     if resolution.face_count() != card.faces.len() {
         return Err(invalid("resolution", "missing or duplicated resolved face"));
     }
+    for (index, (_, face)) in card.faces.iter().enumerate() {
+        resolution.cover_spend_riders(index, face.abilities.get())?;
+    }
     binding_gate(resolution.complete(), &mut deferred)?;
     let mut lowered = Vec::new();
     for (index, face) in std::mem::take(&mut card.faces).into_iter().enumerate() {

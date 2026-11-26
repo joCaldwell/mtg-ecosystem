@@ -247,6 +247,7 @@ pub enum Cell {
     // commander-color surface.
     /// CR 106.1a: N mana of one color chosen from a printed list.
     ManaChoose,
+    ManaSpendRestriction,
     /// CR 106.7: one mana of a type some lands could produce.
     ManaLandsCouldProduce,
     /// CR 605.3a, 601.2g-h: a mana ability with a mana cost.
@@ -418,6 +419,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ResolutionTrigger
         | C::Control
         | C::ManaChoose
+        | C::ManaSpendRestriction
         | C::ManaLandsCouldProduce
         | C::ManaAbilityManaCost
         | C::ManaAbilityPayLife

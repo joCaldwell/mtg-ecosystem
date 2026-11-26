@@ -1437,6 +1437,8 @@ pub struct ManaAbility {
     pub condition: Option<kir::Cond>,
     pub costs: PermanentActivationCosts,
     pub production: ManaProduction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_restriction: Option<ManaSpendRestriction>,
     /// CR 605.1a, 605.3b: the ability's other printed instructions, Kernel
     /// nodes performed in order after the mana is added, while the ability
     /// resolves immediately and without the stack. A mana ability has no

@@ -191,10 +191,20 @@ recipient taps for its activator (CR 109.5, 302.6); printed then granted
 abilities drive activation, views, planning and saves. Grants admit only tap and
 life costs, without riders, restrictions, conditions or tapped-status filters.
 
-Reversal (CR 733.1) restores receipt-recorded mana, taps and counters; an
-activation that paid life or performed riders is kept, with every activation of
-that attempt. Spend-restricted mana has no producer or spend answer, so payment
-never counts it (CR 106.6).
+Reversal (CR 733.1) restores receipt-recorded unrestricted and restricted
+mana, taps and counters. An activation that paid life or performed riders is
+kept with every activation of that attempt.
+
+CR 106.6 spending predicates distinguish spells, activated abilities and
+resolution payments. The spend decision offers only eligible buckets and
+validates the exact unrestricted and bucket allocation. The finite rows
+cover spell types, colorless spells, artifact spells and battlefield artifact
+abilities, colorless Eldrazi spells and battlefield colorless Eldrazi
+abilities, and activated abilities generally. Mana with an uncounterable
+rider protects the paid spell only when that allocation spends the mana.
+The legendary row restricts the payment itself. The instant-or-sorcery row
+can pay other costs without protecting them. Mana still empties at step and
+phase boundaries (CR 106.4, 500.4).
 
 ## Casting, costs, targets and stack
 

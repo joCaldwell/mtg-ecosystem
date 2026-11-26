@@ -31,13 +31,13 @@ struct Planner<'a> {
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
-    spell_only: BTreeMap<Color, Quantity>,
+    scoped_mana: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
 }
 impl Planner<'_> {
     fn balance(&self, color: &Color, nested: bool) -> Quantity {
         let mut amount = self.pool.get(color).cloned().unwrap_or_default();
-        if !nested && let Some(spell) = self.spell_only.get(color) {
+        if !nested && let Some(spell) = self.scoped_mana.get(color) {
             amount.add(spell);
         }
         amount
@@ -46,7 +46,7 @@ impl Planner<'_> {
     fn can_fund(&self, cost: &ManaCost, nested: bool) -> bool {
         let mut pool = self.pool.clone();
         if !nested {
-            for (color, amount) in &self.spell_only {
+            for (color, amount) in &self.scoped_mana {
                 pool.entry(*color).or_default().add(amount);
             }
         }
@@ -393,9 +393,20 @@ pub(super) fn plan_for(
     cost: &ManaCost,
     exclude: Option<&ObjectHandle>,
 ) -> Option<std::collections::VecDeque<PlannedMana>> {
+    plan_for_payment(catalog, view, cost, exclude, &[])
+}
+
+pub(super) fn plan_for_payment(
+    catalog: &Catalog,
+    view: &PermittedView,
+    cost: &ManaCost,
+    exclude: Option<&ObjectHandle>,
+    eligible: &[mtg_contracts::RestrictedMana],
+) -> Option<std::collections::VecDeque<PlannedMana>> {
     let pool = spendable_pool(view)?;
-    if spend(cost, &pool).is_some() {
-        return Some(Default::default());
+    let mut scoped_mana = BTreeMap::<Color, Quantity>::new();
+    for unit in eligible {
+        scoped_mana.entry(unit.color).or_default().add(&unit.amount);
     }
     let mut sources = vec![];
     for (object_index, o) in view.objects.iter().enumerate() {
@@ -440,7 +451,8 @@ pub(super) fn plan_for(
             )
         });
         for (identity, ability) in printed.chain(granted) {
-            if !usable_printed(ability, o, &life)
+            if ability.spend_restriction.is_some()
+                || !usable_printed(ability, o, &life)
                 || !condition_holds(view, o, ability.condition.as_ref())
             {
                 continue;
@@ -502,7 +514,7 @@ pub(super) fn plan_for(
         sources,
         used: vec![false; view.objects.len()],
         pool,
-        spell_only: BTreeMap::new(),
+        scoped_mana,
         plan: vec![],
     };
     planner.fund(cost, false).then(|| planner.plan.into())
@@ -623,6 +635,7 @@ mod tests {
                 pay_life: None,
             },
             production: ManaProduction::AnyColor,
+            spend_restriction: None,
             riders: vec![],
             source_block: 0,
         }];
@@ -770,7 +783,7 @@ mod tests {
             }],
             used: vec![false],
             pool: BTreeMap::new(),
-            spell_only: BTreeMap::new(),
+            scoped_mana: BTreeMap::new(),
             plan: vec![],
         };
         let cost = ManaCost {

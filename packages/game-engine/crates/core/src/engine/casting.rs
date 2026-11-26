@@ -188,6 +188,7 @@ impl RulesTxn {
             targets: vec![],
             announced_targets: vec![vec![]; 4],
             paid: None,
+            mana_uncounterable: false,
             total_cost,
             cast_from,
         };

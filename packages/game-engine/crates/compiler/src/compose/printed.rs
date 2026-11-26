@@ -159,6 +159,15 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
         ("declined", Value::Object(fields)) if fields.get("tapped") == Some(&Value::Bool(true)) => {
             found.condition += 1;
         }
+        // CR 106.6: the conditional rider is scoped to the spend, not the activation.
+        ("riders", Value::Array(_))
+            if matches!(
+                crate::rules::lower_spend_restriction(None, Some(child)),
+                Ok(Some(ManaSpendRestriction::InstantOrSorceryUncounterable))
+            ) =>
+        {
+            found.condition += 1;
+        }
         ("countered", _) => found.condition += 1,
         ("rule", Value::String(rule)) if rule.ends_with("-requirement") => found.condition += 1,
         ("upTo", Value::Bool(true)) => found.limit += 1,
@@ -302,6 +311,21 @@ pub(super) fn choices_printed(
                 carriers(&step["original"], &mut found);
             } else {
                 field_carriers(ability, field, &mut found)?;
+                // R5 assigns the production sentence and its CR 106.6
+                // conditional rider to independent certified ranges.
+                let rider_path = format!("{field}/steps/0/riders");
+                if segments
+                    .iter()
+                    .any(|(fields, ..)| fields.contains(&rider_path))
+                    && ability.pointer(&rider_path).is_some_and(|riders| {
+                        matches!(
+                            crate::rules::lower_spend_restriction(None, Some(riders)),
+                            Ok(Some(ManaSpendRestriction::InstantOrSorceryUncounterable))
+                        )
+                    })
+                {
+                    found.condition -= 1;
+                }
             }
             if node["effect"] == "self-replacement"
                 && !text

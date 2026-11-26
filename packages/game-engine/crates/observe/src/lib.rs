@@ -172,8 +172,8 @@ pub fn encode(
             g[12 + color(c)] += 1;
         }
         g[18] = int(&cost.generic);
-        for (&c, q) in &pool.unrestricted {
-            g[19 + color(c)] = int(q);
+        for (c, q) in pool.available() {
+            g[19 + color(c)] = int(&q);
         }
     } else if let Some(p) = v.players.iter().find(|p| p.player == v.viewer) {
         for (&c, q) in &p.mana {

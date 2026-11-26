@@ -535,12 +535,9 @@ fn reversal_keeps_a_damaging_activation_and_undoes_a_plain_one() {
     }
 }
 
-/// PR #203 review: `Pay { Spend }` offers only unrestricted mana, so the
-/// payment frame never counts restricted mana (CR 106.6, 601.2h): a Signet
-/// whose {1} only restricted mana could pay is cancelled rather than sent to
-/// a spend decision no answer satisfies.
+/// CR 106.6: the nested activation cannot spend mana reserved for a spell.
 #[test]
-fn restricted_mana_never_reaches_a_spend_decision() {
+fn spell_only_mana_cannot_pay_a_nested_activation() {
     let mut g = Game::new(prepared(&[
         ("Izzet Signet", 0, false),
         ("Forest", 0, false),
@@ -551,7 +548,7 @@ fn restricted_mana_never_reaches_a_spend_decision() {
         color: Color::C,
         amount: 1.into(),
         source: forest,
-        restriction: Some(mtg_contracts::ManaSpendRestriction::ActivatedAbility),
+        restriction: Some(mtg_contracts::ManaSpendRestriction::ColorlessSpell),
     })
     .unwrap();
     activate(&mut g, 0);
@@ -823,4 +820,76 @@ fn bundle_with_hybrid_activation_input_is_still_rejected() {
         !matches!(result, mtg_compiler::CompileResult::Lowered { .. }),
         "a bundle cannot bypass its activation cost"
     );
+}
+
+#[test]
+fn activation_only_mana_pays_the_signet_and_leaves_the_other_unit() {
+    let mut catalog = catalog();
+    let raw = include_str!(
+        "../../../../../tests/fixtures/phase1-r5/215fd0b4-5817-4335-a0ed-1694e44bde41.json"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(MANIFEST, raw)
+    else {
+        panic!("Omen Hawker must lower")
+    };
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let mut game = Game::new(
+        Board::new(catalog, "nested restricted mana")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Omen Hawker", 0, 0, false)
+            .permanent_or_hand("Izzet Signet", 0, 0, false)
+            .libraries("Forest", 4)
+            .prepare(),
+    );
+    activate(&mut game, 0);
+    activate(&mut game, 1);
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    let decision = Driver::request(&mut game, u64::MAX);
+    let Shape::Pay {
+        pool: offered,
+        step: PayStep::Spend,
+        ..
+    } = &decision.shape
+    else {
+        panic!("expected the Signet's spending window")
+    };
+    let selected = offered
+        .restricted
+        .iter()
+        .find(|unit| unit.color == Color::C)
+        .unwrap()
+        .clone();
+    game.respond(
+        decision.player,
+        decision.id,
+        Answer::Pay {
+            pay: PayAnswer::SpendRestricted {
+                unrestricted: BTreeMap::new(),
+                restricted: vec![selected],
+            },
+        },
+    )
+    .unwrap();
+    priority(&mut game);
+    assert_eq!(
+        pool(&game, 0),
+        BTreeMap::from([(Color::U, 1.into()), (Color::R, 1.into())])
+    );
+    assert_eq!(game.state.rules.players[0].restricted_mana.len(), 1);
+    assert_eq!(
+        game.state.rules.players[0].restricted_mana[0].color,
+        Color::U
+    );
+    checked(&game);
 }

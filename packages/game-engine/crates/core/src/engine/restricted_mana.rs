@@ -1,6 +1,5 @@
 //! CR 106.4, 106.6, 601.2h, 602.2b and 733 (2026-09-25). Restricted mana
-//! can be added and is kept in its own buckets; `Pay { Spend }` offers only
-//! unrestricted mana, so no payment spends a bucket.
+//! is stored by spending predicate and color and offered by payment context.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -11,7 +10,7 @@ pub(super) fn credit(pool: &mut Vec<RestrictedMana>, unit: &RestrictedMana) {
     }
 }
 
-pub(super) const MAX_RESTRICTED_BUCKETS: usize = 4 * 6;
+pub(super) const MAX_RESTRICTED_BUCKETS: usize = 17 * 6;
 
 pub(super) fn valid_buckets(pool: &[RestrictedMana]) -> bool {
     pool.len() <= MAX_RESTRICTED_BUCKETS

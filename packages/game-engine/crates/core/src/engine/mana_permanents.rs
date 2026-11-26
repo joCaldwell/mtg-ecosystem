@@ -141,6 +141,8 @@ testkit_fields! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub condition: Option<ManaConditionEvidence>,
         pub produced: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub produced_restricted: Vec<RestrictedMana>,
         pub spent: BTreeMap<Color, Quantity>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub spent_restricted: Vec<RestrictedMana>,
@@ -265,6 +267,11 @@ impl RulesTxn {
         source: ObjectId,
         receipt: &PermanentManaUndo,
     ) -> Result<(), String> {
+        if !restricted_mana::valid_buckets(&receipt.produced_restricted)
+            || !restricted_mana::valid_buckets(&receipt.spent_restricted)
+        {
+            return Err("invalid restricted mana receipt".into());
+        }
         let Some(evidence) = &receipt.condition else {
             return Ok(());
         };
@@ -772,7 +779,7 @@ impl RulesTxn {
             paid: None,
         };
         if activation.payment_cost().is_none() {
-            self.pay_mana_ability(activation, BTreeMap::new())
+            self.pay_mana_ability(activation, BTreeMap::new(), vec![])
         } else {
             self.rules_mut().frame = Frame::ManaAbility {
                 activation: Box::new(activation),
@@ -790,6 +797,7 @@ impl RulesTxn {
                 a.payment_cost().ok_or("missing mana ability cost")?,
                 Some(a.source),
                 a.stage == ManaStage::Payment,
+                self.activation_mana_use(a.source, None)?,
             ),
             ManaStage::Color => {
                 let candidates = match &a.ability.production {
@@ -847,7 +855,7 @@ impl RulesTxn {
                 // costs (a life payment, the source's tap), so every cost is
                 // rechecked before the spend decision; otherwise the outer
                 // activation is cancelled and its legal nested ones remain.
-                if self.can_pay_offered(a.player, &cost)?
+                if self.can_pay_for(a.player, &cost, self.activation_mana_use(a.source, None)?)?
                     && self
                         .validate_permanent_mana_costs(a.player, a.source, a.slot())
                         .is_ok()
@@ -863,10 +871,10 @@ impl RulesTxn {
                     self.resume_mana(self.saved_frame(a.resume)?.clone(), a.receipts)?;
                 }
             }
-            Answer::Pay {
-                pay: PayAnswer::Spend { unrestricted },
-            } if a.stage == ManaStage::Spend => {
-                self.pay_mana_ability(a, unrestricted.clone())?;
+            Answer::Pay { pay } if a.stage == ManaStage::Spend => {
+                let (unrestricted, restricted) =
+                    pay.spending().ok_or("expected mana allocation")?;
+                self.pay_mana_ability(a, unrestricted.clone(), restricted.to_vec())?;
             }
             Answer::Pick { .. } if a.stage == ManaStage::Color => match input.one()? {
                 Candidate::Color { color } => self.resolve_mana_ability(a, Some(*color))?,
@@ -883,6 +891,7 @@ impl RulesTxn {
         &mut self,
         mut a: ManaActivation,
         spending: BTreeMap<Color, Quantity>,
+        restricted: Vec<RestrictedMana>,
     ) -> Result<(), String> {
         self.validate_permanent_mana_costs(a.player, a.source, a.slot())?;
         // No costs are paid until the nested payment succeeds (601.2g-h).
@@ -910,8 +919,9 @@ impl RulesTxn {
                 })
                 .transpose()?,
             produced: BTreeMap::new(),
+            produced_restricted: vec![],
             spent: spending.clone(),
-            spent_restricted: vec![],
+            spent_restricted: restricted.clone(),
             absent: [Color::W, Color::U, Color::B, Color::R, Color::G, Color::C]
                 .into_iter()
                 .filter(|c| !pool.contains_key(c))
@@ -922,12 +932,19 @@ impl RulesTxn {
         };
         let cause = a.cause();
         if let Some(cost) = a.payment_cost() {
+            self.validate_spending(
+                a.player,
+                &cost,
+                self.activation_mana_use(a.source, None)?,
+                &spending,
+                &restricted,
+            )?;
             self.commit(
                 ProposedEvent::PayManaSelected {
                     player: a.player,
                     cost,
                     spending,
-                    restricted: vec![],
+                    restricted,
                 },
                 cause.clone(),
             )?;
@@ -1060,14 +1077,26 @@ impl RulesTxn {
         let source = self.object_id(a.source.card).unwrap_or(a.source);
         let mut children = vec![];
         for (color, amount) in units {
-            receipt.produced.entry(color).or_default().add(&amount);
+            let restriction = a.ability.spend_restriction;
+            if let Some(restriction) = restriction {
+                restricted_mana::credit(
+                    &mut receipt.produced_restricted,
+                    &RestrictedMana {
+                        restriction,
+                        color,
+                        amount: amount.clone(),
+                    },
+                );
+            } else {
+                receipt.produced.entry(color).or_default().add(&amount);
+            }
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::AddMana {
                     player: a.player,
                     color,
                     amount,
                     source,
-                    restriction: None,
+                    restriction,
                 },
             });
         }
@@ -1288,9 +1317,10 @@ impl RulesTxn {
             return Err("departed mana reversal payer".into());
         }
         let p = &mut self.rules_mut().players[r.player.0 as usize];
-        // CR 106.6: no payment spends restricted mana, so none is refunded.
-        if !r.spent_restricted.is_empty() {
-            return Err("restricted mana has no spend decision".into());
+        p.restricted_mana =
+            mtg_view::subtract_restricted_mana(p.restricted_mana.clone(), &r.produced_restricted)?;
+        for unit in &r.spent_restricted {
+            restricted_mana::credit(&mut p.restricted_mana, unit);
         }
         let pool = &mut p.mana;
         for (c, n) in &r.produced {

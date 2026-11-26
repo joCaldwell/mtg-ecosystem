@@ -18,7 +18,11 @@ use serde_json::Value;
 pub(super) struct Resolution {
     card: CardResolution,
     face: usize,
+    spend_riders: BTreeSet<(usize, usize)>,
 }
+
+const SPEND_RIDER_STEP: &str = "/effects/0/steps/0/riders/0/effects/0/steps/0";
+const SPEND_RIDER_REF: &str = "/effects/0/steps/0/riders/0/effects/0/steps/0/what";
 
 impl Resolution {
     /// Decode and hash-check the record's resolution. Its absence means the
@@ -46,7 +50,11 @@ impl Resolution {
                 "completeness disagrees with residuals",
             ));
         }
-        Ok(Self { card, face: 0 })
+        Ok(Self {
+            card,
+            face: 0,
+            spend_riders: BTreeSet::new(),
+        })
     }
 
     pub(super) fn face_count(&self) -> usize {
@@ -77,6 +85,49 @@ impl Resolution {
             .ok_or_else(|| unsupported("resolution", "face:unparsed"))
     }
 
+    // R5 left the referent of these exact CR 106.6 riders unresolved.
+    // The spend allocation binds it later, to the purchased spell. Require
+    // the complete rider AST and both exact residual sites before discharging
+    // the frozen diagnostics. Other references and steps still pass the gate.
+    pub(super) fn cover_spend_riders(&mut self, face: usize, raw: &str) -> Result<(), Failure> {
+        let printed: Vec<Value> = decode(raw, "abilities")?;
+        let Some(blocks) = self.card.faces[face].blocks.as_ref() else {
+            return Ok(());
+        };
+        for (index, (ability, block)) in printed.iter().zip(blocks).enumerate() {
+            let Some(step) = ability.pointer("/effects/0/steps/0") else {
+                continue;
+            };
+            if ability["kind"] != "activated"
+                || step["effect"] != "add-mana"
+                || step.get("riders").is_none()
+                || crate::rules::lower_spend_restriction(
+                    step.get("restriction"),
+                    step.get("riders"),
+                )
+                .is_err()
+                || block.residuals
+                    != [
+                        "diagnostic:missing-antecedent",
+                        "ref:missing-antecedent",
+                        "step:cant",
+                    ]
+                || !block.refs.iter().any(|r| {
+                    matches!(r, RefEntry::Unresolved(u)
+                    if u.path == SPEND_RIDER_REF && u.unresolved == "missing-antecedent")
+                })
+                || !block.steps.iter().any(|entry| {
+                    matches!(entry, StepEntry::Unaccounted(u)
+                    if u.path == SPEND_RIDER_STEP && u.ast_effect.as_str() == "cant")
+                })
+            {
+                continue;
+            }
+            self.spend_riders.insert((face, index));
+        }
+        Ok(())
+    }
+
     /// Every reference resolved in the closed vocabulary, every step
     /// accounted for and every token attributed; otherwise the first exact
     /// residual (card-level first, then by block).
@@ -85,8 +136,15 @@ impl Resolution {
             self.card
                 .faces
                 .iter()
-                .flat_map(|f| f.blocks.iter().flatten())
-                .find_map(|b| b.residuals.first())
+                .enumerate()
+                .flat_map(|(face, f)| {
+                    f.blocks
+                        .iter()
+                        .flatten()
+                        .enumerate()
+                        .filter(move |(block, _)| !self.spend_riders.contains(&(face, *block)))
+                })
+                .find_map(|(_, b)| b.residuals.first())
         });
         match first {
             Some(residual) => Err(unsupported("resolution", residual)),
@@ -116,6 +174,13 @@ impl Resolution {
                     }
                     RefEntry::Derived(d) => (&d.path, d.scope.as_deref(), Role::Unbound),
                     RefEntry::Evaluated(e) => (&e.path, e.scope.as_deref(), Role::Unbound),
+                    RefEntry::Unresolved(u)
+                        if u.path == SPEND_RIDER_REF
+                            && u.unresolved == "missing-antecedent"
+                            && self.spend_riders.contains(&(self.face, index)) =>
+                    {
+                        continue;
+                    }
                     RefEntry::Unresolved(u) => {
                         return Err(unsupported("resolution", format!("ref:{}", u.unresolved)));
                     }
@@ -391,7 +456,11 @@ impl Resolution {
                 if steps.get(path.as_str()).map(String::as_str) != Some(effect) {
                     return Err(mismatch("step", path));
                 }
-                if !accounted {
+                if !accounted
+                    && !(path == SPEND_RIDER_STEP
+                        && effect == "cant"
+                        && self.spend_riders.contains(&(self.face, index)))
+                {
                     unaccounted.push((index, path.clone(), effect.to_string()));
                 }
             }

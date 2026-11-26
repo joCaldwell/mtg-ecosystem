@@ -810,6 +810,7 @@ fn scripted_response(game: &Game, request: &Decision<Rules>) -> Answer {
                     pool:
                         ManaPool {
                             unrestricted: available,
+                            ..
                         },
                     ..
                 },
