@@ -219,18 +219,25 @@ impl RulesTxn {
                     // CR 608.2b: separate modal target occurrences are checked
                     // independently. Untargeted instructions still execute if
                     // at least one announced target remains legal.
-                    let skipped_modal_instruction = stack.mode_mask.is_some()
+                    if stack.mode_mask.is_some()
                         && program.targets.len() > 1
                         && program.target_group().is_none()
-                        && {
-                            let slots = mtg_contracts::kir::target_slots(node);
-                            slots.len() == 1
-                                && slots.iter().all(|slot| {
-                                    frame.legal_targets.get(*slot as usize) != Some(&true)
-                                })
-                        };
+                    {
+                        let slots = mtg_contracts::kir::target_slots(node);
+                        if let Some(&slot) = slots.first().filter(|_| slots.len() == 1)
+                            && frame.legal_targets.get(slot as usize) != Some(&true)
+                        {
+                            let target = *self
+                                .bound_object_target(&stack, slot as usize)
+                                .ok_or("missing independent modal target")?;
+                            self.finish_instruction(
+                                frame,
+                                InstructionOutcome::IllegalTarget { target },
+                            )?;
+                            return Ok(());
+                        }
+                    }
                     if skipped_leaf
-                        || skipped_modal_instruction
                         || (program.optional_target
                             && frame.legal_targets.is_empty()
                             && !mtg_contracts::kir::target_slots(node).is_empty())

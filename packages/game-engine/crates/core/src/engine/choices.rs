@@ -303,6 +303,7 @@ pub enum InterveningStage {
 #[serde(rename_all = "snake_case")]
 pub enum TriggerPlacementFailure {
     NoLegalTargets,
+    NoModesChosen,
 }
 
 impl RulesTxn {

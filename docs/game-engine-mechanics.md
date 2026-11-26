@@ -802,10 +802,10 @@ distinct modes is its own program in printed order (CR 700.2d), yielded by
 `spell_programs` and `programs`; the base program keeps timing only.
 
 Spells and activations choose modes before costs, X and targets (CR 601.2b);
-a trigger chooses with its targets and leaves the stack with nothing offerable
-(CR 603.3c). Only selections with legal targets are offered. The public `mode_mask` selects
-the program, with a zero mask representing a chosen empty set. Spell
-selections can announce independent object occurrences or a single counted
+a trigger chooses with its targets and is removed if no mode can be chosen
+or it chooses zero modes (CR 603.3c, 700.2b). Only selections with legal targets
+are offered. A zero `mode_mask` represents a chosen empty set. Spell selections
+can announce independent object occurrences or a single counted
 target group. Illegal targets suppress their own effects if another target
 remains legal (CR 608.2b). These earn `Executes` (`modal_choice_v1`).
 Repeats, entwine, escalate, spree, costed modes, upgrades, mixed target

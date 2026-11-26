@@ -558,25 +558,52 @@ fn a_modal_activation_chooses_modes_before_its_target_and_mana() {
     );
 }
 
-/// CR 700.2b: the zero-mode selection places the trigger even when every
-/// printed mode lacks a legal target.
+/// CR 700.2b: choosing zero modes removes the trigger whether or not
+/// one of its printed modes could have been chosen.
 #[test]
-fn sawblade_slinger_places_an_empty_selection() {
+fn sawblade_slinger_removes_an_empty_selection() {
     const SLINGER: &str = record!("df7397b6-9a37-4012-8677-ae8e3b7c4bc3");
-    let mut b = board(&[SLINGER], TurnStep::PrecombatMain)
-        .permanent_or_hand("Sawblade Slinger", 0, 0, true)
-        .permanent_or_hand("Forest", 0, 0, false);
-    for _ in 0..3 {
-        b = b.permanent_or_hand("Plains", 0, 0, false);
+    for artifact_available in [false, true] {
+        let mut b = board(&[SLINGER], TurnStep::PrecombatMain)
+            .permanent_or_hand("Sawblade Slinger", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false);
+        for _ in 0..3 {
+            b = b.permanent_or_hand("Plains", 0, 0, false);
+        }
+        if artifact_available {
+            b = b.permanent_or_hand("Sol Ring", 1, 1, false);
+        }
+        let mut g = Game::with_trace(b.libraries("Island", 2).prepare(), TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2, 3, 4]);
+        let d = until_modes(&mut g, 0);
+        assert_eq!(
+            offered(&d),
+            if artifact_available {
+                &[0, 1][..]
+            } else {
+                &[0]
+            }
+        );
+        assert!(
+            matches!(&d.candidates[0], Candidate::Modes { mask: 0, labels } if labels == &["No modes"])
+        );
+        choose(&mut g, &d, 0);
+        let next = Driver::request(&mut g, u64::MAX);
+        assert_eq!(next.reason, Reason::Priority);
+        assert!(g.state.rules.stack.is_empty());
+        assert!(g.events().iter().any(|e| matches!(
+            e,
+            Event::TriggeredAbilityNotPlaced {
+                reason: TriggerPlacementFailure::NoModesChosen,
+                ..
+            }
+        )));
+        assert!(
+            !g.events()
+                .iter()
+                .any(|e| matches!(e, Event::TriggerPlaced { .. }))
+        );
+        settle(&mut g);
     }
-    let mut g = Game::new(b.libraries("Island", 2).prepare());
-    Driver::cast(&mut g, CardId(0));
-    Driver::pay(&mut g, &[1, 2, 3, 4]);
-    let d = until_modes(&mut g, 0);
-    assert_eq!(offered(&d), [0]);
-    choose(&mut g, &d, 0);
-    let _ = Driver::request(&mut g, u64::MAX);
-    assert_eq!(g.state.rules.stack.last().unwrap().mode_mask, Some(0));
-    checked(&g);
-    settle(&mut g);
 }
