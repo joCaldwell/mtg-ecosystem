@@ -47,6 +47,27 @@ pub enum Amount {
     OtherCastsManaValue {
         caster: PlayerExpr,
     },
+    /// CR 107.1, 208.2a: the sum of two or more numbers. Read only by a
+    /// characteristic-defining ability (`kir::statics`).
+    Sum {
+        terms: Vec<Amount>,
+    },
+    /// CR 205.2a, 205.3i, 105.1: how many different card types, basic land
+    /// types or colors the objects of a set have among them. Read only by a
+    /// characteristic-defining ability (`kir::statics`).
+    Distinct {
+        set: SetExpr,
+        characteristic: DistinctCharacteristic,
+    },
+}
+
+/// The characteristic an [`Amount::Distinct`] counts the values of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DistinctCharacteristic {
+    CardType,
+    BasicLandType,
+    Color,
 }
 
 impl Amount {

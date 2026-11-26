@@ -189,9 +189,11 @@ fn spending_queries_are_private_pure_resumable_and_executor_scoped() {
         id: token,
         shape:
             Shape::Pay {
-                pool: ManaPool {
-                    unrestricted: available,
-                },
+                pool:
+                    ManaPool {
+                        unrestricted: available,
+                        ..
+                    },
                 cost,
                 ..
             },

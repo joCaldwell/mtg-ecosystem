@@ -177,11 +177,13 @@ through source-owner departure.
 A mana ability (CR 605.1a) is a tap cost, optionally with a mana cost paid
 through a nested activation or a life payment (CR 119.4), and one production:
 fixed symbols, any color, commander color, N mana of one color chosen from a
-printed list, or one mana of a type the controller's or opponents' lands could
-produce. CR 106.7 is the least fixed point over battlefield lands, each read
-relative to its own controller from intrinsic, printed and granted abilities, ignoring
-costs and object order; if a departure leaves no defined type while the color is
-chosen, the ability adds nothing. A source with several mana abilities first
+printed list, one of the printed fixed bundles, up to five mana in any
+combination of colors, or one mana of a type the controller's or opponents'
+lands could produce. A bundle is chosen in full as the ability resolves.
+CR 106.7 is the least fixed point over battlefield lands, each read
+relative to its own controller from intrinsic, printed and granted abilities,
+ignoring costs and object order. If a departure leaves no defined type while
+the color is chosen, the ability adds nothing. A source with several mana abilities first
 asks which to activate (CR 605.3a). Riders follow in order: damage to the
 controller or life gain (CR 605.3b). A nested payment rechecks outer costs.
 
@@ -190,10 +192,20 @@ recipient taps for its activator (CR 109.5, 302.6); printed then granted
 abilities drive activation, views, planning and saves. Grants admit only tap and
 life costs, without riders, restrictions, conditions or tapped-status filters.
 
-Reversal (CR 733.1) restores receipt-recorded mana, taps and counters; an
-activation that paid life or performed riders is kept, with every activation of
-that attempt. Spend-restricted mana has no producer or spend answer, so payment
-never counts it (CR 106.6).
+Reversal (CR 733.1) restores receipt-recorded unrestricted and restricted
+mana, taps and counters. An activation that paid life or performed riders is
+kept with every activation of that attempt.
+
+CR 106.6 spending predicates distinguish spells, activated abilities and
+resolution payments. The spend decision offers only eligible buckets and
+validates the exact unrestricted and bucket allocation. The finite rows
+cover spell types, colorless spells, artifact spells and battlefield artifact
+abilities, colorless Eldrazi spells and battlefield colorless Eldrazi
+abilities, and activated abilities generally. Mana with an uncounterable
+rider protects the paid spell only when that allocation spends the mana.
+The legendary row restricts the payment itself. The instant-or-sorcery row
+can pay other costs without protecting them. Mana still empties at step and
+phase boundaries (CR 106.4, 500.4).
 
 ## Casting, costs, targets and stack
 
@@ -237,13 +249,18 @@ in cleanup of the beneficiary's next actual turn (CR 400.7j, 514.2, 611.2a).
 
 ### Cost keywords and variable costs
 
-Each surface here is its own `Executes`-only cell in `kir::cell_tiers`.
+Cost keywords with dedicated announcement or payment cells are `Executes`-only.
 
 - **Spell mana symbols**: one leading `{X}`, announced nonnegative before targets
   and frozen (CR 107.3a, 601.2b); two-color hybrid, announced as one alternative;
   single-color Phyrexian, payable with 2 life unless below 2 life (CR 107.4e–f,
   119.4). Several X, monocolored hybrid, colorless or hybrid Phyrexian symbols
   reject, as do hybrid, Phyrexian, X and special symbols in activation costs.
+- **Affinity** counts the caster's matching phased-in permanents at CR 601.2f
+  and reduces generic mana by that count (CR 702.41). Each instance uses the
+  stack-static cost lock. Admitted parameters cover artifact, creature,
+  artifact creature, enchantment, token, supported subtypes, historic
+  permanents and outlaws.
 - **Cycling**: a hand activation on any card type paying fixed mana and
   discarding the card, then drawing one (CR 702.29a). **Typecycling** pays the
   same, then searches for one card of its type (basic land, or an allowlisted
@@ -509,6 +526,19 @@ animations, whose creature-subtype replacement removes it (CR 613.3, 613.7).
 Scopes that reach other zones, conditional grants and resolving grants or
 removals reject.
 
+A printed `*`, `N+*` or `*+N` power or toughness needs one self CDA per starred
+stat (`StaticEffect::DefinePowerToughness`, functioning zone `Any`; CR 208.2a,
+604.3). Layer 7a sets the stat in every zone, before 7b setters and 7c anthems
+and counters (CR 613.4a), whenever it is read; nothing locks it in, so SBAs see
+a live zero toughness (CR 704.5f). Values: counts of permanents, graveyard cards
+or whole hands; `Times`, `Sum` (the printed `N` is its one fixed term), greatest
+mana value, devotion and `Distinct` card types (exhaustive over
+`CardKind::CARD_TYPES`, CR 205.2a), basic land types or colors. They
+read layers 1–5 of other objects, never P/T or abilities. Chosen players, life
+totals, counters, event objects, exile and other values reject under
+`static:cda-pt:*`; a star without a CDA rejects under `source.power` or
+`source.toughness`.
+
 Printed triggered keywords lower to the triggers their rules define, and each
 instance triggers separately. Prowess and bushido N need a creature card. Afterlife N
 and soulshift N need a permanent card. Prowess pumps the source +1/+1 on its
@@ -527,7 +557,7 @@ attack requirements (CR 508.1c–d), countering prohibitions and flash timing.
 Cost increases precede reductions, and excess colored or colorless reduction
 reduces generic (CR 118.7a–d). Land allowances add plays per turn (CR 305.2);
 hand-size effects use source timestamps at cleanup. Static control changes,
-characteristic-defining abilities, ability removal and casting from additional
+other characteristic-defining abilities, ability removal and casting from additional
 zones reject.
 
 ### Attachment entry and ordering
@@ -824,7 +854,7 @@ request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
 | Cost × route | The [costs](#cost-keywords-and-variable-costs) above, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition; reviewed patterns keep their capabilities, others use `EventTriggerV1`. |
-| Static, mana, keyword | Own entry tapped, scoped continuous changes, mana grants and rule statics; the [mana abilities](#mana-abilities) (`kir::mana_ability_cells`); evergreen keywords without parameters. |
+| Static, mana, keyword | Own entry tapped, scoped continuous changes, mana grants, rule statics and P/T CDAs (`characteristic_power_toughness_v1`); the [mana abilities](#mana-abilities) (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
 | Card shell | Normal cards and [double-faced or adventurer cards](#double-faced-cards-and-adventurers) whose parts have complete bound source and supported spell costs and keywords. |
 

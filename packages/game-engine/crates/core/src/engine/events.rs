@@ -2634,13 +2634,21 @@ impl RulesTxn {
                 spending,
                 restricted,
             } => {
-                // CR 106.6, 601.2h: `Pay { Spend }` offers only unrestricted
-                // mana, so no decision produces a restricted allocation.
-                if !restricted.is_empty() {
-                    return Err("restricted mana has no spend decision".into());
+                if !self.is_live(*player) || cost.generic.is_negative() {
+                    return Err("invalid payment cost or player".into());
                 }
-                let pool = self.selected_payment_pool(*player, cost, spending)?;
-                self.rules_mut().players[player.0 as usize].mana = pool;
+                let payer = &self.state.rules.players[player.0 as usize];
+                let mut total = spending.clone();
+                for unit in restricted {
+                    total.entry(unit.color).or_default().add(&unit.amount);
+                }
+                mtg_view::validate_selected_mana_cost(cost, &total)?;
+                let remaining = mtg_view::subtract_selected_mana(payer.mana.clone(), spending)?;
+                let buckets =
+                    mtg_view::subtract_restricted_mana(payer.restricted_mana.clone(), restricted)?;
+                let payer = &mut self.rules_mut().players[player.0 as usize];
+                payer.mana = remaining;
+                payer.restricted_mana = buckets;
                 EventOutcome::ManaPaidSelected {
                     player: *player,
                     cost: cost.clone(),

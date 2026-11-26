@@ -7,7 +7,7 @@ pub use model::*;
 mod shape;
 pub use shape::*;
 mod check;
-pub use check::{subtract_selected_mana, validate_selected_mana_cost};
+pub use check::{subtract_restricted_mana, subtract_selected_mana, validate_selected_mana_cost};
 mod visible;
 pub use visible::*;
 mod effects;

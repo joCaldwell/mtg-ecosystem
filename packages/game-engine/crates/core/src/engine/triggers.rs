@@ -1960,6 +1960,7 @@ impl RulesTxn {
                         targets: vec![],
                         announced_targets: vec![vec![]; 4],
                         paid: (!targeted).then_some(zero.clone()),
+                        mana_uncounterable: false,
                         total_cost: zero,
                         cast_from: trigger.source_facts.zone,
                     });

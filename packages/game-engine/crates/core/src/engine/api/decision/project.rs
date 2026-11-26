@@ -157,6 +157,7 @@ impl RulesTxn {
                 }
             }
             Candidate::Color { color } => Candidate::Color { color },
+            Candidate::ManaBundle { symbols } => Candidate::ManaBundle { symbols },
             Candidate::ManaAbility { ability } => Candidate::ManaAbility { ability },
             Candidate::AdditionalCost { id, mana } => {
                 let entry = self.stack_handle_for(viewer, self.top()?.id)?;

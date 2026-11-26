@@ -400,3 +400,60 @@ fn rejects_random_discard_and_unaudited_graveyard_source_actions() {
         );
     }
 }
+
+#[test]
+fn pooled_artifact_mana_funds_a_chosen_discard_cost() {
+    let prepared = board(&[
+        (
+            record!("06600efe-1718-4cc1-b1c0-59c82e2efd73"),
+            &[Cell::ManaSpendRestriction],
+        ),
+        (
+            record!("4baa7847-dfcc-4aa3-aa64-2deeaa3f013b"),
+            &[Cell::ChosenObjectCost],
+        ),
+    ])
+    .permanent_or_hand("Soldevi Machinist", 0, 0, false)
+    .permanent_or_hand("Murmuring Volume", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, true)
+    .prepare();
+    let mut game = Game::new(prepared);
+    let source = Driver::object(&game, 0);
+    let artifact = Driver::object(&game, 1);
+    Driver::action(&mut game, Action::ActivateMana { object: source });
+    Driver::action(&mut game, activate(artifact, 0));
+    let decision = Driver::request(&mut game, u64::MAX);
+    game.respond(
+        decision.player,
+        decision.id,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    )
+    .unwrap();
+    let decision = Driver::request(&mut game, u64::MAX);
+    let Shape::Pay {
+        cost,
+        pool,
+        step: PayStep::Spend,
+    } = &decision.shape
+    else {
+        panic!("expected Murmuring Volume's spend decision");
+    };
+    let pay = pool.spend(cost).unwrap();
+    assert!(
+        matches!(&pay, PayAnswer::SpendRestricted { restricted, .. } if restricted.len() == 1 && restricted[0].amount == 2.into())
+    );
+    game.respond(decision.player, decision.id, Answer::Pay { pay })
+        .unwrap();
+    let choice = expect(&mut game, 0, reason(ChosenCostAction::Discard));
+    let discard = Driver::object(&game, 2);
+    assert_eq!(offered_objects(&choice), [discard]);
+    Driver::pick_object(&mut game, discard);
+    expect(&mut game, 0, Reason::Priority);
+    assert!(game.state.rules.players[0].restricted_mana.is_empty());
+    assert_eq!(zone(&game, 2), Some(Zone::Graveyard { owner: PlayerId(0) }));
+    checked(&game);
+}

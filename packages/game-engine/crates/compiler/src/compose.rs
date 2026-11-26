@@ -831,6 +831,9 @@ fn compose(
     if resolution.face_count() != card.faces.len() {
         return Err(invalid("resolution", "missing or duplicated resolved face"));
     }
+    for (index, (_, face)) in card.faces.iter().enumerate() {
+        resolution.cover_spend_riders(index, face.abilities.get())?;
+    }
     binding_gate(resolution.complete(), &mut deferred)?;
     let mut lowered = Vec::new();
     for (index, face) in std::mem::take(&mut card.faces).into_iter().enumerate() {
@@ -990,6 +993,11 @@ fn compose_face(
     }
     let block_offset = resolution.block_offset();
     let spell_kind = matches!(kind, CardKind::Instant | CardKind::Sorcery);
+    let stars = [&source.power, &source.toughness].map(|stat| {
+        stat.as_deref()
+            .and_then(|text| assemble::printed_stat(text).ok())
+            .and_then(|(_, star)| star)
+    });
     let (mut definition, mut labels) =
         assemble::shell(archive, card_source, part, source, &result, types)?;
     let additional_types = definition.characteristics.additional_types.clone();
@@ -1024,6 +1032,12 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
+                        [one] if one.keyword == "affinity" => {
+                            definition
+                                .static_abilities
+                                .push(keywords::affinity(one, text)?);
+                            labels.statics.push(label);
+                        }
                         [one] if one.keyword == "equip" => {
                             definition
                                 .activated
@@ -1154,6 +1168,11 @@ fn compose_face(
                     effect,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
+                    if let Some(cda) = rules::characteristic_pt(&effect) {
+                        definition.static_abilities.push(cda?);
+                        labels.statics.push(label);
+                        return Ok(());
+                    }
                     if let Some(cda) = rules::every_creature_type_cda(&effect) {
                         cda?;
                         if kind != CardKind::Creature {
@@ -1579,5 +1598,6 @@ fn compose_face(
     // first blocker.
     let lines: Vec<String> = result.lines.iter().map(|l| l.text.clone()).collect();
     keywords::triggered_instances_printed(&lines, &printed)?;
+    assemble::stars_defined(&definition.static_abilities, &stars)?;
     Ok(assemble::finish(definition, labels))
 }

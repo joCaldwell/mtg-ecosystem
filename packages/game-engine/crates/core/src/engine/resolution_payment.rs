@@ -62,6 +62,7 @@ impl RulesTxn {
                 payment.cost.clone(),
                 None,
                 payment.stage == ResolutionPaymentStage::Mana,
+                payments::ManaUse::Resolution,
             ),
         }
     }
@@ -106,7 +107,7 @@ impl RulesTxn {
                 },
                 ResolutionPaymentStage::Mana,
             ) => {
-                if !self.can_pay(payment.payer, &payment.cost)? {
+                if !self.can_pay_for(payment.payer, &payment.cost, payments::ManaUse::Resolution)? {
                     if *undo_mana {
                         self.undo_mana_receipts(payment.payer, &payment.receipts)?;
                     }
@@ -114,12 +115,16 @@ impl RulesTxn {
                 }
                 payment.stage = ResolutionPaymentStage::Spend;
             }
-            (
-                Answer::Pay {
-                    pay: PayAnswer::Spend { unrestricted },
-                },
-                ResolutionPaymentStage::Spend,
-            ) => {
+            (Answer::Pay { pay }, ResolutionPaymentStage::Spend) => {
+                let (unrestricted, restricted) =
+                    pay.spending().ok_or("expected mana allocation")?;
+                self.validate_spending(
+                    payment.payer,
+                    &payment.cost,
+                    payments::ManaUse::Resolution,
+                    unrestricted,
+                    restricted,
+                )?;
                 let spending = unrestricted.clone();
                 let batch = self.commit_batch(
                     self.instruction_cause(&frame, source_block)?,
@@ -128,7 +133,7 @@ impl RulesTxn {
                             player: payment.payer,
                             cost: payment.cost,
                             spending,
-                            restricted: vec![],
+                            restricted: restricted.to_vec(),
                         },
                     },
                 )?;
@@ -161,7 +166,11 @@ impl RulesTxn {
         if matches!(self.state.rules.frame, Frame::ResolutionPayment { .. })
             && (!self.is_live(payment.payer)
                 || (payment.stage == ResolutionPaymentStage::Spend
-                    && !self.can_pay(payment.payer, &payment.cost)?))
+                    && !self.can_pay_for(
+                        payment.payer,
+                        &payment.cost,
+                        payments::ManaUse::Resolution,
+                    )?))
         {
             return Err("unavailable resolution payment".into());
         }

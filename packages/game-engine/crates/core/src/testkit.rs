@@ -608,6 +608,7 @@ impl GameTestkit for Game {
             self.object_id(card).ok_or("missing spell object")?,
             caster,
             from,
+            None,
         )
     }
     fn check_history_capacity(&mut self) -> Result<(), String> {

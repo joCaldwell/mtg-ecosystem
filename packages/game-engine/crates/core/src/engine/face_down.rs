@@ -98,6 +98,10 @@ pub struct FaceUpPayment {
     pub(super) receipts: Vec<ManaActivationUndo>,
 }
 
+/// CR 106.6, 702.37e: a morph cost is paid by neither a spell nor an
+/// ability, so it spends mana as a resolution payment does.
+const FACE_UP_USE: payments::ManaUse = payments::ManaUse::Resolution;
+
 impl RulesTxn {
     /// CR 702.37e: the morph cost `player` pays to turn `object` face up at
     /// priority: a face-down permanent they control whose face-up card has
@@ -154,6 +158,7 @@ impl RulesTxn {
             payment.cost.clone(),
             Some(payment.object),
             payment.stage == FaceUpStage::Mana,
+            FACE_UP_USE,
         )
     }
 
@@ -195,7 +200,7 @@ impl RulesTxn {
                 },
                 FaceUpStage::Mana,
             ) => {
-                if !self.can_pay(payment.player, &payment.cost)? {
+                if !self.can_pay_for(payment.player, &payment.cost, FACE_UP_USE)? {
                     if *undo_mana {
                         return self.abandon_turn_face_up(&payment);
                     }
@@ -204,16 +209,20 @@ impl RulesTxn {
                 }
                 payment.stage = FaceUpStage::Spend;
             }
-            (
-                Answer::Pay {
-                    pay: PayAnswer::Spend { unrestricted },
-                },
-                FaceUpStage::Spend,
-            ) => {
+            (Answer::Pay { pay }, FaceUpStage::Spend) => {
                 // A mana ability's cost can have removed the permanent.
                 if self.face_up_cost(payment.player, payment.object).as_ref() != Ok(&payment.cost) {
                     return self.abandon_turn_face_up(&payment);
                 }
+                let (unrestricted, restricted) =
+                    pay.spending().ok_or("expected mana allocation")?;
+                self.validate_spending(
+                    payment.player,
+                    &payment.cost,
+                    FACE_UP_USE,
+                    unrestricted,
+                    restricted,
+                )?;
                 self.commit_batch(
                     BatchCause::SpecialAction {
                         player: payment.player,
@@ -226,7 +235,7 @@ impl RulesTxn {
                                     player: payment.player,
                                     cost: payment.cost.clone(),
                                     spending: unrestricted.clone(),
-                                    restricted: vec![],
+                                    restricted: restricted.to_vec(),
                                 },
                             },
                             EventGroup::Occurrence {
@@ -254,7 +263,8 @@ impl RulesTxn {
         if payment.player.0 >= 4
             || payment.cost.generic.is_negative()
             || payment.receipts.iter().any(|r| r.player != payment.player)
-            || (payment.stage == FaceUpStage::Spend && !self.can_pay(payment.player, &payment.cost)?)
+            || (payment.stage == FaceUpStage::Spend
+                && !self.can_pay_for(payment.player, &payment.cost, FACE_UP_USE)?)
         {
             return Err("turn face up payment invariant".into());
         }

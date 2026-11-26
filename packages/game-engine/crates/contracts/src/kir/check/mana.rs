@@ -46,12 +46,15 @@ pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Ce
         ManaProduction::Fixed { .. }
         | ManaProduction::AnyColor
         | ManaProduction::CommanderColor => {}
-        ManaProduction::Choose { .. } => {
+        ManaProduction::Choose { .. } | ManaProduction::Bundles { .. } => {
             cells.insert(Cell::ManaChoose);
         }
         ManaProduction::LandsCouldProduce { .. } => {
             cells.insert(Cell::ManaLandsCouldProduce);
         }
+    }
+    if a.spend_restriction.is_some() {
+        cells.insert(Cell::ManaSpendRestriction);
     }
     if a.costs.mana.is_some() {
         cells.insert(Cell::ManaAbilityManaCost);

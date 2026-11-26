@@ -146,6 +146,24 @@ impl RulesTxn {
         None
     }
 
+    /// Quote an ordinary front-face cast for its priority holder using the
+    /// same cost construction that will lock at CR 601.2f. Optional and
+    /// hybrid costs are left to their respective announcement choices.
+    pub fn quote_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+        x: Option<&Quantity>,
+    ) -> Result<ManaCost, String> {
+        let object = self.resolve_handle(viewer, card)?;
+        let proposal = self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
+        let source = ObjectId {
+            face: proposal.face,
+            ..proposal.original_object
+        };
+        self.casting_cost(source, viewer, proposal.cast_from, x)
+    }
+
     pub(super) fn validate_priority_spell_cast(
         &self,
         player: PlayerId,
@@ -210,6 +228,7 @@ impl RulesTxn {
                 },
                 player,
                 cast_from,
+                None,
             )?)
         };
         let id = StackId(self.state.rules.next_stack_id);
@@ -236,7 +255,7 @@ impl RulesTxn {
             .successor;
         let total_cost = match printed_cost {
             Some(cost) => cost,
-            None => self.casting_cost(source, player, cast_from)?,
+            None => self.casting_cost(source, player, cast_from, None)?,
         };
         let revealed_hand_consumed = self.known_hand_count(original_object.card) < known_before;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
@@ -268,6 +287,7 @@ impl RulesTxn {
             targets: vec![],
             announced_targets: vec![vec![]; 4],
             paid: None,
+            mana_uncounterable: false,
             total_cost,
             cast_from,
         };

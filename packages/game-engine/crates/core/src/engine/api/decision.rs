@@ -103,6 +103,7 @@ impl RulesTxn {
                     entry.total_cost.clone(),
                     None,
                     matches!(self.state.rules.frame, Frame::Mana { .. }),
+                    self.announced_mana_use(entry)?,
                 )?
             }
             Frame::ManaSourceChoice {

@@ -210,6 +210,7 @@ impl Laboratory {
                         pool:
                             ManaPool {
                                 unrestricted: available,
+                                ..
                             },
                         ..
                     },

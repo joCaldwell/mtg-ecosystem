@@ -174,6 +174,8 @@ pub struct StackInstance {
     pub targets: Vec<ObjectId>,
     pub announced_targets: Vec<Vec<publish::StoredObjectHandle>>,
     pub paid: Option<ManaCost>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mana_uncounterable: bool,
     pub total_cost: ManaCost,
     pub cast_from: Zone,
 }

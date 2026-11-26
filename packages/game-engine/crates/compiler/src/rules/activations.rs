@@ -86,9 +86,25 @@ pub(crate) fn lower_permanent_costs(
     Ok(result)
 }
 
+fn collect_bundles(
+    colors: &[Color],
+    remaining: u32,
+    bundle: &mut Vec<Color>,
+    options: &mut Vec<Vec<Color>>,
+) {
+    if remaining == 0 {
+        options.push(bundle.clone());
+        return;
+    }
+    for (i, &color) in colors.iter().enumerate() {
+        bundle.push(color);
+        collect_bundles(&colors[i..], remaining - 1, bundle, options);
+        bundle.pop();
+    }
+}
+
 /// CR 106.1a, 106.7: the complete production of the ability's one AddMana
-/// step. A choice lists single, distinct symbols; a choice of multi-symbol
-/// bundles (filter lands) or a "could produce" over anything but one land
+/// step. A choice lists distinct fixed bundles. A "could produce" over anything but one land
 /// controlled by "you" or "an opponent" rejects.
 fn production(mana: &SourceMana, you: &PlayerSelector) -> Result<ManaProduction, Failure> {
     let unsupported_production = || unsupported("mana", "unsupported complete mana production");
@@ -101,23 +117,42 @@ fn production(mana: &SourceMana, you: &PlayerSelector) -> Result<ManaProduction,
             ManaProduction::CommanderColor
         }
         SourceMana::Choice { options } => {
-            let mut colors = vec![];
+            let mut bundles = vec![];
             for option in options {
-                match option {
-                    SourceMana::Fixed { symbols } => match symbols.as_slice() {
-                        [color] if !colors.contains(color) => colors.push(*color),
-                        [_] => return Err(unsupported("mana", "repeated mana choice")),
-                        _ => return Err(unsupported("mana", "mana combination choice")),
-                    },
-                    _ => return Err(unsupported_production()),
+                let SourceMana::Fixed { symbols } = option else {
+                    return Err(unsupported_production());
+                };
+                let mut symbols = symbols.clone();
+                symbols.sort();
+                if symbols.is_empty() || symbols.len() > 5 || bundles.contains(&symbols) {
+                    return Err(unsupported_production());
                 }
+                bundles.push(symbols);
             }
-            if colors.len() < 2 {
+            if bundles.len() < 2 || bundles.len() > 128 {
                 return Err(unsupported_production());
             }
-            ManaProduction::Choose {
-                colors,
-                amount: Quantity::from(1),
+            if bundles.iter().all(|bundle| bundle.len() == 1) {
+                ManaProduction::Choose {
+                    colors: bundles.into_iter().map(|bundle| bundle[0]).collect(),
+                    amount: Quantity::from(1),
+                }
+            } else {
+                ManaProduction::Bundles { options: bundles }
+            }
+        }
+        SourceMana::Combination { amount, options } if options == "colors" => {
+            let amount = fixed_amount(amount)?;
+            match amount.to_u32() {
+                Some(1) => ManaProduction::AnyColor,
+                Some(n @ 2..=5) => {
+                    let mut options = vec![];
+                    let mut colors = ALL_COLORS;
+                    colors.sort();
+                    collect_bundles(&colors, n, &mut Vec::new(), &mut options);
+                    ManaProduction::Bundles { options }
+                }
+                _ => return Err(unsupported_production()),
             }
         }
         SourceMana::AnyOneColor { amount } => ManaProduction::Choose {
@@ -197,6 +232,74 @@ fn rider(
     Ok(node)
 }
 
+// CR 106.6: only exact, whole spending predicates and riders lower.
+pub(crate) fn lower_spend_restriction(
+    restriction: Option<&serde_json::Value>,
+    riders: Option<&serde_json::Value>,
+) -> Result<Option<ManaSpendRestriction>, Failure> {
+    use ManaSpendRestriction as R;
+    use serde_json::json;
+    let only = |uses| json!({"restriction": "only", "uses": uses});
+    let cast = |filter| json!({"use": "cast", "filter": filter});
+    let activated = |source| json!({"use": "activate", "source": source});
+    let restriction_matches = |uses| restriction == Some(&only(uses));
+    let artifact = json!({"types": ["artifact"]});
+    let artifact_spell = json!({"types": ["artifact"], "cls": "spell"});
+    let legendary = json!({"supertypes": ["legendary"], "cls": "spell"});
+    let instant_or_sorcery = json!({"allOf": [{"anyOf": [{"types":["instant"]}, {"types":["sorcery"]}]}], "cls":"spell"});
+    let cant_counter = |uses| {
+        json!([{
+            "rider":"effect", "mana":"that", "spentOn":uses,
+            "effects":[{"steps":[{"effect":"cant","what":{"ref":"that","filter":{"cls":"spell"}},"action":"be-countered"}]}]
+        }])
+    };
+    if let Some(riders) = riders {
+        let uses = json!([cast(legendary)]);
+        return if restriction_matches(uses.clone()) && *riders == cant_counter(uses) {
+            Ok(Some(R::LegendarySpellUncounterable))
+        } else if restriction.is_none()
+            && *riders == cant_counter(json!([cast(instant_or_sorcery)]))
+        {
+            Ok(Some(R::InstantOrSorceryUncounterable))
+        } else {
+            Err(unsupported("mana", "unsupported spend-time rider"))
+        };
+    }
+    if restriction.is_none() {
+        return Ok(None);
+    }
+    if restriction_matches(json!([{"use":"activate"}])) {
+        return Ok(Some(R::ActivatedAbility));
+    }
+    if restriction_matches(json!([cast(artifact_spell), activated(artifact.clone())])) {
+        return Ok(Some(R::ArtifactSpellOrArtifactAbility));
+    }
+    if restriction_matches(json!([activated(artifact)])) {
+        return Ok(Some(R::ArtifactAbility));
+    }
+    if restriction_matches(json!([cast(json!({"colorless":true,"cls":"spell"}))])) {
+        return Ok(Some(R::ColorlessSpell));
+    }
+    if restriction_matches(json!([
+        cast(json!({"colorless":true,"subtypes":["Eldrazi"],"cls":"spell"})),
+        activated(json!({"colorless":true,"subtypes":["Eldrazi"]}))
+    ])) {
+        return Ok(Some(R::ColorlessEldraziSpellOrAbility));
+    }
+    for (name, kind) in [
+        ("creature", CardKind::Creature),
+        ("artifact", CardKind::Artifact),
+        ("enchantment", CardKind::Enchantment),
+        ("instant", CardKind::Instant),
+        ("sorcery", CardKind::Sorcery),
+    ] {
+        if restriction_matches(json!([cast(json!({"types":[name],"cls":"spell"}))])) {
+            return Ok(Some(R::SpellType { kind }));
+        }
+    }
+    Err(unsupported("mana", "unsupported spend restriction"))
+}
+
 pub(crate) fn lower_mana_ability(
     costs: &[SourceCost],
     effects: &[Sentence],
@@ -226,7 +329,8 @@ pub(crate) fn lower_mana_ability(
     let Some(Step::AddMana {
         who,
         mana,
-        spend_restriction: None,
+        spend_restriction,
+        riders: spend_riders,
     }) = steps.next()
     else {
         return Err(unsupported("mana", "extra mana steps"));
@@ -240,6 +344,8 @@ pub(crate) fn lower_mana_ability(
         return Err(unsupported("mana", "unsupported mana recipient"));
     }
     let production = production(mana, &you)?;
+    let spend_restriction =
+        lower_spend_restriction(spend_restriction.as_ref(), spend_riders.as_ref())?;
     let riders = steps
         .map(|step| {
             if matches!(step, Step::AddMana { .. }) {
@@ -277,6 +383,7 @@ pub(crate) fn lower_mana_ability(
         condition: None,
         costs,
         production,
+        spend_restriction,
         riders,
         source_block: source_block(block)?,
     }))

@@ -850,6 +850,14 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
     };
     match production {
         ManaProduction::Fixed { symbols } => !symbols.is_empty(),
+        ManaProduction::Bundles { options } => {
+            (2..=128).contains(&options.len())
+                && options.iter().enumerate().all(|(i, bundle)| {
+                    (1..=5).contains(&bundle.len())
+                        && bundle.windows(2).all(|pair| pair[0] <= pair[1])
+                        && !options[..i].contains(bundle)
+                })
+        }
         ManaProduction::AnyColor
         | ManaProduction::CommanderColor
         | ManaProduction::LandsCouldProduce { .. } => true,
@@ -875,6 +883,7 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
             .is_some_and(|life| *life < Quantity::from(1))
         || a.costs.remove_source_plus_one_counters.is_some()
         || a.restriction.is_some()
+        || a.spend_restriction.is_some_and(|r| !r.is_canonical())
         || !mana_production_supported(&a.production)
     {
         return cell("mana", name(&a.production));
@@ -1182,6 +1191,19 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                     if *n > Quantity::zero() {
                         return true;
                     }
+                    // CR 604.3, 613.4a: a characteristic-defining ability
+                    // supplies the toughness; zero is a state-based death.
+                    if d.static_abilities.iter().any(|a| {
+                        matches!(
+                            a.effect,
+                            kir::StaticEffect::DefinePowerToughness {
+                                toughness: Some(_),
+                                ..
+                            }
+                        )
+                    }) {
+                        return true;
+                    }
                     // CR 122.6 and 704.5f: entry counters contribute before
                     // the first state-based toughness check.
                     let mut entry_toughness = n.clone();
@@ -1483,6 +1505,7 @@ mod tests {
                             pay_life,
                         },
                         production,
+                        spend_restriction: None,
                         riders,
                         source_block: 0,
                     })

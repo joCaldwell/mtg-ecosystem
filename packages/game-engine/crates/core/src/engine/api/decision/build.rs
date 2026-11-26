@@ -199,10 +199,9 @@ impl RulesTxn {
         cost: ManaCost,
         source: Option<ObjectId>,
         produce: bool,
+        use_on: payments::ManaUse,
     ) -> Result<Decision<Rules>, String> {
-        let pool = ManaPool {
-            unrestricted: self.state.rules.players[player.0 as usize].mana.clone(),
-        };
+        let pool = self.mana_payment_pool(player, use_on)?;
         let (reason, step, candidates) = if produce {
             let candidates = self.beginning_candidates(player, false)?;
             (

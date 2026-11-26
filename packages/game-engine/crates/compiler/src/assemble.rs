@@ -35,14 +35,18 @@ pub(crate) fn shell(
     let printed_cost = spell_cost(&source.mana_cost)?;
     let power = source
         .power
-        .map(|s| s.parse::<Quantity>())
+        .as_deref()
+        .map(printed_stat)
         .transpose()
-        .map_err(|e| unsupported("source.power", e))?;
+        .map_err(|e| unsupported("source.power", e))?
+        .map(|(value, _)| value);
     let toughness = source
         .toughness
-        .map(|s| s.parse::<Quantity>())
+        .as_deref()
+        .map(printed_stat)
         .transpose()
-        .map_err(|e| unsupported("source.toughness", e))?;
+        .map_err(|e| unsupported("source.toughness", e))?
+        .map(|(value, _)| value);
     // CR 202.2: an adventurer part's colors are those of its mana cost.
     let colors = match source.colors {
         Some(colors) => colors,
@@ -108,6 +112,83 @@ pub(crate) fn shell(
         },
     };
     Ok((definition, labels))
+}
+
+/// CR 208.2, 208.2a: a printed power or toughness and, when it includes a
+/// star, the fixed number printed beside it. A star counts as zero until a
+/// characteristic-defining ability defines the whole value (`*`, `N+*` and
+/// `*+N`); any other spelling keeps its exact-quantity rejection.
+pub(crate) fn printed_stat(text: &str) -> Result<(Quantity, Option<Quantity>), String> {
+    let star = match text {
+        "*" => Some("0"),
+        _ => text
+            .strip_suffix("+*")
+            .or_else(|| text.strip_prefix("*+"))
+            .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
+    };
+    match star {
+        Some(n) => {
+            let n = n.parse::<Quantity>()?;
+            Ok((n.clone(), Some(n)))
+        }
+        None => Ok((text.parse::<Quantity>()?, None)),
+    }
+}
+
+/// CR 208.2a, 604.3: a printed star is defined by exactly one
+/// characteristic-defining ability, which defines nothing printed as a
+/// number. `N+*` and `*+N` print the fixed term of that ability's sum.
+pub(crate) fn stars_defined(
+    statics: &[StaticAbility],
+    stars: &[Option<Quantity>; 2],
+) -> Result<(), Failure> {
+    for (index, (field, star)) in ["source.power", "source.toughness"]
+        .into_iter()
+        .zip(stars)
+        .enumerate()
+    {
+        let mut defined = statics.iter().filter_map(|ability| match &ability.effect {
+            kir::StaticEffect::DefinePowerToughness { power, toughness } => {
+                if index == 0 { power } else { toughness }.as_ref()
+            }
+            _ => None,
+        });
+        let amount = defined.next();
+        if defined.next().is_some() {
+            return Err(unsupported(
+                field,
+                "repeated characteristic-defining ability",
+            ));
+        }
+        match (star, amount) {
+            (None, None) => {}
+            (Some(_), None) => {
+                return Err(unsupported(
+                    field,
+                    "printed star without a characteristic-defining ability",
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(unsupported(
+                    field,
+                    "characteristic-defining ability for a printed number",
+                ));
+            }
+            (Some(fixed), Some(amount)) => {
+                let printed_term = *fixed == Quantity::zero()
+                    || matches!(amount, Amount::Sum { terms }
+                        if terms.iter().filter(|t| t.as_fixed() == Some(fixed)).count() == 1
+                            && terms.iter().filter(|t| t.as_fixed().is_some()).count() == 1);
+                if !printed_term {
+                    return Err(unsupported(
+                        field,
+                        "printed fixed term outside the characteristic-defining sum",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// CR 105.2, 202.2: the colors of the mana symbols in a mana cost, in WUBRG
