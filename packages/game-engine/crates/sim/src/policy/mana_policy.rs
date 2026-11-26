@@ -129,6 +129,10 @@ impl Planner<'_> {
                 .enumerate()
                 .filter(|(_, source)| !self.used[source.object_index])
                 .filter(|(_, source)| deficit.is_none_or(|color| source.colors.contains(&color)))
+                .filter(|(_, source)| {
+                    !matches!(source.production, ManaProduction::Counted { .. })
+                        || self.amount(source, None) > Quantity::zero()
+                })
                 .min_by_key(|(index, source)| {
                     let mut needed = needed.clone();
                     let mut useful = Quantity::zero();
@@ -978,6 +982,17 @@ mod tests {
         };
         filter.0.push(mtg_contracts::kir::Atom::Untapped);
         catalog.definitions.push(*definition);
+
+        let mut empty_board = view();
+        empty_board.objects.push(land(&catalog, "Gaea's Cradle", 3));
+        empty_board.objects.push(land(&catalog, "Forest", 3));
+        let generic = ManaCost {
+            generic: 1.into(),
+            colored: vec![],
+        };
+        let plan = plan_for(&catalog, &empty_board, &generic, None).expect("Forest pays");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].source, empty_board.objects[1].handle);
 
         let mut view = view();
         view.objects.push(land(&catalog, "Gaea's Cradle", 3));
