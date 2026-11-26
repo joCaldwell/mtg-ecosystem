@@ -114,7 +114,12 @@ pub(super) fn audit_target_predicate(filter: &Pred, graveyard: bool) -> Result<(
         return unaudited("empty target predicate");
     }
     if graveyard {
-        return Walk::library_card_filter(filter);
+        for atom in &filter.0 {
+            if !mana_value_at_most_announced_x(atom) {
+                Walk::library_card_filter(&Pred(vec![atom.clone()]))?;
+            }
+        }
+        return Ok(());
     }
     filter
         .0

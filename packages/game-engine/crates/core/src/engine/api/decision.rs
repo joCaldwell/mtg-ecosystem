@@ -91,7 +91,7 @@ impl RulesTxn {
                 Reason::AnnounceX,
                 vec![],
                 Shape::Number {
-                    min: 0.into(),
+                    min: self.x_target_selection_minimum()?,
                     max: self.x_target_selection_limit()?,
                 },
             ),

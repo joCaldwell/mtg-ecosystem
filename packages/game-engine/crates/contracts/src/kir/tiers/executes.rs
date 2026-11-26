@@ -209,6 +209,23 @@ fn validate_program(
     }) {
         return cell("target", format!("{}:{}", name(&t.domain), name(&context)));
     }
+    if p.targets
+        .iter()
+        .any(TargetSpec::mana_value_at_most_announced_x)
+        && !(announced_x
+            && context == Context::Spell
+            && p.targets.len() == 1
+            && p.variable_target_count().is_none()
+            && matches!(
+                p.targets[0].domain,
+                TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+            ))
+    {
+        return cell(
+            "target",
+            "mana_value_requires_own_graveyard_and_announced_x",
+        );
+    }
     validate_target_bindings(p, Some(context), modal)?;
     let env = kir::Env {
         context,
@@ -327,10 +344,11 @@ fn group_leaf_shape(node: &kir::Node) -> Option<serde_json::Value> {
 }
 
 pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<(), String> {
-    if p.targets
-        .iter()
-        .any(|t| t.chooser != Chooser::Controller || t.stage != EvaluationStage::Announcement)
-    {
+    if p.targets.iter().any(|t| {
+        t.chooser != Chooser::Controller
+            || t.stage != EvaluationStage::Announcement
+            || t.mana_value_at_most_announced_x()
+    }) {
         return cell("target", "resolution_trigger_announcement");
     }
     validate_target_bindings(p, None, false)

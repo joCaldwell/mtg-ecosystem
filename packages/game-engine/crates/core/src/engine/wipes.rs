@@ -48,6 +48,28 @@ impl RulesTxn {
         }
         Ok(total)
     }
+    // Before X is bound, the shared legality check evaluates all the
+    // printed criteria except its upper bound (CR 601.2b-c).
+    pub(super) fn x_target_selection_minimum(&self) -> Result<Quantity, String> {
+        let program = self.program()?;
+        let Some(spec) = program
+            .targets
+            .first()
+            .filter(|spec| !program.optional_target && spec.mana_value_at_most_announced_x())
+        else {
+            return Ok(Quantity::zero());
+        };
+        let entry = self.top()?;
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(|object| self.object_target_legal_for(entry, object.id, spec))
+            .filter_map(|object| self.graveyard_mana_value(object.id))
+            .min()
+            .ok_or_else(|| "no graveyard card satisfies the target filter".into())
+    }
+
     // CR 601.2b-c: an exact X choice must leave that many legal objects.
     pub(super) fn x_target_selection_limit(&self) -> Result<Option<Quantity>, String> {
         let program = self.program()?;

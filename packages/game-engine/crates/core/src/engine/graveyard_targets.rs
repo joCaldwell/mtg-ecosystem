@@ -38,6 +38,7 @@ impl RulesTxn {
         object: &Object,
         player: PlayerId,
         spec: &mtg_contracts::TargetSpec,
+        x: Option<&Quantity>,
     ) -> bool {
         self.graveyard_target_legal(object, player, spec.domain)
             && spec.filter.as_ref().is_none_or(|filter| {
@@ -49,10 +50,25 @@ impl RulesTxn {
                             .any(|kind| definition.characteristics.has_type(*kind))
                     }))
                     && filter.predicate.as_ref().is_none_or(|predicate| {
-                        crate::query::matches_pred(&self.object_facts(object), player, predicate)
-                            .is_yes()
+                        let facts = self.object_facts(object);
+                        predicate.0.iter().all(|atom| {
+                            if mtg_contracts::kir::mana_value_at_most_announced_x(atom) {
+                                x.is_none_or(|chosen| {
+                                    self.graveyard_mana_value(object.id)
+                                        .is_some_and(|value| value <= *chosen)
+                                })
+                            } else {
+                                crate::query::matches_atom(&facts, player, atom).is_yes()
+                            }
+                        })
                     })
             })
+    }
+
+    pub(super) fn graveyard_mana_value(&self, object: ObjectId) -> Option<Quantity> {
+        self.copiable_definition(object)
+            .ok()
+            .map(|d| d.characteristics.printed_mana_value())
     }
 
     /// CR 400.7, 608.2b-c: only the original, still-present survivors

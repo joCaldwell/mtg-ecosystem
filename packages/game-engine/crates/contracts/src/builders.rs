@@ -53,6 +53,13 @@ impl PermanentFilter {
 }
 
 impl TargetSpec {
+    pub fn mana_value_at_most_announced_x(&self) -> bool {
+        self.filter
+            .as_ref()
+            .and_then(|filter| filter.predicate.as_ref())
+            .is_some_and(|predicate| predicate.0.iter().any(kir::mana_value_at_most_announced_x))
+    }
+
     /// CR 601.2c, 115.1: the controller announces one target for `slot` as the
     /// spell or ability is put on the stack, with no filter beyond `domain`.
     pub fn new(slot: u32, selection_id: impl Into<String>, domain: TargetDomain) -> Self {

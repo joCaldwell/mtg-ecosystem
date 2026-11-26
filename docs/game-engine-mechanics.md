@@ -350,7 +350,8 @@ An ability with one target occurrence can exclude its source with “another.”
 Library-top placement can target a permanent by alternative card types
 (CR 400.3, 401.4).
 Graveyard targets check the announced incarnation, its owner's graveyard and
-its printed criteria, including secondary card types and fixed mana-value bounds
+its printed criteria, including secondary card types, multicolored cards and
+fixed mana-value bounds or the spell’s announced X
 (CR 400.7). Exile, return to the owner's hand and placement on top of the
 owner's library can target a card in any graveyard or an opponent's graveyard. A permanent returned from your graveyard
 uses the battlefield entry procedure for Aura attachment and land entry choices.

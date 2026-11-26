@@ -187,7 +187,9 @@ impl RulesTxn {
                 .rules
                 .objects
                 .values()
-                .filter(|o| self.object_target_legal_by(o.id, player, source, source_object, spec))
+                .filter(|o| {
+                    self.object_target_legal_by(o.id, player, source, source_object, spec, None)
+                })
                 .count();
             return eligible >= count;
         }
@@ -198,7 +200,7 @@ impl RulesTxn {
                     .into_iter()
                     .any(|p| self.targetable_player(p))
                     || self.state.rules.objects.values().any(|o| {
-                        self.object_target_legal_by(o.id, player, source, source_object, spec)
+                        self.object_target_legal_by(o.id, player, source, source_object, spec, None)
                     })
             }
             domain @ (TargetDomain::AnyPlayer
@@ -209,12 +211,9 @@ impl RulesTxn {
             | TargetDomain::StackActivatedOrTriggeredAbility => !self
                 .eligible_stack_targets_for(spec, player, None)
                 .is_empty(),
-            _ => self
-                .state
-                .rules
-                .objects
-                .values()
-                .any(|o| self.object_target_legal_by(o.id, player, source, source_object, spec)),
+            _ => self.state.rules.objects.values().any(|o| {
+                self.object_target_legal_by(o.id, player, source, source_object, spec, None)
+            }),
         })
     }
     pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {

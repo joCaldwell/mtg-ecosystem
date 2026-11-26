@@ -91,7 +91,14 @@ impl RulesTxn {
         spec: &mtg_contracts::TargetSpec,
     ) -> bool {
         self.targeting_characteristics(entry).is_ok_and(|source| {
-            self.object_target_legal_by(object, entry.controller, &source, Some(entry.source), spec)
+            self.object_target_legal_by(
+                object,
+                entry.controller,
+                &source,
+                Some(entry.source),
+                spec,
+                entry.x.as_ref(),
+            )
         })
     }
 
@@ -107,6 +114,7 @@ impl RulesTxn {
         source: &Characteristics,
         source_object: Option<ObjectId>,
         spec: &mtg_contracts::TargetSpec,
+        x: Option<&Quantity>,
     ) -> bool {
         if self.protected_from(object, source) {
             return false;
@@ -119,7 +127,7 @@ impl RulesTxn {
             | TargetDomain::OwnGraveyardCreatureCard
             | TargetDomain::OwnGraveyardCard => self
                 .current(object)
-                .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec)),
+                .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec, x)),
             TargetDomain::CreatureOrPlaneswalker => {
                 self.creature_or_planeswalker(object) && self.targetable_by(object, controller)
             }

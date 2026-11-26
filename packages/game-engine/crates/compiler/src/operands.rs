@@ -1706,7 +1706,45 @@ pub(crate) fn bind_graveyard_target(
     let mut printed = filter.clone();
     printed.zone = None;
     let permanent = printed.permanent.take();
+    let multicolored = printed.multicolored.take();
+    // CR 107.3, 202.3, 601.2b-c: the only dynamic property admitted here
+    // is a card's printed mana value at most the spell's announced X.
+    let at_most_x = foreign.is_none() && printed.properties.as_deref().is_some_and(|properties| {
+        matches!(properties, [property] if property.property == ast::PropertyConstraintProperty::ManaValue
+            && property.comparison.op == ast::ComparisonOp::Le
+            && matches!(&*property.comparison.value, ast::Amount::X(_)))
+    });
+    if at_most_x {
+        printed.properties = None;
+    }
     let mut predicate = lower_card_filter(&printed).map_err(|_| invalid_filter())?;
+    if at_most_x {
+        predicate.0.push(Atom::ManaValue {
+            cmp: Cmp::AtMost,
+            value: Amount::announced_x(),
+        });
+    }
+    if let Some(multicolored) = multicolored {
+        if !multicolored {
+            return Err(invalid_filter());
+        }
+        // CR 105.1–2: two different colors suffice. Test color, not color
+        // identity (CR 903.4), using the existing card predicate evaluator.
+        let colors = [Color::W, Color::U, Color::B, Color::R, Color::G];
+        let alternatives = colors
+            .iter()
+            .enumerate()
+            .flat_map(|(index, first)| {
+                colors[index + 1..].iter().map(move |second| {
+                    Pred(vec![
+                        Atom::Color { color: *first },
+                        Atom::Color { color: *second },
+                    ])
+                })
+            })
+            .collect();
+        predicate.0.push(Atom::AnyOf { alternatives });
+    }
     if permanent.is_some() {
         // CR 110.4: the permanent card types in the admitted catalog.
         predicate.0.push(Atom::AnyType {
