@@ -188,6 +188,7 @@ pub(super) fn object_effect(
             power,
             toughness,
             duration,
+            for_each: None,
             ..
         } if pattern.object() == Some(&Pred::source()) => {
             until_end_of_turn(duration)?;

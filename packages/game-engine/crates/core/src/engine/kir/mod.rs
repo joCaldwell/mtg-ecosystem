@@ -408,6 +408,38 @@ impl RulesTxn {
                     i64::try_from(count).map_err(|_| "kernel count exceeds object limit")?,
                 ))
             }
+            // CR 608.2h: the greatest current power or toughness (CR 613.4)
+            // or mana value (CR 202.3) among the matching permanents. Zero
+            // when none match, and never below zero (CR 107.1b).
+            Amount::Greatest {
+                set:
+                    SetExpr::Matching {
+                        zone: zone @ ZoneExpr::Battlefield,
+                        filter,
+                    },
+                stat,
+            } => {
+                let mut greatest = Quantity::zero();
+                for object in self.kernel_set(frame, zone, filter)?.0 {
+                    let c = self.characteristics(object)?;
+                    let value = match stat {
+                        mtg_contracts::kir::Stat::Power => c.power.unwrap_or_default(),
+                        mtg_contracts::kir::Stat::Toughness => c.toughness.unwrap_or_default(),
+                        mtg_contracts::kir::Stat::ManaValue => c.printed_mana_value(),
+                    };
+                    greatest = greatest.max(value);
+                }
+                Ok(greatest)
+            }
+            Amount::Times { factor, of } => {
+                let mut value = self.kernel_amount(frame, of)?;
+                value.multiply(factor);
+                Ok(value)
+            }
+            // CR 700.5: the controller's devotion as the verb reads it.
+            Amount::Devotion { player, colors } if player.is_you() => self
+                .devotion(self.entry(frame.stack_id)?.controller, colors)
+                .ok_or_else(|| "missing devotion definition".into()),
             Amount::OtherCastsManaValue { caster } if caster.is_you() => {
                 self.other_casts_mana_value(self.entry(frame.stack_id)?)
             }

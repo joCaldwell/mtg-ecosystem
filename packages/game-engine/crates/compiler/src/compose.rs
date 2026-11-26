@@ -259,16 +259,17 @@ fn block_mirror_gap(raw: &str, error: &serde_json::Error) -> Failure {
     )
 }
 
-/// Sentence conditions and X bindings have no block table row; the shared
-/// step lowerer would reject them later, but reject here with a stable reason.
+/// Sentence conditions have no block table row; the shared step lowerer
+/// would reject them later, but reject here with a stable reason. X
+/// bindings ("where X is ...") lower in the shared step lowerer.
 fn plain_sentences(effects: &[Sentence]) -> Result<(), Failure> {
     if effects
         .iter()
-        .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())
+        .any(|s| s.condition.is_some() || s.condition_kind.is_some())
     {
         return Err(unsupported(
             "compose.effects",
-            "conditional or bound sentence outside the block tables",
+            "conditional sentence outside the block tables",
         ));
     }
     Ok(())

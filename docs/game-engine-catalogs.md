@@ -158,7 +158,8 @@ Control semantics:
   the parent can register a one-shot [resolution-created trigger](game-engine-mechanics.md#delayed-and-reflexive-triggers)
   at the end of its program.
 
-Controls read fixed amounts, announced X and counts of audited sets; life
+Controls read fixed amounts, announced X and counts of audited sets; verbs
+also read [resolution-time counts](game-engine-mechanics.md#resolution-time-counts); life
 changes, payments and choice bounds require nonnegative amounts. Object sets are
 matching battlefield permanents or graveyard cards under audited predicates,
 source or announced identities, a bound singleton or a bound pool. Tapped,

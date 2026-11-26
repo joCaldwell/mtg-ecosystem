@@ -456,6 +456,38 @@ impl RulesTxn {
         }
     }
 
+    /// CR 700.5, 700.5a: the mana symbols of `colors` among the mana costs
+    /// of the permanents `player` controls; a hybrid symbol contributes at
+    /// most one.
+    pub(super) fn devotion(&self, player: PlayerId, colors: &[Color]) -> Option<Quantity> {
+        let mut count = Quantity::zero();
+        for permanent in self
+            .battlefield_static_sources(None)
+            .filter(|p| p.controller == player)
+        {
+            let c = &self.copiable_definition(permanent.id).ok()?.characteristics;
+            let ordinary = c
+                .mana_cost
+                .colored
+                .iter()
+                .filter(|color| colors.contains(color))
+                .count();
+            let hybrid = c
+                .hybrid_mana
+                .iter()
+                .filter(|symbol| {
+                    symbol
+                        .colors
+                        .iter()
+                        .filter_map(|payment| payment.color())
+                        .any(|c| colors.contains(&c))
+                })
+                .count();
+            count.add(&((ordinary + hybrid) as i64).into());
+        }
+        Some(count)
+    }
+
     pub(super) fn entry_condition(
         &self,
         entrant: &Object,

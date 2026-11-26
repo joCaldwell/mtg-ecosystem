@@ -455,6 +455,8 @@ impl Walk<'_, '_> {
             Amount::StatOf { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
+            Amount::Greatest { set, .. } => self.set(set),
+            Amount::Times { of, .. } => self.amount(of),
             Amount::Devotion { player, .. }
             | Amount::LifeOf { player }
             | Amount::OtherCastsManaValue { caster: player } => self.player(player),
@@ -760,9 +762,22 @@ impl Walk<'_, '_> {
                         self.amount(power)?;
                         self.amount(toughness)
                     }
-                    Change::PowerToughnessX { .. } => self
-                        .expect(&Ref::AnnouncedX, &[RefKind::Number], "announced pump X")
-                        .map(drop),
+                    Change::PowerToughnessX { power, toughness } => {
+                        for delta in [power, toughness] {
+                            match delta {
+                                PumpDelta::Fixed { .. } => {}
+                                PumpDelta::X { .. } => self
+                                    .expect(
+                                        &Ref::AnnouncedX,
+                                        &[RefKind::Number],
+                                        "announced pump X",
+                                    )
+                                    .map(drop)?,
+                                PumpDelta::Counted { amount, .. } => self.amount(amount)?,
+                            }
+                        }
+                        Ok(())
+                    }
                     Change::AddKeywords { keywords } | Change::RemoveKeywords { keywords } => {
                         if keywords.is_empty() {
                             return kind("empty keyword change");
@@ -1245,6 +1260,31 @@ impl Walk<'_, '_> {
     }
 
     /// CR 608.2h: counts evaluated by the flat verb executor.
+    /// CR 608.2h: a number the game state supplies as the verb reads it: a
+    /// count of an audited set, the greatest power, toughness or mana value
+    /// among an audited battlefield set, or the controller's devotion
+    /// (CR 700.5).
+    pub(super) fn audit_verb_amount(amount: &Amount) -> Result<(), KirError> {
+        match amount {
+            Amount::Count { set } => Self::audit_verb_count(set),
+            Amount::Greatest {
+                set:
+                    SetExpr::Matching {
+                        zone: zone @ ZoneExpr::Battlefield,
+                        filter,
+                    },
+                ..
+            } => Self::audited_filter(zone, filter),
+            Amount::Devotion { player, colors } if player.is_you() && !colors.is_empty() => Ok(()),
+            Amount::Times { factor, of }
+                if *factor > Quantity::from(1) && !matches!(**of, Amount::Times { .. }) =>
+            {
+                Self::audit_verb_amount(of)
+            }
+            _ => unaudited("resolution count"),
+        }
+    }
+
     fn audit_verb_count(set: &SetExpr) -> Result<(), KirError> {
         match set {
             SetExpr::Matching {

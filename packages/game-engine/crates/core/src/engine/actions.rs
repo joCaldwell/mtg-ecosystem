@@ -1112,12 +1112,19 @@ impl RulesTxn {
                         failed,
                     },
                 ) => {
+                    // CR 608.2h: a resolution count was read once, as the
+                    // draws began; later instructions of the same program may
+                    // change it, so the recorded attempts are that number.
+                    let counted = matches!(
+                        instruction,
+                        kernel!(Draw { amount, .. }) if amount.is_resolution_count()
+                    );
                     if *player != self.draw_player_for_instruction(frame, instruction)?
                         || attempted.is_negative()
-                        || *attempted > amount
+                        || (!counted && *attempted > amount)
                         || failed.is_negative()
                         || failed > attempted
-                        || (*attempted != amount && self.is_live(*player))
+                        || (!counted && *attempted != amount && self.is_live(*player))
                     {
                         return Err("counted draw completed outcome invariant".into());
                     }
