@@ -18,7 +18,7 @@ mod activation_restrictions;
 mod control;
 mod costs;
 mod events;
-mod keywords;
+pub(crate) mod keywords;
 mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
