@@ -1477,3 +1477,110 @@ fn whispers_of_the_muse_buyback_changes_successful_departure() {
         );
     }
 }
+
+/// CR 702.41 and 601.2f: affinity counts only the caster's matching
+/// permanents and floors the generic cost without removing colored symbols.
+#[test]
+fn affinity_locks_generic_reduction_before_payment() {
+    const SPIRE_GOLEM: &str = record!("bfdc6bbc-7402-40ae-91be-658afca2f145");
+    const THOUGHTCAST: &str = record!("cce9bbff-82dc-4b2f-addd-d6715588de20");
+    let mut board = board(&[(SPIRE_GOLEM, &[]), (THOUGHTCAST, &[])])
+        .permanent_or_hand("Thoughtcast", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 1, 1, false)
+        .permanent_or_hand("Spire Golem", 1, 1, false);
+    for _ in 0..5 {
+        board = board.permanent_or_hand("Spire Golem", 0, 0, false);
+    }
+    let mut g = Game::with_trace(board.libraries("Island", 4).prepare(), TraceMode::Detailed);
+
+    Driver::cast(&mut g, CardId(0));
+    Driver::request(&mut g, u64::MAX);
+    let cost = &g.state.rules.stack.last().unwrap().total_cost;
+    assert_eq!(cost.generic, 0.into());
+    assert_eq!(cost.colored, [Color::U]);
+    checked(&g);
+    Driver::pay(&mut g, &[1]);
+    settle(&mut g);
+
+    let mut g = Game::with_trace(
+        self::board(&[(SPIRE_GOLEM, &[])])
+            .permanent_or_hand("Spire Golem", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 1, 1, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .libraries("Island", 4)
+            .prepare(),
+        TraceMode::Detailed,
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::request(&mut g, u64::MAX);
+    assert_eq!(
+        g.state.rules.stack.last().unwrap().total_cost.generic,
+        5.into()
+    );
+    checked(&g);
+}
+
+#[test]
+fn simulator_quotes_sphere_increase_before_affinity_reduction() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    const SPIRE_GOLEM: &str = record!("bfdc6bbc-7402-40ae-91be-658afca2f145");
+    const THOUGHTCAST: &str = record!("cce9bbff-82dc-4b2f-addd-d6715588de20");
+    const SPHERE_OF_RESISTANCE: &str = record!("09c96077-3804-4f12-a613-5bebc5e0413f");
+
+    for taxed in [false, true] {
+        let mut board = board(&[
+            (SPIRE_GOLEM, &[]),
+            (THOUGHTCAST, &[]),
+            (SPHERE_OF_RESISTANCE, &[]),
+        ])
+        .permanent_or_hand("Thoughtcast", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false);
+        for _ in 0..4 {
+            board = board.permanent_or_hand("Spire Golem", 0, 0, false);
+        }
+        if taxed {
+            board = board.permanent_or_hand("Sphere of Resistance", 1, 1, false);
+        }
+        let mut g = Game::new(board.libraries("Island", 4).prepare());
+        Driver::request(&mut g, u64::MAX);
+        let o = observation(&g, 0);
+        let d = o.decision.as_ref().unwrap();
+        let cast = d
+            .candidates
+            .iter()
+            .find(|candidate| {
+                matches!(
+                    candidate,
+                    Candidate::Action {
+                        action: Action::Cast { .. }
+                    }
+                )
+            })
+            .unwrap();
+        let Candidate::Action {
+            action: Action::Cast { card },
+        } = cast
+        else {
+            unreachable!()
+        };
+        let cost = g.quote_cast_cost(o.view.viewer, card, None).unwrap();
+        assert_eq!(cost.generic, i64::from(taxed).into());
+        assert_eq!(cost.colored, [Color::U]);
+
+        let candidate = if taxed {
+            &Candidate::Action {
+                action: Action::Pass,
+            }
+        } else {
+            cast
+        };
+        let mut strategy = Strategy::new(&g.prepared.catalog, Policy::Develop, [0; 4]);
+        assert_eq!(
+            strategy.choose_with_game(&o, &g).unwrap(),
+            d.pick_one(candidate).unwrap()
+        );
+    }
+}

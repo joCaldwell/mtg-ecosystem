@@ -1043,6 +1043,7 @@ impl Strategy<'_> {
         v: &PermittedView,
         d: &Definition,
         p: &SpellProgram,
+        quote: Option<(&mtg_core::Game, &ObjectHandle)>,
     ) -> Option<Quantity> {
         // A public upper estimate from production symbols and floating mana;
         // no deck-size bound or catalog fingerprint is involved.
@@ -1087,8 +1088,14 @@ impl Strategy<'_> {
         // This is a bounded policy search, including on views with extended mana production.
         for n in 1..=upper.min(64) {
             let x = Quantity::from(n as i64);
-            let mut cost = d.characteristics.mana_cost.clone();
-            cost.generic.add(&x);
+            let cost = match quote {
+                Some((game, card)) => game.quote_cast_cost(v.viewer, card, Some(&x)).ok()?,
+                None => {
+                    let mut cost = d.characteristics.mana_cost.clone();
+                    cost.generic.add(&x);
+                    cost
+                }
+            };
             if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
                 .is_none()
             {
@@ -1156,7 +1163,7 @@ impl Strategy<'_> {
             return false;
         }
         let x = if p.instructions.iter().any(announced_x) {
-            let Some(x) = self.choose_x(v, d, p) else {
+            let Some(x) = self.choose_x(v, d, p, None) else {
                 return false;
             };
             x
@@ -1199,6 +1206,7 @@ impl Strategy<'_> {
         v: &PermittedView,
         o: &VisibleObject,
         d: &Definition,
+        game: Option<&mtg_core::Game>,
     ) -> Option<Action<Viewer>> {
         if self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
             matches!(failed, PaymentAction::Cast(id, zone) if id == &d.oracle_id && *zone == o.zone)
@@ -1219,32 +1227,44 @@ impl Strategy<'_> {
         }
         // CR 702.34a: a graveyard cast pays the flashback cost.
         let flashback = o.zone == (Zone::Graveyard { owner: v.viewer });
-        let mut cost = match (&d.flashback, flashback) {
-            (Some(flashback), true) => flashback.clone(),
-            (None, true) => return None,
-            _ => d.characteristics.mana_cost.clone(),
-        };
-        if let Some(p) = &d.spell
+        let quote = game.map(|game| (game, &o.handle));
+        let x = if let Some(p) = &d.spell
             && !flashback
-            && p.instructions.iter().any(announced_x)
+            && d.x_mana_cost
         {
-            cost.generic.add(&self.choose_x(v, d, p)?);
-        }
-        if o.zone == (Zone::Command { owner: v.viewer })
-            && let Some(c) = v
-                .commanders
-                .iter()
-                .find(|c| c.oracle_id == o.oracle_id && c.history.owner == v.viewer)
-        {
-            let tax = c
-                .history
-                .command_casts
-                .get(&v.viewer)
-                .cloned()
-                .unwrap_or_default();
-            cost.generic.add(&tax);
-            cost.generic.add(&tax);
-        }
+            Some(self.choose_x(v, d, p, quote)?)
+        } else {
+            None
+        };
+        let cost = match quote {
+            Some((game, card)) => game.quote_cast_cost(v.viewer, card, x.as_ref()).ok()?,
+            None => {
+                let mut cost = match (&d.flashback, flashback) {
+                    (Some(flashback), true) => flashback.clone(),
+                    (None, true) => return None,
+                    _ => d.characteristics.mana_cost.clone(),
+                };
+                if let Some(x) = &x {
+                    cost.generic.add(x);
+                }
+                if o.zone == (Zone::Command { owner: v.viewer })
+                    && let Some(c) = v
+                        .commanders
+                        .iter()
+                        .find(|c| c.oracle_id == o.oracle_id && c.history.owner == v.viewer)
+                {
+                    let tax = c
+                        .history
+                        .command_casts
+                        .get(&v.viewer)
+                        .cloned()
+                        .unwrap_or_default();
+                    cost.generic.add(&tax);
+                    cost.generic.add(&tax);
+                }
+                cost
+            }
+        };
         let unchanged_cost = d.characteristics.hybrid_mana.is_empty()
             && d.spell
                 .as_ref()
@@ -1257,22 +1277,24 @@ impl Strategy<'_> {
         )?;
         self.memory.payment.announced_cost = unchanged_cost.then_some(cost);
         self.memory.hybrid_choices = choices;
+        self.memory.planned_x = x;
         self.memory.mana_plan = plan;
         self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
         Some(Action::Cast {
             card: o.handle.clone(),
         })
     }
-    pub(super) fn reactive_spells(
+    fn reactive_spells_with_game(
         &mut self,
         v: &PermittedView,
+        game: Option<&mtg_core::Game>,
     ) -> Result<Option<Action<Viewer>>, String> {
         for o in v.objects.iter().filter(|o| in_viewers_hand(v, o)) {
             let d = definition(self.catalog, &o.oracle_id)?;
             let Some(p) = &d.spell else { continue };
             if p.timing == SpellTiming::Instant
                 && self.reactive_ready(v, d, p)
-                && let Some(r) = self.cast(v, o, d)
+                && let Some(r) = self.cast(v, o, d, game)
             {
                 return Ok(Some(r));
             }
@@ -1508,7 +1530,16 @@ impl Strategy<'_> {
             ability: ability as u32,
         })
     }
+    #[cfg(test)]
     pub(super) fn priority(&mut self, observation: &Observation) -> Result<Action<Viewer>, String> {
+        self.priority_with_game(observation, None)
+    }
+
+    pub(super) fn priority_with_game(
+        &mut self,
+        observation: &Observation,
+        game: Option<&mtg_core::Game>,
+    ) -> Result<Action<Viewer>, String> {
         let v = &observation.view;
         if self.policy == Policy::DrawOnly {
             return Ok(Action::Pass);
@@ -1529,7 +1560,8 @@ impl Strategy<'_> {
         self.memory.mana_ability = None;
         self.memory.mana_color = None;
         self.memory.hybrid_choices.clear();
-        if let Some(r) = self.reactive_spells(v)? {
+        self.memory.planned_x = None;
+        if let Some(r) = self.reactive_spells_with_game(v, game)? {
             return Ok(r);
         }
         // CR 702.8: develop flash permanents in an opponent's end step.
@@ -1538,7 +1570,7 @@ impl Strategy<'_> {
             for o in v.objects.iter().filter(|o| in_viewers_hand(v, o)) {
                 let d = definition(self.catalog, &o.oracle_id)?;
                 if d.keywords.contains(&KeywordAbility::Flash)
-                    && let Some(r) = self.cast(v, o, d)
+                    && let Some(r) = self.cast(v, o, d, game)
                 {
                     return Ok(r);
                 }
@@ -1663,7 +1695,7 @@ impl Strategy<'_> {
                 if rank != stage {
                     continue;
                 }
-                if let Some(r) = self.cast(v, o, d) {
+                if let Some(r) = self.cast(v, o, d, game) {
                     return Ok(r);
                 }
             }

@@ -422,7 +422,9 @@ fn play(
             }
         };
         placements.observe(&observation.view.live_turn_order);
-        let response = match timed(&mut clocks.policy, || strategy.choose(&observation)) {
+        let response = match timed(&mut clocks.policy, || {
+            strategy.choose_with_game(&observation, &game)
+        }) {
             Ok(response) => response,
             Err(error) => {
                 detail = Some(error);
