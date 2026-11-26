@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OptionBody {
+    label: Option<String>,
     effects: Vec<Value>,
 }
 
@@ -118,6 +119,8 @@ fn printed(
     };
     let (expected, min, max) = match phrase {
         Some("one —") => (json!({"exactly": 1}), 1, 1),
+        Some("up to one —") => (json!({"min": 0, "max": 1}), 0, 1),
+        Some("any number —") => (json!({"atLeast": 0}), 0, len as u32),
         Some("two —") => (json!({"exactly": 2}), 2, 2),
         Some("one or both —") if len == 2 => (json!({"min": 1, "max": 2}), 1, 2),
         Some("one or more —") => (json!({"atLeast": 1}), 1, len as u32),
@@ -132,14 +135,23 @@ fn printed(
         .filter(|labels| labels.len() == len)
         .ok_or_else(|| unsupported_modal("printed_options"))?;
     let segments = site.resolution.segments(site.index)?;
-    for (index, label) in labels.iter().enumerate() {
+    for (index, (bullet, option)) in labels.iter().zip(&options).enumerate() {
+        // CR 207.2c–d: ability words and flavor words have no rules meaning.
+        // Check the archive label against the same certified printed bullet.
+        if let Some(label) = &option.label
+            && !bullet.split_once(" — ").is_some_and(|(prefix, body)| {
+                prefix == label && !prefix.trim().is_empty() && !body.trim().is_empty()
+            })
+        {
+            return Err(unsupported_modal("printed_option_label"));
+        }
         let path = format!("/effects/0/steps/0/options/{index}");
         let mut covered = segments
             .iter()
             .filter(|(fields, ..)| fields.as_slice() == [path.as_str()]);
         if !covered
             .next()
-            .is_some_and(|(_, start, end)| text.get(*start..*end) == Some(*label))
+            .is_some_and(|(_, start, end)| text.get(*start..*end) == Some(*bullet))
             || covered.next().is_some()
         {
             return Err(unsupported_modal("uncertified_option"));
@@ -154,20 +166,27 @@ fn printed(
 }
 
 /// Each legal set of distinct modes, its modes' targets and instructions in
-/// printed order (CR 700.2d, 608.2c). One selection announces one target at
-/// most, and the archive's target occurrences are the modes' in order.
+/// printed order (CR 700.2d, 608.2c). The archive numbers occurrences
+/// across all modes. Executable selections number only their chosen targets.
 fn declaration(
     modes: Vec<SpellProgram>,
     declared: Printed,
     timing: SpellTiming,
     site: &control::Site<'_>,
+    combine: impl Fn(u8, &Printed) -> Result<SpellProgram, Failure>,
 ) -> Result<ModalSpell, Failure> {
     let mut archive_targets = Vec::new();
     for mode in &modes {
-        if mode.targets.len() > 1 || mode.instructions.is_empty() {
+        if mode.instructions.is_empty() {
             return Err(unsupported_modal("mode_shape"));
         }
-        for target in &mode.targets {
+        // The archive has one occurrence for a counted group (CR 115.3).
+        let occurrences = if mode.target_group().is_some() {
+            &mode.targets[..1]
+        } else {
+            &mode.targets
+        };
+        for target in occurrences {
             archive_targets.push(TargetSpec {
                 slot: archive_targets.len() as u32,
                 ..target.clone()
@@ -178,16 +197,30 @@ fn declaration(
         .target_slots(site.index, site.printed, &archive_targets)?;
     let mut selections = BTreeMap::new();
     for mask in ModalSpell::masks(modes.len(), declared.min, declared.max) {
-        let mut selection = SpellProgram::instructions(timing);
-        for (index, mode) in modes.iter().enumerate() {
-            if mask & (1 << index) != 0 {
+        let chosen = || {
+            modes
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| mask & (1 << index) != 0)
+        };
+        let selection = if chosen()
+            .filter(|(_, mode)| !mode.targets.is_empty())
+            .count()
+            > 1
+        {
+            if chosen().any(|(_, mode)| mode.optional_target || mode.target_group().is_some()) {
+                return Err(unsupported_modal("mixed_target_groups"));
+            }
+            combine(mask, &declared)?
+        } else {
+            let mut selection = SpellProgram::instructions(timing);
+            for (_, mode) in chosen() {
                 selection.targets.extend_from_slice(&mode.targets);
                 selection.instructions.extend_from_slice(&mode.instructions);
+                selection.optional_target |= mode.optional_target;
             }
-        }
-        if selection.targets.len() > 1 {
-            return Err(unsupported_modal("multiple_targets_in_one_selection"));
-        }
+            selection
+        };
         selections.insert(mask, selection);
     }
     Ok(ModalSpell {
@@ -206,22 +239,32 @@ pub(super) fn lower(
     site: &control::Site<'_>,
 ) -> Result<ModalSpell, Failure> {
     let declared = printed(effects, text, Header::Spell, site)?;
-    let mut modes = Vec::with_capacity(declared.options.len());
-    for option in &declared.options {
-        let mut mode = SpellProgram::instructions(timing);
-        let mut slots = BTreeMap::new();
+    let append = |mode: &mut SpellProgram, option: &[Value]| {
         append_effects(
-            &mut mode,
+            mode,
             parts(option)?,
             site.index,
-            &mut slots,
+            &mut BTreeMap::new(),
             Context::Spell,
             |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
             PlayerBinding::Unbound,
-        )?;
+        )
+    };
+    let mut modes = Vec::with_capacity(declared.options.len());
+    for option in &declared.options {
+        let mut mode = SpellProgram::instructions(timing);
+        append(&mut mode, option)?;
         modes.push(mode);
     }
-    declaration(modes, declared, timing, site)
+    declaration(modes, declared, timing, site, |mask, declared| {
+        let mut selection = SpellProgram::instructions(timing);
+        for (index, option) in declared.options.iter().enumerate() {
+            if mask & (1 << index) != 0 {
+                append(&mut selection, option)?;
+            }
+        }
+        Ok(selection)
+    })
 }
 
 /// A modal activated or triggered ability. Every mode lowers as a complete
@@ -266,7 +309,9 @@ pub(super) fn lower_ability<A: Clone + PartialEq>(
     }) {
         return Err(unsupported_modal("mode_program_shape"));
     }
-    let modal = declaration(modes, declared, timing, site)?;
+    let modal = declaration(modes, declared, timing, site, |_, _| {
+        Err(unsupported_modal("multiple_targets_in_ability_selection"))
+    })?;
     Ok((base, modal))
 }
 

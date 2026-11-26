@@ -473,3 +473,115 @@ fn every_offered_mode_resolves() {
         assert_eq!(resolve_every_selection(raw), masks);
     }
 }
+
+/// CR 700.2a, 608.2b: both modes require targets at announcement, but
+/// losing the artifact target in response leaves the enchantment mode legal.
+#[test]
+fn crush_contraband_filters_modes_and_resolves_the_remaining_target() {
+    const CRUSH: &str = record!("ecbc234d-e1d3-4bcc-81d4-fffc2c7ea16a");
+    let base = || {
+        let mut b = board(&[CRUSH])
+            .permanent_or_hand("Crush Contraband", 0, 0, true)
+            .permanent_or_hand("Crush Contraband", 0, 0, true);
+        for _ in 0..8 {
+            b = b.permanent_or_hand("Plains", 0, 0, false);
+        }
+        b.permanent_or_hand("Sol Ring", 1, 1, false)
+    };
+    let mut no_enchantment = Game::new(base().libraries("Island", 2).prepare());
+    cast_modes(&mut no_enchantment, &[1], 1);
+
+    let mut g = Game::new(
+        base()
+            .permanent_or_hand("Glorious Anthem", 1, 1, false)
+            .libraries("Island", 2)
+            .prepare(),
+    );
+    cast_modes(&mut g, &[1, 2, 3], 3);
+    let d = Driver::request(&mut g, u64::MAX);
+    checked(&g);
+    let target = |id| {
+        d.index(&Candidate::Object {
+            object: Driver::object(&g, id),
+        })
+        .unwrap()
+    };
+    let answer = Answer::Pick {
+        picks: vec![vec![target(10)], vec![target(11)]],
+    };
+    g.respond(d.player, d.id, answer).unwrap();
+    Driver::pay(&mut g, &[2, 3, 4, 5]);
+    Driver::cast(&mut g, CardId(1));
+    let d = expect(&mut g, 0, Reason::ChooseModes);
+    let choice = d
+        .candidates
+        .iter()
+        .find(|c| matches!(c, Candidate::Modes { mask: 1, .. }))
+        .unwrap();
+    g.respond(d.player, d.id, d.pick_one(choice).unwrap())
+        .unwrap();
+    let artifact = Driver::object(&g, 10);
+    Driver::pick_object(&mut g, artifact);
+    Driver::pay(&mut g, &[6, 7, 8, 9]);
+    settle(&mut g);
+    assert!(matches!(zone(&g, 10), Some(Zone::Exile { .. })));
+    assert!(matches!(zone(&g, 11), Some(Zone::Exile { .. })));
+}
+
+/// CR 115.3, 700.2a: the Pirate mode needs two distinct target cards,
+/// independently of the creature mode's single target.
+#[test]
+fn march_of_the_drowned_requires_the_full_target_group() {
+    const MARCH: &str = record!("e9e55768-ed62-4998-9922-dbcdeab12aee");
+    const PIRATE: &str = record!("343ecf2f-0bbc-4840-8fb3-f5f61b26e76f");
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for raw in [MARCH, PIRATE] {
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("frozen group witness failed: {result:?}");
+        };
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    for count in 1..=2 {
+        let mut b = Board::new(catalog.clone(), "march-of-the-drowned-witness")
+            .step(TurnStep::PrecombatMain)
+            .seats(2)
+            .permanent_or_hand("March of the Drowned", 0, 0, true)
+            .permanent_or_hand("Swamp", 0, 0, false);
+        for _ in 0..count {
+            b = b.card("Swab Goblin", 0, 0, graveyard(0).unwrap());
+        }
+        let mut g = Game::new(b.libraries("Island", 2).prepare());
+        if count == 1 {
+            cast_modes(&mut g, &[1], 1);
+            let target = Driver::object(&g, 2);
+            Driver::pick_object(&mut g, target);
+        } else {
+            cast_modes(&mut g, &[1, 2], 2);
+            let d = Driver::request(&mut g, u64::MAX);
+            checked(&g);
+            let picks = [2, 3].map(|id| {
+                d.index(&Candidate::Object {
+                    object: Driver::object(&g, id),
+                })
+                .unwrap()
+            });
+            g.respond(
+                d.player,
+                d.id,
+                Answer::Pick {
+                    picks: vec![picks.to_vec()],
+                },
+            )
+            .unwrap();
+        }
+        Driver::pay(&mut g, &[1]);
+        settle(&mut g);
+        for id in 2..2 + count {
+            assert_eq!(zone(&g, id), Some(Zone::Hand { owner: PlayerId(0) }));
+        }
+    }
+}
