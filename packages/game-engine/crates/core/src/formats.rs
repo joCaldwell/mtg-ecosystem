@@ -7,7 +7,7 @@
 /// `Game::snapshot` envelope and its complete private `State`.
 pub const SNAPSHOT_VERSION: u32 = 115;
 /// `Observation`, the permitted per-viewer view and decision.
-pub const OBSERVATION_VERSION: u32 = 83;
+pub const OBSERVATION_VERSION: u32 = 84;
 /// `Game::save_work` envelope for suspended queries.
 pub const WORK_VERSION: u32 = 59;
 /// `SearchContext`, the permitted information set a search query returns.
