@@ -137,9 +137,14 @@ impl RulesTxn {
         if top.mode_mask.is_none()
             && let Some(modal) = self.modal_declaration(top)?
         {
-            return Ok(self.modal_has_selection(modal, top.controller, &source));
+            return Ok(self.modal_has_selection(modal, top.controller, &source, Some(top.source)));
         }
-        Ok(self.has_target_domain(self.program_for(top)?, top.controller, &source))
+        Ok(self.has_target_domain(
+            self.program_for(top)?,
+            top.controller,
+            &source,
+            Some(top.source),
+        ))
     }
 
     pub(crate) fn has_target_domain(
@@ -147,6 +152,7 @@ impl RulesTxn {
         program: &SpellProgram,
         player: PlayerId,
         source: &Characteristics,
+        source_object: Option<ObjectId>,
     ) -> bool {
         if program.optional_target {
             return true;
@@ -160,7 +166,7 @@ impl RulesTxn {
                 .rules
                 .objects
                 .values()
-                .filter(|o| self.object_target_legal_by(o.id, player, source, None, spec))
+                .filter(|o| self.object_target_legal_by(o.id, player, source, source_object, spec))
                 .count();
             return eligible >= count;
         }
@@ -187,7 +193,7 @@ impl RulesTxn {
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
                 self.state.rules.objects.values().any(|o| {
                     !self.protected_from(o.id, source)
-                        && self.permanent_target_legal(o.id, player, spec)
+                        && self.permanent_target_legal(o.id, player, source_object, spec)
                 })
             }
             TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
@@ -433,8 +439,8 @@ impl RulesTxn {
         let source = self.color_layer(object)?;
         if !match &ability.modal {
             // CR 700.2a: a modal ability needs one selection with legal targets.
-            Some(modal) => self.modal_has_selection(modal, player, &source),
-            None => self.has_target_domain(&ability.program, player, source.as_ref()),
+            Some(modal) => self.modal_has_selection(modal, player, &source, Some(object)),
+            None => self.has_target_domain(&ability.program, player, source.as_ref(), Some(object)),
         } {
             return Err("no eligible ability targets".into());
         }

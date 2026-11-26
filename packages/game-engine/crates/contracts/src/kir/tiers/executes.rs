@@ -382,6 +382,19 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
     {
         return cell("target", "batch_node_requires_one_target_group");
     }
+    // CR 109.2, 201.5: "another" excludes the ability's own source. With a
+    // second occurrence it would instead name a different target, so it is
+    // admitted for a permanent's ability with one occurrence or one group.
+    if p.targets.iter().any(|t| {
+        t.filter
+            .as_ref()
+            .and_then(|f| f.predicate.as_ref())
+            .is_some_and(kir::excludes_source)
+    }) && !(matches!(context, Some(Context::Activated | Context::Triggered))
+        && (p.targets.len() == 1 || p.target_group().is_some()))
+    {
+        return cell("target", "another_requires_one_ability_occurrence");
+    }
     let mut ids = BTreeSet::new();
     for (index, target) in p.targets.iter().enumerate() {
         if usize::try_from(target.slot).ok() != Some(index)

@@ -138,10 +138,14 @@ impl RulesTxn {
             crate::query::matches_permanent_filter(&self.object_facts(o), controller, f).is_yes()
         })
     }
+    /// CR 109.2, 201.5, 601.2c, 608.2b: a battlefield target's criteria for
+    /// `controller`. "Another" (`IsNot` the source) excludes `source`, the
+    /// targeting object's own identity.
     pub(crate) fn permanent_target_legal(
         &self,
         object: ObjectId,
         controller: PlayerId,
+        source: Option<ObjectId>,
         spec: &TargetSpec,
     ) -> bool {
         self.targetable_by(object, controller)
@@ -152,7 +156,42 @@ impl RulesTxn {
             && spec
                 .filter
                 .as_ref()
-                .is_some_and(|f| self.matches_permanent_filter(object, controller, f))
+                .is_some_and(|f| self.matches_target_filter(object, controller, source, f))
+    }
+
+    fn matches_target_filter(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+        source: Option<ObjectId>,
+        f: &PermanentFilter,
+    ) -> bool {
+        let Some(predicate) = f
+            .predicate
+            .as_ref()
+            .filter(|p| mtg_contracts::kir::excludes_source(p))
+        else {
+            return self.matches_permanent_filter(object, controller, f);
+        };
+        if source == Some(object) {
+            return false;
+        }
+        let rest: Vec<_> = predicate
+            .0
+            .iter()
+            .filter(|atom| {
+                **atom
+                    != mtg_contracts::kir::Atom::IsNot {
+                        object: mtg_contracts::kir::Ref::Source,
+                    }
+            })
+            .cloned()
+            .collect();
+        let bound = PermanentFilter {
+            predicate: (!rest.is_empty()).then_some(mtg_contracts::kir::Pred(rest)),
+            ..f.clone()
+        };
+        self.matches_permanent_filter(object, controller, &bound)
     }
     pub(crate) fn eligible_stack_targets_for(
         &self,
