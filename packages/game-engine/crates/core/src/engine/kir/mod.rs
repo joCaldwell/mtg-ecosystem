@@ -68,6 +68,23 @@ impl RulesTxn {
                 .collect();
             return self.kernel_tap_objects(frame, objects, tap, source_block);
         }
+        // CR 115.3, 608.2b: the legal announced members leave or are
+        // destroyed in one simultaneous event (CR 603.10a look-back).
+        if let Node::RemoveTargets { removal, .. } = node {
+            let objects = self
+                .entry(frame.stack_id)?
+                .targets
+                .iter()
+                .zip(&frame.legal_targets)
+                .filter_map(|(&object, &legal)| legal.then_some(object))
+                .collect();
+            let action = match removal {
+                mtg_contracts::kir::GroupRemoval::Destroy => wipes::SetMove::Destroy,
+                mtg_contracts::kir::GroupRemoval::Exile => wipes::SetMove::Exile,
+                mtg_contracts::kir::GroupRemoval::OwnerHand => wipes::SetMove::Hand,
+            };
+            return self.move_board_objects(frame, objects, action, source_block, false);
+        }
         if matches!(node, Node::ChooseObject { .. }) {
             self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,

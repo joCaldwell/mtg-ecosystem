@@ -306,60 +306,69 @@ impl Strategy<'_> {
                         picks.push(index.copied().into_iter().collect());
                         continue;
                     }
-                    let entities: Vec<_> = allowed
-                        .iter()
-                        .map(|i| match d.candidate(*i)? {
-                            Candidate::Player { player } => {
-                                Ok(PlayerTargetEntity::Player { player: *player })
+                    // CR 115.3: a counted group slot names `min` distinct
+                    // objects; choose them one at a time from the rest.
+                    let mut allowed = allowed;
+                    let mut chosen_slot = vec![];
+                    for _ in 0..slot.min.max(1) {
+                        let entities: Vec<_> = allowed
+                            .iter()
+                            .map(|i| match d.candidate(*i)? {
+                                Candidate::Player { player } => {
+                                    Ok(PlayerTargetEntity::Player { player: *player })
+                                }
+                                Candidate::Object { object } => Ok(PlayerTargetEntity::Object {
+                                    object: object.clone(),
+                                }),
+                                _ => Err("invalid target candidate".to_owned()),
+                            })
+                            .collect::<Result<_, _>>()?;
+                        let chosen = match spec.domain {
+                            mtg_contracts::TargetDomain::AnyDamageTarget => {
+                                self.damage_target(v, program, &entities)
                             }
-                            Candidate::Object { object } => Ok(PlayerTargetEntity::Object {
-                                object: object.clone(),
-                            }),
-                            _ => Err("invalid target candidate".to_owned()),
-                        })
-                        .collect::<Result<_, _>>()?;
-                    let chosen = match spec.domain {
-                        mtg_contracts::TargetDomain::AnyDamageTarget => {
-                            self.damage_target(v, program, &entities)
-                        }
-                        mtg_contracts::TargetDomain::AnyPlayer
-                        | mtg_contracts::TargetDomain::OpponentPlayer => {
-                            let players = entities
-                                .iter()
-                                .filter_map(|e| {
-                                    if let PlayerTargetEntity::Player { player } = e {
-                                        Some(*player)
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            self.player_target(
-                                v,
-                                &players,
-                                self.target_beneficial(definition, program, spec.slot),
-                            )
-                            .map(|player| PlayerTargetEntity::Player { player })
-                        }
-                        _ => {
-                            let objects = entities
-                                .iter()
-                                .filter_map(|e| {
-                                    if let PlayerTargetEntity::Object { object } = e {
-                                        Some(object.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            self.object_target(v, definition, program, spec, Some(&objects))
-                                .map(|object| PlayerTargetEntity::Object { object })
-                        }
-                    };
-                    let n = chosen
-                        .and_then(|e| entities.iter().position(|c| *c == e))
-                        .unwrap_or(0);
-                    picks.push(vec![*allowed.get(n).ok_or("empty target slot")?]);
+                            mtg_contracts::TargetDomain::AnyPlayer
+                            | mtg_contracts::TargetDomain::OpponentPlayer
+                            | mtg_contracts::TargetDomain::PlayerOrPlaneswalker => {
+                                let players = entities
+                                    .iter()
+                                    .filter_map(|e| {
+                                        if let PlayerTargetEntity::Player { player } = e {
+                                            Some(*player)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
+                                self.player_target(
+                                    v,
+                                    &players,
+                                    self.target_beneficial(definition, program, spec.slot),
+                                )
+                                .map(|player| PlayerTargetEntity::Player { player })
+                            }
+                            _ => {
+                                let objects = entities
+                                    .iter()
+                                    .filter_map(|e| {
+                                        if let PlayerTargetEntity::Object { object } = e {
+                                            Some(object.clone())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
+                                self.object_target(v, definition, program, spec, Some(&objects))
+                                    .map(|object| PlayerTargetEntity::Object { object })
+                            }
+                        };
+                        let n = chosen
+                            .and_then(|e| entities.iter().position(|c| *c == e))
+                            .unwrap_or(0);
+                        chosen_slot.push(*allowed.get(n).ok_or("empty target slot")?);
+                        allowed.remove(n);
+                    }
+                    picks.push(chosen_slot);
                 }
                 Answer::Pick { picks }
             }

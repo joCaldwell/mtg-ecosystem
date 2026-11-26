@@ -147,6 +147,32 @@ impl RulesTxn {
         if program.optional_target {
             return true;
         }
+        // CR 115.3, 601.2c: a counted occurrence needs that many distinct
+        // legal objects. Group domains are object domains only.
+        if let (Some(count), Some(spec)) = (program.target_group(), program.targets.first()) {
+            let objects = self.state.rules.objects.values();
+            let eligible = match spec.domain {
+                TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent => objects
+                    .filter(|o| {
+                        !self.protected_from(o.id, source)
+                            && self.permanent_target_legal(o.id, player, spec)
+                    })
+                    .count(),
+                TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => objects
+                    .filter(|o| self.graveyard_target_legal_for(o, player, spec))
+                    .count(),
+                TargetDomain::BattlefieldCreature => objects
+                    .filter(|o| {
+                        self.is_battlefield_creature(o.id)
+                            && self.targetable_by(o.id, player)
+                            && !self.protected_from(o.id, source)
+                    })
+                    .count(),
+                _ => 0,
+            };
+            return eligible >= count;
+        }
         program.targets.iter().all(|spec| match spec.domain {
             TargetDomain::PlayerGraveyardCards { .. } => false,
             TargetDomain::AnyDamageTarget => {

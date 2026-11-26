@@ -25,6 +25,7 @@ mod regenerate;
 mod return_to_hand;
 mod sacrifice;
 mod tap;
+mod target_group;
 mod tokens;
 mod transform;
 
@@ -105,6 +106,11 @@ pub(crate) fn append_spell_effects(
                 let instruction = library::reorder_top(&mut cx, &sentence.steps[at..])?;
                 program.instructions.push(instruction);
                 at += 2;
+                continue;
+            }
+            if let Some(instructions) = target_group::lower(&mut cx, s)? {
+                program.instructions.extend(instructions);
+                at += 1;
                 continue;
             }
             let instruction = lower_step(&mut cx, s)?;

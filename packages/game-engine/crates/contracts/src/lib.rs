@@ -310,6 +310,10 @@ pub enum Capability {
     ResolutionObjectChoiceV1,
     TargetCharacteristicsV1,
     OptionalTargetGroupV1,
+    /// CR 115.3, 601.2c: one occurrence announces exactly N distinct objects.
+    CountedTargetGroupV1,
+    /// CR 115.3, 608.2b: a counted battlefield group removed simultaneously.
+    TargetGroupRemovalV1,
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
@@ -2183,6 +2187,13 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
     if program.optional_target {
         set.insert(Capability::OptionalObjectTargetV1);
+    }
+    if program.target_group().is_some() {
+        set.insert(if program.optional_target {
+            Capability::OptionalTargetGroupV1
+        } else {
+            Capability::CountedTargetGroupV1
+        });
     }
     for target in &program.targets {
         if target.filter.is_some() {

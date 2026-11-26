@@ -3562,6 +3562,42 @@
       "record_sha256": "9084ead7c1c825be99e3dffd96b611f4293159dbe33cdc4a73fae4e6459a6ecc",
       "ast_sha256": "3686efd79a0100f1c2ff3160fb6c48fb27fcc1f2adfa18f2f4efdfda751245ba",
       "binding_sha256": "aea55a0de7d5646ff886c6bca65d0c76a5d34afbcf94a96085cc713318c8c6b1"
+    },
+    {
+      "file": "phase1-r5/2837888c-bfa8-4955-9334-0605ad409f7e.json",
+      "oracle_id": "2837888c-bfa8-4955-9334-0605ad409f7e",
+      "record_sha256": "ce90c953c7056baaca8e1bda86b30bd631d8123d4413d2b8e0c0c2105e822392",
+      "source_sha256": "a287a5d74a91ed5bc0c9feae27d3e115c36837c261eef38a57a0b3775e895051",
+      "ast_sha256": "13746fa38204dbcfe5da756439f7a5f99019407d9711b4b2aa88ba0058f0a2c4",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 6037
+    },
+    {
+      "file": "phase1-r5/39e21a5a-b278-478a-854c-17695c0f6246.json",
+      "oracle_id": "39e21a5a-b278-478a-854c-17695c0f6246",
+      "record_sha256": "ec2bbf3075d859fc38bba1594d8ba273bb77913cb304bff0617be9fb43a16d16",
+      "source_sha256": "4505a25f3f9798f9ae2ed61381daa75d967bcad0dfb171462088ca9d6e2a6fa8",
+      "ast_sha256": "0bdd62875be046b1edb11efe8e793c0d8d57903587ef57ad4f2351d5b33d49af",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 8673
+    },
+    {
+      "file": "phase1-r5/4d5a970b-dd36-4871-a2aa-36ba21917cdf.json",
+      "oracle_id": "4d5a970b-dd36-4871-a2aa-36ba21917cdf",
+      "record_sha256": "bb946d06056ec305234d205ae6b9f4aa1c1e57c126dc75e9f90911602e0dc9b9",
+      "source_sha256": "d81483e0eba05661593ea1518b3fa1413007bd05882c2d925af43aca50259c92",
+      "ast_sha256": "05c5e5b048358238f08b4d6e10e4298a8cb5ac9a7ec724a4808121adcaec5251",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 11625
+    },
+    {
+      "file": "phase1-r5/787b494b-731b-4e99-8e46-157bc86f6eea.json",
+      "oracle_id": "787b494b-731b-4e99-8e46-157bc86f6eea",
+      "record_sha256": "d9817b4b56162068654ae20d62f23b94a2bb1587ea477d487607cf14a81dfa7c",
+      "source_sha256": "23b1570a135ee108360e5ef0b8ac913f7b8b7264ed2e10da7d59977ac0394efd",
+      "ast_sha256": "f552c0be614dd261806bb8e5cd2304359817026858bb573d00cbde51a04b1a11",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 18153
     }
   ]
 }

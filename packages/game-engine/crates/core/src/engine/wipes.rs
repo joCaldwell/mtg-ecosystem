@@ -212,7 +212,8 @@ impl RulesTxn {
         block: u32,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        if !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.get(frame.cursor as usize),Some(kernel!(Move {what: SetExpr::Matching {..}, to: Destination::OwnerHand} @ source_block)) if *source_block==block)
+        if !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.get(frame.cursor as usize),Some(kernel!(Move {what: SetExpr::Matching {..}, to: Destination::OwnerHand} @ source_block)
+                | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::OwnerHand, .. }, source_block }) if *source_block==block)
             || objects.len() > self.event_group_limit()
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || remaining.iter().any(|o| !objects.contains(o))

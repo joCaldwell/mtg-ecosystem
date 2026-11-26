@@ -156,6 +156,8 @@ pub enum Cell {
     TapTarget,
     TapTargetGroup,
     TapStatusSource,
+    /// CR 115.3, 608.2b: one simultaneous removal of a counted target group.
+    RemoveTargetGroup,
     TapSet,
     UntapTarget,
     UntapSet,
@@ -332,6 +334,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::RegenerateTarget
         | C::TapTarget
         | C::TapTargetGroup
+        | C::RemoveTargetGroup
         | C::TapStatusSource
         | C::TapSet
         | C::UntapTarget
@@ -534,6 +537,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ResolutionObjectChoiceV1
         | C::TargetCharacteristicsV1
         | C::OptionalTargetGroupV1
+        | C::CountedTargetGroupV1
+        | C::TargetGroupRemovalV1
         | C::EntryGraveyardExileV1
         | C::ControlledLandEntryV1
         | C::CreatureOrPlaneswalkerTargetV1

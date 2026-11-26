@@ -296,10 +296,17 @@ certified "it" or "that" can reuse the block's sole announced incarnation, and
 
 One optional battlefield or own-graveyard target can bind independent destroy,
 tap, untap, move, counter and end-of-turn leaves; zero targets skips the
-instruction. Tap and untap also take one `Pick` of up to a fixed two through
-seven distinct targets, affecting legal survivors simultaneously (CR 115.3,
-701.26). Mixed required and optional occurrences and optional permanent spells
-reject. Already-matching tap status emits no event and combat membership is
+instruction. A counted occurrence ("two target", "up to three target", two
+through seven) is the program's only occurrence: one `Pick` of exactly or up to
+N distinct objects, needing N legal objects to cast or place (CR 115.3, 601.2c).
+Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one
+simultaneous event; P/T, keyword, counter and combat-restriction leaves, a
+spell's own damage and own-graveyard returns to hand or exile run per member.
+An unchosen or illegal member skips its leaves; all illegal counters the spell
+(CR 608.2b). Graveyard groups entering the battlefield, "any number" and X
+counts, mixed required and optional occurrences and optional permanent spells
+reject. "Target player or planeswalker" announces players for spells and
+triggers: planeswalker faces are not admitted (CR 115.4). Already-matching tap status emits no event and combat membership is
 preserved. "Put a +1/+1 counter on each [creature filter]" applies
 simultaneously to the current set.
 

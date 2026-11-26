@@ -973,6 +973,34 @@ impl Walk<'_, '_> {
                 }
                 Ok(())
             }
+            Node::RemoveTargets { count, .. } => {
+                // CR 115.3, 601.2c, 608.2b: one occurrence, exactly or at most N distinct
+                // objects. The program admits these slots only as one group.
+                if !(2..=7).contains(count) {
+                    return unaudited("removal target group bounds");
+                }
+                self.out.target_slots.extend(0..*count);
+                if !self.scan {
+                    if in_control
+                        || self.env.targets.len() != *count as usize
+                        || self.env.targets.iter().any(|t| {
+                            !matches!(
+                                t.domain,
+                                TargetDomain::BattlefieldCreature
+                                    | TargetDomain::BattlefieldPermanent
+                                    | TargetDomain::ControlledBattlefieldPermanent
+                            )
+                        })
+                    {
+                        return unaudited("removal target group");
+                    }
+                    self.out.cells.insert(Cell::RemoveTargetGroup);
+                    self.out
+                        .capabilities
+                        .insert(Capability::TargetGroupRemovalV1);
+                }
+                Ok(())
+            }
             Node::ChooseObject { from, action } => {
                 self.control_set(from)?;
                 if !self.scan {
@@ -1512,6 +1540,9 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         if matches!(node, Node::TapTargets { .. }) {
             out.insert(Capability::OptionalTargetGroupV1);
         }
+        if matches!(node, Node::RemoveTargets { .. }) {
+            out.insert(Capability::TargetGroupRemovalV1);
+        }
         if matches!(node, Node::ChooseObject { .. }) {
             out.insert(Capability::ResolutionObjectChoiceV1);
         }
@@ -1584,7 +1615,8 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         Node::Delayed { .. }
         | Node::Reflexive { .. }
         | Node::ChooseObject { .. }
-        | Node::TapTargets { .. } => {}
+        | Node::TapTargets { .. }
+        | Node::RemoveTargets { .. } => {}
     }
 }
 

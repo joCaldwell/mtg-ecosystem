@@ -248,12 +248,13 @@ impl RulesTxn {
                 return Err("dependent targets need their player".into());
             }
             Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
-            Some(TargetDomain::PlayerOrPlaneswalker) => {
-                return Err("player-or-planeswalker requires an activated mode".into());
-            }
-            Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer) => {
-                Frame::PlayerTargets { cast }
-            }
+            // CR 115.4: planeswalker cards are not admitted, so the domain's
+            // inhabitants are players.
+            Some(
+                TargetDomain::OpponentPlayer
+                | TargetDomain::AnyPlayer
+                | TargetDomain::PlayerOrPlaneswalker,
+            ) => Frame::PlayerTargets { cast },
             Some(
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::ControlledBattlefieldPermanent
