@@ -6,6 +6,7 @@ mod control;
 mod costs;
 mod counter_regeneration;
 mod damage_triggers;
+mod evasion;
 mod keywords;
 mod library;
 mod modal_double_faced;

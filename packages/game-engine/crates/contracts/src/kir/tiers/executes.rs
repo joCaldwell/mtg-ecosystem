@@ -760,6 +760,17 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
                 | K::ProtectionFromBlack
                 | K::ProtectionFromRed
                 | K::ProtectionFromGreen
+                // CR 702.13, 702.14, 702.28, 702.31, 702.36, 702.118.
+                | K::Plainswalk
+                | K::Islandwalk
+                | K::Swampwalk
+                | K::Mountainwalk
+                | K::Forestwalk
+                | K::Intimidate
+                | K::Shadow
+                | K::Horsemanship
+                | K::Fear
+                | K::Skulk
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
