@@ -1,7 +1,7 @@
-//! "Put on top of its owner's library" (CR 400.3, 401.4).
+//! Targeted battlefield entry and owner-zone moves (CR 400.3, 401.4, 614.1c).
 use super::*;
 
-/// One announced creature to the top of its owner's library.
+/// Move the announced card or the source to the printed destination.
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
     what: &serde_json::Value,
@@ -11,14 +11,14 @@ pub(super) fn lower(
     who: Option<&serde_json::Value>,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
-    // CR 110.2a and 614.1c: a creature card from your graveyard enters
+    // CR 110.2a and 614.1c: a permanent card from your graveyard enters
     // under your control, tapped when the move specifies it.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if *to == serde_json::json!({"zone": "battlefield"}) {
         if order.is_some() || who.is_some() || tapped == Some(false) {
             return Err(step("move-zone", "battlefield_entry_modifier"));
         }
-        let slot = bind_own_graveyard_target(cx.program, cx.slots, &object(what)?, true)?;
+        let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, true)?;
         return Ok(Instruction::move_target(
             slot,
             Destination::Battlefield {

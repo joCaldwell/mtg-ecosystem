@@ -60,45 +60,6 @@ impl RulesTxn {
         }
     }
 
-    pub(crate) fn graveyard_target_legal(
-        &self,
-        object: &Object,
-        player: PlayerId,
-        domain: TargetDomain,
-    ) -> bool {
-        self.player_graveyard_card(object, player)
-            && match domain {
-                TargetDomain::OwnGraveyardCard => true,
-                TargetDomain::OwnGraveyardCreatureCard => self
-                    .definition(object.id.card)
-                    .is_ok_and(|d| d.characteristics.has_type(CardKind::Creature)),
-                _ => false,
-            }
-    }
-    /// CR 205.2b, 601.2c, 608.2b: any printed type alternative may
-    /// satisfy a card target, including a card's secondary type.
-    pub(super) fn graveyard_target_legal_for(
-        &self,
-        object: &Object,
-        player: PlayerId,
-        spec: &mtg_contracts::TargetSpec,
-    ) -> bool {
-        self.graveyard_target_legal(object, player, spec.domain)
-            && spec.filter.as_ref().is_none_or(|filter| {
-                (filter.types.is_empty()
-                    || self.copiable_definition(object.id).is_ok_and(|definition| {
-                        filter
-                            .types
-                            .iter()
-                            .any(|kind| definition.characteristics.has_type(*kind))
-                    }))
-                    && filter.predicate.as_ref().is_none_or(|predicate| {
-                        crate::query::matches_pred(&self.object_facts(object), player, predicate)
-                            .is_yes()
-                    })
-            })
-    }
-
     pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
         self.current(id).is_ok_and(|o| o.present_on_battlefield())
             && self
@@ -150,7 +111,9 @@ impl RulesTxn {
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
                 self.permanent_target_legal(object, controller, source_object, spec)
             }
-            TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
+            TargetDomain::GraveyardCard { .. }
+            | TargetDomain::OwnGraveyardCreatureCard
+            | TargetDomain::OwnGraveyardCard => self
                 .current(object)
                 .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec)),
             TargetDomain::CreatureOrPlaneswalker => {

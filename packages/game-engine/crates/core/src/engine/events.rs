@@ -2228,14 +2228,11 @@ impl RulesTxn {
                 self.apply_library_shuffle(*player, *found)?
             }
             ProposedEvent::EnterTapped { object } => {
-                if self.current(*object)?.zone
-                    != (Zone::Library {
-                        owner: self.state.rules.cards[&object.card].owner,
-                    })
-                {
-                    return Err("tapped entry outside its owner's library".into());
-                }
                 let owner = self.state.rules.cards[&object.card].owner;
+                if !matches!(self.current(*object)?.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } if p == owner)
+                {
+                    return Err("tapped entry outside owner's library or graveyard".into());
+                }
                 // CR 614.1c: a forced tapped entry needs no entry payment.
                 self.apply_move(
                     *object,
@@ -2279,10 +2276,10 @@ impl RulesTxn {
                 {
                     let characteristics = self.structural_characteristics(*object)?;
                     // CR 303.4f: an Aura entering without being cast (from its
-                    // owner's library, by a search) enchants a chosen object it
+                    // owner's library or graveyard) enchants a chosen object it
                     // could enchant; that choice does not target.
                     let owner = self.state.rules.cards[&object.card].owner;
-                    let chosen = source.zone == (Zone::Library { owner });
+                    let chosen = matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } if p == owner);
                     if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]

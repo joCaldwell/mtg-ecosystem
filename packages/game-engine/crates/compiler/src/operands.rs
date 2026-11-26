@@ -1568,12 +1568,6 @@ pub(crate) fn is_creature_target(what: &ast::ObjectRef) -> bool {
     creature_target(what).is_ok()
 }
 
-/// True when the target occurrence's class is "permanent".
-pub(crate) fn is_permanent_target(what: &ast::ObjectRef) -> bool {
-    target_occurrence(what)
-        .is_ok_and(|(filter, ..)| filter.cls == Some(ast::ObjectFilterCls::Permanent))
-}
-
 pub(crate) fn bind_creature_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
@@ -1656,27 +1650,35 @@ fn bind_object_target(
     Ok(slot)
 }
 
-/// CR 601.2c, 608.2b: one card in the controller's graveyard, optionally
-/// qualified by a single card type or by alternatives of single types.
-pub(crate) fn bind_own_graveyard_target(
+/// CR 601.2c, 608.2b. Bind a graveyard card with the printed ownership
+/// and characteristic restrictions.
+pub(crate) fn bind_graveyard_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
     what: &ast::ObjectRef,
-    creature_only: bool,
+    own_only: bool,
 ) -> Result<u32, Failure> {
+    use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
     let (filter, selection, optional) = target_occurrence(what)?;
     let invalid_filter = || operand("target", "own_graveyard_filter");
-    if filter.cls != Some(ast::ObjectFilterCls::Card)
-        || !filter.zone.as_deref().is_some_and(|zone| {
-            zone.zone == ast::Zone::Graveyard
-                && zone.position.is_none()
-                && zone.depth.is_none()
-                && zone.owner.as_deref()
-                    == Some(&ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner::Your)
-        })
-    {
+    let zone = filter
+        .zone
+        .as_deref()
+        .filter(|z| z.zone == ast::Zone::Graveyard && z.position.is_none() && z.depth.is_none())
+        .ok_or_else(invalid_filter)?;
+    if filter.cls != Some(ast::ObjectFilterCls::Card) {
         return Err(invalid_filter());
     }
+    let foreign = match zone.owner.as_deref() {
+        Some(Owner::Your) => None,
+        Some(Owner::Any) if !own_only => Some(TargetDomain::GraveyardCard {
+            opponents_only: false,
+        }),
+        Some(Owner::AnOpponent) if !own_only => Some(TargetDomain::GraveyardCard {
+            opponents_only: true,
+        }),
+        _ => return Err(invalid_filter()),
+    };
     let mut printed = filter.clone();
     printed.zone = None;
     let permanent = printed.permanent.take();
@@ -1692,12 +1694,12 @@ pub(crate) fn bind_own_graveyard_target(
             ],
         });
     }
-    let domain = if predicate.0.contains(&Atom::Type {
+    let domain = if let Some(domain) = foreign {
+        domain
+    } else if predicate.0.contains(&Atom::Type {
         kind: CardKind::Creature,
     }) {
         TargetDomain::OwnGraveyardCreatureCard
-    } else if creature_only {
-        return Err(invalid_filter());
     } else {
         TargetDomain::OwnGraveyardCard
     };

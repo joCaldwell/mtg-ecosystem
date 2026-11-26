@@ -328,6 +328,7 @@ impl Walk<'_, '_> {
                     | TargetDomain::BlockingBattlefieldCreature
                     | TargetDomain::CreatureOrPlaneswalker
                     | TargetDomain::OwnGraveyardCreatureCard
+                    | TargetDomain::GraveyardCard { .. }
                     | TargetDomain::OwnGraveyardCard => RefKind::Object,
                     TargetDomain::AnyDamageTarget => RefKind::Entity,
                     TargetDomain::AnyPlayer
@@ -697,6 +698,30 @@ impl Walk<'_, '_> {
             }
             Cond::Not { condition } => self.condition(condition),
             Cond::All { conditions } => conditions.iter().try_for_each(|c| self.condition(c)),
+            Cond::Satisfies {
+                object: Ref::Target { slot },
+                filter,
+            } if self.scan
+                || (matches!(
+                    self.domain(*slot)?,
+                    TargetDomain::GraveyardCard { .. }
+                        | TargetDomain::OwnGraveyardCard
+                        | TargetDomain::OwnGraveyardCreatureCard
+                ) && filter.0.as_slice()
+                    == [Atom::Type {
+                        kind: CardKind::Creature,
+                    }]) =>
+            {
+                self.expect(
+                    &Ref::Target { slot: *slot },
+                    &[RefKind::Object],
+                    "graveyard card type",
+                )?;
+                if !self.scan {
+                    self.out.cells.insert(Cell::GraveyardTargetWasCreature);
+                }
+                Ok(())
+            }
             // CR 603.4: only an intervening "if" reads these, through
             // [`Intervening`]; no resolving control node does.
             Cond::Satisfies { .. }
@@ -1086,6 +1111,30 @@ impl Walk<'_, '_> {
                     self.out
                         .capabilities
                         .insert(Capability::OptionalTargetGroupV1);
+                }
+                Ok(())
+            }
+            Node::SacrificeForTappedReturn { count } => {
+                if !(2..=7).contains(count) {
+                    return unaudited("sacrifice return group bounds");
+                }
+                self.out.target_slots.extend(0..*count);
+                if !self.scan {
+                    if in_control
+                        || self.env.context != Context::Spell
+                        || self.env.targets.len() != *count as usize
+                        || self
+                            .env
+                            .targets
+                            .iter()
+                            .any(|t| t.domain != TargetDomain::OwnGraveyardCreatureCard)
+                    {
+                        return unaudited("sacrifice return target group");
+                    }
+                    self.out.cells.insert(Cell::SacrificeForTappedReturn);
+                    self.out
+                        .capabilities
+                        .extend([Capability::SacrificeV1, Capability::GraveyardRecursionV1]);
                 }
                 Ok(())
             }
@@ -1707,6 +1756,9 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         if matches!(node, Node::TapTargets { .. }) {
             out.insert(Capability::OptionalTargetGroupV1);
         }
+        if matches!(node, Node::SacrificeForTappedReturn { .. }) {
+            out.extend([Capability::SacrificeV1, Capability::GraveyardRecursionV1]);
+        }
         if matches!(node, Node::RemoveTargets { .. }) {
             out.insert(Capability::TargetGroupRemovalV1);
         }
@@ -1783,6 +1835,7 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         | Node::Reflexive { .. }
         | Node::ChooseObject { .. }
         | Node::TapTargets { .. }
+        | Node::SacrificeForTappedReturn { .. }
         | Node::RemoveTargets { .. } => {}
     }
 }

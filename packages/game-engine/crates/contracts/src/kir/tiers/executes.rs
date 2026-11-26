@@ -62,9 +62,9 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
             (Route::Player, SPELL | TRIGGERED)
         }
-        TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => {
-            (Route::Object, ANY)
-        }
+        TargetDomain::GraveyardCard { .. }
+        | TargetDomain::OwnGraveyardCreatureCard
+        | TargetDomain::OwnGraveyardCard => (Route::Object, ANY),
         TargetDomain::StackSpell
         | TargetDomain::ControlledCreatureSpell
         | TargetDomain::StackActivatedOrTriggeredAbility => (Route::Stack, SPELL | ACTIVATED),
@@ -123,6 +123,7 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         kir::Node::Do(_)
         | kir::Node::ChooseObject { .. }
         | kir::Node::TapTargets { .. }
+        | kir::Node::SacrificeForTappedReturn { .. }
         | kir::Node::RemoveTargets { .. } => Ok(()),
         kir::Node::Seq(nodes) => nodes.iter().try_for_each(|n| cost_conditions(n, out)),
         kir::Node::If {
@@ -354,7 +355,9 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
         );
         let graveyard = matches!(
             p.targets[0].domain,
-            TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+            TargetDomain::GraveyardCard { .. }
+                | TargetDomain::OwnGraveyardCard
+                | TargetDomain::OwnGraveyardCreatureCard
         );
         let batch = battlefield
             && matches!(targeted.as_slice(),
@@ -387,7 +390,10 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
                         && group_leaf_shape(node) == shape
                 })
             });
-        if !(batch || leaves) {
+        let sacrifice_return = !p.optional_target
+            && matches!(targeted.as_slice(),
+            [kir::Node::SacrificeForTappedReturn { count: c }] if *c as usize == count);
+        if !(batch || leaves || sacrifice_return) {
             return cell("target", "group_requires_batch_or_order_free_leaves");
         }
     } else if p.targets.len() > 1 && p.optional_target {
@@ -396,7 +402,7 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
         && (!matches!(p.targets.as_slice(), [t] if matches!(t.domain,
                 TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
                 | TargetDomain::ControlledBattlefieldPermanent
-                | TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard))
+                | TargetDomain::GraveyardCard { .. } | TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard))
             || p.instructions
                 .iter()
                 .any(|Instruction::Kernel { node, .. }| {
@@ -419,7 +425,9 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
             .any(|Instruction::Kernel { node, .. }| {
                 matches!(
                     node,
-                    kir::Node::TapTargets { .. } | kir::Node::RemoveTargets { .. }
+                    kir::Node::TapTargets { .. }
+                        | kir::Node::RemoveTargets { .. }
+                        | kir::Node::SacrificeForTappedReturn { .. }
                 )
             })
     {
@@ -473,6 +481,7 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
                 TargetDomain::BattlefieldPermanent
                     | TargetDomain::ControlledBattlefieldPermanent
                     | TargetDomain::StackSpell
+                    | TargetDomain::GraveyardCard { .. }
                     | TargetDomain::OwnGraveyardCard
                     | TargetDomain::OwnGraveyardCreatureCard
             ) || (t.domain == TargetDomain::StackSpell
@@ -483,7 +492,9 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
                     || f.tapped))
                 || (matches!(
                     t.domain,
-                    TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+                    TargetDomain::GraveyardCard { .. }
+                        | TargetDomain::OwnGraveyardCard
+                        | TargetDomain::OwnGraveyardCreatureCard
                 ) && ((f.types.is_empty() && f.predicate.is_none())
                     || !f.non_types.is_empty()
                     || !f.non_colors.is_empty()
@@ -503,7 +514,8 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
                                 predicate,
                                 matches!(
                                     t.domain,
-                                    TargetDomain::OwnGraveyardCard
+                                    TargetDomain::GraveyardCard { .. }
+                                        | TargetDomain::OwnGraveyardCard
                                         | TargetDomain::OwnGraveyardCreatureCard
                                 ),
                             )
@@ -1326,6 +1338,7 @@ fn modal_shape(base: &SpellProgram, modal: &ModalSpell, ability: bool) -> Result
                         | TargetDomain::BattlefieldCreature
                         | TargetDomain::ControlledBattlefieldPermanent
                         | TargetDomain::ControlledBattlefieldCreature
+                        | TargetDomain::GraveyardCard { .. }
                         | TargetDomain::OwnGraveyardCard
                         | TargetDomain::OwnGraveyardCreatureCard
                         | TargetDomain::AnyDamageTarget

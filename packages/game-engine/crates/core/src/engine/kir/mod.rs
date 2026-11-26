@@ -76,6 +76,17 @@ impl RulesTxn {
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
+        if let Node::SacrificeForTappedReturn { .. } = node {
+            let player = self.entry(frame.stack_id)?.controller;
+            self.rules_mut().frame = Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::Sacrifice {
+                    player,
+                    source_block,
+                },
+            };
+            return Ok(());
+        }
         if let Node::TapTargets { tap, .. } = node {
             let objects = self
                 .entry(frame.stack_id)?

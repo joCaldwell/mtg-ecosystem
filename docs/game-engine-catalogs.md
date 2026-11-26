@@ -154,6 +154,10 @@ Control semantics:
   answer (CR 608.2d, 800.4a). `TapTargets` and `RemoveTargets` consume one
   counted battlefield target group and tap/untap, destroy, exile or bounce its
   legal surviving members in one simultaneous event (CR 115.3, 608.2b, 701.26).
+- `SacrificeForTappedReturn` binds the declared graveyard group to a mandatory
+  creature sacrifice and returns its legal survivors together if it succeeds.
+  `Satisfies` can test the printed creature type of a bound graveyard card
+  after exile (CR 608.2b, 608.2h).
 - `Delayed` and `Reflexive` carry separately checked single-instruction programs;
   the parent can register a one-shot [resolution-created trigger](game-engine-mechanics.md#delayed-and-reflexive-triggers)
   at the end of its program.

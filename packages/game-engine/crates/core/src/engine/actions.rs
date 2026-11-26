@@ -1311,8 +1311,7 @@ impl RulesTxn {
         }
         // CR 303.4g, 800.4a: a departure can remove the last host an open
         // Aura host choice offered. With no question left, the entry
-        // commits now, leaving that Aura in the library, so a search entry
-        // never waits without a question.
+        // commits now, leaving that Aura in its original zone.
         if let Frame::ResolutionChoice {
             frame,
             choice:
@@ -1328,7 +1327,7 @@ impl RulesTxn {
         } = &self.state.rules.frame
             && self.is_live(*player)
             && self
-                .search_entry_question(frame, *player, found, hosts, paid, revealed)?
+                .card_entry_question(frame, *player, found, hosts, paid, revealed)?
                 .is_none()
         {
             let (frame, player, found, command_choices, hosts, paid, revealed, source_block) = (
@@ -1342,7 +1341,7 @@ impl RulesTxn {
                 *source_block,
             );
             self.rules_mut().pending = None;
-            self.continue_search_entry(
+            self.continue_card_entry(
                 frame,
                 player,
                 found,
@@ -1380,6 +1379,16 @@ impl RulesTxn {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::Sacrifice {
+                        player,
+                        source_block,
+                    },
+                    Instruction::Kernel {
+                        node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. },
+                        source_block: expected,
+                    },
+                ) => source_block == expected && *player == self.entry(frame.stack_id)?.controller,
                 (ResolutionChoice::Object {}, _) => self.object_choice_spec(frame).is_ok(),
                 (
                     ResolutionChoice::Sacrifice {

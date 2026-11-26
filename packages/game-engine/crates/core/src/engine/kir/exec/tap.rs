@@ -11,7 +11,24 @@ impl RulesTxn {
         tap: bool,
         source_block: u32,
     ) -> Result<(), String> {
-        let (objects, _) = self.kernel_set(&frame, zone, filter)?;
+        let objects = match filter.0.as_slice() {
+            [
+                mtg_contracts::kir::Atom::Type {
+                    kind: CardKind::Creature,
+                },
+                mtg_contracts::kir::Atom::ControlledBy {
+                    player:
+                        player @ PlayerExpr::Is {
+                            who: Ref::Target { .. },
+                        },
+                },
+            ] => match self.kernel_players(&frame, player)? {
+                Players::One(player) => self.controlled_creatures(player),
+                Players::Nobody => vec![],
+                Players::EachOpponent => return Err("expected one targeted player".into()),
+            },
+            _ => self.kernel_set(&frame, zone, filter)?.0,
+        };
         self.kernel_tap_objects(frame, objects, tap, source_block)
     }
 

@@ -379,6 +379,7 @@ pub enum Capability {
     GraveyardRecursionV1,
 
     OwnGraveyardCardReturnV1,
+    GraveyardCardTargetV1,
     PrivateLibraryReorderV1,
     SearchLibraryTopV1,
     SearchSplitBasicLandsV1,
@@ -448,6 +449,10 @@ pub enum TargetDomain {
     BlockingBattlefieldCreature,
     OwnGraveyardCreatureCard,
     OwnGraveyardCard,
+    /// CR 404.1: a card in any graveyard, or only an opponent's.
+    GraveyardCard {
+        opponents_only: bool,
+    },
     OpponentPlayer,
     StackSpell,
     ControlledCreatureSpell,
@@ -2293,6 +2298,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
+            TargetDomain::GraveyardCard { .. } => Capability::GraveyardCardTargetV1,
             TargetDomain::OwnGraveyardCard => Capability::OwnGraveyardCardReturnV1,
             TargetDomain::PlayerGraveyardCards { .. } => Capability::PlayerGraveyardShuffleV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
