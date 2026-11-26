@@ -114,11 +114,14 @@ impl RulesTxn {
                         || (current.id == target && current.zone == Zone::Battlefield)
                 },
             );
+            // Only a printed Aura or Equipment attaches; one whose type a
+            // layer-4 effect removed waits for CR 704.5p (checked below).
             if o.zone != Zone::Battlefield
                 || !self.is_live(o.controller)
                 || o.id == target
                 || !self
-                    .structural_characteristics(o.id)?
+                    .copiable_definition(o.id)?
+                    .characteristics
                     .subtypes
                     .iter()
                     .any(|s| s == "Equipment" || s == "Aura")
@@ -211,17 +214,23 @@ impl RulesTxn {
         // a static grant and resolved effects in creation order).
         let mut rows: Vec<((u64, u8, u64), Row<'_>)> = vec![];
         let mut forbidden: Vec<KeywordAbility> = vec![];
-        for (timestamp, _, change) in
+        for (timestamp, key, change) in
             self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources)
         {
+            // CR 613.7m: simultaneous sources go in APNAP order (one
+            // controller's ties are rejected at stabilization).
+            let rank = u64::from(
+                self.current(key.source)
+                    .map_or(0, |o| self.apnap_rank(o.controller)),
+            ) << 1;
             match change {
                 Change::AddKeywords { keywords } => {
-                    rows.push(((timestamp, 0, 1), Row::Grant(keywords)))
+                    rows.push(((timestamp, 0, rank | 1), Row::Grant(keywords)))
                 }
                 Change::RemoveKeywords { keywords } => {
-                    rows.push(((timestamp, 0, 0), Row::Remove(keywords)))
+                    rows.push(((timestamp, 0, rank), Row::Remove(keywords)))
                 }
-                Change::RemoveAllAbilities { .. } => rows.push(((timestamp, 0, 0), Row::RemoveAll)),
+                Change::RemoveAllAbilities { .. } => rows.push(((timestamp, 0, rank), Row::RemoveAll)),
                 Change::ForbidKeywords { keywords } => forbidden.extend(keywords.iter().copied()),
                 _ => {}
             }
@@ -361,6 +370,20 @@ impl RulesTxn {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
+            // CR 704.5m-p: classify by current types; a permanent that is no
+            // longer an Aura or Equipment (CR 205.1a) becomes unattached.
+            let current = self.structural_characteristics(o.id)?;
+            let attachment = |name: &str| current.subtypes.iter().any(|s| s == name);
+            let (aura, equipment) = (attachment("Aura"), attachment("Equipment"));
+            if !aura && !equipment {
+                if o.attached_to.is_some() {
+                    occurrences.push(ProposedEvent::Attach {
+                        object: o.id,
+                        target: None,
+                    });
+                }
+                continue;
+            }
             let subtypes = &self.copiable_definition(o.id)?.characteristics.subtypes;
             let legal = match o.attached_to {
                 Some(target) => {
@@ -376,14 +399,14 @@ impl RulesTxn {
             if legal {
                 continue;
             }
-            if subtypes == &["Aura"] {
+            if subtypes == &["Aura"] && aura {
                 occurrences.push(ProposedEvent::Move {
                     object: o.id,
                     destination: Zone::Graveyard {
                         owner: self.state.rules.cards[&o.id.card].owner,
                     },
                 });
-            } else if subtypes == &["Equipment"] && o.attached_to.is_some() {
+            } else if subtypes == &["Equipment"] && equipment && o.attached_to.is_some() {
                 occurrences.push(ProposedEvent::Attach {
                     object: o.id,
                     target: None,

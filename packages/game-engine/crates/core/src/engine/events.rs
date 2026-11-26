@@ -2364,13 +2364,16 @@ impl RulesTxn {
                     }
                     None => true,
                 };
+                // CR 704.5p: anything attached may become unattached; only an
+                // Aura or Equipment attaches.
                 if !self.current(*object)?.present_on_battlefield()
                     || !self.is_live(self.current(*object)?.controller)
-                    || !self
-                        .structural_characteristics(*object)?
-                        .subtypes
-                        .iter()
-                        .any(|s| s == "Equipment" || s == "Aura")
+                    || (target.is_some()
+                        && !self
+                            .structural_characteristics(*object)?
+                            .subtypes
+                            .iter()
+                            .any(|s| s == "Equipment" || s == "Aura"))
                     || !target_valid
                 {
                     return Err("invalid attachment event".into());

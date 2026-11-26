@@ -41,6 +41,8 @@ const DEEP_FREEZE: &str = record!("648aead4-dc0b-47bc-911c-8dcd2cfd32d3");
 const RUSTED_RELIC: &str = record!("57b22bc3-23e8-4632-b10a-495fac5c77c7");
 const LITHOFORM_BLIGHT: &str = record!("b256c311-e37d-4b3c-889c-85443e3d5e7e");
 const TURN_TO_FROG: &str = record!("74c4c1e2-c50d-4c8f-889a-0d5674dc6d67");
+const TRUE_CONVICTION: &str = record!("fc299c1c-50f3-492a-b6b8-a3664bb72ab7");
+const REGRESS: &str = record!("2fa763ad-4d94-4c3a-a099-13ac22c09ce4");
 const DARU_WARCHIEF: &str = record!("3fce53fb-6914-4f43-b46b-18ca32ab21b2");
 const BLAZING_ARCHON: &str = record!("82a70e4c-01ed-4280-80e4-86cb2bf6e63d");
 
@@ -67,6 +69,8 @@ const ALL: &[&str] = &[
     HIVESTONE,
     NIBLIS_OF_DUSK,
     DARU_WARCHIEF,
+    TRUE_CONVICTION,
+    REGRESS,
     BLAZING_ARCHON,
 ];
 
@@ -80,7 +84,7 @@ fn lowered(raw: &str) -> Definition {
     *definition
 }
 
-fn game(cards: &[(&str, u8, Zone)]) -> Game {
+fn unstarted(cards: &[(&str, u8, Zone)]) -> Game {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in ALL {
         let d = lowered(raw);
@@ -111,7 +115,11 @@ fn game(cards: &[(&str, u8, Zone)]) -> Game {
         };
         board = board.card(name, seat, seat, zone);
     }
-    let mut game = Game::with_trace(board.libraries("Forest", 6).prepare(), TraceMode::Detailed);
+    Game::with_trace(board.libraries("Forest", 6).prepare(), TraceMode::Detailed)
+}
+
+fn game(cards: &[(&str, u8, Zone)]) -> Game {
+    let mut game = unstarted(cards);
     Driver::request(&mut game, u64::MAX);
     game
 }
@@ -654,4 +662,174 @@ fn darksteel_mutation_keeps_its_own_grant() {
     assert_eq!(c.subtypes, vec!["Insect".to_string()]);
     assert_eq!(pt(&g, keiga), (q(0), q(1)));
     assert_eq!(keywords(&g, keiga), vec![KeywordAbility::Indestructible]);
+}
+
+/// A snapshot keeps each grant's place in the timestamp order (CR 613.7b).
+fn restored(g: &Game) -> Game {
+    Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap()
+}
+
+#[test]
+fn keyword_grant_order_survives_restore() {
+    // Loss, then a later grant: the restored game still has flying.
+    let mut g = game(&[
+        ("Grizzly Bears", 0, B),
+        ("Kenrith's Transformation", 0, H),
+        ("Lightfoot Technique", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let bears = object(&g, 0);
+    cast_on(&mut g, 1, &[bears], &[3, 4]);
+    cast_on(&mut g, 2, &[bears], &[5, 6]);
+    let r = restored(&g);
+    assert!(keywords(&r, bears).contains(&KeywordAbility::Flying));
+    assert_eq!(keywords(&r, bears), keywords(&g, bears));
+    // An active grant saved before the loss is still removed by it.
+    let mut g = game(&[
+        ("Grizzly Bears", 0, B),
+        ("Kenrith's Transformation", 0, H),
+        ("Lightfoot Technique", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let bears = object(&g, 0);
+    cast_on(&mut g, 2, &[bears], &[5, 6]);
+    let mut r = restored(&g);
+    assert!(keywords(&r, bears).contains(&KeywordAbility::Flying));
+    cast_on(&mut r, 1, &[bears], &[3, 4]);
+    assert!(keywords(&r, bears).is_empty());
+}
+
+/// CR 613.8a-c: dependency is decided across the battlefield. The first
+/// Song applies before the second by timestamp; Blood Moon depends on the
+/// second (it makes a creature a land), so it applies last and both
+/// enchanted permanents are Mountains.
+#[test]
+fn blood_moon_waits_for_every_song() {
+    let mut g = game(&[
+        ("Blood Moon", 0, B),
+        ("Command Tower", 1, B),
+        ("Grizzly Bears", 1, B),
+        ("Song of the Dryads", 0, H),
+        ("Song of the Dryads", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+    ]);
+    let (tower, bears) = (object(&g, 1), object(&g, 2));
+    cast_on(&mut g, 3, &[tower], &[5, 6, 7]);
+    assert_eq!(g.mana_abilities(tower).unwrap(), vec![Color::G]);
+    cast_on(&mut g, 4, &[bears], &[8, 9, 10]);
+    for permanent in [tower, bears] {
+        let c = g.characteristics(permanent).unwrap();
+        assert_eq!(c.subtypes, vec!["Mountain".to_string()]);
+        assert_eq!(g.mana_abilities(permanent).unwrap(), vec![Color::R]);
+    }
+}
+
+/// CR 205.1a, 704.5p: an Equipment that becomes a land is no longer an
+/// Equipment and becomes unattached; it grants nothing again until it is
+/// re-equipped after the Song leaves.
+#[test]
+fn former_equipment_becomes_unattached() {
+    let mut cards = vec![
+        ("Colossus Hammer", 0, B),
+        ("Grizzly Bears", 0, B),
+        ("Song of the Dryads", 0, H),
+        ("Regress", 0, H),
+    ];
+    cards.extend([("Forest", 0, B); 11]);
+    cards.extend([("Island", 0, B); 3]);
+    let mut g = game(&cards);
+    let (hammer, bears) = (object(&g, 0), object(&g, 1));
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: hammer,
+            ability: 0,
+        },
+    );
+    let r = Driver::request(&mut g, u64::MAX);
+    g.respond(r.player, r.id, r.targets(vec![bears])).unwrap();
+    Driver::pay(&mut g, &[4, 5, 6, 7, 8, 9, 10, 11]);
+    settle(&mut g, &[]);
+    assert_eq!(g.current(hammer).unwrap().attached_to, Some(bears));
+    assert_eq!(pt(&g, bears), (q(12), q(12)));
+    cast_on(&mut g, 2, &[hammer], &[12, 13, 14]);
+    let c = g.characteristics(hammer).unwrap();
+    assert_eq!((c.kind, c.subtypes.clone()), (CardKind::Land, vec!["Forest".to_string()]));
+    assert_eq!(g.current(hammer).unwrap().attached_to, None);
+    assert_eq!(pt(&g, bears), (q(2), q(2)));
+    let song = object(&g, 2);
+    cast_on(&mut g, 3, &[song], &[15, 16, 17]);
+    assert!(g.characteristics(hammer).unwrap().has_subtype("Equipment"));
+    assert_eq!(g.current(hammer).unwrap().attached_to, None);
+    assert_eq!(pt(&g, bears), (q(2), q(2)));
+}
+
+/// CR 613.7m: simultaneous timestamps go in APNAP order. Setup permanents
+/// share one timestamp; True Conviction's source is untouched by Humility,
+/// so only the order decides whether its grant survives.
+#[test]
+fn simultaneous_timestamps_follow_apnap_or_reject() {
+    // The active player's True Conviction is earlier; Humility removes it.
+    let g = game(&[
+        ("True Conviction", 0, B),
+        ("Grizzly Bears", 0, B),
+        ("Humility", 1, B),
+    ]);
+    assert!(keywords(&g, object(&g, 1)).is_empty());
+    checked(&g);
+    // The active player's Humility is earlier; the later grant survives.
+    let g = game(&[
+        ("Humility", 0, B),
+        ("True Conviction", 1, B),
+        ("Grizzly Bears", 1, B),
+    ]);
+    let bears = object(&g, 2);
+    let now = keywords(&g, bears);
+    assert!(now.contains(&KeywordAbility::DoubleStrike) && now.contains(&KeywordAbility::Lifelink));
+    assert_eq!(pt(&g, bears), (q(1), q(1)));
+    checked(&g);
+    // One controller's simultaneous objects need that player's order, which
+    // no decision asks: the next stabilization rejects the state.
+    let mut g = game(&[
+        ("Humility", 0, B),
+        ("True Conviction", 0, B),
+        ("Grizzly Bears", 0, B),
+        ("Lightfoot Technique", 0, H),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let bears = object(&g, 2);
+    Driver::cast(&mut g, CardId(3));
+    let r = Driver::request(&mut g, u64::MAX);
+    g.respond(
+        r.player,
+        r.id,
+        r.entity_targets(vec![TargetEntity::Object { object: bears }]),
+    )
+    .unwrap();
+    Driver::pay(&mut g, &[4, 5]);
+    let mut result = Driver::settle(&mut g, u64::MAX);
+    for _ in 0..8 {
+        let Advance::AwaitingDecision(r) = &result else {
+            break;
+        };
+        let answer = mtg_witness::temporary::pass(r);
+        g.respond(r.player, r.id, answer).unwrap();
+        result = Driver::settle(&mut g, u64::MAX);
+    }
+    assert!(
+        matches!(&result, Advance::Fault(reason) if reason.contains("613.7m")),
+        "{result:?}"
+    );
 }

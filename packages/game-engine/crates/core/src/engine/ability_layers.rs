@@ -44,11 +44,9 @@ pub(super) struct Removal<'a> {
     affects: &'a Scope,
     first: Layer,
     time: u64,
+    rank: u8,
 }
 
-/// Cross-object recursion is bounded: each nested level excludes one more
-/// static from consideration.
-const LAYER_DEPTH: usize = 16;
 
 fn first_layer(changes: &[Change]) -> Option<Layer> {
     changes.iter().map(Change::layer).min()
@@ -175,8 +173,20 @@ fn apply_type_change(
     }
 }
 
-enum Row<'a> {
-    Resolved(&'a Animation),
+/// One layer-4 effect: a resolved animation with its captured
+/// incarnations, or a static ability.
+struct Eff<'a> {
+    /// (timestamp, resolved before static, APNAP rank, creation).
+    order: (u64, u8, u8, usize),
+    controller: PlayerId,
+    kind: EffKind<'a>,
+}
+
+enum EffKind<'a> {
+    Resolved {
+        targets: Vec<ObjectId>,
+        animation: &'a Animation,
+    },
     Static {
         key: StaticKey,
         source: &'a Object,
@@ -185,17 +195,25 @@ enum Row<'a> {
     },
 }
 
-impl Row<'_> {
-    fn apply(&self, facts: &mut Characteristics, printed: &Characteristics, removed: &mut bool) {
-        match self {
-            Row::Resolved(animation) => apply_animation(facts, animation, printed),
-            Row::Static { changes, .. } => {
-                for change in changes.iter().filter(|c| c.layer() == Layer::Type) {
-                    apply_type_change(facts, change, printed, removed);
-                }
-            }
-        }
-    }
+#[derive(Clone, Debug)]
+pub(in crate::engine) struct Entry {
+    facts: Characteristics,
+    removed: bool,
+    applied: Vec<StaticKey>,
+}
+
+/// Layer-4 state while effects apply; an absent object has its copiable
+/// values.
+#[derive(Clone)]
+struct Layer4 {
+    entries: BTreeMap<ObjectId, Entry>,
+}
+
+/// The layer-4 result of every battlefield object a layer-4 effect reached.
+#[derive(Debug)]
+pub(in crate::engine) struct GlobalTypes {
+    entries: BTreeMap<ObjectId, Entry>,
+    ambiguous: bool,
 }
 
 impl RulesTxn {
@@ -245,68 +263,133 @@ impl RulesTxn {
     }
 
     pub(super) fn type_layer(&self, object: ObjectId) -> Result<TypeLayer<'_>, String> {
-        let setters = self.land_type_setters(None);
-        self.type_layer_excluding(object, &[], setters)
-    }
-
-    /// Whether `source` keeps its rules-text abilities for the effect `key`
-    /// (CR 305.7, 613.8a: the effect is not removed by itself).
-    pub(super) fn keeps_rules_text(
-        &self,
-        source: ObjectId,
-        key: StaticKey,
-        exclude: &[StaticKey],
-        setters: bool,
-    ) -> Result<bool, String> {
-        if !setters {
-            return Ok(true);
-        }
-        // CR 305.7 reaches only a land: a source that is no land card can
-        // become one only through a static that sets card types.
-        if !self
-            .copiable_definition(source)?
-            .characteristics
-            .has_type(CardKind::Land)
-            && !self.any_static_change(
-                None,
-                |c| matches!(c, Change::SetCardTypes { kinds } if kinds.contains(&CardKind::Land)),
-            )
-        {
-            return Ok(true);
-        }
-        let mut excluded = exclude.to_vec();
-        excluded.push(key);
-        Ok(!self
-            .type_layer_excluding(source, &excluded, setters)?
-            .rules_text_removed)
-    }
-
-    fn type_layer_excluding(
-        &self,
-        object: ObjectId,
-        exclude: &[StaticKey],
-        setters: bool,
-    ) -> Result<TypeLayer<'_>, String> {
-        if exclude.len() > LAYER_DEPTH {
-            return Err("layer-4 dependency depth exceeded".into());
-        }
         let printed = &self.copiable_definition(object)?.characteristics;
-        let mut out = TypeLayer {
-            facts: Cow::Borrowed(printed),
-            rules_text_removed: false,
-            applied: vec![],
-        };
-        let Some(target) = self
+        let present = self
             .current(object)
-            .ok()
-            .filter(|o| o.present_on_battlefield())
-        else {
-            return Ok(out);
+            .is_ok_and(|o| o.id == object && o.present_on_battlefield());
+        let entry = if present {
+            self.global_types()?.entries.get(&object)
+        } else {
+            None
         };
-        let mut rows: Vec<(u64, u8, Row<'_>)> = self
-            .resolved_characteristic_sets(object)
-            .filter_map(|(time, values)| Some((time, 0, Row::Resolved(values.animation.as_ref()?))))
-            .collect();
+        Ok(match entry {
+            Some(e) => TypeLayer {
+                facts: Cow::Borrowed(&e.facts),
+                rules_text_removed: e.removed,
+                applied: e.applied.clone(),
+            },
+            None => TypeLayer {
+                facts: Cow::Borrowed(printed),
+                rules_text_removed: false,
+                applied: vec![],
+            },
+        })
+    }
+
+    /// CR 305.7: whether `source` keeps the abilities its rules text
+    /// generates after layer 4.
+    pub(super) fn keeps_rules_text(&self, source: ObjectId) -> Result<bool, String> {
+        Ok(!self
+            .global_types()?
+            .entries
+            .get(&source)
+            .is_some_and(|e| e.removed))
+    }
+
+    /// CR 613.7m: the relative timestamps of one controller's simultaneous
+    /// objects are that player's choice. The engine asks no such choice, so a
+    /// state where that order would decide a layer-4 or layer-6 result is
+    /// rejected; objects of different controllers go in APNAP order.
+    pub(super) fn reject_simultaneous_timestamp_order(&self) -> Result<(), String> {
+        const REJECT: &str = "simultaneous timestamps of one controller would decide a continuous effect (CR 613.7m)";
+        if self.global_types()?.ambiguous || self.alive_removals_ordered(None)?.1 {
+            return Err(REJECT.into());
+        }
+        let alive = self.alive_removals(None)?;
+        if alive.is_empty()
+            && !self.any_static_change(None, |c| matches!(c, Change::RemoveKeywords { .. }))
+        {
+            return Ok(());
+        }
+        let controller = |key: StaticKey| self.current(key.source).map(|o| o.controller).ok();
+        for object in self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.present_on_battlefield())
+        {
+            let rows = self.static_changes_keyed(object.id, Layer::Ability, None);
+            for (time, removing, removal) in &rows {
+                let removed: Option<&[KeywordAbility]> = match removal {
+                    Change::RemoveAllAbilities { .. } => None,
+                    Change::RemoveKeywords { keywords } => Some(keywords),
+                    _ => continue,
+                };
+                for (other, granting, grant) in &rows {
+                    let overlaps = match (grant, removed) {
+                        (Change::AddKeywords { .. } | Change::AddManaAbilities { .. }, None) => true,
+                        (Change::AddKeywords { keywords }, Some(removed)) => {
+                            keywords.iter().any(|k| removed.contains(k))
+                        }
+                        _ => false,
+                    };
+                    if overlaps
+                        && other == time
+                        && granting.source != removing.source
+                        && controller(*granting) == controller(*removing)
+                    {
+                        return Err(REJECT.into());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The layer-4 result of the whole battlefield, cached until the next
+    /// rules write (`RulesState`).
+    fn global_types(&self) -> Result<&GlobalTypes, String> {
+        let cache = self.state.rules.layer_cache();
+        if let Some(types) = cache.get() {
+            return Ok(types);
+        }
+        let types = std::sync::Arc::new(self.compute_global_types()?);
+        let _ = cache.set(types);
+        Ok(cache.get().expect("layer cache was just set"))
+    }
+
+    /// CR 613.7m: the active player's objects first, then turn order.
+    pub(super) fn apnap_rank(&self, player: PlayerId) -> u8 {
+        let active = self.state.rules.active.map_or(0, |p| p.0);
+        (player.0 + 4 - active) % 4
+    }
+
+    fn compute_global_types(&self) -> Result<GlobalTypes, String> {
+        let mut effects: Vec<Eff<'_>> = vec![];
+        for effect in &self.state.rules.effects {
+            if let ResolvedEffectKind::SetCharacteristics {
+                targets,
+                values,
+                timestamp,
+            } = &effect.kind
+                && let Some(animation) = &values.animation
+            {
+                let targets: Vec<ObjectId> = targets
+                    .iter()
+                    .copied()
+                    .filter(|t| {
+                        self.current(*t)
+                            .is_ok_and(|o| o.id == *t && o.present_on_battlefield())
+                    })
+                    .collect();
+                effects.push(Eff {
+                    order: (*timestamp, 0, 0, effects.len()),
+                    controller: effect.origin.controller,
+                    kind: EffKind::Resolved { targets, animation },
+                });
+            }
+        }
         for (source, key, effect) in self.indexed_battlefield_statics(None) {
             let StaticEffect::Continuous {
                 affects,
@@ -316,83 +399,196 @@ impl RulesTxn {
             else {
                 continue;
             };
-            if first_layer(changes) != Some(Layer::Type) || exclude.contains(&key) {
-                continue;
-            }
-            let possible = match affects {
-                Scope::Source => source.id == object,
-                Scope::Attachment { .. } => source.attached_to == Some(object),
-                Scope::Matching { .. } => true,
-            };
-            if !possible
+            // Admitted layer-4 conditions read nothing a layer changes.
+            if first_layer(changes) != Some(Layer::Type)
                 || condition
                     .as_ref()
                     .is_some_and(|c| !self.static_condition(source, c))
-                || !self.keeps_rules_text(source.id, key, exclude, setters)?
             {
                 continue;
             }
-            rows.push((
-                source.keyword_timestamp.unwrap_or(0),
-                1,
-                Row::Static {
+            effects.push(Eff {
+                order: (
+                    source.keyword_timestamp.unwrap_or(0),
+                    1,
+                    self.apnap_rank(source.controller),
+                    effects.len(),
+                ),
+                controller: source.controller,
+                kind: EffKind::Static {
                     key,
                     source,
                     affects,
                     changes,
                 },
-            ));
+            });
         }
-        if rows.is_empty() {
-            return Ok(out);
-        }
-        // CR 613.7b: creation order, a resolved animation before a static
-        // ability with the same timestamp.
-        rows.sort_by_key(|(time, order, _)| (*time, *order));
-        let member = |row: &Row<'_>, facts: &Characteristics| match row {
-            Row::Resolved(_) => true,
-            Row::Static {
-                source, affects, ..
-            } => self.static_matches(affects, source, target, facts, target.controller),
+        let mut state = Layer4 {
+            entries: BTreeMap::new(),
         };
-        // CR 613.8b-c: apply the earliest effect that no remaining effect
-        // would change the applicability of, re-evaluated after each one;
-        // in a loop, timestamp order.
-        while !rows.is_empty() {
-            let facts = out.facts.as_ref();
-            let pick = (0..rows.len())
-                .find(|&i| {
-                    let row = &rows[i].2;
-                    if matches!(
-                        row,
-                        Row::Resolved(_)
-                            | Row::Static {
-                                affects: Scope::Source,
-                                ..
+        let mut ambiguous = false;
+        effects.sort_by_key(|e| e.order);
+        // CR 613.8b-c: apply the earliest effect that depends on no other
+        // remaining effect outside its own dependency loop; re-evaluate
+        // after each application.
+        while !effects.is_empty() {
+            let apps = effects
+                .iter()
+                .map(|e| self.layer4_application(e, &state))
+                .collect::<Result<Vec<_>, _>>()?;
+            let n = effects.len();
+            let mut depends = vec![vec![false; n]; n];
+            for j in 0..n {
+                if apps[j].is_empty() {
+                    continue;
+                }
+                let mut after = state.clone();
+                self.apply_layer4_effect(&effects[j], &apps[j], &mut after)?;
+                for i in (0..n).filter(|i| *i != j) {
+                    depends[i][j] = self.layer4_application(&effects[i], &after)? != apps[i];
+                }
+            }
+            // Transitive closure; i is ready when everything it reaches
+            // reaches it back (its loop is a sink).
+            let mut reach = depends.clone();
+            for k in 0..n {
+                for i in 0..n {
+                    if reach[i][k] {
+                        for j in 0..n {
+                            if reach[k][j] {
+                                reach[i][j] = true;
                             }
-                    ) {
-                        return true;
-                    }
-                    let now = member(row, facts);
-                    rows.iter().enumerate().all(|(j, (_, _, other))| {
-                        if j == i || !member(other, facts) {
-                            return true;
                         }
-                        let mut after = facts.clone();
-                        other.apply(&mut after, printed, &mut false);
-                        member(row, &after) == now
-                    })
-                })
-                .unwrap_or(0);
-            let (_, _, row) = rows.remove(pick);
-            if member(&row, out.facts.as_ref()) {
-                row.apply(out.facts.to_mut(), printed, &mut out.rules_text_removed);
-                if let Row::Static { key, .. } = row {
-                    out.applied.push(key);
+                    }
+                }
+            }
+            let ready: Vec<usize> = (0..n)
+                .filter(|&i| (0..n).all(|j| !reach[i][j] || reach[j][i]))
+                .collect();
+            let pick = *ready.first().ok_or("layer-4 dependency order is empty")?;
+            for &other in &ready[1..] {
+                if self.order_matters(&effects, pick, other, &apps, &state)? {
+                    ambiguous = true;
+                }
+            }
+            let effect = effects.remove(pick);
+            self.apply_layer4_effect(&effect, &apps[pick], &mut state)?;
+        }
+        Ok(GlobalTypes {
+            entries: state.entries,
+            ambiguous,
+        })
+    }
+
+    /// CR 613.7m: two ready statics of one controller with one timestamp
+    /// whose order changes the result.
+    fn order_matters(
+        &self,
+        effects: &[Eff<'_>],
+        a: usize,
+        b: usize,
+        apps: &[Vec<ObjectId>],
+        state: &Layer4,
+    ) -> Result<bool, String> {
+        let (x, y) = (&effects[a], &effects[b]);
+        let (EffKind::Static { key: kx, .. }, EffKind::Static { key: ky, .. }) = (&x.kind, &y.kind)
+        else {
+            return Ok(false);
+        };
+        if (x.order.0, x.order.1) != (y.order.0, y.order.1)
+            || x.controller != y.controller
+            || kx.source == ky.source
+            || !apps[a].iter().any(|o| apps[b].contains(o))
+        {
+            return Ok(false);
+        }
+        let run = |first: usize, second: usize| -> Result<Layer4, String> {
+            let mut s = state.clone();
+            self.apply_layer4_effect(&effects[first], &apps[first], &mut s)?;
+            let next = self.layer4_application(&effects[second], &s)?;
+            self.apply_layer4_effect(&effects[second], &next, &mut s)?;
+            Ok(s)
+        };
+        let (one, two) = (run(a, b)?, run(b, a)?);
+        Ok(apps[a].iter().chain(&apps[b]).any(|o| {
+            let (p, q) = (one.entries.get(o), two.entries.get(o));
+            p.map(|e| (&e.facts, e.removed)) != q.map(|e| (&e.facts, e.removed))
+        }))
+    }
+
+    /// The objects `effect` applies to in `state`; empty when its source no
+    /// longer has the ability (CR 305.7).
+    fn layer4_application(&self, effect: &Eff<'_>, state: &Layer4) -> Result<Vec<ObjectId>, String> {
+        let (source, affects) = match &effect.kind {
+            EffKind::Resolved { targets, .. } => return Ok(targets.clone()),
+            EffKind::Static {
+                source, affects, ..
+            } => (*source, *affects),
+        };
+        if state.entries.get(&source.id).is_some_and(|e| e.removed) {
+            return Ok(vec![]);
+        }
+        let matches = |target: &Object| -> Result<bool, String> {
+            let facts = match state.entries.get(&target.id) {
+                Some(e) => &e.facts,
+                None => &self.copiable_definition(target.id)?.characteristics,
+            };
+            Ok(self.static_matches(affects, source, target, facts, target.controller))
+        };
+        Ok(match affects {
+            Scope::Source => vec![source.id],
+            Scope::Attachment { .. } => match source
+                .attached_to
+                .and_then(|t| self.current(t).ok())
+                .filter(|t| t.present_on_battlefield())
+            {
+                Some(target) if matches(target)? => vec![target.id],
+                _ => vec![],
+            },
+            Scope::Matching { .. } => {
+                let mut out = vec![];
+                for target in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield())
+                {
+                    if matches(target)? {
+                        out.push(target.id);
+                    }
+                }
+                out
+            }
+        })
+    }
+
+    fn apply_layer4_effect(
+        &self,
+        effect: &Eff<'_>,
+        members: &[ObjectId],
+        state: &mut Layer4,
+    ) -> Result<(), String> {
+        for object in members {
+            let printed = &self.copiable_definition(*object)?.characteristics;
+            let entry = state.entries.entry(*object).or_insert_with(|| Entry {
+                facts: printed.clone(),
+                removed: false,
+                applied: vec![],
+            });
+            match &effect.kind {
+                EffKind::Resolved { animation, .. } => {
+                    apply_animation(&mut entry.facts, animation, printed)
+                }
+                EffKind::Static { key, changes, .. } => {
+                    for change in changes.iter().filter(|c| c.layer() == Layer::Type) {
+                        apply_type_change(&mut entry.facts, change, printed, &mut entry.removed);
+                    }
+                    entry.applied.push(*key);
                 }
             }
         }
-        Ok(out)
+        Ok(())
     }
 
     /// Whether the layer-6 removal `r` applies to `target`, read in the
@@ -422,8 +618,18 @@ impl RulesTxn {
         &'a self,
         sources: Option<&'a [CardId]>,
     ) -> Result<Vec<Removal<'a>>, String> {
+        Ok(self.alive_removals_ordered(sources)?.0)
+    }
+
+    /// [`Self::alive_removals`], and whether a loop's timestamp order fell
+    /// to one controller's simultaneous removals (CR 613.7m).
+    fn alive_removals_ordered<'a>(
+        &'a self,
+        sources: Option<&'a [CardId]>,
+    ) -> Result<(Vec<Removal<'a>>, bool), String> {
+        let mut ambiguous = false;
         if !self.ability_removers(sources) {
-            return Ok(vec![]);
+            return Ok((vec![], false));
         }
         let setters = self.land_type_setters(sources);
         let mut alive = vec![];
@@ -448,11 +654,12 @@ impl RulesTxn {
                 affects,
                 first,
                 time: source.keyword_timestamp.unwrap_or(0),
+                rank: self.apnap_rank(source.controller),
             };
             if first == Layer::Type {
                 // Its existence and recipients are fixed in layer 4.
                 alive.push(removal);
-            } else if self.keeps_rules_text(source.id, key, &[], setters)? {
+            } else if !setters || self.keeps_rules_text(source.id)? {
                 if first < Layer::Ability {
                     alive.push(removal);
                 } else {
@@ -460,7 +667,7 @@ impl RulesTxn {
                 }
             }
         }
-        pending.sort_by_key(|r| r.time);
+        pending.sort_by_key(|r| (r.time, r.rank));
         loop {
             let mut kept = vec![];
             for p in pending {
@@ -477,18 +684,25 @@ impl RulesTxn {
             }
             pending = kept;
             if pending.is_empty() {
-                return Ok(alive);
+                return Ok((alive, ambiguous));
             }
-            let mut pick = 0;
+            let mut pick = None;
             'candidates: for i in 0..pending.len() {
                 for (j, q) in pending.iter().enumerate() {
                     if j != i && self.removal_applies(q, pending[i].source)? {
                         continue 'candidates;
                     }
                 }
-                pick = i;
+                pick = Some(i);
                 break;
             }
+            // CR 613.8b: a loop applies in timestamp order (APNAP for ties).
+            let pick = pick.unwrap_or_else(|| {
+                ambiguous |= pending.len() > 1
+                    && (pending[0].time, pending[0].rank) == (pending[1].time, pending[1].rank)
+                    && pending[0].source.id != pending[1].source.id;
+                0
+            });
             alive.push(pending.remove(pick));
         }
     }
@@ -558,7 +772,7 @@ impl RulesTxn {
             // Decided with its recipients in layer 4.
             return Ok(true);
         }
-        if !self.keeps_rules_text(source.id, key, &[], setters)? {
+        if setters && !self.keeps_rules_text(source.id)? {
             return Ok(false);
         }
         match first {
@@ -612,7 +826,7 @@ impl RulesTxn {
         if !printed.has_type(CardKind::Land) || !self.land_type_setters(None) {
             return Ok(false);
         }
-        for (source, key, effect) in self.indexed_battlefield_statics(None) {
+        for (source, _, effect) in self.indexed_battlefield_statics(None) {
             if let StaticEffect::Continuous {
                 affects: affects @ Scope::Matching { .. },
                 changes,
@@ -622,7 +836,7 @@ impl RulesTxn {
                     .iter()
                     .any(|c| matches!(c, Change::SetLandSubtypes { .. }))
                 && self.static_matches(affects, source, &probe, printed, probe.controller)
-                && self.keeps_rules_text(source.id, key, &[], true)?
+                && self.keeps_rules_text(source.id)?
             {
                 return Ok(true);
             }

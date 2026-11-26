@@ -192,17 +192,26 @@ impl RulesTxn {
             self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources);
         // CR 613.7: a later removal of every ability takes an earlier grant,
         // except the grants of the removing effect itself.
+        // CR 613.7m: simultaneous sources go in APNAP order; a removal
+        // precedes a grant of the same rank.
+        let order = |time: u64, key: &ability_layers::StaticKey| {
+            (
+                time,
+                self.current(key.source)
+                    .map_or(0, |o| self.apnap_rank(o.controller)),
+            )
+        };
         let removals: Vec<_> = changes
             .iter()
             .filter(|(_, _, c)| matches!(c, Change::RemoveAllAbilities { .. }))
-            .map(|(time, key, _)| (*time, *key))
+            .map(|(time, key, _)| (order(*time, key), *key))
             .collect();
         changes
             .into_iter()
             .filter(|(time, key, _)| {
                 removals
                     .iter()
-                    .all(|(removed, remover)| remover == key || removed <= time)
+                    .all(|(removed, remover)| remover == key || *removed <= order(*time, key))
             })
             .flat_map(|(_, key, change)| match change {
                 Change::AddManaAbilities { abilities } => {
