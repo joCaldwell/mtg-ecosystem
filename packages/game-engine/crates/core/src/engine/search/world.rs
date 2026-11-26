@@ -390,6 +390,9 @@ impl SampleBuildWork {
                     plus_one_counters: Quantity::zero(),
                     transforms: 0,
                     adventure_player: None,
+                    // Rebuilds even the viewer's own face-down permanents face
+                    // up; face-down cards are outside the reviewed search tier,
+                    // and this must change before they are promoted to it.
                     face_down: false,
                     deathtouch_damage: false,
                     unearthed: false,

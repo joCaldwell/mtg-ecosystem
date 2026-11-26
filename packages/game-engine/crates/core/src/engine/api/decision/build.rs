@@ -188,7 +188,11 @@ impl RulesTxn {
                 cost,
                 pool,
                 step: PayStep::Produce {
-                    sources: sources.iter().map(m).collect(),
+                    sources: {
+                        let mut sources: Vec<u32> = sources.iter().map(m).collect();
+                        sources.sort_unstable();
+                        sources
+                    },
                 },
             },
             shape @ (Shape::Number { .. } | Shape::Pay { .. }) => shape,

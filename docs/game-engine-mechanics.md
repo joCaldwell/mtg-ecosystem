@@ -123,7 +123,8 @@ casting or entering transformed and two-part flashback stay rejected.
 
 Fixed-mana morph and megamorph lower to `Definition::face_down` on single-face
 permanent cards (CR 702.37a-b). `CastFaceDown` casts from hand or the command
-zone as a face-down creature spell, with that spell's timing, prohibitions and
+zone (a commander only from there, since its public damage tally would name it,
+CR 903.10a) as a face-down creature spell, with that spell's timing, prohibitions and
 cost changes; {3} is its one alternative cost (CR 702.37c, 118.9a, 708.4), and
 `Game::quote_face_down_cast_cost` prices it. It is its own action because the
 card turns face down before it is stacked. `Object::face_down` gives the CR

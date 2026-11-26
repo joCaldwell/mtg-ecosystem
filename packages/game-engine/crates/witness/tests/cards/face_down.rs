@@ -931,3 +931,36 @@ fn combat_declarations_do_not_order_face_down_cards_by_identity() {
     assert_eq!(attack_a, attack_b);
     assert_eq!(block_a, block_b);
 }
+
+/// CR 708.5, 903.10a: the public commander-damage tally would identify a
+/// commander cast face down from a hand, so that cast is not offered; from
+/// the command zone, which card left is already public.
+#[test]
+fn a_commander_is_cast_face_down_only_from_the_command_zone() {
+    for zone in [
+        Zone::Hand { owner: PlayerId(0) },
+        Zone::Command { owner: PlayerId(0) },
+    ] {
+        let mut game = Game::new(
+            lands(
+                board()
+                    .card("Akroma, Angel of Fury", 0, 0, zone)
+                    .commander(CardId(0)),
+                "Mountain",
+                3,
+            )
+            .prepare(),
+        );
+        let akroma = Driver::object(&game, 0);
+        let decision = Driver::request(&mut game, u64::MAX);
+        let offered = can(&decision, Action::CastFaceDown { card: akroma });
+        assert_eq!(offered, matches!(zone, Zone::Command { .. }), "{zone:?}");
+        let handle = game.handle_for(PlayerId(0), akroma).unwrap();
+        let quote = game.quote_face_down_cast_cost(PlayerId(0), &handle);
+        if offered {
+            assert_eq!(quote.unwrap().generic, 3.into());
+        } else {
+            assert!(quote.unwrap_err().contains("commander from a hand"));
+        }
+    }
+}

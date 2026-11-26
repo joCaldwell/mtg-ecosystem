@@ -135,6 +135,15 @@ impl RulesTxn {
         {
             return Err("invalid or unsupported face-down cast".into());
         }
+        // CR 708.5, 903.10a: commander combat damage is tracked publicly by
+        // physical card, so a commander cast face down from a hand would be
+        // identified by its tally. From the command zone it is already
+        // public which card left.
+        if object.zone == (Zone::Hand { owner: player })
+            && self.state.rules.commanders.history(card).is_some()
+        {
+            return Err("unsupported face-down cast of a commander from a hand".into());
+        }
         let face_down = face_down::face_down_definition();
         let program = face_down
             .spell
