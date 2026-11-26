@@ -802,7 +802,8 @@ provenance, and `forEach` amounts (CR 121.2a).
 
 ### Modal spells and abilities
 
-A printed "Choose one", "two", "one or both" or "one or more" over two to five
+A printed "Choose one", "two", "one or both", "one or more", "up to one"
+or "any number" over two to five
 bullets lowers to a `ModalSpell` declaration (CR 700.2): an instant or
 sorcery's only block, or a trigger's or activation's text after its header.
 Counts and bullets must match the AST and certified spans and every mode must
@@ -811,12 +812,14 @@ distinct modes is its own program in printed order (CR 700.2d), yielded by
 `spell_programs` and `programs`; the base program keeps timing only.
 
 Spells and activations choose modes before costs, X and targets (CR 601.2b);
-a trigger chooses with its targets and leaves the stack with nothing offerable
-(CR 603.3c). Only selections with legal targets are offered, each targeting at
-most one object or player; the public `mode_mask` selects the program. These
-earn `Executes` (`modal_choice_v1`). "Up to one", "any number", repeats,
-entwine, escalate, spree, costed modes, upgrades, other text in the block,
-two-target selections and mana modes reject.
+a trigger chooses with its targets and is removed if no mode can be chosen
+or it chooses zero modes (CR 603.3c, 700.2b). Only selections with legal targets
+are offered. A zero `mode_mask` represents a chosen empty set. Spell selections
+can announce independent object occurrences or a single counted
+target group. Illegal targets suppress their own effects if another target
+remains legal (CR 608.2b). These earn `Executes` (`modal_choice_v1`).
+Repeats, entwine, escalate, spree, costed modes, upgrades, mixed target
+announcement routes, and mana modes are outside this subset.
 
 ### Resolution-time counts
 
