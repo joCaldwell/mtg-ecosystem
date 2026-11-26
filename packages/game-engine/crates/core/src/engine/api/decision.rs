@@ -64,10 +64,8 @@ impl RulesTxn {
             Frame::TriggerTargets { .. }
             | Frame::Targets { .. }
             | Frame::PlayerTargets { .. }
-            | Frame::EntityTargets { .. } => self.target_decision()?,
-            Frame::StackTargets { .. } => {
-                return Err("stack targets outside admitted decision algebra".into());
-            }
+            | Frame::EntityTargets { .. }
+            | Frame::StackTargets { .. } => self.target_decision()?,
             Frame::ChooseModes { .. } => return self.mode_decision(),
             Frame::AdditionalCosts { .. } => {
                 let candidates: Vec<_> = self

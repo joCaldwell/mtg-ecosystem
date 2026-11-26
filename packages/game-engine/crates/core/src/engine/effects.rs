@@ -102,7 +102,9 @@ impl ResolvedEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
-    RegenerationShield,
+    RegenerationShield {
+        target: ObjectId,
+    },
     ProtectControllerUntilNextTurn,
     RemoveIndestructibleSet {
         targets: Vec<ObjectId>,
@@ -1062,7 +1064,8 @@ impl RulesTxn {
             StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
         };
         let target_handles = match &kind {
-            ResolvedEffectKind::GrantKeywords { target, .. }
+            ResolvedEffectKind::RegenerationShield { target }
+            | ResolvedEffectKind::GrantKeywords { target, .. }
             | ResolvedEffectKind::ModifyPowerToughness { target, .. }
             | ResolvedEffectKind::CombatProhibition {
                 affects: CombatProhibitionScope::Target { target },
@@ -1653,6 +1656,13 @@ impl RulesTxn {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        kernel!(Regenerate { what } @ source_block),
+                        ResolvedEffectKind::RegenerationShield { target },
+                    ) => {
+                        *source_block == effect.origin.source_block
+                            && self.regeneration_target(frame, what)? == Some(*target)
+                    }
+                    (
                         Instruction::Kernel {
                             node: mtg_contracts::kir::Node::Do(verb),
                             source_block,
@@ -1781,7 +1791,8 @@ impl RulesTxn {
                                 })
                             })
                     }
-                    ResolvedEffectKind::GrantKeywords { target, .. }
+                    ResolvedEffectKind::RegenerationShield { target }
+                    | ResolvedEffectKind::GrantKeywords { target, .. }
                     | ResolvedEffectKind::ModifyPowerToughness { target, .. }
                     | ResolvedEffectKind::CombatProhibition {
                         affects: CombatProhibitionScope::Target { target },
@@ -2043,6 +2054,30 @@ impl RulesTxn {
             let mut bound = false;
             for instruction in instructions {
                 bound |= match (instruction, &e.kind) {
+                    (
+                        kernel!(Regenerate { what } @ source_block),
+                        ResolvedEffectKind::RegenerationShield { target },
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && self
+                                .current(*target)
+                                .is_ok_and(|o| o.zone == Zone::Battlefield)
+                            && e.target_handles.len() == 4
+                            && (0..4).all(|viewer| {
+                                self.object_handle_id(PlayerId(viewer), *target).is_ok_and(
+                                    |handle| *handle == e.target_handles[viewer as usize],
+                                )
+                            })
+                            && match what {
+                                SetExpr::One {
+                                    object: Ref::Source,
+                                } => *target == e.origin.source,
+                                SetExpr::One {
+                                    object: Ref::Target { .. },
+                                } => true,
+                                _ => false,
+                            }
+                    }
                     (
                         kernel!(GainControl { what, controller, until } @ source_block),
                         ResolvedEffectKind::GainControl {
@@ -2570,11 +2605,14 @@ impl RulesTxn {
                     expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
                 }
             }
-            ResolvedEffectKind::RegenerationShield => VisibleEffect::RegenerationShield {
-                handle,
-                origin,
-                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
-            },
+            ResolvedEffectKind::RegenerationShield { target } => {
+                VisibleEffect::RegenerationShield {
+                    handle,
+                    origin,
+                    target: target_view(*target)?,
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
 
             ResolvedEffectKind::RemoveIndestructibleSet { targets, .. } => {
                 VisibleEffect::RemoveIndestructibleSet {

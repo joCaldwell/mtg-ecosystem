@@ -3,6 +3,7 @@ mod card_movement;
 mod continuous;
 mod control;
 mod costs;
+mod counter_regeneration;
 mod damage_triggers;
 mod keywords;
 mod library;

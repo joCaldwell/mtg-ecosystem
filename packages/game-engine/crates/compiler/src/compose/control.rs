@@ -34,7 +34,7 @@
 //! Pinned Comprehensive Rules 2026-09-25:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use kir::{Cmp, Cond, Node, Payment};
+use kir::{Cmp, Cond, Node, Payment, Ref};
 use serde_json::{Map, Value};
 
 fn reject<T>(detail: &str) -> Result<T, Failure> {
@@ -323,7 +323,7 @@ impl Site<'_> {
                 // CR 118.12a: "unless [player] pays [cost]".
                 if *unless && condition["condition"] == "pays" {
                     return Ok(Node::UnlessPays {
-                        payer: self.payer(path, condition)?,
+                        payer: self.payer(path, condition, &node)?,
                         payment: payment(&condition["cost"])?,
                         node,
                     });
@@ -346,13 +346,29 @@ impl Site<'_> {
 
     /// The payer the condition names; the cost's implicit payer, when the
     /// resolution records one, is the same player.
-    fn payer(&self, path: &str, condition: &Value) -> Result<PlayerExpr, Failure> {
+    fn payer(&self, path: &str, condition: &Value, node: &Node) -> Result<PlayerExpr, Failure> {
         let fields = condition.as_object().map(Map::len);
         if fields != Some(3) || condition["cost"].as_array().map(Vec::len) != Some(1) {
             return reject("payment_shape");
         }
-        let payer = self.player(&format!("{path}/condition/who"))?;
-        self.implicit_payer(&format!("{path}/condition/cost/0/payer"), &payer)?;
+        let who = format!("{path}/condition/who");
+        let implicit = format!("{path}/condition/cost/0/payer");
+        // R4 certifies this payer as an evaluated selection of the
+        // controller of a separately bound target. Keep both references
+        // tied to the counter's own target (CR 118.12a, 608.2h).
+        if let Node::Do(Verb::Counter {
+            what: object @ Ref::Target { slot },
+        }) = node
+            && condition["who"].as_object().map(Map::len) == Some(2)
+            && condition["who"]["player"] == "controller"
+            && self
+                .resolution
+                .binds_counter_payer(self.index, &who, &implicit, *slot)?
+        {
+            return Ok(PlayerExpr::ControllerOf { object: *object });
+        }
+        let payer = self.player(&who)?;
+        self.implicit_payer(&implicit, &payer)?;
         Ok(payer)
     }
 

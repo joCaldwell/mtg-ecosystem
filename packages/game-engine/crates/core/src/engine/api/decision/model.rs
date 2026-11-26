@@ -11,6 +11,7 @@ pub enum Rules {}
 impl Space for Rules {
     type Id = u64;
     type Object = ObjectId;
+    type Stack = StackId;
     type Trigger = TriggerId;
     type Damage = DamageId;
     type Effect = EffectKey;

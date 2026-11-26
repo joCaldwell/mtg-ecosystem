@@ -1,6 +1,7 @@
 pub mod advance_report;
 pub mod capacities;
 pub mod costs;
+mod counter;
 pub mod search;
 // Missing/malformed generated outputs remain runtime admission failures rather
 // than making the catalog diagnostic CLI impossible to compile.

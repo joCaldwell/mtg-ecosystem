@@ -298,10 +298,13 @@ Sacrifice costs use ordinary post-activation SBAs. Divided counters bind shares
 before costs and commit surviving shares simultaneously.
 
 Object target slots share one candidate set, so unequal per-slot filters reject.
-Entity, player, opponent and stack targets keep distinct domains; stack targets
-exclude incomplete entries. Countered spells move to their owners' graveyards,
-abilities disappear and costs stay spent. Spell copies are separately counterable
-nonlegendary token spells.
+Stack targets use public stack handles and exclude incomplete entries and the
+targeting invocation. Spell filters check types, exclusions and exact stack mana
+value, including announced X. An uncounterable spell remains a legal target
+(CR 101.2, 701.6). Countered abilities disappear. Countered spells move to their
+owners' graveyards, with flashback exile applied to stack departure (CR 702.34a).
+Paid costs stay spent. A fixed generic counter tax offers the target spell's
+controller payment at resolution (CR 118.12a).
 
 Target legality is checked at proposal and resolution start. Loss of target
 legality after a completed proposal during payment does not reverse casting
@@ -467,13 +470,14 @@ general replacement/layer interactions reject instead of approximating.
 
 ## Movement, sacrifice and board-wide effects
 
-Indestructible takes precedence over destruction. A paid regeneration shield
-replaces destruction when permitted, tapping its source, clearing damage and
-removing it from combat. The affected controller orders competing exile. Exile,
-bounce, sacrifice, zero toughness, legend moves and departure remain distinct.
-Removal filters use all types (CR 205.2b), controllers and statuses; positive type
-lists are alternatives, exclusions reject any match, and sacrifice subtype lists
-are conjunctive.
+Indestructible takes precedence over destruction. A regeneration shield protects
+one exact permanent until its next permitted destruction or cleanup. It taps
+that permanent, clears damage and removes it from combat (CR 701.19, 514.2).
+The affected controller orders competing replacements. A zone change ends that
+incarnation's shield. Exile, bounce, sacrifice, zero toughness, legend moves and
+departure remain distinct. Removal filters use all card types (CR 205.2b).
+Positive type lists are alternatives, exclusions reject any match and sacrifice
+subtype lists are conjunctive.
 
 Compensation uses the exact target's current or last relevant public appearance,
 not its successor; tokens have zero mana value. Entry returns target at trigger
@@ -504,16 +508,11 @@ Fling-like effects use paid source-backed LKI power. Forced opponent sacrifices
 choose in APNAP order with earlier choices visible, then move simultaneously; a
 player with no candidate sacrifices nothing.
 
-Board-wide sets include granted keywords at execution; destruction, exile, bounce
-and all-recipient damage commit atomically, and temporary P/T sets capture
-recipients at resolution. Destroy, exile and return-to-hand of "all"/"each"
-permanents take a general filter, read as the instruction is performed
-(CR 608.2h): conjunctions of card types, type alternatives, excluded types,
-basic/legendary, subtypes, colors, controller (you or your opponents), tapped,
-untapped, attacking, token, flying and fixed power, toughness or mana-value
-comparisons. Types and supertypes are current structural ones, colors current,
-subtypes, power, toughness and keywords fully derived; a permanent's mana value
-is its printed one (CR 202.3). Any other filter term rejects the card.
+Board-wide destruction, exile, bounce and damage commit atomically. Temporary
+P/T sets capture recipients at resolution. Permanent filters for these moves
+combine structural types and supertypes, current colors and controllers, derived
+subtypes, stats and keywords, status, combat and token terms (CR 608.2h).
+Permanent mana value is printed (CR 202.3).
 Forbidding regeneration stays limited to the nonland-permanent wave. Counts use typed outcomes, including exile-replaced but
 excluding prevented destruction. Turn-long exile replacement covers only
 creatures actually dealt its damage, so exile causes no death. Indestructible

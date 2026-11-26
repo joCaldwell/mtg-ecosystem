@@ -276,6 +276,13 @@ impl RulesTxn {
                     .into_iter()
                     .map(|player| candidate_index(&mut candidates, Candidate::Player { player }))
                     .collect(),
+                TargetDomain::StackSpell
+                | TargetDomain::ControlledCreatureSpell
+                | TargetDomain::StackActivatedOrTriggeredAbility => self
+                    .eligible_stack_targets_for(spec, entry.controller, Some(entry.id))
+                    .into_iter()
+                    .map(|stack| candidate_index(&mut candidates, Candidate::Stack { stack }))
+                    .collect(),
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldCreature

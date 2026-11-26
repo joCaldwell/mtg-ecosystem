@@ -28,6 +28,20 @@ impl TargetFacts {
     }
 }
 impl RulesTxn {
+    fn tracks_stack_target_facts(domain: TargetDomain) -> bool {
+        matches!(
+            domain,
+            TargetDomain::StackSpell | TargetDomain::ControlledCreatureSpell
+        )
+    }
+
+    fn tracks_target_facts(program: &SpellProgram) -> bool {
+        program
+            .targets
+            .iter()
+            .any(|spec| spec.filter.is_some() || Self::tracks_stack_target_facts(spec.domain))
+    }
+
     fn target_information_frame(&mut self) -> Option<&mut Resolving> {
         let rules = self.rules_mut();
         let mut frame = &mut rules.frame;
@@ -88,7 +102,7 @@ impl RulesTxn {
             .enumerate()
             .map(|(slot, spec)| {
                 legal.get(slot) == Some(&true)
-                    && if spec.domain == TargetDomain::StackSpell {
+                    && if Self::tracks_stack_target_facts(spec.domain) {
                         self.bound_stack_target(entry, slot).is_some_and(|id| {
                             self.state.rules.stack.iter().any(|entry| entry.id == *id)
                         })
@@ -168,10 +182,11 @@ impl RulesTxn {
                             (!controlled_creature
                                 || (entry.controller == controller
                                     && c.has_type(CardKind::Creature)))
-                                && spec
-                                    .filter
-                                    .as_ref()
-                                    .is_none_or(|f| crate::query::spell_matches_filter(&c, f))
+                                && spec.filter.as_ref().is_none_or(|f| {
+                                    self.stack_mana_value(entry).is_ok_and(|mana_value| {
+                                        crate::query::spell_matches_filter(&c, &mana_value, f)
+                                    })
+                                })
                         })
                     })
             })
@@ -184,7 +199,7 @@ impl RulesTxn {
         legal: &[bool],
     ) -> Result<Vec<Option<TargetFacts>>, String> {
         let p = self.program_for(entry)?;
-        if !p.targets.iter().any(|t| t.filter.is_some()) {
+        if !Self::tracks_target_facts(p) {
             return Ok(vec![]);
         }
         p.targets
@@ -194,7 +209,7 @@ impl RulesTxn {
                 if legal.get(slot) != Some(&true) {
                     return Ok(None);
                 }
-                let (controller, c) = if t.domain == TargetDomain::StackSpell {
+                if Self::tracks_stack_target_facts(t.domain) {
                     let e = self
                         .state
                         .rules
@@ -202,42 +217,29 @@ impl RulesTxn {
                         .iter()
                         .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
                         .ok_or("missing LKI stack target")?;
-                    (
-                        e.controller,
-                        self.targeting_characteristics(e)?.into_owned(),
-                    )
+                    Ok(Some(TargetFacts {
+                        controller: e.controller,
+                        power: self.targeting_characteristics(e)?.power.clone(),
+                        mana_value: self.stack_mana_value(e)?,
+                    }))
                 } else {
                     let object = *self
                         .bound_object_target(entry, slot)
                         .ok_or("missing LKI permanent target")?;
-                    (
-                        self.current(object)?.controller,
-                        self.characteristics(object)?,
-                    )
-                };
-                let mut mana_value = c.printed_mana_value();
-                if t.domain == TargetDomain::StackSpell {
-                    let entry = self
-                        .state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
-                        .ok_or("missing stack mana value")?;
-                    mana_value = self.stack_mana_value(entry)?;
+                    let c = self.characteristics(object)?;
+                    Ok(Some(TargetFacts {
+                        controller: self.current(object)?.controller,
+                        mana_value: c.printed_mana_value(),
+                        power: c.power,
+                    }))
                 }
-                Ok(Some(TargetFacts {
-                    controller,
-                    power: c.power,
-                    mana_value,
-                }))
             })
             .collect()
     }
     pub(super) fn validate_target_facts(&self, frame: &Resolving) -> Result<(), String> {
         let entry = self.entry(frame.stack_id)?;
         let program = self.program_for(entry)?;
-        let expected = program.targets.iter().any(|t| t.filter.is_some());
+        let expected = Self::tracks_target_facts(program);
         if (!expected && !frame.target_facts.is_empty())
             || (expected
                 && (frame.target_facts.len() != program.targets.len()

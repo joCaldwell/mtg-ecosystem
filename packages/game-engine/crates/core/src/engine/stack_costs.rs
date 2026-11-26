@@ -212,9 +212,9 @@ impl RulesTxn {
     pub(super) fn activation_target_frame(domain: TargetDomain, cast: Casting) -> Frame {
         match domain {
             TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
-            TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                Frame::StackTargets { cast }
-            }
+            TargetDomain::StackSpell
+            | TargetDomain::ControlledCreatureSpell
+            | TargetDomain::StackActivatedOrTriggeredAbility => Frame::StackTargets { cast },
             TargetDomain::ControlledBattlefieldCreature
             | TargetDomain::ControlledBattlefieldPermanent
             | TargetDomain::BattlefieldCreature
@@ -532,7 +532,9 @@ impl RulesTxn {
                 && program.targets.first().is_none_or(|t| {
                     !matches!(
                         t.domain,
-                        TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility
+                        TargetDomain::StackSpell
+                            | TargetDomain::ControlledCreatureSpell
+                            | TargetDomain::StackActivatedOrTriggeredAbility
                     )
                 }))
             || entry.total_cost != expected
@@ -694,7 +696,7 @@ impl RulesTxn {
                     .announced_stack_targets
                     .iter()
                     .any(|entries| entries.len() != entry.stack_targets.len())
-                || entry.stack_targets.contains(&entry.id)
+                || entry.stack_targets.iter().any(|target| *target >= entry.id)
             {
                 return Err("snapshot stack target binding invariant".into());
             }
@@ -727,15 +729,6 @@ impl RulesTxn {
             .map(|entry| entry.id)
             .collect()
     }
-    pub(super) fn stack_target_legal(
-        &self,
-        target: StackId,
-        countering: StackId,
-        domain: TargetDomain,
-    ) -> bool {
-        self.eligible_stack_targets(domain, Some(countering))
-            .contains(&target)
-    }
     // CR 101.2/101.3, 113.6 and 608.2b: protection applies when countering
     // the source spell. Its stack target legality is evaluated separately.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -745,8 +738,4 @@ impl RulesTxn {
         }
         self.has_uncounterable_static(entry.source, entry.controller)
     }
-
-    // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs
-    // and physical Commander history are never refunded by countering it.
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 }

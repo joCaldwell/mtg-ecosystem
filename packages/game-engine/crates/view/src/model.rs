@@ -12,6 +12,7 @@ impl<T: Clone + Debug + Eq + Serialize + DeserializeOwned> Identity for T {}
 pub trait Space: Clone + Debug + Eq {
     type Id: Identity;
     type Object: Identity;
+    type Stack: Identity;
     type Trigger: Identity;
     type Damage: Identity;
     type Effect: Identity;
@@ -26,6 +27,7 @@ pub enum Viewer {}
 impl Space for Viewer {
     type Id = DecisionToken;
     type Object = ObjectHandle;
+    type Stack = StackHandle;
     type Trigger = TriggerHandle;
     type Damage = DamageHandle;
     type Effect = EffectHandle;
@@ -56,11 +58,14 @@ pub struct Decision<S: Space> {
     bound = ""
 )]
 #[schemars(
-    bound = "S: JsonSchema, S::Object: JsonSchema, S::Effect: JsonSchema, S::Damage: JsonSchema, S::Trigger: JsonSchema"
+    bound = "S: JsonSchema, S::Object: JsonSchema, S::Stack: JsonSchema, S::Effect: JsonSchema, S::Damage: JsonSchema, S::Trigger: JsonSchema"
 )]
 pub enum Candidate<S: Space> {
     Object {
         object: S::Object,
+    },
+    Stack {
+        stack: S::Stack,
     },
     Player {
         player: PlayerId,

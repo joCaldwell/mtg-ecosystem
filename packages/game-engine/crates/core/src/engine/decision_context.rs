@@ -184,6 +184,24 @@ impl RulesTxn {
                 }
             },
             Candidate::Object { object } => object.0.clone(),
+            Candidate::Stack { stack } => self
+                .state
+                .rules
+                .stack
+                .iter()
+                .find(|entry| self.stack_handle_for(viewer, entry.id).as_ref() == Ok(stack))
+                .and_then(|entry| {
+                    self.copiable_definition(entry.source)
+                        .ok()
+                        .map(|definition| {
+                            if entry.kind.is_spell() {
+                                definition.name.clone()
+                            } else {
+                                format!("Ability of {}", definition.name)
+                            }
+                        })
+                })
+                .unwrap_or_else(|| stack.0.clone()),
             Candidate::Player { player } => format!("Player {}", player.0 + 1),
             Candidate::Trigger { trigger } => self
                 .resolve_trigger_handle(viewer, trigger)
