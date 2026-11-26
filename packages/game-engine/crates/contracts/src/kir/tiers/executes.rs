@@ -204,6 +204,49 @@ fn program(
         event,
         announced_x,
     };
+    // CR 608.2c, n: the resolving spell's own shuffle completes the
+    // invocation when its source leaves the stack.
+    if p.instructions
+        .iter()
+        .enumerate()
+        .any(|(index, instruction)| {
+            matches!(
+                instruction.verb(),
+                Some(kir::Verb::Move {
+                    what: kir::SetExpr::One {
+                        object: kir::Ref::Source
+                    },
+                    to: kir::Destination::OwnerLibraryShuffled,
+                })
+            ) && (index + 1 != p.instructions.len()
+                || p.resolution != SpellResolution::Instructions)
+        })
+    {
+        return cell("program", "resolving_spell_shuffle_must_be_final");
+    }
+    for (index, instruction) in p.instructions.iter().enumerate() {
+        if let Some(kir::Verb::Draw {
+            player:
+                kir::PlayerExpr::OwnerOf {
+                    object: kir::Ref::Target { slot },
+                },
+            ..
+        }) = instruction.verb()
+            && (p.optional_target
+                || !matches!(
+                    index.checked_sub(1).and_then(|i| p.instructions[i].verb()),
+                    Some(kir::Verb::Move {
+                        what: kir::SetExpr::One { object: kir::Ref::Target { slot: moved } },
+                        to: kir::Destination::OwnerLibraryShuffled,
+                    }) if slot == moved
+                ))
+        {
+            return cell(
+                "program",
+                "draw_requires_preceding_library_shuffle_of_target",
+            );
+        }
+    }
     let followups: Vec<_> = p
         .instructions
         .iter()

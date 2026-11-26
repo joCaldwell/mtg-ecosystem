@@ -161,7 +161,7 @@ macro_rules! frame_walk {
                     CommanderContinuation::SpellMove {
                         frame,
                         source_block: _,
-                    } => visit($Held::Invocation {
+                    } | CommanderContinuation::LookHand { frame, .. } => visit($Held::Invocation {
                         hold,
                         id: frame.stack_id,
                     }),
@@ -265,6 +265,7 @@ macro_rules! frame_parent {
                 | CommanderContinuation::SpellMove { .. }
                 | CommanderContinuation::ResolutionDraw { .. }
                 | CommanderContinuation::Search { .. }
+                | CommanderContinuation::LookHand { .. }
                 | CommanderContinuation::Draw { .. }, .. }
 
 

@@ -39,7 +39,8 @@ impl RulesTxn {
 
                     // The unchanged tail keeps its known positions. Every
                     // permutation of the private prefix is possible to observers.
-                    ProposedEvent::ReorderLibraryTop { looked, .. } => {
+                    ProposedEvent::ReorderLibraryTop { looked, .. }
+                    | ProposedEvent::PutLibraryPrefixOnBottom { looked, .. } => {
                         looked.len() <= 1 || !looked.contains(id)
                     }
 

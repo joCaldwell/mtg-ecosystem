@@ -207,14 +207,7 @@ impl RulesTxn {
             }
             TurnStep::Draw => {
                 if let Some(player) = self.state.rules.active {
-                    if let Some(card) = self
-                        .state
-                        .rules
-                        .libraries
-                        .get(&player)
-                        .and_then(|v| v.first())
-                        .copied()
-                    {
+                    if let Some(card) = self.top_library_card(player) {
                         if self.offer_commander_draw(player, card)? {
                             return Ok(());
                         }

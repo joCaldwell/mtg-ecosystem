@@ -232,7 +232,7 @@ impl RulesTxn {
                         *count += 1;
                     }
                 }
-                Zone::Library { owner } => {
+                Zone::Library { owner } if !self.state.rules.tokens.contains_key(&card) => {
                     if let Some(count) = index.library_counts.get_mut(owner.0 as usize) {
                         *count += 1;
                     }
@@ -290,10 +290,16 @@ impl RulesTxn {
             let new_zone = now.map(|o| o.zone);
             if old_zone != new_zone {
                 let index = Arc::make_mut(&mut index);
-                if let Some(zone) = old_zone {
+                if let Some(zone) = old_zone
+                    && !(matches!(zone, Zone::Library { .. })
+                        && old.rules.tokens.contains_key(card))
+                {
                     count(index, zone, false);
                 }
-                if let Some(zone) = new_zone {
+                if let Some(zone) = new_zone
+                    && !(matches!(zone, Zone::Library { .. })
+                        && self.state.rules.tokens.contains_key(card))
+                {
                     count(index, zone, true);
                 }
                 member(
@@ -528,7 +534,11 @@ impl RulesTxn {
                 .rules
                 .objects
                 .values()
-                .filter(|o| o.zone == zone)
+                .filter(|o| {
+                    o.zone == zone
+                        && !(matches!(zone, Zone::Library { .. })
+                            && self.state.rules.tokens.contains_key(&o.id.card))
+                })
                 .count()
         };
         let (hand_count, library_count) = match index {
@@ -1012,6 +1022,7 @@ impl RulesTxn {
         Ok(PermittedView {
             known_searched_hand: self.publicly_searched_hand(viewer)?,
             known_library_positions: self.known_library_positions(viewer)?,
+            revealed_library_cards: self.revealed_split_search_cards()?,
             sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
                 &self.state.rules.frame
             {
@@ -1325,6 +1336,10 @@ impl RulesTxn {
                 || matches!(
                     self.state.rules.frame,
                     Frame::ResolutionChoice { .. }
+                        | Frame::CommanderReturn {
+                            continuation: CommanderContinuation::LookHand { .. },
+                            ..
+                        }
                         | Frame::GraveyardGroup { .. }
                         | Frame::BattlefieldEntry { .. }
                 ) {

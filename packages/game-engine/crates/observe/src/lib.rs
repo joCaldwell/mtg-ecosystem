@@ -18,6 +18,7 @@ pub fn fits_layout(view: &PermittedView, decision: &Decision<Viewer>) -> bool {
         + view.stack.len()
         + view.known_library_positions.len()
         + view.known_searched_hand.len()
+        + view.revealed_library_cards.len()
         <= MAX_ENTITIES
         && decision.candidates.len() <= action::STOP
         && view.players.len() <= 4
@@ -331,6 +332,17 @@ pub fn encode(
         r.ent_mask[i] = 1;
         let p = relative(*owner);
         r.ent_int[i][..4].copy_from_slice(&[card(c, oracle_id)?, 1, p, p]);
+        r.ent_num[i][15] = -1;
+        r.ent_num[i][18] = -1;
+    }
+    // CR 701.20a: revealed library cards disclose an identity and owner
+    // without a private library position or an addressable object row.
+    let base = base + v.known_searched_hand.len();
+    for (j, (owner, oracle_id)) in v.revealed_library_cards.iter().enumerate() {
+        let i = base + j;
+        r.ent_mask[i] = 1;
+        let p = relative(*owner);
+        r.ent_int[i][..4].copy_from_slice(&[card(c, oracle_id)?, 3, p, p]);
         r.ent_num[i][15] = -1;
         r.ent_num[i][18] = -1;
     }

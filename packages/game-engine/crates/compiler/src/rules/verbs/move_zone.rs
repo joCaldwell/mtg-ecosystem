@@ -43,9 +43,10 @@ pub(super) fn lower(
             to,
         }));
     }
-    Ok(Instruction::move_target(
-        bind_creature_target(cx.program, cx.slots, &what)?,
-        to,
-        cx.source_block,
-    ))
+    let slot = if to == Destination::OwnerLibraryTop {
+        bind_creature_target(cx.program, cx.slots, &what)?
+    } else {
+        bind_permanent_target(cx.program, cx.slots, &what)?
+    };
+    Ok(Instruction::move_target(slot, to, cx.source_block))
 }

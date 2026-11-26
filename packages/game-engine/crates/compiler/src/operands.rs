@@ -2055,6 +2055,18 @@ pub(crate) fn lower_destination(to: &serde_json::Value) -> Result<kir::Destinati
         {
             Ok(kir::Destination::OwnerLibraryTop)
         }
+        ast::ZoneRef {
+            zone: ast::Zone::Library,
+            position: Some(ast::ObjectFilterZoneChangeHistoryFromZoneRefPosition::Bottom),
+            depth: None,
+            owner: Some(owner),
+        } if matches!(
+            *owner,
+            ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner::ItsOwner
+        ) =>
+        {
+            Ok(kir::Destination::OwnerLibraryBottom)
+        }
         other => Err(operand("destination", variant(&other.zone))),
     }
 }

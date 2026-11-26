@@ -209,13 +209,17 @@ impl RulesTxn {
                 &self.state.rules.frame,
                 Frame::ResolutionChoice {
                     choice: ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::ReorderLibraryTop { .. }
+                        | ResolutionChoice::LookChooseHand { .. }
+                        | ResolutionChoice::LookOrderBottom { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::SearchEntry { .. },
                     ..
                 } | Frame::CommanderReturn {
-                    continuation: CommanderContinuation::Search { .. },
+                    continuation: CommanderContinuation::Search { .. }
+                        | CommanderContinuation::LookHand { .. },
                     ..
                 }
             )
