@@ -726,6 +726,7 @@ impl Walk<'_, '_> {
             // [`Intervening`]; no resolving control node does.
             Cond::Satisfies { .. }
             | Cond::CastBy { .. }
+            | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. } => {
                 unaudited("intervening condition in a resolving node")

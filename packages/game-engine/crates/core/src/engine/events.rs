@@ -819,6 +819,7 @@ impl RulesTxn {
         // permanent. Collect the actual exile inside the same rule transaction.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let cause = BatchCause::ControlReconciliation;
+        self.record_turn_occurrences(&before_event, &occurrences)?;
         self.collect_triggers(&cause, &before_event, &occurrences)?;
         self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(CommittedBatch {
@@ -1728,6 +1729,7 @@ impl RulesTxn {
                     None => self.facts(&[proposed])?,
                 };
                 self.apply_leaf(proposed, (batch, path), before, out, authority, None)?;
+                self.record_turn_occurrences(&before_event, &out[offset..])?;
                 if changes_control_inputs(proposed) {
                     self.reconcile_controllers()?;
                 }
@@ -1781,6 +1783,7 @@ impl RulesTxn {
                         }
                     }
                 }
+                self.record_turn_occurrences(&common, &out[offset..])?;
                 if occurrences.iter().any(changes_control_inputs) {
                     self.reconcile_controllers()?;
                 }
@@ -2728,6 +2731,9 @@ impl RulesTxn {
                     if !self.has_keyword(*object, KeywordAbility::Vigilance) {
                         self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
                     }
+                }
+                if !attacks.is_empty() {
+                    self.rules_mut().cast_history[player.0 as usize].attacked = true;
                 }
                 self.rules_mut().combat_declared = !attacks.is_empty();
                 self.rules_mut().combat = attacks

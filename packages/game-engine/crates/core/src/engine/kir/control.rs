@@ -303,6 +303,7 @@ impl RulesTxn {
             }
             Cond::Satisfies { .. }
             | Cond::CastBy { .. }
+            | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. } => {
                 return Err("intervening condition in a resolving node".into());
