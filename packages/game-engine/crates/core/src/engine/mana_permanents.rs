@@ -132,6 +132,10 @@ testkit_fields! {
         pub ability_use: Option<ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub previously_used: bool,
+        /// CR 602.5, 605.3a: printed mana ability `index` read its
+        /// "Activate only if" condition as the activation began.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub condition: Option<ManaConditionEvidence>,
         pub produced: BTreeMap<Color, Quantity>,
         pub spent: BTreeMap<Color, Quantity>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -144,6 +148,14 @@ testkit_fields! {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub kept: bool,
     }
+}
+
+/// The evidence a conditioned mana ability's receipt keeps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManaConditionEvidence {
+    pub index: u32,
+    pub check: super::stack_costs::ActivationConditionCheck,
 }
 
 /// CR 733.1: whether every receipt can be reversed. A set with a kept
@@ -239,6 +251,44 @@ impl RulesTxn {
             .rules
             .mana_ability_uses
             .contains(&self.mana_use_key(source, index))
+    }
+    /// Snapshot validation of a permanent mana receipt's condition evidence
+    /// against the printed ability it names.
+    pub(super) fn validate_mana_condition_receipt(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        receipt: &PermanentManaUndo,
+    ) -> Result<(), String> {
+        let Some(evidence) = &receipt.condition else {
+            return Ok(());
+        };
+        // A token that ceased to exist after its activation keeps no
+        // definition to compare with; any other source does.
+        let definition = match self.copiable_definition(source) {
+            Ok(definition) => definition,
+            Err(_) if self.current(source).is_err() => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let condition = definition
+            .mana_abilities
+            .get(evidence.index as usize)
+            .and_then(|a| a.condition.as_ref())
+            .ok_or("snapshot activation condition evidence invariant")?;
+        self.validate_activation_condition_check(player, Some(condition), Some(&evidence.check))
+    }
+    /// Every permanent receipt's condition evidence in one held list: a
+    /// spell's mana window, a resolution payment or a nested mana ability.
+    pub(super) fn validate_mana_receipt_conditions(
+        &self,
+        receipts: &[ManaActivationUndo],
+    ) -> Result<(), String> {
+        for r in receipts {
+            if let Some(p) = &r.permanent {
+                self.validate_mana_condition_receipt(r.player, r.object, p)?;
+            }
+        }
+        Ok(())
     }
     pub(super) fn validate_mana_uses(&self) -> Result<(), String> {
         if self.state.rules.mana_ability_uses.len() > self.state.rules.objects.len() {
@@ -550,6 +600,9 @@ impl RulesTxn {
                 .is_some_and(|n| o.plus_one_counters < *n)
             || (a.restriction.is_some()
                 && index.is_none_or(|index| self.mana_ability_index_used(source, index)))
+            || a.condition
+                .as_ref()
+                .is_some_and(|c| self.activation_condition_check(player, source, c).is_err())
             || (a.costs.tap
                 && self.target_is_creature(source)
                 && !o.attack_ready
@@ -830,6 +883,18 @@ impl RulesTxn {
                 .filter(|_| !a.granted)
                 .map(|_| self.mana_use_key(a.source, a.index)),
             previously_used: !a.granted && self.mana_ability_index_used(a.source, a.index),
+            condition: a
+                .ability
+                .condition
+                .as_ref()
+                .map(|c| {
+                    self.activation_condition_check(a.player, a.source, c)
+                        .map(|check| ManaConditionEvidence {
+                            index: a.index,
+                            check,
+                        })
+                })
+                .transpose()?,
             produced: BTreeMap::new(),
             spent: spending.clone(),
             spent_restricted: vec![],
@@ -1448,6 +1513,18 @@ impl RulesTxn {
                 || a.receipts.iter().any(|r| r.player != a.player)
             {
                 return Err("nested mana snapshot invariant".into());
+            }
+            self.validate_mana_receipt_conditions(&a.receipts)?;
+            // The suspended ability's own receipt names this exact printed
+            // ability: it carries evidence exactly when that ability has a
+            // condition.
+            if let Some(paid) = &a.paid {
+                if a.ability.condition.is_some()
+                    != paid.condition.as_ref().is_some_and(|e| e.index == a.index)
+                {
+                    return Err("snapshot activation condition evidence invariant".into());
+                }
+                self.validate_mana_condition_receipt(a.player, a.source, paid)?;
             }
             f = self.saved_frame(a.resume)?;
         }

@@ -584,6 +584,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);
+        if a.condition.is_some() {
+            cells.insert(Cell::ActivationRestriction);
+        }
     }
     // CR 113.10a, 605.3a: a granted mana ability carries its own production
     // and cost cells, and its recipient may then have several to choose from.

@@ -456,6 +456,12 @@ fn unadmitted_mana_grant_shapes_reject() {
         })
     }));
     rejected(ability(&|a| a.costs.tap = false));
+    // CR 602.5b: an activation condition belongs to its own admission row.
+    rejected(ability(&|a| {
+        a.condition = Some(mtg_contracts::kir::Cond::ActivePlayer {
+            player: mtg_contracts::kir::PlayerExpr::static_controller(),
+        })
+    }));
     rejected(ability(&|a| {
         a.restriction = Some(mtg_contracts::ManaActivationRestriction::OnceEachTurn)
     }));

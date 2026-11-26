@@ -234,15 +234,26 @@ pub(super) fn choices_printed(
     if printed(&text, statics) != found {
         return Err(disagrees());
     }
-    for (fields, start, end) in segments {
+    for (index, (fields, ..)) in segments.iter().enumerate() {
         // A segment naming the whole block is the whole-block check above.
-        if fields.iter().any(String::is_empty) {
+        if fields.iter().any(String::is_empty)
+            || segments[..index]
+                .iter()
+                .any(|(earlier, ..)| earlier == fields)
+        {
             continue;
         }
-        let text = rules_text(
-            line.get(*start..*end)
-                .ok_or_else(|| invalid("resolution.spans", "segment outside the block"))?,
-        );
+        // Segments certifying the same fields are one clause printed in
+        // discontinuous pieces ("{T}: ... Activate only if ..."): their
+        // words are counted together, never once per piece.
+        let mut text = String::new();
+        for (_, start, end) in segments.iter().filter(|(other, ..)| other == fields) {
+            let piece = line
+                .get(*start..*end)
+                .ok_or_else(|| invalid("resolution.spans", "segment outside the block"))?;
+            text.push_str(&rules_text(piece));
+            text.push('|');
+        }
         let mut found = Counts::default();
         for field in fields {
             field_carriers(ability, field, &mut found)?;

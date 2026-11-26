@@ -254,11 +254,10 @@ order: damage to its controller through the ordinary damage transaction, or
 life gain (CR 605.3b, 608.2c). A nested activation's payment rechecks every
 outer cost before the spend decision.
 
-Statics can grant quoted mana abilities in layer 6 (CR 113.10a, 613.1f). The
-recipient taps itself; "you" is its activator (CR 109.5, 302.6). Its printed,
-then granted (timestamp order) abilities drive activation, CR 106.7,
-observations and the planner; saves must match them. Grants admit tap and life
-costs only, without riders, restrictions, conditions or tapped-status filters.
+Statics grant quoted mana abilities in layer 6 (CR 113.10a, 613.1f); the
+recipient taps for its activator (CR 109.5, 302.6). Printed, then
+granted abilities drive activation, CR 106.7, views, planning and saves. Grants
+admit tap and life costs only: no riders, restrictions or conditions.
 
 Reversal (CR 733.1) restores receipt-recorded mana, taps and counters. An
 activation that paid life or performed riders is kept, and with it every
@@ -388,16 +387,18 @@ after the mana window. Random and whole-hand discard, variable counts,
 other graveyards, self-exile from hand and chosen-object mana abilities remain
 outside these cells.
 
-Printed restrictions are permission gates. "As a sorcery" is the program's
-main-phase timing. "During your turn", "during your upkeep" and "during your
-turn, before attackers are declared" (upkeep through beginning of combat) are
-typed windows. "Only once each turn" records a use for the source incarnation
-and ability when the activation completes; a reversed announcement uses
-nothing. The record survives control changes and clears on a zone change or a
-new turn (CR 400.7, 602.5b-d). Validation rejects a use outside the
-battlefield, on an unlimited ability, or that disagrees with whether its stack
-entry is paid. A printed restriction the compiler cannot read rejects; mana
-abilities admit only once each turn. Each of these surfaces is its own
+Printed restrictions are permission gates. "As a sorcery" is main-phase
+timing; your turn, your upkeep, your turn before attackers, combat, end of
+combat and not your turn are typed windows. "Only once each turn" records a
+use per source incarnation and ability when the activation completes; a
+reversal uses nothing. It survives control changes, clearing on a zone change
+or new turn (CR 400.7, 602.5b-d). Validation rejects a use off the
+battlefield, on an unlimited ability, or disagreeing with whether its stack
+entry is paid. "Activate only if" is read once, as activation begins (CR
+602.5, 605.3a): an audited `kir::ActivationCondition` counts permanents you
+control, your graveyard or hand, or the source's facts. Offer and start share
+it; stack entries and mana receipts keep its counts, which restore checks.
+Simulator mana plans need public proof. Others reject. Each of these surfaces is its own
 `Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Typecycling`,
 `Kicker`, `Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
 `ActivationRemoveCounters`, `SacrificeCostChoice`, `SacrificeCostTap`,
@@ -956,7 +957,7 @@ below its tier.
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
 | Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, chosen discard/tap/graveyard exile, the cycling and typecycling hand discard, and a graveyard source exiled after mana, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
-| Static, mana, keyword | Own entry tapped, scoped continuous changes, granted mana abilities and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
+| Static, mana, keyword | Own entry tapped, scoped continuous changes, mana grants and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
 | Card shell | Normal cards and [modal double-faced cards](#modal-double-faced-cards) whose faces have complete bound source and supported spell costs and keywords. |
 

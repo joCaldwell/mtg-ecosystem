@@ -344,8 +344,9 @@ fn creature_scope(scope: &Scope, kind: CardKind) -> bool {
 /// player who activates it (CR 109.5). The activation must keep its
 /// ability while the activation is open, so no admitted cost or condition
 /// can change which objects have it: tapping cannot change a recipient
-/// filter without tapped status and no condition guards the grant. Riders,
-/// restrictions, mana costs and sacrifice need their own admission rows.
+/// filter without tapped status and no condition guards the grant or the
+/// granted ability. Riders, restrictions, mana costs and sacrifice need their
+/// own admission rows.
 pub fn granted_mana_supported(
     affects: &Scope,
     condition: Option<&Cond>,
@@ -372,6 +373,7 @@ pub fn granted_mana_supported(
                     .as_ref()
                     .is_none_or(|life| *life >= Quantity::from(1))
                 && a.restriction.is_none()
+                && a.condition.is_none()
                 && a.riders.is_empty()
                 && super::tiers::mana_production_supported(&a.production)
         })
