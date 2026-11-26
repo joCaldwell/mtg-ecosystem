@@ -145,6 +145,7 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId) {
                         pool:
                             ManaPool {
                                 unrestricted: available,
+                                ..
                             },
                         ..
                     },

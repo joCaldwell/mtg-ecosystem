@@ -1,5 +1,16 @@
 use super::*;
 
+/// CR 106.6: the purchase that owns this exact payment window.
+#[derive(Clone, Copy)]
+pub(in crate::engine) enum ManaUse {
+    Spell(ManaSpellTraits),
+    Activation {
+        source: Option<ManaSpellTraits>,
+        battlefield: bool,
+    },
+    Resolution,
+}
+
 /// Lack of funds is an ordinary casting outcome; corrupt inputs are not.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PaymentError {
@@ -40,6 +51,7 @@ pub(super) fn phyrexian_life(choices: &[HybridPayment]) -> Quantity {
 }
 
 impl RulesTxn {
+    #[cfg(any(test, feature = "testkit"))]
     pub(crate) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
         match self.payment_pool(player, cost) {
             Ok(_) => Ok(true),
@@ -48,18 +60,79 @@ impl RulesTxn {
         }
     }
 
-    /// CR 106.6, 601.2g-h: whether the controller can pay with mana the
-    /// `Pay { Spend }` decision offers. That decision lists only the
-    /// unrestricted pool (`api/decision/build.rs`), and no admitted ability
-    /// adds spend-restricted mana, so restricted mana is never counted here:
-    /// this answer and the spend decision cannot disagree.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn can_pay_offered(
+    pub(super) fn mana_payment_pool(
+        &self,
+        player: PlayerId,
+        use_on: ManaUse,
+    ) -> Result<ManaPool, String> {
+        let payer = &self.state.rules.players[player.0 as usize];
+        let restricted = payer
+            .restricted_mana
+            .iter()
+            .filter(|unit| match use_on {
+                ManaUse::Spell(spell) => unit.restriction.permits_spell(spell),
+                ManaUse::Activation {
+                    source,
+                    battlefield,
+                } => source.map_or_else(
+                    || unit.restriction.permits_activation(false),
+                    |source| unit.restriction.permits_activation_of(source, battlefield),
+                ),
+                ManaUse::Resolution => unit.restriction.permits_resolution_payment(),
+            })
+            .cloned()
+            .collect();
+        Ok(ManaPool {
+            unrestricted: payer.mana.clone(),
+            restricted,
+        })
+    }
+
+    pub(super) fn can_pay_for(
         &self,
         player: PlayerId,
         cost: &ManaCost,
+        use_on: ManaUse,
     ) -> Result<bool, String> {
-        self.can_pay(player, cost)
+        Ok(self.is_live(player)
+            && mtg_contracts::mana_spend::payment(
+                cost,
+                &self.mana_payment_pool(player, use_on)?.available(),
+            )
+            .is_some())
+    }
+
+    pub(super) fn announced_mana_use(&self, stack: &StackInstance) -> Result<ManaUse, String> {
+        Ok(if stack.kind.is_spell() {
+            ManaUse::Spell(ManaSpellTraits::from_characteristics(
+                &self.derived_characteristics_with_sources(stack.source, None)?,
+            ))
+        } else {
+            self.activation_mana_use(stack.source, stack.source_facts.as_ref())?
+        })
+    }
+
+    pub(super) fn activation_mana_use(
+        &self,
+        source: ObjectId,
+        last: Option<&ObjectBefore>,
+    ) -> Result<ManaUse, String> {
+        let (source, battlefield) = match self.current(source) {
+            Ok(object) => (
+                Some(ManaSpellTraits::from_characteristics(
+                    &self.derived_characteristics_with_sources(source, None)?,
+                )),
+                object.present_on_battlefield(),
+            ),
+            Err(_) => (
+                last.map(|facts| ManaSpellTraits::from_characteristics(&facts.characteristics)),
+                false,
+            ),
+        };
+        Ok(ManaUse::Activation {
+            source,
+            battlefield,
+        })
     }
 
     pub(super) fn can_pay_announced(
@@ -67,11 +140,9 @@ impl RulesTxn {
         stack: &StackInstance,
         cost: &ManaCost,
     ) -> Result<bool, String> {
-        self.can_pay_offered(stack.controller, cost)
+        self.can_pay_for(stack.controller, cost, self.announced_mana_use(stack)?)
     }
 
-    /// The spend answer carries only unrestricted mana; a restricted
-    /// allocation has no decision that could produce it.
     pub(super) fn validate_announced_allocation(
         &self,
         stack: &StackInstance,
@@ -79,11 +150,40 @@ impl RulesTxn {
         spending: &BTreeMap<Color, Quantity>,
         restricted: &[RestrictedMana],
     ) -> Result<(), String> {
-        if !restricted.is_empty() {
-            return Err("restricted mana has no spend decision".into());
+        self.validate_spending(
+            stack.controller,
+            cost,
+            self.announced_mana_use(stack)?,
+            spending,
+            restricted,
+        )
+    }
+
+    pub(super) fn validate_spending(
+        &self,
+        player: PlayerId,
+        cost: &ManaCost,
+        use_on: ManaUse,
+        spending: &BTreeMap<Color, Quantity>,
+        restricted: &[RestrictedMana],
+    ) -> Result<(), String> {
+        let pool = self.mana_payment_pool(player, use_on)?;
+        let pay = if restricted.is_empty() {
+            PayAnswer::Spend {
+                unrestricted: spending.clone(),
+            }
+        } else {
+            PayAnswer::SpendRestricted {
+                unrestricted: spending.clone(),
+                restricted: restricted.to_vec(),
+            }
+        };
+        Shape::Pay {
+            cost: cost.clone(),
+            pool,
+            step: PayStep::Spend,
         }
-        self.selected_payment_pool(stack.controller, cost, spending)?;
-        Ok(())
+        .check(&Answer::Pay { pay })
     }
 
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
@@ -104,6 +204,7 @@ impl RulesTxn {
     // costs. A complete selection must satisfy every colored symbol and pay
     // exactly the total cost. Never silently spend a different color.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    #[cfg(any(test, feature = "testkit"))]
     pub(crate) fn selected_payment_pool(
         &self,
         player: PlayerId,
@@ -132,13 +233,12 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing spending input")?;
-        let Answer::Pay {
-            pay: PayAnswer::Spend { unrestricted },
-        } = &input.answer
-        else {
+        let Answer::Pay { pay } = &input.answer else {
             return Err("expected mana spending".into());
         };
+        let (unrestricted, restricted) = pay.spending().ok_or("expected mana allocation")?;
         cast.spending = Some(unrestricted.clone());
+        cast.spending_restricted = restricted.to_vec();
         if self.invocation_chosen_cost(self.top()?)?.is_some() {
             self.rules_mut().frame = Self::chosen_cost_frame(cast);
             Ok(())
@@ -245,6 +345,13 @@ impl RulesTxn {
         }
         self.check_sacrifice_payment(&stack, cast)?;
         let chosen = self.chosen_payment_events(&stack, selected)?;
+        let uncounterable = match self.announced_mana_use(&stack)? {
+            ManaUse::Spell(spell) => cast
+                .spending_restricted
+                .iter()
+                .any(|unit| unit.restriction.prevents_countering(spell)),
+            _ => false,
+        };
         let proposed = {
             let spending = cast
                 .spending
@@ -360,11 +467,9 @@ impl RulesTxn {
         self.pay_sacrifice_cost(&stack, &cast.sacrifices)?;
         self.commit_chosen_payment(&stack, chosen)?;
         self.finish_payment_shuffles(cast)?;
-        self.rules_mut()
-            .stack
-            .last_mut()
-            .ok_or("missing stack")?
-            .paid = Some(cost);
+        let entry = self.rules_mut().stack.last_mut().ok_or("missing stack")?;
+        entry.paid = Some(cost);
+        entry.mana_uncounterable = uncounterable;
         if stack.kind.is_spell() {
             self.record_event(Event::SpellCast {
                 stack_id: cast.stack_id,

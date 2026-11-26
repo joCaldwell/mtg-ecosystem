@@ -74,6 +74,7 @@ pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
                         pool:
                             ManaPool {
                                 unrestricted: available,
+                                ..
                             },
                         ..
                     },

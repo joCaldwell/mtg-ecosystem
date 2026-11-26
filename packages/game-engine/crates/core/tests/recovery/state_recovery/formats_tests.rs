@@ -20,15 +20,15 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    86,
-    "d1ded48b08ef5511c26524fba2bca02974a04d0474b87c33b7c7ff9925cafef1",
+    87,
+    "0a5c01c7ac61bcbe18fe97278dab82a2758087532b85135614f0db0e01d32002",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    116,
+    117,
     "ea3a65a1f411b0e2cde4ceb74a6c1f236a8bfd1e31ef73261739181369254b33",
 );
 const WORK_PIN: (u32, &str) = (
-    59,
+    61,
     "457d166e0eb8fafe7caadb513d8df47defbd2fb78904b44cf008fef8d55e6e45",
 );
 
@@ -211,6 +211,7 @@ fn granted_mana() -> Game {
             },
             vec![Change::AddManaAbilities {
                 abilities: vec![mtg_contracts::ManaAbility {
+                    spend_restriction: None,
                     restriction: None,
                     condition: None,
                     costs: mtg_contracts::PermanentActivationCosts {

@@ -56,6 +56,7 @@ pub fn pay_to_priority(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
                         pool:
                             ManaPool {
                                 unrestricted: available,
+                                ..
                             },
                         ..
                     },

@@ -196,13 +196,9 @@ impl Composer {
                 step: PayStep::Spend,
                 cost,
                 pool,
-            } => {
-                let unrestricted = mtg_contracts::mana_spend::spend(cost, &pool.unrestricted)
-                    .ok_or("insufficient mana")?;
-                Answer::Pay {
-                    pay: PayAnswer::Spend { unrestricted },
-                }
-            }
+            } => Answer::Pay {
+                pay: pool.spend(cost).ok_or("insufficient mana")?,
+            },
         };
         if actions.next().is_some() {
             return Err("micro-actions after completion".into());

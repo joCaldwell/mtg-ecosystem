@@ -25,9 +25,11 @@ pub fn complete_mana(game: &mut Game) {
         shape:
             Shape::Pay {
                 cost,
-                pool: ManaPool {
-                    unrestricted: available,
-                },
+                pool:
+                    ManaPool {
+                        unrestricted: available,
+                        ..
+                    },
                 ..
             },
         reason: Reason::SpendMana { .. },

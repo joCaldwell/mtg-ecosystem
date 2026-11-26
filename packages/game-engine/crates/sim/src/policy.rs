@@ -46,6 +46,7 @@ pub struct PolicyMemory {
     mulligans: [u8; 4],
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
+    mana_bundle: Option<Vec<Color>>,
     mana_ability: Option<mtg_core::ManaAbilityIdentity>,
     payment: PaymentAttempt,
     planned_x: Option<Quantity>,
@@ -107,6 +108,7 @@ impl PolicyMemory {
         self.payment.next_priority(view);
         self.mana_plan.clear();
         self.mana_color = None;
+        self.mana_bundle = None;
         self.mana_ability = None;
         self.hybrid_choices.clear();
         self.alternative_cost = None;
@@ -294,21 +296,22 @@ impl Strategy<'_> {
                 Shape::Pay {
                     cost,
                     step: PayStep::Produce { .. },
-                    ..
+                    pool,
                 },
             ) => {
                 let outer = mana_ability_source.is_none();
-                let available = mana_policy::spendable_pool(v).ok_or("missing mana payer")?;
+                let available = pool.available();
                 let payable = payment(cost, &available).is_some();
                 if outer && self.memory.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
                     // price. Nested activations consume the outer plan in order.
                     if !payable {
-                        self.memory.mana_plan = mana_policy::plan_for(
+                        self.memory.mana_plan = mana_policy::plan_for_payment(
                             self.catalog,
                             v,
                             cost,
                             self.memory.payment.exclude.as_ref(),
+                            &pool.restricted,
                         )
                         .unwrap_or_default();
                     }
@@ -322,6 +325,7 @@ impl Strategy<'_> {
                     }
                 } else if let Some(next) = self.memory.mana_plan.pop_front() {
                     self.memory.mana_color = next.color;
+                    self.memory.mana_bundle = next.bundle;
                     self.memory.mana_ability = next.ability;
                     payment_source(d, next.source)?
                 } else {
@@ -342,7 +346,7 @@ impl Strategy<'_> {
                     pool,
                     step: PayStep::Spend,
                 },
-            ) => crate::mana_spend::spend_answer(cost, &pool.unrestricted)
+            ) => crate::mana_spend::pool_spend_answer(cost, pool)
                 .ok_or("cannot spend announced cost")?,
             (Reason::Targets { specs }, Shape::Pick { slots, rules }) => {
                 let (definition, program) = self.top_program(v).ok_or("missing target program")?;
@@ -670,8 +674,17 @@ impl Strategy<'_> {
             }
             (Reason::ManaColor { .. }, Shape::Pick { slots, .. }) => {
                 let preferred = self.memory.mana_color.take();
+                let bundle = self.memory.mana_bundle.take();
                 let allowed = &slots[0].allowed;
-                let n=allowed.iter().find(|i|matches!(d.candidates[**i as usize],Candidate::Color{color} if Some(color)==preferred)).or(allowed.first()).ok_or("empty mana color slot")?;
+                let n = allowed
+                    .iter()
+                    .find(|i| match &d.candidates[**i as usize] {
+                        Candidate::Color { color } => Some(*color) == preferred,
+                        Candidate::ManaBundle { symbols } => Some(symbols) == bundle.as_ref(),
+                        _ => false,
+                    })
+                    .or(allowed.first())
+                    .ok_or("empty mana production slot")?;
                 Answer::Pick {
                     picks: vec![vec![*n]],
                 }
