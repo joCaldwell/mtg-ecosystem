@@ -577,6 +577,8 @@ impl Walk<'_, '_> {
             | Destination::OwnerHand
             | Destination::OwnerLibraryTop
             | Destination::OwnerLibraryBottom
+            | Destination::OwnerLibraryShuffled
+            | Destination::OneTappedRestOwnerHand
             | Destination::OwnerGraveyard => Ok(()),
         }
     }
@@ -757,6 +759,7 @@ impl Walk<'_, '_> {
             | Verb::Mill { player, amount }
             | Verb::Discard { player, amount, .. }
             | Verb::ReorderLibraryTop { player, amount }
+            | Verb::LookChooseHand { player, amount }
             | Verb::Scry { player, amount }
             | Verb::Surveil { player, amount } => {
                 self.player(player)?;
@@ -781,6 +784,14 @@ impl Walk<'_, '_> {
             | Verb::Tap { what }
             | Verb::Untap { what }
             | Verb::Regenerate { what } => self.set(what),
+            // CR 701.24c: this is the resolving spell itself, rather than a
+            // reference to one of the ordinary object domains.
+            Verb::Move {
+                what: SetExpr::One {
+                    object: Ref::Source,
+                },
+                to: Destination::OwnerLibraryShuffled,
+            } if self.env.context == Context::Spell => Ok(()),
             Verb::Move { what, to } => {
                 self.set(what)?;
                 self.destination(to)
@@ -1354,6 +1365,10 @@ impl Walk<'_, '_> {
 
     fn audit_nested_leaf(verb: &Verb) -> Result<(), KirError> {
         match verb {
+            Verb::Move {
+                to: Destination::OwnerLibraryShuffled,
+                ..
+            } => unaudited("library shuffle movement needs a top-level instruction"),
             // These executors authenticate against top-level instructions
             // after the temporary leaf program has been removed.
             Verb::CreateTokens { .. }
@@ -1376,7 +1391,7 @@ impl Walk<'_, '_> {
             }
             // The completed reorder is validated against its own fixed
             // amount at the resolving instruction's cursor.
-            Verb::ReorderLibraryTop { .. } => {
+            Verb::ReorderLibraryTop { .. } | Verb::LookChooseHand { .. } => {
                 unaudited("library reorder needs a top-level instruction")
             }
             // CR 121.2: counted draws retain attempt progress and finish
@@ -1555,6 +1570,9 @@ impl Walk<'_, '_> {
             Verb::ReorderLibraryTop { player, amount } => {
                 self.audit_look(player, amount, Cell::ReorderLibraryTop)
             }
+            Verb::LookChooseHand { player, amount } => {
+                self.audit_look(player, amount, Cell::LookChooseHand)
+            }
             Verb::Scry { player, amount } => self.audit_look(player, amount, Cell::ScryController),
             Verb::Surveil { player, amount } => {
                 self.audit_look(player, amount, Cell::SurveilController)
@@ -1695,8 +1713,14 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
             out.insert(Capability::SearchLibraryTopV1);
         }
+        Verb::Search { search, .. } if search.to == Destination::OneTappedRestOwnerHand => {
+            out.insert(Capability::SearchSplitBasicLandsV1);
+        }
         Verb::ReorderLibraryTop { .. } => {
             out.insert(Capability::PrivateLibraryReorderV1);
+        }
+        Verb::LookChooseHand { .. } => {
+            out.insert(Capability::PrivateLibrarySelectionV1);
         }
         Verb::Scry { .. }
         | Verb::Surveil { .. }

@@ -110,8 +110,10 @@ erase ambiguity. The SDK itself has no journal/retry policy.
 
 ### Core action discovery
 
-Protocol 2 embeds a decision in observation 80 for the acting seat; priority
+Protocol 2 embeds a decision in the acting seat's observation. Priority
 beginnings and payment sources arrive in the same observation as their token.
+The bundled client fixtures use observation 80. The active engine format is
+defined in [formats.rs](../packages/game-engine/crates/core/src/formats.rs).
 Candidate indices are local to that decision; a seat's object handles can identify
 visible cards. An answer carries only indices or exact amounts. Candidate labels
 in the parallel decision context describe candidates, including source text the

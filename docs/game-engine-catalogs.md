@@ -196,8 +196,8 @@ tested rules operation wherever the algebra cannot already express it.
 
 Archive R5 supplies the source, parsed abilities and bound resolution graph.
 `compose` lowers every printed ability to KIR or rejects the complete record;
-missing references, unaudited operators and unsupported procedures such as
-look-at and reveal reject explicitly. Normalized source lines must equal the
+missing references, unaudited operators and unmatched library procedures
+reject explicitly. Normalized source lines must equal the
 parsed blocks: a different grouping of the same lines (an ability-word "instead"
 rider kept with the block it modifies) is unsupported at path `lines`, and
 unaccounted text is invalid.

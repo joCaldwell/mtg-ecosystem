@@ -392,6 +392,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             (keys.clone(), keys)
         }
         ProposedEvent::ReorderLibraryTop { player, looked, .. }
+        | ProposedEvent::PutLibraryPrefixOnBottom { player, looked, .. }
         | ProposedEvent::Scry { player, looked, .. }
         | ProposedEvent::Surveil { player, looked, .. } => {
             let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
@@ -929,6 +930,7 @@ impl RulesTxn {
                     }
                 }
                 ProposedEvent::ReorderLibraryTop { player, looked, .. }
+                | ProposedEvent::PutLibraryPrefixOnBottom { player, looked, .. }
                 | ProposedEvent::Scry { player, looked, .. }
                 | ProposedEvent::Surveil { player, looked, .. } => {
                     libraries.insert(*player);
@@ -2202,6 +2204,11 @@ impl RulesTxn {
                 looked,
                 top,
             } => self.apply_library_top_reorder(*player, looked, top)?,
+            ProposedEvent::PutLibraryPrefixOnBottom {
+                player,
+                looked,
+                bottom,
+            } => self.apply_library_prefix_to_bottom(*player, looked, bottom)?,
             ProposedEvent::Scry {
                 player,
                 looked,
@@ -2756,14 +2763,7 @@ impl RulesTxn {
             }
             ProposedEvent::CombatDamage { damage } => self.apply_damage(damage)?,
             ProposedEvent::FailedDraw { player } => {
-                if !self.is_live(*player)
-                    || self
-                        .state
-                        .rules
-                        .libraries
-                        .get(player)
-                        .is_none_or(|l| !l.is_empty())
-                {
+                if !self.is_live(*player) || self.top_library_card(*player).is_some() {
                     return Err("invalid failed draw".into());
                 }
                 self.rules_mut().players[player.0 as usize].failed_draw = true;

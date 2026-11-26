@@ -28,6 +28,14 @@ const OPT: &str = record!("713332c1-5bd8-400f-bfff-c1ca0697a043");
 const PREORDAIN: &str = record!("ac641490-ca14-48d7-8cc4-b69ce984befa");
 const CONSIDER: &str = record!("4c9bcba6-87b5-4fb3-97ee-6fe5b739337d");
 const CULTIVATE: &str = record!("8b755881-a72d-4e21-a369-d2924eb4585a");
+const KODAMAS_REACH: &str = record!("1593ea18-2f2f-4ab4-83fb-6ccc0bec8a90");
+const TROOP_OF_PONIES: &str = record!("bb52b3c3-09f0-4506-b7c0-250ab0b91866");
+const BEACON_OF_DESTRUCTION: &str = record!("15feb59b-bbbe-462a-8d38-d20735bbc2f3");
+const OBLATION: &str = record!("860e744d-899c-43c7-84bb-d52c69d2f45a");
+const WHITE_SUNS_ZENITH: &str = record!("ea4a9299-c2b3-4092-89dd-28142b203d60");
+const NATURAL_OBSOLESCENCE: &str = record!("fbafbe3a-3980-4457-a77b-3f72df7b3329");
+const ANTICIPATE: &str = record!("a97da5a9-17fc-4367-81e1-17ff81601a63");
+const IMPULSE: &str = record!("f6bd2902-7f8b-419e-bbc7-bcab0c1b7e01");
 const ARMILLARY_SPHERE: &str = record!("3963140c-da67-43e6-9514-fe9dc0a43c4d");
 const CRYSTAL_BALL: &str = record!("bd85fe4d-1d62-416f-ac2d-e287911c84e3");
 const SINISTER_STARFISH: &str = record!("58321467-41d6-4419-bcb2-cd3e60f677b3");
@@ -606,15 +614,471 @@ fn consider_surveils_into_the_graveyard_then_draws() {
     }
 }
 
-/// Cultivate splits its found cards between two zones. That split has no
-/// executor, so the card rejects explicitly.
+/// CR 608.2c, d, f, 701.23b, e: reveal the chosen lands before the split,
+/// put the sole land onto the battlefield when finding just one, and
+/// shuffle even when there are no matching cards.
 #[test]
-fn cultivate_split_destination_rejects() {
-    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, CULTIVATE);
-    let mtg_compiler::CompileResult::Unsupported { reason, .. } = result else {
-        panic!("split search must reject: {result:?}");
-    };
-    assert_eq!(reason, "verb:search:found_cards");
+fn split_basic_land_search_reveals_and_routes_zero_one_or_two() {
+    use mtg_observe::action::{Composer, Step};
+    use mtg_sim::policy::{Policy, PolicyMemory};
+    for (name, raw) in [("Cultivate", CULTIVATE), ("Kodama's Reach", KODAMAS_REACH)] {
+        for count in 0..=2 {
+            let mut worlds = Vec::new();
+            for hidden in ["Grizzly Bears", "Lightning Bolt"] {
+                let mut setup =
+                    board(&[(raw, &[Cell::SearchSplitBasicLands, Cell::ShuffleController])])
+                        .permanent_or_hand(name, 0, 0, true)
+                        .permanent_or_hand("Forest", 0, 0, false)
+                        .permanent_or_hand("Forest", 0, 0, false)
+                        .permanent_or_hand("Forest", 0, 0, false)
+                        .library_card(hidden, 0);
+                for land in ["Island", "Plains"].into_iter().take(count) {
+                    setup = setup.library_card(land, 0);
+                }
+                let mut g = Game::with_trace(
+                    setup.library_card("Forest", 1).prepare(),
+                    TraceMode::Detailed,
+                );
+                Driver::cast(&mut g, CardId(0));
+                Driver::pay(&mut g, &[1, 2, 3]);
+                assert_eq!(next_choice(&mut g).candidates.len(), count);
+                private_to(&mut g, 0, count + 1);
+                let before = observation(&g, 1);
+                if count == 2 {
+                    assert_recoverable((&g).into());
+                }
+                let found = objects(&g, &(5..5 + count as u32).collect::<Vec<_>>());
+                answer(&mut g, 0, Reason::SearchLibrary, &found);
+                let mut after_reveal = None;
+                if count == 2 {
+                    assert_eq!(next_choice(&mut g).reason, Reason::SearchSplitBattlefield);
+                    private_to(&mut g, 0, 2);
+                    checked(&g);
+                    assert_recoverable((&g).into());
+                    let opponent = observation(&g, 1);
+                    let mut identities =
+                        ["Island", "Plains"].map(|name| (PlayerId(0), identity(name)));
+                    identities.sort();
+                    assert_eq!(opponent.view.revealed_library_cards, identities);
+                    after_reveal = Some(opponent);
+
+                    let observation = observation(&g, 0);
+                    let d = observation.decision.as_ref().unwrap();
+                    let Step::Choose(mask) = Composer::compose(d, &[], None).unwrap() else {
+                        panic!("split needs a decision");
+                    };
+                    assert_eq!(mask.pointer.iter().filter(|bit| **bit == 1).count(), 2);
+                    assert_eq!(
+                        PolicyMemory::default()
+                            .choose(g.prepared.catalog.as_ref(), Policy::Develop, &observation)
+                            .unwrap(),
+                        Answer::Pick {
+                            picks: vec![vec![0]]
+                        }
+                    );
+                    let Step::Answer(response) = Composer::compose(d, &[1], None).unwrap() else {
+                        panic!("one choice completes the split");
+                    };
+                    let QueryResult::Complete(QueryValue::Validated(receipt)) = g
+                        .check_player_response(
+                            d.player,
+                            d.id.clone(),
+                            response,
+                            Budget::unlimited(),
+                        )
+                    else {
+                        panic!("composed answer rejected");
+                    };
+                    g.submit(receipt).unwrap();
+                }
+                settle(&mut g);
+                if count > 0 {
+                    let land = g.current(Driver::object(&g, 4 + count as u32)).unwrap();
+                    assert_eq!(land.zone, Zone::Battlefield);
+                    assert!(land.tapped);
+                }
+                let revealed: Vec<_> = g
+                    .events()
+                    .iter()
+                    .filter_map(|e| match e {
+                        Event::Committed {
+                            actual: EventOutcome::FoundRevealed { objects, .. },
+                            ..
+                        } => Some(objects.as_slice()),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(
+                    revealed,
+                    (count > 0)
+                        .then_some(found.as_slice())
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                );
+                let known = (count == 2)
+                    .then(|| (PlayerId(0), identity("Island")))
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                assert_eq!(observation(&g, 1).view.known_searched_hand, known);
+                assert_eq!(library(&g, 0), &[CardId(4)]);
+                assert_eq!(shuffles(&g, 0), 1);
+                assert_eq!(shuffles(&g, 1), 0);
+                worlds.push((before, after_reveal, opponent_tensors(&mut g)));
+            }
+            assert!(worlds[0] == worlds[1], "hidden library identity leaked");
+        }
+    }
+}
+
+/// CR 602.2b, 608.2c: an activation pays and sacrifices the source before
+/// performing the same library split under the ability controller.
+#[test]
+fn troop_of_ponies_splits_its_found_lands_after_sacrificing_itself() {
+    let prepared = board(&[(
+        TROOP_OF_PONIES,
+        &[Cell::SearchSplitBasicLands, Cell::ShuffleController],
+    )])
+    .permanent_or_hand("Troop of Ponies", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .library_card("Plains", 0)
+    .library_card("Island", 0)
+    .library_card("Forest", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let object = Driver::object(&g, 0);
+    Driver::action(&mut g, Action::ActivateAbility { object, ability: 0 });
+    Driver::pay(&mut g, &[1, 2]);
+    assert_eq!(
+        g.zone(Driver::object(&g, 0)),
+        Some(Zone::Graveyard { owner: PlayerId(0) })
+    );
+    let found = objects(&g, &[3, 4]);
+    answer(&mut g, 0, Reason::SearchLibrary, &found);
+    answer(&mut g, 0, Reason::SearchSplitBattlefield, &[found[0]]);
+    settle(&mut g);
+    let land = g.current(Driver::object(&g, 3)).unwrap();
+    assert_eq!(land.zone, Zone::Battlefield);
+    assert!(land.tapped);
+    assert_eq!(
+        observation(&g, 1).view.known_searched_hand,
+        vec![(PlayerId(0), identity("Island"))]
+    );
+    assert_eq!(shuffles(&g, 0), 1);
+}
+
+/// CR 608.2c, n, 701.24c: the resolving instant deals damage, then goes
+/// back into its owner's library as part of shuffling it.
+#[test]
+fn beacon_of_destruction_shuffles_the_resolving_spell() {
+    let prepared = board(&[(BEACON_OF_DESTRUCTION, &[Cell::ShuffleResolvingSpell])])
+        .permanent_or_hand("Beacon of Destruction", 0, 0, true)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .library_card("Forest", 0)
+        .library_card("Island", 0)
+        .library_card("Plains", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let life = g.state.rules.players[1].life.clone();
+    Driver::cast(&mut g, CardId(0));
+    let target = Driver::request(&mut g, 1);
+    let answer = target
+        .pick_one(&Candidate::Player {
+            player: PlayerId(1),
+        })
+        .unwrap();
+    g.respond(target.player, target.id, answer).unwrap();
+    Driver::pay(&mut g, &[1, 2, 3, 4, 5]);
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 0)),
+        Some(Zone::Library { owner: PlayerId(0) })
+    );
+    let mut expected = life;
+    expected.subtract(&Quantity::from(5));
+    assert_eq!(g.state.rules.players[1].life, expected);
+    assert_eq!(shuffles(&g, 0), 1);
+    assert_eq!(shuffles(&g, 1), 0);
+}
+
+/// CR 108.3, 121.2, 701.24c, 903.9b: the target's owner acts, even
+/// when a different player controlled it and it went to command.
+#[test]
+fn oblation_shuffles_for_the_owner_even_with_commander_replacement() {
+    for to_command in [false, true] {
+        let prepared = board(&[(
+            OBLATION,
+            &[
+                Cell::ShuffleTargetOwnerLibrary,
+                Cell::DrawShuffledTargetOwner,
+            ],
+        )])
+        .permanent_or_hand("Oblation", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Isamaru, Hound of Konda", 1, 0, false)
+        .commander(CardId(4))
+        .library_card("Forest", 0)
+        .library_card("Plains", 1)
+        .library_card("Island", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        let commander = Driver::object(&g, 4);
+        Driver::pick_object(&mut g, commander);
+        Driver::pay(&mut g, &[1, 2, 3]);
+        let d = next_choice(&mut g);
+        assert_eq!(d.player, PlayerId(1));
+        assert!(matches!(
+            d.reason,
+            Reason::CommanderReturn {
+                destination: Zone::Library { owner: PlayerId(1) },
+                ..
+            }
+        ));
+        checked(&g);
+        assert_recoverable((&g).into());
+        let flag = if to_command {
+            Flag::CommandZone
+        } else {
+            Flag::Destination
+        };
+        g.respond(
+            d.player,
+            d.id,
+            d.pick_one(&Candidate::Flag { flag }).unwrap(),
+        )
+        .unwrap();
+        if !to_command {
+            let draw = next_choice(&mut g);
+            assert!(matches!(
+                draw.reason,
+                Reason::CommanderReturn {
+                    destination: Zone::Hand { owner: PlayerId(1) },
+                    ..
+                }
+            ));
+            checked(&g);
+            g.respond(
+                draw.player,
+                draw.id,
+                draw.pick_one(&Candidate::Flag {
+                    flag: Flag::Destination,
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        settle(&mut g);
+        assert_eq!(shuffles(&g, 0), 0);
+        assert_eq!(shuffles(&g, 1), 1);
+        assert_eq!(library(&g, 1).len(), usize::from(!to_command));
+        assert_eq!(
+            observation(&g, 1)
+                .view
+                .objects
+                .iter()
+                .filter(|o| o.zone == (Zone::Hand { owner: PlayerId(1) }))
+                .count(),
+            2
+        );
+        if to_command {
+            assert_eq!(
+                g.zone(Driver::object(&g, 4)),
+                Some(Zone::Command { owner: PlayerId(1) })
+            );
+        }
+    }
+}
+
+/// CR 111.6–8, 121.1, 701.24a, 704.5d: a tucked token is in the zone
+/// until SBAs, and neither consumes a draw nor becomes a card in hand.
+#[test]
+fn oblation_draws_two_actual_cards_when_its_target_is_a_token() {
+    for seed in [SEED, [8; 32], [9; 32]] {
+        let prepared = board(&[
+            (OBLATION, &[Cell::ShuffleTargetOwnerLibrary]),
+            (WHITE_SUNS_ZENITH, &[Cell::ShuffleResolvingSpell]),
+        ])
+        .seed(seed)
+        .permanent_or_hand("White Sun's Zenith", 0, 0, true)
+        .permanent_or_hand("Oblation", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .library_card("Island", 0)
+        .library_card("Forest", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        let x = Driver::request(&mut g, 1);
+        assert_eq!(x.reason, Reason::AnnounceX);
+        g.respond(x.player, x.id, Answer::Number { value: 1.into() })
+            .unwrap();
+        Driver::pay(&mut g, &[2, 3, 4, 5]);
+        settle(&mut g);
+        let token = g.state.rules.tokens.keys().next().copied().unwrap();
+        Driver::cast(&mut g, CardId(1));
+        let target = g.object_id(token).unwrap();
+        Driver::pick_object(&mut g, target);
+        Driver::pay(&mut g, &[6, 7, 8]);
+        settle(&mut g);
+        assert!(g.object_id(token).is_none());
+        for card in [0, 9] {
+            assert_eq!(
+                g.zone(Driver::object(&g, card)),
+                Some(Zone::Hand { owner: PlayerId(0) })
+            );
+        }
+        assert_eq!(shuffles(&g, 0), 2);
+        assert!(library(&g, 0).is_empty());
+    }
+}
+
+/// CR 400.3, 401.4: bottom placement keeps the rest of the owner's
+/// library in its existing order and consumes no shuffle stream.
+#[test]
+fn natural_obsolescence_puts_only_the_target_on_the_owners_bottom() {
+    let prepared = board(&[(
+        NATURAL_OBSOLESCENCE,
+        &[Cell::MoveTargetOwnerLibraryPosition],
+    )])
+    .permanent_or_hand("Natural Obsolescence", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 1, 0, false)
+    .library_card("Island", 1)
+    .library_card("Plains", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let target = Driver::object(&g, 3);
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[1, 2]);
+    let mut expected = library(&g, 1);
+    expected.push(CardId(3));
+    settle(&mut g);
+    assert_eq!(library(&g, 1), expected);
+    assert_eq!(shuffles(&g, 1), 0);
+    assert!(
+        observation(&g, 0)
+            .view
+            .objects
+            .iter()
+            .all(|o| o.zone != Zone::Library { owner: PlayerId(1) })
+    );
+}
+
+/// CR 401.2, 401.4, 701.20e: the entire selection and ordering are private
+/// and do not publish hand identities or the bottom order.
+#[test]
+fn private_top_selection_replays_and_hides_bottom_order() {
+    for (name, raw, size) in [("Anticipate", ANTICIPATE, 3), ("Impulse", IMPULSE, 4)] {
+        let mut worlds = Vec::new();
+        for reverse in [false, true] {
+            let prepared = board(&[(raw, &[Cell::LookChooseHand])])
+                .permanent_or_hand(name, 0, 0, true)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false)
+                .library_card("Island", 0)
+                .library_card("Grizzly Bears", 0)
+                .library_card("Forest", 0)
+                .library_card("Lightning Bolt", 0)
+                .library_card("Plains", 0)
+                .library_card("Forest", 1)
+                .prepare();
+            let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+            Driver::cast(&mut g, CardId(0));
+            Driver::pay(&mut g, &[1, 2]);
+            assert_eq!(next_choice(&mut g).reason, Reason::LookChooseHand);
+            private_to(&mut g, 0, size);
+            checked(&g);
+            assert_recoverable((&g).into());
+            let original = library(&g, 0);
+            let hand = Driver::object(&g, original[1].0);
+            answer(&mut g, 0, Reason::LookChooseHand, &[hand]);
+            assert_eq!(next_choice(&mut g).reason, Reason::OrderLibraryBottom);
+            private_to(&mut g, 0, size);
+            let order_wait = observation(&g, 1);
+            checked(&g);
+            assert_recoverable((&g).into());
+            let mut bottom: Vec<_> = original[..size]
+                .iter()
+                .filter(|c| **c != hand.card)
+                .copied()
+                .collect();
+            if reverse {
+                bottom.reverse();
+            }
+            let ordered = objects(&g, &bottom.iter().map(|c| c.0).collect::<Vec<_>>());
+            answer(&mut g, 0, Reason::OrderLibraryBottom, &ordered);
+            settle(&mut g);
+            assert_eq!(
+                g.zone(Driver::object(&g, hand.card.0)),
+                Some(Zone::Hand { owner: PlayerId(0) })
+            );
+            assert!(observation(&g, 1).view.known_searched_hand.is_empty());
+            assert_eq!(
+                library(&g, 0),
+                [&original[size..], bottom.as_slice()].concat()
+            );
+            assert_eq!(shuffles(&g, 0), 0);
+            worlds.push((order_wait, opponent_tensors(&mut g)));
+        }
+        assert!(worlds[0] == worlds[1], "private bottom order leaked");
+    }
+}
+
+/// CR 608.2c, 903.9b: a short prefix still yields its one available
+/// choice; the owner can send their commander to command instead of hand.
+#[test]
+fn private_top_selection_of_a_commander_from_a_short_library() {
+    let prepared = board(&[(ANTICIPATE, &[Cell::LookChooseHand])])
+        .permanent_or_hand("Anticipate", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .library_card("Isamaru, Hound of Konda", 0)
+        .library_card("Forest", 0)
+        .library_card("Forest", 1)
+        .commander(CardId(3))
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let commander = Driver::object(&g, 3);
+    answer(&mut g, 0, Reason::LookChooseHand, &[commander]);
+    let d = next_choice(&mut g);
+    assert!(matches!(
+        d.reason,
+        Reason::CommanderReturn {
+            destination: Zone::Hand { owner: PlayerId(0) },
+            ..
+        }
+    ));
+    private_to(&mut g, 0, 2);
+    checked(&g);
+    assert_recoverable((&g).into());
+    let response = d
+        .pick_one(&Candidate::Flag {
+            flag: Flag::CommandZone,
+        })
+        .unwrap();
+    g.respond(d.player, d.id, response).unwrap();
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 3)),
+        Some(Zone::Command { owner: PlayerId(0) })
+    );
+    assert_eq!(library(&g, 0), vec![CardId(4)]);
 }
 
 /// The chooser's library objects in their observation, in published order.
@@ -763,7 +1227,7 @@ fn opponent_tensors(g: &mut Game) -> (String, mtg_observe::Row) {
     assert_eq!(Driver::request(g, u64::MAX).player, PlayerId(1));
     let o = observation(g, 1);
     let d = o.decision.as_ref().expect("seat 1 decides");
-    let catalog = mtg_observe::catalog::ObservationCatalog::new(catalog(SPHERE).into());
+    let catalog = mtg_observe::catalog::ObservationCatalog::new(g.prepared.catalog.clone());
     let mtg_observe::action::Step::Choose(choices) =
         mtg_observe::action::Composer::compose(d, &[], None).unwrap()
     else {
@@ -1689,6 +2153,7 @@ fn skyshroud_claim_asks_each_entry_reveal_after_the_payments() {
             ] {
                 let forged = ResolutionChoice::SearchEntry {
                     player: PlayerId(0),
+                    command_choices: vec![],
                     found: vec![garden, pool],
                     hosts: vec![],
                     paid: vec![(garden, pay)],
@@ -1758,6 +2223,7 @@ fn search_entry_state_rejects_forged_entrants_and_answers() {
     let forged =
         |found: Vec<ObjectId>, paid: Vec<(ObjectId, bool)>| ResolutionChoice::SearchEntry {
             player: PlayerId(0),
+            command_choices: vec![],
             found,
             hosts: vec![],
             paid,
@@ -1887,6 +2353,7 @@ fn departed_search_entry_rejects_skipped_payments() {
     };
     let forged = ResolutionChoice::SearchEntry {
         player: PlayerId(0),
+        command_choices: vec![],
         found: vec![garden, pool],
         hosts: vec![],
         paid: vec![(pool, true)],
@@ -1895,6 +2362,7 @@ fn departed_search_entry_rejects_skipped_payments() {
     };
     let unsorted = ResolutionChoice::SearchEntry {
         player: PlayerId(0),
+        command_choices: vec![],
         found: vec![pool, garden],
         hosts: vec![],
         paid: vec![],
@@ -2148,6 +2616,7 @@ fn search_entry_answers_name_only_auras_and_affordable_payments() {
         let entry = |hosts: Vec<(ObjectId, ObjectId)>, paid: Vec<(ObjectId, bool)>| {
             ResolutionChoice::SearchEntry {
                 player: PlayerId(0),
+                command_choices: vec![],
                 found: vec![garden, pool],
                 hosts,
                 paid,
@@ -2279,6 +2748,7 @@ fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
     let before = life(&g, 0);
     let swapped = ResolutionChoice::SearchEntry {
         player: PlayerId(0),
+        command_choices: vec![],
         found: vec![pacifism, fountain],
         hosts: vec![(pacifism, forest)],
         paid: vec![],
@@ -2311,6 +2781,7 @@ fn a_departed_searchers_saved_host_stays_the_chosen_object() {
         pacifism_then_fountain();
     let host = |host: ObjectId| ResolutionChoice::SearchEntry {
         player: PlayerId(0),
+        command_choices: vec![],
         found: vec![pacifism, fountain],
         hosts: vec![(pacifism, host)],
         paid: vec![],
@@ -2349,6 +2820,7 @@ fn a_search_entry_without_a_question_never_validates() {
     };
     let pause = ResolutionChoice::SearchEntry {
         player: PlayerId(0),
+        command_choices: vec![],
         found: vec![pacifism],
         hosts: vec![],
         paid: vec![],

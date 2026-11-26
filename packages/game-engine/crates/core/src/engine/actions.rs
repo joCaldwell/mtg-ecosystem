@@ -73,10 +73,29 @@ pub enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
+    /// CR 608.2d: choose which revealed basic land enters tapped.
+    SearchSplit {
+        player: PlayerId,
+        found: [ObjectId; 2],
+        source_block: u32,
+    },
     /// CR 701.20e: `player` privately looks at and orders this prefix.
     ReorderLibraryTop {
         player: PlayerId,
         looked: Vec<ObjectId>,
+        source_block: u32,
+    },
+    /// CR 701.20e: choose a single card to put into hand.
+    LookChooseHand {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        source_block: u32,
+    },
+    /// CR 401.4: order the rest of the private prefix on the bottom.
+    LookOrderBottom {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        hand: ObjectId,
         source_block: u32,
     },
     /// CR 701.22a: `player` looked at `looked` (top first), then chooses the
@@ -97,6 +116,8 @@ pub enum ResolutionChoice {
     SearchEntry {
         player: PlayerId,
         found: Vec<ObjectId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        command_choices: Vec<(ObjectId, bool)>,
         /// CR 303.4f: each found Aura's chosen host, Aura first.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         hosts: Vec<(ObjectId, ObjectId)>,
@@ -442,7 +463,10 @@ impl RulesTxn {
                 self.keyword_action_request(frame, choice)?
             }
             ResolutionChoice::Search { .. }
+            | ResolutionChoice::SearchSplit { .. }
             | ResolutionChoice::ReorderLibraryTop { .. }
+            | ResolutionChoice::LookChooseHand { .. }
+            | ResolutionChoice::LookOrderBottom { .. }
             | ResolutionChoice::Scry { .. }
             | ResolutionChoice::Surveil { .. }
             | ResolutionChoice::SearchEntry { .. } => self.library_request(frame, choice)?,
@@ -512,7 +536,10 @@ impl RulesTxn {
                 if matches!(
                     choice,
                     ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::ReorderLibraryTop { .. }
+                        | ResolutionChoice::LookChooseHand { .. }
+                        | ResolutionChoice::LookOrderBottom { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::SearchEntry { .. }
@@ -527,7 +554,10 @@ impl RulesTxn {
                         | ResolutionChoice::Proliferate
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::ReorderLibraryTop { .. }
+                        | ResolutionChoice::LookChooseHand { .. }
+                        | ResolutionChoice::LookOrderBottom { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::SearchEntry { .. } => unreachable!(),
@@ -557,7 +587,10 @@ impl RulesTxn {
                     | ResolutionChoice::Proliferate
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::ReorderLibraryTop { .. }
+                    | ResolutionChoice::LookChooseHand { .. }
+                    | ResolutionChoice::LookOrderBottom { .. }
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::SearchEntry { .. } => unreachable!(),
@@ -841,14 +874,7 @@ impl RulesTxn {
             return self
                 .finish_draw_attempt(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
-        if let Some(card) = self
-            .state
-            .rules
-            .libraries
-            .get(&player)
-            .and_then(|cards| cards.first())
-            .copied()
-        {
+        if let Some(card) = self.top_library_card(player) {
             let object = self
                 .object_id(card)
                 .ok_or("missing instruction draw source")?;
@@ -1237,6 +1263,7 @@ impl RulesTxn {
         }
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
             self.validate_library_reorder_outcome(frame, Some(instruction), outcome)?;
+            self.validate_look_selection_outcome(frame, instruction, outcome)?;
             self.validate_counter_outcome(frame, outcome)?;
         }
         if self
@@ -1284,14 +1311,14 @@ impl RulesTxn {
         }
         // CR 303.4g, 800.4a: a departure can remove the last host an open
         // Aura host choice offered. With no question left, the entry
-        // commits now, leaving that Aura in the library, so a search entry
-        // never waits without a question.
+        // commits now, leaving that Aura in its original zone.
         if let Frame::ResolutionChoice {
             frame,
             choice:
                 ResolutionChoice::SearchEntry {
                     player,
                     found,
+                    command_choices,
                     hosts,
                     paid,
                     revealed,
@@ -1300,20 +1327,30 @@ impl RulesTxn {
         } = &self.state.rules.frame
             && self.is_live(*player)
             && self
-                .next_entry_question(*player, found, hosts, paid, revealed)?
+                .card_entry_question(frame, *player, found, hosts, paid, revealed)?
                 .is_none()
         {
-            let (frame, player, found, hosts, paid, revealed, source_block) = (
+            let (frame, player, found, command_choices, hosts, paid, revealed, source_block) = (
                 frame.clone(),
                 *player,
                 found.clone(),
+                command_choices.clone(),
                 hosts.clone(),
                 paid.clone(),
                 revealed.clone(),
                 *source_block,
             );
             self.rules_mut().pending = None;
-            self.continue_card_entry(frame, player, found, hosts, paid, revealed, source_block)?;
+            self.continue_card_entry(
+                frame,
+                player,
+                found,
+                command_choices,
+                hosts,
+                paid,
+                revealed,
+                source_block,
+            )?;
         }
         Ok(())
     }
@@ -1398,7 +1435,10 @@ impl RulesTxn {
                     }),
                 (
                     ResolutionChoice::Search { .. }
+                    | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::ReorderLibraryTop { .. }
+                    | ResolutionChoice::LookChooseHand { .. }
+                    | ResolutionChoice::LookOrderBottom { .. }
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::SearchEntry { .. },

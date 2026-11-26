@@ -30,6 +30,15 @@ pub enum CommanderContinuation {
         choices: Vec<(ObjectId, bool)>,
         source_block: u32,
     },
+    /// CR 903.9b: the card selected from a private prefix may go to the
+    /// command zone instead of hand. The rest still go to the bottom.
+    LookHand {
+        frame: Resolving,
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        bottom: Vec<ObjectId>,
+        source_block: u32,
+    },
     Draw {
         player: PlayerId,
     },
@@ -243,32 +252,39 @@ impl RulesTxn {
                 self.continue_board_return(frame, objects, remaining, choices, source_block)?;
             }
             CommanderContinuation::SpellMove {
-                mut frame,
+                frame,
                 source_block,
             } => {
+                use mtg_contracts::kir::{Destination, Verb};
+                let entry = self.entry(frame.stack_id)?;
+                let to = self
+                    .program_for(entry)?
+                    .instructions
+                    .get(frame.cursor as usize)
+                    .and_then(Instruction::verb)
+                    .and_then(|verb| match verb {
+                        Verb::Move { to, .. } => Some(to),
+                        _ => None,
+                    });
                 let outcome = if !present {
+                    if to == Some(&Destination::OwnerLibraryShuffled) {
+                        self.shuffle_absent_object_owner(&frame, object, source_block)?;
+                    }
                     InstructionOutcome::ObjectNoLongerPresent { target: object }
                 } else {
-                    InstructionOutcome::Moved {
-                        movement: self.move_instruction_object(
-                            object,
-                            actual_destination,
-                            BatchCause::Instruction {
-                                stack_id: frame.stack_id,
-                                player: self.entry(frame.stack_id)?.controller,
-                                source: self.entry(frame.stack_id)?.source,
-                                cursor: frame.cursor,
-                                source_block,
-                            },
-                        )?,
-                    }
+                    let cause = self.instruction_cause(&frame, source_block)?;
+                    let movement = match to {
+                        Some(Destination::OwnerLibraryShuffled) => {
+                            self.move_and_shuffle_owner_library(object, actual_destination, cause)?
+                        }
+                        Some(Destination::OwnerLibraryBottom) => {
+                            self.move_object_for(object, actual_destination, cause)?
+                        }
+                        _ => self.move_instruction_object(object, actual_destination, cause)?,
+                    };
+                    InstructionOutcome::Moved { movement }
                 };
-                frame.outcomes.push(outcome);
-                frame.cursor = frame
-                    .cursor
-                    .checked_add(1)
-                    .ok_or("instruction cursor resource limit")?;
-                self.rules_mut().frame = Frame::Resolve { frame };
+                self.finish_instruction(frame, outcome)?;
             }
             CommanderContinuation::ResolutionDraw {
                 frame,
@@ -317,6 +333,23 @@ impl RulesTxn {
                 remaining.remove(0);
                 choices.push((object, to_command));
                 self.continue_search(frame, player, found, remaining, choices, source_block)?;
+            }
+            CommanderContinuation::LookHand {
+                frame,
+                player,
+                looked,
+                bottom,
+                source_block,
+            } => {
+                self.commit_look_selection(
+                    frame,
+                    player,
+                    looked,
+                    object,
+                    bottom,
+                    actual_destination,
+                    source_block,
+                )?;
             }
             CommanderContinuation::Draw { player } => {
                 if present {
@@ -475,6 +508,8 @@ impl RulesTxn {
                             kernel!(Move {
                             what: mtg_contracts::kir::SetExpr::One { object: what },
                             to: mtg_contracts::kir::Destination::OwnerLibraryTop
+                                | mtg_contracts::kir::Destination::OwnerLibraryBottom
+                                | mtg_contracts::kir::Destination::OwnerLibraryShuffled
                         } @ source_block),
                         ) => (Some(what), Zone::Library { owner }, *source_block),
                         Some(Instruction::Kernel {
@@ -535,13 +570,7 @@ impl RulesTxn {
                             .is_ok_and(|p| p == *player)
                         || current.zone != (Zone::Library { owner })
                         || *destination != (Zone::Hand { owner })
-                        || self
-                            .state
-                            .rules
-                            .libraries
-                            .get(player)
-                            .and_then(|cards| cards.first())
-                            != Some(&object.card)
+                        || self.top_library_card(*player) != Some(object.card)
                         || !match self
                             .program_for(self.entry(frame.stack_id)?)?
                             .instructions
@@ -588,19 +617,34 @@ impl RulesTxn {
                         return Err("snapshot commander search continuation invariant".into());
                     }
                 }
+                CommanderContinuation::LookHand {
+                    frame,
+                    player,
+                    looked,
+                    bottom,
+                    source_block,
+                } => {
+                    if *player != owner
+                        || *destination != (Zone::Hand { owner })
+                        || !self.valid_look_selection(
+                            frame,
+                            owner,
+                            looked,
+                            *object,
+                            bottom,
+                            *source_block,
+                        )?
+                    {
+                        return Err("snapshot commander library selection invariant".into());
+                    }
+                }
                 CommanderContinuation::Draw { player } => {
                     if *player != owner
                         || self.state.rules.active != Some(*player)
                         || self.state.rules.turn.step != TurnStep::Draw
                         || current.zone != (Zone::Library { owner })
                         || *destination != (Zone::Hand { owner })
-                        || self
-                            .state
-                            .rules
-                            .libraries
-                            .get(player)
-                            .and_then(|cards| cards.first())
-                            != Some(&object.card)
+                        || self.top_library_card(*player) != Some(object.card)
                     {
                         return Err("snapshot commander draw continuation invariant".into());
                     }

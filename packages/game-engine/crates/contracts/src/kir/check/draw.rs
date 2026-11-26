@@ -46,6 +46,15 @@ impl Walk<'_, '_> {
             {
                 Ok(Cell::DrawTargetPlayer)
             }
+            PlayerExpr::OwnerOf {
+                object: Ref::Target { slot },
+            } if self.env.context == Context::Spell
+                && self.env.targets.len() == 1
+                && self.domain(*slot)? == TargetDomain::BattlefieldPermanent
+                && amount.as_fixed() == Some(&Quantity::from(2)) =>
+            {
+                Ok(Cell::DrawShuffledTargetOwner)
+            }
             _ => unaudited("draw recipient or targeted count"),
         }
     }

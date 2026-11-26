@@ -140,6 +140,10 @@ pub enum Cell {
     MovePermanentOwnerHand,
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
+    MoveTargetOwnerLibraryPosition,
+    ShuffleResolvingSpell,
+    ShuffleTargetOwnerLibrary,
+    DrawShuffledTargetOwner,
     MoveSourceOwnerZone,
     ChooseObjectOwnerHand,
     MoveOwnGraveyardTargetToHand,
@@ -219,6 +223,7 @@ pub enum Cell {
     /// CR 701.23: the controller searches their library.
     SearchController,
     SearchLibraryTop,
+    SearchSplitBasicLands,
     /// CR 701.23, 608.2h: a target's last-known controller searches theirs.
     SearchTargetController,
     /// CR 701.24a.
@@ -226,6 +231,7 @@ pub enum Cell {
     ShuffleTargetController,
     /// CR 701.22a.
     ReorderLibraryTop,
+    LookChooseHand,
     ScryController,
     /// CR 701.25a.
     SurveilController,
@@ -391,10 +397,16 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SetCharacteristics
         | C::SearchController
         | C::SearchLibraryTop
+        | C::SearchSplitBasicLands
+        | C::MoveTargetOwnerLibraryPosition
+        | C::ShuffleResolvingSpell
+        | C::ShuffleTargetOwnerLibrary
+        | C::DrawShuffledTargetOwner
         | C::SearchTargetController
         | C::ShuffleController
         | C::ShuffleTargetController
         | C::ReorderLibraryTop
+        | C::LookChooseHand
         | C::ScryController
         | C::SurveilController
         | C::ResolutionTrigger
@@ -578,6 +590,10 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::OwnGraveyardCardReturnV1
         | C::PrivateLibraryReorderV1
         | C::SearchLibraryTopV1
+        | C::SearchSplitBasicLandsV1
+        | C::OwnerLibraryBottomMoveV1
+        | C::OwnerLibraryShuffleMoveV1
+        | C::PrivateLibrarySelectionV1
         | C::PermanentRemovalV1
         | C::SacrificeV1
         | C::FixedArtifactSacrificeCostV1

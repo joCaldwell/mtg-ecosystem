@@ -116,6 +116,8 @@ impl RulesTxn {
             },
             Reason::ResolveDiscard => Reason::ResolveDiscard,
             Reason::SearchLibrary => Reason::SearchLibrary,
+            Reason::SearchSplitBattlefield => Reason::SearchSplitBattlefield,
+            Reason::LookChooseHand => Reason::LookChooseHand,
             Reason::ScryBottom => Reason::ScryBottom,
             Reason::SurveilGraveyard => Reason::SurveilGraveyard,
             Reason::OrderLibraryTop => Reason::OrderLibraryTop,

@@ -644,7 +644,10 @@ impl Strategy<'_> {
             }
             // CR 701.23a: find as many of the offered library cards as
             // allowed, in the offered order.
-            (Reason::SearchLibrary, Shape::Pick { slots, .. }) => Answer::Pick {
+            (
+                Reason::SearchLibrary | Reason::SearchSplitBattlefield | Reason::LookChooseHand,
+                Shape::Pick { slots, .. },
+            ) => Answer::Pick {
                 picks: slots
                     .iter()
                     .map(|s| s.allowed.iter().take(s.max as usize).copied().collect())
