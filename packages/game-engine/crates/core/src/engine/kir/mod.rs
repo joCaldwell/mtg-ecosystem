@@ -506,6 +506,10 @@ impl RulesTxn {
             }
             Amount::StatOf {
                 object: Ref::Target { slot },
+                stat: mtg_contracts::kir::Stat::ManaValue,
+            } => Ok(self.kernel_target_facts(frame, *slot)?.mana_value().clone()),
+            Amount::StatOf {
+                object: Ref::Target { slot },
                 stat: mtg_contracts::kir::Stat::Power,
             } => self
                 .kernel_target_facts(frame, *slot)?
