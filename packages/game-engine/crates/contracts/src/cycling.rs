@@ -36,6 +36,8 @@ pub(crate) fn typecycling_activation(a: &ActivatedAbility) -> bool {
                             maximum: Amount::Fixed { value },
                             to: Destination::OwnerHand,
                             reveal: true,
+                            from: crate::kir::SelectionZone::Library,
+                            optional: false,
                         },
                 }),
             source_block: search_block,

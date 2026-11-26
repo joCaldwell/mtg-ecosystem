@@ -1262,8 +1262,57 @@ fn search(player: PlayerExpr, filter: Pred, maximum: i64, to: Destination) -> No
             maximum: Amount::fixed(maximum),
             to,
             reveal: false,
+            from: crate::kir::SelectionZone::Library,
+            optional: false,
         },
     })
+}
+
+/// CR 608.2c-d: hand cards go only onto your battlefield; graveyard cards
+/// onto it or into hand; another player's zone, a reveal, a hand-to-hand
+/// move and an optional library search reject.
+#[test]
+fn card_choice_cells_admit_only_own_zone_moves() {
+    use crate::kir::SelectionZone::{Graveyard, Hand, Library};
+    let you = PlayerExpr::you(Context::Spell);
+    let land = Pred(vec![Atom::Type {
+        kind: CardKind::Land,
+    }]);
+    let battlefield = Destination::Battlefield {
+        controller: you.clone(),
+        tapped: false,
+    };
+    let choice = |from, to: &Destination, reveal, optional| {
+        let Node::Do(Verb::Search { player, mut search }) =
+            search(you.clone(), land.clone(), 1, to.clone())
+        else {
+            unreachable!()
+        };
+        search.from = from;
+        search.reveal = reveal;
+        search.optional = optional;
+        check(&Node::Do(Verb::Search { player, search }), &spell(&[])).map(|d| d.cells)
+    };
+    for (from, to, cell) in [
+        (Hand, &battlefield, Cell::ChooseHandCards),
+        (Graveyard, &battlefield, Cell::ChooseGraveyardCards),
+        (
+            Graveyard,
+            &Destination::OwnerHand,
+            Cell::ChooseGraveyardCards,
+        ),
+    ] {
+        for optional in [false, true] {
+            assert_eq!(
+                choice(from, to, false, optional),
+                Ok(BTreeSet::from([cell]))
+            );
+        }
+        assert!(choice(from, to, true, false).is_err());
+    }
+    assert!(choice(Hand, &Destination::OwnerHand, false, false).is_err());
+    assert!(choice(Graveyard, &Destination::OwnerGraveyard, false, false).is_err());
+    assert!(choice(Library, &Destination::OwnerHand, false, true).is_err());
 }
 
 #[test]

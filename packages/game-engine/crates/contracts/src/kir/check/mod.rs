@@ -1787,6 +1787,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
         Verb::Sacrifice { player, filter, .. } => sacrifice::capabilities(player, filter, out),
+        Verb::Search { search, .. } if search.from != SelectionZone::Library => {
+            out.insert(Capability::ResolutionCardChoiceV1);
+        }
         Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
             out.insert(Capability::SearchLibraryTopV1);
         }

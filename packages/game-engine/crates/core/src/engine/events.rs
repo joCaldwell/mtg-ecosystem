@@ -2258,9 +2258,9 @@ impl RulesTxn {
             }
             ProposedEvent::EnterTapped { object } => {
                 let owner = self.state.rules.cards[&object.card].owner;
-                if !matches!(self.current(*object)?.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } if p == owner)
+                if !matches!(self.current(*object)?.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } | Zone::Hand { owner: p } if p == owner)
                 {
-                    return Err("tapped entry outside owner's library or graveyard".into());
+                    return Err("tapped entry outside owner's library, hand or graveyard".into());
                 }
                 // CR 614.1c: a forced tapped entry needs no entry payment.
                 self.apply_move(

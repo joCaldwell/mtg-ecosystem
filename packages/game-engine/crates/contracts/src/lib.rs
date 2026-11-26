@@ -444,6 +444,8 @@ pub enum Capability {
     OwnerLibraryBottomMoveV1,
     OwnerLibraryShuffleMoveV1,
     PrivateLibrarySelectionV1,
+    /// CR 608.2c-d: choose cards of your hand or graveyard while resolving.
+    ResolutionCardChoiceV1,
     BasicLandSearchV1,
 
     CreatureAnthemV1,

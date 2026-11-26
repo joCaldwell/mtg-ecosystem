@@ -234,6 +234,12 @@ pub enum Cell {
     SearchController,
     SearchLibraryTop,
     SearchSplitBasicLands,
+    /// CR 608.2c-d, 402.3: the controller privately chooses matching cards
+    /// of their hand to put onto the battlefield.
+    ChooseHandCards,
+    /// CR 608.2c-d, 404.2: the controller chooses matching cards of their
+    /// graveyard to move.
+    ChooseGraveyardCards,
     /// CR 701.23, 608.2h: a target's last-known controller searches theirs.
     SearchTargetController,
     /// CR 701.24a.
@@ -444,6 +450,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SearchController
         | C::SearchLibraryTop
         | C::SearchSplitBasicLands
+        | C::ChooseHandCards
+        | C::ChooseGraveyardCards
         | C::MoveTargetOwnerLibraryPosition
         | C::ShuffleResolvingSpell
         | C::ShuffleTargetOwnerLibrary
@@ -657,6 +665,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::OwnerLibraryBottomMoveV1
         | C::OwnerLibraryShuffleMoveV1
         | C::PrivateLibrarySelectionV1
+        | C::ResolutionCardChoiceV1
         | C::PermanentRemovalV1
         | C::SacrificeV1
         | C::FixedArtifactSacrificeCostV1

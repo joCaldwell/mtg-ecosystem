@@ -501,6 +501,8 @@ pub(super) fn typecycling(
                     maximum: Amount::Fixed { value: 1.into() },
                     to: Destination::OwnerHand,
                     reveal: true,
+                    from: mtg_contracts::kir::SelectionZone::Library,
+                    optional: false,
                 },
             },
             block,

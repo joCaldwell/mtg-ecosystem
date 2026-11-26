@@ -1650,6 +1650,69 @@ fn bind_object_target(
     Ok(slot)
 }
 
+/// CR 608.2c-d, 400.1: "[up to] N <cards> from your hand" or "... from your
+/// graveyard": cards chosen as the instruction resolves, never targeted
+/// (CR 115.10). `None` when `what` names no filtered card of either zone.
+/// Returns the zone, the printed characteristics, the count and whether
+/// fewer may be chosen ("up to").
+pub(crate) fn chosen_cards(
+    what: &ast::ObjectRef,
+) -> Result<Option<(kir::SelectionZone, Pred, u32, bool)>, Failure> {
+    use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+    let ast::ObjectRef::Filter(chosen) = what else {
+        return Ok(None);
+    };
+    let Some(zone) = chosen.filter.zone.as_deref() else {
+        return Ok(None);
+    };
+    let from = match zone.zone {
+        ast::Zone::Hand => kir::SelectionZone::Hand,
+        ast::Zone::Graveyard => kir::SelectionZone::Graveyard,
+        _ => return Ok(None),
+    };
+    let reject = |detail: &str| operand("chosen_cards", detail);
+    if zone.position.is_some()
+        || zone.depth.is_some()
+        || zone.owner.as_deref() != Some(&Owner::Your)
+        || chosen.filter.cls != Some(ast::ObjectFilterCls::Card)
+    {
+        return Err(reject("zone"));
+    }
+    // CR 608.2d: a random selection is no choice; it is reviewed separately.
+    if chosen.random.is_some() {
+        return Err(reject("random"));
+    }
+    if chosen.group_constraints.is_some() {
+        return Err(reject("group_constraints"));
+    }
+    let count = match &*chosen.count {
+        ast::Amount::Fixed(n) => u32::try_from(n.value).ok().filter(|n| (1..=7).contains(n)),
+        _ => None,
+    }
+    .ok_or_else(|| reject("count"))?;
+    let up_to = match chosen.up_to {
+        None => false,
+        Some(true) => true,
+        Some(false) => return Err(reject("up_to")),
+    };
+    let mut printed = (*chosen.filter).clone();
+    printed.zone = None;
+    let permanent = printed.permanent.take();
+    let mut predicate = lower_card_filter(&printed)?;
+    if permanent.is_some() {
+        // CR 110.4: the permanent card types in the admitted catalog.
+        predicate.0.push(Atom::AnyType {
+            kinds: vec![
+                CardKind::Artifact,
+                CardKind::Creature,
+                CardKind::Enchantment,
+                CardKind::Land,
+            ],
+        });
+    }
+    Ok(Some((from, predicate, count, up_to)))
+}
+
 /// CR 601.2c, 608.2b. Bind a graveyard card with the printed ownership
 /// and characteristic restrictions.
 pub(crate) fn bind_graveyard_target(

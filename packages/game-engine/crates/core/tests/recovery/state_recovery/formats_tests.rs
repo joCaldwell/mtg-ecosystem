@@ -20,8 +20,8 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    89,
-    "e02c770660db4102b056b2a9aac0ed20f5db42077f0974750d5c9f9d43afb01f",
+    90,
+    "4f0d5d87b5d1b271bdd42cbfd4a7b5665aae421da2bf10d347628211beed1865",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     121,

@@ -180,6 +180,8 @@ pub(super) fn search(
                     maximum: Amount::fixed(1),
                     to: Destination::OwnerLibraryTop,
                     reveal,
+                    from: kir::SelectionZone::Library,
+                    optional: false,
                 },
             })],
             at + 2,
@@ -223,6 +225,8 @@ pub(super) fn search(
                 maximum: Amount::fixed(maximum),
                 to: Destination::OneTappedRestOwnerHand,
                 reveal,
+                from: kir::SelectionZone::Library,
+                optional: false,
             },
         });
         return Ok((vec![search, cx.act(Verb::Shuffle { player })], at + 2));
@@ -255,6 +259,8 @@ pub(super) fn search(
             maximum: Amount::fixed(maximum),
             to,
             reveal,
+            from: kir::SelectionZone::Library,
+            optional: false,
         },
     });
     let shuffle = cx.act(Verb::Shuffle { player });
