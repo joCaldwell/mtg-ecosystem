@@ -38,7 +38,9 @@ fn lowered(raw: &str) -> Definition {
 
 fn game(cards: &[&str], setup: impl FnOnce(Board) -> Board) -> Game {
     let mut catalog = FixtureCatalog::Witness.get().clone();
-    catalog.definitions.extend(cards.iter().map(|raw| lowered(raw)));
+    catalog
+        .definitions
+        .extend(cards.iter().map(|raw| lowered(raw)));
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -99,7 +101,12 @@ fn q(value: i64) -> Quantity {
 /// effect (CR 205.3d), and a scope reaching other zones rejects.
 #[test]
 fn changeling_lowers_as_a_characteristic_in_every_zone() {
-    for raw in [CHANGELING_OUTCAST, WOODLAND_CHANGELING, MISTFORM_ULTIMUS, IRREGULAR_COHORT] {
+    for raw in [
+        CHANGELING_OUTCAST,
+        WOODLAND_CHANGELING,
+        MISTFORM_ULTIMUS,
+        IRREGULAR_COHORT,
+    ] {
         let d = lowered(raw);
         assert!(d.characteristics.all_creature_types, "{}", d.name);
         assert!(d.characteristics.has_subtype("Sliver"));
@@ -200,7 +207,8 @@ fn every_creature_type_holds_in_the_library() {
         .values()
         .find(|o| {
             matches!(o.zone, Zone::Library { .. })
-                && g.characteristics(o.id).is_ok_and(|c| c.has_subtype("Merfolk"))
+                && g.characteristics(o.id)
+                    .is_ok_and(|c| c.has_subtype("Merfolk"))
         })
         .expect("the library changeling is a Merfolk card");
     assert!(g.characteristics(card.id).unwrap().all_creature_types);

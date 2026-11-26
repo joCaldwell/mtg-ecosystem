@@ -1008,10 +1008,7 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
         0 => false,
         1 => true,
         _ => {
-            return Err(unsupported(
-                "effects.token.keywords",
-                "repeated changeling",
-            ));
+            return Err(unsupported("effects.token.keywords", "repeated changeling"));
         }
     };
     let keywords = token

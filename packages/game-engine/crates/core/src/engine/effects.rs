@@ -3044,8 +3044,10 @@ impl RulesTxn {
                     .definitions
                     .iter()
                     .flat_map(|d| &d.static_abilities)
-                    .any(|a| matches!(&a.effect, StaticEffect::Continuous { changes, .. }
-                        if changes.contains(&Change::AllCreatureTypes)));
+                    .any(|a| {
+                        matches!(&a.effect, StaticEffect::Continuous { changes, .. }
+                        if changes.contains(&Change::AllCreatureTypes))
+                    });
             let lost = !c.all_creature_types
                 && self
                     .characteristic_set_vocabulary()
