@@ -1275,7 +1275,11 @@ impl Walk<'_, '_> {
                     },
                 ..
             } => Self::audited_filter(zone, filter),
-            Amount::Devotion { player, colors } if player.is_you() && !colors.is_empty() => Ok(()),
+            Amount::Devotion { player, colors }
+                if player.is_you() && !colors.is_empty() && !colors.contains(&Color::C) =>
+            {
+                Ok(())
+            }
             Amount::Times { factor, of }
                 if *factor > Quantity::from(1) && !matches!(**of, Amount::Times { .. }) =>
             {

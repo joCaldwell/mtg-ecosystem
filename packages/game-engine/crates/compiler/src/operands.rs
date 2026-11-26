@@ -1540,6 +1540,8 @@ pub(crate) fn lower_x_binding(
             Err(operand("bindings", "several"))
         };
     };
+    // The archive binds only X (`LitX`); decoding has already proved it.
+    let ast::LitX::X = binding.variable;
     if binding.as_of.is_some() {
         return Err(operand("bindings", "as_of"));
     }

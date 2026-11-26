@@ -1115,16 +1115,21 @@ impl RulesTxn {
                     // CR 608.2h: a resolution count was read once, as the
                     // draws began; later instructions of the same program may
                     // change it, so the recorded attempts are that number.
-                    let counted = matches!(
-                        instruction,
-                        kernel!(Draw { amount, .. }) if amount.is_resolution_count()
-                    );
+                    let counted = match instruction {
+                        kernel!(Draw { amount, .. }) if amount.is_resolution_count() => {
+                            Some(crate::engine::kir::resolution_count_bound(amount))
+                        }
+                        _ => None,
+                    };
                     if *player != self.draw_player_for_instruction(frame, instruction)?
                         || attempted.is_negative()
-                        || (!counted && *attempted > amount)
+                        || counted
+                            .as_ref()
+                            .is_some_and(|bound| bound.as_ref().is_some_and(|b| attempted > b))
+                        || (counted.is_none() && *attempted > amount)
                         || failed.is_negative()
                         || failed > attempted
-                        || (!counted && *attempted != amount && self.is_live(*player))
+                        || (counted.is_none() && *attempted != amount && self.is_live(*player))
                     {
                         return Err("counted draw completed outcome invariant".into());
                     }

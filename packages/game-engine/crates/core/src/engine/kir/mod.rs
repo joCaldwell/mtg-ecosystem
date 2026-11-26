@@ -24,6 +24,24 @@ mod exec;
 mod object_choice;
 pub use control::{LeafProgram, Task};
 
+/// CR 608.2h: an upper bound on a resolution count recorded when its step
+/// was performed. Later instructions of the same program may change the
+/// number, so a saved value is bounded, never re-derived. A count is bounded
+/// by every object that could exist; a greatest stat or devotion only by
+/// being nonnegative.
+pub(super) fn resolution_count_bound(amount: &Amount) -> Option<Quantity> {
+    match amount {
+        Amount::Count { .. } => Some(Quantity::from(
+            (4 * capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize) as i64,
+        )),
+        Amount::Times { factor, of } => resolution_count_bound(of).map(|mut bound| {
+            bound.multiply(factor);
+            bound
+        }),
+        _ => None,
+    }
+}
+
 /// The players a player expression denotes for one resolving invocation.
 pub(super) enum Players {
     One(PlayerId),

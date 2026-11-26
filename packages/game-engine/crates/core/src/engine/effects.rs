@@ -423,34 +423,13 @@ impl RulesTxn {
         match amount {
             Amount::Fixed { value } => Some(value.clone()),
             Amount::Count { set } => Some((self.static_count(source, set) as i64).into()),
+            // CR 700.5: statics admit only their controller's devotion
+            // (`kir::statics`).
             Amount::Devotion { player, colors } => {
-                // CR 700.5, 700.5a: a hybrid symbol contributes at most one.
-                let mut count = Quantity::zero();
-                for permanent in self
-                    .battlefield_static_sources(None)
-                    .filter(|p| self.static_player(player, source.controller, p.controller))
-                {
-                    let c = &self.copiable_definition(permanent.id).ok()?.characteristics;
-                    let ordinary = c
-                        .mana_cost
-                        .colored
-                        .iter()
-                        .filter(|color| colors.contains(color))
-                        .count();
-                    let hybrid = c
-                        .hybrid_mana
-                        .iter()
-                        .filter(|symbol| {
-                            symbol
-                                .colors
-                                .iter()
-                                .filter_map(|payment| payment.color())
-                                .any(|c| colors.contains(&c))
-                        })
-                        .count();
-                    count.add(&((ordinary + hybrid) as i64).into());
+                if *player != PlayerExpr::static_controller() {
+                    return None;
                 }
-                Some(count)
+                self.devotion(source.controller, colors)
             }
             _ => None,
         }

@@ -50,7 +50,10 @@ struct Setup<'a> {
 
 /// The game and the ids of the lands that pay for card 0.
 fn game(setup: Setup<'_>) -> (Game, Vec<u32>) {
-    let definition = lowered(setup.card);
+    game_with(lowered(setup.card), setup)
+}
+
+fn game_with(definition: Definition, setup: Setup<'_>) -> (Game, Vec<u32>) {
     let name = definition.name.clone();
     let cost = &definition.characteristics.mana_cost;
     let lands = cost.colored.len() + cost.generic.to_u32().unwrap() as usize;
@@ -279,4 +282,50 @@ fn hellkite_igniter_counts_artifacts_for_its_own_pump() {
     let json = serde_json::to_string(&d.activated).unwrap();
     assert!(json.contains(r#""delta":"counted""#), "{json}");
     assert!(!json.contains("announced_x"), "{json}");
+}
+
+/// A synthetic program: "deals X damage to each creature, where X is the
+/// greatest power among creatures you control. Creatures you control get
+/// +1/+1 until end of turn." The damage's recorded X stays valid after the
+/// later pump raises that power (CR 608.2h); every quantum re-validates it.
+#[test]
+fn recorded_set_damage_count_survives_a_later_change_to_its_source() {
+    let mut definition = lowered(CHAIN_REACTION);
+    let program = definition.spell.as_mut().unwrap();
+    let json = serde_json::to_string(&program.instructions).unwrap();
+    let count = r#"{"amount":"count","set":{"set":"matching","zone":{"zone":"battlefield"},"filter":[{"atom":"type","kind":"creature"}]}}"#;
+    let mine = r#"[{"atom":"type","kind":"creature"},{"atom":"controlled_by","player":{"player":"is","who":{"ref":"controller","role":"spell_controller"}}}]"#;
+    let greatest = format!(
+        r#"{{"amount":"greatest","set":{{"set":"matching","zone":{{"zone":"battlefield"}},"filter":{mine}}},"stat":"power"}}"#
+    );
+    assert!(json.contains(count), "{json}");
+    program.instructions = serde_json::from_str(&json.replace(count, &greatest)).unwrap();
+    let mine: mtg_contracts::kir::Pred = serde_json::from_str(mine).unwrap();
+    program.instructions.push(Instruction::pump(
+        mtg_contracts::kir::SetExpr::battlefield(mine),
+        Quantity::from(1),
+        Quantity::from(1),
+        0,
+    ));
+    let (mut g, lands) = game_with(
+        definition,
+        Setup {
+            card: CHAIN_REACTION,
+            hand: &[],
+            land: "Mountain",
+            mine: &["Grizzly Bears", "Grizzly Bears"],
+            theirs: &["Colossal Dreadmaw"],
+        },
+    );
+    cast(&mut g, &lands, None);
+    resolve(&mut g);
+    let dreadmaw = g.current(Driver::object(&g, 7)).unwrap();
+    assert_eq!(dreadmaw.marked_damage, 2.into());
+    // Two damage, then +1/+1: each Bear survives as a 3/3.
+    for bear in [5, 6] {
+        let bear_now = g.current(Driver::object(&g, bear)).unwrap();
+        assert_eq!(bear_now.zone, Zone::Battlefield);
+        assert_eq!(bear_now.marked_damage, 2.into());
+        assert_eq!(stats(&g, bear), pt(3, 3));
+    }
 }

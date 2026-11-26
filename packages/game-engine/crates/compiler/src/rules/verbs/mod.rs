@@ -59,6 +59,8 @@ impl StepCx<'_> {
 /// one must be a draw, life change or damage, which move no permanent or
 /// graveyard card and change no power, so each read sees the same number.
 /// A count of your hand changes as you draw and is read by one step only.
+/// "Damage changes no power" holds only while wither, infect and loyalty
+/// damage stay unmodelled; admitting them must narrow this list.
 fn stable_rereads(sentence: &Sentence, x: &kir::Amount) -> Result<(), Failure> {
     let readers: Vec<usize> = (0..sentence.steps.len())
         .filter(|&i| sentence.reads_x.get(i) == Some(&true))
