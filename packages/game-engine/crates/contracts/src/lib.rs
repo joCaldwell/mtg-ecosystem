@@ -1211,7 +1211,10 @@ pub enum SpellResolution {
     Instructions,
     Permanent,
 }
-/// CR 702.33a/e: one source-bound optional fixed mana declaration. The
+/// CR 702.27a: the optional mana cost that changes successful spell completion.
+pub const BUYBACK_COST: &str = "buyback";
+
+/// CR 702.27a, 702.33a/e: one source-bound optional fixed mana declaration. The
 /// identity names the exact archived keyword; conditions cannot link by position.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

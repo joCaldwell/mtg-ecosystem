@@ -30,7 +30,22 @@ impl RulesTxn {
             } else if adventure {
                 Zone::Exile
             } else {
-                self.stack_departure(stack, Zone::Graveyard { owner })
+                // CR 702.27a, 707.10a: buyback changes successful completion
+                // for the original spell. Flashback still exiles it on departure.
+                let destination = if resolved
+                    && !self.is_spell_copy(stack)
+                    && stack.paid.is_some()
+                    && stack
+                        .selected_additional_costs
+                        .as_ref()
+                        .is_some_and(|costs| {
+                            costs.iter().any(|cost| cost == mtg_contracts::BUYBACK_COST)
+                        }) {
+                    Zone::Hand { owner }
+                } else {
+                    Zone::Graveyard { owner }
+                };
+                self.stack_departure(stack, destination)
             };
             if destination == Zone::Battlefield
                 && self.copiable_definition(source)?.characteristics.subtypes == ["Aura"]

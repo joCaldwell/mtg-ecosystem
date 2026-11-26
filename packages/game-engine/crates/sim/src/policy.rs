@@ -650,13 +650,17 @@ impl Strategy<'_> {
                     .map(|s| s.allowed.iter().take(s.max as usize).copied().collect())
                     .collect(),
             },
+            // CR 601.2b: the baseline policy conserves mana by declining
+            // optional kicker and buyback costs before target selection.
+            (Reason::AdditionalCosts, Shape::Pick { slots, .. }) => Answer::Pick {
+                picks: vec![vec![]; slots.len()],
+            },
             // CR 701.22a, 701.25a: keep every looked-at card on top.
             (
                 Reason::Discard
                 | Reason::ChosenObjectCost { .. }
                 | Reason::ResolveDiscard
                 | Reason::DamageEffect { .. }
-                | Reason::AdditionalCosts
                 | Reason::ChooseModes
                 | Reason::ScryBottom
                 | Reason::Populate
