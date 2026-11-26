@@ -346,7 +346,9 @@ impl RulesTxn {
                 }
             }
             ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
-            ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+            ManaProduction::AnyColor | ManaProduction::ChooseDevotion {} => {
+                vec![Color::W, Color::U, Color::B, Color::R, Color::G]
+            }
             ManaProduction::Choose { colors, .. } => colors.clone(),
             ManaProduction::LandsCouldProduce {
                 controller,
@@ -442,6 +444,16 @@ impl RulesTxn {
                         controller,
                         colors_only,
                     } => reads.push((key, *controller, *colors_only)),
+                    ManaProduction::ChooseDevotion {} => {
+                        for color in self.mana_colors(o.controller, &ability.production)? {
+                            if self
+                                .devotion(o.controller, &[color])
+                                .is_some_and(|n| n > Quantity::zero())
+                            {
+                                types.insert(color);
+                            }
+                        }
+                    }
                     production => types.extend(self.mana_colors(o.controller, production)?),
                 }
             }
@@ -1104,6 +1116,17 @@ impl RulesTxn {
             }
             ManaProduction::Fixed { symbols } => {
                 symbols.iter().map(|c| (*c, Quantity::from(1))).collect()
+            }
+            ManaProduction::ChooseDevotion {} => {
+                let color = color.ok_or("devotion mana requires a chosen color")?;
+                let amount = self
+                    .devotion(a.player, &[color])
+                    .ok_or("missing devotion characteristics")?;
+                if amount == Quantity::zero() {
+                    vec![]
+                } else {
+                    vec![(color, amount)]
+                }
             }
             // CR 106.1a: N mana of the one chosen color.
             ManaProduction::Choose { amount, .. } => {

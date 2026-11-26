@@ -884,6 +884,7 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
         }
         ManaProduction::AnyColor
         | ManaProduction::CommanderColor
+        | ManaProduction::ChooseDevotion {}
         | ManaProduction::LandsCouldProduce { .. } => true,
         ManaProduction::Choose { colors, amount } => {
             colors.len() >= 2 && distinct(colors) && *amount >= Quantity::from(1)

@@ -10,6 +10,12 @@ fn board() -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
+            "../../../../../tests/fixtures/phase1-r5/84dc18f0-8225-4b40-a165-b10321e41769.json"
+        ),
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/cfb8cdde-11f6-441a-942b-32d8c191fc90.json"
+        ),
+        include_str!(
             "../../../../../tests/fixtures/phase1-r5/4fe8af73-c84a-44bd-9739-ee5c8b027874.json"
         ),
         include_str!(
@@ -193,16 +199,53 @@ fn crypt_counts_only_black_creature_cards_in_its_controllers_graveyard() {
             .prepare(),
     );
     activate(&mut game, 0);
-    let d = Driver::request(&mut game, u64::MAX);
+    select_second_mana_ability(&mut game);
+    pay_two_black(&mut game);
+    assert_eq!(
+        game.state.rules.players[0].mana.get(&Color::B),
+        Some(&1.into())
+    );
+}
+
+fn select_second_mana_ability(game: &mut Game) {
+    let d = Driver::request(game, u64::MAX);
     let answer = d
         .pick_one(&Candidate::ManaAbility {
             ability: mtg_core::ManaAbilityIdentity::Printed { index: 1 },
         })
         .unwrap();
     game.respond(d.player, d.id, answer).unwrap();
+}
+
+#[test]
+fn nykthos_restores_the_color_choice_and_produces_the_chosen_devotion() {
+    let mut game = Game::new(
+        board()
+            .permanent_or_hand("Nykthos, Shrine to Nyx", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Llanowar Elves", 0, 0, false)
+            .permanent_or_hand("Elvish Archdruid", 0, 0, false)
+            .libraries("Forest", 4)
+            .prepare(),
+    );
+    activate(&mut game, 0);
+    select_second_mana_ability(&mut game);
     pay_two_black(&mut game);
+
+    let mut game = restored(&game);
+    let choice = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(choice.reason, Reason::ManaColor { .. }));
+    for color in [Color::W, Color::U, Color::B, Color::R, Color::G] {
+        assert!(choice.index(&Candidate::Color { color }).is_some());
+    }
+    let answer = choice
+        .pick_one(&Candidate::Color { color: Color::G })
+        .unwrap();
+    game.respond(choice.player, choice.id, answer).unwrap();
+    Driver::request(&mut game, u64::MAX);
     assert_eq!(
-        game.state.rules.players[0].mana.get(&Color::B),
-        Some(&1.into())
+        game.state.rules.players[0].mana.get(&Color::G),
+        Some(&3.into())
     );
 }

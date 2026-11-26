@@ -248,6 +248,7 @@ pub enum Cell {
     /// CR 106.1a: N mana of one color chosen from a printed list.
     ManaChoose,
     ManaCounted,
+    ManaChooseDevotion,
     SpellManaCounted,
     /// CR 106.6: restrictions and riders carried by mana until it is spent.
     ManaSpendRestriction,
@@ -422,6 +423,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ResolutionTrigger
         | C::Control
         | C::ManaCounted
+        | C::ManaChooseDevotion
         | C::SpellManaCounted
         | C::ManaChoose
         | C::ManaSpendRestriction

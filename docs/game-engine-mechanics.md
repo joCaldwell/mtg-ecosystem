@@ -183,7 +183,8 @@ lands could produce. A printed mana bundle of one type may multiply by an
 audited battlefield or public graveyard count after the activation costs
 (CR 605.3b, 608.2h). The planner applies earlier simulated taps and the source's own tap
 before reading the count from the permitted view. A zero count adds no mana.
-A bundle is chosen in full as the ability resolves.
+A bundle is chosen in full as the ability resolves. A devotion choice offers
+all five colors, then reads devotion to the chosen color (CR 700.5).
 CR 106.7 is the least fixed point over battlefield lands, each read
 relative to its own controller from intrinsic, printed and granted abilities,
 ignoring costs and object order. If a departure leaves no defined type while

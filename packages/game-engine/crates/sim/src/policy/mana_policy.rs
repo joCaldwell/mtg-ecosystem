@@ -39,7 +39,12 @@ struct Planner<'a> {
     plan: Vec<PlannedMana>,
 }
 impl Planner<'_> {
-    fn amount(&self, source: &Source<'_>) -> Quantity {
+    fn amount(&self, source: &Source<'_>, color: Option<Color>) -> Quantity {
+        if matches!(source.production, ManaProduction::ChooseDevotion {}) {
+            return color.map_or_else(Quantity::zero, |color| {
+                devotion(self.view, self.view.viewer, color)
+            });
+        }
         let ManaProduction::Counted {
             filter,
             factor,
@@ -120,7 +125,7 @@ impl Planner<'_> {
                         ManaProduction::Fixed { symbols } => symbols.as_slice(),
                         _ => color.as_slice(),
                     };
-                    let output = self.amount(source);
+                    let output = self.amount(source, color);
                     for symbol in symbols {
                         if let Some(missing) = needed.get_mut(symbol) {
                             let amount = missing.clone().min(output.clone());
@@ -171,7 +176,7 @@ impl Planner<'_> {
                 ManaProduction::Fixed { symbols } => symbols.as_slice(),
                 _ => color.as_slice(),
             };
-            let amount = self.amount(source);
+            let amount = self.amount(source, color);
             self.tapped[source.object_index] = source.taps;
             for &c in symbols {
                 self.pool.entry(c).or_default().add(&amount);
@@ -324,6 +329,19 @@ fn condition_holds(
 }
 
 /// The colors one ability of a permanent `controller` controls produces.
+pub(super) fn devotion(view: &PermittedView, player: PlayerId, color: Color) -> Quantity {
+    let symbols: usize = view
+        .objects
+        .iter()
+        .filter(|object| {
+            object.zone == Zone::Battlefield && !object.phased_out && object.controller == player
+        })
+        .filter_map(|object| object.characteristics.as_ref())
+        .map(|c| c.devotion_symbols(&[color]))
+        .sum();
+    Quantity::from(i64::try_from(symbols).expect("bounded visible devotion"))
+}
+
 fn production_colors(
     catalog: &Catalog,
     view: &PermittedView,
@@ -335,6 +353,10 @@ fn production_colors(
         ManaProduction::Counted { color, .. } => vec![*color],
         ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
         ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+        ManaProduction::ChooseDevotion {} => [Color::W, Color::U, Color::B, Color::R, Color::G]
+            .into_iter()
+            .filter(|color| devotion(view, controller, *color) > Quantity::zero())
+            .collect(),
         ManaProduction::CommanderColor => commander_colors(view, controller),
         ManaProduction::Choose { colors, .. } => colors.clone(),
         ManaProduction::LandsCouldProduce {
@@ -938,6 +960,39 @@ mod tests {
         assert_eq!(plan[0].source, view.objects[1].handle);
         assert_eq!(plan[1].source, view.objects[0].handle);
         cost.colored.push(Color::G);
+        assert!(plan_for(&catalog, &view, &cost, None).is_none());
+    }
+
+    #[test]
+    fn devotion_mana_plan_uses_the_requested_colors_devotion() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/cfb8cdde-11f6-441a-942b-32d8c191fc90.json"
+            ),
+        ) else {
+            panic!("frozen Nyx Lotus must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects.push(land(&catalog, "Nyx Lotus", 3));
+        let first = land(&catalog, "Grizzly Bears", 3);
+        let mut second = first.clone();
+        second.handle = ObjectHandle("second Bear".into());
+        view.objects.extend([first, second]);
+
+        let mut cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::G, Color::G],
+        };
+        let plan =
+            plan_for(&catalog, &view, &cost, None).expect("two green devotion funds the cost");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].color, Some(Color::G));
+        cost.colored.push(Color::G);
+        assert!(plan_for(&catalog, &view, &cost, None).is_none());
+        cost.colored = vec![Color::R];
         assert!(plan_for(&catalog, &view, &cost, None).is_none());
     }
 

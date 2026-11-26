@@ -66,6 +66,9 @@ pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Ce
             }
             cells.insert(Cell::ManaCounted);
         }
+        ManaProduction::ChooseDevotion {} => {
+            cells.insert(Cell::ManaChooseDevotion);
+        }
         ManaProduction::Choose { .. } | ManaProduction::Bundles { .. } => {
             cells.insert(Cell::ManaChoose);
         }

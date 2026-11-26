@@ -338,6 +338,7 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             }))
         }
         Step::AddMana { .. } => Err(step("add-mana", "unlowered")),
+        Step::ChooseValue { .. } => Err(step("choose-value", "unlowered")),
         Step::Reveal { .. } => Err(step("reveal", "unlowered")),
         // A search run is lowered from its first step by the sentence loop.
         Step::Search { .. } => Err(step("search", "run")),

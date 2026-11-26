@@ -347,7 +347,17 @@ pub(crate) fn lower_mana_ability(
             "bindings outside spell instructions",
         ));
     }
-    let mut steps = effects.iter().flat_map(|s| &s.steps);
+    let mut steps = effects.iter().flat_map(|s| &s.steps).peekable();
+    let you = PlayerSelector {
+        player: "you".into(),
+        selection_id: None,
+        of: None,
+    };
+    let chose_color = matches!(steps.peek(), Some(Step::ChooseValue { who, category })
+        if who == &you && category == "color");
+    if chose_color {
+        steps.next();
+    }
     // CR 608.2c: the mana is added first, then the riders in printed order.
     let Some(Step::AddMana {
         who,
@@ -359,15 +369,26 @@ pub(crate) fn lower_mana_ability(
     else {
         return Err(unsupported("mana", "extra mana steps"));
     };
-    let you = PlayerSelector {
-        player: "you".into(),
-        selection_id: None,
-        of: None,
-    };
     if *who != you {
         return Err(unsupported("mana", "unsupported mana recipient"));
     }
-    let production = if let Some(for_each) = for_each {
+    let production = if chose_color {
+        use serde_json::json;
+        let chosen = json!({"choice":"chosen-value","category":"color","which":"chosen"});
+        match mana {
+            SourceMana::ChosenColor { amount, choice }
+                if for_each.is_none()
+                    && *choice == chosen
+                    && *amount
+                        == json!({"amount":"devotion","who":{"player":"you"},"colors":chosen})
+                    && effects.len() == 2
+                    && effects.iter().all(|sentence| sentence.steps.len() == 1) =>
+            {
+                ManaProduction::ChooseDevotion {}
+            }
+            _ => return Err(unsupported("mana", "chosen color devotion")),
+        }
+    } else if let Some(for_each) = for_each {
         let (color, amount) = counted_mana(mana, for_each, kir::Context::Activated)?;
         let (factor, count) = match amount {
             kir::Amount::Times { factor, of } => (factor, *of),

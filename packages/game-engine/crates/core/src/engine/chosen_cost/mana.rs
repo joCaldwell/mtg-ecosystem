@@ -151,6 +151,15 @@ impl RulesTxn {
                         // This solver uses independent static source bundles. A
                         // counted activation needs the board after earlier taps.
                         ManaProduction::Counted { .. } => {}
+                        ManaProduction::ChooseDevotion {} => {
+                            for color in self.mana_colors(player, &ability.production)? {
+                                if let Some(amount) = self.devotion(player, &[color])
+                                    && amount > Quantity::zero()
+                                {
+                                    options.push(vec![(color, amount)]);
+                                }
+                            }
+                        }
                         production => options.extend(
                             self.mana_colors(player, production)?
                                 .into_iter()
