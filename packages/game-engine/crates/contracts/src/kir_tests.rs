@@ -109,6 +109,8 @@ fn event_players_exist_only_for_events_that_supply_the_role() {
     let cast = TriggerCondition::on(EventPattern::Cast {
         caster: PlayerExpr::EachPlayer,
         spell: Pred::default(),
+        nth: None,
+        targets_source: false,
     });
     let step = TriggerCondition::on(EventPattern::StepBegins {
         step: BeginningStep::Upkeep,
@@ -1527,6 +1529,8 @@ fn event_patterns_admit_only_what_collection_and_recovery_agree_on() {
             EventPattern::Cast {
                 caster: PlayerExpr::EachPlayer,
                 spell: Pred(vec![status.clone()]),
+                nth: None,
+                targets_source: false,
             },
             false,
         );

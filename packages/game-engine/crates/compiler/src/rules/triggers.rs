@@ -136,6 +136,8 @@ pub(crate) fn cast_event(
     Ok(EventPattern::Cast {
         caster,
         spell: lower_type_predicate(what, Some("spell"), true, 0)?,
+        nth: None,
+        targets_source: false,
     })
 }
 
@@ -250,7 +252,7 @@ pub(crate) fn lower_trigger(
                 ("a-player", None, None) => PlayerExpr::EachPlayer,
                 _ => return Err(unsupported("trigger.who", "unsupported drawing player")),
             };
-            EventPattern::Draws { player }
+            EventPattern::Draws { player, nth: None }
         },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
@@ -349,6 +351,7 @@ pub(crate) fn lower_trigger(
     condition = TriggerCondition::Event {
         pattern,
         intervening_if: intervening_if.map(|i| i.condition()),
+        once_each_turn: false,
     };
     Ok(TriggeredAbility {
         modal: None,

@@ -1371,6 +1371,19 @@ impl RulesTxn {
             }
         }
         self.undo_resolution_departure(&r.cost_triggers);
+        // A reversed cost's triggers never triggered, so their once-each-turn
+        // uses are released with them (CR 733.1).
+        let released = self
+            .state
+            .rules
+            .pending_triggers
+            .iter()
+            .filter(|t| r.cost_triggers.contains(&t.id))
+            .filter_map(Self::trigger_use)
+            .collect::<Vec<_>>();
+        for key in released {
+            self.rules_mut().trigger_uses.remove(&key);
+        }
         self.rules_mut()
             .pending_triggers
             .retain(|t| !r.cost_triggers.contains(&t.id));
