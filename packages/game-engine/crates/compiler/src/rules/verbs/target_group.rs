@@ -112,10 +112,8 @@ fn member(field: Field<'_>, group: &Group, index: u32) -> Result<(), Failure> {
         }
         Field::Typed(ast::ObjectRef::Target(target)) => {
             target.up_to = None;
-            target.count = Box::new(
-                serde_json::from_value(json!({"amount": "fixed", "value": 1}))
-                    .map_err(|_| operand("target", group.code()))?,
-            );
+            *target.count = serde_json::from_value(json!({"amount": "fixed", "value": 1}))
+                .map_err(|_| operand("target", group.code()))?;
             target.selection_id = Some(identity);
         }
         Field::Typed(_) => return Err(operand("target", group.code())),
