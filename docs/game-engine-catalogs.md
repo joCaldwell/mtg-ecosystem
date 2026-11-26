@@ -136,7 +136,7 @@ checker for each program and derives required capabilities from the node and its
 operands; the JSON Schema describes wire structure only. The resolving frame can
 resume at an audited control node, with bindings and progress tied to its
 address in the admitted program. The audited cells and their operands are the
-check modules; [mechanics](game-engine-mechanics.md) describes the supported
+check modules; [core](game-engine-mechanics.md) and [board](game-engine-board-mechanics.md) mechanics describe the supported
 behavior of each family.
 
 Control semantics:
@@ -159,11 +159,11 @@ Control semantics:
   `Satisfies` can test the printed creature type of a bound graveyard card
   after exile (CR 608.2b, 608.2h).
 - `Delayed` and `Reflexive` carry separately checked single-instruction programs;
-  the parent can register a one-shot [resolution-created trigger](game-engine-mechanics.md#delayed-and-reflexive-triggers)
+  the parent can register a one-shot [resolution-created trigger](game-engine-board-mechanics.md#delayed-and-reflexive-triggers)
   at the end of its program.
 
 Controls read fixed amounts, announced X and counts of audited sets; verbs
-also read [resolution-time counts](game-engine-mechanics.md#resolution-time-counts); life
+also read [resolution-time counts](game-engine-board-mechanics.md#resolution-time-counts); life
 changes, payments and choice bounds require nonnegative amounts. Object sets are
 matching battlefield permanents or graveyard cards under audited predicates,
 source or announced identities, a bound singleton or a bound pool. Tapped,
