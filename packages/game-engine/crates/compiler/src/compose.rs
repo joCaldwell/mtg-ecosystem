@@ -1121,7 +1121,6 @@ fn compose_face(
                         // a triggered keyword is the trigger its rule
                         // defines; each printed instance is its own ability.
                         _ if keywords.iter().any(keywords::is_triggered) => {
-                            keywords::triggered_printed(&keywords, text, &card_source.shape)?;
                             let (triggers, rest): (Vec<_>, Vec<_>) =
                                 keywords.iter().cloned().partition(keywords::is_triggered);
                             if !rest.is_empty() {
@@ -1129,6 +1128,7 @@ fn compose_face(
                                     .keywords
                                     .extend(keywords::lower(card.kind, &rest, text)?);
                             }
+                            keywords::triggered_printed(&keywords, text, &card_source.shape)?;
                             for keyword in &triggers {
                                 definition
                                     .triggered

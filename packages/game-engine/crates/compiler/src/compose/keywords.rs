@@ -459,93 +459,143 @@ fn spelling(keyword: &SourceKeyword) -> Option<String> {
     }
 }
 
-/// Trim a normalized keyword line and strip one optional terminal period,
-/// matching `parseKeywordLine` in `packages/oracle-parser/src/parser/keywords.ts`.
-fn trim_keyword_line(line: &str) -> String {
-    let trimmed = line.trim();
-    trimmed
-        .strip_suffix('.')
-        .map_or(trimmed, str::trim)
-        .to_ascii_lowercase()
-}
-
-/// Split one keyword line on commas, semicolons and standalone `and`
-/// (including Oxford `, and` / `; and`) using the same item grammar as
-/// `parseKeywordLine` (`packages/oracle-parser/src/parser/keywords.ts:524-535`).
-fn keyword_line_items(line: &str) -> Vec<String> {
-    let stripped = trim_keyword_line(line);
-    if stripped.is_empty() {
-        return Vec::new();
+/// Exact printed spelling of one supported keyword inside a triggered-keyword
+/// line (ASCII lowercase), matching `TABLE`, `LANDWALK`,
+/// `fixed_color_protection` and `TRIGGERED`.
+fn companion_spelling(keyword: &SourceKeyword) -> Option<String> {
+    if is_triggered(keyword) {
+        return (keyword.cost.is_none()
+            && keyword.filter.is_none()
+            && keyword.protection_from.is_none())
+        .then(|| spelling(keyword))
+        .flatten();
     }
-    let mut items = Vec::new();
-    for (chunk_idx, chunk) in stripped.split([',', ';']).enumerate() {
-        let mut words = chunk.split_whitespace().peekable();
-        if chunk_idx > 0 && words.peek().copied() == Some("and") {
-            words.next();
-        }
-        let mut current = Vec::new();
-        for word in words {
-            if word == "and" {
-                items.push(current.join(" "));
-                current.clear();
-            } else {
-                current.push(word);
+    if keyword.cost.is_some() || keyword.amount.is_some() {
+        return None;
+    }
+    if keyword.keyword == "landwalk" {
+        let ability = basic_landwalk(keyword.filter.as_ref()?)?;
+        return LANDWALK
+            .iter()
+            .find(|(_, a)| *a == ability)
+            .map(|(name, _)| format!("{}walk", name.to_ascii_lowercase()));
+    }
+    if keyword.filter.is_some() {
+        return None;
+    }
+    if let Some(from) = &keyword.protection_from {
+        use SourceProtectionQuality::{AllColors, Color};
+        use mtg_contracts::fixed_color_protection::keyword_for_name;
+        return match from.as_slice() {
+            [AllColors {}] => Some("protection from each color".to_owned()),
+            [Color { color }] if keyword_for_name(color).is_some() => {
+                Some(format!("protection from {}", color.to_ascii_lowercase()))
             }
-        }
-        items.push(current.join(" "));
+            [Color { color }, Color { color: other }]
+                if color != other
+                    && keyword_for_name(color).is_some()
+                    && keyword_for_name(other).is_some() =>
+            {
+                Some(format!(
+                    "protection from {} and from {}",
+                    color.to_ascii_lowercase(),
+                    other.to_ascii_lowercase()
+                ))
+            }
+            _ => None,
+        };
     }
-    items
+    TABLE
+        .iter()
+        .find(|(name, _)| *name == keyword.keyword)
+        .map(|(name, _)| (*name).to_owned())
 }
 
-/// The keyword line prints each listed keyword in order, separated by commas,
-/// semicolons or `and` (with optional terminal period), and every triggered
-/// instance exactly as its rule spells it with its N. Scryfall's keyword list
-/// names each of them (CR 702.1).
+/// Consume one inter-keyword separator matching `parseKeywordLine`
+/// (`packages/oracle-parser/src/parser/keywords.ts:524-533`): `,`, `;`, `, and`,
+/// `; and`, or bare `and` separated by whitespace.
+fn consume_separator(rest: &str) -> Option<&str> {
+    if let Some(after_punct) = rest.strip_prefix(',').or_else(|| rest.strip_prefix(';')) {
+        let after_ws = after_punct.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        if let Some(after_and) = after_ws.strip_prefix("and")
+            && after_and
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_whitespace())
+        {
+            return Some(after_and.trim_start_matches(|c: char| c.is_ascii_whitespace()));
+        }
+        return Some(after_ws);
+    }
+    let after_ws = rest
+        .strip_prefix(|c: char| c.is_ascii_whitespace())?
+        .trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let after_and = after_ws.strip_prefix("and")?;
+    after_and
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_whitespace())
+        .then(|| after_and.trim_start_matches(|c: char| c.is_ascii_whitespace()))
+}
+
+/// The keyword line prints each listed keyword left-to-right under the parser
+/// separator grammar (`parseKeywordLine`) with at most one terminal period, and
+/// every triggered instance matches its rule spelling and `source["keywords"]`
+/// entry (CR 702.1).
 pub(super) fn triggered_printed(
     keywords: &[SourceKeyword],
     text: &str,
     source: &serde_json::Value,
 ) -> Result<(), Failure> {
-    let items = keyword_line_items(text);
-    if items.len() != keywords.len() {
-        return Err(unsupported("keyword", "keyword:triggered:printed"));
-    }
+    let trimmed = text.trim();
+    let body = trimmed
+        .strip_suffix('.')
+        .map_or(trimmed, str::trim_end)
+        .to_ascii_lowercase();
     let listed: BTreeSet<String> = source["keywords"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|k| k.as_str().map(str::to_lowercase))
         .collect();
-    for (keyword, item) in keywords.iter().zip(&items) {
-        if !is_triggered(keyword) {
-            continue;
+    let mut rest = body.as_str();
+    for (index, keyword) in keywords.iter().enumerate() {
+        let triggered = is_triggered(keyword);
+        let reject = || {
+            if triggered {
+                unsupported("keyword", format!("keyword:{}:printed", keyword.keyword))
+            } else {
+                unsupported("keyword", "keyword:triggered:printed")
+            }
+        };
+        if index > 0 {
+            rest = consume_separator(rest)
+                .ok_or_else(|| unsupported("keyword", "keyword:triggered:printed"))?;
         }
-        let reject = || unsupported("keyword", format!("keyword:{}:printed", keyword.keyword));
-        if keyword.cost.is_some()
-            || keyword.filter.is_some()
-            || keyword.protection_from.is_some()
-            || spelling(keyword).as_ref() != Some(item)
-            || !listed.contains(&keyword.keyword)
+        let expected = companion_spelling(keyword).ok_or_else(reject)?;
+        let after = rest.strip_prefix(&expected).ok_or_else(reject)?;
+        if after
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
         {
             return Err(reject());
         }
+        if triggered && !listed.contains(&keyword.keyword) {
+            return Err(reject());
+        }
+        rest = after;
+    }
+    if !rest.is_empty() {
+        return Err(unsupported("keyword", "keyword:triggered:printed"));
     }
     Ok(())
 }
 
-/// The triggered keyword instance an item of a printed keyword line spells
-/// ("bushido 2"), if it names one of the reviewed triggered keywords.
-fn printed_instance(item: &str) -> Option<&'static str> {
-    TRIGGERED
-        .iter()
-        .map(|(name, _)| *name)
-        .find(|name| item == *name || item.strip_prefix(name).is_some_and(|n| n.starts_with(' ')))
-}
-
-/// CR 702.1, 113.2c: every triggered keyword instance printed on a face's
-/// normalized lines is exactly one AST keyword instance of the same block, in
-/// printed order, with the same spelling. An AST that drops, adds, reorders or
-/// renumbers an instance rejects instead of losing or inventing a trigger.
+/// CR 702.1, 113.2c: every occurrence of a reviewed triggered keyword anywhere
+/// on a face's normalized lines (ASCII word-boundary scan across every block
+/// kind) must be accounted for by the exact lowered AST keyword instance at the
+/// same block, in order, with the same spelling.
 pub(super) fn triggered_instances_printed(
     lines: &[String],
     abilities: &serde_json::Value,
@@ -556,18 +606,26 @@ pub(super) fn triggered_instances_printed(
         return Err(mismatch());
     }
     let mut printed = Vec::new();
-    for (block, (line, ability)) in lines.iter().zip(abilities).enumerate() {
-        if ability["kind"] == "keywords" {
-            for item in keyword_line_items(line) {
-                if !item.is_empty() && printed_instance(&item).is_some() {
-                    printed.push((block, item));
+    for (block, line) in lines.iter().enumerate() {
+        let words: Vec<String> = line
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect();
+        let mut i = 0;
+        while i < words.len() {
+            if let Some((name, parameterized)) = TRIGGERED.iter().find(|(n, _)| *n == words[i]) {
+                if *parameterized
+                    && let Some(next) = words.get(i + 1)
+                    && (next == "x" || next.bytes().all(|b| b.is_ascii_digit()))
+                {
+                    printed.push((block, format!("{name} {next}")));
+                    i += 2;
+                    continue;
                 }
+                printed.push((block, (*name).to_owned()));
             }
-        } else {
-            let whole = trim_keyword_line(line);
-            if printed_instance(&whole).is_some() {
-                printed.push((block, whole));
-            }
+            i += 1;
         }
     }
     let mut parsed = Vec::new();
