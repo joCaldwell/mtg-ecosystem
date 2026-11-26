@@ -18,34 +18,25 @@ hosting. Fixture/catalog admission defines support; the deck library is independ
 | Environment, caches and execution | [Development/verification](game-engine-development.md), [storage](game-engine-storage.md) |
 
 The simulator binary installs its build identity and owns live-journal files and
-wall-clock reporting. Library callers can supply their own journal sink to
-`play::run`. The [verification topology](game-engine-development.md#engine-test-topology)
-maps the four integration suites and eight library harnesses.
+wall-clock reporting; library callers can supply their own journal sink to
+`play::run`.
 
 ## Supported behavior and remaining work
 
-Archive R4 composition feeds the sole executable instruction,
-`Instruction::Kernel`. The KIR checker admits complete programs with bound
-operands. Core resolves them through its rules transactions and continuation
-stack. The compiler reports an unsupported record when a clause cannot lower.
-[Mechanics](game-engine-mechanics.md) describes the rules and [catalogs](game-engine-catalogs.md#kernel-ir)
-describes the wire contract and admission boundaries.
-
-The retained Commander Foundations profile uses the R4 match catalog. Its
-decklists, catalog digest and engine build bind the host and search inputs.
-The smoke and rules witnesses use smaller source-lowered catalogs. Historical
-card counts, deck completions and benchmark timings belong to the source
-revisions in [evidence](game-engine-evidence.md).
+Archive R4 composition lowers each supported card to `Instruction::Kernel`
+programs or reports an unsupported record; [mechanics](game-engine-mechanics.md)
+owns the supported rules and [Kernel IR](game-engine-catalogs.md#kernel-ir) the
+wire contract and admission boundaries. The retained Commander Foundations
+profile uses the R4 match catalog; its decklists, catalog digest and engine build
+bind the host and search inputs. Smoke and rules witnesses use smaller
+source-lowered catalogs.
 
 Product setup embeds a qualified sample; standalone client acceptance covers
 joining and opening choices. Full decisions, automated launch, account-to-seat
 provisioning and arbitrary library-deck admission remain unfinished. Product
 sign-in grants no Rust seat; [client contracts](game-client.md) own integration.
 
-## History
-
 Read active snapshot/public/query formats from source. Exact build/catalog
 identity fences recovery and private artifacts; historical formats are not
-compatibility promises. Historical acceptance, counts and timings bind their own
-source revisions and never transfer to HEAD; [evidence](game-engine-evidence.md)
-keeps their immutable locators. Refactor history remains in Git.
+compatibility promises. Historical counts, acceptance and timings bind their own
+source revisions in [evidence](game-engine-evidence.md) and never transfer to HEAD.

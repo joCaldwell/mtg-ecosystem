@@ -1,203 +1,171 @@
 # Local Rust hosting contract
 
-Foundations is the reviewed hosted profile. Profile data requests
-hosting; explicit reviewed capabilities and exact pod/build/catalog validation
-admit it. Other headless pools are not implicitly hosted. Search is a separate
-native consumer. [Evidence](game-engine-evidence.md) owns source-qualified P8 proof;
+[Evidence](game-engine-evidence.md) owns source-qualified proof;
 [client delivery](game-client.md) owns browser assets, bootstrap and opening scope.
-Deployment/lobby/matchmaking and account-to-seat provisioning remain unfinished.
+Deployment, lobby/matchmaking and account-to-seat provisioning remain unfinished.
+Focused host/SDK checks follow [development](game-engine-development.md#choose-focused-checks).
 
 ## Hosted profiles
 
-`commander-foundations-v1` requests hosting through its profile data. Admission
-checks the capability set, whole pod, catalog and build identity.
-This selects admission, never profile-specific rules. Public attachments, grants,
-counters/tokens are permitted projections; hands, libraries and search choices
-remain viewer-private. SDK completion policies use only their seat observation
-and public manifest/catalog; they are not browser controls or strategic proof.
-
-Worker limits are 4 GiB, swap zero and 32 tasks; completed-game recovery must
-finish within 120 seconds. Historical P8.2 attachment proofs keep their locators
-in [evidence](game-engine-evidence.md). Focused host/SDK checks follow
-[development](game-engine-development.md#choose-focused-checks). Resource/time
-failures never authorize weaker limits or broader admission.
+`commander-foundations-v1` is the reviewed hosted profile: its data requests
+hosting, and admission checks reviewed capabilities, the whole pod, catalog and
+build identity, never selecting profile-specific rules. Other headless pools are
+not implicitly hosted; search is a separate native consumer. Public attachments,
+grants and counters/tokens are permitted projections; hands, libraries and search
+choices stay viewer-private. SDK completion policies use only their seat
+observation and public manifest/catalog and are neither browser controls nor
+strategic proof. Resource/time failures never authorize weaker
+[limits](#hosting-limits-and-clocks) or broader admission.
 
 ## Read-only product admission
 
 `mtg-server admit-client` reads at most 65,536 bytes of strict duplicate-aware JSON
 from stdin and emits one JSON result. Version 1 accepts only `operation: "admit"`,
-`profile`, `engine_build_id`, `server_build_id`, `catalog_sha256` and `deck` with
-`commander` plus unique `{oracle_id,count}` rows. The commander is included among
-the hundred cards. Source/catalog lookup uses the embedded reviewed profile;
-caller-selected paths, seeds, names and source hashes grant no admission.
+`profile`, `engine_build_id`, `server_build_id`, `catalog_sha256` and `deck`
+(`commander` plus unique `{oracle_id,count}` rows; the commander counts toward the
+hundred). Source/catalog lookup uses the embedded reviewed profile; caller-selected
+paths, seeds, names and source hashes grant nothing.
 
-The command verifies both actual executable identities, exact catalog, reviewed
-Hosting capabilities and complete four-seat pod admission, using the selected
-profile's other three default decks. Success returns `status: "admitted"`, version,
-profile/build/catalog identities and canonical normalized deck; rejection returns
-`status: "rejected"`, version, reason (`identity`, `profile`, `deck`) and bounded
-public detail. Malformed input fails without reflecting input bytes. A configured
-Git/source hash is not an authoritative native field. Admission creates no game,
-credential or consumer and makes no launch/recovery/supervision claim.
+It verifies both actual executable identities, the exact catalog, reviewed Hosting
+capabilities and four-seat admission with the profile's other three default decks.
+Success returns `status: "admitted"`, version, identities and the canonical
+normalized deck; rejection returns `status: "rejected"`, version, reason
+(`identity`, `profile`, `deck`) and bounded public detail. Malformed input fails
+without echoing bytes. Admission creates no game, credential or consumer.
 
 ## Product native lifecycle
 
 `mtg-server lifecycle ROOT` consumes one bounded strict version-1 binding line on
-stdin and retains that pipe as its lifetime lease. The binding includes game ID,
-operation generation, exact profile/build/catalog pins, immutable Oracle deck and
-its product digest, and canonical numeric loopback human origin. It persists the
-binding and randomly seeded four-deck config before registration. Existing bindings,
-all four decks and native registry metadata must agree on recovery; an ambiguous
-partial registration fails closed rather than creating a replacement match.
-Each game owns one private offline registry and bounded local server, with the
-existing systemd worker resource limits. Before spawn, the exact generated worker
-unit is durably recorded; stop/join verifies that unit inactive and its resource
-group empty, including uncertain startup and parent death. Recovery quiesces that
-unit before replacing it. This lifecycle uses explicit adapter recovery, without
-hidden broker replacement units. No shared hot registration is implemented.
+stdin and keeps that pipe as its lifetime lease. The binding holds game ID,
+operation generation, exact profile/build/catalog pins, the immutable Oracle deck
+and its product digest, and the canonical numeric loopback human origin. The
+binding and randomly seeded four-deck config persist before registration. On
+recovery, bindings, all four decks and native registry metadata must agree; an
+ambiguous partial registration fails closed rather than creating a replacement.
 
-The lifetime reader watches EOF during startup and hosting. Stop cancels startup
-or pauses permitted running execution, shuts the host and joins the worker owner.
-Only a lifecycle-issued operator pause authorizes automatic lifetime recovery;
-clock/resource faults never become rules results or receive refilled limits.
-`lifecycle-stop ROOT` advances the durable generation before waiting for the
-exclusive owner lease; old ensure generations fail even after caller uncertainty.
-`lifecycle-join ROOT` waits for ownership after an already-written fence. A later
-explicit recovery can own the new generation of the same immutable match. EOF
-shutdown does not advance the generation. Registry, bindings, single-seat files,
-operator capabilities and journals remain host-private (0700/0600); none are served
-as assets. A persisted human decision token anchors a stable wait timestamp;
-status exports only that timestamp and native typed outcome.
+Each game owns one private offline registry and bounded local server under the
+standard worker limits. The generated worker unit is durably recorded before spawn;
+stop/join verifies it inactive with an empty resource group (including after
+uncertain startup or parent death), and explicit recovery quiesces it before
+replacement. There are no hidden broker replacement units or shared hot
+registration.
+
+EOF or stop cancels startup or pauses permitted running execution, shuts the host
+and joins the worker owner. Only a lifecycle-issued operator pause authorizes
+automatic lifetime recovery; clock/resource faults never become rules results or
+receive refilled limits. `lifecycle-stop ROOT` advances the durable generation
+before waiting for the exclusive owner lease, so stale ensure generations fail even
+after caller uncertainty; `lifecycle-join ROOT` waits after an already-written
+fence; EOF shutdown does not advance the generation. A later explicit recovery may
+own the new generation of the same immutable match. Registry, bindings, single-seat
+files, operator capabilities and journals stay host-private (0700/0600) and are
+never served as assets. A persisted human decision token anchors a stable wait
+timestamp; status exports only that timestamp and the native typed outcome.
 
 `lifecycle-profile PROFILE` reports exact executable pins and the reviewed public
 pod without provisioning. The product runs three separately leased SDK processes,
-each with only one seat capability and its own durable exact-command journal.
-Their current public foundations pass/draw policy is finite; unsupported decisions
-stop explicitly. Attachments retain separate admission and no automated-launch
-qualification. [Product launch](../packages/multiverse/web/ARCHITECTURE.md#game-launch)
-owns Actor authorization, scoped proxy and remaining browser gates.
+each with one seat capability and its own durable exact-command journal; their
+finite foundations pass/draw policy stops explicitly on unsupported decisions.
+Attachments keep separate admission and no automated-launch qualification.
+[Product launch](../packages/multiverse/web/ARCHITECTURE.md#game-launch) owns Actor
+authorization, scoped proxy and remaining browser gates.
 
 ## Protocol authority and private streams
 
-Protocol 2 exports eight routes. The acting seat receives a
-`Decision<Viewer>` inside observation 57, including its ordered candidates
-and all legal selection constraints. The decision command supplies the token
-and a core `Answer`. Indices refer to the candidate table at that token.
-A validated input retains its original selections across queued departures.
-Priority and payment need one authenticated observation read. The host exports
-Draft7 schemas from Rust for the SDK’s declarations and standalone validators.
+[`protocol::ROUTES`](../packages/game-server/src/protocol.rs) defines the protocol
+version and routes. The acting seat receives a `Decision<Viewer>` inside its
+observation, with ordered candidates and all legal selection constraints. A
+decision command supplies the token and a core `Answer` whose indices refer to that
+token's candidate table. A validated input retains its selections across queued
+departures. Priority and payment need one authenticated observation read. The host
+exports Draft7 schemas from Rust for SDK declarations and standalone validators.
 
-Transport counters are canonical bounded u64 decimal strings. Core quantities
-remain exact signed decimal strings, and numeric core fields are restricted to
-JavaScript's exact integer range. Both schema and publication checks enforce
-these bounds. Unsupported capacity pauses hosting without inventing a rules
-loss, concession or draw.
+Transport counters are canonical bounded u64 decimal strings; core quantities are
+exact signed decimal strings; numeric core fields fit JavaScript's exact integer
+range. Schema and publication checks both enforce these bounds. Unsupported
+capacity pauses hosting without inventing a loss, concession or draw.
 
 Commands are at most 65,536 bytes. Strict raw JSON validation rejects duplicate
 keys, invalid Unicode/scalars, excessive nesting, aliases and imprecise numeric
-spellings before typed decoding. There is no caller-selected seat. Bearer seat
-capabilities travel only in Authorization headers. The SDK bounds response
-reads and validates raw JSON and the pinned schema without coercion or field
-removal. Fetch omits cookies, rejects redirects and never retries commands
-implicitly.
+spellings before typed decoding. There is no caller-selected seat; bearer seat
+capabilities travel only in Authorization headers. SDK transport rules are in its
+[manual](../packages/game-server/sdk/AGENTS.md).
 
-Each authenticated seat has its own revisioned stream. Pages contain at most
-32 entries in cursor order; `next` is the last included cursor, or the supplied
-cursor for an empty page. Future cursors reject. Long polls wait at most
-20 seconds, with one admitted poll per seat. The command's expected revision is
-the latest own-stream cursor, including lifecycle entries. A client retains its
-latest Observation/token across lifecycle-only pages.
+Each authenticated seat has its own revisioned stream. Pages hold at most 32
+entries in cursor order; `next` is the last included cursor, or the supplied cursor
+for an empty page. Future cursors reject. Long polls wait at most 20 seconds, one
+admitted poll per seat. A command's expected revision is the latest own-stream
+cursor, including lifecycle entries; clients keep their latest Observation/token
+across lifecycle-only pages.
 
 Public streams contain permitted projections, host statuses and actual rules
-outcomes. The public manifest binds profile, rules, catalog,
-starting player and all four open decklists. It omits the real seed, private profile
-fingerprint, raw State/IDs, snapshots, query receipts and other seats' histories.
-Transport lifecycle and per-owner command execution are separate from core
-observations. Accepted submission does not imply rules consumption: execution
-can remain Pending, become ConsumedByRules or DiscardedByDeparture, or represent
-a durable Cancelled/Rejected command.
+outcomes. The public manifest binds profile, rules, catalog, starting player and all
+four open decklists, omitting the real seed, private profile fingerprint, raw
+State/IDs, snapshots, query receipts and other seats' histories. Command execution
+is separate from core observations, and acceptance does not imply consumption:
+execution stays Pending, becomes ConsumedByRules or DiscardedByDeparture, or is a
+durable Cancelled/Rejected command.
 
 ## Durable ownership and retries
 
-One worker owns one private match directory, exclusive OS lock and SQLite
-writer connection. After verified Ready, bounded broker Resume reads use a separate
-strict read-only connection and fresh committed snapshot, independent of rules IPC.
-Generation/bootstrap, private-file identity and pinned process liveness fence each
-read; fatal replies, stop and recovery revoke it. Only new verified Ready reopens it. Directories are mode 0700 and private files 0600. SQLite uses WAL,
-synchronous FULL, foreign keys, a bounded database and generation fencing.
-Private parents must pre-exist durably; creation syncs the parent directory.
-The selected local model trusts the owning OS user and excludes concurrent
-same-UID filesystem tampering.
+One worker owns one private match directory, exclusive OS lock and SQLite writer
+(WAL, synchronous FULL, foreign keys, bounded size, generation fencing). After
+verified Ready, broker Resume reads use a separate read-only connection and fresh
+committed snapshot, fenced by generation/bootstrap, private-file identity and
+process liveness; fatal replies, stop and recovery revoke them until a new Ready.
+Directories are 0700 and private files 0600; private parents must pre-exist
+durably and creation syncs the parent. The trust model is the owning OS user,
+excluding concurrent same-UID filesystem tampering.
 
 Each transaction binds the exact private operation record, immutable command
-result, command execution updates, per-seat outbox and new durable head. Only
-successful commit permits live Game installation and acknowledgment. Generation
-and expected head checks reject stale writers. Private DTOs use duplicate-aware
-raw decoding and exact typed round trips; unknown nested fields cannot disappear
-through a permissive tagged-enum decoder.
+result, execution updates, per-seat outbox and new durable head; only a successful
+commit permits live Game installation and acknowledgment. Generation and expected
+head checks reject stale writers. Private DTOs use duplicate-aware raw decoding and
+exact typed round trips, so unknown nested fields cannot vanish through a
+permissive tagged-enum decoder.
 
-Idempotency is scoped to match, seat and command ID. Lookup precedes stale-view
-validation. Exact body retries return the original immutable result; changing the
-body under that ID conflicts. An uncertain RPC is not automatically resent. A
-client can retry its original ID/body to discover a durable result. Cancellation
-only removes a known unsent queued call and writes its durable tombstone; it
-cannot undo an accepted core input.
+Idempotency is scoped to match, seat and command ID, and lookup precedes stale-view
+validation. Exact body retries return the original immutable result; a changed body
+under that ID conflicts. Uncertain RPCs are never resent automatically; a client
+may retry its original ID/body to discover the durable result. Cancellation only
+removes a known unsent queued call and writes a durable tombstone; it cannot undo
+an accepted core input.
 
-Registration binds match ID and the actual prepared engine/catalog/private
-profile before Ready, including after restart. Copying another valid worker tree
-cannot satisfy that identity. These private pins never become public identifiers.
-One global OS lock fences the registry, serving and offline create/rotate/revoke
-administration. There are at most two registered matches. Staged worker creation
-closes, syncs and atomically renames before publication. OS-random capabilities
-are issued once through protected output; persisted credential files contain
-purpose/match-separated verifier hashes and compare them in constant time.
-Rotation/revocation require stopping the supervisor and take effect at restart.
+Registration binds match ID and the actual prepared engine/catalog/private profile
+before Ready, including after restart; copying another valid worker tree cannot
+satisfy it, and these pins never become public identifiers. One global OS lock
+fences the registry, serving and offline create/rotate/revoke administration.
+Staged worker creation closes, syncs and atomically renames before publication.
+OS-random capabilities are issued once through protected output; credential files
+hold purpose/match-separated verifier hashes compared in constant time.
+Rotation/revocation require stopping the supervisor and apply at restart.
 
 ## Exact recovery and history costs
 
-Private checkpoint0 and bootstrap are bounded artifacts. Worker bootstrap and
-records use version 3. Recovery proves their actual build/catalog/profile/match
-identity and full State hash, then re-executes every exact recorded operation.
-Advance budget/return, processed input facts, sequence, boundaries, before-hash
-chain, host clocks/readiness, private publication content/cursors, command
-results and execution dispositions must all agree. Global tail checks reject
-orphan records, commands, execution rows and outbox entries. Generic replay to a
-next decision cannot replace exact-operation recovery, including faults that
-change a frame without advancing a rule boundary.
+Private checkpoint0 and bootstrap are bounded artifacts; worker bootstrap and
+records use version 3. Recovery proves actual build/catalog/profile/match identity
+and the full State hash, then re-executes every recorded operation. Advance
+budget/return, processed input facts, sequence, boundaries, before-hash chain, host
+clocks/readiness, private publication content/cursors, command results and
+execution dispositions must all agree; global tail checks reject orphan records,
+commands, execution rows and outbox entries. Generic replay to a next decision
+never replaces exact-operation recovery.
 
-The current optimization stages only a bounded private replay cursor. Three
-host threads compute actual complete after-State hashes for at most six
-outstanding records. SQLite, decoding and sequential rule execution remain on
-the owning thread. Every record receives a full hash proof, including repeated
-unchanged states; each batch is drained before more records are staged. No
-usable Worker or Ready escapes before all hashes, joins and ledger proofs pass.
-Thread startup failures, panic, channel failure or any mismatch fail closed and
-join all started threads. This does not relax the 120-second startup limit.
-
-Immutable remembered views memoize their complete canonical JSON bytes. Cold
-initialization uses the P7 row encoder: it retains every serialized view field,
-reuses an object row only after full typed equality, and preserves row order and
-duplicates. Its local row cache covers only the last cold view for one viewer
-and digest. Generic serialization remains the independent exact-byte oracle.
-Memos share across forks, do not serialize or affect equality, and invalidate
-before shared or unique mutation. Every history byte still enters each State
-SHA; no entry is dropped or summarized. This saves repeated serialization but
-adds memory proportional to retained serialized history. Kernel measurements
-must include memos, simultaneous Game forks, digest skeletons and host buffers.
-Later full snapshots still materialize JSON: this release retains the complete
-ledger from bounded checkpoint0 and makes no streaming-checkpoint claim.
-
-Commander-history cast-count and damage maps have field-specific canonical
-u8-key decoding so nested tagged publications decode the same JSON keys through
-SQLite and framed IPC. Duplicate/aliased keys reject. Scalar PlayerId decoding,
-map field types, serialization and public schemas retain their original form.
+Parallel after-State hashing (owning thread keeps SQLite, decoding and rule
+execution) still proves every record's full hash; no Worker or Ready escapes before
+all hashes, joins and ledger proofs pass, and any thread failure or mismatch fails
+closed. Remembered views memoize canonical JSON bytes (never serialized, never
+affecting equality, invalidated before mutation), but every history byte still
+enters each State SHA. Memory measurements must include memos, simultaneous forks,
+digest skeletons and host buffers. Full snapshots materialize JSON; there is no
+streaming-checkpoint claim.
 
 ## Hosting limits and clocks
 
-The HTTP1 loopback supervisor uses the pinned Rust dependencies. No HTTP
-executor runs Game. A separate systemd-user transient service owns each match;
-startup verifies the actual resource-group identity and kernel limits before
-loading its catalog or Game.
+The HTTP1 loopback supervisor uses pinned Rust dependencies; no HTTP executor runs
+Game. A separate systemd-user transient service owns each match, and startup
+verifies its actual resource-group identity and kernel limits before loading the
+catalog or Game.
 
 | Limit | Selected value |
 | --- | --- |
@@ -207,42 +175,34 @@ loading its catalog or Game.
 | Accepted connections / admitted handlers | 64 / 64 |
 | Concurrent polls | 1 per seat |
 | Body read / handler / idle connection | 5 / 25 / 30 seconds |
-| Worker Ready and RPC deadlines | 120 seconds |
+| Worker Ready, recovery and RPC deadlines | 120 seconds |
 | Worker stdio frame | At most 3 MiB |
 | Automatic core advance quantum | 64 |
 | External calls between automatic advances | At most 4 |
 | Recovery attempts per actor lifetime | At most 3 |
 | Initial per-seat idle clock | 30 minutes |
 
-Unsent queue admission, exact cancellation and connection/poll capacity are
-bounded independently. Clock checks run even during continuous polling.
-The one-second clock-check interval starts after automatic worker work completes,
-so a slow Tick cannot continually outrank queued requests. Running execution keeps
-its four-external-call advance limit.
-Finished/faulted actors await notification rather than spinning. Cleanup after
-cancellation, timeout, correlation failure and shutdown kills/reaps the exact
-worker resource group. A replacement may start only after the old group is
-verified empty. Other matches have independent queues and processes.
+Queue admission, exact cancellation and connection/poll capacity are bounded
+independently. Clock checks run even during continuous polling; the one-second
+interval starts after automatic worker work, so a slow Tick cannot starve queued
+requests. Finished/faulted actors await notification rather than spinning. Cleanup
+after cancellation, timeout, correlation failure and shutdown kills/reaps the exact
+worker resource group, and a replacement starts only after it is verified empty.
+Matches have independent queues and processes.
 
-Clocks debit monotonic elapsed time only while idle with an offered ready
-request. Validation, rule execution, querying and commit work are excluded.
-Readiness anchors after durable commit. Recorded elapsed inputs replay exactly;
-unrecorded crash/downtime freezes. Expiry is a coherent host resource pause and
-never a Magic outcome. Storage/query/publication limits have the same separation.
-
+Clocks debit monotonic elapsed time only while idle with an offered ready request;
+validation, execution, querying and commit are excluded, and readiness anchors
+after durable commit. Recorded elapsed inputs replay exactly; unrecorded
+crash/downtime freezes. Expiry, like storage/query/publication limits, is a
+coherent host resource pause and never a Magic outcome.
 
 ## Source-qualified verification and recovery
 
-Historical P8 proofs bind their exact source; later attachment, schema and
-transport increments retain separate acceptance. See [evidence](game-engine-evidence.md),
-[hosted profiles](#hosted-profiles), [client qualification](game-client.md#reproducibility-and-current-acceptance)
-and [SDK commands](../packages/game-server/sdk/README.md). No older test count is
-current-HEAD acceptance. Full historical proof tables are linked from evidence.
-
-Keep registry/ledger/credentials private (0700 directories, 0600 files). Preserve
-original executable, schemas, catalog, accepted input journal and both build IDs
-for exact recovery; replacement code cannot silently open old durable state.
-Export only permitted projections and sanitized reports. Offline source-closure
-retention tooling was retired in Phase 2D; historical bundles stay in the
-external evidence store, and SDK generation never reconstructs them. Keep failed
-attempts and original wrapper exit statuses.
+Proofs bind their exact source; no older test count is current-HEAD acceptance
+([evidence](game-engine-evidence.md),
+[client qualification](game-client.md#reproducibility-and-current-acceptance),
+[SDK commands](../packages/game-server/sdk/README.md)). Preserve the original
+executable, schemas, catalog, accepted input journal and both build IDs for exact
+recovery; replacement code cannot silently open old durable state. Export only
+permitted projections and sanitized reports; keep failed attempts and original
+wrapper exit statuses.
