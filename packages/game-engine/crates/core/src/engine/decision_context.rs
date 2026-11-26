@@ -362,17 +362,22 @@ impl RulesTxn {
         viewer: PlayerId,
         effect: &EffectKey,
     ) -> Option<DecisionContext> {
-        let (object, source_block) = match effect {
+        let (object, face, source_block) = match effect {
             // SourceLabels maps indexed static abilities but has no block
             // mapping for intrinsic keywords. The candidate names its source.
             EffectKey::IntrinsicProtectionFromEverything { .. }
             | EffectKey::IntrinsicProtectionFromColor { .. } => return None,
             EffectKey::Resolved { id } => {
                 let effect = self.state.rules.effects.iter().find(|e| e.id == *id)?;
-                (effect.origin.source, effect.origin.source_block)
+                (
+                    effect.origin.source,
+                    effect.origin.source_face,
+                    effect.origin.source_block,
+                )
             }
         };
-        let definition = self.copiable_definition(object).ok()?;
+        // CR 113.7a: label the effect from the face whose program created it.
+        let definition = self.face_definition(object.card, face).ok()?;
         let labels = definition.source_labels.as_ref()?;
         let text = labels.blocks.get(source_block as usize)?.clone();
         Some(DecisionContext {

@@ -944,3 +944,55 @@ fn delayed_trigger_keeps_the_face_that_created_it() {
     assert_eq!(hand(&game), before + 1);
     game.validate_state().unwrap();
 }
+
+const OUTCAST: &str = record!("6e6f9269-c72b-4449-9c2d-a720b9bd6f06");
+
+#[test]
+fn front_face_effect_keeps_applying_after_the_permanent_transforms() {
+    let mut game = Game::new(
+        lands(
+            board(&[OUTCAST]).permanent_or_hand("Vildin-Pack Outcast", 0, 0, false),
+            "Mountain",
+            8,
+        )
+        .prepare(),
+    );
+    let outcast = Driver::object(&game, 0);
+    // "{R}: This creature gets +1/-1 until end of turn."
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: outcast,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut game, &[1]);
+    settle_stack(&mut game);
+    // "{5}{R}{R}: Transform this creature."
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: outcast,
+            ability: 1,
+        },
+    );
+    Driver::pay(&mut game, &[2, 3, 4, 5, 6, 7, 8]);
+    settle_stack(&mut game);
+    // CR 712.18, 113.7a: Dronepack Kindred (5/7) keeps the front face's
+    // +1/-1, whose origin is still the front face's ability.
+    assert_eq!(game.current(outcast).unwrap().face(), CardFace::Back);
+    assert_eq!(
+        game.copiable_definition(outcast).unwrap().name,
+        "Dronepack Kindred"
+    );
+    let characteristics = game.characteristics(outcast).unwrap();
+    assert_eq!(characteristics.power, Some(6.into()));
+    assert_eq!(characteristics.toughness, Some(6.into()));
+    assert_recoverable((&game).into());
+    let life = game.state.rules.players[1].life.clone();
+    attack(&mut game, &[outcast]);
+    let mut expected = life;
+    expected.subtract(&6.into());
+    assert_eq!(game.state.rules.players[1].life, expected);
+    assert_recoverable((&game).into());
+}

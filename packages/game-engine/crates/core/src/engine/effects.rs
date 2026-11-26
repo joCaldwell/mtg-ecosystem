@@ -41,6 +41,9 @@ pub enum DamageKind {
 pub struct EffectOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activated_ability: Option<u32>,
+    /// CR 113.7a, 712.18: the face whose program created the effect.
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub source_face: CardFace,
     pub stack_id: StackId,
     pub source: ObjectId,
     pub controller: PlayerId,
@@ -1076,6 +1079,7 @@ impl RulesTxn {
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
+                source_face: self.entry(frame.stack_id)?.program_face(),
                 stack_id: frame.stack_id,
                 source: self.entry(frame.stack_id)?.source,
                 controller: self.entry(frame.stack_id)?.controller,
@@ -2032,7 +2036,12 @@ impl RulesTxn {
                 }
                 last_setter = Some(*timestamp);
             }
-            if e.origin.stack_id.0 >= self.state.rules.next_stack_id {
+            if e.origin.stack_id.0 >= self.state.rules.next_stack_id
+                // CR 712.18: only a transforming card's program can come
+                // from a face other than the one its incarnation has.
+                || (e.origin.source_face != e.origin.source.face
+                    && !self.definition(e.origin.source.card)?.transforms())
+            {
                 return Err("effect origin stack identity invariant".into());
             }
 
@@ -3056,7 +3065,12 @@ impl RulesTxn {
             if let Some(fact) = &d.source_appearance {
                 self.validate_source_appearance(d, fact)?;
             }
-            let source_definition = self.copiable_definition(d.source.object)?;
+            // CR 712.18: the face the damage source had when its facts were
+            // captured.
+            let source_definition = self.face_definition(
+                d.source.object.card,
+                face_after(d.source.object.face, d.source.transforms),
+            )?;
             let expected_keywords = source_definition.keywords.as_slice();
             let battlefield_creature = d.source.zone == Zone::Battlefield
                 && d.source.characteristics.has_type(CardKind::Creature);

@@ -86,6 +86,16 @@ pub struct Object {
     pub zone: Zone,
     pub tapped: bool,
 }
+impl StackInstance {
+    /// CR 113.7a: the face whose program this spell or ability runs.
+    pub fn program_face(&self) -> CardFace {
+        if self.kind.is_spell() {
+            self.source.face
+        } else {
+            self.source_face
+        }
+    }
+}
 impl Object {
     pub fn present_on_battlefield(&self) -> bool {
         self.zone == Zone::Battlefield && self.phased_out.is_none()

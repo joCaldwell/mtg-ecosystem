@@ -654,7 +654,8 @@ impl RulesTxn {
         &'a self,
         origin: &EffectOrigin,
     ) -> Result<Vec<&'a SpellProgram>, String> {
-        let d = self.copiable_definition(origin.source)?;
+        // CR 113.7a: the program of the face that created the effect.
+        let d = self.face_definition(origin.source.card, origin.source_face)?;
         if let Some(index) = origin.activated_ability {
             return Ok(d
                 .activated

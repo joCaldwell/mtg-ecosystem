@@ -191,11 +191,7 @@ impl RulesTxn {
         let source_facts = self.source_facts(entry)?;
         let row = ResolutionTrigger {
             source: entry.source,
-            source_face: if entry.kind.is_spell() {
-                entry.source.face
-            } else {
-                entry.source_face
-            },
+            source_face: entry.program_face(),
             source_transforms: self.current(entry.source).map_or(0, |o| o.transforms),
             controller: entry.controller,
             creator_program: CreatorProgram::of(entry)?,
