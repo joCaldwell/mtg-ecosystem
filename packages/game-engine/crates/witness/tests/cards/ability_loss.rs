@@ -37,6 +37,10 @@ const BREEDING_POOL: &str = record!("20283c4a-f1f0-42f0-bc08-6da87474426b");
 const CRUMBLING_NECROPOLIS: &str = record!("7190debf-708b-4f41-9714-0d0a5bd5a74e");
 const HIVESTONE: &str = record!("72aeed80-653b-4c53-ba65-a339aad14b9a");
 const NIBLIS_OF_DUSK: &str = record!("d14d41a5-6f38-43c7-b95c-b4a723002c20");
+const DEEP_FREEZE: &str = record!("648aead4-dc0b-47bc-911c-8dcd2cfd32d3");
+const RUSTED_RELIC: &str = record!("57b22bc3-23e8-4632-b10a-495fac5c77c7");
+const LITHOFORM_BLIGHT: &str = record!("b256c311-e37d-4b3c-889c-85443e3d5e7e");
+const TURN_TO_FROG: &str = record!("74c4c1e2-c50d-4c8f-889a-0d5674dc6d67");
 const DARU_WARCHIEF: &str = record!("3fce53fb-6914-4f43-b46b-18ca32ab21b2");
 const BLAZING_ARCHON: &str = record!("82a70e4c-01ed-4280-80e4-86cb2bf6e63d");
 
@@ -80,7 +84,11 @@ fn game(cards: &[(&str, u8, Zone)]) -> Game {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in ALL {
         let d = lowered(raw);
-        if !catalog.definitions.iter().any(|x| x.oracle_id == d.oracle_id) {
+        if !catalog
+            .definitions
+            .iter()
+            .any(|x| x.oracle_id == d.oracle_id)
+        {
             catalog.definitions.push(d);
         }
     }
@@ -109,12 +117,8 @@ fn game(cards: &[(&str, u8, Zone)]) -> Game {
 }
 
 const B: Zone = Zone::Battlefield;
-const H: Zone = Zone::Hand {
-    owner: PlayerId(0),
-};
-const G: Zone = Zone::Graveyard {
-    owner: PlayerId(0),
-};
+const H: Zone = Zone::Hand { owner: PlayerId(0) };
+const G: Zone = Zone::Graveyard { owner: PlayerId(0) };
 
 fn checked(g: &Game) {
     g.validate_state().unwrap();
@@ -235,15 +239,19 @@ fn ability_loss_and_type_replacement_lower_exactly() {
         ][..]]
     );
     let mutation = lowered(DARKSTEEL_MUTATION);
-    assert!(continuous(&mutation)[0].contains(&Change::RemoveAllAbilities {
-        except_own_grants: true
-    }));
+    assert!(
+        continuous(&mutation)[0].contains(&Change::RemoveAllAbilities {
+            except_own_grants: true
+        })
+    );
     assert!(continuous(&mutation)[0].contains(&Change::SetCardTypes {
         kinds: vec![CardKind::Creature, CardKind::Artifact]
     }));
-    assert!(continuous(&lowered(COLOSSUS_HAMMER))[0].contains(&Change::RemoveKeywords {
-        keywords: vec![KeywordAbility::Flying]
-    }));
+    assert!(
+        continuous(&lowered(COLOSSUS_HAMMER))[0].contains(&Change::RemoveKeywords {
+            keywords: vec![KeywordAbility::Flying]
+        })
+    );
     let moon = lowered(BLOOD_MOON);
     assert!(matches!(&moon.static_abilities[0].effect,
         StaticEffect::Continuous { affects: Scope::Matching { .. }, changes, condition: None }
@@ -256,6 +264,20 @@ fn ability_loss_and_type_replacement_lower_exactly() {
     assert!(continuous(&archetype)[1].contains(&Change::ForbidKeywords {
         keywords: vec![KeywordAbility::Flying]
     }));
+    // Adding a color, a static animation that sets creature subtypes,
+    // removing every land type and resolving loss stay explicit gaps.
+    for (raw, reason) in [
+        (DEEP_FREEZE, "static:modifier:color-operation"),
+        (RUSTED_RELIC, "static:modifier:type-operation"),
+        (LITHOFORM_BLIGHT, "static:modifier:type-operands"),
+        (TURN_TO_FROG, "lose-abilities"),
+    ] {
+        let result = format!("{:?}", mtg_witness::compile(mtg_witness::R5_MANIFEST, raw));
+        assert!(
+            result.contains("Unsupported") && result.contains(reason),
+            "{result}"
+        );
+    }
 }
 
 /// CR 613.7: a grant after "loses all abilities" survives it; a grant
@@ -429,10 +451,7 @@ fn blood_moon_replaces_land_types_and_mana() {
         ("Crumbling Necropolis", 0, H),
     ]);
     let (tower, pool, forest) = (object(&g, 0), object(&g, 1), object(&g, 2));
-    assert_eq!(
-        g.mana_abilities(pool).unwrap(),
-        vec![Color::G, Color::U]
-    );
+    assert_eq!(g.mana_abilities(pool).unwrap(), vec![Color::G, Color::U]);
     cast_on(&mut g, 5, &[], &[2, 3, 4]);
     for land in [tower, pool] {
         let c = g.characteristics(land).unwrap();
@@ -473,7 +492,10 @@ fn blood_moon_depends_on_song_of_the_dryads() {
     let (keiga, tower) = (object(&g, 0), object(&g, 1));
     cast_on(&mut g, 3, &[keiga], &[5, 6, 7]);
     let c = g.characteristics(keiga).unwrap();
-    assert_eq!((c.kind, c.additional_types.clone()), (CardKind::Land, vec![]));
+    assert_eq!(
+        (c.kind, c.additional_types.clone()),
+        (CardKind::Land, vec![])
+    );
     assert_eq!(c.subtypes, vec!["Mountain".to_string()]);
     assert!(c.colors.is_empty() && c.power.is_none());
     assert!(keywords(&g, keiga).is_empty());
@@ -575,13 +597,13 @@ fn archetype_forbids_later_grants() {
 /// God), while its other static still grants vigilance.
 #[test]
 fn heliod_is_a_creature_only_with_devotion() {
-    let g = game(&[
-        ("Heliod, God of the Sun", 0, B),
-        ("Daru Warchief", 0, B),
-    ]);
+    let g = game(&[("Heliod, God of the Sun", 0, B), ("Daru Warchief", 0, B)]);
     let (heliod, angel) = (object(&g, 0), object(&g, 1));
     let c = g.characteristics(heliod).unwrap();
-    assert_eq!((c.kind, c.additional_types.clone()), (CardKind::Enchantment, vec![]));
+    assert_eq!(
+        (c.kind, c.additional_types.clone()),
+        (CardKind::Enchantment, vec![])
+    );
     assert!(c.legendary && c.subtypes.is_empty() && c.power.is_none());
     assert!(keywords(&g, angel).contains(&KeywordAbility::Vigilance));
     checked(&g);

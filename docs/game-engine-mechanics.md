@@ -543,6 +543,24 @@ a resolving animation grants it (CR 613.8). Ordered setters apply by source
 or creation timestamp (CR 613.7). Simultaneous competing setters need a
 timestamp choice and reject (CR 613.7m).
 
+An Aura, Equipment or self static can also set card types, creature subtypes
+or basic land types, and a God's devotion condition can remove Creature
+(CR 205.1a, 700.5); a filtered scope can set basic land types ("nonbasic
+lands are Mountains"). Removing a card type removes its subtypes and P/T, and
+a permanent that stops being a creature leaves combat (CR 506.4). Layer 4
+applies the earliest effect no remaining effect would change the applicability
+of (CR 613.8). A basic land type set on a land removes its rules-text
+abilities and the effects they generate, the setting effect excepted, and the
+intrinsic mana follows the new types (CR 305.6-7). Layer 6 removes all, all
+other or listed keywords, and "can't have" applies last. Printed abilities
+precede any removal; grants and removals then apply by timestamp, so a later
+grant survives, while an effect whose source loses its abilities never applies
+unless it started in an earlier layer (CR 613.6, 613.8a). Without its card's
+abilities a permanent has no triggered, activated, mana, static or
+characteristic-defining ability, and an entering one lacks its own entry
+replacements (CR 604.3a, 614.12). Resolving loss, color addition, conditional
+removals and other type changes reject.
+
 Changeling and a self "is every creature type" CDA are a printed characteristic
 in every zone (CR 702.73a, 604.3), as is changeling on a token. Every subtype
 check counts it only while the object is a creature (CR 205.3d, 205.3m). An
@@ -588,8 +606,8 @@ attack requirements (CR 508.1c–d), countering prohibitions and flash timing.
 Cost increases precede reductions, and excess colored or colorless reduction
 reduces generic (CR 118.7a–d). Land allowances add plays per turn (CR 305.2);
 hand-size effects use source timestamps at cleanup. Static control changes,
-other characteristic-defining abilities, ability removal and casting from additional
-zones reject.
+other characteristic-defining abilities and casting from additional zones
+reject.
 
 ### Attachment entry and ordering
 

@@ -945,9 +945,7 @@ impl Walk<'_, '_> {
                     Change::Controller { player } => self.player(player),
                     Change::AllCreatureTypes
                     | Change::AddCreatureSubtypes { .. }
-                    | Change::SetCreatureSubtypes { .. } => {
-                        kind("resolving creature-type change")
-                    }
+                    | Change::SetCreatureSubtypes { .. } => kind("resolving creature-type change"),
                     // CR 205.1a, 305.7: resolving type replacement is not admitted.
                     Change::SetCardTypes { .. }
                     | Change::RemoveCardTypes { .. }

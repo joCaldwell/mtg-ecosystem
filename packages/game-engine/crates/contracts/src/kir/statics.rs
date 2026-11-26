@@ -973,7 +973,9 @@ impl crate::StaticAbility {
                             !removes
                         }
                 };
-                if !on_battlefield || !scope_ok || condition.as_ref().is_some_and(|c| !condition_ok(c))
+                if !on_battlefield
+                    || !scope_ok
+                    || condition.as_ref().is_some_and(|c| !condition_ok(c))
                 {
                     return invalid("continuous-scope");
                 }
@@ -1005,7 +1007,8 @@ impl crate::StaticAbility {
                             granted_mana_supported(affects, condition.as_ref(), abilities)
                         }
                         Change::Controller { .. } | Change::PowerToughnessX { .. } => false,
-                        Change::RemoveKeywords { keywords } | Change::ForbidKeywords { keywords } => {
+                        Change::RemoveKeywords { keywords }
+                        | Change::ForbidKeywords { keywords } => {
                             removable_keywords(keywords) && creature_scope(affects, kind)
                         }
                         Change::RemoveAllAbilities { except_own_grants } => {

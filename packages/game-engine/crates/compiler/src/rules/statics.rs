@@ -1453,7 +1453,9 @@ fn modify(
                             }
                             KeywordAbility::deserialize(serde::de::value::StrDeserializer::<
                                 serde::de::value::Error,
-                            >::new(&k.keyword))
+                            >::new(
+                                &k.keyword
+                            ))
                             .map_err(|_| gap(&format!("keyword:{}", k.keyword)))
                         })
                         .collect::<Result<_, _>>()?,

@@ -221,9 +221,7 @@ impl RulesTxn {
                 Change::RemoveKeywords { keywords } => {
                     rows.push(((timestamp, 0, 0), Row::Remove(keywords)))
                 }
-                Change::RemoveAllAbilities { .. } => {
-                    rows.push(((timestamp, 0, 0), Row::RemoveAll))
-                }
+                Change::RemoveAllAbilities { .. } => rows.push(((timestamp, 0, 0), Row::RemoveAll)),
                 Change::ForbidKeywords { keywords } => forbidden.extend(keywords.iter().copied()),
                 _ => {}
             }
@@ -236,10 +234,7 @@ impl RulesTxn {
             && o.zone == Zone::Battlefield
         {
             const HASTE: &[KeywordAbility] = &[KeywordAbility::Haste];
-            rows.push((
-                (o.keyword_timestamp.unwrap_or(0), 1, 0),
-                Row::Grant(HASTE),
-            ));
+            rows.push(((o.keyword_timestamp.unwrap_or(0), 1, 0), Row::Grant(HASTE)));
         }
         // CR 611.2c/613.1f/400.7: resolved effects affect only the captured
         // incarnation; source departure does not end an already resolved
@@ -249,7 +244,7 @@ impl RulesTxn {
             .current(object)
             .is_ok_and(|o| o.present_on_battlefield());
         for effect in &self.state.rules.effects {
-            let order = |timestamp: u64| (timestamp, 1, u64::from(effect.id.0));
+            let order = |timestamp: u64| (timestamp, 1, effect.id.0);
             match &effect.kind {
                 ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp }
                     if targets.contains(&object) =>

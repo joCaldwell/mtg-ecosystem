@@ -1047,15 +1047,16 @@ impl RulesTxn {
         let Ok(source) = self.current(object) else {
             return Ok(());
         };
-        // CR 613.1f, 613.4a: a CDA removed in layer 6 no longer defines the
-        // stat, which keeps its printed value (`*` is 0, CR 208.2a).
-        if self.printed_abilities_lost(object) {
-            return Ok(());
-        }
+        let mut lost = None;
         for effect in self.static_abilities_in(source, FunctioningZone::Any) {
             let StaticEffect::DefinePowerToughness { power, toughness } = effect else {
                 continue;
             };
+            // CR 613.1f, 613.4a: a CDA removed in layer 6 no longer defines
+            // the stat, which keeps its printed value (`*` is 0, CR 208.2a).
+            if *lost.get_or_insert_with(|| self.printed_abilities_lost(object)) {
+                return Ok(());
+            }
             for (amount, stat) in [(power, &mut c.power), (toughness, &mut c.toughness)] {
                 if let (Some(amount), Some(stat)) = (amount, stat.as_mut()) {
                     *stat = self.characteristic_amount(source, amount)?;
@@ -3486,7 +3487,9 @@ impl RulesTxn {
             if !kinds_ok
                 || !subtypes_ok
                 || c.additional_types.contains(&c.kind)
-                || c.additional_types.windows(2).any(|kinds| kinds[0] >= kinds[1])
+                || c.additional_types
+                    .windows(2)
+                    .any(|kinds| kinds[0] >= kinds[1])
             {
                 return Err("historical type outside admitted type replacement".into());
             }

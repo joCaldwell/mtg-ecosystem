@@ -224,7 +224,11 @@ impl RulesTxn {
             })
     }
 
-    fn any_static_change(&self, sources: Option<&[CardId]>, pred: impl Fn(&Change) -> bool) -> bool {
+    fn any_static_change(
+        &self,
+        sources: Option<&[CardId]>,
+        pred: impl Fn(&Change) -> bool,
+    ) -> bool {
         self.indexed_battlefield_statics(sources).any(|(_, _, e)| {
             matches!(e, StaticEffect::Continuous { changes, .. } if changes.iter().any(&pred))
         })
@@ -263,9 +267,10 @@ impl RulesTxn {
             .copiable_definition(source)?
             .characteristics
             .has_type(CardKind::Land)
-            && !self.any_static_change(None, |c| {
-                matches!(c, Change::SetCardTypes { kinds } if kinds.contains(&CardKind::Land))
-            })
+            && !self.any_static_change(
+                None,
+                |c| matches!(c, Change::SetCardTypes { kinds } if kinds.contains(&CardKind::Land)),
+            )
         {
             return Ok(true);
         }
