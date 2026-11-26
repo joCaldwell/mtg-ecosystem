@@ -69,6 +69,7 @@ pub(crate) fn shell(
             legendary: types.legendary,
             snow: types.snow,
             subtypes: types.subtypes,
+            all_creature_types: false,
             hybrid_mana: printed_cost.hybrid,
             mana_cost: printed_cost.base,
             colors,

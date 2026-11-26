@@ -143,6 +143,8 @@ pub enum Change {
     SetColors { colors: Vec<Color> },
     /// Layer 4.
     AddTypes { kinds: Vec<CardKind> },
+    /// Layer 4 (CR 205.3m): the recipient is every creature type.
+    AllCreatureTypes,
     /// Layer 2.
     Controller { player: PlayerExpr },
 }
@@ -159,7 +161,7 @@ impl Change {
             | Self::RemoveKeywords { .. }
             | Self::AddManaAbilities { .. } => Layer::Ability,
             Self::SetColors { .. } => Layer::Color,
-            Self::AddTypes { .. } => Layer::Type,
+            Self::AddTypes { .. } | Self::AllCreatureTypes => Layer::Type,
             Self::Controller { .. } => Layer::Control,
         }
     }

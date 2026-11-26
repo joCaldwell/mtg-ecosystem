@@ -777,6 +777,7 @@ impl Walk<'_, '_> {
                         Ok(())
                     }
                     Change::Controller { player } => self.player(player),
+                    Change::AllCreatureTypes => kind("resolving creature-type change"),
                     // CR 113.10: resolving ability grants are not admitted.
                     Change::AddManaAbilities { .. } => kind("resolving mana ability grant"),
                 }

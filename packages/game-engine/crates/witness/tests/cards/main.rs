@@ -1,5 +1,6 @@
 mod attachments;
 mod card_movement;
+mod changeling;
 mod continuous;
 mod control;
 mod costs;
