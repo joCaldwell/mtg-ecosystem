@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Decision } from '@multiverse/game-server-sdk';
-import { completeDecision, emptyDraft } from '../web/src/decisions/controls.ts';
+import { completeDecision, decisionSurface, emptyDraft } from '../web/src/decisions/controls.ts';
 
 const base = {
   token: 'original',
@@ -54,6 +54,42 @@ test('multiple picks enforce per-slot membership, shared minimums and distinct g
   assert.equal(
     complete({ ...d, shape: { shape: 'pick', slots, rules: [{ rule: 'total', min: 0, max: 1 }] } }, both),
     null,
+  );
+});
+test('picked_at_most caps repeated candidates across slots (CR 509.1b)', () => {
+  const slots = [0, 1].map((subject) => ({
+    role: { role: 'block_with' as const },
+    subject,
+    allowed: [2],
+    min: 0,
+    max: 1,
+    repeat: false,
+  }));
+  const d: Decision = {
+    ...base,
+    reason: { reason: 'blockers' },
+    shape: { shape: 'pick', slots, rules: [{ rule: 'picked_at_most', candidates: [2], count: 1 }] },
+  };
+  assert.deepEqual(complete(d, [['0', '2'], ['1', 'unused']]), { answer: 'pick', picks: [[2], []] });
+  assert.equal(complete(d, [['0', '2'], ['1', '2']]), null);
+});
+test('mode and stack candidates label from core output without guessing', () => {
+  const d: Decision = {
+    token: 'original',
+    player: 0,
+    reason: { reason: 'choose_modes' },
+    candidates: [
+      { candidate: 'modes', mask: 3, labels: ['Draw a card.', 'Gain 3 life.'] },
+      { candidate: 'stack', stack: 's1' },
+    ],
+    shape: { shape: 'pick', slots: [{ role: { role: 'choice' }, subject: null, allowed: [0, 1], min: 1, max: 1, repeat: false }], rules: [] },
+  };
+  const surface = decisionSurface(d, []);
+  assert.equal(surface.status, 'supported');
+  if (surface.status !== 'supported' || surface.control.kind !== 'choice') assert.fail('expected a choice');
+  assert.deepEqual(
+    surface.control.options.map(({ label, detail }) => [label, detail]),
+    [['Draw a card. + Gain 3 life.', ''], ['Stack item', 's1']],
   );
 });
 test('distribute checks exact totals, bucket bounds and conditional allocations', () => {

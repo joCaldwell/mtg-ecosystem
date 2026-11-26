@@ -31,6 +31,9 @@ export function liveTable(read: SeatResume, metadata: PresentationArtifact | nul
         { label: 'Cast complete', value: entry.cast_complete ? 'Yes' : 'No' },
         ...(entry.mana_value !== undefined && entry.mana_value !== null ? [{ label: 'Mana value', value: entry.mana_value }] : []),
         ...(entry.x !== undefined && entry.x !== null ? [{ label: 'X', value: entry.x }] : []),
+        // Bit zero is the first printed mode; absent until modes are announced.
+        ...(entry.mode_mask !== undefined && entry.mode_mask !== null ? [{ label: 'Chosen modes', value: chosenModes(entry.mode_mask) }] : []),
+        ...(entry.flashback ? [{ label: 'Flashback', value: 'Cast for its flashback cost' }] : []),
         ...entry.targets.map(target => ({ label: 'Supplied target', value: `Announced ${target.announced} · Current ${target.current ?? 'unavailable'}` })),
       ],
     };
@@ -53,4 +56,9 @@ export function liveTable(read: SeatResume, metadata: PresentationArtifact | nul
     turn: String(view.turn.number), phase: view.setup ? 'Opening hands' : view.turn.step.replaceAll('_', ' '),
     priority: view.priority === null ? 'None' : `Seat ${view.priority + 1}`, decision: inspectDecision(decision),
   };
+}
+
+function chosenModes(mask: number): string {
+  const modes = [...Array(8).keys()].filter(bit => mask & (1 << bit)).map(bit => `Mode ${bit + 1}`);
+  return modes.length ? modes.join(' · ') : 'None';
 }

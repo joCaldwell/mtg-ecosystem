@@ -17,9 +17,14 @@ export function inspectDecision(request: Decision | null): TableView['decision']
 
 export function cardView(object: VisibleObject, metadata: PresentationArtifact | null, showPrint = false): CardView {
   const printed = metadata?.cards.find(card => card.oracle_id === object.oracle_id);
-  // Multi-face active identity is a separate producer/core mapping gate. Do not
-  // guess the active face from Oracle text or array ordering.
-  const face = printed?.faces.length === 1 ? printed.faces[0] : undefined;
+  // Core names the active face of a double-faced or adventurer card (CR 712.8,
+  // 715.3b); match producer faces only by that exact name. Never guess the
+  // active face from Oracle text or array ordering.
+  const faces = object.faces ?? null;
+  const activeName = faces ? (faces.active_face === 'back' ? faces.back_name : faces.front_name) : null;
+  const face = activeName === null
+    ? (printed?.faces.length === 1 ? printed.faces[0] : undefined)
+    : printed?.faces.find(candidate => candidate.name === activeName);
   const current = object.characteristics;
   const currentFacts: { label: string; value: string }[] = [
     { label: 'Owner', value: `Seat ${object.owner + 1}` },
@@ -31,15 +36,21 @@ export function cardView(object: VisibleObject, metadata: PresentationArtifact |
   ];
   if (current) {
     currentFacts.push({ label: 'Types', value: [current.kind, ...(current.additional_types ?? [])].join(' · ') });
+    // CR 604.3, 613.1d: changeling-style "every creature type" is a flag, not a list.
+    if (current.all_creature_types) currentFacts.push({ label: 'Creature types', value: 'All creature types' });
     if (current.subtypes.length) currentFacts.push({ label: 'Subtypes', value: current.subtypes.join(' · ') });
     if (current.power !== null) currentFacts.push({ label: 'Power', value: current.power });
     if (current.toughness !== null) currentFacts.push({ label: 'Toughness', value: current.toughness });
+  }
+  if (faces) {
+    currentFacts.push({ label: 'Active face', value: `${faces.active_face === 'back' ? 'Back' : 'Front'} · ${activeName}` });
+    if (faces.on_adventure) currentFacts.push({ label: 'On an adventure', value: 'Yes' });
   }
   if (object.attached_to) currentFacts.push({ label: 'Attached to', value: object.attached_to });
   if (object.attachments?.length) currentFacts.push({ label: 'Attachments', value: object.attachments.join(' · ') });
   if (object.plus_one_counters !== undefined) currentFacts.push({ label: '+1/+1 counters', value: object.plus_one_counters });
   return {
-    inspectionId: object.handle, name: object.token?.name ?? face?.name ?? null,
+    inspectionId: object.handle, name: object.token?.name ?? face?.name ?? activeName,
     printedType: face?.type_line ?? null, printedMana: face?.mana_cost ?? null,
     oracleText: face?.oracle_text ?? null,
     ...(showPrint && !object.token && face?.image_url ? { printImage: face.image_url } : {}),
