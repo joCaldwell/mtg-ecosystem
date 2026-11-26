@@ -247,6 +247,7 @@ pub enum Cell {
     // commander-color surface.
     /// CR 106.1a: N mana of one color chosen from a printed list.
     ManaChoose,
+    /// CR 106.6: restrictions and riders carried by mana until it is spent.
     ManaSpendRestriction,
     /// CR 106.7: one mana of a type some lands could produce.
     ManaLandsCouldProduce,

@@ -10,6 +10,8 @@ pub(super) fn credit(pool: &mut Vec<RestrictedMana>, unit: &RestrictedMana) {
     }
 }
 
+// A finite budget for spending rules across the six mana types. Each distinct
+// rule and color pair uses one bucket regardless of the amount stored.
 pub(super) const MAX_RESTRICTED_BUCKETS: usize = 17 * 6;
 
 pub(super) fn valid_buckets(pool: &[RestrictedMana]) -> bool {

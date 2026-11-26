@@ -62,52 +62,53 @@ impl Planner<'_> {
             if self.can_fund(cost, nested) {
                 return true;
             }
-            let deficit = required
+            let needed = required
                 .iter()
-                .find(|(c, n)| self.balance(c, nested) < **n)
-                .map(|(c, _)| *c);
-            // Prefer rocks/dorks to lands. Fixed multi-symbol production is
-            // evaluated at its full quantity, including the Signet's input cost.
-            let chosen = (0..self.sources.len())
-                .filter(|i| !self.used[self.sources[*i].object_index])
-                .filter(|i| deficit.is_none_or(|c| self.sources[*i].colors.contains(&c)))
-                .min_by_key(|i| {
+                .filter_map(|(&color, amount)| {
+                    let available = self.balance(&color, nested);
+                    (available < *amount).then(|| {
+                        let mut missing = amount.clone();
+                        missing.subtract(&available);
+                        (color, missing)
+                    })
+                })
+                .collect::<BTreeMap<_, _>>();
+            let deficit = needed.keys().next().copied();
+            let chosen = self
+                .sources
+                .iter()
+                .enumerate()
+                .filter(|(_, source)| !self.used[source.object_index])
+                .filter(|(_, source)| deficit.is_none_or(|color| source.colors.contains(&color)))
+                .min_by_key(|(index, source)| {
+                    let mut needed = needed.clone();
+                    let mut useful = Quantity::zero();
+                    let color = deficit.or_else(|| source.colors.first().copied());
+                    let symbols = match &source.production {
+                        ManaProduction::Fixed { symbols } => symbols.as_slice(),
+                        _ => color.as_slice(),
+                    };
+                    for symbol in symbols {
+                        if let Some(missing) = needed.get_mut(symbol) {
+                            let amount = missing.clone().min(source.amount.clone());
+                            missing.subtract(&amount);
+                            useful.add(&amount);
+                        }
+                    }
                     (
-                        self.sources[*i].harm,
-                        std::cmp::Reverse(self.sources[*i].choose_bundle.then(|| {
-                            let ManaProduction::Fixed { symbols } = &self.sources[*i].production
-                            else {
-                                unreachable!("a planned bundle has fixed symbols");
-                            };
-                            let mut needed = required.clone();
-                            for (color, amount) in &mut needed {
-                                amount.subtract(&amount.clone().min(self.balance(color, nested)));
-                            }
-                            let one = Quantity::from(1);
-                            symbols
-                                .iter()
-                                .filter(|color| {
-                                    let Some(amount) = needed.get_mut(color) else {
-                                        return false;
-                                    };
-                                    if *amount < one {
-                                        return false;
-                                    }
-                                    amount.subtract(&one);
-                                    true
-                                })
-                                .count()
-                        })),
-                        self.sources[*i].colors.len(),
-                        self.sources[*i].land,
-                        usize::from(self.sources[*i].cost.is_some()),
-                        self.sources[*i]
+                        source.cost.is_some(),
+                        source
                             .cost
                             .as_ref()
                             .is_some_and(|cost| spend(cost, &self.pool).is_none()),
-                        *i,
+                        source.harm,
+                        std::cmp::Reverse(useful),
+                        source.colors.len(),
+                        source.land,
+                        *index,
                     )
-                });
+                })
+                .map(|(index, _)| index);
             let Some(i) = chosen else { return false };
             self.used[self.sources[i].object_index] = true;
             let Some(i) = self.fund_source_cost(i) else {
@@ -451,7 +452,9 @@ pub(super) fn plan_for_payment(
             )
         });
         for (identity, ability) in printed.chain(granted) {
-            if ability.spend_restriction.is_some()
+            if ability
+                .spend_restriction
+                .is_some_and(|rule| !rule.permits_resolution_payment())
                 || !usable_printed(ability, o, &life)
                 || !condition_holds(view, o, ability.condition.as_ref())
             {
@@ -763,6 +766,59 @@ mod tests {
                 assert!(forests.iter().all(|p| p.source != v.objects[0].handle));
             }
         }
+    }
+
+    #[test]
+    fn a_one_drop_uses_a_forest_before_an_unfundable_cataracts_bundle() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/d98b4250-3492-4864-9c4c-42db09b3ccd4.json"
+            ),
+        ) else {
+            panic!("frozen Cascading Cataracts must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects.push(land(&catalog, "Cascading Cataracts", 3));
+        for index in 0..4 {
+            let mut forest = land(&catalog, "Forest", 3);
+            forest.handle = ObjectHandle(format!("Forest-{index}"));
+            view.objects.push(forest);
+        }
+        let cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::G],
+        };
+        let plan =
+            plan_for(&catalog, &view, &cost, None).expect("a Forest pays for Llanowar Elves");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].source, view.objects[1].handle);
+    }
+
+    #[test]
+    fn mana_with_only_a_spend_rider_can_fund_a_generic_cost() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/36937483-30cb-449a-8028-75017a124922.json"
+            ),
+        ) else {
+            panic!("frozen Boseiju must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects
+            .push(land(&catalog, "Boseiju, Who Shelters All", 3));
+        let cost = ManaCost {
+            generic: 1.into(),
+            colored: vec![],
+        };
+        let plan = plan_for(&catalog, &view, &cost, None).expect("Boseiju can pay a generic cost");
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].source, view.objects[0].handle);
     }
 
     #[test]

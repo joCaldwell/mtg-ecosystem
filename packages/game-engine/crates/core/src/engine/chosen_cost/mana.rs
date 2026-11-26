@@ -51,7 +51,9 @@ impl RulesTxn {
         eligible: &[ObjectId],
         count: usize,
     ) -> Result<bool, String> {
-        let initial = ManaShortfall::new(mana, &self.state.rules.players[player.0 as usize].mana);
+        let use_on = self.activation_mana_use(source, None)?;
+        let initial =
+            ManaShortfall::new(mana, &self.mana_payment_pool(player, use_on)?.available());
         if initial.paid() {
             return Ok(true);
         }

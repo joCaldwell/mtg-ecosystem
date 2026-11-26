@@ -815,11 +815,63 @@ fn bundle_with_hybrid_activation_input_is_still_rejected() {
     let raw = include_str!(
         "../../../../../tests/fixtures/phase1-r5/dc974eb4-72b9-4213-887b-8ee684b93420.json"
     );
+    assert_mana_rejection(
+        "Flooded Grove",
+        raw,
+        "source.mana_cost",
+        "variable/hybrid/Phyrexian/special mana is not supported",
+    );
+}
+
+fn assert_mana_rejection(name: &str, raw: &str, path: &str, reason: &str) {
     let result = mtg_witness::compile(MANIFEST, raw);
     assert!(
-        !matches!(result, mtg_compiler::CompileResult::Lowered { .. }),
-        "a bundle cannot bypass its activation cost"
+        matches!(&result, mtg_compiler::CompileResult::Unsupported {
+            path: actual_path, reason: actual_reason
+        } if actual_path == path && actual_reason == reason),
+        "{name} must reject at {path} for {reason}; got {result:?}"
     );
+}
+
+#[test]
+fn unsupported_named_mana_riders_and_restrictions_reject() {
+    macro_rules! record {
+        ($id:literal) => {
+            include_str!(concat!(
+                "../../../../../tests/fixtures/phase1-r5/",
+                $id,
+                ".json"
+            ))
+        };
+    }
+    for (name, raw, path, reason) in [
+        (
+            "Cavern of Souls",
+            record!("89ca686a-7c72-4d8f-9290-e89635624a83"),
+            "resolution",
+            "diagnostic:missing-antecedent",
+        ),
+        (
+            "Castle Garenbrig",
+            record!("de75e5dd-8a52-406c-b55c-96d686885500"),
+            "mana",
+            "unsupported spend restriction",
+        ),
+        (
+            "Hall of the Bandit Lord",
+            record!("32fe7ac4-86f5-44af-9f73-ee8f6a9ce2ba"),
+            "resolution",
+            "step:gain-abilities",
+        ),
+        (
+            "Boreal Outrider",
+            record!("19ef24b7-25f5-4ae2-b892-3e15ed62d299"),
+            "status",
+            "complete-card parsing is required",
+        ),
+    ] {
+        assert_mana_rejection(name, raw, path, reason);
+    }
 }
 
 #[test]
