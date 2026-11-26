@@ -137,9 +137,14 @@ impl RulesTxn {
         if top.mode_mask.is_none()
             && let Some(modal) = self.modal_declaration(top)?
         {
-            return Ok(self.modal_has_selection(modal, top.controller, &source));
+            return Ok(self.modal_has_selection(modal, top.controller, &source, Some(top.source)));
         }
-        Ok(self.has_target_domain(self.program_for(top)?, top.controller, &source))
+        Ok(self.has_target_domain(
+            self.program_for(top)?,
+            top.controller,
+            &source,
+            Some(top.source),
+        ))
     }
 
     pub(crate) fn has_target_domain(
@@ -147,6 +152,7 @@ impl RulesTxn {
         program: &SpellProgram,
         player: PlayerId,
         source: &Characteristics,
+        source_object: Option<ObjectId>,
     ) -> bool {
         if program.optional_target {
             return true;
@@ -160,7 +166,7 @@ impl RulesTxn {
                 .rules
                 .objects
                 .values()
-                .filter(|o| self.object_target_legal_by(o.id, player, source, None, spec))
+                .filter(|o| self.object_target_legal_by(o.id, player, source, source_object, spec))
                 .count();
             return eligible >= count;
         }
@@ -171,9 +177,7 @@ impl RulesTxn {
                     .into_iter()
                     .any(|p| self.targetable_player(p))
                     || self.state.rules.objects.values().any(|o| {
-                        self.is_battlefield_creature(o.id)
-                            && self.targetable_by(o.id, player)
-                            && !self.protected_from(o.id, source)
+                        self.object_target_legal_by(o.id, player, source, source_object, spec)
                     })
             }
             domain @ (TargetDomain::AnyPlayer
@@ -184,39 +188,12 @@ impl RulesTxn {
             | TargetDomain::StackActivatedOrTriggeredAbility => !self
                 .eligible_stack_targets_for(spec, player, None)
                 .is_empty(),
-            TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
-                self.state.rules.objects.values().any(|o| {
-                    !self.protected_from(o.id, source)
-                        && self.permanent_target_legal(o.id, player, spec)
-                })
-            }
-            TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
+            _ => self
                 .state
                 .rules
                 .objects
                 .values()
-                .any(|object| self.graveyard_target_legal_for(object, player, spec)),
-            TargetDomain::BlockingBattlefieldCreature => {
-                self.state.rules.blocking_creatures.iter().any(|o| {
-                    self.is_blocking_creature(*o)
-                        && self.targetable_by(*o, player)
-                        && !self.protected_from(*o, source)
-                })
-            }
-            domain @ (TargetDomain::CreatureOrPlaneswalker
-            | TargetDomain::BattlefieldCreature
-            | TargetDomain::ControlledBattlefieldCreature) => {
-                self.state.rules.objects.values().any(|o| {
-                    (if domain == TargetDomain::CreatureOrPlaneswalker {
-                        self.creature_or_planeswalker(o.id)
-                    } else {
-                        self.is_battlefield_creature(o.id)
-                    }) && self.targetable_by(o.id, player)
-                        && !self.protected_from(o.id, source)
-                        && (domain != TargetDomain::ControlledBattlefieldCreature
-                            || o.controller == player)
-                })
-            }
+                .any(|o| self.object_target_legal_by(o.id, player, source, source_object, spec)),
         })
     }
     pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
@@ -433,8 +410,8 @@ impl RulesTxn {
         let source = self.color_layer(object)?;
         if !match &ability.modal {
             // CR 700.2a: a modal ability needs one selection with legal targets.
-            Some(modal) => self.modal_has_selection(modal, player, &source),
-            None => self.has_target_domain(&ability.program, player, source.as_ref()),
+            Some(modal) => self.modal_has_selection(modal, player, &source, Some(object)),
+            None => self.has_target_domain(&ability.program, player, source.as_ref(), Some(object)),
         } {
             return Err("no eligible ability targets".into());
         }

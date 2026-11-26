@@ -12,7 +12,8 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r5/",
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -437,4 +438,5 @@ fn rescue_returns_a_permanent_you_control() {
 }
 
 mod resolution_selections;
+mod target_filters;
 mod target_groups;

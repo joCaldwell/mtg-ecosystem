@@ -122,9 +122,9 @@ impl RulesTxn {
 
     /// CR 115.1, 601.2c, 608.2b: whether `object` is a legal target of an
     /// object domain for `controller`, with `source` the targeting
-    /// characteristics. Announcement before the stack entry exists and the
-    /// resolution recheck share this test; only a controlled-creature target
-    /// reads the source's own identity.
+    /// characteristics and `source_object` its identity, which a
+    /// controlled-creature target and "another" exclude. Announcement before
+    /// the stack entry exists and the resolution recheck share this test.
     pub(super) fn object_target_legal_by(
         &self,
         object: ObjectId,
@@ -138,7 +138,7 @@ impl RulesTxn {
         }
         match spec.domain {
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
-                self.permanent_target_legal(object, controller, spec)
+                self.permanent_target_legal(object, controller, source_object, spec)
             }
             TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
                 .current(object)

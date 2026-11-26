@@ -113,17 +113,97 @@ pub(super) fn audit_target_predicate(filter: &Pred, graveyard: bool) -> Result<(
     if filter.0.is_empty() {
         return unaudited("empty target predicate");
     }
-    if !graveyard
-        && !filter.0.iter().all(|atom| {
-            matches!(
-                atom,
-                Atom::Power { .. } | Atom::Toughness { .. } | Atom::ManaValue { .. }
-            )
-        })
-    {
-        return unaudited("battlefield characteristic predicate");
+    if graveyard {
+        return Walk::library_card_filter(filter);
     }
-    Walk::library_card_filter(filter)
+    filter
+        .0
+        .iter()
+        .try_for_each(|atom| battlefield_target_atom(atom, true))
+}
+
+/// The evergreen keywords a battlefield target filter may test.
+const TARGET_FILTER_KEYWORDS: [KeywordAbility; 17] = [
+    KeywordAbility::Defender,
+    KeywordAbility::Flying,
+    KeywordAbility::Reach,
+    KeywordAbility::Vigilance,
+    KeywordAbility::Haste,
+    KeywordAbility::Lifelink,
+    KeywordAbility::Deathtouch,
+    KeywordAbility::Indestructible,
+    KeywordAbility::Trample,
+    KeywordAbility::FirstStrike,
+    KeywordAbility::DoubleStrike,
+    KeywordAbility::Menace,
+    KeywordAbility::Plainswalk,
+    KeywordAbility::Islandwalk,
+    KeywordAbility::Swampwalk,
+    KeywordAbility::Mountainwalk,
+    KeywordAbility::Forestwalk,
+];
+
+/// Whether a live permanent target may test this keyword.
+pub fn target_filter_keyword(keyword: KeywordAbility) -> bool {
+    TARGET_FILTER_KEYWORDS.contains(&keyword)
+}
+
+/// CR 601.2c, 608.2b: a battlefield target's characteristic, status and
+/// keyword terms, evaluated on the permanent's current derived facts at
+/// announcement and again at resolution (CR 110.5, 506.4, 509.1g,
+/// 613.1d-f). Stat bounds are fixed. "Another" (`IsNot` the source) is a
+/// top-level conjunct; controller terms use the target domain instead.
+fn battlefield_target_atom(atom: &Atom, top: bool) -> Result<(), KirError> {
+    match atom {
+        Atom::Type { .. }
+        | Atom::NotType { .. }
+        | Atom::AnyType { .. }
+        | Atom::Subtype { .. }
+        | Atom::NotSubtype { .. }
+        | Atom::Legendary
+        | Atom::NotLegendary
+        | Atom::Basic
+        | Atom::NotBasic
+        | Atom::Color { .. }
+        | Atom::NotColor { .. }
+        | Atom::Tapped
+        | Atom::Untapped
+        | Atom::Attacking
+        | Atom::Blocking
+        | Atom::Token
+        | Atom::NotToken => Ok(()),
+        Atom::Keyword { keyword } | Atom::NotKeyword { keyword }
+            if target_filter_keyword(*keyword) =>
+        {
+            Ok(())
+        }
+        Atom::Power { value, .. }
+        | Atom::Toughness { value, .. }
+        | Atom::ManaValue { value, .. }
+            if value.as_fixed().is_some() =>
+        {
+            Ok(())
+        }
+        Atom::IsNot {
+            object: Ref::Source,
+        } if top => Ok(()),
+        Atom::AnyOf { alternatives }
+            if alternatives.len() >= 2 && alternatives.iter().all(|a| !a.0.is_empty()) =>
+        {
+            alternatives
+                .iter()
+                .flat_map(|alternative| &alternative.0)
+                .try_for_each(|atom| battlefield_target_atom(atom, false))
+        }
+        _ => unaudited("battlefield target predicate atom"),
+    }
+}
+
+/// True when a target predicate excludes the targeting source ("another").
+pub fn excludes_source(filter: &Pred) -> bool {
+    filter.0.contains(&Atom::IsNot {
+        object: Ref::Source,
+    })
 }
 
 /// CR 205, 208, 202.3: a hidden card's printed characteristics, as the
