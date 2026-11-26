@@ -186,12 +186,279 @@ impl RulesTxn {
         .check(&Answer::Pay { pay })
     }
 
+    fn delve_candidates(&self, entry: &StackInstance) -> Result<Vec<ObjectId>, String> {
+        if !entry.kind.is_spell()
+            || !self.stack_definition(entry)?.delve
+            || entry.total_cost.generic == Quantity::zero()
+        {
+            return Ok(vec![]);
+        }
+        Ok(self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| {
+                object.zone
+                    == Zone::Graveyard {
+                        owner: entry.controller,
+                    }
+            })
+            .map(|object| object.id)
+            .collect())
+    }
+
+    // CR 601.2h, 702.51: this ability taps a creature as spell payment.
+    // Improvise (CR 702.126) taps artifacts and pays generic mana only.
+    // The permanent's own tap abilities and summoning sickness are irrelevant.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn tap_payment_candidates(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<Vec<(ObjectId, Vec<Color>)>, String> {
+        if !entry.kind.is_spell() {
+            return Ok(vec![]);
+        }
+        let definition = self.stack_definition(entry)?;
+        let kind = match (definition.convoke, definition.improvise) {
+            (true, false) => CardKind::Creature,
+            (false, true) => CardKind::Artifact,
+            _ => return Ok(vec![]),
+        };
+        let mut candidates = vec![];
+        for object in self.state.rules.objects.values().filter(|object| {
+            object.present_on_battlefield()
+                && object.controller == entry.controller
+                && !object.tapped
+        }) {
+            let characteristics = self.derived_characteristics_with_sources(object.id, None)?;
+            if characteristics.has_type(kind) {
+                let colors = if definition.convoke {
+                    characteristics.colors.clone()
+                } else {
+                    vec![]
+                };
+                candidates.push((object.id, colors));
+            }
+        }
+        Ok(candidates)
+    }
+
+    pub(super) fn tap_payment_decision(
+        &self,
+        cast: &Casting,
+    ) -> Result<Option<Decision<Rules>>, String> {
+        if cast.tap_payment.is_some() {
+            return Ok(None);
+        }
+        let entry = self.top()?;
+        let eligible = self.tap_payment_candidates(entry)?;
+        if eligible.is_empty() {
+            return Ok(None);
+        }
+        let cost = &entry.total_cost;
+        let available = self
+            .mana_payment_pool(entry.controller, self.announced_mana_use(entry)?)?
+            .available();
+        let mut total_due = cost.generic.clone();
+        total_due.add(&Quantity::from(cost.colored.len() as i64));
+        for n in available.values() {
+            total_due.subtract(n);
+        }
+        let Some(minimum) = total_due.max(Quantity::zero()).to_u32() else {
+            return Ok(None);
+        };
+        let mut candidates: Vec<_> = eligible
+            .iter()
+            .map(|(object, _)| Candidate::Object { object: *object })
+            .collect();
+        let mut slots = vec![];
+        for color in cost.colored.iter().copied().collect::<BTreeSet<_>>() {
+            let allowed: Vec<u32> = eligible
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, colors))| color != Color::C && colors.contains(&color))
+                .map(|(index, _)| index as u32)
+                .collect();
+            let symbols = cost
+                .colored
+                .iter()
+                .filter(|&&symbol| symbol == color)
+                .count() as u32;
+            let available_count = available
+                .get(&color)
+                .cloned()
+                .unwrap_or_default()
+                .to_u32()
+                .unwrap_or(u32::MAX);
+            let min = symbols.saturating_sub(available_count);
+            let max = symbols.min(allowed.len() as u32);
+            if min > max {
+                return Ok(None);
+            }
+            if max > 0 {
+                let subject = candidates.len() as u32;
+                candidates.push(Candidate::Color { color });
+                slots.push(Slot {
+                    role: SlotRole::Choice,
+                    subject: Some(subject),
+                    allowed,
+                    min,
+                    max,
+                    repeat: false,
+                });
+            }
+        }
+        if cost.generic > Quantity::zero() {
+            let max = (eligible.len() as u32).min(cost.generic.to_u32().unwrap_or(u32::MAX));
+            slots.push(Slot {
+                role: SlotRole::Choice,
+                subject: None,
+                allowed: (0..eligible.len() as u32).collect(),
+                min: 0,
+                max,
+                repeat: false,
+            });
+        }
+        if slots.is_empty() || distinct_payment_choices(&slots, minimum, minimum).is_none() {
+            return Ok(None);
+        }
+        let rules = vec![
+            JointRule::Distinct {
+                slots: (0..slots.len() as u32).collect(),
+            },
+            JointRule::Total {
+                min: minimum,
+                max: eligible.len() as u32,
+            },
+        ];
+        Ok(Some(self.decision(
+            entry.controller,
+            Reason::ChosenObjectCost {
+                action: ChosenCostAction::Tap,
+            },
+            candidates,
+            Shape::Pick { slots, rules },
+        )))
+    }
+
+    pub(super) fn mana_due(
+        &self,
+        entry: &StackInstance,
+        cast: &Casting,
+    ) -> Result<ManaCost, String> {
+        let mut cost = entry.total_cost.clone();
+        if let Some(selected) = &cast.delve {
+            let eligible = self.delve_candidates(entry)?;
+            let count = Quantity::from(selected.len() as i64);
+            if count > cost.generic
+                || selected.iter().collect::<BTreeSet<_>>().len() != selected.len()
+                || selected.iter().any(|id| !eligible.contains(id))
+            {
+                return Err("invalid delve payment".into());
+            }
+            cost.generic.subtract(&count);
+        }
+        if let Some(selected) = &cast.tap_payment {
+            let eligible: BTreeMap<_, _> =
+                self.tap_payment_candidates(entry)?.into_iter().collect();
+            let mut used = BTreeSet::new();
+            for (object, color) in selected {
+                let colors = eligible
+                    .get(object)
+                    .ok_or("ineligible tap payment permanent")?;
+                if !used.insert(object) {
+                    return Err("duplicate tap payment permanent".into());
+                }
+                match color {
+                    Some(color) if *color != Color::C && colors.contains(color) => {
+                        let index = cost
+                            .colored
+                            .iter()
+                            .position(|symbol| symbol == color)
+                            .ok_or("unmatched tap payment color")?;
+                        cost.colored.remove(index);
+                    }
+                    None if cost.generic > Quantity::zero() => cost.generic.subtract(&1.into()),
+                    _ => return Err("invalid tap payment".into()),
+                }
+            }
+        }
+        Ok(cost)
+    }
+
+    // CR 601.2g-h and 702.66a-b: choose cards after the mana ability window
+    // and keep the locked total intact. Exile only when payment commits.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn delve_decision(&self, cast: &Casting) -> Result<Option<Decision<Rules>>, String> {
+        if cast.delve.is_some() {
+            return Ok(None);
+        }
+        let entry = self.top()?;
+        let candidates = self.delve_candidates(entry)?;
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let max =
+            (candidates.len() as u32).min(entry.total_cost.generic.to_u32().unwrap_or(u32::MAX));
+        let mut colored = entry.total_cost.clone();
+        colored.generic = Quantity::zero();
+        let pool = self.mana_payment_pool(entry.controller, self.announced_mana_use(entry)?)?;
+        let surplus = match Self::deduct_payment_cost(pool.available(), &colored) {
+            Ok(pool) => pool.into_values().fold(Quantity::zero(), |mut sum, n| {
+                sum.add(&n);
+                sum
+            }),
+            Err(PaymentError::InsufficientMana) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let mut deficit = entry.total_cost.generic.clone();
+        deficit.subtract(&surplus);
+        let deficit = deficit.max(Quantity::zero());
+        if deficit > Quantity::from(i64::from(max)) {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.pick(
+                entry.controller,
+                Reason::ChosenObjectCost {
+                    action: ChosenCostAction::ExileFromGraveyard,
+                },
+                candidates
+                    .into_iter()
+                    .map(|object| Candidate::Object { object })
+                    .collect(),
+                deficit
+                    .to_u32()
+                    .ok_or("delve deficit exceeds candidate bound")?,
+                max,
+            ),
+        ))
+    }
+
+    /// Quote whether the caster can finish producing mana with the current
+    /// pool and the payment choices that would follow.
+    pub fn quote_finish_spell_mana(&self, viewer: PlayerId) -> Result<bool, String> {
+        let Frame::Mana { cast } = &self.state.rules.frame else {
+            return Ok(false);
+        };
+        if !cast.origin.is_spell() || self.top()?.controller != viewer {
+            return Ok(false);
+        }
+        Ok(matches!(
+            self.finish_mana_frame(cast.clone())?,
+            Frame::SpendMana { .. }
+        ))
+    }
+
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
         Ok(
             if self.state.rules.players[stack.controller.0 as usize]
                 .can_pay_life(&phyrexian_life(&stack.hybrid_colors))
-                && self.can_pay_announced(stack, &stack.total_cost)?
+                && (self.delve_decision(&cast)?.is_some()
+                    || self.tap_payment_decision(&cast)?.is_some()
+                    || self.can_pay_announced(stack, &stack.total_cost)?)
             {
                 Frame::SpendMana { cast }
             } else {
@@ -233,6 +500,38 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing spending input")?;
+        if matches!(input.answer, Answer::Pick { .. }) && self.delve_decision(&cast)?.is_some() {
+            cast.delve = Some(input.objects()?);
+            self.mana_due(self.top()?, &cast)?;
+            self.rules_mut().frame = Frame::SpendMana { cast };
+            return Ok(());
+        }
+        if let Answer::Pick { picks } = &input.answer
+            && let Some(decision) = self.tap_payment_decision(&cast)?
+            && let Shape::Pick { slots, .. } = &decision.shape
+        {
+            let mut selected = vec![];
+            for (slot, choices) in slots.iter().zip(picks) {
+                let color = if let Some(index) = slot.subject {
+                    let Candidate::Color { color } = decision.candidate(index)? else {
+                        return Err("invalid tap payment symbol".into());
+                    };
+                    Some(*color)
+                } else {
+                    None
+                };
+                for &index in choices {
+                    let Candidate::Object { object } = decision.candidate(index)? else {
+                        return Err("invalid tap payment choice".into());
+                    };
+                    selected.push((*object, color));
+                }
+            }
+            cast.tap_payment = Some(selected);
+            self.mana_due(self.top()?, &cast)?;
+            self.rules_mut().frame = Frame::SpendMana { cast };
+            return Ok(());
+        }
         let Answer::Pay { pay } = &input.answer else {
             return Err("expected mana spending".into());
         };
@@ -303,7 +602,7 @@ impl RulesTxn {
             return Err("announcement payment binding invariant".into());
         }
 
-        let cost = stack.total_cost.clone();
+        let cost = self.mana_due(&stack, cast)?;
         if let StackKind::Activated { ability, .. } = &stack.kind
             && let activated = &self.stack_definition(&stack)?.activated[*ability as usize]
             && matches!(
@@ -373,6 +672,27 @@ impl RulesTxn {
                 player: stack.controller,
             },
         )?;
+        for object in cast.delve.iter().flatten() {
+            self.commit(
+                ProposedEvent::Move {
+                    object: *object,
+                    destination: Zone::Exile,
+                },
+                BatchCause::Payment {
+                    stack_id: cast.stack_id,
+                    player: stack.controller,
+                },
+            )?;
+        }
+        for (object, _) in cast.tap_payment.iter().flatten() {
+            self.commit(
+                ProposedEvent::Tap { object: *object },
+                BatchCause::Payment {
+                    stack_id: cast.stack_id,
+                    player: stack.controller,
+                },
+            )?;
+        }
         if life > Quantity::zero() {
             self.commit(
                 ProposedEvent::LoseLife {
@@ -468,7 +788,7 @@ impl RulesTxn {
         self.commit_chosen_payment(&stack, chosen)?;
         self.finish_payment_shuffles(cast)?;
         let entry = self.rules_mut().stack.last_mut().ok_or("missing stack")?;
-        entry.paid = Some(cost);
+        entry.paid = Some(stack.total_cost.clone());
         entry.mana_uncounterable = uncounterable;
         if stack.kind.is_spell() {
             self.record_event(Event::SpellCast {

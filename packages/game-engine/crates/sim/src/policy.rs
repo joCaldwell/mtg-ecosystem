@@ -25,6 +25,110 @@ pub fn can_fund(
     mana_policy::hybrid_plan(catalog, view, cost, symbols).is_some()
 }
 
+// Reserve every possible convoker while planning real mana. A land creature
+// may otherwise be planned both as a mana source and as a convoker.
+fn tap_payment_plan<'a>(
+    view: &'a mtg_core::PermittedView,
+    cost: &ManaCost,
+    kind: CardKind,
+) -> (ManaCost, Vec<&'a ObjectHandle>) {
+    let permanents: Vec<_> = view
+        .objects
+        .iter()
+        .filter(|object| {
+            object.zone == Zone::Battlefield
+                && object.controller == view.viewer
+                && !object.tapped
+                && !object.phased_out
+                && object
+                    .characteristics
+                    .as_ref()
+                    .is_some_and(|c| c.has_type(kind))
+        })
+        .collect();
+    let mut due = cost.clone();
+    if permanents.is_empty() {
+        return (due, vec![]);
+    }
+    let colors: std::collections::BTreeSet<_> = cost
+        .colored
+        .iter()
+        .copied()
+        .filter(|&c| kind == CardKind::Creature && c != Color::C)
+        .collect();
+    let mut slots: Vec<_> = colors
+        .iter()
+        .map(|color| {
+            let allowed: Vec<_> = permanents
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| {
+                    o.characteristics
+                        .as_ref()
+                        .is_some_and(|c| c.colors.contains(color))
+                })
+                .map(|(i, _)| i as u32)
+                .collect();
+            mtg_core::Slot {
+                role: mtg_core::SlotRole::Choice,
+                subject: None,
+                min: 0,
+                max: (cost.colored.iter().filter(|c| *c == color).count() as u32)
+                    .min(allowed.len() as u32),
+                allowed,
+                repeat: false,
+            }
+        })
+        .collect();
+    slots.push(mtg_core::Slot {
+        role: mtg_core::SlotRole::Choice,
+        subject: None,
+        min: 0,
+        max: (permanents.len() as u32).min(cost.generic.to_u32().unwrap_or(u32::MAX)),
+        allowed: (0..permanents.len() as u32).collect(),
+        repeat: false,
+    });
+    let mut picked = mtg_core::distinct_payment_choices(&slots, 0, permanents.len() as u32)
+        .expect("convoke planning permits no picks");
+    let generic = picked.pop().unwrap_or_default().len();
+    due.generic.subtract(&Quantity::from(generic as i64));
+    for (color, picks) in colors.into_iter().zip(picked) {
+        for _ in picks {
+            let index = due
+                .colored
+                .iter()
+                .position(|symbol| *symbol == color)
+                .expect("convoke slot is capped by printed symbols");
+            due.colored.remove(index);
+        }
+    }
+    (
+        due,
+        permanents
+            .into_iter()
+            .map(|object| &object.handle)
+            .collect(),
+    )
+}
+
+fn delve_mana_due(
+    mut cost: ManaCost,
+    view: &mtg_core::PermittedView,
+    casting_card: Option<&ObjectHandle>,
+) -> ManaCost {
+    let graveyard = Quantity::from(
+        view.objects
+            .iter()
+            .filter(|object| {
+                object.zone == Zone::Graveyard { owner: view.viewer }
+                    && casting_card != Some(&object.handle)
+            })
+            .count() as i64,
+    );
+    cost.generic.subtract(&cost.generic.clone().min(graveyard));
+    cost
+}
+
 fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::Definition, String> {
     let found = catalog.definition_by_oracle_id(id);
     // Policy tests deliberately exercise catalogs with permuted definitions.
@@ -301,18 +405,47 @@ impl Strategy<'_> {
             ) => {
                 let outer = mana_ability_source.is_none();
                 let available = pool.available();
-                let payable = payment(cost, &available).is_some();
+                let spell = outer
+                    .then(|| self.top_program(v))
+                    .flatten()
+                    .map(|(definition, _)| definition);
+                let (due, reserved) = if spell.is_some_and(|d| d.convoke) {
+                    tap_payment_plan(v, cost, CardKind::Creature)
+                } else if spell.is_some_and(|d| d.improvise) {
+                    tap_payment_plan(v, cost, CardKind::Artifact)
+                } else if spell.is_some_and(|d| d.delve) {
+                    (delve_mana_due(cost.clone(), v, None), vec![])
+                } else {
+                    (cost.clone(), vec![])
+                };
+                let payable = if spell.is_some_and(|d| d.convoke || d.delve || d.improvise)
+                    && let Some(game) = game
+                {
+                    game.quote_finish_spell_mana(v.viewer)?
+                } else {
+                    payment(cost, &available).is_some() || payment(&due, &available).is_some()
+                };
                 if outer && self.memory.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
                     // price. Nested activations consume the outer plan in order.
                     if !payable {
-                        self.memory.mana_plan = mana_policy::plan_for_payment(
+                        self.memory.mana_plan = mana_policy::plan_with_reservations(
                             self.catalog,
                             v,
-                            cost,
+                            &due,
                             self.memory.payment.exclude.as_ref(),
                             &pool.restricted,
+                            &reserved,
                         )
+                        .or_else(|| {
+                            mana_policy::plan_for_payment(
+                                self.catalog,
+                                v,
+                                cost,
+                                self.memory.payment.exclude.as_ref(),
+                                &pool.restricted,
+                            )
+                        })
                         .unwrap_or_default();
                     }
                     self.memory.payment.announced_cost = Some(cost.clone());
@@ -736,6 +869,24 @@ impl Strategy<'_> {
                                 .collect()
                         })
                         .collect(),
+                }
+            }
+            (
+                Reason::ChosenObjectCost {
+                    action: mtg_contracts::ChosenCostAction::Tap,
+                },
+                Shape::Pick { slots, rules },
+            ) if self
+                .top_program(v)
+                .is_some_and(|(d, _)| d.convoke || d.improvise) =>
+            {
+                Answer::Pick {
+                    picks: mtg_core::distinct_payment_choices(
+                        slots,
+                        mtg_core::payment_choice_minimum(rules),
+                        mtg_core::payment_choice_minimum(rules),
+                    )
+                    .ok_or("missing legal convoke allocation")?,
                 }
             }
             // CR 701.22a, 701.25a: keep every looked-at card on top.
