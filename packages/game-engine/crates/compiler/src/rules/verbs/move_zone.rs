@@ -24,20 +24,18 @@ pub(super) fn lower(
             return Err(step("move-zone", "battlefield_entry_modifier"));
         }
         let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, false)?;
-        let target = &cx.program.targets[slot as usize];
-        let controller = if controller.is_some()
-            || !matches!(target.domain, TargetDomain::GraveyardCard { .. })
+        if controller.is_none()
+            && matches!(
+                cx.program.targets[slot as usize].domain,
+                TargetDomain::GraveyardCard { .. }
+            )
         {
-            PlayerExpr::you(cx.context)
-        } else {
-            PlayerExpr::OwnerOf {
-                object: kir::Ref::Target { slot },
-            }
-        };
+            return Err(step("move-zone", "battlefield_entry_controller"));
+        }
         return Ok(Instruction::move_target(
             slot,
             Destination::Battlefield {
-                controller,
+                controller: PlayerExpr::you(cx.context),
                 tapped: tapped == Some(true),
             },
             cx.source_block,
@@ -81,4 +79,50 @@ pub(super) fn lower(
         bind_permanent_target(cx.program, cx.slots, &what)?
     };
     Ok(Instruction::move_target(slot, to, cx.source_block))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn foreign_graveyard_entry_requires_an_explicit_controller() {
+        for owner in ["your", "any", "an-opponent"] {
+            let mut program = SpellProgram::instructions(SpellTiming::MainPhase);
+            let mut slots = BTreeMap::new();
+            let mut cx = StepCx {
+                program: &mut program,
+                slots: &mut slots,
+                player_binding: PlayerBinding::Unbound,
+                context: Context::Spell,
+                source_block: 0,
+                x: None,
+                x_consumed: false,
+            };
+            let target = json!({
+                "ref": "target",
+                "filter": {"cls": "card", "types": ["creature"], "zone": {"zone": "graveyard", "owner": owner}},
+                "count": {"amount": "fixed", "value": 1},
+                "selectionId": "graveyard-card"
+            });
+            let result = lower(
+                &mut cx,
+                &target,
+                &json!({"zone": "battlefield"}),
+                None,
+                None,
+                None,
+                None,
+            );
+            if owner == "your" {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                assert_eq!(
+                    result.unwrap_err().reason,
+                    "verb:move-zone:battlefield_entry_controller"
+                );
+            }
+        }
+    }
 }

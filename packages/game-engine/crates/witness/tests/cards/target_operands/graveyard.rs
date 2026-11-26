@@ -320,6 +320,8 @@ fn ashen_powder_returns_an_opponents_creature_under_the_spell_controllers_contro
         .card("Grizzly Bears", 0, 0, grave(0))
         .card("Grizzly Bears", 1, 1, grave(1))
         .card("Forest", 1, 1, grave(1))
+        .permanent_or_hand("Lightning Bolt", 0, 0, true)
+        .permanent_or_hand("Mountain", 0, 0, false)
         .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     Driver::cast(&mut g, CardId(0));
@@ -339,6 +341,15 @@ fn ashen_powder_returns_an_opponents_creature_under_the_spell_controllers_contro
     assert_eq!(g.state.rules.cards[&successor.card].owner, PlayerId(1));
     assert_eq!(zone(&g, 5), grave(0));
     assert_eq!(zone(&g, 7), grave(1));
+    assert_recoverable((&g).into());
+
+    Driver::cast(&mut g, CardId(8));
+    let d = targets(&mut g);
+    answer_targets(&mut g, &d, &[successor]);
+    Driver::pay(&mut g, &[9]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 6), grave(1));
+    assert_ne!(Driver::object(&g, 6), successor);
 }
 
 const NOXIOUS_REVIVAL: &str = record!("97cabeda-9fe3-490d-99b4-4c8d87c17157");
@@ -498,4 +509,48 @@ fn reanimate_uses_the_selected_graveyard_cards_mana_value() {
         PlayerId(0)
     );
     assert_eq!(g.state.rules.players[0].life, Quantity::from(34));
+}
+
+const ORNITHOPTER: &str = record!("a3a98bc9-caa0-49b7-951c-fe4e4f54e4ba");
+
+#[test]
+fn reanimate_handles_zero_mana_value_and_an_illegal_target() {
+    for (creature, disrupted) in [("Ornithopter", false), ("Grizzly Bears", true)] {
+        let prepared = board(&[
+            (
+                REANIMATE,
+                &[Cell::LifeGraveyardCreatureManaValue],
+                Tiers::EXECUTES,
+            ),
+            (ORNITHOPTER, &[], Tiers::HOSTING),
+            (CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES),
+        ])
+        .permanent_or_hand("Reanimate", 0, 0, true)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .card(creature, 1, 1, grave(1))
+        .permanent_or_hand("Cremate", 0, 0, true)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .library_card("Forest", 0)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let target = Driver::object(&g, 2);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pick_object(&mut g, target);
+        Driver::pay(&mut g, &[1]);
+        if disrupted {
+            Driver::cast(&mut g, CardId(3));
+            Driver::pick_object(&mut g, target);
+            Driver::pay(&mut g, &[4]);
+        }
+        settle(&mut g);
+        assert_eq!(
+            zone(&g, 2),
+            if disrupted {
+                Zone::Exile
+            } else {
+                Zone::Battlefield
+            }
+        );
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(40));
+    }
 }

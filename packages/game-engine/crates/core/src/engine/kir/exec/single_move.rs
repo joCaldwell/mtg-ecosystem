@@ -103,11 +103,10 @@ impl RulesTxn {
         }
         let cause = self.instruction_cause(&frame, source_block)?;
         let movement = if let Destination::Battlefield { controller, tapped } = &to {
-            let player = match controller {
-                mtg_contracts::kir::PlayerExpr::OwnerOf { .. } => owner,
-                _ if controller.is_you() => self.entry(frame.stack_id)?.controller,
-                _ => return Err("battlefield move requires an audited controller".into()),
-            };
+            if !controller.is_you() {
+                return Err("battlefield move requires an audited controller".into());
+            }
+            let player = self.entry(frame.stack_id)?.controller;
             if !self.is_live(player) {
                 return self
                     .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });

@@ -45,11 +45,7 @@ impl Walk<'_, '_> {
                 (
                     Destination::Battlefield { controller, .. },
                     TargetDomain::GraveyardCard { .. },
-                ) if (controller == &PlayerExpr::you(self.env.context)
-                    || controller
-                        == &(PlayerExpr::OwnerOf {
-                            object: Ref::Target { slot: *slot },
-                        }))
+                ) if controller == &PlayerExpr::you(self.env.context)
                     && self.env.targets[*slot as usize]
                         .filter
                         .as_ref()
