@@ -503,6 +503,7 @@ pub(super) fn typecycling(
                     reveal: true,
                     from: mtg_contracts::kir::SelectionZone::Library,
                     optional: false,
+                    random: false,
                 },
             },
             block,

@@ -1653,11 +1653,11 @@ fn bind_object_target(
 /// CR 608.2c-d, 400.1: "[up to] N <cards> from your hand" or "... from your
 /// graveyard": cards chosen as the instruction resolves, never targeted
 /// (CR 115.10). `None` when `what` names no filtered card of either zone.
-/// Returns the zone, the printed characteristics, the count and whether
-/// fewer may be chosen ("up to").
+/// Returns the zone, the printed characteristics, the count, whether fewer
+/// may be chosen ("up to") and whether the cards are selected at random.
 pub(crate) fn chosen_cards(
     what: &ast::ObjectRef,
-) -> Result<Option<(kir::SelectionZone, Pred, u32, bool)>, Failure> {
+) -> Result<Option<(kir::SelectionZone, Pred, u32, bool, bool)>, Failure> {
     use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
     let ast::ObjectRef::Filter(chosen) = what else {
         return Ok(None);
@@ -1678,8 +1678,10 @@ pub(crate) fn chosen_cards(
     {
         return Err(reject("zone"));
     }
-    // CR 608.2d: a random selection is no choice; it is reviewed separately.
-    if chosen.random.is_some() {
+    // CR 608.2d: "at random" from your graveyard is a selection nobody
+    // makes, of exactly as many cards as it can.
+    let random = chosen.random.is_some();
+    if random && (from != kir::SelectionZone::Graveyard || chosen.up_to.is_some()) {
         return Err(reject("random"));
     }
     if chosen.group_constraints.is_some() {
@@ -1710,7 +1712,7 @@ pub(crate) fn chosen_cards(
             ],
         });
     }
-    Ok(Some((from, predicate, count, up_to)))
+    Ok(Some((from, predicate, count, up_to, random)))
 }
 
 /// CR 601.2c, 608.2b. Bind a graveyard card with the printed ownership

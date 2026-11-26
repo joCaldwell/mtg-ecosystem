@@ -38,6 +38,7 @@ pub(crate) fn typecycling_activation(a: &ActivatedAbility) -> bool {
                             reveal: true,
                             from: crate::kir::SelectionZone::Library,
                             optional: false,
+                            random: false,
                         },
                 }),
             source_block: search_block,

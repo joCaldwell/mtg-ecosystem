@@ -4,6 +4,7 @@
 //! chooser and is asked whenever the hand could hide a match, so no other
 //! seat learns whether a card matched (CR 402.3). A "may" or "up to" choice
 //! may choose none (CR 608.2d); otherwise as many as possible are chosen.
+//! "At random" from the graveyard is a seeded selection nobody makes.
 //! Every decision is checked for state validity and an exact snapshot round
 //! trip; every finished resolution replays from its journal.
 //! Pinned CR 110.2, 115.10, 400.7, 402.3, 404.2, 608.2c-d, 614.1c, 903.9b:
@@ -28,6 +29,10 @@ const GRAPPLE_WITH_THE_PAST: &str = record!("d14c633d-977a-4f78-85c2-88582b3c367
 const INSPIRATION_FROM_BEYOND: &str = record!("be87e410-4302-43ee-b880-56eedf2b3648");
 const PORT_OF_KARFELL: &str = record!("f500a8a4-6135-448c-9116-bd2695a72229");
 const ANOTHER_CHANCE: &str = record!("df9cdc11-cb92-46ce-a83d-eb26e3cd004a");
+const HAUNTED_FENGRAF: &str = record!("7c6143f3-ad2c-4d7f-9041-aa59f01d8fb7");
+const MAKE_A_WISH: &str = record!("888ccda6-896f-40f3-93a1-efc48254af34");
+const TOMB_TYRANT: &str = record!("0fb2c61a-9e74-4ee2-810a-b77a3b45f446");
+const GHOULRAISER: &str = record!("614f748b-5d31-440d-a7c0-3ba12dc63c24");
 const BREEDING_POOL: &str = record!("20283c4a-f1f0-42f0-bc08-6da87474426b");
 
 const SEED: [u8; 32] = [11; 32];
@@ -496,4 +501,146 @@ fn another_chance_returns_up_to_two_creature_cards() {
         }
         assert_eq!(zone(&g, 8), Zone::Library { owner: PlayerId(0) });
     }
+}
+
+/// Seat 0's consumed random-stream ordinal.
+fn random_ordinal(g: &Game) -> u64 {
+    g.state
+        .rules
+        .match_state
+        .as_ref()
+        .unwrap()
+        .random
+        .seat_random[0]
+}
+
+/// The number of `cards` in `zone`.
+fn count_in(g: &Game, cards: &[u32], zone: Zone) -> usize {
+    cards
+        .iter()
+        .filter(|card| self::zone(g, **card) == zone)
+        .count()
+}
+
+/// Haunted Fengraf: "{3}, {T}, Sacrifice this land: Return a creature card
+/// at random from your graveyard to your hand." Nobody is asked; one
+/// seeded draw picks between two creature cards, none is drawn for one,
+/// and the sacrificed land and the instant are never selected.
+#[test]
+fn haunted_fengraf_returns_a_creature_card_at_random() {
+    for (second, creatures) in [("Typhoid Rats", &[4, 5][..]), ("Forest", &[4][..])] {
+        let prepared = board(&[(HAUNTED_FENGRAF, &[Cell::RandomGraveyardCards])])
+            .permanent_or_hand("Haunted Fengraf", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .card("Grizzly Bears", 0, 0, GRAVEYARD)
+            .card(second, 0, 0, GRAVEYARD)
+            .card("Lightning Bolt", 0, 0, GRAVEYARD)
+            .library_card("Island", 0)
+            .library_card("Island", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let before = random_ordinal(&g);
+        let fengraf = Driver::object(&g, 0);
+        Driver::action(
+            &mut g,
+            Action::ActivateAbility {
+                object: fengraf,
+                ability: 0,
+            },
+        );
+        Driver::pay(&mut g, &[1, 2, 3]);
+        settle(&mut g);
+        assert_eq!(count_in(&g, creatures, HAND), 1, "{second}");
+        assert_eq!(count_in(&g, &[0, 4, 5, 6], HAND), 1, "{second}");
+        assert_eq!(
+            random_ordinal(&g) - before,
+            u64::from(creatures.len() > 1),
+            "{second}"
+        );
+    }
+}
+
+/// Make a Wish: "Return two cards at random from your graveyard to your
+/// hand." Two of three cards move together; with two cards both move.
+#[test]
+fn make_a_wish_returns_two_cards_at_random() {
+    for graveyard in [
+        &["Grizzly Bears", "Lightning Bolt", "Island"][..],
+        &["Grizzly Bears", "Island"][..],
+    ] {
+        let mut board = board(&[(MAKE_A_WISH, &[Cell::RandomGraveyardCards])]).permanent_or_hand(
+            "Make a Wish",
+            0,
+            0,
+            true,
+        );
+        for _ in 0..4 {
+            board = board.permanent_or_hand("Forest", 0, 0, false);
+        }
+        for name in graveyard {
+            board = board.card(name, 0, 0, GRAVEYARD);
+        }
+        let prepared = board
+            .library_card("Island", 0)
+            .library_card("Island", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2, 3, 4]);
+        settle(&mut g);
+        let cards: Vec<u32> = (5..5 + graveyard.len() as u32).collect();
+        assert_eq!(count_in(&g, &cards, HAND), 2, "{graveyard:?}");
+        assert_eq!(zone(&g, 0), GRAVEYARD);
+    }
+}
+
+/// Tomb Tyrant: "... Sacrifice a creature: Return a Zombie creature card at
+/// random from your graveyard to the battlefield." The entering
+/// Ghoulraiser ("When this creature enters, return a Zombie card at random
+/// from your graveyard to your hand") then returns one of the other two.
+#[test]
+fn tomb_tyrant_reanimates_a_random_zombie_whose_trigger_returns_another() {
+    let prepared = board(&[
+        (TOMB_TYRANT, &[Cell::RandomGraveyardCards]),
+        (GHOULRAISER, &[Cell::RandomGraveyardCards]),
+    ])
+    .permanent_or_hand("Tomb Tyrant", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .card("Ghoulraiser", 0, 0, GRAVEYARD)
+    .card("Ghoulraiser", 0, 0, GRAVEYARD)
+    .card("Ghoulraiser", 0, 0, GRAVEYARD)
+    .library_card("Island", 0)
+    .library_card("Island", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let tyrant = Driver::object(&g, 0);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: tyrant,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut g, &[2, 3, 4]);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert_eq!(d.reason, Reason::SacrificeCost, "{d:?}");
+    let bears = Driver::object(&g, 1);
+    Driver::pick_object(&mut g, bears);
+    settle(&mut g);
+    let zombies = [5, 6, 7];
+    assert_eq!(count_in(&g, &zombies, Zone::Battlefield), 1);
+    assert_eq!(count_in(&g, &zombies, HAND), 1);
+    assert_eq!(count_in(&g, &zombies, GRAVEYARD), 1);
+    let entered = zombies
+        .into_iter()
+        .find(|card| zone(&g, *card) == Zone::Battlefield)
+        .unwrap();
+    assert!(!object(&g, entered).tapped);
+    assert_eq!(object(&g, entered).controller, PlayerId(0));
+    assert_eq!(zone(&g, 1), GRAVEYARD);
 }

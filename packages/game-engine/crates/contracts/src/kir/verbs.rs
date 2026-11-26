@@ -298,6 +298,10 @@ pub struct SearchSpec {
     /// choose as many matching cards as they can up to `maximum`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub optional: bool,
+    /// Graveyard only: the cards are selected at random among the matching
+    /// cards rather than chosen (CR 608.2d), so no player decides.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub random: bool,
 }
 
 /// The zone of its chooser that a [`SearchSpec`] selects from (CR 400.1).

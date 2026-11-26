@@ -191,6 +191,11 @@ impl RulesTxn {
             | Verb::Surveil { player, .. } => player.clone(),
             _ => return Err("not a library verb".into()),
         };
+        // CR 608.2d: sampled with the seeded match randomness; the sampler
+        // owns its progress and the departure of its controller.
+        if matches!(&verb, Verb::Search { search, .. } if search.random) {
+            return self.random_discard_step(frame);
+        }
         let Some(actor) = self.library_actor(&frame, &player)? else {
             let outcome = match self.kernel_players(&frame, &player)? {
                 Players::One(player) => InstructionOutcome::PlayerActionSkipped { player },
@@ -360,7 +365,7 @@ impl RulesTxn {
     /// CR 701.23a, e, 903.9b: reveal printed found cards once, still in the
     /// library, then ask each found commander's owner where it goes before
     /// the found cards move together.
-    fn complete_search(
+    pub(in crate::engine) fn complete_search(
         &mut self,
         frame: Resolving,
         player: PlayerId,

@@ -95,7 +95,7 @@ pub(super) fn chosen(
     what: &ast::ObjectRef,
     to: Destination,
 ) -> Result<Option<Instruction>, Failure> {
-    let Some((from, filter, count, up_to)) = chosen_cards(what)? else {
+    let Some((from, filter, count, up_to, random)) = chosen_cards(what)? else {
         return Ok(None);
     };
     if from == kir::SelectionZone::Hand && !matches!(to, Destination::Battlefield { .. }) {
@@ -110,6 +110,7 @@ pub(super) fn chosen(
             reveal: false,
             from,
             optional: up_to,
+            random,
         },
     })))
 }
@@ -120,7 +121,7 @@ mod tests {
     use serde_json::json;
 
     /// CR 608.2c-d, 115.10: chosen cards come only from your own hand or
-    /// graveyard by a fixed count; a random selection rejects by name.
+    /// graveyard by a fixed count; only a graveyard selection may be random.
     #[test]
     fn chosen_cards_reject_random_foreign_and_counted_selections() {
         let card = |zone: serde_json::Value, extra: serde_json::Value| {
@@ -137,7 +138,14 @@ mod tests {
         let yours = json!({"zone": "graveyard", "owner": "your"});
         for (what, code) in [
             (
-                card(yours.clone(), json!({"random": true})),
+                card(
+                    json!({"zone": "hand", "owner": "your"}),
+                    json!({"random": true}),
+                ),
+                "operand:chosen_cards:random",
+            ),
+            (
+                card(yours.clone(), json!({"random": true, "upTo": true})),
                 "operand:chosen_cards:random",
             ),
             (
@@ -151,13 +159,16 @@ mod tests {
         ] {
             assert_eq!(chosen_cards(&what).unwrap_err().reason, code);
         }
-        let (from, filter, count, up_to) = chosen_cards(&card(
+        let (from, filter, count, up_to, random) = chosen_cards(&card(
             json!({"zone": "hand", "owner": "your"}),
             json!({"upTo": true, "count": {"amount": "fixed", "value": 2}}),
         ))
         .unwrap()
         .unwrap();
-        assert_eq!((from, count, up_to), (kir::SelectionZone::Hand, 2, true));
+        assert_eq!(
+            (from, count, up_to, random),
+            (kir::SelectionZone::Hand, 2, true, false)
+        );
         assert_eq!(
             filter.0,
             [kir::Atom::Type {

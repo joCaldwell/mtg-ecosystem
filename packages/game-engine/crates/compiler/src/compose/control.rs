@@ -340,6 +340,7 @@ impl Site<'_> {
                 // tell other seats whether a hidden card matched.
                 if let Node::Do(Verb::Search { player, search }) = &*node
                     && search.from != kir::SelectionZone::Library
+                    && !search.random
                     && chooser == *player
                 {
                     let mut search = search.clone();

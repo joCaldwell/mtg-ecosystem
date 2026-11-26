@@ -1264,6 +1264,7 @@ fn search(player: PlayerExpr, filter: Pred, maximum: i64, to: Destination) -> No
             reveal: false,
             from: crate::kir::SelectionZone::Library,
             optional: false,
+            random: false,
         },
     })
 }

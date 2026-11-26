@@ -68,8 +68,8 @@ impl Walk<'_, '_> {
         if search.from != SelectionZone::Library {
             return self.audit_selection(player, search);
         }
-        if search.optional {
-            return unaudited("optional library search");
+        if search.optional || search.random {
+            return unaudited("optional or random library search");
         }
         let target_controller = self.library_player(player)?;
         Self::library_card_filter(&search.filter)?;
@@ -133,6 +133,22 @@ impl Walk<'_, '_> {
     fn audit_selection(&self, player: &PlayerExpr, search: &SearchSpec) -> Result<Cell, KirError> {
         if self.library_player(player)? || search.reveal {
             return unaudited("resolution card choice player");
+        }
+        // CR 608.2d: a random selection takes as many as it can from a
+        // public graveyard; nobody chooses.
+        if search.random {
+            if search.from != SelectionZone::Graveyard || search.optional {
+                return unaudited("random card selection");
+            }
+            Self::library_card_filter(&search.filter)?;
+            Self::fixed_at_least(&search.maximum, 1, "random selection maximum")?;
+            return match &search.to {
+                Destination::OwnerHand => Ok(Cell::RandomGraveyardCards),
+                Destination::Battlefield { controller, .. } if controller == player => {
+                    Ok(Cell::RandomGraveyardCards)
+                }
+                _ => unaudited("random card selection destination"),
+            };
         }
         Self::library_card_filter(&search.filter)?;
         Self::fixed_at_least(&search.maximum, 1, "card choice maximum")?;
