@@ -753,7 +753,7 @@ impl Walk<'_, '_> {
     /// Scope and type of every operand of a verb. Total over [`Verb`].
     fn operands(&mut self, verb: &Verb) -> Result<(), KirError> {
         match verb {
-            Verb::ReturnCapturedExile {} => Ok(()),
+            Verb::ReturnCapturedExile {} | Verb::ExileCapturedReturn {} => Ok(()),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::GiveCounters { player, amount, .. }
@@ -1265,6 +1265,11 @@ impl Walk<'_, '_> {
                                 if *object == Pred::source() || *event.pattern() == EventPattern::self_dies()))
                             && self.creature_target(*slot)?
                             && program.targets.is_empty() => {}
+                    // CR 702.84a: a graveyard source's own unearth ability.
+                    (DelayedEvent::NextEndStepAfterUnearth, Node::Do(Verb::ExileCapturedReturn {}))
+                        if self.env.context == Context::Activated && program.targets.is_empty() => {
+                        self.out.cells.insert(Cell::Unearth);
+                    }
                     (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, amount, random: true }))
                         if *of == PlayerExpr::you(self.env.context) && *player == PlayerExpr::you(Context::Triggered)
                             && amount.as_fixed().is_some_and(|n| *n > Quantity::zero())
@@ -1617,6 +1622,7 @@ impl Walk<'_, '_> {
             | Verb::CopyStackObject { .. }
             | Verb::Attach { .. }
             | Verb::ReturnCapturedExile {}
+            | Verb::ExileCapturedReturn {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
             | Verb::SetDesignation { .. }
@@ -1758,6 +1764,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::CopyStackObject { .. }
         | Verb::Attach { .. }
         | Verb::ReturnCapturedExile {}
+        | Verb::ExileCapturedReturn {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::SetDesignation { .. }

@@ -120,6 +120,9 @@ pub struct ObjectBefore {
     /// CR 702.30a: `Object::control_upkeeps` as last known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_upkeeps: Option<u64>,
+    /// CR 702.84a: `Object::unearthed` as last known.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unearthed: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1910,7 +1913,9 @@ impl RulesTxn {
 
         // Pinned CR 614.1a/6: replace every would-die cause, including
         // costs and SBAs, before any graveyard move or dies observer.
-        let replaced = if self.anger_replaces_death(*object, *destination) {
+        let replaced = if self.anger_replaces_death(*object, *destination)
+            || self.unearth_replaces_departure(*object, *destination)
+        {
             Zone::Exile
         } else {
             *destination
@@ -2075,6 +2080,7 @@ impl RulesTxn {
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
+                unearthed: false,
                 id: successor,
                 controller,
                 default_controller: controller,

@@ -412,6 +412,19 @@ pub(super) fn echo(
     ))
 }
 
+/// CR 702.84a: "Unearth [cost]" is the graveyard ability
+/// [`ActivatedAbility::unearth`] paying one fixed mana cost.
+pub(super) fn unearth(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<ActivatedAbility, Failure> {
+    Ok(ActivatedAbility::unearth(
+        block,
+        keyword_mana(keyword, "Unearth", text)?,
+    ))
+}
+
 /// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
 pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost, Failure> {
     keyword_mana(keyword, "Flashback", text)

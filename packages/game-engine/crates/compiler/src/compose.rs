@@ -1092,6 +1092,17 @@ fn compose_face(
                                 .push(TriggeredAbility::evoke_sacrifice(label));
                             labels.triggered.push(label);
                         }
+                        // CR 702.84a: unearth is a graveyard ability of a
+                        // permanent card.
+                        [one] if one.keyword == "unearth" => {
+                            if spell_kind || definition.spell.is_none() {
+                                return Err(unsupported("keyword", "keyword:unearth:source"));
+                            }
+                            definition
+                                .activated
+                                .push(keywords::unearth(one, label, text)?);
+                            labels.activated.push(label);
+                        }
                         // CR 702.30a: echo is a triggered ability of a permanent.
                         [one] if one.keyword == "echo" => {
                             if spell_kind || definition.spell.is_none() {

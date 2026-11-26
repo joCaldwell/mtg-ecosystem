@@ -86,6 +86,10 @@ pub struct Object {
     pub marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deathtouch_damage: bool,
+    /// CR 702.84a: this incarnation returned by its unearth ability; it has
+    /// haste and is exiled instead of leaving the battlefield.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(in crate::engine) unearthed: bool,
     pub attack_ready: bool,
     pub id: ObjectId,
     pub controller: PlayerId,

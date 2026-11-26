@@ -391,6 +391,7 @@ impl SampleBuildWork {
                     transforms: 0,
                     adventure_player: None,
                     deathtouch_damage: false,
+                    unearthed: false,
                     id: object,
                     zone: row.zone,
                     controller,

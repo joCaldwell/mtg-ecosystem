@@ -338,3 +338,44 @@ impl TriggeredAbility {
         }
     }
 }
+
+impl ActivatedAbility {
+    /// CR 702.84a: "Unearth [cost]" means "[Cost]: Return this card from
+    /// your graveyard to the battlefield. It gains haste. Exile it at the
+    /// beginning of the next end step. If it would leave the battlefield,
+    /// exile it instead of putting it anywhere else. Activate only as a
+    /// sorcery." The keyword line `block` prints it.
+    pub fn unearth(block: u32, cost: ManaCost) -> Self {
+        let mut body = SpellProgram::instructions(SpellTiming::Instant);
+        body.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::ExileCapturedReturn {}),
+        });
+        let mut program = SpellProgram::instructions(SpellTiming::MainPhase);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Delayed {
+                event: kir::DelayedEvent::NextEndStepAfterUnearth,
+                program: Box::new(body),
+            },
+        });
+        Self {
+            functioning_zone: FunctioningZone::Graveyard,
+            restriction: None,
+            cost: ActivationCost::Mana { cost },
+            program,
+            modal: None,
+        }
+    }
+
+    /// CR 702.84a: this is exactly an unearth ability.
+    pub fn is_unearth(&self) -> bool {
+        let ActivationCost::Mana { cost } = &self.cost else {
+            return false;
+        };
+        let block = self.program.instructions.first().map(|i| match i {
+            Instruction::Kernel { source_block, .. } => *source_block,
+        });
+        block.is_some_and(|block| *self == Self::unearth(block, cost.clone()))
+    }
+}

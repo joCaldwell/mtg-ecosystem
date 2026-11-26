@@ -263,6 +263,7 @@ impl RulesTxn {
                 adventure_player: None,
                 marked_damage: Quantity::zero(),
                 deathtouch_damage: false,
+                unearthed: false,
                 attack_ready: false,
                 id,
                 controller,

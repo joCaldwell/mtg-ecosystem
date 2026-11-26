@@ -110,6 +110,7 @@ impl RulesTxn {
                         adventure_player: None,
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
+                        unearthed: false,
                         attack_ready: c.zone == Zone::Battlefield,
                         id: ObjectId {
                             face: Default::default(),

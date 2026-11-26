@@ -303,6 +303,9 @@ pub enum Cell {
     Evoke,
     /// CR 702.30a: the echo upkeep trigger and the control history it reads.
     Echo,
+    /// CR 702.84a: the graveyard return, haste, departure exile and the
+    /// end-step exile of the returned permanent.
+    Unearth,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -450,6 +453,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Flashback
         | C::Evoke
         | C::Echo
+        | C::Unearth
         | C::SacrificeSource => Tiers::EXECUTES,
     }
 }

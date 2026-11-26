@@ -727,6 +727,27 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         cost(d, a, &a.program)?;
         return program(&a.program, Context::Activated, None, false);
     }
+    // CR 702.84a: unearth is a sorcery-speed graveyard ability of a
+    // permanent card paying one fixed mana cost.
+    if a.functioning_zone == FunctioningZone::Graveyard
+        && matches!(a.cost, ActivationCost::Mana { .. })
+    {
+        let ActivationCost::Mana { cost } = &a.cost else {
+            unreachable!()
+        };
+        if !a.is_unearth()
+            || !matches!(
+                d.characteristics.kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+            )
+            || cost.generic.is_negative()
+            || cost.colored.contains(&Color::C)
+            || (cost.generic == Quantity::zero() && cost.colored.is_empty())
+        {
+            return cell("activated", "unearth");
+        }
+        return program(&a.program, Context::Activated, None, false);
+    }
     // CR 702.29a/e, 602.2a: cycling and typecycling use fixed mana and the
     // exact hand card, then draw one or search, reveal and shuffle.
     if a.functioning_zone == FunctioningZone::Hand {
