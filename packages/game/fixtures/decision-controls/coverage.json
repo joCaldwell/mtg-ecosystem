@@ -1,7 +1,7 @@
 {
   "protocol_version": 2,
-  "protocol_schema_sha256": "ced861b47179f588f46311470225a9d41201d2ea44c8fce6d111f9ced0d362c6",
-  "opening_provenance_sha256": "087bb24269b3da237a0d9fc089a0789f7d22543a5b70aab7951a9d3d6c5d2a35",
+  "protocol_schema_sha256": "9fa1e3372eb8d258facc8a83d294a1d5a105cf89666185cce5fa9f2d44dcd99a",
+  "opening_provenance_sha256": "41105057df12c73ce21ec23d9bb16fe86a323da459c8e27b5f1adf6a307f3933",
   "shapes": [
     "distribute",
     "number",
@@ -22,10 +22,13 @@
     "attackers",
     "blockers",
     "bottom_opening",
+    "choose_modes",
+    "chosen_object_cost",
     "combat_damage",
     "commander_return",
     "damage_effect",
     "discard",
+    "entry_attachment",
     "forced_sacrifice",
     "graveyard_replacement_order",
     "hybrid_cost",
@@ -35,12 +38,20 @@
     "mana_color",
     "mulligan",
     "optional_effect",
+    "order_library_bottom",
+    "order_library_top",
     "order_triggers",
+    "populate",
     "priority",
+    "proliferate",
     "resolve_discard",
+    "resolve_object_choice",
     "sacrifice",
     "sacrifice_cost",
+    "scry_bottom",
+    "search_library",
     "spend_mana",
+    "surveil_graveyard",
     "targets"
   ],
   "candidates": [
@@ -51,20 +62,25 @@
     "flag",
     "hybrid_payment",
     "mana_ability",
+    "modes",
     "object",
     "player",
+    "stack",
     "trigger"
   ],
   "actions": [
     "activate_ability",
     "activate_mana",
     "cast",
+    "cast_back_face",
     "pass",
-    "play_land"
+    "play_land",
+    "play_land_back_face"
   ],
   "joint_rules": [
     "distinct",
     "picked_at_least",
+    "picked_at_most",
     "total"
   ],
   "payment_steps": [

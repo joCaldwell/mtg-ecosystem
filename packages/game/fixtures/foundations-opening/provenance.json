@@ -1,20 +1,20 @@
 {
   "fixture_version": 1,
-  "native_source": "4def486a81318363f306e6d35d348fad2008838b",
-  "sdk_source": "77cb68f15fc79ccf7420f7779d44d3bace5e7a3e",
+  "native_source": "db60dda3b3b10ba7a5b6f2bcfcf3c73847adac1a",
+  "sdk_source": "4ac7588660364a3492e296430ed4f0b21d1b2476",
   "producer_path": "packages/game-server/tools/client-artifacts.ts",
   "producer_sha256": "a8805f131d151c275fb949bc154c67f09c2df3384bcf7b5e9ea1f363936b9bfa",
-  "catalog_sha256": "3e36982dc804bc7138c964ccd908ec3076e1a8d63c9c99705367d34f582644c5",
-  "protocol_schema_sha256": "544786c28d3897e7ec733f241a18244dc24859ad03ff5157e69eeb7c6d3c4069",
+  "catalog_sha256": "92b70c5999364cf879de0152dd7b892b24c473b376b1f183d7f5ec50d12bc34d",
+  "protocol_schema_sha256": "9fa1e3372eb8d258facc8a83d294a1d5a105cf89666185cce5fa9f2d44dcd99a",
   "capture": "Seat-zero Worker::resume from client_fixture, commander-foundations-v1 with seed [3; 32]. Exact permitted native output.",
   "files": [
     {
       "path": "opening-seat0.json",
-      "sha256": "374d2de98b0305d4a522eb0414632eb455056abbf4506ae9d529c7174a1df75d"
+      "sha256": "f3775305b287e2eeb535af245b4948bee97d2458ecf06bb7392b83acd7451b15"
     },
     {
       "path": "presentation.json",
-      "sha256": "8b1f090c6df0e4bd6425fd1df3d887eec267dbaf4c2e7c3ad2e27f1c07588454"
+      "sha256": "e905b3f9b3a7a63ec326fddbb5e4ceac855cebae58265c80c5097de1fdc4096d"
     },
     {
       "path": "presentation.schema.json",
@@ -26,7 +26,7 @@
     },
     {
       "path": "producer-artifacts.json",
-      "sha256": "8c3d0337219db489cc0d3f890a66c8ee3deb9f6be64e8111919d5644203286e0"
+      "sha256": "075f76fb1da3247a764db75aa184c5b1847f452b10f7e15fcac85b0550bd86cb"
     }
   ]
 }

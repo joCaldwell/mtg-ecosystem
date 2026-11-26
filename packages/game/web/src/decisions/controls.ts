@@ -90,6 +90,46 @@ export interface ObjectLabel {
   readonly handle: string;
   readonly name: string | null;
 }
+type Candidate = Decision['candidates'][number];
+const flagLabels = {
+  keep: 'Keep hand',
+  mulligan: 'Take mulligan',
+  accept: 'Accept',
+  decline: 'Decline',
+  command_zone: 'Command zone',
+  destination: 'Destination',
+} as const satisfies Record<Extract<Candidate, { candidate: 'flag' }>['flag'], string>;
+/** Label used only when core supplies no context text. Exhaustive so a new
+ * wire candidate fails typechecking instead of rendering a guessed label. */
+function candidateFallback(c: Candidate): string {
+  switch (c.candidate) {
+    case 'action':
+      return c.action.action.replaceAll('_', ' ');
+    case 'player':
+      return `Seat ${c.player + 1}`;
+    case 'flag':
+      return flagLabels[c.flag];
+    case 'color':
+      return c.color;
+    // Core renders one label per selected mode bit (CR 700.2).
+    case 'modes':
+      return c.labels.length ? c.labels.join(' + ') : 'Modes';
+    case 'stack':
+      return 'Stack item';
+    case 'object':
+    case 'trigger':
+    case 'damage_effect':
+    case 'mana_ability':
+    case 'additional_cost':
+    case 'hybrid_payment':
+      return c.candidate.replaceAll('_', ' ');
+    default:
+      return unreachable(c);
+  }
+}
+function unreachable(value: never): never {
+  throw new Error(`Unhandled wire variant ${JSON.stringify(value)}`);
+}
 export function decisionSurface(
   request: Decision,
   labels: readonly ObjectLabel[],
@@ -120,27 +160,15 @@ export function decisionSurface(
         label: name || (label?.text !== identity && label?.text) || 'Unidentified object',
         detail: c.object,
       };
-    const fallback =
-      c?.candidate === 'action'
-        ? c.action.action
-        : c?.candidate === 'player'
-          ? `Seat ${c.player + 1}`
-          : c?.candidate === 'flag'
-            ? {
-                keep: 'Keep hand',
-                mulligan: 'Take mulligan',
-                accept: 'Accept',
-                decline: 'Decline',
-                command_zone: 'Command zone',
-                destination: 'Destination',
-              }[c.flag]
-            : c?.candidate === 'color'
-              ? c.color
-              : (c?.candidate ?? 'Option');
+    const isBackFaceAction =
+      c?.candidate === 'action' &&
+      (c.action.action === 'cast_back_face' || c.action.action === 'play_land_back_face');
     return {
       id: String(index),
-      label: [label?.text || fallback.replaceAll('_', ' '), name].filter(Boolean).join(' · '),
-      detail: label?.source?.text ?? identity ?? '',
+      label: [label?.text || (c ? candidateFallback(c) : 'Option'), isBackFaceAction && label?.text ? null : name]
+        .filter(Boolean)
+        .join(' · '),
+      detail: label?.source?.text ?? identity ?? (c?.candidate === 'stack' ? c.stack : ''),
     };
   };
   switch (shape.shape) {
@@ -428,14 +456,13 @@ export function draftError(control: LocalControl, draft: LocalDraft): string | n
       } else if (rule.rule === 'total') {
         const n = answer.picks.flat().length;
         if (n < rule.min || n > rule.max) return 'Selection is outside the supplied total.';
-      } else {
-        // picked_at_most (CR 509.1b blocker counts) predates the next SDK
-        // refresh; any other unknown rule fails closed.
-        const counted = rule as unknown as { rule: string; candidates: number[]; count: number };
-        if (counted.rule !== 'picked_at_most') return 'This decision uses a rule this client cannot check.';
+      } else if (rule.rule === 'picked_at_most') {
+        // CR 509.1b: a blocker's count of blocked attackers.
         const indices = answer.picks.flat();
-        if (counted.candidates.some((c) => indices.filter((i) => i === c).length > counted.count))
-          return `Choose each marked candidate at most ${counted.count} times.`;
+        if (rule.candidates.some((c) => indices.filter((i) => i === c).length > rule.count))
+          return `Choose each marked candidate at most ${rule.count} times.`;
+      } else {
+        unreachable(rule);
       }
     }
   }

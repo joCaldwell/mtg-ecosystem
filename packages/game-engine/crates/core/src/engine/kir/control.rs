@@ -280,6 +280,27 @@ impl RulesTxn {
             Cond::ActivePlayer { .. } => {
                 return Err("active-player condition outside statics".into());
             }
+            // CR 400.7, 608.2h, 712.8a: a card in a graveyard has its
+            // physical front face. Read the bound incarnation even after
+            // the move rather than the successor on the battlefield/exile.
+            Cond::Satisfies {
+                object: Ref::Target { slot },
+                filter,
+            } if filter.0.as_slice()
+                == [mtg_contracts::kir::Atom::Type {
+                    kind: CardKind::Creature,
+                }] =>
+            {
+                let frame = self.kernel_root()?;
+                let entry = self.entry(frame.stack_id)?;
+                frame.legal_targets.get(*slot as usize) == Some(&true)
+                    && self
+                        .bound_object_target(entry, *slot as usize)
+                        .is_some_and(|id| {
+                            self.copiable_definition(id)
+                                .is_ok_and(|d| d.characteristics.has_type(CardKind::Creature))
+                        })
+            }
             Cond::Satisfies { .. }
             | Cond::CastBy { .. }
             | Cond::ControlsOwnCommander { .. }
@@ -845,6 +866,7 @@ impl RulesTxn {
             Node::Delayed { .. }
             | Node::ChooseObject { .. }
             | Node::TapTargets { .. }
+            | Node::SacrificeForTappedReturn { .. }
             | Node::RemoveTargets { .. } => {
                 return Err("unsupported kernel trigger control".into());
             }
@@ -885,6 +907,20 @@ impl RulesTxn {
             // CR 701.27c-f: the source can still turn over.
             Node::Do(Verb::Transform { what: Ref::Source }) => {
                 self.source_transformable(self.entry(self.kernel_root()?.stack_id)?)?
+            }
+            Node::Do(Verb::Move {
+                what,
+                to: mtg_contracts::kir::Destination::Battlefield { .. },
+            }) => {
+                for id in self.control_objects(task, what)? {
+                    if self.current(id).is_ok()
+                        && self.may_enter_battlefield(id.card)?
+                        && self.entry_hosts(id)?.is_none_or(|hosts| !hosts.is_empty())
+                    {
+                        return Ok(true);
+                    }
+                }
+                false
             }
             Node::Do(Verb::Move { what, .. }) => self
                 .control_objects(task, what)?

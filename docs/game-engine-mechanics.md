@@ -296,9 +296,13 @@ resolution (CR 601.2c, 608.2b). Criteria can combine card types, subtypes
 (including changeling), supertypes, colors, supported keywords, token status,
 control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
 An ability with one target occurrence can exclude its source with “another.”
-Own-graveyard routes check their zone, owner and printed criteria against the
-announced incarnation (CR 400.7). Other graveyard scopes reject. A
-certified "it" or "that" can reuse the block's sole announced incarnation, and
+Graveyard targets check the announced incarnation, its owner's graveyard and
+its printed criteria, including secondary card types and fixed mana-value bounds
+(CR 400.7). Exile and return to the owner's hand can target a card in any
+graveyard or an opponent's graveyard. A permanent returned from your graveyard
+uses the battlefield entry procedure for Aura attachment and land entry choices.
+An exiled target's printed creature type can govern a later “if it was a
+creature card” instruction. A certified "it" or "that" can reuse the block's sole announced incarnation, and
 "this [permanent]" names the current source for tap, untap and owner-zone moves
 (CR 400.7).
 
@@ -309,16 +313,19 @@ through seven) is the program's only occurrence: one `Pick` of exactly or up to
 N distinct objects, needing N legal objects to cast or place (CR 115.3, 601.2c).
 Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one
 simultaneous event; P/T, keyword, counter and combat-restriction leaves, a
-spell's own damage and own-graveyard returns to hand or exile run per member.
+spell's own damage and graveyard returns to hand or exile run per member.
 An unchosen or illegal member skips its leaves; all illegal counters the spell
 (CR 608.2b). Per-member damage is separate events; recheck that once batched or
-creature-damage triggers are admitted. Graveyard groups entering the
-battlefield, "any number" and X counts, mixed required and optional occurrences
+creature-damage triggers are admitted. Victimize declares its creature-card
+targets before the sacrifice. A successful sacrifice returns the legal survivors
+tapped simultaneously. Other graveyard group entries, "any number" and X
+counts, mixed required and optional occurrences
 and optional permanent spells reject. "Target player or planeswalker" announces
 players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
 120.3). Already-matching tap status emits no event and combat membership is
 preserved. "Put a +1/+1 counter on each [creature filter]" applies
-simultaneously to the current set.
+simultaneously to the current set. “Tap all creatures target player controls”
+reads that player’s creatures at resolution.
 
 `ChooseObject` returns one controlled permanent chosen at resolution (CR
 608.2d); departures that change the offer invalidate pending answers, empty sets

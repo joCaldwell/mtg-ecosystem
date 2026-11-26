@@ -31,6 +31,20 @@ impl Walk<'_, '_> {
                 ) if controller == &PlayerExpr::you(self.env.context) => {
                     Ok(Cell::MoveOwnGraveyardCreatureToBattlefield)
                 }
+                (Destination::Battlefield { controller, .. }, TargetDomain::OwnGraveyardCard)
+                    if controller == &PlayerExpr::you(self.env.context) =>
+                {
+                    Ok(Cell::MoveOwnGraveyardCardToBattlefield)
+                }
+                (Destination::OwnerHand, TargetDomain::GraveyardCard { .. }) => {
+                    Ok(Cell::MoveGraveyardTargetToOwnerHand)
+                }
+                (
+                    Destination::Exile,
+                    TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+                    | TargetDomain::GraveyardCard { .. },
+                ) => Ok(Cell::ExileGraveyardTarget),
                 (Destination::Exile, TargetDomain::BattlefieldPermanent) => {
                     Ok(Cell::MoveTargetExile)
                 }

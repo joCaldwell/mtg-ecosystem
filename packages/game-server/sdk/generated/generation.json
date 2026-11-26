@@ -58,7 +58,7 @@
     "unreachableDefinitions": true
   },
   "schema_dialect": "Draft7",
-  "schema_sha256": "ced861b47179f588f46311470225a9d41201d2ea44c8fce6d111f9ced0d362c6",
+  "schema_sha256": "9fa1e3372eb8d258facc8a83d294a1d5a105cf89666185cce5fa9f2d44dcd99a",
   "files": [
     {
       "path": "command.d.ts",
@@ -66,7 +66,7 @@
     },
     {
       "path": "stream.d.ts",
-      "sha256": "06ebf2a24a961ac90669b6778524fe936799c76b21140ae6bf2e5e4cb54df2df"
+      "sha256": "857577d70a1a5eef0ef26c095c5717c87a914b253397decefc04db5fe44a5611"
     },
     {
       "path": "submission.d.ts",
@@ -78,11 +78,11 @@
     },
     {
       "path": "manifest.d.ts",
-      "sha256": "1513a8d9d4d2b5052f71e2ea0cc85f9a86928feedf3a854d2ec92273092c830c"
+      "sha256": "e56805b3fa9c05b624fa6546b708c928a386e22c8974577e3c8eab2460cc96f9"
     },
     {
       "path": "resume.d.ts",
-      "sha256": "1b7b62f06ff0eaa5adf9550f82574aabfa1df3bc7967a9d5ab44e1dd87028b45"
+      "sha256": "93253f38b0739f354f5f70fc0a7c4dba338eb7999c9ea803725e677dc3c9eb37"
     },
     {
       "path": "bootstrap.d.ts",
@@ -106,7 +106,7 @@
     },
     {
       "path": "validators.js",
-      "sha256": "52ca7509bd245dc519319022bd483a620c884e5ccd73561cc96d17bef8c33f74"
+      "sha256": "5e46d0c282ce168fe704a138eb0126de12809c2f2dbb3af49580601a9e685218"
     },
     {
       "path": "validators.d.ts",

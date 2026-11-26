@@ -49,8 +49,13 @@ pub(super) fn lower(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Ins
             to: Destination::Exile,
         }));
     }
+    let slot = if matches!(&what, ast::ObjectRef::Target(t) if t.filter.zone.is_some()) {
+        bind_graveyard_target(cx.program, cx.slots, &what, false)?
+    } else {
+        bind_permanent_target(cx.program, cx.slots, &what)?
+    };
     Ok(Instruction::move_target(
-        bind_permanent_target(cx.program, cx.slots, &what)?,
+        slot,
         kir::Destination::Exile,
         cx.source_block,
     ))

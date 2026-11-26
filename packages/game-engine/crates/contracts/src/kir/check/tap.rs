@@ -19,6 +19,15 @@ impl Walk<'_, '_> {
             SetExpr::Matching {
                 zone: ZoneExpr::Battlefield,
                 filter,
+            } if matches!(filter.0.as_slice(), [Atom::Type { kind: CardKind::Creature },
+                    Atom::ControlledBy { player: PlayerExpr::Is { who: Ref::Target { slot } } }]
+                    if self.domain(*slot)? == TargetDomain::AnyPlayer) =>
+            {
+                Ok(Cell::TapTargetPlayersCreatures)
+            }
+            SetExpr::Matching {
+                zone: ZoneExpr::Battlefield,
+                filter,
             } => Self::audited_filter(&ZoneExpr::Battlefield, filter).map(|()| Cell::TapSet),
             _ => unaudited("verb"),
         }

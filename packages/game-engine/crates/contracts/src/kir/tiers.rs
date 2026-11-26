@@ -143,7 +143,11 @@ pub enum Cell {
     MoveSourceOwnerZone,
     ChooseObjectOwnerHand,
     MoveOwnGraveyardTargetToHand,
+    ExileGraveyardTarget,
+    GraveyardTargetWasCreature,
+    MoveGraveyardTargetToOwnerHand,
     MoveOwnGraveyardCreatureToBattlefield,
+    MoveOwnGraveyardCardToBattlefield,
     ExileTargetGraveyard,
     ExileGraveyards,
     MoveSet,
@@ -158,7 +162,9 @@ pub enum Cell {
     TapStatusSource,
     /// CR 115.3, 608.2b: one simultaneous removal of a counted target group.
     RemoveTargetGroup,
+    SacrificeForTappedReturn,
     TapSet,
+    TapTargetPlayersCreatures,
     UntapTarget,
     UntapSet,
     UntapControllerLands,
@@ -330,7 +336,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MovePermanentOwnerHand
         | C::MoveSourceOwnerZone
         | C::ChooseObjectOwnerHand
+        | C::GraveyardTargetWasCreature
+        | C::ExileGraveyardTarget
+        | C::MoveGraveyardTargetToOwnerHand
         | C::MoveOwnGraveyardTargetToHand
+        | C::MoveOwnGraveyardCardToBattlefield
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
@@ -341,8 +351,10 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::RegenerateTarget
         | C::TapTarget
         | C::TapTargetGroup
+        | C::SacrificeForTappedReturn
         | C::RemoveTargetGroup
         | C::TapStatusSource
+        | C::TapTargetPlayersCreatures
         | C::TapSet
         | C::UntapTarget
         | C::UntapSet
@@ -562,6 +574,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::RegenerationShieldV1
         | C::ProliferateV1
         | C::MultiTypeCreatureTokensV1
+        | C::GraveyardCardTargetV1
         | C::OwnGraveyardCardReturnV1
         | C::PrivateLibraryReorderV1
         | C::SearchLibraryTopV1

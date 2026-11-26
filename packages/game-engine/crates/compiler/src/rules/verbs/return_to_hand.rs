@@ -11,7 +11,7 @@ pub(super) fn lower(
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     if to == "your" {
-        let slot = bind_own_graveyard_target(cx.program, cx.slots, &object(what)?, false)?;
+        let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, true)?;
         let movement = Instruction::move_target(slot, Destination::OwnerHand, cx.source_block);
         return match optional {
             None => Ok(movement),
@@ -67,10 +67,12 @@ pub(super) fn lower(
             to: Destination::OwnerHand,
         }));
     }
-    let slot = if is_permanent_target(&what) {
-        bind_permanent_target(cx.program, cx.slots, &what)?
-    } else {
+    let slot = if matches!(&what, ast::ObjectRef::Target(t) if t.filter.zone.is_some()) {
+        bind_graveyard_target(cx.program, cx.slots, &what, false)?
+    } else if is_creature_target(&what) {
         bind_creature_target(cx.program, cx.slots, &what)?
+    } else {
+        bind_permanent_target(cx.program, cx.slots, &what)?
     };
     Ok(Instruction::move_target(
         slot,

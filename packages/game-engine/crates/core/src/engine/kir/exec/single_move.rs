@@ -12,7 +12,7 @@ impl RulesTxn {
         source_block: u32,
     ) -> Result<(), String> {
         let entry = self.entry(frame.stack_id)?;
-        let (target, from_graveyard) = match object {
+        let (target, domain) = match object {
             Ref::Target { slot } => {
                 let slot = slot as usize;
                 let target = *self
@@ -22,25 +22,43 @@ impl RulesTxn {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
                 }
-                let from_graveyard = matches!(
-                    self.program_for(entry)?.targets[slot].domain,
-                    TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
-                );
-                (target, from_graveyard)
+                (target, Some(self.program_for(entry)?.targets[slot].domain))
             }
-            Ref::Source => (entry.source, false),
+            Ref::Source => (entry.source, None),
             _ => return Err("zone move requires a source or target".into()),
         };
         let actor = entry.controller;
         if !self.current(target).is_ok_and(|object| {
-            if from_graveyard {
-                self.player_graveyard_card(object, actor)
+            if let Some(
+                domain @ (TargetDomain::OwnGraveyardCard
+                | TargetDomain::OwnGraveyardCreatureCard
+                | TargetDomain::GraveyardCard { .. }),
+            ) = domain
+            {
+                self.graveyard_target_legal(object, actor, domain)
             } else {
                 object.present_on_battlefield()
             }
         }) {
             return self
                 .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
+        }
+        // CR 303.4f-g, 614.12: a noncreature target can be an Aura or
+        // have an as-enters choice. Use the shared card-entry procedure.
+        if matches!(to, Destination::Battlefield { .. })
+            && let Ref::Target { slot } = object
+            && self.program_for(entry)?.targets[slot as usize].domain
+                == TargetDomain::OwnGraveyardCard
+        {
+            return self.continue_card_entry(
+                frame,
+                actor,
+                vec![target],
+                vec![],
+                vec![],
+                vec![],
+                source_block,
+            );
         }
         self.kernel_move_present(frame, target, to, source_block)
     }
