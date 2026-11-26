@@ -13,3 +13,4 @@ mod life;
 mod set_move;
 mod single_move;
 mod tap;
+mod transform;

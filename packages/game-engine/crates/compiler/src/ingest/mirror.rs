@@ -427,6 +427,13 @@ pub(crate) enum Step {
     Tap {
         what: serde_json::Value,
     },
+    /// CR 701.27.
+    Transform {
+        what: serde_json::Value,
+        who: PlayerSelector,
+        #[serde(default)]
+        optional: bool,
+    },
     Destroy {
         what: serde_json::Value,
         #[serde(default, deserialize_with = "present_bool_field")]

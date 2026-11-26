@@ -469,7 +469,8 @@ impl Site<'_> {
 /// cannot choose to perform an impossible action; the continuation decides
 /// before offering the choice whether a target or source verb can be
 /// performed (`core` `kir::control`). A draw, life change or mill can
-/// always be performed (CR 121.3, 119.3, 701.17b).
+/// always be performed (CR 121.3, 119.3, 701.17b). Transforming the source
+/// is decided the same way (CR 701.27c-f).
 fn decided(node: &Node) -> bool {
     use kir::Verb;
     match node {
@@ -488,6 +489,11 @@ fn decided(node: &Node) -> bool {
                 object: kir::Ref::Target { .. }
             }
         ),
+        // CR 701.27c-f: the continuation checks the source can still
+        // transform before offering the choice.
+        Node::Do(Verb::Transform {
+            what: kir::Ref::Source,
+        }) => true,
         Node::Do(Verb::PutCounters { on, .. }) => {
             matches!(
                 on,

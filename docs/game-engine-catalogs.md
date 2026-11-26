@@ -40,7 +40,9 @@ paths are relative to provenance. Digest files contain SHA-256 without a newline
 
 Nonland records with empty printed mana costs reject: absent cost is unpayable,
 distinct from `{0}` (CR 118.6/118.6a), and the IR cannot yet represent it. Lands
-may have empty cost; explicit `{0}` remains supported. Missing/null/malformed
+may have empty cost; explicit `{0}` remains supported. A transforming card's
+back face is never cast and requires an empty cost, recording its front face's
+mana value instead (CR 202.3b). Missing/null/malformed
 mana-cost fields reject. Optional AST cast/attacker/recursive damage-source
 class/type/Boolean filters and attacker-control relations reject explicit null;
 omission and valid nonempty filters retain their meanings.

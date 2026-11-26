@@ -195,7 +195,7 @@ impl RulesTxn {
             return self.validate_cost_lock(entry);
         }
         if !self
-            .copiable_definition(entry.source)?
+            .stack_definition(entry)?
             .characteristics
             .hybrid_mana
             .is_empty()
@@ -235,7 +235,7 @@ impl RulesTxn {
         }
         let needs_choice = entry.kind.is_spell()
             && !self
-                .copiable_definition(entry.source)?
+                .stack_definition(entry)?
                 .characteristics
                 .hybrid_mana
                 .is_empty();
@@ -268,7 +268,7 @@ impl RulesTxn {
         // CR 601.2b: optional additional costs, then hybrid symbols, then X are
         // announced in order, and the cost locks (CR 601.2f) only after all of
         // them. A game that ends mid-announcement keeps that prefix.
-        let definition = self.copiable_definition(entry.source)?;
+        let definition = self.stack_definition(entry)?;
         let additional_pending = !self
             .program_for(entry)?
             .optional_additional_costs

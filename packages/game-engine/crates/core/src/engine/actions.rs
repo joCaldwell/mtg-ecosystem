@@ -1319,7 +1319,8 @@ impl RulesTxn {
             self.validate_activated_entry(entry, *ability, source_handles)?;
             self.validate_activation_condition_check(
                 entry.controller,
-                self.activated_condition(entry.source, *ability)?.as_ref(),
+                self.activated_condition(entry.source, entry.source_face, *ability)?
+                    .as_ref(),
                 condition.as_ref(),
             )?;
         }

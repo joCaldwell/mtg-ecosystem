@@ -473,7 +473,7 @@ impl RulesTxn {
         if matches!(ability, EffectiveTriggerAbility::Followup { .. }) {
             return Ok(None);
         }
-        let definition = self.effective_trigger(stack.source, *ability)?;
+        let definition = self.effective_trigger(stack.source, stack.source_face, *ability)?;
         let Some(condition) = intervening(&definition)? else {
             return Ok(None);
         };
@@ -513,7 +513,7 @@ impl RulesTxn {
             StackKind::Triggered {
                 ability: ability @ EffectiveTriggerAbility::Intrinsic { .. },
                 ..
-            } => Some(self.effective_trigger(entry.source, ability)?),
+            } => Some(self.effective_trigger(entry.source, entry.source_face, ability)?),
             _ => None,
         };
         let expected = match &definition {
@@ -598,6 +598,7 @@ impl RulesTxn {
     pub(super) fn validate_match_condition(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         check: Option<&InterveningCheck>,
@@ -623,7 +624,7 @@ impl RulesTxn {
         {
             return Err("cast-entry condition does not identify its completed movement".into());
         }
-        let definition = self.effective_trigger(source, ability)?;
+        let definition = self.effective_trigger(source, face, ability)?;
         let expected = intervening(&definition)?;
         match (expected, check) {
             (None, None) => Ok(()),
@@ -653,7 +654,8 @@ impl RulesTxn {
         &'a self,
         origin: &EffectOrigin,
     ) -> Result<Vec<&'a SpellProgram>, String> {
-        let d = self.copiable_definition(origin.source)?;
+        // CR 113.7a: the program of the face that created the effect.
+        let d = self.face_definition(origin.source.card, origin.source_face)?;
         if let Some(index) = origin.activated_ability {
             return Ok(d
                 .activated

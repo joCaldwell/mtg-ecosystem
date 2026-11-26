@@ -29,7 +29,7 @@ mod board {
     pub(super) fn card(c: &Catalog, name: &str, owner: u8, zone: Zone) -> VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
-            modal_faces: None,
+            faces: None,
             face_down: false,
             exiled_by: None,
             phased_out: false,

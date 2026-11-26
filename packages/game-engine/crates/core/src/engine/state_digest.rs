@@ -328,6 +328,7 @@ mod tests {
             id: EffectId(2),
             origin: EffectOrigin {
                 activated_ability: None,
+                source_face: CardFace::Front,
                 stack_id: StackId(3),
                 source: ObjectId {
                     face: Default::default(),

@@ -26,6 +26,7 @@ mod return_to_hand;
 mod sacrifice;
 mod tap;
 mod tokens;
+mod transform;
 
 /// What every verb lowerer reads besides its own step.
 pub(crate) struct StepCx<'a> {
@@ -146,6 +147,11 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
         Step::Exile { what } => exile::lower(cx, what),
         Step::Untap { what } => tap::untap(cx, what),
         Step::Tap { what } => tap::tap(cx, what),
+        Step::Transform {
+            what,
+            who,
+            optional,
+        } => transform::lower(cx, what, who, *optional),
         Step::Destroy {
             what,
             optional,

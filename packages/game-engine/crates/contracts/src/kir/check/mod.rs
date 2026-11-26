@@ -1338,9 +1338,16 @@ impl Walk<'_, '_> {
             | Verb::ReturnCapturedExile {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
-            | Verb::Transform { .. }
             | Verb::SetDesignation { .. }
             | Verb::Builtin { .. } => unaudited("verb"),
+            // CR 701.27a,f: a permanent's own activated or triggered ability
+            // transforms that permanent.
+            Verb::Transform { what: Ref::Source }
+                if matches!(self.env.context, Context::Activated | Context::Triggered) =>
+            {
+                Ok(Cell::TransformSource)
+            }
+            Verb::Transform { .. } => unaudited("transform operand"),
         }
     }
 
@@ -1431,6 +1438,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         Verb::Move { what, to } => move_zone::capabilities(what, to, out),
         Verb::Tap { what } => tap::tap_capabilities(what, out),
+        Verb::Transform { .. } => {
+            out.insert(Capability::TransformSourceV1);
+        }
         Verb::Untap { what } => tap::untap_capabilities(what, out),
         Verb::CreateTokens { token, .. } => tokens::capabilities(token, out),
         Verb::PutCounters { counter, .. } => counters::capabilities(counter, out),
@@ -1462,7 +1472,6 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::ReturnCapturedExile {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
-        | Verb::Transform { .. }
         | Verb::SetDesignation { .. }
         | Verb::Shuffle { .. }
         | Verb::Builtin { .. } => {}

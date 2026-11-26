@@ -19,7 +19,7 @@ pub(crate) enum SetMove {
 impl RulesTxn {
     pub(crate) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
         let mut q = self
-            .copiable_definition(entry.source)?
+            .stack_definition(entry)?
             .characteristics
             .printed_mana_value();
         if let Some(x) = &entry.x {
@@ -323,6 +323,7 @@ impl RulesTxn {
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
+                source_face: self.entry(frame.stack_id)?.program_face(),
                 stack_id: frame.stack_id,
                 source: self.entry(frame.stack_id)?.source,
                 controller: self.entry(frame.stack_id)?.controller,

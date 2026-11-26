@@ -38,7 +38,8 @@ impl RulesTxn {
     }
 
     // CR 305.1-3: playing a land is a special action during the active
-    // player's main phase with priority and an empty stack.
+    // player's main phase with priority and an empty stack. CR 715.3d: an
+    // exiled Adventure's controller may play its land card from exile.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(crate) fn validate_land_face(
         &self,
@@ -72,7 +73,10 @@ impl RulesTxn {
         if definition.characteristics.kind != CardKind::Land
             || !definition.capabilities.contains(&Capability::LandPlayV1)
             || self.state.rules.cards[&card].owner != player
-            || object.zone != (Zone::Hand { owner: player })
+            || !(object.zone == (Zone::Hand { owner: player })
+                || (object.zone == Zone::Exile
+                    && object.adventure_player == Some(player)
+                    && face == CardFace::Front))
             || !self.has_land_play_allowance(player)
         {
             return Err("invalid or unsupported land play".into());

@@ -11,5 +11,6 @@ mod modal_double_faced;
 mod permanents_mana;
 mod removal_wipes;
 mod target_operands;
+mod transform_adventure;
 mod triggers;
 mod verb_operands;

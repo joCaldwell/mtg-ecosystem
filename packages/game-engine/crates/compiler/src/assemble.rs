@@ -9,14 +9,24 @@ use super::*;
 pub(crate) fn shell(
     archive: &AcceptedArchive,
     card: &CardSource,
+    part: usize,
     source: SourceFace,
     result: &ParseResult,
     types: type_line::ParsedTypes,
 ) -> Result<(Definition, SourceLabels), Failure> {
     let r = &card.record;
     let kind = types.kind;
+    // CR 712.8e, 202.3b: a transforming card's back face has no mana cost;
+    // its mana value is set from the front face's once both are lowered.
+    let transformed_back = card.layout == FaceLayout::Transforming && part == 1;
+    if transformed_back != source.mana_cost.is_empty() && card.layout == FaceLayout::Transforming {
+        return Err(unsupported(
+            "source.mana_cost",
+            "transforming card requires a front mana cost and a back face without one",
+        ));
+    }
     // CR 118.6: an absent mana cost is not {0}.
-    if kind != CardKind::Land && source.mana_cost.is_empty() {
+    if kind != CardKind::Land && source.mana_cost.is_empty() && !transformed_back {
         return Err(unsupported(
             "source.mana_cost",
             "nonland without a mana cost requires an explicit absent-cost representation",
@@ -33,13 +43,19 @@ pub(crate) fn shell(
         .map(|s| s.parse::<Quantity>())
         .transpose()
         .map_err(|e| unsupported("source.toughness", e))?;
+    // CR 202.2: an adventurer part's colors are those of its mana cost.
+    let colors = match source.colors {
+        Some(colors) => colors,
+        None => cost_colors(&printed_cost),
+    };
     let labels = SourceLabels {
         text: source.oracle_text.clone(),
         blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
         ..SourceLabels::default()
     };
     let definition = Definition {
-        modal_back: None,
+        layout: FaceLayout::Single,
+        back_face: None,
         source_labels: None,
         composed: true,
         x_mana_cost: printed_cost.x,
@@ -55,10 +71,11 @@ pub(crate) fn shell(
             subtypes: types.subtypes,
             hybrid_mana: printed_cost.hybrid,
             mana_cost: printed_cost.base,
-            colors: source.colors,
+            colors,
             color_identity: card.source.color_identity.clone(),
             power,
             toughness,
+            front_face_mana_value: None,
         },
         intrinsic_zone: (kind == CardKind::Land).then_some(FunctioningZone::Battlefield),
         modal_spell: None,
@@ -89,6 +106,24 @@ pub(crate) fn shell(
         },
     };
     Ok((definition, labels))
+}
+
+/// CR 105.2, 202.2: the colors of the mana symbols in a mana cost, in WUBRG
+/// order; a hybrid symbol has each of its colors.
+fn cost_colors(cost: &PrintedSpellCost) -> Vec<Color> {
+    let mut colors: BTreeSet<Color> = cost.base.colored.iter().copied().collect();
+    for symbol in &cost.hybrid {
+        for payment in symbol.colors {
+            if let HybridPayment::Mana(color) = payment {
+                colors.insert(color);
+            }
+        }
+    }
+    colors.remove(&Color::C);
+    [Color::W, Color::U, Color::B, Color::R, Color::G]
+        .into_iter()
+        .filter(|c| colors.contains(c))
+        .collect()
 }
 
 /// CR 702.8: Flash lets the spell be cast any time its controller could cast

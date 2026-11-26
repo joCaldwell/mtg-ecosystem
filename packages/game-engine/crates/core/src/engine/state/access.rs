@@ -131,7 +131,7 @@ impl RulesTxn {
         &self,
         stack: &StackInstance,
     ) -> Result<&SpellProgram, RuleError> {
-        let definition = self.copiable_definition(stack.source)?;
+        let definition = self.stack_definition(stack)?;
         match &stack.kind {
             StackKind::Spell => {
                 if let Some(mask) = stack.mode_mask {

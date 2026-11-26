@@ -159,6 +159,8 @@ pub enum Cell {
     UntapTarget,
     UntapSet,
     UntapControllerLands,
+    /// CR 701.27a,f: a permanent's ability transforms that permanent.
+    TransformSource,
     // CR 701.17: mill.
     MillController,
     MillTargetPlayer,
@@ -332,6 +334,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::UntapTarget
         | C::UntapSet
         | C::UntapControllerLands
+        | C::TransformSource
         | C::MillController
         | C::MillTargetPlayer
         | C::MillTargetPlayerX
@@ -439,7 +442,11 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::AnyDamageTargetV1
         | C::NoncombatDamageV1
         | C::SelfDiesV1 => Tiers::SEARCH_HOSTING,
-        C::ModalChoiceV1 | C::ModalDoubleFacedV1 => Tiers::EXECUTES,
+        C::ModalChoiceV1
+        | C::ModalDoubleFacedV1
+        | C::TransformingDoubleFacedV1
+        | C::AdventurerV1
+        | C::TransformSourceV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1
@@ -662,7 +669,7 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             _ => {}
         }
     }
-    if let Some(back) = &d.modal_back {
+    if let Some(back) = &d.back_face {
         cells.extend(definition_cells(back)?);
     }
     Ok(cells)

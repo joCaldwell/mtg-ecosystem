@@ -301,6 +301,7 @@ fn counter_regeneration_shield_clears_damage_and_taps_only_its_recipient() {
         ("Swamp", false),
         ("Swamp", false),
         ("Swamp", false),
+        ("Grizzly Bears", false),
     ] {
         board = add(board, name, P0, hand);
     }
@@ -326,6 +327,21 @@ fn counter_regeneration_shield_clears_damage_and_taps_only_its_recipient() {
         &game,
         |rules| rules["effects"][0]["expires_in_cleanup_of_turn"] = 0.into(),
         "effect state identity invariant",
+    );
+    // After the invocation leaves, only replay can prove the original
+    // selection against a forged recipient and its matching public handles.
+    assert!(game.state.rules.stack.is_empty());
+    let other = Driver::object(&game, 9);
+    let handles: Vec<_> = (0..4)
+        .map(|viewer| game.handle_for(PlayerId(viewer), other).unwrap())
+        .collect();
+    reject(
+        &game,
+        |rules| {
+            rules["effects"][0]["kind"]["target"] = serde_json::to_value(other).unwrap();
+            rules["effects"][0]["target_handles"] = serde_json::to_value(handles).unwrap();
+        },
+        "snapshot is not reachable from this scenario's accepted inputs",
     );
     cast_on(&mut game, 3, &[6, 7, 8], target);
     resolve(&mut game);

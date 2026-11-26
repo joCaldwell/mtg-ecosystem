@@ -385,6 +385,8 @@ impl SampleBuildWork {
                         .map(|_| turn),
                     keyword_timestamp: None,
                     plus_one_counters: Quantity::zero(),
+                    transforms: 0,
+                    adventure_player: None,
                     deathtouch_damage: false,
                     id: object,
                     zone: row.zone,
