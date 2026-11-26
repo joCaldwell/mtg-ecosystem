@@ -61,6 +61,7 @@ impl RulesTxn {
         Ok(ObjectBefore {
             transforms: o.transforms,
             battlefield_entry_turn: o.battlefield_entry_turn,
+            control_upkeeps: o.control_upkeeps,
             keyword_timestamp: o.keyword_timestamp,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,

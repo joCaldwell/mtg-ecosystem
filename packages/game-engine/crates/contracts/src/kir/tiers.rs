@@ -301,6 +301,8 @@ pub enum Cell {
     /// CR 702.74a, 118.9: the evoke alternative cost and the entering
     /// permanent's sacrifice trigger reading it.
     Evoke,
+    /// CR 702.30a: the echo upkeep trigger and the control history it reads.
+    Echo,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -447,6 +449,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Buyback
         | C::Flashback
         | C::Evoke
+        | C::Echo
         | C::SacrificeSource => Tiers::EXECUTES,
     }
 }
@@ -701,6 +704,14 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if d.alternative_cost.is_some() {
         cells.insert(Cell::Evoke);
+    }
+    if d.triggered.iter().any(|t| {
+        matches!(
+            t.condition.intervening_if(),
+            Some(Cond::ControlledSinceLastUpkeep {})
+        )
+    }) {
+        cells.insert(Cell::Echo);
     }
     if let Some(p) = &d.spell {
         if p.additional_sacrifice.is_some() {

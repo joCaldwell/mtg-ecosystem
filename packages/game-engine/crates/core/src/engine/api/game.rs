@@ -101,6 +101,9 @@ impl RulesTxn {
                         attached_to: None,
                         attachment_timestamp: None,
                         battlefield_entry_turn: None,
+                        // CR 702.30a: setup permanents came under control
+                        // before any upkeep.
+                        control_upkeeps: (c.zone == Zone::Battlefield).then_some(0),
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         transforms: 0,
@@ -164,6 +167,7 @@ impl RulesTxn {
                         life_frozen_until_next_turn: false,
                         poison_counters: Quantity::zero(),
                         energy_counters: Quantity::zero(),
+                        upkeeps: 0,
                         failed_draw: false,
                         life: prepared.config.initial_life(PlayerId(p)),
                         mana: BTreeMap::new(),

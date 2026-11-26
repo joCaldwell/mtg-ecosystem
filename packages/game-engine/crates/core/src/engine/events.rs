@@ -117,6 +117,9 @@ pub struct ObjectBefore {
     pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battlefield_entry_turn: Option<u64>,
+    /// CR 702.30a: `Object::control_upkeeps` as last known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_upkeeps: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -2051,6 +2054,8 @@ impl RulesTxn {
             }
         }
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
+        let control_upkeeps = (*destination == Zone::Battlefield)
+            .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
         self.rules_mut().objects.insert(
             object.card,
             Object {
@@ -2059,6 +2064,7 @@ impl RulesTxn {
                 attached_to: None,
                 attachment_timestamp: None,
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
+                control_upkeeps,
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 plus_one_counters,
                 transforms: 0,
@@ -2921,6 +2927,10 @@ impl RulesTxn {
                 // ends, before the separately budgeted postcombat entry unit.
                 if self.state.rules.turn.step == TurnStep::EndCombat {
                     self.clear_combat();
+                }
+                // CR 503.1a, 702.30a: count each player's upkeeps as they begin.
+                if next.step == TurnStep::Upkeep && next.step != self.state.rules.turn.step {
+                    self.rules_mut().players[owner.0 as usize].upkeeps += 1;
                 }
                 let previous = std::mem::replace(&mut self.rules_mut().turn, next.clone());
                 let previous_owner = std::mem::replace(&mut self.rules_mut().turn_owner, *owner);

@@ -19,6 +19,9 @@ pub struct Player {
     pub poison_counters: Quantity,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub energy_counters: Quantity,
+    /// CR 503.1a, 702.30a: how many of this player's upkeep steps have begun.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub upkeeps: u64,
     pub failed_draw: bool,
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,
@@ -65,6 +68,10 @@ pub struct Object {
     pub(in crate::engine) keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) battlefield_entry_turn: Option<u64>,
+    /// CR 702.30a: on the battlefield, the controller's upkeep count when
+    /// this permanent last came under that player's control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::engine) control_upkeeps: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
     /// CR 701.27a, 712.18: how many times this permanent has transformed
@@ -114,6 +121,9 @@ pub(crate) fn face_after(face: CardFace, transforms: u32) -> CardFace {
     }
 }
 pub(crate) fn is_zero_count(count: &u32) -> bool {
+    *count == 0
+}
+pub(crate) fn is_zero_u64(count: &u64) -> bool {
     *count == 0
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -89,6 +89,23 @@ impl RulesTxn {
         }) {
             return Err("invalid battlefield entry turn".into());
         }
+        // CR 702.30a: a player has at most one upkeep per turn, and each
+        // battlefield permanent records when it came under its controller's
+        // control.
+        if s.rules
+            .players
+            .iter()
+            .any(|p| p.upkeeps > s.rules.turn.number)
+            || s.rules.objects.values().any(|o| match o.control_upkeeps {
+                Some(n) => {
+                    o.zone != Zone::Battlefield
+                        || n > s.rules.players[o.controller.0 as usize].upkeeps
+                }
+                None => o.zone == Zone::Battlefield,
+            })
+        {
+            return Err("invalid upkeep control history".into());
+        }
         for object in s
             .rules
             .objects

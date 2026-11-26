@@ -399,6 +399,19 @@ pub(super) fn evoke(
     })
 }
 
+/// CR 702.30a: "Echo [cost]" is the upkeep trigger
+/// [`TriggeredAbility::echo`] paying one fixed mana cost.
+pub(super) fn echo(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<TriggeredAbility, Failure> {
+    Ok(TriggeredAbility::echo(
+        block,
+        keyword_mana(keyword, "Echo", text)?,
+    ))
+}
+
 /// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
 pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost, Failure> {
     keyword_mana(keyword, "Flashback", text)

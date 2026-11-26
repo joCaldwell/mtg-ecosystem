@@ -727,7 +727,8 @@ impl Walk<'_, '_> {
             Cond::Satisfies { .. }
             | Cond::CastBy { .. }
             | Cond::ControlsOwnCommander { .. }
-            | Cond::OpponentControlsMore { .. } => {
+            | Cond::OpponentControlsMore { .. }
+            | Cond::ControlledSinceLastUpkeep {} => {
                 unaudited("intervening condition in a resolving node")
             }
         }

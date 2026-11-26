@@ -201,6 +201,13 @@ impl EventPattern {
     }
 
     /// "When this permanent enters" (CR 603.6a, 201.5).
+    /// "At the beginning of your upkeep" (CR 503.1a).
+    pub fn your_upkeep() -> Self {
+        Self::StepBegins {
+            step: crate::BeginningStep::Upkeep,
+            active: PlayerExpr::you(Context::Triggered),
+        }
+    }
     pub fn self_enters() -> Self {
         Self::Enters {
             object: Pred::source(),
@@ -507,6 +514,9 @@ pub enum Intervening {
     SourceCostPaid {
         identity: String,
     },
+    /// Echo's "if this permanent came under your control since the
+    /// beginning of your last upkeep" (CR 702.30a, 603.4).
+    SourceControlledSinceLastUpkeep,
     /// "if you have no cards in hand" (CR 402).
     ControllerHandEmpty,
     /// CR 603.4, 109.5: a fixed comparison of information about "you".
@@ -620,6 +630,7 @@ impl Intervening {
             Self::SourceCostPaid { identity } => Cond::CostPaid {
                 identity: identity.clone(),
             },
+            Self::SourceControlledSinceLastUpkeep => Cond::ControlledSinceLastUpkeep {},
             Self::ControllerHandEmpty => Cond::Compare {
                 left: Amount::Count {
                     set: SetExpr::Matching {
@@ -685,6 +696,7 @@ impl Intervening {
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
             Cond::CastBy { .. } => Self::SourceCastByController,
+            Cond::ControlledSinceLastUpkeep {} => Self::SourceControlledSinceLastUpkeep,
             // CR 702.74a: the one reviewed entry cost an intervening clause reads.
             Cond::CostPaid { identity } if identity == crate::EVOKE_COST => Self::SourceCostPaid {
                 identity: identity.clone(),
@@ -792,6 +804,7 @@ impl Intervening {
             Self::SourceCastByController | Self::SourceCostPaid { .. } => {
                 *pattern == EventPattern::self_enters()
             }
+            Self::SourceControlledSinceLastUpkeep => *pattern == EventPattern::your_upkeep(),
             _ if matches!(pattern, EventPattern::BecomesTarget { .. }) => false,
             Self::ControllerComparison { .. } => match pattern {
                 EventPattern::Enters { .. }

@@ -297,3 +297,44 @@ impl TriggeredAbility {
         }
     }
 }
+
+impl TriggeredAbility {
+    /// CR 702.30a: "At the beginning of your upkeep, if this permanent came
+    /// under your control since the beginning of your last upkeep, sacrifice
+    /// it unless you pay [cost]." The keyword line `block` prints it.
+    pub fn echo(block: u32, cost: ManaCost) -> Self {
+        let you = kir::PlayerExpr::you(Context::Triggered);
+        let payment = if cost.colored.is_empty() {
+            kir::Payment::Generic {
+                amount: kir::Amount::Fixed {
+                    value: cost.generic,
+                },
+            }
+        } else {
+            kir::Payment::Mana { mana: cost }
+        };
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::UnlessPays {
+                payer: you.clone(),
+                payment,
+                node: Box::new(kir::Node::Do(kir::Verb::Sacrifice {
+                    player: you,
+                    count: kir::Amount::fixed(1),
+                    filter: kir::Pred::source(),
+                })),
+            },
+        });
+        Self {
+            modal: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::Event {
+                pattern: kir::EventPattern::your_upkeep(),
+                intervening_if: Some(kir::Cond::ControlledSinceLastUpkeep {}),
+                once_each_turn: false,
+            },
+            program,
+        }
+    }
+}

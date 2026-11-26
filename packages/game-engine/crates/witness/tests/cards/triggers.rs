@@ -23,6 +23,7 @@ mod object_events;
 mod observed_events;
 mod resolution_triggers;
 mod turn_history;
+mod upkeep_keywords;
 
 const BOGWATER_LUMARET: &str = record!("0109432d-5a2a-456f-ad39-b75cb4c73420");
 const UTVARA_HELLKITE: &str = record!("05a6a571-643e-429e-8e5c-1c3f8b0dc746");

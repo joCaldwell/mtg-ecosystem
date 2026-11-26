@@ -1092,6 +1092,14 @@ fn compose_face(
                                 .push(TriggeredAbility::evoke_sacrifice(label));
                             labels.triggered.push(label);
                         }
+                        // CR 702.30a: echo is a triggered ability of a permanent.
+                        [one] if one.keyword == "echo" => {
+                            if spell_kind || definition.spell.is_none() {
+                                return Err(unsupported("keyword", "keyword:echo:source"));
+                            }
+                            definition.triggered.push(keywords::echo(one, label, text)?);
+                            labels.triggered.push(label);
+                        }
                         // CR 702.34a: flashback is an instant's or sorcery's
                         // alternative cost from its owner's graveyard.
                         [one] if one.keyword == "flashback" => {

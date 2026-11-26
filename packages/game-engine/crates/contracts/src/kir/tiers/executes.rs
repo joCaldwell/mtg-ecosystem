@@ -116,7 +116,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
             | kir::Cond::Satisfies { .. }
             | kir::Cond::CastBy { .. }
             | kir::Cond::ControlsOwnCommander { .. }
-            | kir::Cond::OpponentControlsMore { .. } => {}
+            | kir::Cond::OpponentControlsMore { .. }
+            | kir::Cond::ControlledSinceLastUpkeep {} => {}
         }
     }
     match node {
@@ -1282,6 +1283,53 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && matches!(evoke_triggers.as_slice(), [t]
                     if **t == TriggeredAbility::evoke_sacrifice(cost.source_block)) => {}
         _ => return cell("keyword", "evoke"),
+    }
+    // CR 702.30a: an echo trigger is exactly the keyword's own ability on a
+    // permanent card, paying one fixed mana cost.
+    for t in &d.triggered {
+        if matches!(
+            t.condition.intervening_if(),
+            Some(kir::Cond::ControlledSinceLastUpkeep {})
+        ) {
+            let echo = t.program.instructions.first().and_then(|i| match i {
+                Instruction::Kernel {
+                    node:
+                        kir::Node::UnlessPays {
+                            payment: kir::Payment::Mana { mana },
+                            ..
+                        },
+                    source_block,
+                } => Some((*source_block, mana.clone())),
+                Instruction::Kernel {
+                    node:
+                        kir::Node::UnlessPays {
+                            payment: kir::Payment::Generic { amount },
+                            ..
+                        },
+                    source_block,
+                } => amount.as_fixed().map(|generic| {
+                    (
+                        *source_block,
+                        ManaCost {
+                            generic: generic.clone(),
+                            colored: vec![],
+                        },
+                    )
+                }),
+                _ => None,
+            });
+            if !matches!(
+                c.kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+            ) || !echo.is_some_and(|(block, mana)| {
+                !mana.generic.is_negative()
+                    && !mana.colored.contains(&Color::C)
+                    && (mana.generic > Quantity::zero() || !mana.colored.is_empty())
+                    && *t == TriggeredAbility::echo(block, mana)
+            }) {
+                return cell("keyword", "echo");
+            }
+        }
     }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         if let Some(modal) = &d.modal_spell {

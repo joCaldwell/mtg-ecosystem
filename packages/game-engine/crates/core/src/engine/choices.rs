@@ -122,6 +122,15 @@ pub enum InterveningCheck {
         minimum_power: Quantity,
         qualifying: Option<QualifyingCreature>,
     },
+    /// CR 702.30a: the controller's upkeep count when the source came
+    /// under that player's control (absent if another player controls it
+    /// or it never entered), and the controller's upkeep count now.
+    ControlledSinceLastUpkeep {
+        controller: PlayerId,
+        source: ObjectId,
+        since: Option<u64>,
+        upkeeps: u64,
+    },
 }
 impl InterveningCheck {
     pub fn passed(&self) -> bool {
@@ -137,6 +146,10 @@ impl InterveningCheck {
                 controller, cast, ..
             } => cast.is_some_and(|c| c.caster == *controller),
             Self::SourceCostPaid { cast, .. } => cast.is_some_and(|c| c.alternative_cost_paid),
+            // The last upkeep is the one before the current count.
+            Self::ControlledSinceLastUpkeep { since, upkeeps, .. } => {
+                since.is_some_and(|n| n.saturating_add(1) >= *upkeeps)
+            }
         }
     }
     fn validates(
@@ -234,6 +247,15 @@ impl InterveningCheck {
                     && *expected == tap_status(*wanted)
                     && *passed == (*wanted == *tapped)
             }
+            (
+                Intervening::SourceControlledSinceLastUpkeep,
+                Self::ControlledSinceLastUpkeep {
+                    controller: c,
+                    source: s,
+                    since,
+                    upkeeps,
+                },
+            ) => *c == controller && *s == source && since.is_none_or(|n| n <= *upkeeps),
             (
                 Intervening::BattlefieldCount { cmp, value, .. },
                 Self::BattlefieldCount {
@@ -401,6 +423,22 @@ impl RulesTxn {
                 controller,
                 cast,
             },
+            // CR 603.4, 608.2h: the present source, or its last known
+            // information once it has left the battlefield.
+            Intervening::SourceControlledSinceLastUpkeep => {
+                let (holder, since) = match self.current(source) {
+                    Ok(o) if o.id == source && o.zone == Zone::Battlefield => {
+                        (o.controller, o.control_upkeeps)
+                    }
+                    _ => (last_known.controller, last_known.control_upkeeps),
+                };
+                InterveningCheck::ControlledSinceLastUpkeep {
+                    controller,
+                    source,
+                    since: since.filter(|_| holder == controller),
+                    upkeeps: self.state.rules.players[controller.0 as usize].upkeeps,
+                }
+            }
             Intervening::ControlsOwnCommander => {
                 let commander = self
                     .state

@@ -515,7 +515,8 @@ fn condition_supported(condition: &Cond) -> bool {
         | Cond::Satisfies { .. }
         | Cond::CastBy { .. }
         | Cond::ControlsOwnCommander { .. }
-        | Cond::OpponentControlsMore { .. } => false,
+        | Cond::OpponentControlsMore { .. }
+        | Cond::ControlledSinceLastUpkeep {} => false,
     }
 }
 
