@@ -28,6 +28,13 @@ pub enum BatchCause {
     DrawStep {
         player: PlayerId,
     },
+    InstructionDraw {
+        stack_id: StackId,
+        player: PlayerId,
+        source: ObjectId,
+        cursor: u32,
+        source_block: u32,
+    },
     ManaActivation {
         decision_id: u64,
         player: PlayerId,
@@ -80,6 +87,7 @@ impl BatchCause {
             Self::TurnProgression => &["106.4", "500.5", "800.4j"],
             Self::UntapStep => &["502.3", "502.4"],
             Self::DrawStep { .. } => &["504.1", "400.7"],
+            Self::InstructionDraw { .. } => &["121.1", "121.2", "400.7", "608.2"],
             Self::ManaActivation { .. } => &["106.3", "305.6", "605.3b"],
             Self::Casting { .. } | Self::Payment { .. } => &["601.2"],
             Self::CastReversal { .. } => &["733.1", "733.2"],
@@ -215,7 +223,7 @@ pub struct TurnBefore {
     pub live_turn_order: Vec<PlayerId>,
     pub stack_empty: bool,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OccurrenceId {
     pub batch: u64,

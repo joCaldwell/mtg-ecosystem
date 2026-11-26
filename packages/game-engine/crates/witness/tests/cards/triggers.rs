@@ -18,6 +18,7 @@ macro_rules! record {
     };
 }
 
+mod observed_events;
 mod resolution_triggers;
 
 const BOGWATER_LUMARET: &str = record!("0109432d-5a2a-456f-ad39-b75cb4c73420");
@@ -875,9 +876,9 @@ fn lane_d_wellspring_uses_one_ability_for_entry_and_death() {
     assert_forgery_rejected(&g, forged, "no matching alternative");
 
     for (slot, different_path, error) in [
-        (1, false, "duplicate mixed trigger occurrence"),
-        (1, true, "duplicate mixed trigger death"),
-        (0, true, "duplicate mixed trigger entry"),
+        (1, false, "duplicate trigger occurrence"),
+        (1, true, "duplicate trigger movement"),
+        (0, true, "duplicate trigger movement"),
     ] {
         let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
         let mut duplicate = forged.state.rules.stack[slot].clone();

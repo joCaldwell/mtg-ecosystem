@@ -369,6 +369,7 @@ impl RulesTxn {
             self.record_event(Event::SpellCast {
                 stack_id: cast.stack_id,
             })?;
+            self.finish_target_triggers(stack.id)?;
             self.collect_cast_triggers(&stack)?;
             self.rules_mut().commanders.record_cast(
                 stack.source.card,

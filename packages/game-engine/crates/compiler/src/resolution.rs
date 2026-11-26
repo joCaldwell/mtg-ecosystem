@@ -552,6 +552,7 @@ impl Resolution {
 pub(super) fn kernel_event_player(role: &str) -> Option<(kir::EventPlayerRole, &'static str)> {
     match role {
         "active-player" => Some((kir::EventPlayerRole::ActivePlayer, "phase")),
+        "draws" => Some((kir::EventPlayerRole::DrawingPlayer, "draws")),
         "caster" => Some((kir::EventPlayerRole::Caster, "cast")),
         "activating-player" => Some((kir::EventPlayerRole::ActivatingPlayer, "activate")),
         _ => None,
@@ -684,9 +685,36 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
             && controller_row(resolved, at);
     }
     let word = at.word();
+    if at.kind == BlockKind::Triggered
+        && at.path == "/condition/what"
+        && at.scope.is_none()
+        && word == Some("commander")
+        && at.ability["condition"]["condition"] == "control"
+    {
+        return resolved.is_none();
+    }
     let reflexive = at.ability.pointer("/effects/1/steps/0/effect")
         == Some(&Value::from("create-reflexive-trigger"));
     if let Some(ResolvedRef::EventObject(event)) = resolved {
+        if at.kind == BlockKind::Triggered
+            && at.scope.is_none()
+            && word == Some("it")
+            && matches!(event.role.as_str(), "enters" | "attacks")
+            && at.ability["trigger"]["trigger"] == event.role
+            && matches!(
+                (
+                    at.ability["effects"][0]["steps"][0]["effect"].as_str(),
+                    at.path
+                ),
+                (
+                    Some("damage"),
+                    "/effects/0/steps/0/source" | "/effects/0/steps/0/amount/of"
+                ) | (Some("put-counters"), "/effects/0/steps/0/on")
+                    | (Some("pump"), "/effects/0/steps/0/what")
+            )
+        {
+            return true;
+        }
         let self_event = at
             .ability
             .pointer("/trigger/what/ref")

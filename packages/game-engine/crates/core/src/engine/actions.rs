@@ -31,7 +31,9 @@ impl StackKind {
             Self::Triggered {
                 witness:
                     witness @ (TriggerEventWitness::StepBegan { .. }
-                    | TriggerEventWitness::SpellCast { .. }),
+                    | TriggerEventWitness::SpellCast { .. }
+                    | TriggerEventWitness::CardDrawn { .. }
+                    | TriggerEventWitness::AttackerUnblocked { .. }),
                 ..
             } => Ok(witness.event_player()),
             _ => Err("unbound event-player recipient".into()),
@@ -263,6 +265,7 @@ impl RulesTxn {
                             Err("action event requires a player damage recipient".into())
                         }
                     },
+                    TriggerEventWitness::AttackerUnblocked { defender, .. } => Ok(*defender),
                     _ => Err("unbound damage-recipient action".into()),
                 }
             }
@@ -860,7 +863,7 @@ impl RulesTxn {
                 let movement = self.move_object_for(
                     object,
                     Zone::Hand { owner: player },
-                    BatchCause::Instruction {
+                    BatchCause::InstructionDraw {
                         stack_id: frame.stack_id,
                         player,
                         source: self.entry(frame.stack_id)?.source,
@@ -880,7 +883,7 @@ impl RulesTxn {
         } else {
             self.commit(
                 ProposedEvent::FailedDraw { player },
-                BatchCause::Instruction {
+                BatchCause::InstructionDraw {
                     stack_id: frame.stack_id,
                     player,
                     source: self.entry(frame.stack_id)?.source,

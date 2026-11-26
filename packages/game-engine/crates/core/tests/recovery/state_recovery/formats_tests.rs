@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    67,
+    69,
     "3a36c2efa2daf299b68ec2c802ae7ad0acc68efdda4af09cdf0549fd1bae401a",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    100,
-    "564aa8cc9222e0727648dbd1376dc842012d0b85f610d42ddc0ef04dd113d01e",
+    102,
+    "c97332e42646e1796c3eb1456c12fe66b7b99dfe7ade5fc34643e6536eccbcc4",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -440,24 +440,42 @@ fn chosen_cost_shapes() -> Vec<Game> {
     samples
 }
 
-/// Intervening comparisons carry one of three measured values in the saved
-/// resolution check. Substitute each variant to fingerprint its wire shape.
+/// Substitute each measured variant in a saved resolution check to
+/// fingerprint its wire shape.
 fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
     let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    let controller = PlayerId(0);
     [
         ControllerMeasurement::Life(5.into()),
         ControllerMeasurement::HandCount(7),
         ControllerMeasurement::GraveyardCount(3),
     ]
     .into_iter()
-    .map(move |observed| {
+    .map(move |observed| InterveningCheck::ControllerComparison {
+        controller,
+        observed,
+        passed: true,
+    })
+    .chain([
+        InterveningCheck::ControlsOwnCommander {
+            controller,
+            commander: Some(ObjectId {
+                card: CardId(7),
+                face: mtg_contracts::CardFace::Front,
+                incarnation: 2,
+            }),
+            passed: true,
+        },
+        InterveningCheck::OpponentControlsMore {
+            controller,
+            own: 2,
+            opponents: vec![(PlayerId(1), 3), (PlayerId(2), 2)],
+            passed: true,
+        },
+    ])
+    .map(move |check| {
         sample["state"]["rules"]["frame"]["frame"]["condition_check"] =
-            serde_json::to_value(InterveningCheck::ControllerComparison {
-                controller: PlayerId(0),
-                observed,
-                passed: true,
-            })
-            .unwrap();
+            serde_json::to_value(check).unwrap();
         serde_json::to_string(&sample).unwrap()
     })
 }

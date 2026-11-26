@@ -14,6 +14,25 @@
 use super::*;
 use crate::BeginningStep;
 
+/// CR 115.1: the kind of stack object that announced a target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetingKind {
+    Spell,
+    Ability,
+    SpellOrAbility,
+}
+
+impl TargetingKind {
+    pub fn matches(self, is_spell: bool) -> bool {
+        match self {
+            Self::Spell => is_spell,
+            Self::Ability => !is_spell,
+            Self::SpellOrAbility => true,
+        }
+    }
+}
+
 /// One event an ordinary triggered ability triggers on (CR 603.2).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
@@ -30,9 +49,19 @@ pub enum EventPattern {
     /// CR 508.3a: a creature is declared as an attacker. It is matched on its
     /// facts immediately before the declaration.
     Attacks { attacker: Pred },
+    /// CR 509.1h, 509.3g: no blockers were declared for this attacker.
+    AttacksUnblocked { attacker: Pred },
     /// CR 601.2i: a player casts a spell. The spell is matched on its frozen
     /// characteristics on the stack.
     Cast { caster: PlayerExpr, spell: Pred },
+    /// CR 115.1, 601.2c, 602.2b, 603.3d: a stack object targets a permanent.
+    BecomesTarget {
+        object: Pred,
+        by: PlayerExpr,
+        kind: TargetingKind,
+    },
+    /// CR 121.1–2: a player successfully draws one card.
+    Draws { player: PlayerExpr },
     /// CR 503.1a, 504.1, 505.1, 513.1: a step begins in the turn of a player
     /// in `active`. Each player also matches a turn whose active player has
     /// left the game (CR 800.4j).
@@ -63,23 +92,35 @@ impl EventPattern {
             Self::Dies { .. } => "dies",
             Self::BecomesTapped { .. } => "becomes_tapped",
             Self::Attacks { .. } => "attacks",
+            Self::AttacksUnblocked { .. } => "attacks_unblocked",
             Self::Cast { .. } => "cast",
+            Self::BecomesTarget { .. } => "becomes_target",
+            Self::Draws { .. } => "draws",
             Self::StepBegins { .. } => "step_begins",
             Self::DealsDamage { .. } => "deals_damage",
             Self::AnyOf { .. } => "any_of",
         }
     }
 
+    pub fn object_role(&self) -> Option<EventObjectRole> {
+        match self {
+            Self::Enters { .. } => Some(EventObjectRole::Entered),
+            Self::Attacks { .. } => Some(EventObjectRole::Attacked),
+            _ => None,
+        }
+    }
+
     /// The predicate on the event's object, when the event has one.
     pub fn object(&self) -> Option<&Pred> {
         match self {
-            Self::Enters { object } | Self::Dies { object } | Self::BecomesTapped { object } => {
-                Some(object)
-            }
-            Self::Attacks { attacker } => Some(attacker),
+            Self::Enters { object }
+            | Self::Dies { object }
+            | Self::BecomesTapped { object }
+            | Self::BecomesTarget { object, .. } => Some(object),
+            Self::Attacks { attacker } | Self::AttacksUnblocked { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
-            Self::StepBegins { .. } | Self::AnyOf { .. } => None,
+            Self::StepBegins { .. } | Self::Draws { .. } | Self::AnyOf { .. } => None,
         }
     }
 
@@ -271,12 +312,18 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             {
                 Ok(())
             }
+            (EventPattern::Enters { .. }, EventPattern::Cast { .. }) => {
+                check_event(first, attachment)?;
+                check_event(second, attachment)
+            }
             _ => Err(KirError::Unaudited("event alternatives".into())),
         };
     }
     let players: &[&PlayerExpr] = match pattern {
         EventPattern::Cast { caster, .. } => &[caster],
         EventPattern::StepBegins { active, .. } => &[active],
+        EventPattern::Draws { player } => &[player],
+        EventPattern::BecomesTarget { by, .. } => &[by],
         EventPattern::DealsDamage { recipient, .. } => &[recipient],
         _ => &[],
     };
@@ -359,9 +406,17 @@ pub enum Intervening {
         value: Quantity,
     },
     /// "if this permanent is tapped/untapped" (CR 110.5).
-    SourceTapped { tapped: bool },
+    SourceTapped {
+        tapped: bool,
+    },
+    ControlsOwnCommander,
+    OpponentControlsMore {
+        kind: CardKind,
+    },
     /// "if you control a creature with power N or greater" (CR 208).
-    ControllerHasCreatureWithPower { minimum_power: Quantity },
+    ControllerHasCreatureWithPower {
+        minimum_power: Quantity,
+    },
     /// "if you control a [filter]" or "N or more [filter]" (CR 109.5,
     /// 608.2h): the number of battlefield permanents satisfying `filter`
     /// compared with a fixed number. The filter names "you" as their
@@ -446,6 +501,8 @@ impl Intervening {
     pub fn condition(&self) -> Cond {
         let you = PlayerExpr::you(Context::Triggered);
         match self {
+            Self::ControlsOwnCommander => Cond::ControlsOwnCommander {},
+            Self::OpponentControlsMore { kind } => Cond::OpponentControlsMore { kind: *kind },
             Self::SourceCastByController => Cond::CastBy {
                 object: Ref::Source,
                 caster: you,
@@ -515,6 +572,10 @@ impl Intervening {
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
             Cond::CastBy { .. } => Self::SourceCastByController,
+            Cond::ControlsOwnCommander {} => Self::ControlsOwnCommander,
+            Cond::OpponentControlsMore {
+                kind: kind @ (CardKind::Land | CardKind::Creature),
+            } => Self::OpponentControlsMore { kind: *kind },
             Cond::Compare {
                 left:
                     Amount::Count {
@@ -612,6 +673,7 @@ impl Intervening {
     pub fn admits(&self, pattern: &EventPattern) -> bool {
         match self {
             Self::SourceCastByController => *pattern == EventPattern::self_enters(),
+            _ if matches!(pattern, EventPattern::BecomesTarget { .. }) => false,
             Self::ControllerComparison { .. } => match pattern {
                 EventPattern::Enters { .. }
                 | EventPattern::Attacks { .. }

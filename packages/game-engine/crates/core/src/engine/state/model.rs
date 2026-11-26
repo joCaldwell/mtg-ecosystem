@@ -85,6 +85,8 @@ impl Object {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StackInstance {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(in crate::engine) target_triggers: Vec<triggers::TargetTriggerDraft>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_mask: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

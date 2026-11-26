@@ -124,6 +124,7 @@ pub enum Cell {
     // CR 120: damage.
     DamageTarget,
     DamageTargetX,
+    DamageEventObject,
     DamageController,
     DamageSet,
     DamageSelectedPlayers,
@@ -180,6 +181,7 @@ pub enum Cell {
     TokensForTargetController,
     // CR 122: counters.
     PlusOneCountersSource,
+    PlusOneCountersEventObject,
     PlusOneCountersTarget,
     PlusOneCountersSet,
     // CR 611.2c, 613: until end of turn.
@@ -302,6 +304,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DrawEachPlayer
         | C::DrawEventPlayer
         | C::DamageTargetX
+        | C::DamageEventObject
         | C::DamageSet
         | C::DamageSelectedPlayers
         | C::DestroyTargetPermanent
@@ -340,6 +343,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::PlusOneCountersSet
+        | C::PlusOneCountersEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
         | C::SourceKeywordsUntilEndOfTurn

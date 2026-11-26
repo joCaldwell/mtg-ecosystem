@@ -157,6 +157,12 @@ pub(crate) enum SourceTrigger {
         #[serde(default, rename = "notFrom", deserialize_with = "present_json_operand")]
         not_from: Option<serde_json::Value>,
     },
+    Draws {
+        who: PlayerSelector,
+    },
+    AttacksAndIsntBlocked {
+        what: SourceAttacker,
+    },
     Phase {
         phase: String,
         whose: serde_json::Value,
@@ -247,6 +253,8 @@ where
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SourceTypeFilter {
+    #[serde(default, deserialize_with = "present_ast_field")]
+    pub(crate) subtypes: Option<Vec<String>>,
     #[serde(default, deserialize_with = "present_ast_field")]
     pub(crate) colors: Option<Vec<String>>,
     #[serde(default, deserialize_with = "present_ast_field")]

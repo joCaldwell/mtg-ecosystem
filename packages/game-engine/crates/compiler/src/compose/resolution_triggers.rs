@@ -272,6 +272,7 @@ fn lower_body(
         &mut BTreeMap::new(),
         Context::Triggered,
         damage,
+        PlayerBinding::Unbound,
     )
 }
 

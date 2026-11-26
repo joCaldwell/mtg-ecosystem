@@ -279,7 +279,7 @@ impl RulesTxn {
                     Some(self.move_object_for(
                         object,
                         actual_destination,
-                        BatchCause::Instruction {
+                        BatchCause::InstructionDraw {
                             stack_id: frame.stack_id,
                             player,
                             source: self.entry(frame.stack_id)?.source,

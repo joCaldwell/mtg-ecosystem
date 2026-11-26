@@ -734,84 +734,60 @@ therefore have no dependencies and give the same result in any timestamp order
 
 ## Trigger families and event witnesses
 
-The shared trigger pipeline operates on the events admitted by composition.
+Typed occurrences capture the controller and exact incarnation. State-based
+actions and Commander choices precede APNAP placement, including target and
+order decisions (CR 117.5, 603.3). The pattern matches a `kir::Pred` relative
+to the ability controller. `Atom::Is` and `Atom::IsNot` compare identities
+(CR 201.5, 301.5, 303.4).
 
-Collect triggers from actual typed occurrences, wait through SBAs/Commander
-choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
-controllers, actors, incarnations and witnesses. Intervening conditions recheck
-at resolution. Source
-status uses current incarnation or departure-refreshed LKI. Cast triggers collect
-after successful payment; declared attacks use the real declaration batch.
-
-A triggered ability's condition is `TriggerCondition::Event { pattern,
-intervening_if }` (`contracts/src/kir/events.rs`). A `kir::EventPattern` names
-the event and reads its object with a `kir::Pred` relative to the ability's
-controller. `Atom::Is` and `Atom::IsNot` compare the object with the source or
-its host (CR 201.5, 301.5, 303.4):
-
-| Event | Object matched on |
+| Event | Evidence |
 | --- | --- |
-| `Enters` | the resulting battlefield; a characteristic read retains the entrant as `Entered` evidence (CR 603.6a) |
-| `Dies` | the battlefield just before the move, for any permanent, including "put into a graveyard from the battlefield" (CR 700.4, 603.10a) |
-| `Attacks` | the attacker's facts before the declaration (CR 508.3a) |
-| `Cast` | the spell's frozen stack characteristics, with the caster in a player set (CR 601.2i) |
-| `DealsDamage` | the source's battlefield appearance as positive damage is dealt to a player (CR 120.3, 510.2) |
-| `StepBegins` | upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503-513) |
-| `BecomesTapped` | only the source itself (CR 701.26a) |
+| Entry | Resulting battlefield, with the entrant's exact incarnation and predicate facts (CR 603.6a). |
+| Death | Prior battlefield, including simultaneous departures to graveyards (CR 700.4, 603.10a). |
+| Attack | Validated declaration member and its pre-declaration appearance (CR 508.3a). |
+| Attack unblocked | Unblocked member of its defender's completed declaration. Removing a blocker afterwards does not trigger it (CR 509.1h, 509.3g, 802.4). |
+| Cast | Completed payment and the spell's frozen stack characteristics, including subtype alternatives (CR 601.2i). |
+| Draw | One successful library-to-hand draw, with its player. Failed and replaced draws do not trigger (CR 121.2, 603.2g). |
+| Becomes a target | Battlefield appearance at announcement and the actor's relation and stack-object kind. Payment commits the matches. Reversal drops them. Matches created during placement wait for the next APNAP wave (CR 601.2c/i, 602.2b, 603.3d, 733.1). |
+| Damage dealt | Positive damage to a player, using the source's battlefield appearance for characteristic predicates (CR 120.3, 510.2). |
+| Step begins | Upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503–513). |
+| Becomes tapped | The source's committed untapped-to-tapped transition (CR 701.26a). |
 
-Same-kind alternatives ("this creature or another Elf you control") form one
-`AnyOf` predicate, so an occurrence triggers the ability once (CR 603.2).
-Two mixed alternatives can name only the source's own entry and its own
-death or declared attack. They share one ability index, and collection and
-recovery select the branch from the typed occurrence (CR 603.2c, 603.6a,
-603.10a, 508.3a). Recovery rejects duplicate instances for one occurrence
-or a second entry or death for the same source incarnation and ability.
-The attacker in the event witness supplies the controller of the source's
-own attack trigger (CR 603.3a). Mixed alternatives bind no event object or
-player operand.
-Player operands are "you", each opponent or each player. The reviewed narrow
-lowerers run first; the general event table lowers the remaining enters, dies,
-put-into-graveyard and attacks events term by term through the board filter.
-`kir::check_event` admits only atoms evaluable on event facts. Cast and attack patterns read no tapped status (CR 110.5d, 508.1f), and no pattern excludes the host, which a snapshot cannot prove. Recovery reads frozen facts as of the event, including a controller who has since left (CR 800.4a). Only combat damage needs a creature source (CR 510.1).
+Same-kind alternatives form one `AnyOf` predicate. The reviewed mixed
+entry/death, entry/attack and entry/cast pairs use one ability index and bind
+no shared event operand. Recovery rejects a second instance from the same
+occurrence and a repeated entry or death for the same incarnation and ability.
+Event filters read only available characteristics and identity, including
+controllers who later depart (CR 800.4a). Cast and attack predicates cannot
+read tapped status (CR 110.5d, 508.1f).
 
-`kir::Intervening::of` admits an intervening `kir::Cond` in exactly one audited
-form: "if you cast it", an empty hand, the source's tapped status, a creature
-with power N or greater, or a count of permanents "you" control matching a
-filter, possibly excluding the source. Entry, attack and beginning-of-step
-triggers can also compare a fixed amount with the controller's life, hand
-size, or own graveyard card count. The graveyard filter admits all cards,
-one card type, or the supported permanent card types. Tokens are excluded
-(CR 111.6, 404). Core checks the clause when the event
-occurs and again as the ability resolves, recording `InterveningCheck`
-evidence (CR 603.4). Snapshots save the comparison's measured quantity and
-check its kind, controller, count bound, and result. A graveyard count's
-bound includes only owned physical cards that match the printed filter.
-These earn `Executes`
-(`InterveningIfV1`, `EventTriggerV1`). An
-opponent's creature dying freezes that creature's controller
-(`triggers::binds_death_controller`). Event-object pronouns ("it", "that
-creature") remain unaudited.
+A bound entrant or attacker can deal directed damage, including its entrant's
+power, or receive fixed +1/+1 counters. Damage reads the object's current
+characteristics or its departure-refreshed last-known information. Counters
+require that incarnation to remain on the battlefield (CR 400.7, 608.2h).
+Recovery ties the binding to the event witness and the observer's controller.
+The player named by damage, a draw or an unblocked attack belongs to the event
+and can differ from the invocation's controller.
 
-Intrinsic landwalk and fixed-color protection can share a card with separately
-proved entry effects and fixed paid creature activations. Entry triggers on
-artifacts, Equipment and Auras use the entering incarnation. Supported entry
-blocks can draw, change the controller's life, deal targeted damage or destroy
-a target. A one-creature sacrifice for each player collects choices in APNAP
-order and moves the chosen creatures together.
+`kir::Intervening::of` accepts cast provenance, empty hand, source tap state,
+power thresholds, own commander control and fixed battlefield counts. A
+relative land or creature count compares each opponent separately. Admitted
+entry, attack and step triggers also compare the controller's life, hand or
+own graveyard count. Graveyard filters cover all cards, a type or the supported
+permanent types, excluding tokens (CR 111.6, 404). Match and resolution each
+record an `InterveningCheck`, with saved evidence checked against the
+comparison and controller (CR 603.4). These rows earn `Executes`
+(`InterveningIfV1`, `EventTriggerV1`).
 
-Event-player, source controller, invocation controller and recipient cannot be
-interchanged. Optional “may” is an actual decision; unsupported source
-explanation blocks a browser control. Compiler presence does not expand
-host/search allowlists.
+Supported entry effects draw, change life, deal damage, destroy or sacrifice.
+Equipment and Aura entry use the entering incarnation. Intrinsic landwalk
+and fixed-color protection can compose with reviewed entry effects and
+fixed paid creature activations. A source's combat-damage trigger places
+its counters on that same incarnation (CR 400.7, 608.2h). A one-creature
+sacrifice for each player gathers APNAP choices before the simultaneous move. The completed-cast ledger supplies turn history. Cascade's
+retired reveal-and-cast continuation has no executable R4 form.
 
-The per-turn cast ledger records completed casts. The retired cascade instruction
-and its reveal-and-cast continuation have no executable R4 form.
-
-A source-relative combat-damage trigger can place fixed +1/+1 counters on
-the creature that dealt the damage. The instruction retains that battlefield
-incarnation, including when the source also has supported intrinsic keywords
-(CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
-counters.
+[Pinned Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)
 
 ### Delayed and reflexive triggers
 

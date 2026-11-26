@@ -247,6 +247,7 @@ fn append_effects(
     slots: &mut BTreeMap<String, u32>,
     context: Context,
     damage: impl Fn(&[Sentence]) -> Result<(), Failure>,
+    player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
     if parts.iter().all(|p| matches!(p, Part::Typed(_))) {
         let typed: Vec<Sentence> = parts
@@ -260,14 +261,7 @@ fn append_effects(
             .collect();
         plain_sentences(&typed)?;
         damage(&typed)?;
-        return append_spell_effects(
-            program,
-            &typed,
-            block,
-            slots,
-            PlayerBinding::Unbound,
-            context,
-        );
+        return append_spell_effects(program, &typed, block, slots, player_binding, context);
     }
     let label = source_block(block)?;
     for part in parts {
@@ -290,14 +284,7 @@ fn append_effects(
                 let sentence = [sentence];
                 plain_sentences(&sentence)?;
                 damage(&sentence)?;
-                append_spell_effects(
-                    program,
-                    &sentence,
-                    block,
-                    slots,
-                    PlayerBinding::Unbound,
-                    context,
-                )?;
+                append_spell_effects(program, &sentence, block, slots, player_binding, context)?;
             }
             Part::Table(steps) => {
                 for step in &steps {
@@ -346,6 +333,7 @@ fn activation(
         |typed| {
             validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self })
         },
+        PlayerBinding::Unbound,
     )?;
     Ok(ActivatedAbility {
         modal: None,
@@ -373,6 +361,11 @@ fn trigger(
         .map(|c| serde_json::from_value::<SourceCondition>(c.clone()))
         .transpose();
     let table = narrow.as_ref().ok().and_then(|t| events::lower(card, t));
+    if let [Part::Typed(sentence)] = parts.as_slice()
+        && let Some(ability) = events::object_effect(card, raw, condition, sentence, block)?
+    {
+        return Ok(ability);
+    }
     let mut reviewed = None;
     let reviewed_effects = !parts.iter().any(|part| match part {
         Part::Typed(_) => false,
@@ -489,6 +482,7 @@ fn trigger(
             &mut BTreeMap::new(),
             Context::Triggered,
             |typed| validate_trigger_damage_sources(&condition, typed),
+            trigger_player_binding(&condition),
         )?;
     }
     Ok(TriggeredAbility {
@@ -884,6 +878,7 @@ fn compose_face(
                             slots,
                             Context::Spell,
                             |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
+                            PlayerBinding::Unbound,
                         )
                     };
                     lower(program, &mut slots, &peeled.sentences)?;

@@ -278,7 +278,15 @@ impl Walk<'_, '_> {
                 if self.env.event.is_none() || self.env.context != Context::Triggered {
                     return scope("event object outside a triggered ability");
                 }
-                return unaudited(format!("event object {role:?}"));
+                if self
+                    .env
+                    .event
+                    .and_then(|event| event.pattern().object_role())
+                    != Some(*role)
+                {
+                    return scope(format!("event does not bind object {role:?}"));
+                }
+                RefKind::Object
             }
             Ref::EnteringObject => return unaudited("entering-object reference"),
             Ref::LinkedPool { .. } => return unaudited("linked pool reference"),
@@ -583,7 +591,10 @@ impl Walk<'_, '_> {
             Cond::All { conditions } => conditions.iter().try_for_each(|c| self.condition(c)),
             // CR 603.4: only an intervening "if" reads these, through
             // [`Intervening`]; no resolving control node does.
-            Cond::Satisfies { .. } | Cond::CastBy { .. } => {
+            Cond::Satisfies { .. }
+            | Cond::CastBy { .. }
+            | Cond::ControlsOwnCommander { .. }
+            | Cond::OpponentControlsMore { .. } => {
                 unaudited("intervening condition in a resolving node")
             }
         }
@@ -1124,7 +1135,9 @@ impl Walk<'_, '_> {
     fn recipient_role(role: EventPlayerRole) -> bool {
         matches!(
             role,
-            EventPlayerRole::Caster | EventPlayerRole::ActivePlayer
+            EventPlayerRole::Caster
+                | EventPlayerRole::ActivePlayer
+                | EventPlayerRole::DrawingPlayer
         )
     }
 
@@ -1481,6 +1494,8 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
     match event.pattern() {
         // CR 601.2: the caster of the triggering spell.
         EventPattern::Cast { .. } => &[EventPlayerRole::Caster],
+        EventPattern::Draws { .. } => &[EventPlayerRole::DrawingPlayer],
+        EventPattern::AttacksUnblocked { .. } => &[EventPlayerRole::DefendingPlayer],
         // CR 500: the player whose step began.
         EventPattern::StepBegins { .. } => &[EventPlayerRole::ActivePlayer],
         _ => &[],

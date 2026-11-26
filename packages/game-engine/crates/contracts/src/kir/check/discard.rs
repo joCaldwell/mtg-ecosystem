@@ -20,7 +20,7 @@ impl Walk<'_, '_> {
             PlayerExpr::Is {
                 who:
                     Ref::EventPlayer {
-                        role: EventPlayerRole::DamagedPlayer,
+                        role: EventPlayerRole::DamagedPlayer | EventPlayerRole::DefendingPlayer,
                     },
             } if !random && !announced => Ok(Cell::DiscardDamagedPlayer),
             PlayerExpr::Is {
