@@ -272,3 +272,71 @@ fn null_array_elements_name_their_array() {
         "operand:object:null:types"
     );
 }
+
+/// CR 614.12, 701.20a: "you may reveal a [filter] card from your hand"
+/// lowers to its hidden-card filter; every other reveal shape rejects by name.
+#[test]
+fn entry_reveal_lowers_one_filtered_hand_card_or_rejects() {
+    let reveal = |what: serde_json::Value| {
+        json!({"static":"entry-choice","what":{"ref":"this","noun":"land"},"who":{"player":"you"},
+            "costs":[{"cost":"reveal","what":what}],"declined":{"tapped":true}})
+    };
+    let hand = |filter: serde_json::Value, count: i64| {
+        let mut filter = filter;
+        filter["cls"] = json!("card");
+        filter["zone"] = json!({"zone":"hand","owner":"your"});
+        json!({"ref":"filter","filter":filter,"count":{"amount":"fixed","value":count}})
+    };
+    let site = StaticSite {
+        quoted: &|_| unreachable!("no quoted ability"),
+    };
+    let lowered = lower_static(
+        &reveal(hand(
+            json!({"allOf":[{"anyOf":[{"subtypes":["Plains"]},{"subtypes":["Island"]}]}]}),
+            1,
+        )),
+        &site,
+    )
+    .unwrap();
+    let [
+        StaticAbility {
+            effect: StaticEffect::RevealOrEnterTapped { filter },
+            ..
+        },
+    ] = lowered.as_slice()
+    else {
+        panic!("{lowered:?}")
+    };
+    assert_eq!(
+        filter,
+        &Pred(vec![Atom::AnyOf {
+            alternatives: vec![
+                Pred(vec![Atom::Subtype {
+                    subtype: "Plains".into()
+                }]),
+                Pred(vec![Atom::Subtype {
+                    subtype: "Island".into()
+                }]),
+            ]
+        }])
+    );
+    for (what, expected) in [
+        (
+            hand(json!({"subtypes":["Elf"]}), 2),
+            "static:entry-choice:reveal:count",
+        ),
+        (hand(json!({}), 1), "static:entry-choice:reveal:unfiltered"),
+        (
+            json!({"ref":"filter","filter":{"subtypes":["Elf"],"cls":"card","zone":{"zone":"graveyard","owner":"your"}},
+                "count":{"amount":"fixed","value":1}}),
+            "static:entry-choice:reveal:zone",
+        ),
+        (
+            hand(json!({"subtypes":["Elf"],"control":"you"}), 1),
+            "operand:filter:library_card:control",
+        ),
+    ] {
+        let failure = lower_static(&reveal(what.clone()), &site).expect_err("rejected reveal");
+        assert_eq!(code(failure), expected, "{what}");
+    }
+}

@@ -24,8 +24,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "64b23c0432859118a671ec20fe60f6a107390395b70b9f0c10b3ce1a6d8ae15e",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    107,
-    "c1121198eb09b61e98579d4ee2ad469e9b22331b13e7948ef6de161a2bb49cff",
+    108,
+    "adc9a9853f6e03259e48c2632bf88b1c15107182ef948ca008ddd90b43180d36",
 );
 const WORK_PIN: (u32, &str) = (
     58,
@@ -405,7 +405,8 @@ fn suspended_land_play_rejects_rehashed_tampering() {
 }
 
 /// Wire shapes no fixture board suspends in: a battlefield search's entry
-/// choice with a chosen Aura host and a payment (CR 303.4f, 614.1c), and a
+/// choice with a chosen Aura host, a payment and reveals (CR 303.4f,
+/// 614.1c, 701.20a), and a
 /// forced tapped entry that still offers its payment, and a private
 /// top-order choice and outcome. Only their JSON shape is fingerprinted.
 fn library_entry_shapes() -> Vec<String> {
@@ -418,6 +419,7 @@ fn library_entry_shapes() -> Vec<String> {
             found: vec![object],
             hosts: vec![(object, object)],
             paid: vec![(object, true)],
+            revealed: vec![(object, Some(object)), (object, None)],
             source_block: 0,
         })
         .unwrap();

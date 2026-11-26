@@ -402,6 +402,15 @@ either way (CR 614.12; the shockland ruling "If an effect puts this land onto
 the battlefield tapped, you may pay 2 life, but it still enters tapped.", [Lorwyn Eclipsed release notes](https://magic.wizards.com/en/news/feature/lorwyn-eclipsed-release-notes)).
 Payment and entry commit together; an unpayable offer is skipped.
 
+An entry reveal ("you may reveal a [filter] card from your hand. If you don't,
+this land enters tapped.", CR 701.20a) lowers to `RevealOrEnterTapped` over the
+hidden-card filter vocabulary and uses the same continuations. The offer lists
+Decline, the entrant as subject, then the matching cards of the incoming
+controller's hand other than the entrant; with none, no offer is made and it
+enters tapped. A search asks reveals after all payments. A reveal publishes the
+card's identity in that hand (`known_searched_hand`) without exceeding the
+revealed copies. Other entry costs (behold, multiple cards) reject.
+
 ## Keywords, attachments and temporary effects
 
 Battlefield static abilities use KIR scopes, predicates, conditions and

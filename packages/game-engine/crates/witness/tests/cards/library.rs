@@ -1599,6 +1599,129 @@ fn skyshroud_claim_collects_each_shockland_payment_before_one_entry() {
     }
 }
 
+/// Skyshroud Claim finding Temple Garden and Breeding Pool, the latter given
+/// Gilt-Leaf Palace's entry reveal of an Elf card in place of its payment
+/// (no frozen Forest land prints a reveal): CR 614.12, 701.20a. The
+/// payment is asked first, then the reveal, which offers only the matching
+/// hand card; both enter in one batch, and a reveal publishes the card.
+#[test]
+fn skyshroud_claim_asks_each_entry_reveal_after_the_payments() {
+    use mtg_contracts::kir::{Atom, Pred, StaticEffect};
+    for (hand, pay, reveal) in [
+        ("Llanowar Elves", true, Some(true)),
+        ("Llanowar Elves", false, Some(false)),
+        ("Island", true, None),
+    ] {
+        let mut catalog = catalog(&[
+            (
+                SKYSHROUD_CLAIM,
+                &[Cell::SearchController, Cell::ShuffleController],
+            ),
+            (TEMPLE_GARDEN, &[]),
+            (BREEDING_POOL, &[]),
+        ]);
+        let pool = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Breeding Pool")
+            .unwrap();
+        for ability in &mut pool.static_abilities {
+            if matches!(ability.effect, StaticEffect::PayLifeOrEnterTapped { .. }) {
+                ability.effect = StaticEffect::RevealOrEnterTapped {
+                    filter: Pred(vec![Atom::Subtype {
+                        subtype: "Elf".into(),
+                    }]),
+                };
+            }
+        }
+        pool.source_labels = None;
+        pool.capabilities = pool.requirements();
+        let elves = identity_in(&catalog, hand);
+        let prepared = Board::new(catalog, "r4-library-witness")
+            .step(TurnStep::PrecombatMain)
+            .seats(2)
+            .seed(SEED)
+            .permanent_or_hand("Skyshroud Claim", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand(hand, 0, 0, true)
+            .library_card("Temple Garden", 0)
+            .library_card("Breeding Pool", 0)
+            .library_card("Forest", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2, 3, 4]);
+        let [garden, pool] = [6, 7].map(|id| Driver::object(&g, id));
+        let card = Driver::object(&g, 5);
+        answer(&mut g, 0, Reason::SearchLibrary, &[garden, pool]);
+        entry_payment(&mut g, pay);
+        if let Some(reveal) = reveal {
+            let d = next_choice(&mut g);
+            assert_eq!(d.reason, Reason::OptionalEffect);
+            assert_eq!(offered_entrant(&d), pool);
+            assert_eq!(
+                d.candidates,
+                vec![
+                    Candidate::Flag {
+                        flag: Flag::Decline
+                    },
+                    Candidate::Object { object: pool },
+                    Candidate::Object { object: card },
+                ]
+            );
+            checked(&g);
+            assert_recoverable((&g).into());
+            // A forged reveal of a found card, or out of order, rejects.
+            let Frame::ResolutionChoice {
+                choice: ResolutionChoice::SearchEntry { source_block, .. },
+                ..
+            } = g.state.rules.frame.clone()
+            else {
+                panic!()
+            };
+            for (revealed, what) in [
+                (vec![(pool, Some(garden))], "a found card revealed"),
+                (vec![(garden, Some(card))], "a payment land revealed"),
+            ] {
+                let forged = ResolutionChoice::SearchEntry {
+                    player: PlayerId(0),
+                    found: vec![garden, pool],
+                    hosts: vec![],
+                    paid: vec![(garden, pay)],
+                    revealed,
+                    source_block,
+                };
+                forged_choice_rejected(&mut g, &forged, what);
+            }
+            let pick = if reveal {
+                Candidate::Object { object: card }
+            } else {
+                Candidate::Flag {
+                    flag: Flag::Decline,
+                }
+            };
+            g.respond(d.player, d.id, d.pick_one(&pick).unwrap())
+                .unwrap();
+        }
+        settle(&mut g);
+        let revealed = reveal == Some(true);
+        for (id, untapped) in [(6, pay), (7, revealed)] {
+            let land = g.current(Driver::object(&g, id)).unwrap().clone();
+            assert_eq!((land.zone, land.tapped), (Zone::Battlefield, !untapped));
+        }
+        let known = observation(&g, 1).view.known_searched_hand;
+        let expected: Vec<_> = revealed
+            .then(|| (PlayerId(0), elves.clone()))
+            .into_iter()
+            .collect();
+        assert_eq!(known, expected);
+        assert_eq!(shuffles(&g, 0), 1);
+    }
+}
+
 /// A suspended entry payment keeps its found set and asked prefix.
 #[test]
 fn search_entry_state_rejects_forged_entrants_and_answers() {
@@ -1637,6 +1760,7 @@ fn search_entry_state_rejects_forged_entrants_and_answers() {
             found,
             hosts: vec![],
             paid,
+            revealed: vec![],
             source_block,
         };
     for (choice, what) in [
@@ -1765,6 +1889,7 @@ fn departed_search_entry_rejects_skipped_payments() {
         found: vec![garden, pool],
         hosts: vec![],
         paid: vec![(pool, true)],
+        revealed: vec![],
         source_block,
     };
     let unsorted = ResolutionChoice::SearchEntry {
@@ -1772,6 +1897,7 @@ fn departed_search_entry_rejects_skipped_payments() {
         found: vec![pool, garden],
         hosts: vec![],
         paid: vec![],
+        revealed: vec![],
         source_block,
     };
     g.concede(PlayerId(0)).unwrap();
@@ -2024,6 +2150,7 @@ fn search_entry_answers_name_only_auras_and_affordable_payments() {
                 found: vec![garden, pool],
                 hosts,
                 paid,
+                revealed: vec![],
                 source_block,
             }
         };
@@ -2154,6 +2281,7 @@ fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
         found: vec![pacifism, fountain],
         hosts: vec![(pacifism, forest)],
         paid: vec![],
+        revealed: vec![],
         source_block,
     };
     forged_choice_rejected(&mut g, &swapped, "a Forest substituted for the Bears");
@@ -2185,6 +2313,7 @@ fn a_departed_searchers_saved_host_stays_the_chosen_object() {
         found: vec![pacifism, fountain],
         hosts: vec![(pacifism, host)],
         paid: vec![],
+        revealed: vec![],
         source_block,
     };
     g.concede(PlayerId(0)).unwrap();
@@ -2222,6 +2351,7 @@ fn a_search_entry_without_a_question_never_validates() {
         found: vec![pacifism],
         hosts: vec![],
         paid: vec![],
+        revealed: vec![],
         source_block,
     };
     forged_choice_rejected(&mut g, &pause, "question-less search entry");

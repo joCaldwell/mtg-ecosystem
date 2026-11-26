@@ -24,6 +24,13 @@ fn catalog() -> Catalog {
         include_str!(
             "../../../../../tests/fixtures/phase1-r4/f1750962-a87c-49f6-b731-02ae971ac6ea.json"
         ),
+        // Port Town and Gilt-Leaf Palace (entry reveals).
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r4/458d2b12-f578-4392-98d3-c3bc83f316c4.json"
+        ),
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r4/85573a3d-2993-491a-8f8d-bbdb844fa84e.json"
+        ),
     ] {
         let compiled = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
@@ -216,4 +223,186 @@ fn departing_entrant_controller_cancels_a_suspended_land_play() {
     assert!(game.current(object).is_err());
     game.validate_state().unwrap();
     assert_recoverable(JournalCase::from(&game));
+}
+
+/// "As this land enters, you may reveal a Plains or Island card from your
+/// hand. If you don't, this land enters tapped." (Port Town); the same for an
+/// Elf card (Gilt-Leaf Palace). CR 614.12, 701.20a: only matching hand cards
+/// other than the entrant are offered; a reveal enters untapped and makes
+/// the revealed card's identity public in that hand.
+#[test]
+fn entry_reveal_offers_matching_hand_cards_and_publishes_the_reveal() {
+    for (land, hand, offered, reveal) in [
+        (
+            "Port Town",
+            &["Island", "Forest"][..],
+            &["Island"][..],
+            true,
+        ),
+        (
+            "Port Town",
+            &["Plains", "Island"][..],
+            &["Plains", "Island"][..],
+            false,
+        ),
+        (
+            "Port Town",
+            &["Plains", "Island"][..],
+            &["Plains", "Island"][..],
+            true,
+        ),
+        ("Port Town", &["Forest"][..], &[][..], false),
+        ("Port Town", &[][..], &[][..], false),
+        (
+            "Gilt-Leaf Palace",
+            &["Forest", "Llanowar Elves"][..],
+            &["Llanowar Elves"][..],
+            true,
+        ),
+        (
+            "Gilt-Leaf Palace",
+            &["Llanowar Elves"][..],
+            &["Llanowar Elves"][..],
+            false,
+        ),
+        ("Gilt-Leaf Palace", &["Island"][..], &[][..], false),
+    ] {
+        let catalog = catalog();
+        let definition = catalog.definitions.iter().find(|d| d.name == land).unwrap();
+        assert!(definition.static_abilities.iter().any(|a| matches!(
+            a.effect,
+            mtg_contracts::kir::StaticEffect::RevealOrEnterTapped { .. }
+        )));
+        let mut board = Board::new(catalog.clone(), "entry-reveal-witness")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand(land, 0, 0, true);
+        for card in hand {
+            board = board.permanent_or_hand(card, 0, 0, true);
+        }
+        let mut game = Game::new(board.libraries("Forest", 4).prepare());
+        let object = Driver::object(&game, 0);
+        Driver::action(&mut game, Action::PlayLand { object });
+        let decision = Driver::request(&mut game, u64::MAX);
+        let tapped = if offered.is_empty() {
+            assert_ne!(decision.reason, Reason::OptionalEffect, "{land} {hand:?}");
+            true
+        } else {
+            assert_eq!(decision.reason, Reason::OptionalEffect);
+            // Decline, the entrant as the slot's subject, then exactly the
+            // matching hand cards in object order (CR 614.12).
+            let cards: Vec<_> = offered
+                .iter()
+                .map(|name| {
+                    let index = 1 + hand.iter().position(|c| c == name).unwrap() as u32;
+                    Driver::object(&game, index)
+                })
+                .collect();
+            let mut expected = vec![
+                Candidate::Flag {
+                    flag: Flag::Decline,
+                },
+                Candidate::Object { object },
+            ];
+            expected.extend(
+                cards
+                    .iter()
+                    .map(|object| Candidate::Object { object: *object }),
+            );
+            assert_eq!(decision.candidates, expected);
+            let Shape::Pick { slots, .. } = &decision.shape else {
+                panic!("{decision:?}")
+            };
+            let mut allowed = vec![0];
+            allowed.extend(2..expected.len() as u32);
+            assert_eq!((slots[0].subject, &slots[0].allowed), (Some(1), &allowed));
+            assert_eq!(
+                game.current(object).unwrap().zone,
+                Zone::Hand { owner: PlayerId(0) }
+            );
+            // The offer is private to its controller and recoverable.
+            let QueryResult::Complete(QueryValue::Observation(theirs)) =
+                game.observe(PlayerId(1), Budget::unlimited())
+            else {
+                panic!("an opponent observes")
+            };
+            assert!(theirs.decision.is_none());
+            game.validate_state().unwrap();
+            let snapshot = game.snapshot().unwrap();
+            let restored = Game::restore(game.prepared.as_ref().clone(), &snapshot).unwrap();
+            assert_eq!(restored.snapshot().unwrap(), snapshot);
+            assert_recoverable(JournalCase::from(&game));
+            // Reveal the last offered card.
+            let pick = if reveal {
+                Candidate::Object {
+                    object: *cards.last().unwrap(),
+                }
+            } else {
+                Candidate::Flag {
+                    flag: Flag::Decline,
+                }
+            };
+            let answer = decision.pick_one(&pick).unwrap();
+            game.respond(decision.player, decision.id, answer).unwrap();
+            let _ = Driver::request(&mut game, u64::MAX);
+            !reveal
+        };
+        let successor = Driver::object(&game, 0);
+        assert_ne!(successor, object);
+        let entered = game.current(successor).unwrap();
+        assert_eq!(
+            (entered.zone, entered.tapped),
+            (Zone::Battlefield, tapped),
+            "{land} {hand:?}"
+        );
+        assert_eq!(game.state.rules.turn.lands_played, 1);
+        // Every seat sees the revealed identity in that hand, and nothing
+        // when the reveal was declined or impossible.
+        let QueryResult::Complete(QueryValue::Observation(theirs)) =
+            game.observe(PlayerId(1), Budget::unlimited())
+        else {
+            panic!("an opponent observes")
+        };
+        let expected: Vec<_> = offered
+            .last()
+            .filter(|_| reveal)
+            .map(|name| (PlayerId(0), oracle_id(&catalog, name).to_owned()))
+            .into_iter()
+            .collect();
+        assert_eq!(theirs.view.known_searched_hand, expected);
+        game.validate_state().unwrap();
+        assert_recoverable(JournalCase::from(&game));
+    }
+}
+
+/// A reveal land moved onto the battlefield by a rule with no entry
+/// continuation enters tapped when no hand card can be revealed, and the
+/// move is refused while one could be (CR 614.12).
+#[test]
+fn entry_reveal_needs_a_continuation_only_when_a_reveal_is_possible() {
+    for (hand, refused) in [(&["Forest"][..], false), (&["Plains"][..], true)] {
+        let mut board = Board::new(catalog(), "entry-reveal-move-witness")
+            .step(TurnStep::PrecombatMain)
+            .card("Port Town", 0, 0, Zone::Graveyard { owner: PlayerId(0) });
+        for card in hand {
+            board = board.permanent_or_hand(card, 0, 0, true);
+        }
+        let mut game = Game::new(board.libraries("Forest", 4).prepare());
+        let object = Driver::object(&game, 0);
+        let before = game.state_digest().unwrap();
+        match game.move_object(object, Zone::Battlefield) {
+            Ok(moved) => {
+                assert!(!refused);
+                assert!(game.current(moved.successor).unwrap().tapped);
+            }
+            Err(error) => {
+                assert!(refused);
+                assert_eq!(
+                    error,
+                    "payable entry requires a battlefield entry continuation"
+                );
+                assert_eq!(game.state_digest().unwrap(), before);
+            }
+        }
+        game.validate_state().unwrap();
+    }
 }

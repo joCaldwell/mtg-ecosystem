@@ -183,6 +183,23 @@ impl Strategy<'_> {
                 flag(d, if take { Flag::Mulligan } else { Flag::Keep })?
             }
             (Reason::CommanderReturn { .. }, _) => flag(d, Flag::CommandZone)?,
+            // CR 701.20a, 614.12: an entry reveal costs only information, so
+            // reveal the first offered hand card and enter untapped.
+            (Reason::OptionalEffect, Shape::Pick { slots, .. })
+                if slots.first().is_some_and(|slot| {
+                    slot.allowed
+                        .iter()
+                        .any(|i| matches!(d.candidate(*i), Ok(Candidate::Object { .. })))
+                }) =>
+            {
+                let index = slots[0]
+                    .allowed
+                    .iter()
+                    .copied()
+                    .find(|i| matches!(d.candidate(*i), Ok(Candidate::Object { .. })))
+                    .ok_or("missing entry reveal card")?;
+                d.pick_one(d.candidate(index)?)?
+            }
             (Reason::OptionalEffect, _) => flag(
                 d,
                 if self.optional_effect(

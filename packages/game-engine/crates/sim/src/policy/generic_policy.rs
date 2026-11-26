@@ -1277,6 +1277,26 @@ impl Strategy<'_> {
         }
         Ok(None)
     }
+    /// Whether a land played from the viewer's hand now would enter tapped
+    /// under this policy: printed tapped entry, a declined life payment, or
+    /// an entry reveal with no other matching hand card (CR 614.12).
+    fn land_enters_tapped(&self, v: &PermittedView, land: &VisibleObject) -> bool {
+        use mtg_core::query::{in_view, matches_pred};
+        let Ok(d) = definition(self.catalog, &land.oracle_id) else {
+            return true;
+        };
+        d.static_abilities.iter().any(|a| match &a.effect {
+            kir::StaticEffect::EntersTapped | kir::StaticEffect::PayLifeOrEnterTapped { .. } => {
+                true
+            }
+            kir::StaticEffect::RevealOrEnterTapped { filter } => !v.objects.iter().any(|o| {
+                o.handle != land.handle
+                    && in_viewers_hand(v, o)
+                    && matches_pred(&in_view(v, o), v.viewer, filter).is_yes()
+            }),
+            _ => false,
+        })
+    }
     pub(super) fn optional_effect(&self, v: &PermittedView, block: Option<u32>) -> bool {
         let Some(s) = v.stack.last() else {
             return false;
@@ -1550,12 +1570,18 @@ impl Strategy<'_> {
                 }
                 allowance
             });
+        // CR 614.12: play a land that enters untapped before one that
+        // enters tapped, keeping hand order otherwise.
         if Quantity::from(i64::from(v.turn.lands_played)) < land_allowance
-            && let Some(o) = v.objects.iter().find(|o| {
-                in_viewers_hand(v, o)
-                    && definition(self.catalog, &o.oracle_id)
-                        .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
-            })
+            && let Some(o) = v
+                .objects
+                .iter()
+                .filter(|o| {
+                    in_viewers_hand(v, o)
+                        && definition(self.catalog, &o.oracle_id)
+                            .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
+                })
+                .min_by_key(|o| self.land_enters_tapped(v, o))
         {
             return Ok(Action::PlayLand {
                 object: o.handle.clone(),
