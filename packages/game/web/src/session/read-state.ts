@@ -10,7 +10,7 @@ export class SessionFailure extends Error {
 
 /** These are intentionally tested read/display capabilities, not gameplay coverage. */
 export const READ_PROFILES = ['commander-foundations-v1'] as const;
-export const OBSERVATION_VERSION = 57;
+export const OBSERVATION_VERSION = 80;
 
 export function immutable<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {

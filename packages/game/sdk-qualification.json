@@ -1,13 +1,13 @@
 {
-  "native_source": "e6d9bae1a3b1ed39126985198a1349470931b43c",
-  "sdk_source": "a5ce9643cb165aca15684ee1609a6879e39e6216",
-  "protocol_schema_sha256": "ced861b47179f588f46311470225a9d41201d2ea44c8fce6d111f9ced0d362c6",
+  "native_source": "db60dda3b3b10ba7a5b6f2bcfcf3c73847adac1a",
+  "sdk_source": "4ac7588660364a3492e296430ed4f0b21d1b2476",
+  "protocol_schema_sha256": "9fa1e3372eb8d258facc8a83d294a1d5a105cf89666185cce5fa9f2d44dcd99a",
   "bootstrap_schema_sha256": "35509924e00400f4e079d674c621ca84ae5fb7b3e36406d18993856d3356a705",
-  "engine_build_id": "5de8b341f86989fcecd23132c3824655d83fdc0cf99953ceef586fb52bf2d822",
-  "server_build_id": "d72fbfb56a3139922b003823006bdc0b795fadd959008295879133fb62558247",
+  "engine_build_id": "eaf0121b79d3b1b5c6b29e37786342b6e9382b3b490c3b03601ccd31f7dbff3d",
+  "server_build_id": "c0be29a960720682e7c0f6d4b5eb6185525e3e5e77c6d5f8059efd7c8e2bb033",
   "profile": "commander-foundations-v1",
-  "catalog_sha256": "3e36982dc804bc7138c964ccd908ec3076e1a8d63c9c99705367d34f582644c5",
-  "observation_version": 57,
-  "sdk_build_manifest_sha256": "18aa017093b77e23c1817ffb0371786f925bc02af657de4933341be7098ef775",
+  "catalog_sha256": "92b70c5999364cf879de0152dd7b892b24c473b376b1f183d7f5ec50d12bc34d",
+  "observation_version": 80,
+  "sdk_build_manifest_sha256": "0744d987e69b60e616e63ed67d973b4f5db6f91139627c19563faf58dbd9b02d",
   "scope": "Native protocol 2 schema, generated SDK browser build and offline Foundations Worker captures."
 }

@@ -110,7 +110,7 @@ erase ambiguity. The SDK itself has no journal/retry policy.
 
 ### Core action discovery
 
-Protocol 2 embeds a decision in observation 57 for the acting seat; priority
+Protocol 2 embeds a decision in observation 80 for the acting seat; priority
 beginnings and payment sources arrive in the same observation as their token.
 Candidate indices are local to that decision; a seat's object handles can identify
 visible cards. An answer carries only indices or exact amounts. Candidate labels

@@ -91,3 +91,33 @@ test('live adapter uses permitted data and retains all zones, exact quantities a
   assert.equal(liveTable({ ...changed, state: { status: 'pending' } }, metadata), null);
   assert.ok(liveTable(changed, null)!.hand.every(value => value.name === null));
 });
+
+test('live adapter states core face, creature-type and stack facts', async () => {
+  const { liveTable } = await import('../web/src/presentation/live-table.ts');
+  const changed = structuredClone(resume);
+  if (changed.state.status !== 'available') assert.fail();
+  const { view } = changed.state.observation;
+  const card = view.objects.find(object => object.zone.zone === 'command')!;
+  card.faces = { layout: 'modal_double_faced', front_name: 'Front Name', back_name: 'Back Name', active_face: 'back' };
+  card.characteristics = { ...card.characteristics!, all_creature_types: true, subtypes: ['Shapeshifter'] };
+  const spell = structuredClone(card);
+  spell.handle = 'spell-1';
+  spell.zone = { zone: 'stack' };
+  view.objects.push(spell);
+  view.stack = [{ spell: spell.handle, controller: 0, cast_complete: true, targets: [], mode_mask: 5, flashback: true, handle: 's1' }];
+  const table = liveTable(changed, metadata)!;
+  const shown = table.commandZone.find(value => value.inspectionId === card.handle)!;
+  assert.equal(shown.name, 'Back Name');
+  assert.equal(shown.printImage, undefined);
+  assert.ok(shown.currentFacts.some(fact => fact.label === 'Active face' && fact.value === 'Back · Back Name'));
+  assert.ok(shown.currentFacts.some(fact => fact.label === 'Creature types' && fact.value === 'All creature types'));
+  const stackSpell = table.stack[0]!;
+  assert.equal(stackSpell.name, 'Back Name');
+  const facts = stackSpell.currentFacts;
+  assert.deepEqual(facts.filter(fact => fact.label === 'Controller'), [{ label: 'Controller', value: 'Seat 1' }]);
+  assert.ok(facts.some(fact => fact.label === 'Chosen modes' && fact.value === 'Mode 1 · Mode 3'));
+  assert.ok(facts.some(fact => fact.label === 'Flashback'));
+  assert.ok(facts.some(fact => fact.label === 'Active face' && fact.value === 'Back · Back Name'));
+  assert.ok(facts.some(fact => fact.label === 'Creature types' && fact.value === 'All creature types'));
+  assert.ok(facts.some(fact => fact.label === 'Subtypes' && fact.value === 'Shapeshifter'));
+});

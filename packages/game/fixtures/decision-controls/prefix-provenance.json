@@ -1,10 +1,10 @@
 {
   "profile": "commander-foundations-v1",
-  "catalog_sha256": "3e36982dc804bc7138c964ccd908ec3076e1a8d63c9c99705367d34f582644c5",
-  "engine_build_id": "5de8b341f86989fcecd23132c3824655d83fdc0cf99953ceef586fb52bf2d822",
-  "server_build_id": "d72fbfb56a3139922b003823006bdc0b795fadd959008295879133fb62558247",
-  "protocol_schema_sha256": "ced861b47179f588f46311470225a9d41201d2ea44c8fce6d111f9ced0d362c6",
-  "public_prefixes_sha256": "aaf3fbaed2bdf568d876ed37189b2bcc257f3baafd10a10d9b0e55cd8aa1b4cc",
+  "catalog_sha256": "92b70c5999364cf879de0152dd7b892b24c473b376b1f183d7f5ec50d12bc34d",
+  "engine_build_id": "eaf0121b79d3b1b5c6b29e37786342b6e9382b3b490c3b03601ccd31f7dbff3d",
+  "server_build_id": "c0be29a960720682e7c0f6d4b5eb6185525e3e5e77c6d5f8059efd7c8e2bb033",
+  "protocol_schema_sha256": "9fa1e3372eb8d258facc8a83d294a1d5a105cf89666185cce5fa9f2d44dcd99a",
+  "public_prefixes_sha256": "57709d62e7447c0c14e19cfa564bdd9002985e39f503c700cf6db178850e55d2",
   "stages": [
     {
       "stage": "opening",
