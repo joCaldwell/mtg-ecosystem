@@ -107,6 +107,22 @@ impl TokenIdentity {
 
 // CR 707.2: this is the immutable definition's copiable layer. It has no
 // counters, marked damage, temporary characteristics, controller or status.
+/// CR 111.1: find the audited recipe in a direct or optional instruction.
+pub(super) fn creating_token_recipe(
+    instruction: &Instruction,
+) -> Option<&mtg_contracts::kir::TokenSpec> {
+    use mtg_contracts::kir::{Node, Verb};
+    let Instruction::Kernel { node, .. } = instruction;
+    let body = match node {
+        Node::Optional { node, .. } => node.as_ref(),
+        node => node,
+    };
+    match body {
+        Node::Do(Verb::CreateTokens { token, .. }) => Some(token),
+        _ => None,
+    }
+}
+
 fn token_copy_definition(original: &Definition, id: CardId) -> Definition {
     let mut definition = original.clone();
     definition.oracle_id = format!("token:{}", id.0);
@@ -579,7 +595,10 @@ impl RulesTxn {
                 return Err("snapshot token physical identity invariant".into());
             }
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
-                p.instructions.iter().any(|i| matches!(i, kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec: token }, .. }) if token == spec))
+                p.instructions.iter().any(|instruction| {
+                    matches!(creating_token_recipe(instruction),
+                        Some(mtg_contracts::kir::TokenSpec::Creature { spec: token }) if token == spec)
+                })
             }
             let expected_for = |source: &Definition| -> Result<Definition, String> {
                 Ok(match &t.spec {

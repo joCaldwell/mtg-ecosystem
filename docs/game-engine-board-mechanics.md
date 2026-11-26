@@ -463,7 +463,10 @@ sacrifice of one creature followed by a dependent clause shares the payment
 continuation. The controller selects an eligible object or declines. A private
 discard always offers decline, even with no eligible card (CR 400.2). An optional body is a draw, life change, mill, search,
 shuffle, scry or surveil, or a tap, untap, move or counter verb on a target or
-the source. Impossible choices are not offered and are withdrawn if they become
+the source, or a +1/+1 counter verb on a matching battlefield creature set. A
+direct controller choice can also create a fixed number of tokens under that
+player’s control (CR 111.2). Impossible choices are not offered and are
+withdrawn if they become
 impossible while pending (CR 608.2d): no object can still change or move, no
 live player, a zero amount, or a library smaller than the mill (CR 701.17b).
 `IfPays` acts only after payment. A departed payer pays nothing. A
