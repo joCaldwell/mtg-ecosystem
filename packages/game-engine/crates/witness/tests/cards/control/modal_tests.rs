@@ -524,8 +524,8 @@ fn crush_contraband_filters_modes_and_resolves_the_remaining_target() {
     Driver::pick_object(&mut g, artifact);
     Driver::pay(&mut g, &[6, 7, 8, 9]);
     settle(&mut g);
-    assert!(matches!(zone(&g, 10), Some(Zone::Exile { .. })));
-    assert!(matches!(zone(&g, 11), Some(Zone::Exile { .. })));
+    assert_eq!(zone(&g, 10), Some(Zone::Exile));
+    assert_eq!(zone(&g, 11), Some(Zone::Exile));
 }
 
 /// CR 115.3, 700.2a: the Pirate mode needs two distinct target cards,
