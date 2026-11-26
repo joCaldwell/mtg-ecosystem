@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    87,
-    "0a5c01c7ac61bcbe18fe97278dab82a2758087532b85135614f0db0e01d32002",
+    88,
+    "02db157b6cb4d19132a1b36c87c1384a3906cdfc25948d310fe3a023100b616e",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    118,
-    "8fd5f1699008d981eb5895b809f3abcad6b5da99328c7f7aabfc80a75a7a14f0",
+    120,
+    "a0bcaca8ace1f384d6738296ac5e62452d329189e08c555895eeb67f928a38af",
 );
 const WORK_PIN: (u32, &str) = (
     61,
@@ -818,6 +818,70 @@ fn pending_stack_target() -> Game {
     game
 }
 
+fn suspended_delve() -> Game {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let ring = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Sol Ring")
+        .unwrap();
+    ring.delve = true;
+    let mut game = Game::new(
+        Board::new(catalog, "snapshot-delve")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Sol Ring", 0, 0, true)
+            .card("Island", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
+            .libraries("Island", 2)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    let card = Driver::object(&game, 1);
+    Driver::pick_object(&mut game, card);
+    Driver::request(&mut game, u64::MAX);
+    game
+}
+
+fn suspended_convoke() -> Game {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let ring = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Sol Ring")
+        .unwrap();
+    ring.convoke = true;
+    let mut game = Game::new(
+        Board::new(catalog, "snapshot-convoke")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Sol Ring", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .libraries("Island", 2)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    let card = Driver::object(&game, 1);
+    Driver::pick_object(&mut game, card);
+    Driver::request(&mut game, u64::MAX);
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -829,6 +893,8 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             super::kernel_control_tests::suspended_control(),
             super::kernel_control_tests::suspended_creature_payment(),
             pending_stack_target(),
+            suspended_delve(),
+            suspended_convoke(),
         ])
         .chain(mana_riders())
         .chain([granted_mana()])

@@ -72,5 +72,6 @@ pub use engine::{
     VisibleObject, VisiblePendingTrigger, VisiblePlayer, VisibleSetup, VisibleSetupPhase,
     VisibleSetupPlayer, VisibleStackEntry, VisibleStackTarget, VisibleTarget, VisibleToken,
     VisibleTriggerAbility, VisibleTriggered, Work, WorldProposal, Zone, admit_dynamic_pod,
-    inspect_dynamic_deck, match_profile, policy_digest, validate_pod,
+    distinct_payment_choices, inspect_dynamic_deck, match_profile, payment_choice_minimum,
+    policy_digest, validate_pod,
 };

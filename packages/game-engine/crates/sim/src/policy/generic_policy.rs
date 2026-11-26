@@ -1038,6 +1038,40 @@ impl Strategy<'_> {
             }
         })
     }
+    fn casting_mana_plan(
+        &self,
+        view: &PermittedView,
+        definition: &Definition,
+        cost: ManaCost,
+    ) -> Option<(
+        Vec<mtg_contracts::HybridPayment>,
+        std::collections::VecDeque<mana_policy::PlannedMana>,
+    )> {
+        if definition.convoke || definition.improvise {
+            let kind = if definition.convoke {
+                CardKind::Creature
+            } else {
+                CardKind::Artifact
+            };
+            let (due, reserved) = super::tap_payment_plan(view, &cost, kind);
+            if let Some(plan) = mana_policy::hybrid_plan_reserved(
+                self.catalog,
+                view,
+                due,
+                &definition.characteristics.hybrid_mana,
+                &reserved,
+            ) {
+                return Some(plan);
+            }
+        }
+        mana_policy::hybrid_plan(
+            self.catalog,
+            view,
+            cost,
+            &definition.characteristics.hybrid_mana,
+        )
+    }
+
     pub(super) fn choose_x(
         &self,
         v: &PermittedView,
@@ -1099,9 +1133,12 @@ impl Strategy<'_> {
                     cost
                 }
             };
-            if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
-                .is_none()
-            {
+            let cost = if d.delve {
+                super::delve_mana_due(cost, v, quote.map(|(_, card)| card))
+            } else {
+                cost
+            };
+            if self.casting_mana_plan(v, d, cost).is_none() {
                 break;
             }
             let score = self.wipe_score(v, p, &x).unwrap_or_else(|| {
@@ -1272,13 +1309,13 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
+        let due = if d.delve {
+            super::delve_mana_due(cost.clone(), v, Some(&o.handle))
+        } else {
+            cost.clone()
+        };
         let mut alternative = None;
-        let (choices, plan) = match mana_policy::hybrid_plan(
-            self.catalog,
-            v,
-            cost.clone(),
-            &d.characteristics.hybrid_mana,
-        ) {
+        let (choices, plan) = match self.casting_mana_plan(v, d, due) {
             Some(plan) => plan,
             // CR 118.9, 702.74a: announce the printed alternative cost from
             // hand or the command zone when only it can be funded.
@@ -1297,7 +1334,12 @@ impl Strategy<'_> {
                     .ok()
                     .flatten()
                     .filter(|(identity, _)| *identity == printed.identity)?;
-                let plan = mana_policy::hybrid_plan(self.catalog, v, alt.clone(), &[])?;
+                let due = if d.delve {
+                    super::delve_mana_due(alt.clone(), v, Some(&o.handle))
+                } else {
+                    alt.clone()
+                };
+                let plan = self.casting_mana_plan(v, d, due)?;
                 alternative = Some(identity);
                 cost = alt;
                 plan

@@ -261,6 +261,16 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   stack-static cost lock. Admitted parameters cover artifact, creature,
   artifact creature, enchantment, token, supported subtypes, historic
   permanents and outlaws.
+- **Delve** lets the caster exile cards from their graveyard to pay generic
+  mana after the cost locks (CR 601.2h, 702.66). The engine commits the
+  chosen exiles with the remaining mana payment.
+- **Convoke** lets the caster tap untapped creatures they control after the
+  mana ability window to pay generic mana or mana of each creature’s color
+  (CR 601.2h, 702.51). Summoning sickness does not limit this payment.
+- **Improvise** lets the caster tap untapped artifacts they control for
+  generic mana after the mana ability window (CR 601.2h, 702.126).
+- **Assist** reports `keyword:assist`. It requires a second player’s mana
+  ability window and generic allocation before the caster pays (CR 702.132).
 - **Cycling**: a hand activation on any card type paying fixed mana and
   discarding the card, then drawing one (CR 702.29a). **Typecycling** pays the
   same, then searches for one card of its type (basic land, or an allowlisted
@@ -283,8 +293,14 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   that permanent at the next end step. The returned incarnation has haste and
   is exiled instead of leaving the battlefield for any other zone; a card
   that left the graveyard returns nothing (CR 400.7, 603.7, 614.1a, 702.84a).
-  Dash, encore, rebound, retrace, escape, cumulative upkeep, eternalize,
-  embalm, madness and scavenge reject as `keyword:<name>`.
+- **Encore** (single-faced creature, fixed mana): a sorcery-speed graveyard
+  ability that exiles the card as its cost. Its delayed trigger creates, at
+  once, one token copy of the card's copiable values for each living
+  opponent; each has haste and, during that turn, may attack only that
+  opponent and must if able (CR 508.1d). At the next end step its controller
+  sacrifices the copies they still control (CR 603.7, 702.141a, 707.2).
+  Dash, rebound, retrace, escape, cumulative upkeep, eternalize, embalm,
+  madness and scavenge reject as `keyword:<name>`.
 - **Flashback** (instant/sorcery without X or hybrid): cast from its owner's
   graveyard at normal timing (CR 702.34a, 118.9), exiled instead of leaving the
   stack any other way; an abandoned cast returns it to the graveyard (CR 733.1).

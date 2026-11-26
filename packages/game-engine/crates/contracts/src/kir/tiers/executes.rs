@@ -1330,6 +1330,36 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     if !shell {
         return cell("shell", name(&c.kind));
     }
+    // Keep payment surfaces that can select the same object out of one definition
+    // until their selections can be validated together.
+    let chosen_costs = || {
+        d.activated
+            .iter()
+            .filter_map(|ability| match &ability.cost {
+                ActivationCost::ChooseObjects(cost) => Some(cost),
+                _ => None,
+            })
+    };
+    let additional_tap = (d.improvise || d.convoke)
+        && chosen_costs().any(|cost| cost.tap_source || cost.action == ChosenCostAction::Tap);
+    if d.improvise && additional_tap {
+        return cell("keyword", "improvise:additional-tap-cost");
+    }
+    if d.convoke && additional_tap {
+        return cell("keyword", "convoke:additional-tap-cost");
+    }
+    if d.delve && chosen_costs().any(|cost| cost.action == ChosenCostAction::ExileFromGraveyard) {
+        return cell("keyword", "delve:additional-graveyard-exile-cost");
+    }
+    if d.improvise && (d.spell.is_none() || d.delve || d.convoke) {
+        return cell("keyword", "improvise");
+    }
+    if d.convoke && (d.spell.is_none() || d.delve) {
+        return cell("keyword", "convoke");
+    }
+    if d.delve && d.spell.is_none() {
+        return cell("keyword", "delve");
+    }
     if d.modal_spell.is_some() && !matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         return cell("modal", "nonspell");
     }

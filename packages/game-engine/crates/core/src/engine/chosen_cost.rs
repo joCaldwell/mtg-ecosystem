@@ -347,7 +347,7 @@ impl RulesTxn {
             .ok_or("snapshot lacks chosen-cost mana selection")?;
         self.validate_announced_allocation(
             entry,
-            &entry.total_cost,
+            &self.mana_due(entry, cast)?,
             spending,
             &cast.spending_restricted,
         )?;

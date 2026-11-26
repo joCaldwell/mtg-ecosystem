@@ -1864,6 +1864,12 @@ pub struct Definition {
     /// and is exiled whenever it would leave the stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flashback: Option<ManaCost>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub delve: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub convoke: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub improvise: bool,
     /// CR 118.9, 601.2b: a printed alternative cost (evoke, CR 702.74a) the
     /// caster may announce instead of the mana cost when casting from hand
     /// or the command zone. Its identity names the keyword.
