@@ -340,3 +340,121 @@ fn ashen_powder_returns_an_opponents_creature_under_the_spell_controllers_contro
     assert_eq!(zone(&g, 5), grave(0));
     assert_eq!(zone(&g, 7), grave(1));
 }
+
+const NOXIOUS_REVIVAL: &str = record!("97cabeda-9fe3-490d-99b4-4c8d87c17157");
+const DREAM_TWIST: &str = record!("d569d969-ce39-4314-b5f0-76b45f5c4c7f");
+const MORTUARY_MIRE: &str = record!("1b3fb20a-e090-4286-9c03-6b71c27c45be");
+
+#[test]
+fn moving_a_graveyard_target_to_the_library_and_back_breaks_the_earlier_target() {
+    let prepared = board(&[
+        (
+            NOXIOUS_REVIVAL,
+            &[Cell::MoveGraveyardTargetToOwnerLibraryTop],
+            Tiers::EXECUTES,
+        ),
+        (DREAM_TWIST, &[], Tiers::EXECUTES),
+        (CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES),
+    ])
+    .permanent_or_hand("Cremate", 0, 0, true)
+    .permanent_or_hand("Noxious Revival", 0, 0, true)
+    .permanent_or_hand("Dream Twist", 0, 0, true)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .card("Grizzly Bears", 1, 1, grave(1))
+    .library_card("Forest", 1)
+    .library_card("Island", 0)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let target = Driver::object(&g, 6);
+
+    Driver::cast(&mut g, CardId(0));
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[3]);
+    Driver::cast(&mut g, CardId(1));
+    let payment = Driver::request(&mut g, 1);
+    g.respond(
+        payment.player,
+        payment.id,
+        payment
+            .pick_one(&Candidate::HybridPayment {
+                payment: HybridPayment::Mana(Color::G),
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[4]);
+    for _ in 0..4 {
+        Driver::request(&mut g, 1);
+        if g.state.rules.stack.len() == 1 {
+            break;
+        }
+        Driver::pass(&mut g);
+    }
+    Driver::request(&mut g, 1);
+    assert_eq!(g.state.rules.libraries[&PlayerId(1)][0], target.card);
+    assert_eq!(zone(&g, 6), Zone::Library { owner: PlayerId(1) });
+    checked(&g);
+
+    Driver::cast(&mut g, CardId(2));
+    let decision = Driver::request(&mut g, 1);
+    g.respond(
+        decision.player,
+        decision.id,
+        decision
+            .pick_one(&Candidate::Player {
+                player: PlayerId(1),
+            })
+            .unwrap(),
+    )
+    .unwrap();
+    Driver::pay(&mut g, &[5]);
+    settle(&mut g);
+
+    assert_eq!(zone(&g, 6), grave(1));
+    assert_eq!(Driver::object(&g, 6).incarnation, target.incarnation + 2);
+    assert_eq!(zone(&g, 8), Zone::Library { owner: PlayerId(0) });
+}
+
+#[test]
+fn mortuary_mire_puts_its_announced_creature_on_top_only_if_accepted() {
+    for flag in [Flag::Accept, Flag::Decline] {
+        let prepared = board(&[(
+            MORTUARY_MIRE,
+            &[Cell::MoveGraveyardTargetToOwnerLibraryTop],
+            Tiers::EXECUTES,
+        )])
+        .permanent_or_hand("Mortuary Mire", 0, 0, true)
+        .card("Grizzly Bears", 0, 0, grave(0))
+        .card("Grizzly Bears", 1, 1, grave(1))
+        .library_card("Forest", 0)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let land = Driver::object(&g, 0);
+        Driver::action(&mut g, Action::PlayLand { object: land });
+        let target = Driver::object(&g, 1);
+        let d = targets(&mut g);
+        assert_eq!(d.candidates, [Candidate::Object { object: target }]);
+        Driver::pick_object(&mut g, target);
+        let may = pass_until_choice(&mut g);
+        assert_eq!(may.reason, Reason::OptionalEffect);
+        checked(&g);
+        g.respond(
+            may.player,
+            may.id,
+            may.pick_one(&Candidate::Flag { flag }).unwrap(),
+        )
+        .unwrap();
+        settle(&mut g);
+        assert_eq!(
+            zone(&g, 1),
+            if flag == Flag::Accept {
+                Zone::Library { owner: PlayerId(0) }
+            } else {
+                grave(0)
+            }
+        );
+    }
+}

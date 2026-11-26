@@ -59,6 +59,12 @@ impl Walk<'_, '_> {
                 {
                     Ok(Cell::MoveGraveyardCreatureToBattlefield)
                 }
+                (
+                    Destination::OwnerLibraryTop,
+                    TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+                    | TargetDomain::GraveyardCard { .. },
+                ) => Ok(Cell::MoveGraveyardTargetToOwnerLibraryTop),
                 (Destination::OwnerHand, TargetDomain::GraveyardCard { .. }) => {
                     Ok(Cell::MoveGraveyardTargetToOwnerHand)
                 }

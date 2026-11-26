@@ -316,8 +316,8 @@ control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
 An ability with one target occurrence can exclude its source with “another.”
 Graveyard targets check the announced incarnation, its owner's graveyard and
 its printed criteria, including secondary card types and fixed mana-value bounds
-(CR 400.7). Exile and return to the owner's hand can target a card in any
-graveyard or an opponent's graveyard. A permanent returned from your graveyard
+(CR 400.7). Exile, return to the owner's hand and placement on top of the
+owner's library can target a card in any graveyard or an opponent's graveyard. A permanent returned from your graveyard
 uses the battlefield entry procedure for Aura attachment and land entry choices.
 A creature can enter from any or an opponent’s graveyard under the specified
 controller while retaining its owner (CR 110.2, 110.2a).

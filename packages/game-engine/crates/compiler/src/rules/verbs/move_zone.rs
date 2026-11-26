@@ -49,8 +49,25 @@ pub(super) fn lower(
     if who.is_some() || controller.is_some() {
         return Err(step("move-zone", "mover"));
     }
-    let to = lower_destination(to)?;
     let what = object(what)?;
+    if matches!(&what, ast::ObjectRef::Target(t) if t.filter.zone.as_deref().is_some_and(|zone| zone.zone == ast::Zone::Graveyard))
+    {
+        // CR 400.3, 401.4: "your library" denotes the owner’s library
+        // only when the target is restricted to your graveyard.
+        let own_library =
+            *to == serde_json::json!({"zone": "library", "owner": "your", "position": "top"});
+        let destination = if own_library {
+            Destination::OwnerLibraryTop
+        } else {
+            lower_destination(to)?
+        };
+        if destination != Destination::OwnerLibraryTop {
+            return Err(step("move-zone", "graveyard_target_destination"));
+        }
+        let slot = bind_graveyard_target(cx.program, cx.slots, &what, own_library)?;
+        return Ok(Instruction::move_target(slot, destination, cx.source_block));
+    }
+    let to = lower_destination(to)?;
     // CR 400.7: "this <permanent>" names the source's battlefield incarnation.
     if is_this_permanent(&what) && cx.context != Context::Spell {
         return Ok(cx.act(Verb::Move {
