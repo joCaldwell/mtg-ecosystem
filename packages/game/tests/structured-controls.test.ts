@@ -92,6 +92,41 @@ test('mode and stack candidates label from core output without guessing', () => 
     [['Draw a card. + Gain 3 life.', ''], ['Stack item', 's1']],
   );
 });
+test('back-face priority actions use core action text without duplicating the front name', () => {
+  const d: Decision = {
+    token: 'original',
+    player: 0,
+    reason: { reason: 'priority' },
+    candidates: [
+      { candidate: 'action', action: { action: 'cast_back_face', card: 'h1' } },
+      { candidate: 'action', action: { action: 'play_land_back_face', object: 'h2' } },
+    ],
+    shape: {
+      shape: 'pick',
+      slots: [{ role: { role: 'choice' }, subject: null, allowed: [0, 1], min: 1, max: 1, repeat: false }],
+      rules: [],
+    },
+  };
+  const labels = [
+    { handle: 'h1', name: 'Front Spell' },
+    { handle: 'h2', name: 'Front Land' },
+  ];
+  const context = {
+    candidates: [{ text: 'Cast Back Spell' }, { text: 'Play Back Land' }],
+  };
+  const surface = decisionSurface(d, labels, context);
+  assert.equal(surface.status, 'supported');
+  if (surface.status !== 'supported' || surface.control.kind !== 'choice') assert.fail('expected a choice');
+  assert.deepEqual(
+    surface.control.options.map(({ label, detail }) => [label, detail]),
+    [
+      ['Cast Back Spell', 'h1'],
+      ['Play Back Land', 'h2'],
+    ],
+  );
+  assert.deepEqual(completeDecision(d, labels, { ...emptyDraft, selected: ['0'] }, context), { answer: 'pick', picks: [[0]] });
+  assert.deepEqual(completeDecision(d, labels, { ...emptyDraft, selected: ['1'] }, context), { answer: 'pick', picks: [[1]] });
+});
 test('distribute checks exact totals, bucket bounds and conditional allocations', () => {
   const d: Decision = {
     ...base,

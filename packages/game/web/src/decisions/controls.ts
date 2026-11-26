@@ -160,9 +160,14 @@ export function decisionSurface(
         label: name || (label?.text !== identity && label?.text) || 'Unidentified object',
         detail: c.object,
       };
+    const isBackFaceAction =
+      c?.candidate === 'action' &&
+      (c.action.action === 'cast_back_face' || c.action.action === 'play_land_back_face');
     return {
       id: String(index),
-      label: [label?.text || (c ? candidateFallback(c) : 'Option'), name].filter(Boolean).join(' · '),
+      label: [label?.text || (c ? candidateFallback(c) : 'Option'), isBackFaceAction && label?.text ? null : name]
+        .filter(Boolean)
+        .join(' · '),
       detail: label?.source?.text ?? identity ?? (c?.candidate === 'stack' ? c.stack : ''),
     };
   };

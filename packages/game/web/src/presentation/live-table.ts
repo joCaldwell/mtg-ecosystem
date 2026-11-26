@@ -18,13 +18,14 @@ export function liveTable(read: SeatResume, metadata: PresentationArtifact | nul
     const source = entry.ability ?? entry.triggered;
     const printed = source && metadata?.cards.find(card => card.oracle_id === source.oracle_id);
     const face = printed?.faces.length === 1 ? printed.faces[0] : undefined;
+    const card = object ? display(object) : {
+      name: face?.name ?? null, printedType: face?.type_line ?? null, printedMana: face?.mana_cost ?? null,
+      oracleText: face?.oracle_text ?? null,
+      sourceIdentity: source ? `Oracle ${source.oracle_id} · Source handle ${source.source.current ?? source.source.announced}` : 'Source identity not supplied',
+      currentFacts: [],
+    };
     return {
-      ...(object ? display(object) : {
-        name: face?.name ?? null, printedType: face?.type_line ?? null, printedMana: face?.mana_cost ?? null,
-        oracleText: face?.oracle_text ?? null,
-        sourceIdentity: source ? `Oracle ${source.oracle_id} · Source handle ${source.source.current ?? source.source.announced}` : 'Source identity not supplied',
-        currentFacts: [],
-      }),
+      ...card,
       inspectionId: entry.handle ?? source?.handle ?? `stack:${read.next}:${index}`, zoneLabel: 'Stack',
       currentFacts: [
         { label: 'Controller', value: `Seat ${entry.controller + 1}` },
@@ -35,6 +36,7 @@ export function liveTable(read: SeatResume, metadata: PresentationArtifact | nul
         ...(entry.mode_mask !== undefined && entry.mode_mask !== null ? [{ label: 'Chosen modes', value: chosenModes(entry.mode_mask) }] : []),
         ...(entry.flashback ? [{ label: 'Flashback', value: 'Cast for its flashback cost' }] : []),
         ...entry.targets.map(target => ({ label: 'Supplied target', value: `Announced ${target.announced} · Current ${target.current ?? 'unavailable'}` })),
+        ...card.currentFacts.filter(fact => fact.label !== 'Controller'),
       ],
     };
   });
