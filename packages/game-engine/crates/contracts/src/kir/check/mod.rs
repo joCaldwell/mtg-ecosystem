@@ -547,6 +547,10 @@ impl Walk<'_, '_> {
             Amount::Devotion { player, .. }
             | Amount::LifeOf { player }
             | Amount::OtherCastsManaValue { caster: player } => self.player(player),
+            // CR 604.3: characteristic-defining values have no kernel reader.
+            Amount::Sum { .. } | Amount::Distinct { .. } => {
+                kind("characteristic-defining amount outside its static")
+            }
         }
     }
 
