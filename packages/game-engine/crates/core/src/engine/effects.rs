@@ -899,6 +899,7 @@ impl RulesTxn {
             .ok_or("missing spell object")?;
         let object = Object {
             id: proposed,
+            controller: caster,
             ..object.clone()
         };
         let characteristics = &self.copiable_definition(proposed)?.characteristics;

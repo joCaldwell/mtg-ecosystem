@@ -1024,6 +1024,12 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
+                        [one] if one.keyword == "affinity" => {
+                            definition
+                                .static_abilities
+                                .push(keywords::affinity(one, text)?);
+                            labels.statics.push(label);
+                        }
                         [one] if one.keyword == "equip" => {
                             definition
                                 .activated
