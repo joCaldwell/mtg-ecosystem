@@ -86,6 +86,23 @@ pub(super) fn lower(
     keywords: &[SourceKeyword],
     text: &str,
 ) -> Result<Vec<KeywordAbility>, Failure> {
+    lower_with_protection_text(kind, keywords, Some(text))
+}
+
+/// Companion evergreen/protection/landwalk keywords sharing a triggered-keyword
+/// line; `triggered_printed` validates the entire line's token spelling.
+pub(super) fn lower_triggered_companion(
+    kind: CardKind,
+    keywords: &[SourceKeyword],
+) -> Result<Vec<KeywordAbility>, Failure> {
+    lower_with_protection_text(kind, keywords, None)
+}
+
+fn lower_with_protection_text(
+    kind: CardKind,
+    keywords: &[SourceKeyword],
+    protection_text: Option<&str>,
+) -> Result<Vec<KeywordAbility>, Failure> {
     if keywords.is_empty() {
         return Err(unsupported("abilities.keywords", "empty keyword block"));
     }
@@ -102,7 +119,7 @@ pub(super) fn lower(
             ));
         }
         if let Some(from) = &keyword.protection_from {
-            lowered.extend(fixed_color_protection(kind, from, text)?);
+            lowered.extend(fixed_color_protection(kind, from, protection_text)?);
         } else {
             let ability = TABLE
                 .iter()
@@ -121,7 +138,7 @@ pub(super) fn lower(
 fn fixed_color_protection(
     kind: CardKind,
     from: &[SourceProtectionQuality],
-    text: &str,
+    text: Option<&str>,
 ) -> Result<Vec<KeywordAbility>, Failure> {
     use SourceProtectionQuality::{AllColors, Color};
     use mtg_contracts::fixed_color_protection::{KEYWORDS, keyword_for_name};
@@ -144,10 +161,12 @@ fn fixed_color_protection(
         ),
         _ => return Err(gap("quality_list")),
     };
-    let text = text.to_ascii_lowercase();
-    let clause = format!("protection from {phrase}");
-    if text != clause && !text.ends_with(&format!(", {clause}")) {
-        return Err(gap("printed_quality"));
+    if let Some(text) = text {
+        let text = text.to_ascii_lowercase();
+        let clause = format!("protection from {phrase}");
+        if text != clause && !text.ends_with(&format!(", {clause}")) {
+            return Err(gap("printed_quality"));
+        }
     }
     Ok(abilities)
 }
@@ -511,54 +530,132 @@ fn companion_spelling(keyword: &SourceKeyword) -> Option<String> {
         .map(|(name, _)| (*name).to_owned())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LineToken {
+    Word(String),
+    Number(String),
+    Symbol,
+    Punct(char),
+}
+
+/// Tokenize a normalized Oracle line using the same word/number/symbol
+/// boundaries as `packages/oracle-parser/src/lexer.ts`. Notably letters and
+/// ASCII digits never merge (`"afterlife1"` lexes to `afterlife`, `1`).
+fn lex_line(line: &str) -> Vec<LineToken> {
+    const CONTRACTIONS: &[&str] = &[
+        "can't",
+        "don't",
+        "doesn't",
+        "isn't",
+        "aren't",
+        "won't",
+        "wasn't",
+        "weren't",
+        "hasn't",
+        "haven't",
+        "hadn't",
+        "didn't",
+        "couldn't",
+        "shouldn't",
+        "wouldn't",
+        "it's",
+        "that's",
+        "there's",
+        "they're",
+        "you're",
+        "you've",
+        "he's",
+        "she's",
+        "what's",
+        "who's",
+        "let's",
+    ];
+    let chars: Vec<char> = line.chars().collect();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
+        if c == '{'
+            && let Some(rel) = chars[i + 1..].iter().position(|&d| d == '}')
+        {
+            tokens.push(LineToken::Symbol);
+            i += rel + 2;
+            continue;
+        }
+        if c.is_ascii_digit() {
+            let start = i;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            tokens.push(LineToken::Number(chars[start..i].iter().collect()));
+            continue;
+        }
+        if c.is_alphabetic() {
+            let start = i;
+            while i < chars.len() {
+                let d = chars[i];
+                if d.is_alphabetic()
+                    || ((d == '\'' || d == '-')
+                        && chars.get(i + 1).is_some_and(|n| n.is_alphabetic()))
+                {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let mut word: String = chars[start..i].iter().collect::<String>().to_lowercase();
+            if !CONTRACTIONS.contains(&word.as_str()) {
+                if let Some(stem) = word.strip_suffix("'s") {
+                    word = stem.to_owned();
+                } else if chars.get(i) == Some(&'\'') && word.ends_with('s') {
+                    i += 1;
+                }
+            }
+            tokens.push(LineToken::Word(word));
+            continue;
+        }
+        tokens.push(LineToken::Punct(c));
+        i += 1;
+    }
+    tokens
+}
+
 /// Consume one inter-keyword separator matching `parseKeywordLine`
 /// (`packages/oracle-parser/src/parser/keywords.ts:524-533`): `,`, `;`, `, and`,
-/// `; and`, or bare `and` separated by whitespace.
-fn consume_separator(rest: &str) -> Option<&str> {
-    if let Some(after_punct) = rest.strip_prefix(',').or_else(|| rest.strip_prefix(';')) {
-        let after_ws = after_punct.trim_start_matches(|c: char| c.is_ascii_whitespace());
-        if let Some(after_and) = after_ws.strip_prefix("and")
-            && after_and
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_whitespace())
-        {
-            return Some(after_and.trim_start_matches(|c: char| c.is_ascii_whitespace()));
-        }
-        return Some(after_ws);
+/// `; and`, or bare `and`.
+fn consume_separator(tokens: &[LineToken]) -> Option<&[LineToken]> {
+    match tokens {
+        [LineToken::Punct(',' | ';'), LineToken::Word(w), tail @ ..] if w == "and" => Some(tail),
+        [LineToken::Punct(',' | ';'), tail @ ..] => Some(tail),
+        [LineToken::Word(w), tail @ ..] if w == "and" => Some(tail),
+        _ => None,
     }
-    let after_ws = rest
-        .strip_prefix(|c: char| c.is_ascii_whitespace())?
-        .trim_start_matches(|c: char| c.is_ascii_whitespace());
-    let after_and = after_ws.strip_prefix("and")?;
-    after_and
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_whitespace())
-        .then(|| after_and.trim_start_matches(|c: char| c.is_ascii_whitespace()))
 }
 
 /// The keyword line prints each listed keyword left-to-right under the parser
-/// separator grammar (`parseKeywordLine`) with at most one terminal period, and
-/// every triggered instance matches its rule spelling and `source["keywords"]`
-/// entry (CR 702.1).
+/// token grammar (`lexer.ts` + `parseKeywordLine`) with at most one terminal
+/// period, and every triggered instance matches its rule spelling and
+/// `source["keywords"]` entry (CR 702.1).
 pub(super) fn triggered_printed(
     keywords: &[SourceKeyword],
     text: &str,
     source: &serde_json::Value,
 ) -> Result<(), Failure> {
-    let trimmed = text.trim();
-    let body = trimmed
-        .strip_suffix('.')
-        .map_or(trimmed, str::trim_end)
-        .to_ascii_lowercase();
+    let tokens = lex_line(text);
+    let body = tokens
+        .strip_suffix(&[LineToken::Punct('.')])
+        .unwrap_or(tokens.as_slice());
     let listed: BTreeSet<String> = source["keywords"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|k| k.as_str().map(str::to_lowercase))
         .collect();
-    let mut rest = body.as_str();
+    let mut rest = body;
     for (index, keyword) in keywords.iter().enumerate() {
         let triggered = is_triggered(keyword);
         let reject = || {
@@ -573,14 +670,10 @@ pub(super) fn triggered_printed(
                 .ok_or_else(|| unsupported("keyword", "keyword:triggered:printed"))?;
         }
         let expected = companion_spelling(keyword).ok_or_else(reject)?;
-        let after = rest.strip_prefix(&expected).ok_or_else(reject)?;
-        if after
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphanumeric())
-        {
-            return Err(reject());
-        }
+        let expected_tokens = lex_line(&expected);
+        let after = rest
+            .strip_prefix(expected_tokens.as_slice())
+            .ok_or_else(reject)?;
         if triggered && !listed.contains(&keyword.keyword) {
             return Err(reject());
         }
@@ -593,7 +686,7 @@ pub(super) fn triggered_printed(
 }
 
 /// CR 702.1, 113.2c: every occurrence of a reviewed triggered keyword anywhere
-/// on a face's normalized lines (ASCII word-boundary scan across every block
+/// on a face's normalized lines (parser-aligned token scan across every block
 /// kind) must be accounted for by the exact lowered AST keyword instance at the
 /// same block, in order, with the same spelling.
 pub(super) fn triggered_instances_printed(
@@ -607,21 +700,26 @@ pub(super) fn triggered_instances_printed(
     }
     let mut printed = Vec::new();
     for (block, line) in lines.iter().enumerate() {
-        let words: Vec<String> = line
-            .split(|c: char| !c.is_ascii_alphanumeric())
-            .filter(|w| !w.is_empty())
-            .map(str::to_ascii_lowercase)
-            .collect();
+        let tokens = lex_line(line);
         let mut i = 0;
-        while i < words.len() {
-            if let Some((name, parameterized)) = TRIGGERED.iter().find(|(n, _)| *n == words[i]) {
-                if *parameterized
-                    && let Some(next) = words.get(i + 1)
-                    && (next == "x" || next.bytes().all(|b| b.is_ascii_digit()))
-                {
-                    printed.push((block, format!("{name} {next}")));
-                    i += 2;
-                    continue;
+        while i < tokens.len() {
+            if let LineToken::Word(word) = &tokens[i]
+                && let Some((name, parameterized)) =
+                    TRIGGERED.iter().find(|(n, _)| *n == word.as_str())
+            {
+                if *parameterized {
+                    if let Some(LineToken::Number(n)) = tokens.get(i + 1) {
+                        printed.push((block, format!("{name} {n}")));
+                        i += 2;
+                        continue;
+                    }
+                    if let Some(LineToken::Word(w)) = tokens.get(i + 1)
+                        && w == "x"
+                    {
+                        printed.push((block, format!("{name} x")));
+                        i += 2;
+                        continue;
+                    }
                 }
                 printed.push((block, (*name).to_owned()));
             }

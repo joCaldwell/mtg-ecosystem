@@ -1126,7 +1126,7 @@ fn compose_face(
                             if !rest.is_empty() {
                                 definition
                                     .keywords
-                                    .extend(keywords::lower(card.kind, &rest, text)?);
+                                    .extend(keywords::lower_triggered_companion(card.kind, &rest)?);
                             }
                             keywords::triggered_printed(&keywords, text, &card_source.shape)?;
                             for keyword in &triggers {

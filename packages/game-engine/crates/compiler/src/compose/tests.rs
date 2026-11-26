@@ -1693,38 +1693,100 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
             ("keyword", "keyword:triggered:printed_instances")
         );
     }
-    // Protection clauses containing `and` remain valid companion keywords.
-    let protection_intact = changed(THOR_ODINSON, |row| {
-        let line = "Prowess, protection from red and from green";
-        row["source"]["oracle_text"] = json!(line);
-        row["source"]["keywords"] = json!(["Prowess", "Protection"]);
-        row["faces"][0]["result"]["lines"][0]["text"] = json!(line);
-        row["faces"][0]["result"]["abilities"][0]["keywords"] = json!([
-            {"keyword": "prowess"},
-            {"keyword": "protection", "from": [{"scope": "color", "color": "red"}, {"scope": "color", "color": "green"}]}
-        ]);
-        let bytes = line.len();
-        let cert = &mut row["resolution"]["faces"][0]["blocks"][0]["spans"]["certificate"];
-        cert["bytes"] = json!(bytes);
-        cert["segments"][0]["end"] = json!(bytes);
-    });
-    let protection_lowered = lowers(&protection_intact).unwrap();
-    assert_eq!(
-        protection_lowered.keywords,
-        [
-            KeywordAbility::ProtectionFromRed,
-            KeywordAbility::ProtectionFromGreen,
-        ]
-    );
-    assert_eq!(protection_lowered.triggered.len(), 1);
-    let protection_dropped = changed(&protection_intact, |row| {
-        row["faces"][0]["result"]["abilities"][0]["keywords"] = json!([{"keyword": "protection", "from": [{"scope": "color", "color": "red"}, {"scope": "color", "color": "green"}]}]);
-    });
-    let failure = lowers(&protection_dropped).unwrap_err();
-    assert_eq!(
-        (failure.path.as_str(), failure.reason.as_str()),
-        ("keyword", "keyword:triggered:printed_instances")
-    );
+    // Protection clauses (any position, separator or terminal period) and
+    // whitespace before separators match `parseKeywordLine` and still reject
+    // when prowess is dropped.
+    for line in [
+        "Prowess, protection from red and from green",
+        "Prowess, protection from red and from green.",
+        "Prowess and protection from red and from green",
+        "Prowess; and protection from red and from green",
+        "Protection from red and from green, prowess",
+    ] {
+        let protection_first = line.starts_with("Protection");
+        let kws = if protection_first {
+            json!([
+                {"keyword": "protection", "from": [{"scope": "color", "color": "red"}, {"scope": "color", "color": "green"}]},
+                {"keyword": "prowess"}
+            ])
+        } else {
+            json!([
+                {"keyword": "prowess"},
+                {"keyword": "protection", "from": [{"scope": "color", "color": "red"}, {"scope": "color", "color": "green"}]}
+            ])
+        };
+        let protection_intact = changed(THOR_ODINSON, |row| {
+            row["source"]["oracle_text"] = json!(line);
+            row["source"]["keywords"] = json!(["Prowess", "Protection"]);
+            row["faces"][0]["result"]["lines"][0]["text"] = json!(line);
+            row["faces"][0]["result"]["abilities"][0]["keywords"] = kws;
+            let bytes = line.len();
+            let cert = &mut row["resolution"]["faces"][0]["blocks"][0]["spans"]["certificate"];
+            cert["bytes"] = json!(bytes);
+            cert["segments"][0]["end"] = json!(bytes);
+        });
+        let protection_lowered = lowers(&protection_intact).unwrap();
+        assert_eq!(
+            protection_lowered.keywords,
+            [
+                KeywordAbility::ProtectionFromRed,
+                KeywordAbility::ProtectionFromGreen,
+            ],
+            "{line}"
+        );
+        assert_eq!(protection_lowered.triggered.len(), 1, "{line}");
+        let protection_dropped = changed(&protection_intact, |row| {
+            row["faces"][0]["result"]["abilities"][0]["keywords"] = json!([
+                {"keyword": "protection", "from": [{"scope": "color", "color": "red"}, {"scope": "color", "color": "green"}]}
+            ]);
+        });
+        let failure = lowers(&protection_dropped).unwrap_err();
+        let expected_reason = if line == "Prowess, protection from red and from green" {
+            "keyword:triggered:printed_instances"
+        } else {
+            "keyword:protection:printed_quality"
+        };
+        assert_eq!(
+            (failure.path.as_str(), failure.reason.as_str()),
+            ("keyword", expected_reason),
+            "{line}"
+        );
+        let direct = keywords::triggered_instances_printed(
+            &[line.to_owned()],
+            &json!([{"kind": "keywords", "keywords": [{"keyword": "protection"}]}]),
+        )
+        .unwrap_err();
+        assert_eq!(
+            (direct.path.as_str(), direct.reason.as_str()),
+            ("keyword", "keyword:triggered:printed_instances"),
+            "{line}"
+        );
+    }
+    for line in [
+        "Flying , vigilance, prowess",
+        "Flying, vigilance ; and prowess",
+    ] {
+        let intact = reword_line(line);
+        let lowered_line = lowers(&intact).unwrap();
+        assert_eq!(
+            lowered_line.keywords,
+            [KeywordAbility::Flying, KeywordAbility::Vigilance],
+            "{line}"
+        );
+        assert_eq!(lowered_line.triggered.len(), 1, "{line}");
+        let dropped = changed(&intact, |row| {
+            row["faces"][0]["result"]["abilities"][0]["keywords"]
+                .as_array_mut()
+                .unwrap()
+                .truncate(2);
+        });
+        let failure = lowers(&dropped).unwrap_err();
+        assert_eq!(
+            (failure.path.as_str(), failure.reason.as_str()),
+            ("keyword", "keyword:triggered:printed_instances"),
+            "{line}"
+        );
+    }
     // Malformed punctuation or extra trailing periods reject both intact and
     // with prowess dropped from the AST.
     for line in [
@@ -1770,6 +1832,7 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
     for prose in [
         "Other Allies you control have menace and prowess.",
         "Create a 1/1 Bird creature token with flying and prowess.",
+        "Create a 1/1 Bird creature token with flying and afterlife1.",
     ] {
         let failure = keywords::triggered_instances_printed(
             &[prose.to_owned()],
