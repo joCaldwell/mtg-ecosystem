@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generic Archive R4 deck harness: coverage, staging, play and paired benches.
+"""Generic Archive R5 deck harness: coverage, staging, play and paired benches.
 
-  engine-decks.py coverage SIM --out NEW_DIR [--decks SNAPSHOT] [--all] [--archive R4.jsonl] [--baseline REPORT]
-  engine-decks.py stage SIM OUTPUT (--deck NAME | --decklist FILE) [--decks FILE] [--archive R4.jsonl]
-  engine-decks.py play (DECK | --decklist FILE) [SEED] [--decks FILE] [--archive R4.jsonl]
+  engine-decks.py coverage SIM --out NEW_DIR [--decks SNAPSHOT] [--all] [--archive R5.jsonl] [--baseline REPORT]
+  engine-decks.py stage SIM OUTPUT (--deck NAME | --decklist FILE) [--decks FILE] [--archive R5.jsonl]
+  engine-decks.py play (DECK | --decklist FILE) [SEED] [--decks FILE] [--archive R5.jsonl]
   engine-decks.py bench SIM --bulk-artifact DIR --manifest-sha SHA --pod-decks A.json --swap SLOT:REMOVE:ADD
                         --blocks N --out NEW_DIR [--seed-start N] [--threads N] [--decision-limit N]
 
@@ -316,7 +316,7 @@ def main(argv=None):
     cov.add_argument('sim', type=Path)
     cov.add_argument('--out', type=Path, required=True)
     cov.add_argument('--decks', type=Path, default=shared_generated('phase1-target-decks.json'))
-    cov.add_argument('--archive', type=Path, default=shared_generated('oracle-ast-phase1-r4.jsonl'))
+    cov.add_argument('--archive', type=Path, default=shared_generated('oracle-ast-phase1-r5.jsonl'))
     cov.add_argument('--all', action='store_true', help='scan the whole archive, not only snapshot IDs')
     cov.add_argument('--baseline', type=Path)
     commands.add_parser('stage', help='forwarded verbatim to stage-deck.py')

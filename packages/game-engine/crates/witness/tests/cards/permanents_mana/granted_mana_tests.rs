@@ -1,5 +1,5 @@
 //! Quoted mana abilities granted by battlefield statics: Chromatic Lantern,
-//! Gemhide Sliver and Abundant Growth from exact frozen R4 source. A granted
+//! Gemhide Sliver and Abundant Growth from exact frozen R5 source. A granted
 //! ability belongs to its recipient, which taps itself; "you" is the player
 //! who activates it. Pinned CR 106.7, 109.5, 113.10, 113.10a, 302.6,
 //! 605.1a, 605.3a, 613.1f, 613.7a:
@@ -13,17 +13,17 @@ use mtg_contracts::{ManaProduction, strict_read};
 use mtg_core::ManaAbilityIdentity;
 
 const LANTERN: &str = include_str!(
-    "../../../../../tests/fixtures/phase1-r4/539f5396-d99a-417d-a84c-dff7930b5900.json"
+    "../../../../../tests/fixtures/phase1-r5/539f5396-d99a-417d-a84c-dff7930b5900.json"
 );
 const GEMHIDE: &str = include_str!(
-    "../../../../../tests/fixtures/phase1-r4/2c09ca09-8e62-4fe3-9b3d-61573dd2ffbc.json"
+    "../../../../../tests/fixtures/phase1-r5/2c09ca09-8e62-4fe3-9b3d-61573dd2ffbc.json"
 );
 const GROWTH: &str = include_str!(
-    "../../../../../tests/fixtures/phase1-r4/947a2665-2f4d-4193-8768-118f85334549.json"
+    "../../../../../tests/fixtures/phase1-r5/947a2665-2f4d-4193-8768-118f85334549.json"
 );
 
 fn lowered(raw: &str) -> Definition {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("frozen granted-mana witness must lower: {result:?}");
     };

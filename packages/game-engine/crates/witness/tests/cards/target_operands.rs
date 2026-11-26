@@ -1,4 +1,4 @@
-//! Wave C lane A: target and selection operands from exact frozen R4 source
+//! Wave C lane A: target and selection operands from exact frozen R5 source
 //! on private boards. Controller-qualified targets, damage to a target
 //! creature, +1/+1 counters on each creature you control, the source
 //! permanent as an operand, and an up-to-one target that may be omitted.
@@ -12,7 +12,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -37,7 +37,7 @@ const SELENIA: &str = record!("3db1ac09-e35a-4f50-97c4-f65dbc28daef");
 fn board(cards: &[(&str, &[Cell], Tiers)]) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for &(raw, cells, tiers) in cards {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("frozen target witness failed: {result:?}");
         };

@@ -212,7 +212,7 @@ esac
         template = json.loads(module.TEMPLATE.read_text())
         self.assertEqual('commander-foundations-v1', template['name'])
         self.assertTrue((module.TEMPLATE.parent / template['commander_policy']['banned_list']).is_file())
-        self.assertTrue((module.FIXTURES / module.R4_MANIFEST).is_file())
+        self.assertTrue((module.FIXTURES / module.R5_MANIFEST).is_file())
 
 
 if __name__ == '__main__':

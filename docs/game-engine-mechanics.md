@@ -1,6 +1,6 @@
 # Supported engine mechanics
 
-Every executable card lowers completely from Archive R4 to schema-1 KIR.
+Every executable card lowers completely from Archive R5 to schema-1 KIR.
 `crates/contracts/src/kir/tiers/executes.rs` validates the card shell and
 ability context, `kir::check` the nodes and bindings, and `kir::tiers` derives
 the [tiers](#derived-capability-tiers) the card earns. Admission requires a
@@ -80,7 +80,7 @@ sampled origins ([search](game-engine-search.md) owns hypothetical origins).
 ## Double-faced cards and adventurers
 
 The layout allowlist admits Scryfall `normal`, `modal_dfc`, `transform` and
-`adventure`. Both Archive R4 parts must lower completely; the card requires
+`adventure`. Both Archive R5 parts must lower completely; the card requires
 both parts' capabilities and keeps one frozen color identity (CR 903.4d).
 Deck construction, commander eligibility and zones other than the stack or
 battlefield use the front or normal characteristics. Every zone change
@@ -565,7 +565,7 @@ controller's life, hand or own graveyard card count. Both stages record
 (`InterveningIfV1`, `EventTriggerV1`).
 
 A source-relative combat-damage trigger can put fixed +1/+1 counters on the
-incarnation that dealt the damage (CR 400.7). Cascade has no executable R4 form.
+incarnation that dealt the damage (CR 400.7). Cascade has no executable R5 form.
 
 ### Delayed and reflexive triggers
 
@@ -680,12 +680,12 @@ request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 Sentences resolve in printed order (CR 608.2c); sorcery-speed activations use
 main-phase timing (CR 602.5d); tokens recover from the creating recipe.
 [Compositional lowering](game-engine-catalogs.md#compositional-lowering) owns
-the R4 source, pronoun and binding checks.
+the R5 source, pronoun and binding checks.
 
 ## Admission and policy boundaries
 
 The Foundations profile supplies the retained hosted and search decklists; other
-R4 fixture catalogs exercise private rules and compiler tests.
+R5 fixture catalogs exercise private rules and compiler tests.
 
 Develop policy uses permitted observations and public IR features; it may
 estimate value but never determines legality or inspects hidden state. Core and

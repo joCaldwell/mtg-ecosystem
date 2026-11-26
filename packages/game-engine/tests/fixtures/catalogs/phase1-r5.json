@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "provenance": "../provenance.json",
+  "records": [
+    "../phase1-r5/compose-strip-mine.json",
+    "../phase1-r5/compose-seal-of-primordium.json",
+    "../phase1-r5/compose-piranha-marsh.json",
+    "../phase1-r5/compose-destructor-dragon.json",
+    "../phase1-r5/compose-bake-into-a-pie.json",
+    "../phase1-r5/compose-hire-a-crew.json",
+    "../phase1-r5/compose-icatian-priest.json",
+    "../phase1-r5/compose-kamahl-pit-fighter.json",
+    "../phase1-r5/compose-marble-chalice.json",
+    "../phase1-r5/compose-rishadan-port.json"
+  ],
+  "expected_ir": "../expected-phase1-r5-ir.json",
+  "expected_digest": "phase1-r5.sha256",
+  "output_order": "canonical"
+}

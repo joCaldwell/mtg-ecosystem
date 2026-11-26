@@ -1,4 +1,4 @@
-//! Chosen costs from frozen R4. CR 302.6, 400.2, 601.2c/g-h, 602.2b,
+//! Chosen costs from frozen R5. CR 302.6, 400.2, 601.2c/g-h, 602.2b,
 //! 701.9, 701.13 and 701.26.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -6,7 +6,7 @@ use super::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../../tests/fixtures/phase1-r4/",
+            "../../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -393,7 +393,7 @@ fn graveyard_exile_follows_mana_and_moves_only_own_cards() {
 #[test]
 fn rejects_random_discard_and_unaudited_graveyard_source_actions() {
     for raw in [METEOR_STORM, HAUNTED_DEAD] {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         assert!(
             matches!(result, mtg_compiler::CompileResult::Unsupported { .. }),
             "{result:?}"

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Stage any 100%-compiled deck from Archive R4 and play/replay one seeded,
+# Stage any 100%-compiled deck from Archive R5 and play/replay one seeded,
 # headless four-seat match from the committed HEAD:
 #
-#   scripts/play-deck.sh "Jo's Cascade" [SEED] [--decks FILE] [--archive R4.jsonl]
-#   scripts/play-deck.sh --decklist deck.json [SEED] [--archive R4.jsonl]
+#   scripts/play-deck.sh "Jo's Cascade" [SEED] [--decks FILE] [--archive R5.jsonl]
+#   scripts/play-deck.sh --decklist deck.json [SEED] [--archive R5.jsonl]
 #
 # A detached checkout of HEAD under the printed evidence directory runs its own
 # scripts/stage-deck.py and builds release mtg-sim: nothing from the invoking
@@ -18,7 +18,7 @@
 # docs/game-engine-storage.md describes.
 set -euo pipefail
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 DECK|--decklist FILE [SEED] [--decks FILE] [--archive R4.jsonl]" >&2
+    echo "Usage: $0 DECK|--decklist FILE [SEED] [--decks FILE] [--archive R5.jsonl]" >&2
     exit 2
 fi
 root=$(git rev-parse --show-toplevel)
@@ -31,7 +31,7 @@ shared() {
     fi
 }
 decks=$(shared phase1-target-decks.json)
-archive=$(shared oracle-ast-phase1-r4.jsonl)
+archive=$(shared oracle-ast-phase1-r5.jsonl)
 if [[ $1 == --decklist ]]; then
     select=(--decklist "$(realpath -e "$2")")
     shift 2

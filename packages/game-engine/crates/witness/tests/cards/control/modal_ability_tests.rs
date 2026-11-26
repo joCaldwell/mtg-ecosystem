@@ -1,4 +1,4 @@
-//! Modal triggered and activated abilities from exact frozen R4 source on
+//! Modal triggered and activated abilities from exact frozen R5 source on
 //! private boards. A triggered ability's modes are chosen as it is put on
 //! the stack and an activated ability's as it is activated, before targets;
 //! only selections whose targets can be chosen are offered, and a trigger
@@ -13,7 +13,7 @@ use mtg_contracts::kir::{Tiers, definition_tiers};
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../../tests/fixtures/phase1-r4/",
+            "../../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -33,7 +33,7 @@ const BLACK_PANTHER: &str = record!("b0bf1964-c543-4c53-9f09-0dd7c608d5c5");
 const ETHERWROUGHT_PAGE: &str = record!("f1c87913-9374-41d7-ae70-444d427290b4");
 
 fn lowered(raw: &str) -> Definition {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("frozen modal ability witness failed: {result:?}");
     };

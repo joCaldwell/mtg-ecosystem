@@ -74,7 +74,7 @@ fn kernel_pump_over_a_general_filter_captures_executes_and_recovers() {
     // Snapshot restore and journal replay re-derive the same captured set.
 }
 
-/// The source-lowered R4 witness catalog with the rows in play.
+/// The source-lowered R5 witness catalog with the rows in play.
 fn prepared(rows: &[(&str, bool)]) -> Prepared {
     let c = FixtureCatalog::Witness.get().clone();
     let mut board = Board::new(c, "equipped-indestructible-private").step(TurnStep::PrecombatMain);

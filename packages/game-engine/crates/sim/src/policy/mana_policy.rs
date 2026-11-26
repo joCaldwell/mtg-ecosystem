@@ -644,7 +644,7 @@ mod tests {
     /// least fixed point.
     #[test]
     fn could_produce_reads_each_land_relative_to_its_controller() {
-        let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
         let orchard = ManaProduction::LandsCouldProduce {
             controller: ManaLandController::Opponents,
             colors_only: true,
@@ -677,9 +677,9 @@ mod tests {
     #[test]
     fn temple_of_the_false_god_is_planned_only_with_five_lands() {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
             include_str!(
-                "../../../../tests/fixtures/phase1-r4/cfdd5dc6-593e-495a-8cfe-3a56b3c4c7df.json"
+                "../../../../tests/fixtures/phase1-r5/cfdd5dc6-593e-495a-8cfe-3a56b3c4c7df.json"
             ),
         ) else {
             panic!("frozen Temple of the False God lowers");

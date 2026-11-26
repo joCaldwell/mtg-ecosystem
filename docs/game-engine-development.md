@@ -125,7 +125,7 @@ units) and four integration suites for cross-module behavior.
 | --- | --- |
 | `mtg-core --test rules` | Turns, stack, combat, payment, commander, triggers, kernel and public adversarial inputs |
 | `mtg-core --test recovery` | Snapshots, history, query work, search privacy, trace and budget invariance |
-| `mtg-witness --test cards` | Runtime witnesses compiled from exact frozen R4 source |
+| `mtg-witness --test cards` | Runtime witnesses compiled from exact frozen R5 source |
 | `mtg-server --test host` | Host protocol, store, authorization and recovery, including the opt-in systemd resume case |
 
 Core's non-default `testkit` feature supplies `FixtureCatalog`, `Board`
@@ -259,7 +259,7 @@ The script docstring (`scripts/engine-decks.py`) owns options and report
 contents. `coverage` joins `catalog coverage` receipts to the deck snapshot
 (`--all`: the whole archive) and ranks blockers by family, counting the deck
 slots and cards each family touches and alone blocks. `stage` accepts only the
-registered Archive R4 file, requires every card to compile and templates the
+registered Archive R5 file, requires every card to compile and templates the
 reviewed `commander-foundations-v1` profile. `play` stages and plays one seeded
 match from a detached HEAD under `generated/deck-play.*` (live journals in its
 `live-journals/`). `bench` wraps the [paired runner](game-engine-search.md#paired-deck-experiments)

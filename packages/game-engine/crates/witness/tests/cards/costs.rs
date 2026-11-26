@@ -1,6 +1,6 @@
 //! Track 3A wave W10: variable, hybrid and Phyrexian mana costs, cycling,
 //! kicker, flashback, a spell's additional sacrifice and activation cost
-//! terms, from exact frozen R4 source on private boards. Every choice is
+//! terms, from exact frozen R5 source on private boards. Every choice is
 //! checked for state validity and an exact snapshot round trip; every
 //! finished resolution replays from its journal.
 //! Pinned CR 107.3a, 107.4e-f, 109.1, 118.3, 119.4, 122.1, 601.2b/f-h,
@@ -13,7 +13,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -47,7 +47,7 @@ const BEAST_ATTACK: &str = record!("3f5acd90-199c-4ed3-9c8a-eeac4670d876");
 fn board(cards: &[(&str, &[Cell])]) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for &(raw, cells) in cards {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("frozen cost witness failed: {result:?}");
         };
