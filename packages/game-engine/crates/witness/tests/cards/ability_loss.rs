@@ -1,0 +1,635 @@
+//! Frozen R5 witnesses for static ability loss and type replacement.
+//! CR 113.10, 205.1a-b, 205.3d, 205.4b, 305.6-7, 604.3a, 613.1d, 613.1f,
+//! 613.4a, 613.6, 613.7, 613.8, 614.12, 700.5.
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use mtg_contracts::kir::{Change, Scope, StaticEffect, definition_tiers};
+use mtg_core::testkit::*;
+
+macro_rules! record {
+    ($id:literal) => {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/phase1-r5/",
+            $id,
+            ".json"
+        ))
+    };
+}
+
+const KENRITHS_TRANSFORMATION: &str = record!("a492a323-df8a-40fd-bff0-50091baa7700");
+const DARKSTEEL_MUTATION: &str = record!("05a4f8ff-49da-42af-add5-6248c4b0644b");
+const COLOSSUS_HAMMER: &str = record!("8ec03b88-8d3a-4a32-8b7c-7da59b0c03d0");
+const MYSTIC_SUBDUAL: &str = record!("fdd423d5-f19b-4bb2-98ca-75cc3c058d32");
+const HUMILITY: &str = record!("ed7bdb3e-5c51-4547-9266-76a791e0b2b0");
+const BLOOD_MOON: &str = record!("94fac5fe-97d5-4c12-a80c-8efff9d853ae");
+const SONG_OF_THE_DRYADS: &str = record!("7c3944fa-7c86-4979-85a9-86196aa94594");
+const ARCHETYPE_OF_IMAGINATION: &str = record!("a5458de0-0f61-49a3-a013-d90f92559809");
+const HELIOD: &str = record!("4ea488b2-5ba0-4565-b928-570c8e03b926");
+const TOXICRENE: &str = record!("fbfe98f0-110b-4d4b-9240-2767b08acf68");
+const LIGHTFOOT_TECHNIQUE: &str = record!("601b7481-19fc-4779-950e-883a9a22aec3");
+const LORD_OF_ATLANTIS: &str = record!("cc7f290f-ca00-4285-9bdb-4b4402444f30");
+const KIORAS_FOLLOWER: &str = record!("22c044ad-77d7-4c93-953d-e2daa9686ff7");
+const TARMOGOYF: &str = record!("45900b2f-f6a9-4c42-9642-008f3c1cf6dd");
+const LLANOWAR_ELVES: &str = record!("68954295-54e3-4303-a6bc-fc4547a4e3a3");
+const KEIGA: &str = record!("521b1598-58c6-47a0-a7b3-021d70bf2b05");
+const COMMAND_TOWER: &str = record!("0895c9b7-ae7d-4bb3-af17-3b75deb50a25");
+const BREEDING_POOL: &str = record!("20283c4a-f1f0-42f0-bc08-6da87474426b");
+const CRUMBLING_NECROPOLIS: &str = record!("7190debf-708b-4f41-9714-0d0a5bd5a74e");
+const HIVESTONE: &str = record!("72aeed80-653b-4c53-ba65-a339aad14b9a");
+const NIBLIS_OF_DUSK: &str = record!("d14d41a5-6f38-43c7-b95c-b4a723002c20");
+const DARU_WARCHIEF: &str = record!("3fce53fb-6914-4f43-b46b-18ca32ab21b2");
+const BLAZING_ARCHON: &str = record!("82a70e4c-01ed-4280-80e4-86cb2bf6e63d");
+
+const ALL: &[&str] = &[
+    KENRITHS_TRANSFORMATION,
+    DARKSTEEL_MUTATION,
+    COLOSSUS_HAMMER,
+    MYSTIC_SUBDUAL,
+    HUMILITY,
+    BLOOD_MOON,
+    SONG_OF_THE_DRYADS,
+    ARCHETYPE_OF_IMAGINATION,
+    HELIOD,
+    TOXICRENE,
+    LIGHTFOOT_TECHNIQUE,
+    LORD_OF_ATLANTIS,
+    KIORAS_FOLLOWER,
+    TARMOGOYF,
+    LLANOWAR_ELVES,
+    KEIGA,
+    COMMAND_TOWER,
+    BREEDING_POOL,
+    CRUMBLING_NECROPOLIS,
+    HIVESTONE,
+    NIBLIS_OF_DUSK,
+    DARU_WARCHIEF,
+    BLAZING_ARCHON,
+];
+
+fn lowered(raw: &str) -> Definition {
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("frozen witness failed: {result:?}");
+    };
+    definition.validate().unwrap();
+    definition_tiers(&definition).unwrap();
+    *definition
+}
+
+fn game(cards: &[(&str, u8, Zone)]) -> Game {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for raw in ALL {
+        let d = lowered(raw);
+        if !catalog.definitions.iter().any(|x| x.oracle_id == d.oracle_id) {
+            catalog.definitions.push(d);
+        }
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    let mut board = Board::new(catalog, "ability-loss-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2);
+    for &(name, seat, zone) in cards {
+        let zone = match zone {
+            Zone::Hand { .. } => Zone::Hand {
+                owner: PlayerId(seat),
+            },
+            Zone::Graveyard { .. } => Zone::Graveyard {
+                owner: PlayerId(seat),
+            },
+            other => other,
+        };
+        board = board.card(name, seat, seat, zone);
+    }
+    let mut game = Game::with_trace(board.libraries("Forest", 6).prepare(), TraceMode::Detailed);
+    Driver::request(&mut game, u64::MAX);
+    game
+}
+
+const B: Zone = Zone::Battlefield;
+const H: Zone = Zone::Hand {
+    owner: PlayerId(0),
+};
+const G: Zone = Zone::Graveyard {
+    owner: PlayerId(0),
+};
+
+fn checked(g: &Game) {
+    g.validate_state().unwrap();
+    let snapshot = g.snapshot().unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &snapshot).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), snapshot);
+    assert_recoverable(g.into());
+}
+
+/// Answer targets with `targets`, pass priority and stop on an empty stack.
+fn settle(g: &mut Game, targets: &[ObjectId]) {
+    for _ in 0..64 {
+        let r = Driver::request(g, u64::MAX);
+        let answer = match &r.reason {
+            Reason::Targets { .. } => r.entity_targets(
+                targets
+                    .iter()
+                    .map(|object| TargetEntity::Object { object: *object })
+                    .collect(),
+            ),
+            Reason::Priority
+                if g.state.rules.stack.is_empty() && g.state.rules.pending_triggers.is_empty() =>
+            {
+                return checked(g);
+            }
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::OrderTriggers => Answer::Order {
+                order: (0..u32::try_from(r.candidates.len()).unwrap()).collect(),
+            },
+            x => panic!("settle {x:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    panic!("stack did not settle");
+}
+
+/// Cast card `spell` on `targets`, paying with the lands `mana`, and
+/// resolve it.
+fn cast_on(g: &mut Game, spell: u32, targets: &[ObjectId], mana: &[u32]) {
+    Driver::cast(g, CardId(spell));
+    if !targets.is_empty() {
+        let r = Driver::request(g, u64::MAX);
+        g.respond(
+            r.player,
+            r.id,
+            r.entity_targets(
+                targets
+                    .iter()
+                    .map(|object| TargetEntity::Object { object: *object })
+                    .collect(),
+            ),
+        )
+        .unwrap();
+    }
+    Driver::pay(g, mana);
+    settle(g, &[]);
+}
+
+fn object(g: &Game, id: u32) -> ObjectId {
+    Driver::object(g, id)
+}
+
+fn keywords(g: &Game, id: ObjectId) -> Vec<KeywordAbility> {
+    g.visible_object(PlayerId(0), g.current(id).unwrap())
+        .unwrap()
+        .unwrap()
+        .keywords
+}
+
+fn pt(g: &Game, id: ObjectId) -> (Quantity, Quantity) {
+    let c = g.characteristics(id).unwrap();
+    (c.power.unwrap(), c.toughness.unwrap())
+}
+
+fn q(value: i64) -> Quantity {
+    Quantity::from(value)
+}
+
+fn can(g: &mut Game, action: Action<Rules>) -> bool {
+    let r = Driver::request(g, u64::MAX);
+    r.index(&Candidate::Action { action }).is_some()
+}
+
+fn continuous(d: &Definition) -> Vec<&[Change]> {
+    d.static_abilities
+        .iter()
+        .filter_map(|a| match &a.effect {
+            StaticEffect::Continuous { changes, .. } => Some(changes.as_slice()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The printed sentences lower to one effect each, card types before
+/// subtypes (CR 205.1a, 613.6).
+#[test]
+fn ability_loss_and_type_replacement_lower_exactly() {
+    let kenrith = lowered(KENRITHS_TRANSFORMATION);
+    assert_eq!(
+        continuous(&kenrith),
+        [&[
+            Change::RemoveAllAbilities {
+                except_own_grants: false
+            },
+            Change::SetCardTypes {
+                kinds: vec![CardKind::Creature]
+            },
+            Change::SetCreatureSubtypes {
+                subtypes: vec!["Elk".into()]
+            },
+            Change::SetColors {
+                colors: vec![Color::G]
+            },
+            Change::SetPowerToughness {
+                power: mtg_contracts::kir::Amount::fixed(3),
+                toughness: mtg_contracts::kir::Amount::fixed(3)
+            },
+        ][..]]
+    );
+    let mutation = lowered(DARKSTEEL_MUTATION);
+    assert!(continuous(&mutation)[0].contains(&Change::RemoveAllAbilities {
+        except_own_grants: true
+    }));
+    assert!(continuous(&mutation)[0].contains(&Change::SetCardTypes {
+        kinds: vec![CardKind::Creature, CardKind::Artifact]
+    }));
+    assert!(continuous(&lowered(COLOSSUS_HAMMER))[0].contains(&Change::RemoveKeywords {
+        keywords: vec![KeywordAbility::Flying]
+    }));
+    let moon = lowered(BLOOD_MOON);
+    assert!(matches!(&moon.static_abilities[0].effect,
+        StaticEffect::Continuous { affects: Scope::Matching { .. }, changes, condition: None }
+            if *changes == [Change::SetLandSubtypes { subtypes: vec!["Mountain".into()] }]));
+    let heliod = lowered(HELIOD);
+    assert!(heliod.static_abilities.iter().any(|a| matches!(&a.effect,
+        StaticEffect::Continuous { affects: Scope::Source, changes, condition: Some(_) }
+            if *changes == [Change::RemoveCardTypes { kinds: vec![CardKind::Creature] }])));
+    let archetype = lowered(ARCHETYPE_OF_IMAGINATION);
+    assert!(continuous(&archetype)[1].contains(&Change::ForbidKeywords {
+        keywords: vec![KeywordAbility::Flying]
+    }));
+}
+
+/// CR 613.7: a grant after "loses all abilities" survives it; a grant
+/// before it does not. The printed flying is earlier than either, and the
+/// Aura's own type, color and base P/T changes persist (CR 613.6).
+#[test]
+fn later_grant_beats_earlier_loss() {
+    // Kenrith's Transformation, then Lightfoot Technique.
+    let mut g = game(&[
+        ("Keiga, the Tide Star", 0, B),
+        ("Kenrith's Transformation", 0, H),
+        ("Lightfoot Technique", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let keiga = object(&g, 0);
+    assert!(keywords(&g, keiga).contains(&KeywordAbility::Flying));
+    cast_on(&mut g, 1, &[keiga], &[3, 4]);
+    let c = g.characteristics(keiga).unwrap();
+    assert_eq!(c.kind, CardKind::Creature);
+    assert!(c.additional_types.is_empty());
+    assert_eq!(c.subtypes, vec!["Elk".to_string()]);
+    assert_eq!(c.colors, vec![Color::G]);
+    assert!(c.legendary, "CR 205.4b: supertypes stay");
+    assert_eq!(pt(&g, keiga), (q(3), q(3)));
+    assert!(keywords(&g, keiga).is_empty());
+    cast_on(&mut g, 2, &[keiga], &[5, 6]);
+    let now = keywords(&g, keiga);
+    assert!(now.contains(&KeywordAbility::Flying) && now.contains(&KeywordAbility::Indestructible));
+    assert_eq!(pt(&g, keiga), (q(4), q(4)));
+
+    // Lightfoot Technique, then Kenrith's Transformation.
+    let mut g = game(&[
+        ("Grizzly Bears", 0, B),
+        ("Kenrith's Transformation", 0, H),
+        ("Lightfoot Technique", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let bears = object(&g, 0);
+    cast_on(&mut g, 2, &[bears], &[5, 6]);
+    assert!(keywords(&g, bears).contains(&KeywordAbility::Flying));
+    cast_on(&mut g, 1, &[bears], &[3, 4]);
+    assert!(keywords(&g, bears).is_empty());
+    // The counter still applies in layer 7c over the Elk's base 3/3.
+    assert_eq!(pt(&g, bears), (q(4), q(4)));
+}
+
+/// CR 613.1f, 613.8a: a lord that loses its abilities stops granting its
+/// anthem and keyword; its triggered and activated abilities stop too.
+#[test]
+fn lord_loses_its_anthem_and_abilities_stop() {
+    let mut g = game(&[
+        ("Lord of Atlantis", 0, B),
+        ("Kiora's Follower", 0, B),
+        ("Mystic Subdual", 0, H),
+        ("Island", 0, B),
+        ("Island", 0, B),
+    ]);
+    let (lord, follower) = (object(&g, 0), object(&g, 1));
+    assert_eq!(pt(&g, follower), (q(3), q(3)));
+    assert!(keywords(&g, follower).contains(&KeywordAbility::Islandwalk));
+    cast_on(&mut g, 2, &[lord], &[3, 4]);
+    assert_eq!(pt(&g, follower), (q(2), q(2)));
+    assert!(keywords(&g, follower).is_empty());
+    assert_eq!(pt(&g, lord), (q(0), q(2)));
+    // The follower keeps its own activated ability.
+    assert!(can(
+        &mut g,
+        Action::ActivateAbility {
+            object: follower,
+            ability: 0
+        }
+    ));
+
+    let mut g = game(&[
+        ("Kiora's Follower", 0, B),
+        ("Llanowar Elves", 0, B),
+        ("Kenrith's Transformation", 0, H),
+        ("Kenrith's Transformation", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+    ]);
+    let (follower, elves) = (object(&g, 0), object(&g, 1));
+    assert_eq!(g.mana_abilities(elves).unwrap(), vec![Color::G]);
+    cast_on(&mut g, 2, &[follower], &[4, 5]);
+    cast_on(&mut g, 3, &[elves], &[6, 7]);
+    assert!(!can(
+        &mut g,
+        Action::ActivateAbility {
+            object: follower,
+            ability: 0
+        }
+    ));
+    assert!(!can(&mut g, Action::ActivateMana { object: elves }));
+    assert!(g.mana_abilities(elves).unwrap().is_empty());
+}
+
+/// CR 603.2, 113.10: prowess triggers on the Aura's own cast, then the
+/// creature has no triggered ability left to trigger.
+#[test]
+fn lost_triggered_abilities_do_not_trigger() {
+    let mut g = game(&[
+        ("Niblis of Dusk", 0, B),
+        ("Grizzly Bears", 0, B),
+        ("Mystic Subdual", 0, H),
+        ("Lightfoot Technique", 0, H),
+        ("Island", 0, B),
+        ("Island", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let (niblis, bears) = (object(&g, 0), object(&g, 1));
+    // Prowess (+1/+1) and Mystic Subdual (-2/-0) both apply this turn.
+    cast_on(&mut g, 2, &[niblis], &[4, 5]);
+    assert!(keywords(&g, niblis).is_empty());
+    assert_eq!(pt(&g, niblis), (q(1), q(2)));
+    Driver::cast(&mut g, CardId(3));
+    let r = Driver::request(&mut g, u64::MAX);
+    g.respond(
+        r.player,
+        r.id,
+        r.entity_targets(vec![TargetEntity::Object { object: bears }]),
+    )
+    .unwrap();
+    Driver::pay(&mut g, &[6, 7]);
+    assert!(g.state.rules.pending_triggers.is_empty());
+    assert_eq!(g.state.rules.stack.len(), 1);
+    settle(&mut g, &[]);
+    assert_eq!(pt(&g, niblis), (q(1), q(2)));
+}
+
+/// CR 604.3a, 613.4a, 208.2a: a removed characteristic-defining ability no
+/// longer defines the stat, so Tarmogoyf keeps its printed 0/1.
+#[test]
+fn removed_cda_leaves_printed_stats() {
+    let mut g = game(&[
+        ("Tarmogoyf", 0, B),
+        ("Mystic Subdual", 0, H),
+        ("Island", 0, B),
+        ("Island", 0, B),
+        ("Grizzly Bears", 0, G),
+        ("Forest", 0, G),
+        ("Lightfoot Technique", 0, G),
+    ]);
+    let goyf = object(&g, 0);
+    assert_eq!(pt(&g, goyf), (q(3), q(4)));
+    cast_on(&mut g, 1, &[goyf], &[2, 3]);
+    // Mystic Subdual itself adds nothing to the graveyard.
+    assert_eq!(pt(&g, goyf), (q(-2), q(1)));
+}
+
+/// CR 305.7: Blood Moon makes nonbasic lands Mountains: they lose their
+/// rules-text mana abilities and tap for {R}; a basic land is unchanged.
+/// CR 614.12: an entering nonbasic land lacks its own entry replacements.
+#[test]
+fn blood_moon_replaces_land_types_and_mana() {
+    let mut g = game(&[
+        ("Command Tower", 0, B),
+        ("Breeding Pool", 0, B),
+        ("Forest", 0, B),
+        ("Mountain", 0, B),
+        ("Mountain", 0, B),
+        ("Blood Moon", 0, H),
+        ("Crumbling Necropolis", 0, H),
+    ]);
+    let (tower, pool, forest) = (object(&g, 0), object(&g, 1), object(&g, 2));
+    assert_eq!(
+        g.mana_abilities(pool).unwrap(),
+        vec![Color::G, Color::U]
+    );
+    cast_on(&mut g, 5, &[], &[2, 3, 4]);
+    for land in [tower, pool] {
+        let c = g.characteristics(land).unwrap();
+        assert_eq!(c.subtypes, vec!["Mountain".to_string()]);
+        assert_eq!(g.mana_abilities(land).unwrap(), vec![Color::R]);
+    }
+    assert_eq!(g.mana_abilities(forest).unwrap(), vec![Color::G]);
+    let necropolis = object(&g, 6);
+    Driver::action(&mut g, Action::PlayLand { object: necropolis });
+    let r = Driver::request(&mut g, u64::MAX);
+    assert_eq!(r.reason, Reason::Priority, "no entry choice is offered");
+    let necropolis = g.object_id(CardId(6)).unwrap();
+    assert_eq!(g.current(necropolis).unwrap().zone, Zone::Battlefield);
+    assert!(!g.current(necropolis).unwrap().tapped);
+    assert_eq!(g.mana_abilities(necropolis).unwrap(), vec![Color::R]);
+    settle(&mut g, &[]);
+}
+
+/// CR 613.8a: Song of the Dryads makes a creature a land, which changes
+/// what Blood Moon applies to, so Blood Moon waits for it and the
+/// permanent is a Mountain despite the later Aura. On a nonbasic land
+/// the effects are independent and the later timestamp wins.
+#[test]
+fn blood_moon_depends_on_song_of_the_dryads() {
+    let mut g = game(&[
+        ("Keiga, the Tide Star", 1, B),
+        ("Command Tower", 1, B),
+        ("Blood Moon", 0, B),
+        ("Song of the Dryads", 0, H),
+        ("Song of the Dryads", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+    ]);
+    let (keiga, tower) = (object(&g, 0), object(&g, 1));
+    cast_on(&mut g, 3, &[keiga], &[5, 6, 7]);
+    let c = g.characteristics(keiga).unwrap();
+    assert_eq!((c.kind, c.additional_types.clone()), (CardKind::Land, vec![]));
+    assert_eq!(c.subtypes, vec!["Mountain".to_string()]);
+    assert!(c.colors.is_empty() && c.power.is_none());
+    assert!(keywords(&g, keiga).is_empty());
+    assert_eq!(g.mana_abilities(keiga).unwrap(), vec![Color::R]);
+    cast_on(&mut g, 4, &[tower], &[8, 9, 10]);
+    assert_eq!(
+        g.characteristics(tower).unwrap().subtypes,
+        vec!["Forest".to_string()]
+    );
+    assert_eq!(g.mana_abilities(tower).unwrap(), vec![Color::G]);
+}
+
+/// CR 205.1b: "in addition to its other creature types" keeps the Elk;
+/// a later replacement removes the earlier addition (CR 613.7).
+#[test]
+fn additive_and_replacing_creature_types_follow_timestamps() {
+    let mut g = game(&[
+        ("Grizzly Bears", 0, B),
+        ("Hivestone", 0, B),
+        ("Kenrith's Transformation", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+    ]);
+    let bears = object(&g, 0);
+    assert!(g.characteristics(bears).unwrap().has_subtype("Sliver"));
+    cast_on(&mut g, 2, &[bears], &[3, 4]);
+    assert_eq!(
+        g.characteristics(bears).unwrap().subtypes,
+        vec!["Elk".to_string()]
+    );
+
+    let mut g = game(&[
+        ("Grizzly Bears", 0, B),
+        ("Kenrith's Transformation", 0, H),
+        ("Hivestone", 0, H),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+        ("Forest", 0, B),
+    ]);
+    let bears = object(&g, 0);
+    cast_on(&mut g, 1, &[bears], &[3, 4]);
+    cast_on(&mut g, 2, &[], &[5, 6]);
+    let c = g.characteristics(bears).unwrap();
+    assert!(c.has_subtype("Elk") && c.has_subtype("Sliver"));
+}
+
+/// CR 613.1f: Humility removes every creature's abilities, lords' grants
+/// included, sets base 1/1, and a later resolved grant still applies.
+#[test]
+fn humility_and_later_grants() {
+    let mut g = game(&[
+        ("Lord of Atlantis", 0, B),
+        ("Kiora's Follower", 0, B),
+        ("Keiga, the Tide Star", 0, B),
+        ("Tarmogoyf", 0, B),
+        ("Humility", 0, H),
+        ("Lightfoot Technique", 0, H),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let [lord, follower, keiga, goyf] = [0, 1, 2, 3].map(|i| object(&g, i));
+    cast_on(&mut g, 4, &[], &[6, 7, 8, 9]);
+    for creature in [lord, follower, keiga, goyf] {
+        assert_eq!(pt(&g, creature), (q(1), q(1)));
+        assert!(keywords(&g, creature).is_empty());
+    }
+    cast_on(&mut g, 5, &[keiga], &[10, 11]);
+    assert!(keywords(&g, keiga).contains(&KeywordAbility::Flying));
+    assert_eq!(pt(&g, keiga), (q(2), q(2)));
+}
+
+/// CR 613.1f: "can't have or gain flying" applies whatever the timestamp,
+/// and the Archetype's own grant reaches only its controller's creatures.
+#[test]
+fn archetype_forbids_later_grants() {
+    let mut g = game(&[
+        ("Archetype of Imagination", 0, B),
+        ("Grizzly Bears", 0, B),
+        ("Keiga, the Tide Star", 1, B),
+        ("Lightfoot Technique", 0, H),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let (bears, keiga) = (object(&g, 1), object(&g, 2));
+    assert!(keywords(&g, bears).contains(&KeywordAbility::Flying));
+    assert!(!keywords(&g, keiga).contains(&KeywordAbility::Flying));
+    cast_on(&mut g, 3, &[keiga], &[4, 5]);
+    let now = keywords(&g, keiga);
+    assert!(now.contains(&KeywordAbility::Indestructible));
+    assert!(!now.contains(&KeywordAbility::Flying));
+}
+
+/// CR 700.5, 205.1a: below five devotion Heliod is no creature (and so no
+/// God), while its other static still grants vigilance.
+#[test]
+fn heliod_is_a_creature_only_with_devotion() {
+    let g = game(&[
+        ("Heliod, God of the Sun", 0, B),
+        ("Daru Warchief", 0, B),
+    ]);
+    let (heliod, angel) = (object(&g, 0), object(&g, 1));
+    let c = g.characteristics(heliod).unwrap();
+    assert_eq!((c.kind, c.additional_types.clone()), (CardKind::Enchantment, vec![]));
+    assert!(c.legendary && c.subtypes.is_empty() && c.power.is_none());
+    assert!(keywords(&g, angel).contains(&KeywordAbility::Vigilance));
+    checked(&g);
+    let g = game(&[
+        ("Heliod, God of the Sun", 0, B),
+        ("Daru Warchief", 0, B),
+        ("Blazing Archon", 0, B),
+    ]);
+    let heliod = object(&g, 0);
+    let c = g.characteristics(heliod).unwrap();
+    assert!(c.has_type(CardKind::Creature) && c.has_subtype("God"));
+    assert_eq!(pt(&g, heliod), (q(5), q(6)));
+    checked(&g);
+}
+
+/// CR 305.6, 613.1f: Toxicrene's lands lose their intrinsic mana abilities
+/// and keep the one it grants.
+#[test]
+fn toxicrene_replaces_land_mana() {
+    let g = game(&[
+        ("Toxicrene", 0, B),
+        ("Forest", 0, B),
+        ("Command Tower", 0, B),
+    ]);
+    for land in [object(&g, 1), object(&g, 2)] {
+        assert_eq!(
+            g.mana_abilities(land).unwrap(),
+            vec![Color::W, Color::U, Color::B, Color::R, Color::G]
+        );
+    }
+    checked(&g);
+}
+
+/// Darksteel Mutation keeps the indestructible it grants and removes the
+/// rest; the object is an Insect artifact creature 0/1 (CR 205.1a).
+#[test]
+fn darksteel_mutation_keeps_its_own_grant() {
+    let mut g = game(&[
+        ("Keiga, the Tide Star", 1, B),
+        ("Darksteel Mutation", 0, H),
+        ("Plains", 0, B),
+        ("Plains", 0, B),
+    ]);
+    let keiga = object(&g, 0);
+    cast_on(&mut g, 1, &[keiga], &[2, 3]);
+    let c = g.characteristics(keiga).unwrap();
+    assert!(c.has_type(CardKind::Artifact) && c.has_type(CardKind::Creature));
+    assert_eq!(c.subtypes, vec!["Insect".to_string()]);
+    assert_eq!(pt(&g, keiga), (q(0), q(1)));
+    assert_eq!(keywords(&g, keiga), vec![KeywordAbility::Indestructible]);
+}

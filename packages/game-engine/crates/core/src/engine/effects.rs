@@ -2101,7 +2101,18 @@ impl RulesTxn {
                     ) => {
                         *source_block == effect.origin.source_block
                             && supported_temporary_keywords(keywords)
-                            && self.keyword_grant_kind(frame, what, keywords)?.as_ref()
+                            && self
+                                .keyword_grant_kind(
+                                    frame,
+                                    what,
+                                    keywords,
+                                    self.state
+                                        .rules
+                                        .next_batch_id
+                                        .checked_sub(1)
+                                        .ok_or("missing effect creation batch")?,
+                                )?
+                                .as_ref()
                                 == Some(kind)
                     }
 
@@ -3434,6 +3445,55 @@ impl RulesTxn {
                 })
                 .flatten()
         };
+        // CR 205.1a, 305.7: admitted type replacement can change any card
+        // type or subtype to one its vocabulary names; replay proves which.
+        fn replaced(change: &Change) -> Option<(&[CardKind], &[String])> {
+            match change {
+                Change::SetCardTypes { kinds } => Some((kinds.as_slice(), &[])),
+                Change::SetCreatureSubtypes { subtypes } | Change::SetLandSubtypes { subtypes } => {
+                    Some((&[], subtypes.as_slice()))
+                }
+                Change::RemoveCardTypes { .. } => Some((&[], &[])),
+                _ => None,
+            }
+        }
+        if vocabulary().any(|change| replaced(change).is_some()) {
+            let kinds_ok = std::iter::once(c.kind)
+                .chain(c.additional_types.iter().copied())
+                .all(|kind| {
+                    base.has_type(kind)
+                        || vocabulary().any(|change| match change {
+                            Change::AddTypes { kinds } => kinds.contains(&kind),
+                            other => replaced(other).is_some_and(|(k, _)| k.contains(&kind)),
+                        })
+                        || (matches!(kind, CardKind::Creature | CardKind::Artifact)
+                            && self
+                                .characteristic_set_vocabulary()
+                                .any(|values| values.animation.is_some()))
+                });
+            let subtypes_ok = c.subtypes.iter().all(|s| {
+                base.subtypes.contains(s)
+                    || vocabulary().any(|change| match change {
+                        Change::AddCreatureSubtypes { subtypes } => subtypes.contains(s),
+                        other => replaced(other).is_some_and(|(_, names)| names.contains(s)),
+                    })
+                    || self
+                        .characteristic_set_vocabulary()
+                        .filter_map(|value| value.animation.as_ref())
+                        .any(|a| a.creature_subtypes.contains(s))
+            });
+            if !kinds_ok
+                || !subtypes_ok
+                || c.additional_types.contains(&c.kind)
+                || c.additional_types.windows(2).any(|kinds| kinds[0] >= kinds[1])
+            {
+                return Err("historical type outside admitted type replacement".into());
+            }
+            base.kind = c.kind;
+            base.additional_types.clone_from(&c.additional_types);
+            base.subtypes.clone_from(&c.subtypes);
+            base.all_creature_types = c.all_creature_types;
+        }
         if (base.additional_types != c.additional_types || base.colors != c.colors)
             && (base.additional_types.iter().any(|kind| !c.has_type(*kind))
                 || c.additional_types.contains(&c.kind)
@@ -3635,9 +3695,21 @@ impl RulesTxn {
             let expected_keywords = source_definition.keywords.as_slice();
             let battlefield_creature = d.source.zone == Zone::Battlefield
                 && d.source.characteristics.has_type(CardKind::Creature);
+            // CR 113.10, 305.7: an admitted static can remove printed keywords.
+            let removable = d.source.zone == Zone::Battlefield
+                && self.prepared.catalog.definitions.iter().any(|d| {
+                    d.static_abilities.iter().any(|a| {
+                        matches!(&a.effect, StaticEffect::Continuous { changes, .. }
+                            if changes.iter().any(|c| matches!(c,
+                                Change::RemoveAllAbilities { .. }
+                                | Change::RemoveKeywords { .. }
+                                | Change::ForbidKeywords { .. }
+                                | Change::SetLandSubtypes { .. })))
+                    })
+                });
             let keywords_valid = expected_keywords
                 .iter()
-                .all(|k| d.source.keywords.contains(k))
+                .all(|k| removable || d.source.keywords.contains(k))
                 && d.source
                     .keywords
                     .iter()

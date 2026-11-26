@@ -1,3 +1,4 @@
+mod ability_loss;
 mod attachments;
 mod card_movement;
 mod changeling;

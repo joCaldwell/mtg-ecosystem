@@ -88,6 +88,24 @@ impl RulesTxn {
         // CR 800.4c: each further wave begins only after at least one
         // permanent was exiled. That move can end a source-bound grant.
         while self.reconcile_control_wave()? {}
+        // CR 506.4: a permanent that stops being a creature, such as a God
+        // whose devotion falls (CR 700.5), is removed from combat.
+        let gone: Vec<ObjectId> = self
+            .state
+            .rules
+            .combat
+            .iter()
+            .flat_map(|a| std::iter::once(a.attacker).chain(a.blockers.iter().copied()))
+            .chain(self.state.rules.blocking_creatures.iter().copied())
+            .filter(|o| {
+                self.current(*o)
+                    .is_ok_and(|object| object.present_on_battlefield())
+                    && !self.is_battlefield_creature(*o)
+            })
+            .collect();
+        for object in gone {
+            self.remove_from_combat(object);
+        }
         Ok(())
     }
 
