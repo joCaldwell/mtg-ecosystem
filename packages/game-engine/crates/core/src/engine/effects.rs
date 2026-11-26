@@ -567,24 +567,7 @@ impl RulesTxn {
             .filter(|p| p.controller == player)
         {
             let c = &self.copiable_definition(permanent.id).ok()?.characteristics;
-            let ordinary = c
-                .mana_cost
-                .colored
-                .iter()
-                .filter(|color| colors.contains(color))
-                .count();
-            let hybrid = c
-                .hybrid_mana
-                .iter()
-                .filter(|symbol| {
-                    symbol
-                        .colors
-                        .iter()
-                        .filter_map(|payment| payment.color())
-                        .any(|c| colors.contains(&c))
-                })
-                .count();
-            count.add(&((ordinary + hybrid) as i64).into());
+            count.add(&(c.devotion_symbols(colors) as i64).into());
         }
         Some(count)
     }

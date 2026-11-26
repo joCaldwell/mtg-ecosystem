@@ -305,6 +305,26 @@ impl RulesTxn {
                 what: Ref::Source,
                 to: Ref::Target { slot: 0 },
             } => self.kernel_equip(frame, source_block),
+            Verb::AddMana {
+                mana: mtg_contracts::kir::ManaSpec::Color { color, amount },
+                ..
+            } => {
+                let amount = self.kernel_amount(&frame, &amount)?;
+                let actual = if amount == Quantity::zero() {
+                    None
+                } else {
+                    let entry = self.entry(frame.stack_id)?;
+                    let event = ProposedEvent::AddMana {
+                        player: entry.controller,
+                        color,
+                        amount,
+                        source: entry.source,
+                        restriction: None,
+                    };
+                    Some(self.commit(event, self.instruction_cause(&frame, source_block)?)?)
+                };
+                self.finish_instruction(frame, InstructionOutcome::Effect { actual })
+            }
             Verb::GainLife { player, amount } => {
                 self.kernel_life(frame, true, &player, &amount, source_block)
             }
