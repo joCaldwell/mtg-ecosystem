@@ -171,98 +171,119 @@ impl RulesTxn {
         self.current_keywords_with_sources(object, None)
     }
 
+    /// CR 613.1f, 613.7: printed keywords, then layer-6 grants and
+    /// removals in timestamp order; a static removal precedes a grant with
+    /// the same timestamp, as the grants of a "loses all other abilities"
+    /// effect follow its own removal. "Can't have" applies last.
     pub(super) fn current_keywords_with_sources(
         &self,
         object: ObjectId,
         sources: Option<&[CardId]>,
     ) -> Vec<KeywordAbility> {
+        use mtg_contracts::kir::Change;
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
             return vec![];
         }
-        let mut keywords = self
-            .copiable_definition(object)
-            .map(|d| d.keywords.clone())
-            .unwrap_or_default();
         let present = self
             .current(object)
             .is_ok_and(|o| o.zone == Zone::Battlefield);
-        let latest_removal = present
-            .then(|| {
-                self.state
-                    .rules
-                    .effects
-                    .iter()
-                    .filter_map(|effect| match &effect.kind {
-                        ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp }
-                            if targets.contains(&object) =>
-                        {
-                            Some((effect.id, *timestamp))
-                        }
-                        _ => None,
-                    })
-                    .max()
-            })
-            .flatten();
-        if latest_removal.is_some() {
-            keywords.retain(|keyword| *keyword != KeywordAbility::Indestructible);
-        }
-        for (timestamp, change) in
-            self.static_changes(object, mtg_contracts::kir::Layer::Ability, sources)
+        let mut keywords = if present
+            && self
+                .printed_abilities_lost_with_sources(object, sources)
+                .unwrap_or(false)
         {
-            let mtg_contracts::kir::Change::AddKeywords { keywords: grants } = change else {
-                continue;
-            };
-            for keyword in grants {
-                if *keyword == KeywordAbility::Indestructible
-                    && latest_removal.is_some_and(|(_, removed_at)| timestamp <= removed_at)
-                {
-                    continue;
+            vec![]
+        } else {
+            self.copiable_definition(object)
+                .map(|d| d.keywords.clone())
+                .unwrap_or_default()
+        };
+        if !present {
+            return keywords;
+        }
+        enum Row<'a> {
+            Grant(&'a [KeywordAbility]),
+            Remove(&'a [KeywordAbility]),
+            RemoveAll,
+        }
+        const INDESTRUCTIBLE: &[KeywordAbility] = &[KeywordAbility::Indestructible];
+        // (timestamp, static before resolved, then a static removal before
+        // a static grant and resolved effects in creation order).
+        let mut rows: Vec<((u64, u8, u64), Row<'_>)> = vec![];
+        let mut forbidden: Vec<KeywordAbility> = vec![];
+        for (timestamp, _, change) in
+            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources)
+        {
+            match change {
+                Change::AddKeywords { keywords } => {
+                    rows.push(((timestamp, 0, 1), Row::Grant(keywords)))
                 }
-                if !keywords.contains(keyword) {
-                    keywords.push(*keyword);
+                Change::RemoveKeywords { keywords } => {
+                    rows.push(((timestamp, 0, 0), Row::Remove(keywords)))
                 }
+                Change::RemoveAllAbilities { .. } => {
+                    rows.push(((timestamp, 0, 0), Row::RemoveAll))
+                }
+                Change::ForbidKeywords { keywords } => forbidden.extend(keywords.iter().copied()),
+                _ => {}
             }
         }
-        // CR 611.2c/613.1f/400.7: union only for the captured incarnation;
-        // source departure does not end an already resolved EOT grant.
+        // CR 611.2c/613.1f/400.7: resolved effects affect only the captured
+        // incarnation; source departure does not end an already resolved
+        // EOT grant.
+        let battlefield_creature = self.is_battlefield_creature(object);
+        let on_battlefield = self
+            .current(object)
+            .is_ok_and(|o| o.present_on_battlefield());
         for effect in &self.state.rules.effects {
-            let grants = match &effect.kind {
-                ResolvedEffectKind::GrantKeywords {
-                    target, keywords, ..
-                } if *target == object && self.is_battlefield_creature(object) => Some(keywords),
-                ResolvedEffectKind::GrantKeywordsSet {
-                    targets, keywords, ..
-                } if targets.contains(&object)
-                    && self
-                        .current(object)
-                        .is_ok_and(|o| o.present_on_battlefield()) =>
+            let order = |timestamp: u64| (timestamp, 1, u64::from(effect.id.0));
+            match &effect.kind {
+                ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp }
+                    if targets.contains(&object) =>
                 {
-                    Some(keywords)
+                    rows.push((order(*timestamp), Row::Remove(INDESTRUCTIBLE)));
+                }
+                ResolvedEffectKind::GrantKeywords {
+                    target,
+                    keywords,
+                    timestamp,
+                    ..
+                } if *target == object && battlefield_creature => {
+                    rows.push((order(*timestamp), Row::Grant(keywords)));
+                }
+                ResolvedEffectKind::GrantKeywordsSet {
+                    targets,
+                    keywords,
+                    timestamp,
+                    ..
+                } if targets.contains(&object) && on_battlefield => {
+                    rows.push((order(*timestamp), Row::Grant(keywords)));
                 }
                 ResolvedEffectKind::SetCharacteristics {
-                    targets, values, ..
-                } if targets.contains(&object)
-                    && self
-                        .current(object)
-                        .is_ok_and(|o| o.present_on_battlefield()) =>
-                {
-                    Some(&values.keywords)
+                    targets,
+                    values,
+                    timestamp,
+                } if targets.contains(&object) && on_battlefield => {
+                    rows.push((order(*timestamp), Row::Grant(&values.keywords)));
                 }
-                _ => None,
-            };
-            if let Some(grants) = grants {
-                for keyword in grants {
-                    if *keyword == KeywordAbility::Indestructible
-                        && latest_removal.is_some_and(|(removed_id, _)| effect.id <= removed_id)
-                    {
-                        continue;
-                    }
-                    if !keywords.contains(keyword) {
-                        keywords.push(*keyword);
-                    }
-                }
+                _ => {}
             }
         }
+        rows.sort_by_key(|(order, _)| *order);
+        for (_, row) in rows {
+            match row {
+                Row::Grant(grants) => {
+                    for keyword in grants {
+                        if !keywords.contains(keyword) {
+                            keywords.push(*keyword);
+                        }
+                    }
+                }
+                Row::Remove(removed) => keywords.retain(|k| !removed.contains(k)),
+                Row::RemoveAll => keywords.clear(),
+            }
+        }
+        keywords.retain(|k| !forbidden.contains(k));
         keywords
     }
     pub(crate) fn has_restriction(

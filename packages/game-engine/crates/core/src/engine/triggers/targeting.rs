@@ -73,7 +73,11 @@ impl RulesTxn {
                 .rules
                 .objects
                 .values()
-                .filter(|o| o.present_on_battlefield() && self.is_live(o.controller))
+                .filter(|o| {
+                    o.present_on_battlefield()
+                        && self.is_live(o.controller)
+                        && !self.printed_abilities_lost(o.id)
+                })
             {
                 let definition = self.copiable_definition(object.id)?;
                 for (index, ability) in definition.triggered.iter().enumerate() {

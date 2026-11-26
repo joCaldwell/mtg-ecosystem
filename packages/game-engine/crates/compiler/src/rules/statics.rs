@@ -1387,6 +1387,10 @@ fn modify(
                     });
                     continue;
                 }
+                if let Some(replaced) = type_replacement(&m.change)? {
+                    changes.extend(replaced);
+                    continue;
+                }
                 let ast::TypeChange {
                     card_types: Some(types),
                     subtypes: None,
@@ -1404,6 +1408,54 @@ fn modify(
                         .types
                         .iter()
                         .map(|k| card_kind(k, "static"))
+                        .collect::<Result<_, _>>()?,
+                }
+            }
+            M::LoseAbilities(m) => {
+                plain!(m);
+                use ast::AbilityRemoval as R;
+                match &*m.removal {
+                    R::All(_) => Change::RemoveAllAbilities {
+                        except_own_grants: false,
+                    },
+                    // "loses all other abilities": the grants of this effect stay.
+                    R::AllOther(_) => Change::RemoveAllAbilities {
+                        except_own_grants: true,
+                    },
+                    R::Listed(listed) => {
+                        let raw_listed: Vec<_> =
+                            raw_items(&raw_modifier["removal"], "abilities").collect();
+                        if raw_listed.len() != listed.abilities.len() {
+                            return Err(gap("modifier:raw-shape"));
+                        }
+                        Change::RemoveKeywords {
+                            keywords: listed
+                                .abilities
+                                .iter()
+                                .zip(raw_listed)
+                                .map(|(a, raw)| keyword(a, raw))
+                                .collect::<Result<_, _>>()?,
+                        }
+                    }
+                    R::ThisAbility(_) => return Err(gap("modifier:lose-abilities:this-ability")),
+                    R::Choice(_) => return Err(gap("modifier:lose-abilities:choice")),
+                }
+            }
+            M::CantHaveAbilities(m) => {
+                plain!(m);
+                Change::ForbidKeywords {
+                    keywords: m
+                        .abilities
+                        .iter()
+                        .map(|k| {
+                            if !bare_keyword(k, &k.keyword) {
+                                return Err(gap("modifier:parameterized-keyword"));
+                            }
+                            KeywordAbility::deserialize(serde::de::value::StrDeserializer::<
+                                serde::de::value::Error,
+                            >::new(&k.keyword))
+                            .map_err(|_| gap(&format!("keyword:{}", k.keyword)))
+                        })
                         .collect::<Result<_, _>>()?,
                 }
             }
@@ -1453,6 +1505,60 @@ fn modify(
     }
     rules.extend(every_type);
     Ok(rules)
+}
+
+/// CR 205.1a, 305.7: card-type replacement or removal, with creature or
+/// basic land subtypes replaced. `None` leaves additive shapes to the caller.
+fn type_replacement(change: &ast::TypeChange) -> Result<Option<Vec<Change>>, Failure> {
+    use ast::TypeChangeCardTypesOperation as Op;
+    let ast::TypeChange {
+        card_types,
+        subtypes,
+        chosen_subtype: None,
+        supertypes: None,
+    } = change
+    else {
+        return Ok(None);
+    };
+    let set_types = card_types
+        .as_deref()
+        .is_some_and(|t| t.operation != Op::Add);
+    let set_subtypes = subtypes
+        .iter()
+        .flatten()
+        .any(|item| item.operation == Op::Set);
+    if !set_types && !set_subtypes {
+        return Ok(None);
+    }
+    let mut out = Vec::new();
+    if let Some(types) = card_types {
+        let mut kinds = types
+            .types
+            .iter()
+            .map(|k| card_kind(k, "static"))
+            .collect::<Result<Vec<_>, _>>()?;
+        kinds.sort_unstable();
+        out.push(match types.operation {
+            Op::Set => Change::SetCardTypes { kinds },
+            Op::Remove => Change::RemoveCardTypes { kinds },
+            Op::Add => return Err(gap("modifier:type-operation")),
+        });
+    }
+    for item in subtypes.iter().flatten() {
+        let ast::TypeChangeSubtypesItemTypes::Array(names) = &*item.types else {
+            return Err(gap("modifier:type-operands"));
+        };
+        out.push(match (item.family, item.operation) {
+            (ast::SubtypeFamily::Creature, Op::Set) => Change::SetCreatureSubtypes {
+                subtypes: names.clone(),
+            },
+            (ast::SubtypeFamily::Land, Op::Set) => Change::SetLandSubtypes {
+                subtypes: names.clone(),
+            },
+            _ => return Err(gap("modifier:type-operation")),
+        });
+    }
+    Ok(Some(out))
 }
 
 /// CR 609.4, 702.3b: "can attack as though it didn't have defender".

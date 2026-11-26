@@ -49,6 +49,9 @@ impl RulesTxn {
         &self,
         object: ObjectId,
     ) -> Result<Option<EntryChoice>, String> {
+        if self.entry_abilities_lost(object)? {
+            return Ok(None);
+        }
         Ok(self
             .copiable_definition(object)?
             .static_abilities

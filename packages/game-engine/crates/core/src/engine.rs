@@ -119,6 +119,7 @@ pub mod choices;
 pub mod graveyard_targets;
 pub use choices::*;
 mod damage_rules;
+mod ability_layers;
 pub mod effects;
 pub use crate::build_id;
 // Cargo profile of this test build, recorded by build.rs for diagnostic receipts.

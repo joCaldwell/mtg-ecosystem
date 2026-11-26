@@ -5,15 +5,15 @@ use super::*;
 impl RulesTxn {
     pub(super) fn intrinsic_mana_colors(&self, source: ObjectId) -> Result<Vec<Color>, String> {
         let object = self.current(source)?;
-        if !object.present_on_battlefield()
-            || !self
-                .copiable_definition(source)?
-                .characteristics
-                .has_type(CardKind::Land)
-        {
+        if !object.present_on_battlefield() {
             return Ok(vec![]);
         }
+        // CR 305.6-7: the intrinsic ability follows the current land types;
+        // only a layer-6 removal takes it away (CR 613.1f).
         let c = self.characteristics(source)?;
+        if !c.has_type(CardKind::Land) || self.intrinsic_mana_lost(source)? {
+            return Ok(vec![]);
+        }
         Ok(c.subtypes
             .iter()
             .filter_map(|s| basic_land_color(s))

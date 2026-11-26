@@ -31,6 +31,7 @@ impl RulesTxn {
                         targets,
                         modifier: None,
                         keywords: keywords.to_vec(),
+                        timestamp: self.state.rules.next_batch_id,
                     }),
                 );
             }
@@ -42,6 +43,7 @@ impl RulesTxn {
                 target,
                 modifier: None,
                 keywords: keywords.to_vec(),
+                timestamp: self.state.rules.next_batch_id,
             }))
     }
 

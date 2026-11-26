@@ -1881,6 +1881,9 @@ impl RulesTxn {
 
 impl RulesTxn {
     fn entry_tapped(&self, entering: &Object) -> Result<bool, String> {
+        if self.entry_abilities_lost(entering.id)? {
+            return Ok(false);
+        }
         Ok(self
             .copiable_definition(entering.id)?
             .static_abilities
@@ -2046,7 +2049,7 @@ impl RulesTxn {
         // CR 122.6 and 614.1c: entry counters exist on the successor from
         // the moment it enters, including for entry observers.
         let mut plus_one_counters = Quantity::zero();
-        if *destination == Zone::Battlefield {
+        if *destination == Zone::Battlefield && !self.entry_abilities_lost(face_id)? {
             for ability in &self.copiable_definition(face_id)?.static_abilities {
                 if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
                     plus_one_counters.add(count);

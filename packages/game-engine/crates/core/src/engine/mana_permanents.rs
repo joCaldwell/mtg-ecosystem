@@ -187,15 +187,39 @@ impl RulesTxn {
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
             return vec![];
         }
-        self.static_changes_by_source(object, mtg_contracts::kir::Layer::Ability, sources)
+        use mtg_contracts::kir::Change;
+        let changes =
+            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources);
+        // CR 613.7: a later removal of every ability takes an earlier grant,
+        // except the grants of the removing effect itself.
+        let removals: Vec<_> = changes
+            .iter()
+            .filter(|(_, _, c)| matches!(c, Change::RemoveAllAbilities { .. }))
+            .map(|(time, key, _)| (*time, *key))
+            .collect();
+        changes
             .into_iter()
-            .flat_map(|(_, grantor, change)| match change {
-                mtg_contracts::kir::Change::AddManaAbilities { abilities } => {
-                    abilities.iter().map(|a| (grantor, a)).collect()
+            .filter(|(time, key, _)| {
+                removals
+                    .iter()
+                    .all(|(removed, remover)| remover == key || removed <= time)
+            })
+            .flat_map(|(_, key, change)| match change {
+                Change::AddManaAbilities { abilities } => {
+                    abilities.iter().map(|a| (key.source, a)).collect()
                 }
                 _ => vec![],
             })
             .collect()
+    }
+    /// The printed mana abilities that still function (CR 113.10, 305.7).
+    fn printed_mana_abilities(&self, object: ObjectId) -> Result<&[ManaAbility], String> {
+        let definition = self.copiable_definition(object)?;
+        Ok(if self.printed_abilities_lost(object) {
+            &[]
+        } else {
+            &definition.mana_abilities
+        })
     }
     /// The object's current mana abilities: printed, then granted.
     pub(crate) fn current_mana_abilities(
@@ -203,12 +227,7 @@ impl RulesTxn {
         object: ObjectId,
     ) -> Result<Vec<(ManaSlot, ManaAbility)>, String> {
         let mut out = vec![];
-        for (index, a) in self
-            .copiable_definition(object)?
-            .mana_abilities
-            .iter()
-            .enumerate()
-        {
+        for (index, a) in self.printed_mana_abilities(object)?.iter().enumerate() {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             out.push((ManaSlot::Printed(index), a.clone()));
         }
@@ -221,8 +240,7 @@ impl RulesTxn {
     fn mana_ability_at(&self, source: ObjectId, slot: ManaSlot) -> Result<ManaAbility, String> {
         match slot {
             ManaSlot::Printed(index) => self
-                .copiable_definition(source)?
-                .mana_abilities
+                .printed_mana_abilities(source)?
                 .get(index as usize)
                 .cloned(),
             ManaSlot::Granted(index) => self
@@ -322,8 +340,8 @@ impl RulesTxn {
     }
 
     pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
-        self.copiable_definition(object)
-            .is_ok_and(|d| !d.mana_abilities.is_empty())
+        self.printed_mana_abilities(object)
+            .is_ok_and(|abilities| !abilities.is_empty())
             || !self.granted_mana_abilities(object).is_empty()
     }
     pub(super) fn mana_colors(
