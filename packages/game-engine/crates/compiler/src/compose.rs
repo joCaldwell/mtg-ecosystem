@@ -1032,6 +1032,34 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
+                        [one]
+                            if matches!(
+                                one.keyword.as_str(),
+                                "delve" | "convoke" | "improvise"
+                            ) =>
+                        {
+                            let expected = match one.keyword.as_str() {
+                                "delve" => "Delve",
+                                "convoke" => "Convoke",
+                                _ => "Improvise",
+                            };
+                            if text != expected
+                                || one.cost.is_some()
+                                || one.filter.is_some()
+                                || one.protection_from.is_some()
+                                || one.amount.is_some()
+                            {
+                                return Err(unsupported(
+                                    "keyword",
+                                    format!("keyword:{}:parameters", one.keyword),
+                                ));
+                            }
+                            match expected {
+                                "Delve" => definition.delve = true,
+                                "Convoke" => definition.convoke = true,
+                                _ => definition.improvise = true,
+                            }
+                        }
                         [one] if one.keyword == "affinity" => {
                             definition
                                 .static_abilities
@@ -1090,6 +1118,40 @@ fn compose_face(
                             spell
                                 .optional_additional_costs
                                 .push(keywords::buyback(one, label, text)?);
+                        }
+                        // CR 702.74a: evoke is an alternative cost of a
+                        // permanent spell plus the entering sacrifice trigger.
+                        [one] if one.keyword == mtg_contracts::EVOKE_COST => {
+                            if spell_kind
+                                || definition.spell.is_none()
+                                || definition.alternative_cost.is_some()
+                            {
+                                return Err(unsupported("keyword", "keyword:evoke:source"));
+                            }
+                            definition.alternative_cost = Some(keywords::evoke(one, label, text)?);
+                            definition
+                                .triggered
+                                .push(TriggeredAbility::evoke_sacrifice(label));
+                            labels.triggered.push(label);
+                        }
+                        // CR 702.84a: unearth is a graveyard ability of a
+                        // permanent card.
+                        [one] if one.keyword == "unearth" => {
+                            if spell_kind || definition.spell.is_none() {
+                                return Err(unsupported("keyword", "keyword:unearth:source"));
+                            }
+                            definition
+                                .activated
+                                .push(keywords::unearth(one, label, text)?);
+                            labels.activated.push(label);
+                        }
+                        // CR 702.30a: echo is a triggered ability of a permanent.
+                        [one] if one.keyword == "echo" => {
+                            if spell_kind || definition.spell.is_none() {
+                                return Err(unsupported("keyword", "keyword:echo:source"));
+                            }
+                            definition.triggered.push(keywords::echo(one, label, text)?);
+                            labels.triggered.push(label);
                         }
                         // CR 702.34a: flashback is an instant's or sorcery's
                         // alternative cost from its owner's graveyard.

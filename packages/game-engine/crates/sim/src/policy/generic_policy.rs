@@ -1038,6 +1038,40 @@ impl Strategy<'_> {
             }
         })
     }
+    fn casting_mana_plan(
+        &self,
+        view: &PermittedView,
+        definition: &Definition,
+        cost: ManaCost,
+    ) -> Option<(
+        Vec<mtg_contracts::HybridPayment>,
+        std::collections::VecDeque<mana_policy::PlannedMana>,
+    )> {
+        if definition.convoke || definition.improvise {
+            let kind = if definition.convoke {
+                CardKind::Creature
+            } else {
+                CardKind::Artifact
+            };
+            let (due, reserved) = super::tap_payment_plan(view, &cost, kind);
+            if let Some(plan) = mana_policy::hybrid_plan_reserved(
+                self.catalog,
+                view,
+                due,
+                &definition.characteristics.hybrid_mana,
+                &reserved,
+            ) {
+                return Some(plan);
+            }
+        }
+        mana_policy::hybrid_plan(
+            self.catalog,
+            view,
+            cost,
+            &definition.characteristics.hybrid_mana,
+        )
+    }
+
     pub(super) fn choose_x(
         &self,
         v: &PermittedView,
@@ -1114,9 +1148,12 @@ impl Strategy<'_> {
                     cost
                 }
             };
-            if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
-                .is_none()
-            {
+            let cost = if d.delve {
+                super::delve_mana_due(cost, v, quote.map(|(_, card)| card))
+            } else {
+                cost
+            };
+            if self.casting_mana_plan(v, d, cost).is_none() {
                 break;
             }
             let score = self.wipe_score(v, p, &x).unwrap_or_else(|| {
@@ -1254,7 +1291,7 @@ impl Strategy<'_> {
         } else {
             None
         };
-        let cost = match quote {
+        let mut cost = match quote {
             Some((game, card)) => game.quote_cast_cost(v.viewer, card, x.as_ref()).ok()?,
             None => {
                 let mut cost = match (&d.flashback, flashback) {
@@ -1287,14 +1324,45 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let (choices, plan) = mana_policy::hybrid_plan(
-            self.catalog,
-            v,
-            cost.clone(),
-            &d.characteristics.hybrid_mana,
-        )?;
+        let due = if d.delve {
+            super::delve_mana_due(cost.clone(), v, Some(&o.handle))
+        } else {
+            cost.clone()
+        };
+        let mut alternative = None;
+        let (choices, plan) = match self.casting_mana_plan(v, d, due) {
+            Some(plan) => plan,
+            // CR 118.9, 702.74a: announce the printed alternative cost from
+            // hand or the command zone when only it can be funded.
+            None => {
+                let printed = d.alternative_cost.as_ref().filter(|_| {
+                    matches!(o.zone, Zone::Hand { .. } | Zone::Command { .. })
+                        && d.characteristics.hybrid_mana.is_empty()
+                        && x.is_none()
+                })?;
+                // Only the engine quote includes the tax, increases and
+                // reductions that lock with the alternative (CR 601.2f); an
+                // observation alone never plans one.
+                let (game, card) = quote?;
+                let (identity, alt) = game
+                    .quote_alternative_cast_cost(v.viewer, card)
+                    .ok()
+                    .flatten()
+                    .filter(|(identity, _)| *identity == printed.identity)?;
+                let due = if d.delve {
+                    super::delve_mana_due(alt.clone(), v, Some(&o.handle))
+                } else {
+                    alt.clone()
+                };
+                let plan = self.casting_mana_plan(v, d, due)?;
+                alternative = Some(identity);
+                cost = alt;
+                plan
+            }
+        };
         self.memory.payment.announced_cost = unchanged_cost.then_some(cost);
         self.memory.hybrid_choices = choices;
+        self.memory.alternative_cost = alternative;
         self.memory.planned_x = x;
         self.memory.mana_plan = plan;
         self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
@@ -1579,6 +1647,7 @@ impl Strategy<'_> {
         self.memory.mana_color = None;
         self.memory.mana_bundle = None;
         self.memory.hybrid_choices.clear();
+        self.memory.alternative_cost = None;
         self.memory.planned_x = None;
         if let Some(r) = self.reactive_spells_with_game(v, game)? {
             return Ok(r);

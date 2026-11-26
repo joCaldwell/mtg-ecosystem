@@ -626,7 +626,8 @@ impl RulesTxn {
             | Cond::CastBy { .. }
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
-            | Cond::OpponentControlsMore { .. } => false,
+            | Cond::OpponentControlsMore { .. }
+            | Cond::ControlledSinceLastUpkeep {} => false,
         }
     }
 
@@ -3547,6 +3548,8 @@ impl RulesTxn {
             || (ObjectBefore {
                 transforms: fact.transforms,
                 controller: fact.controller,
+                // CR 702.30a: a control change restarts control history.
+                control_upkeeps: fact.control_upkeeps,
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
                 keywords: fact.keywords.clone(),
@@ -3646,7 +3649,10 @@ impl RulesTxn {
                         !d.source.keywords[..index].contains(keyword)
                             && (expected_keywords.contains(keyword)
                                 || (d.source.zone == Zone::Battlefield
-                                    && self.historical_granted_keyword(*keyword)))
+                                    && (self.historical_granted_keyword(*keyword)
+                                        // CR 702.84a: unearth grants haste.
+                                        || (*keyword == KeywordAbility::Haste
+                                            && d.source.unearthed))))
                     });
             if !keywords_valid {
                 return Err(

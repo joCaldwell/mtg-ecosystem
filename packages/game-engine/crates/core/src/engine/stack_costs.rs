@@ -502,6 +502,8 @@ impl RulesTxn {
                 sacrifices: vec![],
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
+                delve: None,
+                tap_payment: None,
                 spending_restricted: vec![],
                 stack_id: id,
                 original_object: object,
@@ -527,6 +529,8 @@ impl RulesTxn {
                     sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
+                    delve: None,
+                    tap_payment: None,
                     spending_restricted: vec![],
                     stack_id: id,
                     original_object: object,
@@ -542,6 +546,8 @@ impl RulesTxn {
                 sacrifices: vec![],
                 origin: AnnouncementOrigin::Activated,
                 spending: Some(BTreeMap::new()),
+                delve: None,
+                tap_payment: None,
                 spending_restricted: vec![],
                 stack_id: id,
                 original_object: object,
@@ -760,7 +766,8 @@ impl RulesTxn {
                     activated.functioning_zone == FunctioningZone::Graveyard
                 }
                 ActivationCost::DiscardSource { .. } => hand_discard_activation(activated),
-                _ => false,
+                // CR 702.84a: unearth pays mana; its card stays until resolution.
+                _ => activated.is_unearth(),
             };
             if !shape
                 || fact.object != entry.source
@@ -772,7 +779,9 @@ impl RulesTxn {
                         entry.controller,
                         entry.source,
                     ))
-                || (entry.paid.is_some() && self.current(entry.source).is_ok())
+                || (entry.paid.is_some()
+                    && !activated.is_unearth()
+                    && self.current(entry.source).is_ok())
             {
                 return Err("snapshot hand activation cost/source invariant".into());
             }

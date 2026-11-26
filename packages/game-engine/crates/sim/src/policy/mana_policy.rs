@@ -31,6 +31,7 @@ struct Source<'a> {
 struct Planner<'a> {
     catalog: &'a Catalog,
     view: &'a PermittedView,
+    reserved: &'a [&'a ObjectHandle],
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
     tapped: Vec<bool>,
@@ -64,7 +65,18 @@ impl Planner<'_> {
                 if *index == source.object_index || self.tapped[*index] {
                     facts = facts.after_tap();
                 }
+                // Reserved convokers and improvisers are still untapped during
+                // mana production (CR 601.2g–h). Require a match in both states
+                // so a reserved tap can never improve the counted mana quote.
                 mtg_core::query::matches_zone_pred(&facts, self.view.viewer, zone, filter).is_yes()
+                    && (!self.reserved.contains(&&object.handle)
+                        || mtg_core::query::matches_zone_pred(
+                            &facts.after_tap(),
+                            self.view.viewer,
+                            zone,
+                            filter,
+                        )
+                        .is_yes())
             })
             .count();
         let mut amount = Quantity::from(i64::try_from(count).expect("bounded visible objects"));
@@ -495,6 +507,17 @@ pub(super) fn plan_for_payment(
     exclude: Option<&ObjectHandle>,
     eligible: &[mtg_contracts::RestrictedMana],
 ) -> Option<std::collections::VecDeque<PlannedMana>> {
+    plan_with_reservations(catalog, view, cost, exclude, eligible, &[])
+}
+
+pub(super) fn plan_with_reservations(
+    catalog: &Catalog,
+    view: &PermittedView,
+    cost: &ManaCost,
+    exclude: Option<&ObjectHandle>,
+    eligible: &[mtg_contracts::RestrictedMana],
+    reserved: &[&ObjectHandle],
+) -> Option<std::collections::VecDeque<PlannedMana>> {
     let pool = spendable_pool(view)?;
     let mut scoped_mana = BTreeMap::<Color, Quantity>::new();
     for unit in eligible {
@@ -502,7 +525,10 @@ pub(super) fn plan_for_payment(
     }
     let mut sources = vec![];
     for (object_index, o) in view.objects.iter().enumerate() {
-        if !controlled_permanent(view, o) || exclude == Some(&o.handle) {
+        if !controlled_permanent(view, o)
+            || exclude == Some(&o.handle)
+            || reserved.contains(&&o.handle)
+        {
             continue;
         }
         // A token plans only the abilities statics grant it (CR 113.10a);
@@ -609,6 +635,7 @@ pub(super) fn plan_for_payment(
     let mut planner = Planner {
         catalog,
         view,
+        reserved,
         sources,
         used: vec![false; view.objects.len()],
         tapped: vec![false; view.objects.len()],
@@ -622,8 +649,21 @@ pub(super) fn plan_for_payment(
 pub(super) fn hybrid_plan(
     catalog: &Catalog,
     view: &mtg_core::PermittedView,
+    cost: ManaCost,
+    symbols: &[mtg_contracts::ColorHybridSymbol],
+) -> Option<(
+    Vec<mtg_contracts::HybridPayment>,
+    std::collections::VecDeque<PlannedMana>,
+)> {
+    hybrid_plan_reserved(catalog, view, cost, symbols, &[])
+}
+
+pub(super) fn hybrid_plan_reserved(
+    catalog: &Catalog,
+    view: &PermittedView,
     mut cost: ManaCost,
     symbols: &[mtg_contracts::ColorHybridSymbol],
+    reserved: &[&ObjectHandle],
 ) -> Option<(
     Vec<mtg_contracts::HybridPayment>,
     std::collections::VecDeque<PlannedMana>,
@@ -639,7 +679,8 @@ pub(super) fn hybrid_plan(
             .filter_map(|choice| choice.color())
             .find(|color| {
                 cost.colored.push(*color);
-                let payable = plan_for(catalog, view, &cost, None).is_some();
+                let payable =
+                    plan_with_reservations(catalog, view, &cost, None, &[], reserved).is_some();
                 cost.colored.pop();
                 payable
             })
@@ -656,7 +697,10 @@ pub(super) fn hybrid_plan(
             return None;
         }
     }
-    Some((choices, plan_for(catalog, view, &cost, None)?))
+    Some((
+        choices,
+        plan_with_reservations(catalog, view, &cost, None, &[], reserved)?,
+    ))
 }
 #[cfg(test)]
 mod tests {
@@ -961,6 +1005,14 @@ mod tests {
         assert_eq!(plan[1].source, view.objects[0].handle);
         cost.colored.push(Color::G);
         assert!(plan_for(&catalog, &view, &cost, None).is_none());
+
+        cost.colored = vec![Color::G];
+        let reserved = [&view.objects[1].handle, &view.objects[2].handle];
+        assert!(plan_with_reservations(&catalog, &view, &cost, None, &[], &reserved).is_none());
+
+        view.objects[2].tapped = true;
+        let reserved = [&view.objects[1].handle];
+        assert!(plan_with_reservations(&catalog, &view, &cost, None, &[], &reserved).is_none());
     }
 
     #[test]
@@ -1004,6 +1056,7 @@ mod tests {
         let mut planner = Planner {
             catalog: &catalog,
             view: &view,
+            reserved: &[],
             sources: vec![Source {
                 object_index: 0,
                 ability: ManaAbilityIdentity::Printed { index: 0 },

@@ -69,9 +69,8 @@ impl RulesTxn {
             Frame::ChooseModes { .. } => return self.mode_decision(),
             Frame::AdditionalCosts { .. } => {
                 let candidates: Vec<_> = self
-                    .program()?
-                    .optional_additional_costs
-                    .iter()
+                    .optional_cost_declarations(self.top()?)?
+                    .into_iter()
                     .map(|c| Candidate::AdditionalCost {
                         id: c.identity.clone(),
                         mana: c.mana.clone(),
@@ -96,11 +95,19 @@ impl RulesTxn {
                     max: None,
                 },
             ),
-            Frame::Mana { .. } | Frame::SpendMana { .. } => {
+            Frame::SpendMana { cast } if let Some(decision) = self.delve_decision(cast)? => {
+                decision
+            }
+            Frame::SpendMana { cast }
+                if let Some(decision) = self.tap_payment_decision(cast)? =>
+            {
+                decision
+            }
+            Frame::Mana { cast } | Frame::SpendMana { cast } => {
                 let entry = self.top()?;
                 self.payment_decision(
                     entry.controller,
-                    entry.total_cost.clone(),
+                    self.mana_due(entry, cast)?,
                     None,
                     matches!(self.state.rules.frame, Frame::Mana { .. }),
                     self.announced_mana_use(entry)?,

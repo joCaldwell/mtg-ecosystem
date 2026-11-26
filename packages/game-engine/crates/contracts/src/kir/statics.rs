@@ -606,7 +606,8 @@ fn condition_supported(condition: &Cond) -> bool {
         | Cond::CastBy { .. }
         | Cond::TurnHistory { .. }
         | Cond::ControlsOwnCommander { .. }
-        | Cond::OpponentControlsMore { .. } => false,
+        | Cond::OpponentControlsMore { .. }
+        | Cond::ControlledSinceLastUpkeep {} => false,
     }
 }
 

@@ -142,9 +142,11 @@ impl RulesTxn {
         // Publish the complete layer-2 view before deriving any layer-6 source
         // facts. Its meaning cannot depend on iteration order among objects.
         for (object, _, controller) in &changed {
+            let upkeeps = self.state.rules.players[controller.0 as usize].upkeeps;
             let cached = self.rules_mut().objects.get_mut(&object.card).unwrap();
             cached.controller = *controller;
             cached.attack_ready = false;
+            cached.control_upkeeps = Some(upkeeps);
             self.remove_from_combat(*object);
         }
         for (object, previous, controller) in changed {
