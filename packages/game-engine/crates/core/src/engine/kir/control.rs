@@ -710,6 +710,7 @@ impl RulesTxn {
     /// its verbs is.
     /// * Tap, untap, counters: an object the verb names is on the
     ///   battlefield in a state it can change (CR 701.26a-b, 122.1).
+    /// * Transform: the source can transform now (CR 701.27c-f).
     /// * Move: the object's incarnation still exists; a zone change makes a
     ///   new one (CR 400.7).
     /// * Draw, life: a live player and a positive amount. An empty library
@@ -734,6 +735,10 @@ impl RulesTxn {
             Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
             Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
             Node::Do(Verb::PutCounters { on, .. }) => present(on, &|_| true)?,
+            // CR 701.27c-f: the source can still turn over.
+            Node::Do(Verb::Transform { what: Ref::Source }) => {
+                self.source_transformable(self.entry(self.kernel_root()?.stack_id)?)?
+            }
             Node::Do(Verb::Move { what, .. }) => self
                 .control_objects(task, what)?
                 .into_iter()

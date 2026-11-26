@@ -3,9 +3,11 @@
 use super::*;
 
 impl RulesTxn {
+    /// `face`: the face the trigger came from (CR 113.7a, 712.18).
     pub(crate) fn trigger_source_label(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
     ) -> Option<&str> {
         let (source, index, is_static) = match ability {
@@ -18,7 +20,7 @@ impl RulesTxn {
                     .first()?
                     .source_block();
                 return self
-                    .copiable_definition(source)
+                    .face_definition(source.card, self.resolution_trigger_face(creator).ok()?)
                     .ok()?
                     .source_labels
                     .as_ref()?
@@ -28,7 +30,7 @@ impl RulesTxn {
             }
         };
         let labels = self
-            .copiable_definition(source)
+            .face_definition(source.card, face)
             .ok()?
             .source_labels
             .as_ref()?;
@@ -49,10 +51,26 @@ impl RulesTxn {
         kind: DecisionSourceKind,
         ability: Option<u32>,
     ) -> Option<DecisionSource> {
+        self.described_face_source(viewer, object, None, kind, ability)
+    }
+
+    /// `face` overrides the object's current face for an ability that was
+    /// activated or triggered from another face.
+    fn described_face_source(
+        &self,
+        viewer: PlayerId,
+        object: ObjectId,
+        face: Option<CardFace>,
+        kind: DecisionSourceKind,
+        ability: Option<u32>,
+    ) -> Option<DecisionSource> {
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
             return None;
         }
-        let definition = self.copiable_definition(object).ok()?;
+        let definition = match face {
+            Some(face) => self.face_definition(object.card, face).ok()?,
+            None => self.copiable_definition(object).ok()?,
+        };
         if kind == DecisionSourceKind::ManaAbility && definition.mana_abilities.is_empty() {
             // Use precisely the runtime's intrinsic CR 305.6 production query.
             // Never describe a permanent ability as intrinsic when its labels are missing.
@@ -113,11 +131,15 @@ impl RulesTxn {
                     oracle_id: self.visible_ability_oracle_id(entry.source).ok()?.into(),
                     object: self.handle_for(viewer, entry.source).ok(),
                     ability: None,
-                    text: self.trigger_source_label(entry.source, ability)?.into(),
+                    text: self
+                        .trigger_source_label(entry.source, entry.source_face, ability)?
+                        .into(),
                 });
             }
         };
-        self.described_source(viewer, entry.source, kind, ability)
+        // CR 113.7a: an ability on the stack is described from its own face.
+        let face = (!entry.kind.is_spell()).then_some(entry.source_face);
+        self.described_face_source(viewer, entry.source, face, kind, ability)
     }
     pub(crate) fn permitted_decision_context(
         &self,
@@ -231,11 +253,7 @@ impl RulesTxn {
         if let Frame::Kernel { task } = &self.state.rules.frame {
             let entry = self.entry(self.kernel_root().ok()?.stack_id).ok()?;
             let (source_block, candidate) = self.kernel_choice_context(task).ok()?;
-            let labels = self
-                .copiable_definition(entry.source)
-                .ok()?
-                .source_labels
-                .as_ref();
+            let labels = self.stack_definition(entry).ok()?.source_labels.as_ref();
             let instruction = if let Some(object) = candidate {
                 let handle = self.handle_for(viewer, object).ok()?;
                 Some(DecisionInstruction {
@@ -312,11 +330,7 @@ impl RulesTxn {
             source: self.stack_description(viewer, entry),
             ..Default::default()
         };
-        let labels = self
-            .copiable_definition(entry.source)
-            .ok()?
-            .source_labels
-            .as_ref()?;
+        let labels = self.stack_definition(entry).ok()?.source_labels.as_ref()?;
         let block = match &self.state.rules.frame {
             Frame::ResolutionPayment { frame, .. } | Frame::ResolutionChoice { frame, .. } => {
                 // source_block is a typed instruction provenance index, not text parsing.
@@ -348,17 +362,22 @@ impl RulesTxn {
         viewer: PlayerId,
         effect: &EffectKey,
     ) -> Option<DecisionContext> {
-        let (object, source_block) = match effect {
+        let (object, face, source_block) = match effect {
             // SourceLabels maps indexed static abilities but has no block
             // mapping for intrinsic keywords. The candidate names its source.
             EffectKey::IntrinsicProtectionFromEverything { .. }
             | EffectKey::IntrinsicProtectionFromColor { .. } => return None,
             EffectKey::Resolved { id } => {
                 let effect = self.state.rules.effects.iter().find(|e| e.id == *id)?;
-                (effect.origin.source, effect.origin.source_block)
+                (
+                    effect.origin.source,
+                    effect.origin.source_face,
+                    effect.origin.source_block,
+                )
             }
         };
-        let definition = self.copiable_definition(object).ok()?;
+        // CR 113.7a: label the effect from the face whose program created it.
+        let definition = self.face_definition(object.card, face).ok()?;
         let labels = definition.source_labels.as_ref()?;
         let text = labels.blocks.get(source_block as usize)?.clone();
         Some(DecisionContext {

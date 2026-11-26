@@ -1135,7 +1135,7 @@ impl GameTestkit for Game {
         source: ObjectId,
         ability: EffectiveTriggerAbility,
     ) -> Option<&str> {
-        RulesTxn::trigger_source_label(self, source, ability)
+        RulesTxn::trigger_source_label(self, source, source.face, ability)
     }
     fn update_library_position_memory(&mut self, event: &ProposedEvent, actual: &EventOutcome) {
         RulesTxn::update_library_position_memory(self, event, actual)
@@ -1170,7 +1170,7 @@ impl GameTestkit for Game {
         source: ObjectId,
         c: &Characteristics,
     ) -> Result<(), String> {
-        RulesTxn::validate_characteristic_identity(self, source, c)
+        RulesTxn::validate_characteristic_identity(self, source, 0, c)
     }
     fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
         RulesTxn::validate_condition_cache(self, frame)

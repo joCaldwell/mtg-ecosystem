@@ -102,6 +102,9 @@ pub enum EventGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectBefore {
+    /// CR 701.27a: the object's transform count (`Object::transforms`).
+    #[serde(default, skip_serializing_if = "state::is_zero_count")]
+    pub transforms: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2035,6 +2038,8 @@ impl RulesTxn {
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 plus_one_counters,
+                transforms: 0,
+                adventure_player: None,
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
@@ -2070,7 +2075,7 @@ impl RulesTxn {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        self.validate_characteristic_identity(object, &fact.characteristics)?;
+        self.validate_characteristic_identity(object, fact.transforms, &fact.characteristics)?;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone
@@ -2938,8 +2943,31 @@ impl RulesTxn {
                     owner: *owner,
                 }
             }
-            ProposedEvent::Transform { .. } => {
-                return Err("unsupported transform invocation".into());
+            // CR 701.27a, 712.18: the same object turns over; every effect
+            // that applied to it continues to apply.
+            ProposedEvent::Transform { object } => {
+                let o = self.current(*object)?;
+                let definition = self.definition(object.card)?;
+                let next = o.transforms.checked_add(1).ok_or("transform count limit")?;
+                if !o.present_on_battlefield()
+                    || !definition.transforms()
+                    || definition
+                        .face(state::face_after(object.face, next))
+                        .is_none_or(|face| {
+                            matches!(
+                                face.characteristics.kind,
+                                CardKind::Instant | CardKind::Sorcery
+                            )
+                        })
+                {
+                    return Err("invalid transform event".into());
+                }
+                self.rules_mut()
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing transforming object")?
+                    .transforms = next;
+                EventOutcome::Transformed { object: *object }
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;

@@ -27,7 +27,8 @@ impl RulesTxn {
         &self,
         entry: &StackInstance,
     ) -> Result<Option<&ModalSpell>, String> {
-        let definition = self.copiable_definition(entry.source)?;
+        // CR 113.7a: an ability keeps the face it came from.
+        let definition = self.stack_definition(entry)?;
         Ok(match &entry.kind {
             StackKind::Spell => definition.modal_spell.as_ref(),
             StackKind::Activated { ability, .. } => definition
@@ -61,7 +62,7 @@ impl RulesTxn {
 
     pub(super) fn mode_decision(&self) -> Result<Option<Decision<Rules>>, String> {
         let entry = self.top()?;
-        let definition = self.copiable_definition(entry.source)?;
+        let definition = self.stack_definition(entry)?;
         let modal = self
             .modal_declaration(entry)?
             .ok_or("missing modal declaration")?;

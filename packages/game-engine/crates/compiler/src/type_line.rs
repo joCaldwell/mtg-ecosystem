@@ -9,7 +9,9 @@ pub(crate) struct ParsedTypes {
     pub snow: bool,
     pub subtypes: Vec<String>,
 }
-pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
+/// `adventure`: the line belongs to an adventurer's inset part, whose only
+/// admitted subtype is Adventure on an instant or sorcery (CR 715.2).
+pub(super) fn parse(line: &str, adventure: bool) -> Result<ParsedTypes, Failure> {
     let (head, tail) = line.split_once(" — ").unwrap_or((line, ""));
     let mut types = BTreeSet::new();
     let mut supertypes = BTreeSet::new();
@@ -63,8 +65,15 @@ pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
     if supertypes.contains("Basic") && kind != CardKind::Land {
         return Err(invalid("source.type_line", "basic requires land"));
     }
+    if adventure && (tail != "Adventure" || !matches!(kind, CardKind::Instant | CardKind::Sorcery))
+    {
+        return Err(unsupported(
+            "source.type_line.subtypes",
+            "adventure part requires an instant or sorcery Adventure",
+        ));
+    }
     for subtype in tail.split_whitespace() {
-        if unsupported_rules_subtype(subtype) {
+        if unsupported_rules_subtype(subtype) && !adventure {
             return Err(unsupported(
                 "source.type_line.subtypes",
                 format!("subtype:{}", subtype.to_lowercase()),

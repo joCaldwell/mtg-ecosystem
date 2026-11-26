@@ -16,12 +16,15 @@ impl AnnouncementOrigin {
 }
 
 /// CR 602.5b-c, 400.7: a turn limit follows the ability slot of this
-/// incarnation through control changes. A zone change creates a new object.
+/// incarnation through control changes. A zone change creates a new object;
+/// a transformed permanent's other face has its own abilities (CR 712.18).
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActivationUse {
     pub source: ObjectId,
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub face: CardFace,
     pub ability: u32,
 }
 
@@ -137,14 +140,16 @@ impl RulesTxn {
         }
     }
 
-    /// The condition of printed stack ability `ability` of `source`.
+    /// The condition of printed stack ability `ability` of `source`'s
+    /// `face` (CR 113.7a: the face it was activated from).
     pub(super) fn activated_condition(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: u32,
     ) -> Result<Option<KirCond>, String> {
         Ok(self
-            .copiable_definition(source)?
+            .face_definition(source.card, face)?
             .activated
             .get(ability as usize)
             .ok_or("missing activated ability")?
@@ -186,17 +191,17 @@ impl RulesTxn {
                 .as_ref()
                 .is_none_or(|c| self.activation_condition_check(player, source, c).is_ok())
             && (!restriction.once_each_turn
-                || !self
-                    .state
-                    .rules
-                    .activation_uses
-                    .contains(&ActivationUse { source, ability }))
+                || !self.state.rules.activation_uses.contains(&ActivationUse {
+                    source,
+                    face: self.current(source).map_or(source.face, Object::face),
+                    ability,
+                }))
     }
 
     pub(super) fn validate_activation_uses(&self) -> Result<(), String> {
         for key in &self.state.rules.activation_uses {
             if self.current(key.source)?.zone != Zone::Battlefield
-                || !self.activation_is_limited(key.source, key.ability)?
+                || !self.activation_is_limited(key.source, key.face, key.ability)?
             {
                 return Err("snapshot activation use invariant".into());
             }
@@ -204,9 +209,14 @@ impl RulesTxn {
         Ok(())
     }
 
-    fn activation_is_limited(&self, source: ObjectId, ability: u32) -> Result<bool, String> {
+    fn activation_is_limited(
+        &self,
+        source: ObjectId,
+        face: CardFace,
+        ability: u32,
+    ) -> Result<bool, String> {
         Ok(self
-            .copiable_definition(source)?
+            .face_definition(source.card, face)?
             .activated
             .get(ability as usize)
             .ok_or("missing limited activation slot")?
@@ -224,12 +234,15 @@ impl RulesTxn {
         player: PlayerId,
         ability: u32,
     ) -> Result<(), String> {
-        if self.activation_is_limited(source, ability)?
+        // The activated face, fixed as the ability was put on the stack.
+        let face = self.entry(stack_id)?.source_face;
+        if self.activation_is_limited(source, face, ability)?
             && self.current(source).is_ok()
-            && !self
-                .rules_mut()
-                .activation_uses
-                .insert(ActivationUse { source, ability })
+            && !self.rules_mut().activation_uses.insert(ActivationUse {
+                source,
+                face,
+                ability,
+            })
         {
             return Err("activation limit already used".into());
         }
@@ -378,7 +391,7 @@ impl RulesTxn {
         self.validate_activation(player, object, ability)?;
         // CR 602.5: the condition is read once, as the activation begins.
         let condition = self
-            .activated_condition(object, ability)?
+            .activated_condition(object, self.current(object)?.face(), ability)?
             .map(|c| self.activation_condition_check(player, object, &c))
             .transpose()?;
         let cost = self
@@ -450,6 +463,10 @@ impl RulesTxn {
                 source_handles,
                 condition,
             },
+            // CR 602.2a, 113.7a: the activated face, fixed as it is put on
+            // the stack (CR 701.27f).
+            source_face: self.current(object)?.face(),
+            source_transforms: self.current(object)?.transforms,
             stack_targets: vec![],
             announced_stack_targets: vec![],
             player_targets: vec![],
@@ -599,7 +616,7 @@ impl RulesTxn {
         ability: u32,
         source_handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
-        let definition = self.copiable_definition(entry.source)?;
+        let definition = self.stack_definition(entry)?;
         let activated = definition
             .activated
             .get(ability as usize)
@@ -629,6 +646,7 @@ impl RulesTxn {
             && self.current(entry.source).is_ok()
             && (self.state.rules.activation_uses.contains(&ActivationUse {
                 source: entry.source,
+                face: entry.source_face,
                 ability,
             }) != entry.paid.is_some())
         {
@@ -781,9 +799,13 @@ impl RulesTxn {
                                 .is_some()
                     }
                     Zone::Graveyard { owner: from } => {
-                        from == owner && self.copiable_definition(entry.source)?.flashback.is_some()
+                        from == owner && self.stack_definition(entry)?.flashback.is_some()
                     }
-                    Zone::Battlefield | Zone::Library { .. } | Zone::Stack | Zone::Exile => false,
+                    // CR 715.3d: an adventurer exiled by its resolving
+                    // Adventure, cast normally. Replay authenticates the
+                    // exiled incarnation's permission.
+                    Zone::Exile => self.adventurer_cast_from_exile(entry)?,
+                    Zone::Battlefield | Zone::Library { .. } | Zone::Stack => false,
                 };
             if !consistent {
                 return Err("snapshot spell casting origin invariant".into());
@@ -794,10 +816,13 @@ impl RulesTxn {
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
 
-        if entry.kind.is_spell() && entry.cast_from == Zone::Exile {
+        if entry.kind.is_spell()
+            && entry.cast_from == Zone::Exile
+            && !self.adventurer_cast_from_exile(entry)?
+        {
             return Err("snapshot alternative casting cost/origin invariant".into());
         }
-        let x_spell = self.copiable_definition(entry.source)?.x_mana_cost && entry.kind.is_spell();
+        let x_spell = self.stack_definition(entry)?.x_mana_cost && entry.kind.is_spell();
         let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
         // CR 601.2b: optional additional costs and hybrid symbols are
         // announced before X, so X stays unbound through those stages.
@@ -817,7 +842,7 @@ impl RulesTxn {
             || (announcing_x && !x_spell)
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
-                != matches!(&entry.kind,StackKind::Triggered {ability: ability @ EffectiveTriggerAbility::Intrinsic { .. },..} if triggers::binds_death_controller(&*self.effective_trigger(entry.source, *ability)?))
+                != matches!(&entry.kind,StackKind::Triggered {ability: ability @ EffectiveTriggerAbility::Intrinsic { .. },..} if triggers::binds_death_controller(&*self.effective_trigger(entry.source, entry.source_face, *ability)?))
         {
             return Err("snapshot X/death LKI binding invariant".into());
         }

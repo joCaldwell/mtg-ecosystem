@@ -114,7 +114,7 @@ impl RulesTxn {
             {
                 return Err("invalid frozen fight participant".into());
             }
-            self.validate_characteristic_identity(frozen.object, &frozen.characteristics)?;
+            self.validate_fact_identity(frozen)?;
             if let Ok(current) = self.object_before(frozen.object)
                 && !self.frozen_damage_source_matches(frozen, current.clone())
                 && !tx.entries.iter().any(|d| {

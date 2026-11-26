@@ -160,7 +160,7 @@ impl RulesTxn {
                 let fact = appearances
                     .get(&damage.id)
                     .ok_or("missing damage-time source appearance")?;
-                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                self.validate_fact_identity(fact)?;
                 if fact.object != damage.source.object
                     || fact.owner != damage.source.owner
                     || fact.default_controller != damage.source.default_controller
