@@ -21,11 +21,11 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     85,
-    "1dd48b6f6534e75a8b598c11efdfead4bff13a9004a5ca1da0351ce54d9cda57",
+    "0b83607a745c30690c9175b29a813d3a38b83a02928c0e3dba441218a40e3f1c",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     116,
-    "28cd7b1be5f90c2b678f99f972316b3b49146bb358b430270f7f0e73df408c0a",
+    "e4c8435b12e4052afde4ed8fde6865491f8a40a023145aa9ffefd22c98d407bd",
 );
 const WORK_PIN: (u32, &str) = (
     61,
@@ -211,6 +211,7 @@ fn granted_mana() -> Game {
             },
             vec![Change::AddManaAbilities {
                 abilities: vec![mtg_contracts::ManaAbility {
+                    spend_restriction: None,
                     restriction: None,
                     condition: None,
                     costs: mtg_contracts::PermanentActivationCosts {
@@ -221,7 +222,6 @@ fn granted_mana() -> Game {
                         pay_life: None,
                     },
                     production: mtg_contracts::ManaProduction::AnyColor,
-                    spend_restriction: None,
                     riders: vec![],
                     source_block: 0,
                 }],
@@ -837,6 +837,24 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())
+        .chain([{
+            let mut sample: Value =
+                serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+            let history = &mut sample["state"]["cast_history"][0];
+            history["attacked"] = true.into();
+            history["creature_died"] = true.into();
+            history["permanent_left"] = true.into();
+            history["hand_casts"] = 1.into();
+            history["life_gained"] = serde_json::to_value(Quantity::from(2)).unwrap();
+            sample["state"]["frame"]["frame"]["condition_check"] =
+                serde_json::to_value(InterveningCheck::TurnHistory {
+                    controller: PlayerId(0),
+                    observed: 2.into(),
+                    passed: true,
+                })
+                .unwrap();
+            serde_json::to_string(&sample).unwrap()
+        }])
         .chain([object_choice_shape()])
         .collect::<Vec<_>>();
     for raw in &samples {

@@ -90,7 +90,11 @@ impl Resolution {
     // the complete rider AST and both exact residual sites before discharging
     // the frozen diagnostics. Other references and steps still pass the gate.
     pub(super) fn cover_spend_riders(&mut self, face: usize, raw: &str) -> Result<(), Failure> {
-        let printed: Vec<Value> = decode(raw, "abilities")?;
+        let printed: Value = decode(raw, "abilities")?;
+        let Some(printed) = printed.as_array() else {
+            // The ordinary composition guard owns malformed and null operands.
+            return Ok(());
+        };
         let Some(blocks) = self.card.faces[face].blocks.as_ref() else {
             return Ok(());
         };
