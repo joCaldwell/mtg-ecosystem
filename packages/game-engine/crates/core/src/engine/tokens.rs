@@ -297,6 +297,7 @@ impl RulesTxn {
                 plus_one_counters: Quantity::zero(),
                 transforms: 0,
                 adventure_player: None,
+                face_down: false,
                 marked_damage: Quantity::zero(),
                 deathtouch_damage: false,
                 unearthed: false,
@@ -797,10 +798,7 @@ impl RulesTxn {
             // layer-4 animation ends. Replay proves the original placement.
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
-                    && (o.zone != Zone::Battlefield
-                        || !self.historical_creature_possible(
-                            &self.copiable_definition(o.id)?.characteristics,
-                        )))
+                    && (o.zone != Zone::Battlefield || !self.object_creature_possible(o.id)?))
             {
                 return Err("snapshot counter invariant".into());
             }

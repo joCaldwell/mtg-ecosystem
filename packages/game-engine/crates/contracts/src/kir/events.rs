@@ -59,6 +59,9 @@ pub enum EventPattern {
     Dies { object: Pred },
     /// CR 701.26a: a permanent actually changes from untapped to tapped.
     BecomesTapped { object: Pred },
+    /// CR 702.37e, 708.8: a face-down permanent is turned face up. It is
+    /// matched on its face-up characteristics.
+    TurnedFaceUp { object: Pred },
     /// CR 508.3a: a creature is declared as an attacker. It is matched on its
     /// facts immediately before the declaration.
     Attacks { attacker: Pred },
@@ -151,6 +154,7 @@ impl EventPattern {
             Self::Enters { .. } => "enters",
             Self::Dies { .. } => "dies",
             Self::BecomesTapped { .. } => "becomes_tapped",
+            Self::TurnedFaceUp { .. } => "turned_face_up",
             Self::Attacks { .. } => "attacks",
             Self::AttacksUnblocked { .. } => "attacks_unblocked",
             Self::Cast { .. } => "cast",
@@ -183,6 +187,7 @@ impl EventPattern {
             Self::Enters { object }
             | Self::Dies { object }
             | Self::BecomesTapped { object }
+            | Self::TurnedFaceUp { object }
             | Self::BecomesTarget { object, .. }
             | Self::Sacrifices { object, .. }
             | Self::LeavesBattlefield { object }
@@ -256,6 +261,12 @@ impl EventPattern {
                     player: PlayerExpr::EachOpponent,
                 },
             ]),
+        }
+    }
+    /// "When this permanent is turned face up" (CR 702.37e, 708.8).
+    pub fn self_turned_face_up() -> Self {
+        Self::TurnedFaceUp {
+            object: Pred::source(),
         }
     }
     /// "Whenever this permanent becomes tapped" (CR 701.26a).
@@ -479,6 +490,10 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         // CR 701.26a: the collector observes only the source's own tap.
         if matches!(pattern, EventPattern::BecomesTapped { .. }) && *object != Pred::source() {
             return Err(KirError::Unaudited("becomes-tapped object".into()));
+        }
+        // CR 702.37e: the collector observes only the source turning face up.
+        if matches!(pattern, EventPattern::TurnedFaceUp { .. }) && *object != Pred::source() {
+            return Err(KirError::Unaudited("turned-face-up object".into()));
         }
     }
     Ok(())

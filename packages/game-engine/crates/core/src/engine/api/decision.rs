@@ -154,6 +154,7 @@ impl RulesTxn {
                 )
             }
             Frame::ResolutionPayment { payment, .. } => self.resolution_payment_request(payment)?,
+            Frame::TurnFaceUp { payment } => self.face_up_request(payment)?,
             Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
             Frame::CommanderReturn {
                 object,

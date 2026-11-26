@@ -60,6 +60,7 @@ impl RulesTxn {
         let o = self.current(object)?;
         Ok(ObjectBefore {
             transforms: o.transforms,
+            face_down: o.face_down,
             battlefield_entry_turn: o.battlefield_entry_turn,
             control_upkeeps: o.control_upkeeps,
             unearthed: o.unearthed,
@@ -369,6 +370,7 @@ impl RulesTxn {
             self.validate_characteristic_identity(
                 entry.source,
                 fact.transforms,
+                fact.face_down,
                 &fact.characteristics,
             )?;
         }

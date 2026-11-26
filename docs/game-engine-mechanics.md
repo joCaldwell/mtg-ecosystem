@@ -119,6 +119,22 @@ Support is provisional at `Executes`. Split, flip, meld, prototype, Omen and
 Room layouts, battle and planeswalker faces, daybound, disturb, craft,
 casting or entering transformed and two-part flashback stay rejected.
 
+## Face-down casting
+
+Fixed-mana morph and megamorph lower to `Definition::face_down` on single-face
+permanent cards (CR 702.37a-b). `CastFaceDown` casts from hand or the command
+zone (a commander only from there, since its public damage tally would name it,
+CR 903.10a) as a face-down creature spell, with that spell's timing, prohibitions and
+cost changes; {3} is its one alternative cost (CR 702.37c, 118.9a, 708.4), and
+`Game::quote_face_down_cast_cost` prices it. It is its own action because the
+card turns face down before it is stacked. `Object::face_down` gives the CR
+708.2a values: a colorless 2/2 creature with no name, subtypes, mana cost or
+abilities; captured facts keep them. A reversed cast returns the card face up
+and unrevealed (CR 733.1). [Face-down permanents](game-engine-board-mechanics.md#face-down-permanents)
+own turning face up and privacy. Provisional at `Executes`. Rejected: disguise
+(ward), nonmana or X morph costs, "as turned face up", others'
+turned-face-up events, manifest and cloak.
+
 
 ## Commander and hidden information
 

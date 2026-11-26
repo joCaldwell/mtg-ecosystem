@@ -579,9 +579,7 @@ impl RulesTxn {
                 TargetEntity::Player { .. } => false,
                 TargetEntity::Object { object } => {
                     !self.state.rules.cards.contains_key(&object.card)
-                        || !self
-                            .copiable_definition(object)
-                            .is_ok_and(|d| self.historical_creature_possible(&d.characteristics))
+                        || !self.object_creature_possible(*object).unwrap_or(false)
                 }
             })
             || match damage.amount {

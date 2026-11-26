@@ -109,6 +109,43 @@ impl RulesTxn {
 
     pub(super) fn validate_library_position_memory(&self) -> Result<(), String> {
         let views = &self.state.knowledge.visibility;
+        // CR 708.9: every seat saw the same departure reveals, each of a
+        // departed owner's card with morph, under distinct handles.
+        let identities = |view: &Knowledge| {
+            let mut rows: Vec<_> = view
+                .revealed_face_down
+                .iter()
+                .map(|r| (r.owner, r.oracle_id.clone()))
+                .collect();
+            rows.sort();
+            rows
+        };
+        let handles_distinct = |view: &Knowledge| {
+            let handles: Vec<_> = view
+                .revealed_face_down
+                .iter()
+                .filter_map(|r| r.handle.as_ref())
+                .collect();
+            handles
+                .iter()
+                .enumerate()
+                .all(|(i, h)| !handles[..i].contains(h))
+        };
+        if views
+            .iter()
+            .any(|view| identities(view) != identities(&views[0]) || !handles_distinct(view))
+            || views[0].revealed_face_down.iter().any(|r| {
+                self.is_live(r.owner)
+                    || r.owner.0 as usize >= self.state.rules.players.len()
+                    || !self
+                        .prepared
+                        .catalog
+                        .definition_by_oracle_id(&r.oracle_id)
+                        .is_some_and(|d| d.face_down.is_some())
+            })
+        {
+            return Err("face-down departure reveals invariant".into());
+        }
         if views
             .iter()
             .any(|view| view.public_tucked_cards != views[0].public_tucked_cards)
@@ -171,7 +208,8 @@ impl RulesTxn {
             let public = current.is_some_and(|o| {
                 self.replacement_reveals(id)
                     || (!matches!(o.zone, Zone::Hand { .. } | Zone::Library { .. })
-                        && o.hideaway.is_none())
+                        && o.hideaway.is_none()
+                        && !o.face_down)
             });
             departures.push((card.owner, public.then(|| card.oracle_id.clone())));
         }
