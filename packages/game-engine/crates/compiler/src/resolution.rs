@@ -236,8 +236,21 @@ impl Resolution {
             let RefEntry::Ref(r) = entry else { continue };
             let expression = ability.pointer(&r.path);
             let ResolvedRef::Target(t) = &*r.r#ref else {
-                // CR 608.2b-c: the singular follow-up lowerers for these
-                // object effects consume only an announced antecedent.
+                if let ResolvedRef::EventObject(event) = &*r.r#ref
+                    && (Site {
+                        kind: BlockKind::of(ability),
+                        ability,
+                        block,
+                        path: &r.path,
+                        scope: r.scope.as_deref(),
+                        operand: expression,
+                    })
+                    .observed_object(&event.role)
+                {
+                    continue;
+                }
+                // CR 608.2b-c: other singular follow-up object effects
+                // consume an announced antecedent.
                 if expression.is_some_and(|e| matches!(e["ref"].as_str(), Some("it" | "that")))
                     && r.path.rsplit_once('/').is_some_and(|(step, operand)| {
                         matches!(operand, "what" | "on")
@@ -672,6 +685,26 @@ impl Site<'_> {
     fn selection(&self) -> bool {
         self.operand.is_some_and(|e| e.get("selectionId").is_some())
     }
+    /// CR 603.2, 608.2h: these resolving operands read the event's object.
+    /// Share the exact row with the later announcement-slot validation.
+    fn observed_object(&self, role: &str) -> bool {
+        self.kind == BlockKind::Triggered
+            && self.scope.is_none()
+            && self.word() == Some("it")
+            && matches!(role, "enters" | "attacks")
+            && self.ability["trigger"]["trigger"] == role
+            && matches!(
+                (
+                    self.ability["effects"][0]["steps"][0]["effect"].as_str(),
+                    self.path
+                ),
+                (
+                    Some("damage"),
+                    "/effects/0/steps/0/source" | "/effects/0/steps/0/amount/of"
+                ) | (Some("put-counters"), "/effects/0/steps/0/on")
+                    | (Some("pump"), "/effects/0/steps/0/what")
+            )
+    }
     /// The bare printed player "you".
     fn you(&self) -> bool {
         self.operand.is_some_and(|e| {
@@ -721,23 +754,7 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
     let reflexive = at.ability.pointer("/effects/1/steps/0/effect")
         == Some(&Value::from("create-reflexive-trigger"));
     if let Some(ResolvedRef::EventObject(event)) = resolved {
-        if at.kind == BlockKind::Triggered
-            && at.scope.is_none()
-            && word == Some("it")
-            && matches!(event.role.as_str(), "enters" | "attacks")
-            && at.ability["trigger"]["trigger"] == event.role
-            && matches!(
-                (
-                    at.ability["effects"][0]["steps"][0]["effect"].as_str(),
-                    at.path
-                ),
-                (
-                    Some("damage"),
-                    "/effects/0/steps/0/source" | "/effects/0/steps/0/amount/of"
-                ) | (Some("put-counters"), "/effects/0/steps/0/on")
-                    | (Some("pump"), "/effects/0/steps/0/what")
-            )
-        {
+        if at.observed_object(&event.role) {
             return true;
         }
         let self_event = at
