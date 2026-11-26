@@ -514,6 +514,7 @@ fn condition_supported(condition: &Cond) -> bool {
         Cond::CostPaid { .. }
         | Cond::Satisfies { .. }
         | Cond::CastBy { .. }
+        | Cond::TurnHistory { .. }
         | Cond::ControlsOwnCommander { .. }
         | Cond::OpponentControlsMore { .. } => false,
     }

@@ -92,12 +92,22 @@ struct TriggerOccurrences<'a> {
 }
 
 /// Semantic per-turn player ledger, independent of observers and tracing:
-/// successful casts, draws and life-gain events since the turn began, whether
+/// successful casts, draws, life gains, attacks and departures this turn, whether
 /// or not any observer was on the battlefield (CR 603.2). Original physical
 /// seats never compact on departure (CR 601.2i/800.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TurnCastHistory {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub attacked: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub creature_died: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub permanent_left: bool,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
+    pub hand_casts: u32,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
+    pub life_gained: Quantity,
     pub any_cast: bool,
     pub exile_cast: bool,
     pub mana_value: Quantity,
@@ -113,6 +123,9 @@ pub struct TurnCastHistory {
     pub life_gains: u32,
 }
 impl TurnCastHistory {
+    fn quantity_is_zero(value: &Quantity) -> bool {
+        *value == Quantity::zero()
+    }
     fn is_zero(value: &u32) -> bool {
         *value == 0
     }
@@ -651,6 +664,52 @@ impl RulesTxn {
         }))
     }
 
+    pub(super) fn record_turn_occurrences(
+        &mut self,
+        before: &RulesTxn,
+        occurrences: &[OccurrenceResult],
+    ) -> Result<(), String> {
+        // CR 603.2c, 603.10a: every member of a simultaneous occurrence
+        // contributes before any member is checked. Departures use LKI.
+        for occurrence in occurrences {
+            let departure = match &occurrence.actual {
+                EventOutcome::LeftGame { object, .. } => Some((*object, false)),
+                actual => movement(actual)
+                    .filter(|m| m.from == Zone::Battlefield && m.destination != Zone::Battlefield)
+                    .map(|m| (m.previous, matches!(m.destination, Zone::Graveyard { .. }))),
+            };
+            if let Some((object, to_graveyard)) = departure
+                && before
+                    .current(object)
+                    .is_ok_and(|o| o.present_on_battlefield())
+            {
+                let prior = before.object_before(object)?;
+                let row = &mut self.rules_mut().cast_history[prior.controller.0 as usize];
+                row.permanent_left = true;
+                row.creature_died |=
+                    to_graveyard && prior.characteristics.has_type(CardKind::Creature);
+            }
+            match &occurrence.actual {
+                EventOutcome::LifeGained { player, amount, .. } => {
+                    self.rules_mut().cast_history[player.0 as usize]
+                        .life_gained
+                        .add(amount);
+                }
+                EventOutcome::DamageCommitted { life_gains, .. }
+                | EventOutcome::NoncombatDamageDealt { life_gains, .. }
+                | EventOutcome::DamageDealt { life_gains, .. } => {
+                    for gain in life_gains {
+                        self.rules_mut().cast_history[gain.player.0 as usize]
+                            .life_gained
+                            .add(&gain.amount);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     // CR 603.2c/603.3a/603.10a: one match per actual occurrence, with
     // pre-event lookback for dies and post-event observers for enters. An
     // atomic simultaneous group shares one observer view, including sources
@@ -1089,6 +1148,12 @@ impl RulesTxn {
             row.exile_cast |= cast.cast_from == Zone::Exile;
             row.mana_value.add(&mana_value);
             row.spells.push(cast.spell.clone());
+            if cast.cast_from == (Zone::Hand { owner: cast.caster }) {
+                row.hand_casts = row
+                    .hand_casts
+                    .checked_add(1)
+                    .ok_or("turn history count limit")?;
+            }
         }
         // CR 121.2, 119.9: count the turn's draws and life-gain events.
         if let TriggerEventWitness::CardDrawn { player, .. }
@@ -1393,6 +1458,7 @@ impl RulesTxn {
                             .map(|condition| {
                                 observers.check_intervening(
                                     condition,
+                                    &self.state.rules.cast_history,
                                     object.controller,
                                     object.id,
                                     &observers.object_before(object.id)?,
@@ -1492,6 +1558,14 @@ impl RulesTxn {
     /// proves the counts and uses themselves.
     pub(super) fn validate_turn_history(&self) -> Result<(), String> {
         for (seat, row) in self.state.rules.cast_history.iter().enumerate() {
+            if row.attacked && seat != self.state.rules.turn_owner.0 as usize
+                || row.hand_casts as usize > row.spells.len()
+                || row.creature_died && !row.permanent_left
+                || row.life_gained < Quantity::from(i64::from(row.life_gains))
+                || (row.life_gained == Quantity::zero()) != (row.life_gains == 0)
+            {
+                return Err("snapshot turn history invariant".into());
+            }
             for spell in &row.spells {
                 self.validate_fact_identity(spell)?;
                 if spell.controller.0 as usize != seat

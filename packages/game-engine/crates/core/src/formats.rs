@@ -5,7 +5,7 @@
 //! `formats_tests` fingerprints fail with the constant to bump.
 
 /// `Game::snapshot` envelope and its complete private `State`.
-pub const SNAPSHOT_VERSION: u32 = 114;
+pub const SNAPSHOT_VERSION: u32 = 115;
 /// `Observation`, the permitted per-viewer view and decision.
 pub const OBSERVATION_VERSION: u32 = 83;
 /// `Game::save_work` envelope for suspended queries.

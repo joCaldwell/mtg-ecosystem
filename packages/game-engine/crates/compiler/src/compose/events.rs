@@ -504,6 +504,91 @@ fn subject(card: &Card<'_>, what: &ast::ObjectRef) -> Result<Pred, Failure> {
     }
 }
 
+/// Match complete frozen history clauses. Additional qualifiers are rejected
+/// before evaluating any comparison (CR 603.4, 109.5).
+fn turn_history(condition: &serde_json::Value) -> Option<kir::Intervening> {
+    use kir::TurnFact::*;
+    use serde_json::json;
+
+    let fixed = |op, value| json!({"op": op, "value": {"amount": "fixed", "value": value}});
+    let you = json!({"player": "you"});
+    let comparison = condition
+        .get("comparison")
+        .cloned()
+        .unwrap_or_else(|| fixed("ge", 1));
+    let measure = |fact, comparison: &serde_json::Value| {
+        let (cmp, value) = control::comparison(comparison).ok()?;
+        Some(kir::Intervening::TurnHistory { fact, cmp, value })
+    };
+    let cast = |what| {
+        json!({
+            "condition": "cast-count", "during": "this-turn", "who": you,
+            "what": what, "comparison": comparison
+        })
+    };
+    if *condition == cast(json!({"cls": "spell"})) {
+        return measure(SpellsCast, &comparison);
+    }
+    if *condition == cast(json!({"cls": "spell", "nonTypes": ["creature"]})) {
+        return measure(NoncreatureSpellsCast, &comparison);
+    }
+    let mut no_cast = cast(json!({"cls": "spell"}));
+    no_cast["comparison"] = fixed("ge", 1);
+    if *condition == json!({"condition": "not", "of": no_cast}) {
+        return measure(SpellsCast, &fixed("eq", 0));
+    }
+    no_cast["from"] = json!({"zone": "hand", "owner": "your"});
+    if *condition == json!({"condition": "not", "of": no_cast}) {
+        return measure(SpellsCastFromHand, &fixed("eq", 0));
+    }
+    if *condition == json!({"condition": "attacked", "during": "this-turn", "who": you}) {
+        return measure(Attacked, &fixed("ge", 1));
+    }
+    if *condition
+        == json!({
+            "condition": "life-change", "change": "gained", "during": "this-turn",
+            "who": you, "comparison": comparison
+        })
+    {
+        return measure(LifeGained, &comparison);
+    }
+    if *condition
+        == json!({
+            "condition": "player-action-history", "action": {"action": "draw"},
+            "during": "this-turn", "who": you, "comparison": comparison
+        })
+    {
+        return measure(CardsDrawn, &comparison);
+    }
+    let change = |event, filter| {
+        json!({
+            "condition": "zone-change-history", "event": event, "during": "this-turn",
+            "from": {"zone": "battlefield"},
+            "subject": {"match": "filter", "filter": filter, "comparison": fixed("ge", 1)}
+        })
+    };
+    let mut died = change("dies", json!({"types": ["creature"]}));
+    died["to"] = json!({"zone": "graveyard"});
+    if *condition == died {
+        return measure(CreatureDied, &fixed("ge", 1));
+    }
+    died["controllerAtMove"] = you.clone();
+    if *condition == died {
+        return measure(CreatureDiedUnderYourControl, &fixed("ge", 1));
+    }
+    died.as_object_mut()?.remove("controllerAtMove");
+    died["subject"]["comparison"] = fixed("eq", 0);
+    if *condition == died {
+        return measure(CreatureDied, &fixed("eq", 0));
+    }
+    let mut left = change("leaves-battlefield", json!({"cls": "permanent"}));
+    left["controllerAtMove"] = you;
+    if *condition == left {
+        return measure(PermanentLeftUnderYourControl, &fixed("ge", 1));
+    }
+    None
+}
+
 /// CR 603.4, 109.5: "you" is the frozen ability controller. A graveyard
 /// comparison reads only cards in that player's own graveyard (CR 404).
 pub(super) fn intervening(
@@ -511,6 +596,9 @@ pub(super) fn intervening(
     pattern: &EventPattern,
 ) -> Result<kir::Intervening, Failure> {
     use kir::ControllerMeasure;
+    if let Some(history) = turn_history(condition).filter(|history| history.admits(pattern)) {
+        return Ok(history);
+    }
     let shape = condition["condition"].as_str();
     let fields = condition.as_object().map(|o| o.len());
     let you = serde_json::json!({"player": "you"});
