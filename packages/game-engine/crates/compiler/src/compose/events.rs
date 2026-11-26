@@ -206,6 +206,7 @@ pub(super) fn object_effect(
             .map(|raw| intervening(raw, &pattern))
             .transpose()?
             .map(|i| i.condition()),
+        once_each_turn: false,
         pattern,
     };
     program.instructions.push(instruction);
@@ -286,6 +287,79 @@ pub(super) fn general(
         };
         let what: ast::ObjectRef = typed(what, "trigger.what")?;
         Ok(Some((kind, subject(card, &what)?)))
+    }
+    // CR 119.9, 701.9a, 701.21a: a player event named by "you", "an
+    // opponent" or "a player". A sacrificed permanent is matched on the
+    // battlefield immediately before it moved (CR 603.10a); a discarded or
+    // life-gain event has no object filter here.
+    if let Some(kind @ ("gains-life" | "discards" | "sacrifices")) = trigger["trigger"].as_str() {
+        let Some(fields) = trigger.as_object() else {
+            return Ok(None);
+        };
+        let allowed = if kind == "sacrifices" { 3 } else { 2 };
+        if fields.len() != allowed || (kind == "sacrifices") != fields.contains_key("what") {
+            return Ok(None);
+        }
+        let player = match &trigger["who"] {
+            who if *who == serde_json::json!({"player": "you"}) => {
+                PlayerExpr::you(Context::Triggered)
+            }
+            who if *who == serde_json::json!({"player": "an-opponent"}) => PlayerExpr::EachOpponent,
+            who if *who == serde_json::json!({"player": "a-player"}) => PlayerExpr::EachPlayer,
+            _ => return Ok(None),
+        };
+        return Ok(Some(match kind {
+            "gains-life" => EventPattern::GainsLife { player, nth: None },
+            "discards" => EventPattern::Discards { player },
+            _ => {
+                let what = &trigger["what"];
+                let object = if what.get("ref").is_some() {
+                    subject(card, &typed(what, "trigger.what")?)?
+                } else {
+                    lower_event_filter(&typed(what, "trigger.what")?)?
+                };
+                EventPattern::Sacrifices { player, object }
+            }
+        }));
+    }
+    // CR 603.6c, 509.3a, 509.3c, 120.3: an object event whose only other
+    // printed field is a combat-damage restriction or "or becomes blocked".
+    if let Some(kind @ ("leaves" | "blocks" | "becomes-blocked" | "is-dealt-damage")) =
+        trigger["trigger"].as_str()
+    {
+        let Some(fields) = trigger.as_object() else {
+            return Ok(None);
+        };
+        let extra = match kind {
+            "blocks" => "orBecomesBlocked",
+            "is-dealt-damage" => "combat",
+            _ => "",
+        };
+        if fields
+            .keys()
+            .any(|k| !matches!(k.as_str(), "trigger" | "what") && k != extra)
+            || fields
+                .get(extra)
+                .is_some_and(|v| *v != serde_json::json!(true))
+        {
+            return Ok(None);
+        }
+        let object = subject(card, &typed(&trigger["what"], "trigger.what")?)?;
+        return Ok(Some(match kind {
+            "leaves" => EventPattern::LeavesBattlefield { object },
+            "becomes-blocked" => EventPattern::BecomesBlocked { attacker: object },
+            "is-dealt-damage" => EventPattern::IsDealtDamage {
+                object,
+                combat: fields.contains_key("combat"),
+            },
+            _ if fields.contains_key(extra) => EventPattern::AnyOf {
+                first: Box::new(EventPattern::Blocks {
+                    blocker: object.clone(),
+                }),
+                second: Box::new(EventPattern::BecomesBlocked { attacker: object }),
+            },
+            _ => EventPattern::Blocks { blocker: object },
+        }));
     }
     if trigger["trigger"] == "becomes-target"
         && trigger.as_object().is_some_and(|fields| fields.len() == 3)

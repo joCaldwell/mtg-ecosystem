@@ -602,10 +602,7 @@ impl RulesTxn {
                     EventGroup::Simultaneous {
                         occurrences: objects
                             .into_iter()
-                            .map(|object| ProposedEvent::Move {
-                                object,
-                                destination: Zone::Graveyard { owner: player },
-                            })
+                            .map(|object| ProposedEvent::DiscardCard { object, player })
                             .collect(),
                     },
                     GroupFinish::Cleanup,

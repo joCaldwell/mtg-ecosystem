@@ -176,6 +176,7 @@ impl RulesTxn {
             || s.rules.cast_history.iter().any(|h| {
                 h.mana_value.is_negative()
                     || !h.any_cast && (h.exile_cast || h.mana_value != Quantity::zero())
+                    || h.any_cast == h.spells.is_empty()
             })
             || s.rules.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.rules.priority.0 >= 4
@@ -241,6 +242,7 @@ impl RulesTxn {
         self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;
         self.validate_activation_uses()?;
+        self.validate_turn_history()?;
         self.validate_resolution_triggers()?;
         self.validate_trigger_state()?;
         self.validate_library_position_memory()?;

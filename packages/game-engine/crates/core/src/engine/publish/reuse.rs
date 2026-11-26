@@ -130,6 +130,7 @@ impl Published {
         let RulesTables {
             mana_ability_uses,
             activation_uses: _,
+            trigger_uses: _,
             tokens,
             retained_auxiliary_charge: _,
             typed_fault: _,
