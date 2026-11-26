@@ -59,7 +59,9 @@ pub(crate) fn every_creature_type_cda(value: &serde_json::Value) -> Option<Resul
         return None;
     };
     Some(
-        if matches!(&*x.what, ast::ObjectRef::SelfObject(_)) && every_creature_type(&x.change) {
+        if matches!(&*x.what, ast::ObjectRef::This(this) if this.noun == "creature")
+            && every_creature_type(&x.change)
+        {
             Ok(())
         } else {
             Err(gap("cda-types"))
@@ -117,6 +119,13 @@ fn lower(
             let mut abilities = lower(&x.effect, &raw["effect"], site)?;
             for a in &mut abilities {
                 let condition = match &mut a.effect {
+                    // CR 613.8: a condition on a layer-4 creature-type change
+                    // would need dependency ordering.
+                    StaticEffect::Continuous { changes, .. }
+                        if changes.contains(&Change::AllCreatureTypes) =>
+                    {
+                        return Err(gap("modifier:all-creature-types:condition"));
+                    }
                     StaticEffect::Continuous { condition, .. }
                     | StaticEffect::Rule { condition, .. } => condition,
                     StaticEffect::EntersTappedIf { .. } => {
