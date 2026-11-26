@@ -387,6 +387,7 @@ impl SampleBuildWork {
                     // view, and echo is outside the reviewed search tier.
                     control_upkeeps: (row.zone == Zone::Battlefield).then_some(0),
                     keyword_timestamp: None,
+                    keyword_rank: 0,
                     plus_one_counters: Quantity::zero(),
                     transforms: 0,
                     adventure_player: None,

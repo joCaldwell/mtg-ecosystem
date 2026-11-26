@@ -248,6 +248,7 @@ impl RulesTxn {
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
         let control_upkeeps = (zone == Zone::Battlefield)
             .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
+        let keyword_rank = self.apnap_rank(controller);
         self.rules_mut().objects.insert(
             card,
             Object {
@@ -258,6 +259,7 @@ impl RulesTxn {
                 attachment_timestamp: None,
                 battlefield_entry_turn: (zone == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
+                keyword_rank,
                 plus_one_counters: Quantity::zero(),
                 transforms: 0,
                 adventure_player: None,

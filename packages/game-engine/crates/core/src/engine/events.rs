@@ -115,6 +115,9 @@ pub struct ObjectBefore {
     pub transforms: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_timestamp: Option<u64>,
+    /// `Object::keyword_rank` as last known.
+    #[serde(default, skip_serializing_if = "state::is_zero_rank")]
+    pub keyword_rank: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battlefield_entry_turn: Option<u64>,
     /// CR 702.30a: `Object::control_upkeeps` as last known.
@@ -2069,6 +2072,7 @@ impl RulesTxn {
             }
         }
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
+        let keyword_rank = self.apnap_rank(controller);
         let control_upkeeps = (*destination == Zone::Battlefield)
             .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
         self.rules_mut().objects.insert(
@@ -2081,6 +2085,7 @@ impl RulesTxn {
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
                 control_upkeeps,
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
+                keyword_rank,
                 plus_one_counters,
                 transforms: 0,
                 adventure_player: None,
@@ -2337,6 +2342,7 @@ impl RulesTxn {
                     return Err("unsupported replaced attached entry".into());
                 }
                 let batch = self.state.rules.next_batch_id;
+                let rank = self.apnap_rank(self.current(movement.successor)?.controller);
                 let permanent = self
                     .rules_mut()
                     .objects
@@ -2345,6 +2351,7 @@ impl RulesTxn {
                 permanent.attached_to = Some(*target);
                 permanent.attachment_timestamp = Some(attachment_timestamp);
                 permanent.keyword_timestamp = Some(batch);
+                permanent.keyword_rank = rank;
                 self.rules_mut().next_attachment_timestamp = next;
                 EventOutcome::EnteredAttached {
                     movement,
@@ -2385,6 +2392,7 @@ impl RulesTxn {
                     None
                 };
                 let batch = self.state.rules.next_batch_id;
+                let rank = self.apnap_rank(self.current(*object)?.controller);
                 let o = self
                     .rules_mut()
                     .objects
@@ -2395,6 +2403,7 @@ impl RulesTxn {
                     o.attachment_timestamp = allocation.map(|(timestamp, _)| timestamp);
                     if target.is_some() {
                         o.keyword_timestamp = Some(batch);
+                        o.keyword_rank = rank;
                     }
                     if let Some((_, next)) = allocation {
                         self.rules_mut().next_attachment_timestamp = next;

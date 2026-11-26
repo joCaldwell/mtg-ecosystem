@@ -277,31 +277,44 @@ fn static_compare(left: &Quantity, cmp: Cmp, right: &Quantity) -> bool {
     }
 }
 
-// CR 613.7m: simultaneous entrants with a conflicting setter would
-// need a player's timestamp choice. Only ordered or commuting setters are
-// admitted at this boundary.
+/// A setter's place in the timestamp order: its timestamp and, for a static
+/// ability, its source's APNAP rank (`Object::keyword_rank`); `None` for a
+/// resolved effect.
+type Stamp = (u64, Option<u8>);
+
+// CR 613.7m: simultaneous objects of different controllers go in APNAP
+// order. One controller's simultaneous objects, or an object and a resolved
+// effect sharing a timestamp, with conflicting setters would need a player's
+// choice and reject; ordered or commuting setters apply.
 fn latest_setter<T: PartialEq>(
-    setters: impl Iterator<Item = (u64, T)>,
+    setters: impl Iterator<Item = (Stamp, T)>,
 ) -> Result<Option<T>, String> {
-    let mut latest = None;
-    let mut conflicts = false;
-    for (time, value) in setters {
-        match &latest {
-            Some((previous, _)) if time < *previous => {}
-            Some((previous, earlier)) if time == *previous => conflicts |= *earlier != value,
-            _ => {
-                latest = Some((time, value));
-                conflicts = false;
-            }
-        }
+    let all: Vec<_> = setters.collect();
+    let Some(time) = all.iter().map(|((time, _), _)| *time).max() else {
+        return Ok(None);
+    };
+    let mut latest: Vec<(Option<u8>, T)> = all
+        .into_iter()
+        .filter(|((t, _), _)| *t == time)
+        .map(|((_, rank), value)| (rank, value))
+        .collect();
+    if latest.iter().all(|(rank, _)| rank.is_some()) {
+        let top = latest.iter().map(|(rank, _)| *rank).max().flatten();
+        latest.retain(|(rank, _)| *rank == top);
     }
-    if conflicts {
+    let (_, value) = latest.remove(0);
+    if latest.iter().any(|(_, other)| *other != value) {
         return Err("simultaneous continuous setters require timestamp order".into());
     }
-    Ok(latest.map(|(_, value)| value))
+    Ok(Some(value))
 }
 
 impl RulesTxn {
+    /// CR 613.7m: the APNAP rank a static source's timestamp was given.
+    fn source_rank(&self, source: ObjectId) -> u8 {
+        self.current(source).map_or(0, |o| o.keyword_rank)
+    }
+
     pub(super) fn resolved_characteristic_sets(
         &self,
         object: ObjectId,
@@ -999,16 +1012,16 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let mut facts = self.structural_characteristics(object)?;
-        let statics = self.static_changes(object, Layer::Color, sources);
+        let statics = self.static_changes_by_source(object, Layer::Color, sources);
         let colors = statics
             .into_iter()
-            .filter_map(|(time, change)| match change {
-                Change::SetColors { colors } => Some((time, colors)),
+            .filter_map(|(time, source, change)| match change {
+                Change::SetColors { colors } => Some(((time, Some(self.source_rank(source))), colors)),
                 _ => None,
             });
         let resolved = self
             .resolved_characteristic_sets(object)
-            .filter_map(|(time, values)| Some((time, values.colors.as_ref()?)));
+            .filter_map(|(time, values)| Some(((time, None), values.colors.as_ref()?)));
         // CR 613.8a: static color scopes cannot read colors, and a
         // resolved setter always affects its captured objects.
         if let Some(colors) = latest_setter(colors.chain(resolved))? {
@@ -1180,16 +1193,16 @@ impl RulesTxn {
         let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
         self.characteristic_power_toughness(object, &mut c)?;
         if c.has_type(CardKind::Creature) {
-            let statics = self.static_changes(object, Layer::PowerToughnessSet, sources);
+            let statics = self.static_changes_by_source(object, Layer::PowerToughnessSet, sources);
             // CR 613.4b: a setter can leave either characteristic alone.
             // Neither supported kind reads a layer-7 result (CR 613.8a).
             let base = |power_stat| {
-                let fixed = statics.iter().filter_map(|(time, change)| {
+                let fixed = statics.iter().filter_map(|(time, source, change)| {
                     let Change::SetPowerToughness { power, toughness } = change else {
                         return None;
                     };
                     Some((
-                        *time,
+                        (*time, Some(self.source_rank(*source))),
                         if power_stat { power } else { toughness }.as_fixed()?,
                     ))
                 });
@@ -1197,7 +1210,7 @@ impl RulesTxn {
                     self.resolved_characteristic_sets(object)
                         .filter_map(|(time, values)| {
                             Some((
-                                time,
+                                (time, None),
                                 if power_stat {
                                     &values.base_power
                                 } else {

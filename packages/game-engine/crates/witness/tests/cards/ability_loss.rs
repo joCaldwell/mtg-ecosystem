@@ -836,3 +836,81 @@ fn simultaneous_timestamps_follow_apnap_or_reject() {
         "{result:?}"
     );
 }
+
+/// Pass priority (declaring no attackers) until `player` is active.
+fn until_active(g: &mut Game, player: PlayerId) {
+    for _ in 0..200 {
+        let r = Driver::request(g, u64::MAX);
+        if g.state.rules.active == Some(player) && r.reason == Reason::Priority {
+            return checked(g);
+        }
+        let answer = match r.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::Attackers => r.attack(vec![]),
+            ref reason => panic!("unexpected turn boundary {reason:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    panic!("turn did not pass");
+}
+
+/// CR 613.7m: the APNAP order of simultaneous timestamps is fixed when they
+/// are assigned, so it does not change when another player becomes active.
+#[test]
+fn simultaneous_timestamp_order_survives_the_turn() {
+    let mut g = game(&[
+        ("Humility", 0, B),
+        ("True Conviction", 1, B),
+        ("Grizzly Bears", 1, B),
+    ]);
+    let bears = object(&g, 2);
+    let granted = |g: &Game| {
+        let now = keywords(g, bears);
+        now.contains(&KeywordAbility::DoubleStrike) && now.contains(&KeywordAbility::Lifelink)
+    };
+    assert!(granted(&g));
+    until_active(&mut g, PlayerId(1));
+    assert!(granted(&g));
+    assert!(granted(&restored(&g)));
+}
+
+/// Attach the setup Aura `aura` to `host` as if it had entered attached
+/// with every other setup permanent (one shared timestamp).
+fn forge_attached(g: &mut Game, aura: ObjectId, host: ObjectId) {
+    let rules = &mut g.state.rules;
+    let timestamp = rules.next_attachment_timestamp;
+    rules.next_attachment_timestamp += 1;
+    let o = rules.objects.get_mut(&aura.card).unwrap();
+    o.attached_to = Some(host);
+    o.attachment_timestamp = Some(timestamp);
+}
+
+/// CR 613.4b, 613.7m: simultaneous base power and toughness setters of
+/// different controllers apply in APNAP order; one controller's conflict
+/// needs that player's order and rejects.
+#[test]
+fn simultaneous_base_pt_setters_follow_apnap() {
+    for (humility, aura, expected) in [(0, 1, 3), (1, 0, 1)] {
+        let mut g = unstarted(&[
+            ("Humility", humility, B),
+            ("Kenrith's Transformation", aura, B),
+            ("Grizzly Bears", aura, B),
+        ]);
+        let (kenrith, bears) = (object(&g, 1), object(&g, 2));
+        forge_attached(&mut g, kenrith, bears);
+        Driver::request(&mut g, u64::MAX);
+        assert_eq!(pt(&g, bears), (q(expected), q(expected)), "Humility seat {humility}");
+        assert!(keywords(&g, bears).is_empty());
+        // A forged board has no replay journal to restore from.
+        g.validate_state().unwrap();
+    }
+    let mut g = unstarted(&[
+        ("Humility", 0, B),
+        ("Kenrith's Transformation", 0, B),
+        ("Grizzly Bears", 0, B),
+    ]);
+    let (kenrith, bears) = (object(&g, 1), object(&g, 2));
+    forge_attached(&mut g, kenrith, bears);
+    let err = g.characteristics(bears).unwrap_err();
+    assert!(err.contains("simultaneous"), "{err}");
+}

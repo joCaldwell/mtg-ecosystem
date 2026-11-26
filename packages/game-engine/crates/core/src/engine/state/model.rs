@@ -66,6 +66,10 @@ pub struct Object {
     pub attachment_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) keyword_timestamp: Option<u64>,
+    /// CR 613.7m: the relative order of objects timestamped together, fixed
+    /// when the timestamp is assigned: the controller's APNAP position then.
+    #[serde(default, skip_serializing_if = "is_zero_rank")]
+    pub(in crate::engine) keyword_rank: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) battlefield_entry_turn: Option<u64>,
     /// CR 702.30a: on the battlefield, the controller's upkeep count when
@@ -123,6 +127,9 @@ pub(crate) fn face_after(face: CardFace, transforms: u32) -> CardFace {
     } else {
         face
     }
+}
+pub(crate) fn is_zero_rank(rank: &u8) -> bool {
+    *rank == 0
 }
 pub(crate) fn is_zero_count(count: &u32) -> bool {
     *count == 0

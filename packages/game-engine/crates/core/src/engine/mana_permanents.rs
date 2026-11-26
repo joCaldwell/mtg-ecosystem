@@ -198,7 +198,7 @@ impl RulesTxn {
             (
                 time,
                 self.current(key.source)
-                    .map_or(0, |o| self.apnap_rank(o.controller)),
+                    .map_or(0, |o| o.keyword_rank),
             )
         };
         let removals: Vec<_> = changes
@@ -1468,6 +1468,7 @@ impl RulesTxn {
                         control_upkeeps: r.source.control_upkeeps,
                         unearthed: r.source.unearthed,
                         keyword_timestamp: r.source.keyword_timestamp,
+                        keyword_rank: r.source.keyword_rank,
                         id: r.source.object,
                         controller: r.source.controller,
                         default_controller: r.source.default_controller,

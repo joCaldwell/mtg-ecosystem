@@ -90,6 +90,10 @@ impl RulesTxn {
         }
         let mut timestamps = BTreeSet::new();
         for o in self.state.rules.objects.values() {
+            // CR 613.7m: an APNAP position among at most four seats.
+            if o.keyword_rank >= 4 {
+                return Err("snapshot timestamp rank invariant".into());
+            }
             if o.attached_to.is_some() != o.attachment_timestamp.is_some()
                 || o.attachment_timestamp
                     .is_some_and(|t| t == 0 || t >= next || !timestamps.insert(t))
@@ -221,7 +225,7 @@ impl RulesTxn {
             // controller's ties are rejected at stabilization).
             let rank = u64::from(
                 self.current(key.source)
-                    .map_or(0, |o| self.apnap_rank(o.controller)),
+                    .map_or(0, |o| o.keyword_rank),
             ) << 1;
             match change {
                 Change::AddKeywords { keywords } => {

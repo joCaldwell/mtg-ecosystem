@@ -64,6 +64,7 @@ impl RulesTxn {
             control_upkeeps: o.control_upkeeps,
             unearthed: o.unearthed,
             keyword_timestamp: o.keyword_timestamp,
+            keyword_rank: o.keyword_rank,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,
             object,

@@ -172,12 +172,30 @@ fn apply_type_change(
     }
 }
 
+/// Each recipient with whether each of the effect's layer-4 changes takes
+/// effect there.
+type Application = Vec<(ObjectId, Vec<bool>)>;
+
+fn members(application: &Application) -> Vec<ObjectId> {
+    application.iter().map(|(o, _)| *o).collect()
+}
+
+/// Whether a layer-4 change does anything to `facts` (CR 205.3d: only a
+/// creature or a land can have that kind of subtype).
+fn change_takes_effect(change: &Change, facts: &Characteristics) -> bool {
+    match change {
+        Change::SetCreatureSubtypes { .. } => facts.has_type(CardKind::Creature),
+        Change::SetLandSubtypes { .. } => facts.has_type(CardKind::Land),
+        Change::RemoveCardTypes { kinds } => kinds.iter().any(|k| facts.has_type(*k)),
+        _ => true,
+    }
+}
+
 /// One layer-4 effect: a resolved animation with its captured
 /// incarnations, or a static ability.
 struct Eff<'a> {
     /// (timestamp, resolved before static, APNAP rank, creation).
     order: (u64, u8, u8, usize),
-    controller: PlayerId,
     kind: EffKind<'a>,
 }
 
@@ -310,7 +328,8 @@ impl RulesTxn {
         {
             return Ok(());
         }
-        let controller = |key: StaticKey| self.current(key.source).map(|o| o.controller).ok();
+        // CR 613.7m: one rank at one timestamp is one controller's tie.
+        let rank = |key: StaticKey| self.current(key.source).map(|o| o.keyword_rank).ok();
         for object in self
             .state
             .rules
@@ -338,7 +357,7 @@ impl RulesTxn {
                     if overlaps
                         && other == time
                         && granting.source != removing.source
-                        && controller(*granting) == controller(*removing)
+                        && rank(*granting) == rank(*removing)
                     {
                         return Err(REJECT.into());
                     }
@@ -360,7 +379,8 @@ impl RulesTxn {
         Ok(cache.get().expect("layer cache was just set"))
     }
 
-    /// CR 613.7m: the active player's objects first, then turn order.
+    /// CR 613.7m: the active player's objects first, then turn order, as of
+    /// the moment the timestamp is assigned (`Object::keyword_rank`).
     pub(super) fn apnap_rank(&self, player: PlayerId) -> u8 {
         let active = self.state.rules.active.map_or(0, |p| p.0);
         (player.0 + 4 - active) % 4
@@ -386,7 +406,6 @@ impl RulesTxn {
                     .collect();
                 effects.push(Eff {
                     order: (*timestamp, 0, 0, effects.len()),
-                    controller: effect.origin.controller,
                     kind: EffKind::Resolved { targets, animation },
                 });
             }
@@ -412,10 +431,9 @@ impl RulesTxn {
                 order: (
                     source.keyword_timestamp.unwrap_or(0),
                     1,
-                    self.apnap_rank(source.controller),
+                    source.keyword_rank,
                     effects.len(),
                 ),
-                controller: source.controller,
                 kind: EffKind::Static {
                     key,
                     source,
@@ -431,7 +449,11 @@ impl RulesTxn {
         effects.sort_by_key(|e| e.order);
         // CR 613.8b-c: apply the earliest effect that depends on no other
         // remaining effect outside its own dependency loop; re-evaluate
-        // after each application.
+        // after each application. CR 613.8a(c) never applies: no admitted
+        // layer-4 effect is a characteristic-defining ability (changeling
+        // is a copiable value, CR 604.3, 613.3), and `cda-types` rejects.
+        // An effect depends on another when applying that one changes its
+        // existence, its recipients or what it does to them.
         while !effects.is_empty() {
             let apps = effects
                 .iter()
@@ -444,7 +466,7 @@ impl RulesTxn {
                     continue;
                 }
                 let mut after = state.clone();
-                self.apply_layer4_effect(&effects[j], &apps[j], &mut after)?;
+                self.apply_layer4_effect(&effects[j], &members(&apps[j]), &mut after)?;
                 for i in (0..n).filter(|i| *i != j) {
                     depends[i][j] = self.layer4_application(&effects[i], &after)? != apps[i];
                 }
@@ -472,7 +494,7 @@ impl RulesTxn {
                 }
             }
             let effect = effects.remove(pick);
-            self.apply_layer4_effect(&effect, &apps[pick], &mut state)?;
+            self.apply_layer4_effect(&effect, &members(&apps[pick]), &mut state)?;
         }
         Ok(GlobalTypes {
             entries: state.entries,
@@ -480,14 +502,15 @@ impl RulesTxn {
         })
     }
 
-    /// CR 613.7m: two ready statics of one controller with one timestamp
-    /// whose order changes the result.
+    /// CR 613.7m: two ready statics with one timestamp and one APNAP rank
+    /// (one controller's simultaneous objects) unless both orders give the
+    /// same whole layer-4 state, including the recipients later layers use.
     fn order_matters(
         &self,
         effects: &[Eff<'_>],
         a: usize,
         b: usize,
-        apps: &[Vec<ObjectId>],
+        apps: &[Application],
         state: &Layer4,
     ) -> Result<bool, String> {
         let (x, y) = (&effects[a], &effects[b]);
@@ -495,62 +518,69 @@ impl RulesTxn {
         else {
             return Ok(false);
         };
-        if (x.order.0, x.order.1) != (y.order.0, y.order.1)
-            || x.controller != y.controller
+        if (x.order.0, x.order.1, x.order.2) != (y.order.0, y.order.1, y.order.2)
             || kx.source == ky.source
-            || !apps[a].iter().any(|o| apps[b].contains(o))
         {
             return Ok(false);
         }
         let run = |first: usize, second: usize| -> Result<Layer4, String> {
             let mut s = state.clone();
-            self.apply_layer4_effect(&effects[first], &apps[first], &mut s)?;
+            self.apply_layer4_effect(&effects[first], &members(&apps[first]), &mut s)?;
             let next = self.layer4_application(&effects[second], &s)?;
-            self.apply_layer4_effect(&effects[second], &next, &mut s)?;
+            self.apply_layer4_effect(&effects[second], &members(&next), &mut s)?;
             Ok(s)
         };
-        let (one, two) = (run(a, b)?, run(b, a)?);
-        Ok(apps[a].iter().chain(&apps[b]).any(|o| {
-            let (p, q) = (one.entries.get(o), two.entries.get(o));
-            p.map(|e| (&e.facts, e.removed)) != q.map(|e| (&e.facts, e.removed))
-        }))
+        let normal = |s: Layer4| {
+            s.entries
+                .into_iter()
+                .map(|(o, mut e)| {
+                    e.applied.sort_by_key(|k| (k.source, k.index));
+                    (o, e.facts, e.removed, e.applied)
+                })
+                .collect::<Vec<_>>()
+        };
+        Ok(normal(run(a, b)?) != normal(run(b, a)?))
     }
 
-    /// The objects `effect` applies to in `state`; empty when its source no
-    /// longer has the ability (CR 305.7).
-    fn layer4_application(
-        &self,
-        effect: &Eff<'_>,
-        state: &Layer4,
-    ) -> Result<Vec<ObjectId>, String> {
-        let (source, affects) = match &effect.kind {
-            EffKind::Resolved { targets, .. } => return Ok(targets.clone()),
+    /// What `effect` does in `state` (CR 613.8a): each recipient with,
+    /// for each of its layer-4 changes in order, whether that change takes
+    /// effect there. Empty when its source no longer has the ability
+    /// (CR 305.7).
+    fn layer4_application(&self, effect: &Eff<'_>, state: &Layer4) -> Result<Application, String> {
+        let facts = |target: ObjectId| -> Result<&Characteristics, String> {
+            Ok(match state.entries.get(&target) {
+                Some(e) => &e.facts,
+                None => &self.copiable_definition(target)?.characteristics,
+            })
+        };
+        let (source, affects, changes) = match &effect.kind {
+            EffKind::Resolved { targets, .. } => {
+                return Ok(targets.iter().map(|t| (*t, vec![])).collect());
+            }
             EffKind::Static {
-                source, affects, ..
-            } => (*source, *affects),
+                source,
+                affects,
+                changes,
+                ..
+            } => (*source, *affects, *changes),
         };
         if state.entries.get(&source.id).is_some_and(|e| e.removed) {
             return Ok(vec![]);
         }
-        let matches = |target: &Object| -> Result<bool, String> {
-            let facts = match state.entries.get(&target.id) {
-                Some(e) => &e.facts,
-                None => &self.copiable_definition(target.id)?.characteristics,
-            };
-            Ok(self.static_matches(affects, source, target, facts, target.controller))
-        };
-        Ok(match affects {
-            Scope::Source => vec![source.id],
-            Scope::Attachment { .. } => match source
-                .attached_to
-                .and_then(|t| self.current(t).ok())
-                .filter(|t| t.present_on_battlefield())
-            {
-                Some(target) if matches(target)? => vec![target.id],
-                _ => vec![],
-            },
+        let mut recipients = vec![];
+        match affects {
+            Scope::Source => recipients.push(source.id),
+            Scope::Attachment { .. } => {
+                if let Some(target) = source
+                    .attached_to
+                    .and_then(|t| self.current(t).ok())
+                    .filter(|t| t.present_on_battlefield())
+                    && self.static_matches(affects, source, target, facts(target.id)?, target.controller)
+                {
+                    recipients.push(target.id);
+                }
+            }
             Scope::Matching { .. } => {
-                let mut out = vec![];
                 for target in self
                     .state
                     .rules
@@ -558,13 +588,28 @@ impl RulesTxn {
                     .values()
                     .filter(|o| o.present_on_battlefield())
                 {
-                    if matches(target)? {
-                        out.push(target.id);
+                    if self.static_matches(affects, source, target, facts(target.id)?, target.controller) {
+                        recipients.push(target.id);
                     }
                 }
-                out
             }
-        })
+        }
+        let mut out = vec![];
+        for object in recipients {
+            let printed = &self.copiable_definition(object)?.characteristics;
+            let mut now = facts(object)?.clone();
+            let effective = changes
+                .iter()
+                .filter(|c| c.layer() == Layer::Type)
+                .map(|change| {
+                    let takes = change_takes_effect(change, &now);
+                    apply_type_change(&mut now, change, printed, &mut false);
+                    takes
+                })
+                .collect();
+            out.push((object, effective));
+        }
+        Ok(out)
     }
 
     fn apply_layer4_effect(
@@ -658,7 +703,7 @@ impl RulesTxn {
                 affects,
                 first,
                 time: source.keyword_timestamp.unwrap_or(0),
-                rank: self.apnap_rank(source.controller),
+                rank: source.keyword_rank,
             };
             if first == Layer::Type {
                 // Its existence and recipients are fixed in layer 4.
@@ -846,5 +891,61 @@ impl RulesTxn {
             }
         }
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CR 613.8a: what a land- or creature-subtype setter does depends on
+    /// the recipient's card types, so the scheduler compares it.
+    #[test]
+    fn subtype_setters_take_effect_only_on_matching_types() {
+        let mut facts = Characteristics {
+            kind: CardKind::Land,
+            additional_types: vec![],
+            subtypes: vec!["Forest".into()],
+            all_creature_types: false,
+            basic: false,
+            legendary: false,
+            snow: false,
+            hybrid_mana: vec![],
+            mana_cost: ManaCost {
+                generic: Quantity::zero(),
+                colored: vec![],
+            },
+            colors: vec![],
+            color_identity: vec![],
+            power: None,
+            toughness: None,
+            front_face_mana_value: None,
+        };
+        let mountain = Change::SetLandSubtypes {
+            subtypes: vec!["Mountain".into()],
+        };
+        let elk = Change::SetCreatureSubtypes {
+            subtypes: vec!["Elk".into()],
+        };
+        assert!(change_takes_effect(&mountain, &facts));
+        assert!(!change_takes_effect(&elk, &facts));
+        let printed = facts.clone();
+        apply_type_change(
+            &mut facts,
+            &Change::SetCardTypes {
+                kinds: vec![CardKind::Creature],
+            },
+            &printed,
+            &mut false,
+        );
+        assert!(facts.subtypes.is_empty() && facts.power.is_some());
+        assert!(!change_takes_effect(&mountain, &facts));
+        assert!(change_takes_effect(&elk, &facts));
+        assert!(!change_takes_effect(
+            &Change::RemoveCardTypes {
+                kinds: vec![CardKind::Land]
+            },
+            &facts
+        ));
     }
 }
