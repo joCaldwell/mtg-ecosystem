@@ -643,6 +643,8 @@ pub(crate) enum Step {
         order: Option<String>,
         #[serde(default, deserialize_with = "present_bool_field")]
         tapped: Option<bool>,
+        #[serde(default, deserialize_with = "present_ast_field")]
+        controller: Option<String>,
         /// The player who puts the cards (CR 110.2).
         #[serde(default, deserialize_with = "present_json_operand")]
         who: Option<serde_json::Value>,

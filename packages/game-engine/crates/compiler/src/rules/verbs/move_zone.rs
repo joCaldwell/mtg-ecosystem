@@ -9,20 +9,35 @@ pub(super) fn lower(
     order: Option<&str>,
     tapped: Option<bool>,
     who: Option<&serde_json::Value>,
+    controller: Option<&str>,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     // CR 110.2a and 614.1c: a permanent card from your graveyard enters
     // under your control, tapped when the move specifies it.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if *to == serde_json::json!({"zone": "battlefield"}) {
-        if order.is_some() || who.is_some() || tapped == Some(false) {
+        if order.is_some()
+            || who.is_some()
+            || tapped == Some(false)
+            || !matches!(controller, None | Some("you"))
+        {
             return Err(step("move-zone", "battlefield_entry_modifier"));
         }
-        let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, true)?;
+        let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, false)?;
+        let target = &cx.program.targets[slot as usize];
+        let controller = if controller.is_some()
+            || !matches!(target.domain, TargetDomain::GraveyardCard { .. })
+        {
+            PlayerExpr::you(cx.context)
+        } else {
+            PlayerExpr::OwnerOf {
+                object: kir::Ref::Target { slot },
+            }
+        };
         return Ok(Instruction::move_target(
             slot,
             Destination::Battlefield {
-                controller: PlayerExpr::you(cx.context),
+                controller,
                 tapped: tapped == Some(true),
             },
             cx.source_block,
@@ -31,7 +46,7 @@ pub(super) fn lower(
     if tapped.is_some() || order.is_some() {
         return Err(step("move-zone", "entry_modifier"));
     }
-    if who.is_some() {
+    if who.is_some() || controller.is_some() {
         return Err(step("move-zone", "mover"));
     }
     let to = lower_destination(to)?;

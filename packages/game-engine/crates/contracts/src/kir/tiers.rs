@@ -151,6 +151,7 @@ pub enum Cell {
     GraveyardTargetWasCreature,
     MoveGraveyardTargetToOwnerHand,
     MoveOwnGraveyardCreatureToBattlefield,
+    MoveGraveyardCreatureToBattlefield,
     MoveOwnGraveyardCardToBattlefield,
     ExileTargetGraveyard,
     ExileGraveyards,
@@ -353,6 +354,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveGraveyardTargetToOwnerHand
         | C::MoveOwnGraveyardTargetToHand
         | C::MoveOwnGraveyardCardToBattlefield
+        | C::MoveGraveyardCreatureToBattlefield
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
         | C::ExileGraveyards

@@ -52,6 +52,7 @@ pub(super) fn reorder_top(cx: &mut StepCx<'_>, steps: &[Step]) -> Result<Instruc
             to,
             order: Some(order),
             tapped: None,
+            controller: None,
             who: None,
         },
         ..,
@@ -231,6 +232,7 @@ pub(super) fn search(
         to,
         order,
         tapped,
+        controller: None,
         who: mover,
     }) = steps.get(at)
     else {
@@ -291,7 +293,7 @@ fn validate_search_shuffle(shuffle: &Step, player: &Value) -> Result<(), Failure
 
 /// CR 701.24b: the found singleton stays outside the shuffle.
 fn top_after_shuffle(movement: &Step, player: &Value) -> bool {
-    matches!(movement, Step::MoveZone { what, to, order: None, tapped: None, who: None }
+    matches!(movement, Step::MoveZone { what, to, order: None, tapped: None, controller: None, who: None }
         if (*what == json!({"ref": "it"})
             || *what == json!({"ref": "that", "filter": {"cls": "card"}}))
         && *to == json!({"zone": "library", "owner": player, "position": "top"}))

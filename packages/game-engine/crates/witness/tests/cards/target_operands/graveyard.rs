@@ -302,3 +302,41 @@ fn bombardment_announces_damage_before_paying_its_sacrifice() {
     assert_eq!(zone(&g, 1), grave(0));
     assert_eq!(g.state.rules.players[1].life, Quantity::from(39));
 }
+
+const ASHEN_POWDER: &str = record!("d906965a-0f33-4d75-8abe-66f2cf4817b8");
+
+#[test]
+fn ashen_powder_returns_an_opponents_creature_under_the_spell_controllers_control() {
+    let mut b = board(&[(
+        ASHEN_POWDER,
+        &[Cell::MoveGraveyardCreatureToBattlefield],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Ashen Powder", 0, 0, true);
+    for _ in 0..4 {
+        b = b.permanent_or_hand("Swamp", 0, 0, false);
+    }
+    let prepared = b
+        .card("Grizzly Bears", 0, 0, grave(0))
+        .card("Grizzly Bears", 1, 1, grave(1))
+        .card("Forest", 1, 1, grave(1))
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let target = Driver::object(&g, 6);
+    let decision = targets(&mut g);
+    assert_eq!(decision.candidates, [Candidate::Object { object: target }]);
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[1, 2, 3, 4]);
+    assert_recoverable((&g).into());
+    settle(&mut g);
+
+    let successor = Driver::object(&g, 6);
+    assert_ne!(successor, target);
+    let permanent = g.current(successor).unwrap();
+    assert_eq!(permanent.zone, Zone::Battlefield);
+    assert_eq!(permanent.controller, PlayerId(0));
+    assert_eq!(g.state.rules.cards[&successor.card].owner, PlayerId(1));
+    assert_eq!(zone(&g, 5), grave(0));
+    assert_eq!(zone(&g, 7), grave(1));
+}
