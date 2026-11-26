@@ -430,7 +430,8 @@ impl RulesTxn {
             // SourceLabels maps indexed static abilities but has no block
             // mapping for intrinsic keywords. The candidate names its source.
             EffectKey::IntrinsicProtectionFromEverything { .. }
-            | EffectKey::IntrinsicProtectionFromColor { .. } => return None,
+            | EffectKey::IntrinsicProtectionFromColor { .. }
+            | EffectKey::StaticAbility { .. } => return None,
             EffectKey::Resolved { id } => {
                 let effect = self.state.rules.effects.iter().find(|e| e.id == *id)?;
                 (

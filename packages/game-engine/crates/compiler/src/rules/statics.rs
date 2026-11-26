@@ -229,7 +229,7 @@ fn lower(
         S::SkipTime(_) => return Err(gap("skip-time")),
         S::LevelBand(_) => return Err(gap("level-band")),
         S::StationBand(_) => return Err(gap("station-band")),
-        S::Replacement(_) => return Err(gap("replacement")),
+        S::Replacement(x) => damage_replacement(&x.replacement)?,
         S::SpellAdditionalCost(_) => return Err(gap("spell-additional-cost")),
         S::AsEnters(_) => return Err(gap("entry-choice:as-enters")),
         S::AsTurnedFaceUp(_) => return Err(gap("as-turned-face-up")),
@@ -264,9 +264,18 @@ fn lower(
             }
             ability(Battlefield, StaticEffect::PayLifeOrEnterTapped { amount })
         }
-        S::PreventDamage(_) => return Err(gap("prevent-damage")),
+        S::PreventDamage(x) => static_prevention(&x.prevention)?,
         S::RedirectDamage(_) => return Err(gap("redirect-damage")),
-        S::Prohibit(_) => return Err(gap("prohibit")),
+        S::Prohibit(x) => match &*x.prohibition {
+            ast::GameProhibition::PreventDamage(x) if x.when.is_none() => rule(
+                Battlefield,
+                StaticRule::DamageCantBePrevented {
+                    event: damage_event(x.kind, x.by.as_deref(), x.to.as_deref(), None)?,
+                },
+                None,
+            ),
+            _ => return Err(gap("prohibit")),
+        },
         S::CastLimit(_) => return Err(gap("cast-limit")),
         S::LegendRuleExemption(_) => return Err(gap("legend-rule-exemption")),
         S::AdditionalTriggers(_) => return Err(gap("additional-triggers")),
@@ -1300,4 +1309,209 @@ fn bare_keyword(k: &ast::KeywordInstance, name: &str) -> bool {
         && prototype.is_none()
         && additional_costs.is_none()
         && gift.is_none()
+}
+
+/// CR 609.7a: the source of damage a static damage rule names: the static's
+/// own permanent, the permanent it is attached to, or every matching source,
+/// read from its damage-time facts. "Source" is no characteristic.
+fn damage_source_scope(what: &ast::ObjectRef) -> Result<Scope, Failure> {
+    use ast::ObjectRef as R;
+    match what {
+        R::This(x)
+            if matches!(
+                x.noun.as_str(),
+                "creature" | "artifact" | "enchantment" | "land" | "permanent"
+            ) =>
+        {
+            Ok(Scope::Source)
+        }
+        R::SelfObject(_) => Ok(Scope::Source),
+        R::Variant29(_) => scope(what, false),
+        R::Filter(x)
+            if one(&x.count)
+                && x.up_to.is_none()
+                && x.group_constraints.is_none()
+                && x.random.is_none() =>
+        {
+            damage_source_filter(&x.filter)
+        }
+        R::Each(x) => damage_source_filter(&x.filter),
+        R::All(x) => damage_source_filter(&x.filter),
+        other => Err(gap(&format!("damage:source:{}", variant(other)))),
+    }
+}
+
+fn damage_source_filter(filter: &ast::ObjectFilter) -> Result<Scope, Failure> {
+    let mut filter = filter.clone();
+    if filter.cls == Some(ast::ObjectFilterCls::Source) {
+        filter.cls = None;
+    }
+    let filter = lower_declaration_filter(&filter)
+        .map_err(|e| gap(&format!("damage:source:{}", e.reason)))?;
+    if !kir::damage_source_pred_valid(&filter) {
+        return Err(gap("damage:source:filter"));
+    }
+    Ok(Scope::Matching { filter })
+}
+
+/// CR 120.1: the players and permanents a static damage rule names.
+fn damage_recipients(to: &[ast::AmountCounterCountOn]) -> Result<kir::DamageRecipients, Failure> {
+    let mut out = kir::DamageRecipients {
+        players: None,
+        permanents: None,
+    };
+    for item in to {
+        match item {
+            ast::AmountCounterCountOn::PlayerRef(who) if out.players.is_none() => {
+                out.players = Some(match &**who {
+                    ast::PlayerRef::You(_) => PlayerExpr::static_controller(),
+                    ast::PlayerRef::AnOpponent(_) | ast::PlayerRef::EachOpponent(_) => {
+                        PlayerExpr::EachOpponent
+                    }
+                    ast::PlayerRef::APlayer(_) | ast::PlayerRef::EachPlayer(_) => {
+                        PlayerExpr::EachPlayer
+                    }
+                    other => return Err(gap(&format!("damage:recipient:{}", variant(other)))),
+                });
+            }
+            ast::AmountCounterCountOn::ObjectRef(what) if out.permanents.is_none() => {
+                out.permanents = Some(match &**what {
+                    ast::ObjectRef::Filter(x)
+                        if one(&x.count)
+                            && x.up_to.is_none()
+                            && x.group_constraints.is_none()
+                            && x.random.is_none() =>
+                    {
+                        recipient_filter(&x.filter)?
+                    }
+                    ast::ObjectRef::Each(x) => recipient_filter(&x.filter)?,
+                    ast::ObjectRef::All(x) => recipient_filter(&x.filter)?,
+                    other => scope(other, false)?,
+                });
+            }
+            _ => return Err(gap("damage:recipient:repeated")),
+        }
+    }
+    Ok(out)
+}
+
+fn recipient_filter(filter: &ast::ObjectFilter) -> Result<Scope, Failure> {
+    Ok(Scope::Matching {
+        filter: lower_declaration_filter(filter)
+            .map_err(|e| gap(&format!("damage:recipient:{}", e.reason)))?,
+    })
+}
+
+fn damage_event(
+    kind: ast::ReplacementEventDamageKind,
+    by: Option<&ast::ObjectRef>,
+    to: Option<&[ast::AmountCounterCountOn]>,
+    involving: Option<&ast::ObjectRef>,
+) -> Result<kir::DamageEvent, Failure> {
+    Ok(kir::DamageEvent {
+        kind: super::verbs::damage_kind(kind),
+        by: by.map(damage_source_scope).transpose()?,
+        to: to.map(damage_recipients).transpose()?,
+        involving: involving.map(damage_source_scope).transpose()?,
+    })
+}
+
+/// CR 615.1, 615.10: "Prevent all [combat] damage that would be dealt
+/// [to/by/to and by X]", "prevent N of that damage" and "prevent half that
+/// damage". Conditions, incoming amounts, riders and source choices reject.
+fn static_prevention(p: &ast::DamagePrevention) -> Result<StaticAbility, Failure> {
+    if p.incoming_amount.is_some()
+        || p.condition.is_some()
+        || p.optional.is_some()
+        || p.bindings.is_some()
+        || p.after.is_some()
+    {
+        return Err(gap("prevent-damage:qualifier"));
+    }
+    use ast::DamagePreventionEventScopeSources::Each;
+    let ast::DamagePreventionShield::Events(events) = &*p.shield else {
+        return Err(gap("prevent-damage:shield"));
+    };
+    if events.occurrence != ast::EffectCreateDelayedTriggerOccurrence::Each {
+        return Err(gap("prevent-damage:occurrence"));
+    }
+    // CR 615.10: an amount applies separately to each damage event.
+    let separate = p.event_scope.sources == Each && p.event_scope.recipients == Each;
+    let prevent = match &*events.prevent {
+        ast::PreventionQuantity::All(_) => kir::PreventionAmount::All,
+        ast::PreventionQuantity::Amount(x)
+            if separate && x.prevent == ast::PreventionQuantityAmountPrevent::UpTo =>
+        {
+            kir::PreventionAmount::UpTo {
+                amount: fixed_positive_amount(&x.amount)?,
+            }
+        }
+        ast::PreventionQuantity::Half(x) if separate => kir::PreventionAmount::Half {
+            round_up: x.round == ast::EffectTurnFaceFace::Up,
+        },
+        _ => return Err(gap("prevent-damage:amount")),
+    };
+    let by = match p.by.as_deref() {
+        None => None,
+        Some(ast::DamagePreventionBy::ObjectRef(what)) => Some(&**what),
+        Some(_) => return Err(gap("prevent-damage:source-choice")),
+    };
+    Ok(rule(
+        FunctioningZone::Battlefield,
+        StaticRule::PreventDamage {
+            event: damage_event(p.kind, by, p.to.as_deref(), p.involving.as_deref())?,
+            prevent,
+        },
+        None,
+    ))
+}
+
+/// CR 614.1a, 120.8: "If [a source] would deal damage to [recipients], it
+/// deals double/triple/that much plus N damage instead."
+fn damage_replacement(r: &ast::ReplacementInstruction) -> Result<StaticAbility, Failure> {
+    let ast::ReplacementEvent::Damage(event) = &*r.event else {
+        return Err(gap("replacement"));
+    };
+    if r.occurrence != ast::EffectCreateDelayedTriggerOccurrence::Each
+        || r.condition.is_some()
+        || r.optional.is_some()
+        || event.quantity.is_some()
+    {
+        return Err(gap("replacement:damage:qualifier"));
+    }
+    let ast::ReplacementInstructionReplace::ModifyQuantity(modify) = &*r.replace else {
+        return Err(gap("replacement:damage:replace"));
+    };
+    use ast::ReplacementInstructionReplaceModifyQuantityChange as M;
+    let change = match &*modify.change {
+        M::Multiply(x) if x.factor >= 2 => kir::DamageModification::Multiply {
+            factor: Quantity::from(x.factor),
+        },
+        M::Amount(x)
+            if x.operation
+                == ast::ReplacementInstructionReplaceModifyQuantityChangeAmountOperation::Add =>
+        {
+            kir::DamageModification::Add {
+                amount: fixed_positive_amount(&x.amount)?,
+            }
+        }
+        _ => return Err(gap("replacement:damage:change")),
+    };
+    Ok(rule(
+        FunctioningZone::Battlefield,
+        StaticRule::ModifyDamage {
+            event: damage_event(
+                event.kind,
+                event.source.as_deref(),
+                event.to.as_deref(),
+                None,
+            )?,
+            change,
+        },
+        None,
+    ))
+}
+
+fn one(count: &ast::Amount) -> bool {
+    matches!(count, ast::Amount::Fixed(n) if n.value == 1)
 }

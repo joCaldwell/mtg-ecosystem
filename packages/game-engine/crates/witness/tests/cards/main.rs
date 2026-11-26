@@ -13,6 +13,7 @@ mod library;
 mod modal_double_faced;
 mod permanents_mana;
 mod removal_wipes;
+mod replacement_prevention;
 mod target_operands;
 mod token_creation;
 mod transform_adventure;

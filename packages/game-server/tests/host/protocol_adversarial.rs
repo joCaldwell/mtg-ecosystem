@@ -137,7 +137,7 @@ fn page(number: u64, expiry: u64) -> StreamPage {
                 "live_turn_order":[0,1,2,3],"commanders":[],"priority":0,
                 "players":[{"player":0,"status":"live","life":"-9007199254740992","mana":{"W":"9007199254740992"},"hand_count":0,"library_count":0}],
                 "objects":[],"stack":[],
-                "effects":[{"effect":"prevent_combat_damage","handle":"viewer-effect","origin":{"source":{"announced":"old-source","current":null},"oracle_id":"public-oracle","controller":0},"expires_in_cleanup_of_turn":expiry}]
+                "effects":[{"effect":"prevent_damage","kind":"combat","handle":"viewer-effect","origin":{"source":{"announced":"old-source","current":null},"oracle_id":"public-oracle","controller":0},"expires_in_cleanup_of_turn":expiry}]
             },
             "decision":{"token":"viewer-token","player":0,"reason":{"reason":"priority"},"candidates":[{"candidate":"action","action":{"action":"pass"}}],"shape":{"shape":"pick","slots":[{"role":{"role":"choice"},"subject":null,"allowed":[0],"min":1,"max":1,"repeat":false}],"rules":[]}}
         }}}],

@@ -342,7 +342,12 @@ mod tests {
             },
             target_handles: vec![],
             expires_in_cleanup_of_turn: 10,
-            kind: ResolvedEffectKind::PreventCombatDamage,
+            kind: ResolvedEffectKind::PreventDamage {
+                kind: mtg_contracts::kir::DamageKindFilter::Combat,
+                to: None,
+                by: None,
+                remaining: None,
+            },
         });
         game.state.rules.next_effect_id = 3;
         game.state.rules.next_trigger_id = 11;

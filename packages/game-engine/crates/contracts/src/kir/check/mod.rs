@@ -861,6 +861,21 @@ impl Walk<'_, '_> {
                 self.expect(to, &[RefKind::Object], "attachment host")
                     .map(drop)
             }
+            Verb::PreventDamage { prevention, .. } => {
+                if let Some(to) = &prevention.to {
+                    self.expect(
+                        to,
+                        &[RefKind::Object, RefKind::Player, RefKind::Entity],
+                        "shielded recipient",
+                    )?;
+                }
+                match &prevention.by {
+                    Some(PreventionSources::One { object }) => self
+                        .expect(object, &[RefKind::Object], "prevented damage source")
+                        .map(drop),
+                    Some(PreventionSources::Matching { .. }) | None => Ok(()),
+                }
+            }
             Verb::RestrictCombat { affects, .. } => match affects {
                 CombatProhibitionScope::Target { target } => self
                     .expect(target, &[RefKind::Object], "restricted creature")
@@ -1374,6 +1389,7 @@ impl Walk<'_, '_> {
             Verb::CreateTokens { .. }
             | Verb::ModifyUntil { .. }
             | Verb::RestrictCombat { .. }
+            | Verb::PreventDamage { .. }
             | Verb::GainControl { .. }
             | Verb::SetCharacteristics { .. } => {
                 unaudited("nested leaf needs persistent provenance")
@@ -1565,6 +1581,9 @@ impl Walk<'_, '_> {
                 restriction,
                 until,
             } => self.audit_combat_prohibition(affects, *restriction, *until),
+            Verb::PreventDamage { prevention, until } => {
+                self.audit_resolved_prevention(prevention, *until)
+            }
             Verb::Search { player, search } => self.audit_search(player, search),
             Verb::Shuffle { player } => self.audit_shuffle(player),
             Verb::ReorderLibraryTop { player, amount } => {
@@ -1707,6 +1726,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::RestrictCombat { .. } => {
             out.insert(Capability::TemporaryCombatProhibitionV1);
         }
+        Verb::PreventDamage { prevention, .. } => modify::prevention_capabilities(prevention, out),
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
         Verb::Sacrifice { player, .. } => sacrifice::capabilities(player, out),
