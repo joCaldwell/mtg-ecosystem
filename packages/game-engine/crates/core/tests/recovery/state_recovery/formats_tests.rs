@@ -24,8 +24,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "7b3d5129ddc652bb7a9e1106ae54ec294d8306e3f5b97eb92b864fcdf12ef28c",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    108,
-    "adc9a9853f6e03259e48c2632bf88b1c15107182ef948ca008ddd90b43180d36",
+    109,
+    "de264d5d7182ce24a821f35267d76a8b8049cf617cf633df32d7e2c0e54f31a4",
 );
 const WORK_PIN: (u32, &str) = (
     58,
@@ -774,6 +774,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            super::kernel_control_tests::suspended_creature_payment(),
             pending_stack_target(),
         ])
         .chain(mana_riders())

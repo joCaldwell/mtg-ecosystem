@@ -62,6 +62,8 @@ enum Kind {
     /// `path` is the printed optional `pay-cost` step a following "if you
     /// do" (`unless` false) or "if you don't" (`unless` true) reads.
     Pays { path: String, unless: bool },
+    /// The step's original instruction precedes its replacement.
+    Instead { path: String },
 }
 
 /// A block's sentences with their control peeled off.
@@ -170,13 +172,14 @@ fn paid_sentence(sentence: &Value, next: Option<&Value>) -> Option<&'static str>
     let step_fields = step.as_object()?;
     let next = next?.as_object()?;
     (fields.len() == 1
-        && step["effect"] == "pay-cost"
         && step["optional"] == true
-        && step_fields.keys().all(|k| {
-            matches!(
-                k.as_str(),
-                "effect" | "who" | "costs" | "optional" | "decidedBy"
-            )
+        && (step["effect"] == "pay-cost" && step_fields.contains_key("costs")
+            || step["effect"] == "sacrifice" && step_fields.contains_key("what"))
+        && step_fields.keys().all(|k| match k.as_str() {
+            "effect" | "who" | "optional" | "decidedBy" => true,
+            "costs" => step["effect"] == "pay-cost",
+            "what" => step["effect"] == "sacrifice",
+            _ => false,
         })
         && step_fields.contains_key("who")
         && next.get("conditionKind") == Some(&Value::from("if"))
@@ -225,6 +228,38 @@ fn peel_step(
             }
             wraps[at].end = steps.len();
         }
+        // CR 614.15: select the event before applying either alternative.
+        Some("self-replacement") => {
+            let Some([replacement]) = step["instead"].as_array().map(Vec::as_slice) else {
+                return reject("self_replacement_shape");
+            };
+            let original = &step["original"];
+            // Reuse the original announcement and restrict this row to
+            // replacements that vary only the amount of the same action.
+            let mut equivalent = replacement.clone();
+            let (Some(amount), Some(fields)) = (original.get("amount"), equivalent.as_object_mut())
+            else {
+                return reject("self_replacement_shape");
+            };
+            if fields.insert("amount".into(), amount.clone()).is_none()
+                || step.as_object().map(Map::len) != Some(5)
+                || step["targetPolicy"] != "retain-original"
+                || equivalent != *original
+                || original.get("optional").is_some()
+            {
+                return reject("self_replacement_shape");
+            }
+            steps.extend([original.clone(), replacement.clone()]);
+            wraps.push(Wrap {
+                sentence,
+                start,
+                end: steps.len(),
+                depth: 2,
+                kind: Kind::Instead {
+                    path: format!("{path}/condition"),
+                },
+            });
+        }
         // The destroy verb lowers its own audited optional row.
         // The parser names a chooser other than "you" as `decidedBy`; "you
         // may have [player] ..." keeps "you" as the chooser.
@@ -272,8 +307,25 @@ impl Site<'_> {
     }
 
     fn node(&self, kind: &Kind, body: Node) -> Result<Node, Failure> {
+        if let Kind::Instead { path } = kind {
+            let Node::Seq(nodes) = body else {
+                return reject("self_replacement_instructions");
+            };
+            let Ok([original, replacement]) = <[Node; 2]>::try_from(nodes) else {
+                return reject("self_replacement_instructions");
+            };
+            if !matches!((&original, &replacement), (Node::Do(_), Node::Do(_))) {
+                return reject("self_replacement_instructions");
+            }
+            return Ok(Node::If {
+                condition: self.condition(path, self.sentence(path)?)?,
+                then: Box::new(replacement),
+                otherwise: Some(Box::new(original)),
+            });
+        }
         let node = Box::new(body);
         Ok(match kind {
+            Kind::Instead { .. } => unreachable!("handled before wrapping"),
             Kind::Optional { who } => {
                 let chooser = match who {
                     Some(path) => self.player(path)?,
@@ -297,12 +349,18 @@ impl Site<'_> {
                     Some(_) => self.player(&format!("{path}/decidedBy"))?,
                     None => PlayerExpr::you(self.context),
                 };
-                let costs = &step["costs"];
-                if chooser != payer || costs.as_array().map(Vec::len) != Some(1) {
+                if chooser != payer {
                     return reject("payment_shape");
                 }
-                self.implicit_payer(&format!("{path}/costs/0/payer"), &payer)?;
-                let payment = payment(costs)?;
+                let payment = if step["effect"] == "sacrifice" {
+                    if !single_card(&step["what"], serde_json::json!({"types": ["creature"]})) {
+                        return reject("payment_sacrifice");
+                    }
+                    Payment::SacrificeCreature {}
+                } else {
+                    self.implicit_payer(&format!("{path}/costs/0/payer"), &payer)?;
+                    payment(&step["costs"])?
+                };
                 if *unless {
                     Node::UnlessPays {
                         payer,
@@ -516,31 +574,45 @@ fn own_library(node: &Node, player: &PlayerExpr) -> bool {
     }
 }
 
-/// CR 118.12a: one generic mana or life payment.
+fn single_card(what: &Value, filter: Value) -> bool {
+    *what
+        == serde_json::json!({
+            "ref": "filter", "filter": filter, "count": {"amount": "fixed", "value": 1}
+        })
+}
+
+/// CR 118.12a: the fixed cost of one resolution payment.
 fn payment(cost: &Value) -> Result<Payment, Failure> {
-    let cost = &cost[0];
+    let Some([cost]) = cost.as_array().map(Vec::as_slice) else {
+        return reject("payment_shape");
+    };
     match cost["cost"].as_str() {
         Some("mana") if cost.as_object().map(Map::len) == Some(2) => {
             let symbols = cost["symbols"]
                 .as_array()
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| unsupported("compose.control", "payment_shape"))?;
-            let mut total = 0i64;
+            let mut printed = String::new();
             for symbol in symbols {
-                let generic = symbol
+                let symbol = symbol
                     .as_str()
-                    .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
-                    .and_then(|s| s.parse::<i64>().ok())
+                    .filter(|symbol| !symbol.contains(['{', '}']))
                     .ok_or_else(|| unsupported("compose.control", "payment:mana_symbol"))?;
-                total = total
-                    .checked_add(generic)
-                    .ok_or_else(|| invalid("compose.control", "payment overflow"))?;
+                printed.push('{');
+                printed.push_str(symbol);
+                printed.push('}');
             }
-            Ok(Payment::Generic {
-                amount: kir::Amount::Fixed {
-                    value: Quantity::from(total),
-                },
-            })
+            let cost = crate::ingest::mana_cost(&printed)
+                .map_err(|_| unsupported("compose.control", "payment:mana_symbol"))?;
+            if cost.colored.is_empty() {
+                Ok(Payment::Generic {
+                    amount: kir::Amount::Fixed {
+                        value: cost.generic,
+                    },
+                })
+            } else {
+                Ok(Payment::Mana { mana: cost })
+            }
         }
         Some("pay-life") if cost.as_object().map(Map::len) == Some(2) => {
             let amount: ast::Amount = typed(&cost["amount"], "amount")?;
@@ -549,6 +621,15 @@ fn payment(cost: &Value) -> Result<Payment, Failure> {
                     value: fixed_positive_amount(&amount)?,
                 },
             })
+        }
+        Some("discard")
+            if cost.as_object().map(Map::len) == Some(2)
+                && single_card(
+                    &cost["what"],
+                    serde_json::json!({"types": ["artifact"], "cls": "card"}),
+                ) =>
+        {
+            Ok(Payment::DiscardArtifact {})
         }
         Some(other) => Err(unsupported("compose.control", format!("payment:{other}"))),
         None => reject("payment_shape"),

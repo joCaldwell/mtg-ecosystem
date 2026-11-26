@@ -23,6 +23,9 @@ enum Stage {
     Optional {
         chooser: PlayerId,
     },
+    ObjectPayment {
+        payer: PlayerId,
+    },
     Life {
         payer: PlayerId,
         amount: Quantity,
@@ -73,7 +76,7 @@ impl Task {
         match self.stage {
             Stage::Run | Stage::Leaf | Stage::Complete { .. } => None,
             Stage::Optional { chooser } | Stage::Choose { chooser, .. } => Some(chooser),
-            Stage::Life { payer, .. } => Some(payer),
+            Stage::Life { payer, .. } | Stage::ObjectPayment { payer } => Some(payer),
         }
     }
 }
@@ -359,6 +362,26 @@ impl RulesTxn {
         if !self.still_offered(task)? {
             return Ok(None);
         }
+        if matches!(task.stage, Stage::ObjectPayment { .. }) {
+            let candidates = self.object_payment_candidates(player, self.node_at(task)?.0)?;
+            return Ok(Some(
+                self.pick(
+                    player,
+                    Reason::OptionalEffect,
+                    std::iter::once(Candidate::Flag {
+                        flag: Flag::Decline,
+                    })
+                    .chain(
+                        candidates
+                            .into_iter()
+                            .map(|object| Candidate::Object { object }),
+                    )
+                    .collect(),
+                    1,
+                    1,
+                ),
+            ));
+        }
         Ok(Some(self.pick_flags(
             player,
             Reason::OptionalEffect,
@@ -373,8 +396,44 @@ impl RulesTxn {
     fn still_offered(&self, task: &Task) -> Result<bool, String> {
         match (&task.stage, self.node_at(task)?.0) {
             (Stage::Optional { .. }, Node::Optional { node, .. }) => self.performable(task, node),
+            (Stage::ObjectPayment { payer }, node) if Self::is_sacrifice_payment(node) => {
+                Ok(!self.object_payment_candidates(*payer, node)?.is_empty())
+            }
             _ => Ok(true),
         }
+    }
+
+    fn is_sacrifice_payment(node: &Node) -> bool {
+        matches!(
+            node,
+            Node::IfPays {
+                payment: Payment::SacrificeCreature {},
+                ..
+            } | Node::UnlessPays {
+                payment: Payment::SacrificeCreature {},
+                ..
+            }
+        )
+    }
+
+    fn object_payment_candidates(
+        &self,
+        player: PlayerId,
+        node: &Node,
+    ) -> Result<Vec<ObjectId>, String> {
+        if Self::is_sacrifice_payment(node) {
+            return Ok(self.controlled_creatures(player));
+        }
+        let mut eligible = Vec::new();
+        for card in self.action_hand(player) {
+            if self
+                .characteristics(card)?
+                .has_type(mtg_contracts::CardKind::Artifact)
+            {
+                eligible.push(card);
+            }
+        }
+        Ok(eligible)
     }
 
     pub(in crate::engine) fn kernel_choice_context(
@@ -443,6 +502,28 @@ impl RulesTxn {
                 }
                 Ok(())
             }
+            (
+                Stage::ObjectPayment { payer },
+                Node::IfPays {
+                    payer: named,
+                    payment,
+                    ..
+                }
+                | Node::UnlessPays {
+                    payer: named,
+                    payment,
+                    ..
+                },
+            ) if matches!(
+                payment,
+                Payment::SacrificeCreature {} | Payment::DiscardArtifact {}
+            ) =>
+            {
+                if self.control_players(task, named)? != [*payer] {
+                    return Err("kernel object payment differs from its node".into());
+                }
+                Ok(())
+            }
             // CR 118.12: the saved payer and amount are the admitted terms.
             (
                 Stage::Life { payer, amount },
@@ -490,6 +571,46 @@ impl RulesTxn {
     pub(in crate::engine) fn step_kernel_task(&mut self, mut task: Task) -> Result<(), String> {
         let (node, block) = self.node_at(&task)?;
         let node = node.clone();
+        if let Stage::ObjectPayment { payer } = task.stage {
+            let input = self.rules_mut().pending.take();
+            let paid = if self.is_live(payer) && self.still_offered(&task)? {
+                match input.ok_or("missing object payment decision")?.one()? {
+                    Candidate::Flag {
+                        flag: Flag::Decline,
+                    } => false,
+                    Candidate::Object { object } => {
+                        if !self
+                            .object_payment_candidates(payer, &node)?
+                            .contains(object)
+                        {
+                            return Err("ineligible kernel object payment".into());
+                        }
+                        let proposed = if Self::is_sacrifice_payment(&node) {
+                            ProposedEvent::Sacrifice {
+                                object: *object,
+                                player: payer,
+                            }
+                        } else {
+                            ProposedEvent::DiscardCard {
+                                object: *object,
+                                player: payer,
+                            }
+                        };
+                        matches!(
+                            self.commit(
+                                proposed,
+                                self.instruction_cause(self.kernel_root()?, block)?
+                            )?,
+                            EventOutcome::Sacrificed { .. } | EventOutcome::CardDiscarded { .. }
+                        )
+                    }
+                    _ => return Err("invalid object payment decision".into()),
+                }
+            } else {
+                false
+            };
+            return self.paid(task, &node, paid);
+        }
         if let Some(player) = task.chooser() {
             let perform = if self.is_live(player) && self.still_offered(&task)? {
                 let input = self
@@ -536,7 +657,7 @@ impl RulesTxn {
                     };
                     self.choose_next(task, var, player, remaining, selected, minimum, maximum)?;
                 }
-                Stage::Run | Stage::Leaf | Stage::Complete { .. } => {
+                Stage::Run | Stage::Leaf | Stage::Complete { .. } | Stage::ObjectPayment { .. } => {
                     return Err("unexpected kernel input".into());
                 }
             }
@@ -628,6 +749,12 @@ impl RulesTxn {
                     return self.paid(task, &node, false);
                 };
                 match payment {
+                    // Keep a private discard offer even with no matching card.
+                    // CR 400.2: only the payer may see the eligible hand objects.
+                    Payment::SacrificeCreature {} | Payment::DiscardArtifact {} => {
+                        task.stage = Stage::ObjectPayment { payer: player };
+                        self.install_kernel(task);
+                    }
                     Payment::Life { amount } => {
                         let amount = self.control_amount(&task, amount)?;
                         if amount.is_negative() {
@@ -643,6 +770,9 @@ impl RulesTxn {
                         } else {
                             self.paid(task, &node, false)?;
                         }
+                    }
+                    Payment::Mana { mana: cost } => {
+                        self.begin_kernel_payment(task, player, cost.clone())?;
                     }
                     Payment::Generic { amount } => {
                         let amount = self.control_amount(&task, amount)?;
@@ -796,28 +926,24 @@ impl RulesTxn {
                 block,
                 payment.clone(),
             )),
-            Node::UnlessPays {
-                payer,
-                payment: Payment::Generic { amount },
-                ..
-            }
-            | Node::IfPays {
-                payer,
-                payment: Payment::Generic { amount },
-                ..
-            } => {
+            Node::UnlessPays { payer, payment, .. } | Node::IfPays { payer, payment, .. } => {
                 let players = self.control_players(task, payer)?;
                 let [player] = players.as_slice() else {
                     return Err("invalid kernel payer".into());
                 };
-                Ok((
-                    *player,
-                    block,
-                    ManaCost {
+                let cost = match payment {
+                    Payment::Generic { amount } => ManaCost {
                         generic: self.control_amount(task, amount)?,
                         colored: vec![],
                     },
-                ))
+                    Payment::Mana { mana: cost } => cost.clone(),
+                    Payment::Life { .. }
+                    | Payment::SacrificeCreature {}
+                    | Payment::DiscardArtifact {} => {
+                        return Err("invalid kernel mana payment".into());
+                    }
+                };
+                Ok((*player, block, cost))
             }
             _ => Err("invalid kernel payment parent".into()),
         }

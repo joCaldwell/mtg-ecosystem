@@ -344,3 +344,120 @@ fn deathcap_marionette_offers_milling_only_a_whole_library_amount() {
         checked(&g);
     }
 }
+
+#[test]
+fn bestiary_requires_colored_payment_before_drawing() {
+    for (accept, fund) in [(false, false), (true, false), (true, true)] {
+        let mut g = Game::new(prepared(&[
+            ("Grizzly Bears", 0, true),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Lifecrafter's Bestiary", 0, false),
+        ]));
+        cast_bears(&mut g);
+        let before = hand(&g, 0);
+        choose(&mut g, 0, accept);
+        if fund {
+            Driver::pay(&mut g, &[3]);
+        } else if accept {
+            Driver::answer(
+                &mut g,
+                u64::MAX,
+                Answer::Pay {
+                    pay: PayAnswer::Finish {
+                        undo_on_failure: true,
+                    },
+                },
+            );
+        }
+        settle(&mut g);
+        assert_eq!(hand(&g, 0), before + usize::from(fund));
+    }
+}
+
+#[test]
+fn thirst_for_knowledge_offers_artifact_or_two_unrestricted_discards() {
+    for pay in [true, false] {
+        let mut g = Game::new(prepared(&[
+            ("Thirst for Knowledge", 0, true),
+            ("Island", 0, false),
+            ("Island", 0, false),
+            ("Island", 0, false),
+            ("Darksteel Relic", 0, true),
+        ]));
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2, 3]);
+        let offer = next_choice(&mut g);
+        assert_eq!(
+            (offer.player, &offer.reason),
+            (PlayerId(0), &Reason::OptionalEffect)
+        );
+        checked(&g);
+        let choice = if pay {
+            Candidate::Object {
+                object: Driver::object(&g, 4),
+            }
+        } else {
+            Candidate::Flag {
+                flag: Flag::Decline,
+            }
+        };
+        g.respond(offer.player, offer.id, offer.pick_one(&choice).unwrap())
+            .unwrap();
+        if !pay {
+            let discard = next_choice(&mut g);
+            checked(&g);
+            let picks = discard
+                .candidates
+                .iter()
+                .filter_map(|candidate| {
+                    if let Candidate::Object { object } = candidate
+                        && object.card != CardId(4)
+                    {
+                        return discard.index(candidate);
+                    }
+                    None
+                })
+                .take(2)
+                .collect();
+            g.respond(
+                discard.player,
+                discard.id,
+                Answer::Pick { picks: vec![picks] },
+            )
+            .unwrap();
+        }
+        settle(&mut g);
+        assert_eq!(hand(&g, 0), if pay { 3 } else { 2 });
+    }
+}
+
+#[test]
+fn dega_sanctuary_replaces_the_original_life_gain() {
+    for both_colors in [true, false] {
+        let mut board = Board::new(
+            FixtureCatalog::Witness.get().clone(),
+            "dega-sanctuary-upkeep",
+        )
+        .seats(2)
+        .life(PlayerId(0), LIFE.into())
+        .step(TurnStep::Upkeep)
+        .permanent_or_hand("Dega Sanctuary", 0, 0, false)
+        .permanent_or_hand("Royal Assassin", 0, 0, false);
+        if both_colors {
+            board = board.permanent_or_hand("Kamahl, Pit Fighter", 0, 0, false);
+        }
+        let mut g = Game::new(board.libraries("Forest", 4).prepare());
+        g.enter_turn_step().unwrap();
+        for _ in 0..4 {
+            assert_eq!(Driver::request(&mut g, u64::MAX).reason, Reason::Priority);
+            if life(&g, 0) != LIFE.into() {
+                break;
+            }
+            Driver::pass(&mut g);
+        }
+        assert_eq!(life(&g, 0), (LIFE + if both_colors { 4 } else { 2 }).into());
+        checked(&g);
+    }
+}

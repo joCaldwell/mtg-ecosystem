@@ -256,10 +256,31 @@ pub(super) fn choices_printed(
         }
         let mut found = Counts::default();
         for field in fields {
-            field_carriers(ability, field, &mut found)?;
-            if let Some(node) = ability.pointer(field) {
-                outcome_printed(&text, node)?;
+            let node = ability
+                .pointer(field)
+                .ok_or_else(|| invalid("resolution.spans", "segment names a missing field"))?;
+            // CR 614.15: the parser certifies the original sentence at the
+            // sentence path and the later "instead" clause at its step path.
+            let replacement_path = format!("{field}/steps/0");
+            if let Some([step]) = node["steps"].as_array().map(Vec::as_slice)
+                && node.as_object().map(serde_json::Map::len) == Some(1)
+                && step["effect"] == "self-replacement"
+                && segments
+                    .iter()
+                    .any(|(fields, ..)| fields.contains(&replacement_path))
+            {
+                carriers(&step["original"], &mut found);
+            } else {
+                field_carriers(ability, field, &mut found)?;
             }
+            if node["effect"] == "self-replacement"
+                && !text
+                    .split(|c: char| !c.is_alphabetic())
+                    .any(|word| word == "instead")
+            {
+                return Err(disagrees());
+            }
+            outcome_printed(&text, node)?;
         }
         if printed(&text, statics) != found {
             return Err(disagrees());
