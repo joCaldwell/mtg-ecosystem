@@ -25,6 +25,88 @@ pub fn can_fund(
     mana_policy::hybrid_plan(catalog, view, cost, symbols).is_some()
 }
 
+// Reserve every possible convoker while planning real mana. A land creature
+// may otherwise be planned both as a mana source and as a convoker.
+fn convoke_plan<'a>(
+    view: &'a mtg_core::PermittedView,
+    cost: &ManaCost,
+) -> (ManaCost, Vec<&'a ObjectHandle>) {
+    let creatures: Vec<_> = view
+        .objects
+        .iter()
+        .filter(|object| {
+            object.zone == Zone::Battlefield
+                && object.controller == view.viewer
+                && !object.tapped
+                && !object.phased_out
+                && object
+                    .characteristics
+                    .as_ref()
+                    .is_some_and(|c| c.has_type(CardKind::Creature))
+        })
+        .collect();
+    let mut due = cost.clone();
+    if creatures.is_empty() {
+        return (due, vec![]);
+    }
+    let colors: std::collections::BTreeSet<_> = cost
+        .colored
+        .iter()
+        .copied()
+        .filter(|&c| c != Color::C)
+        .collect();
+    let mut slots: Vec<_> = colors
+        .iter()
+        .map(|color| {
+            let allowed: Vec<_> = creatures
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| {
+                    o.characteristics
+                        .as_ref()
+                        .is_some_and(|c| c.colors.contains(color))
+                })
+                .map(|(i, _)| i as u32)
+                .collect();
+            mtg_core::Slot {
+                role: mtg_core::SlotRole::Choice,
+                subject: None,
+                min: 0,
+                max: (cost.colored.iter().filter(|c| *c == color).count() as u32)
+                    .min(allowed.len() as u32),
+                allowed,
+                repeat: false,
+            }
+        })
+        .collect();
+    slots.push(mtg_core::Slot {
+        role: mtg_core::SlotRole::Choice,
+        subject: None,
+        min: 0,
+        max: (creatures.len() as u32).min(cost.generic.to_u32().unwrap_or(u32::MAX)),
+        allowed: (0..creatures.len() as u32).collect(),
+        repeat: false,
+    });
+    let mut picked = mtg_core::distinct_payment_choices(&slots, 0, creatures.len() as u32)
+        .expect("convoke planning permits no picks");
+    let generic = picked.pop().unwrap_or_default().len();
+    due.generic.subtract(&Quantity::from(generic as i64));
+    for (color, picks) in colors.into_iter().zip(picked) {
+        for _ in picks {
+            let index = due
+                .colored
+                .iter()
+                .position(|symbol| *symbol == color)
+                .expect("convoke slot is capped by printed symbols");
+            due.colored.remove(index);
+        }
+    }
+    (
+        due,
+        creatures.into_iter().map(|object| &object.handle).collect(),
+    )
+}
+
 fn delve_mana_due(
     mut cost: ManaCost,
     view: &mtg_core::PermittedView,
@@ -316,27 +398,45 @@ impl Strategy<'_> {
             ) => {
                 let outer = mana_ability_source.is_none();
                 let available = pool.available();
-                let due = if outer
-                    && self
-                        .top_program(v)
-                        .is_some_and(|(definition, _)| definition.delve)
-                {
-                    delve_mana_due(cost.clone(), v, None)
+                let spell = outer
+                    .then(|| self.top_program(v))
+                    .flatten()
+                    .map(|(definition, _)| definition);
+                let (due, reserved) = if spell.is_some_and(|d| d.convoke) {
+                    convoke_plan(v, cost)
+                } else if spell.is_some_and(|d| d.delve) {
+                    (delve_mana_due(cost.clone(), v, None), vec![])
                 } else {
-                    cost.clone()
+                    (cost.clone(), vec![])
                 };
-                let payable = payment(&due, &available).is_some();
+                let payable = if spell.is_some_and(|d| d.convoke || d.delve)
+                    && let Some(game) = game
+                {
+                    game.quote_finish_spell_mana(v.viewer)?
+                } else {
+                    payment(cost, &available).is_some() || payment(&due, &available).is_some()
+                };
                 if outer && self.memory.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
                     // price. Nested activations consume the outer plan in order.
                     if !payable {
-                        self.memory.mana_plan = mana_policy::plan_for_payment(
+                        self.memory.mana_plan = mana_policy::plan_with_reservations(
                             self.catalog,
                             v,
                             &due,
                             self.memory.payment.exclude.as_ref(),
                             &pool.restricted,
+                            &reserved,
                         )
+                        .or_else(|| {
+                            mana_policy::plan_for_payment(
+                                self.catalog,
+                                v,
+                                cost,
+                                self.memory.payment.exclude.as_ref(),
+                                &pool.restricted,
+                            )
+                        })
                         .unwrap_or_default();
                     }
                     self.memory.payment.announced_cost = Some(cost.clone());
@@ -740,6 +840,19 @@ impl Strategy<'_> {
             // optional kicker and buyback costs before target selection.
             (Reason::AdditionalCosts, Shape::Pick { slots, .. }) => Answer::Pick {
                 picks: vec![vec![]; slots.len()],
+            },
+            (
+                Reason::ChosenObjectCost {
+                    action: mtg_contracts::ChosenCostAction::Tap,
+                },
+                Shape::Pick { slots, rules },
+            ) if self.top_program(v).is_some_and(|(d, _)| d.convoke) => Answer::Pick {
+                picks: mtg_core::distinct_payment_choices(
+                    slots,
+                    mtg_core::payment_choice_minimum(rules),
+                    mtg_core::payment_choice_minimum(rules),
+                )
+                .ok_or("missing legal convoke allocation")?,
             },
             // CR 701.22a, 701.25a: keep every looked-at card on top.
             (

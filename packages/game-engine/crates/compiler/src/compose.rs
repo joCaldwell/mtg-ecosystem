@@ -1032,16 +1032,28 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
-                        [one] if one.keyword == "delve" => {
-                            if text != "Delve"
+                        [one] if one.keyword == "delve" || one.keyword == "convoke" => {
+                            let expected = if one.keyword == "delve" {
+                                "Delve"
+                            } else {
+                                "Convoke"
+                            };
+                            if text != expected
                                 || one.cost.is_some()
                                 || one.filter.is_some()
                                 || one.protection_from.is_some()
                                 || one.amount.is_some()
                             {
-                                return Err(unsupported("keyword", "keyword:delve:parameters"));
+                                return Err(unsupported(
+                                    "keyword",
+                                    format!("keyword:{}:parameters", one.keyword),
+                                ));
                             }
-                            definition.delve = true;
+                            if one.keyword == "delve" {
+                                definition.delve = true;
+                            } else {
+                                definition.convoke = true;
+                            }
                         }
                         [one] if one.keyword == "affinity" => {
                             definition

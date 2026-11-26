@@ -65,6 +65,7 @@ pub(crate) fn shell(
         x_mana_cost: printed_cost.x,
         flashback: None,
         delve: false,
+        convoke: false,
         oracle_id: r.oracle_identity.clone(),
         name: source.name,
         characteristics: Characteristics {

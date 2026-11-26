@@ -264,6 +264,9 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
 - **Delve** lets the caster exile cards from their graveyard to pay generic
   mana after the cost locks (CR 601.2h, 702.66). The engine commits the
   chosen exiles with the remaining mana payment.
+- **Convoke** lets the caster tap untapped creatures they control after the
+  mana ability window to pay generic mana or mana of each creature’s color
+  (CR 601.2h, 702.51). Summoning sickness does not limit this payment.
 - **Cycling**: a hand activation on any card type paying fixed mana and
   discarding the card, then drawing one (CR 702.29a). **Typecycling** pays the
   same, then searches for one card of its type (basic land, or an allowlisted

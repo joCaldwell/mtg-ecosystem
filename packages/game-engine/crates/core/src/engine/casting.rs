@@ -217,6 +217,7 @@ impl RulesTxn {
             origin: AnnouncementOrigin::Spell,
             spending: None,
             delve: None,
+            tap_payment: None,
             spending_restricted: vec![],
             stack_id: id,
             original_object,

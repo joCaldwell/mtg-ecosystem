@@ -1038,6 +1038,35 @@ impl Strategy<'_> {
             }
         })
     }
+    fn casting_mana_plan(
+        &self,
+        view: &PermittedView,
+        definition: &Definition,
+        cost: ManaCost,
+    ) -> Option<(
+        Vec<mtg_contracts::HybridPayment>,
+        std::collections::VecDeque<mana_policy::PlannedMana>,
+    )> {
+        if definition.convoke {
+            let (due, reserved) = super::convoke_plan(view, &cost);
+            if let Some(plan) = mana_policy::hybrid_plan_reserved(
+                self.catalog,
+                view,
+                due,
+                &definition.characteristics.hybrid_mana,
+                &reserved,
+            ) {
+                return Some(plan);
+            }
+        }
+        mana_policy::hybrid_plan(
+            self.catalog,
+            view,
+            cost,
+            &definition.characteristics.hybrid_mana,
+        )
+    }
+
     pub(super) fn choose_x(
         &self,
         v: &PermittedView,
@@ -1104,9 +1133,7 @@ impl Strategy<'_> {
             } else {
                 cost
             };
-            if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
-                .is_none()
-            {
+            if self.casting_mana_plan(v, d, cost).is_none() {
                 break;
             }
             let score = self.wipe_score(v, p, &x).unwrap_or_else(|| {
@@ -1282,8 +1309,7 @@ impl Strategy<'_> {
         } else {
             cost.clone()
         };
-        let (choices, plan) =
-            mana_policy::hybrid_plan(self.catalog, v, due, &d.characteristics.hybrid_mana)?;
+        let (choices, plan) = self.casting_mana_plan(v, d, due)?;
         self.memory.payment.announced_cost = unchanged_cost.then_some(cost);
         self.memory.hybrid_choices = choices;
         self.memory.planned_x = x;

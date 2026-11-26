@@ -431,14 +431,14 @@ impl RulesTxn {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
                 let stage = self.underlying_mana_frame(&s.rules.frame)?;
-                if cast.delve.is_some() {
+                if cast.delve.is_some() || cast.tap_payment.is_some() {
                     if !matches!(
                         stage,
                         Frame::SpendMana { .. }
                             | Frame::SacrificeCost { .. }
                             | Frame::ChosenObjectCost { .. }
                     ) {
-                        return Err("snapshot delve payment stage invariant".into());
+                        return Err("snapshot spell payment stage invariant".into());
                     }
                     self.mana_due(top, cast)?;
                 }

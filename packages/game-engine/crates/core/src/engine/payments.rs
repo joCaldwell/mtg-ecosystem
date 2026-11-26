@@ -208,6 +208,128 @@ impl RulesTxn {
             .collect())
     }
 
+    // CR 601.2h, 702.51: this ability taps a creature as spell payment.
+    // The creature's own tap abilities and summoning sickness are irrelevant.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn convoke_candidates(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<Vec<(ObjectId, Vec<Color>)>, String> {
+        if !entry.kind.is_spell() || !self.stack_definition(entry)?.convoke {
+            return Ok(vec![]);
+        }
+        let mut candidates = vec![];
+        for object in self.state.rules.objects.values().filter(|object| {
+            object.present_on_battlefield()
+                && object.controller == entry.controller
+                && !object.tapped
+        }) {
+            let characteristics = self.derived_characteristics_with_sources(object.id, None)?;
+            if characteristics.has_type(CardKind::Creature) {
+                candidates.push((object.id, characteristics.colors.clone()));
+            }
+        }
+        Ok(candidates)
+    }
+
+    pub(super) fn convoke_decision(
+        &self,
+        cast: &Casting,
+    ) -> Result<Option<Decision<Rules>>, String> {
+        if cast.tap_payment.is_some() {
+            return Ok(None);
+        }
+        let entry = self.top()?;
+        let eligible = self.convoke_candidates(entry)?;
+        if eligible.is_empty() {
+            return Ok(None);
+        }
+        let cost = &entry.total_cost;
+        let available = self
+            .mana_payment_pool(entry.controller, self.announced_mana_use(entry)?)?
+            .available();
+        let mut total_due = cost.generic.clone();
+        total_due.add(&Quantity::from(cost.colored.len() as i64));
+        for n in available.values() {
+            total_due.subtract(n);
+        }
+        let Some(minimum) = total_due.max(Quantity::zero()).to_u32() else {
+            return Ok(None);
+        };
+        let mut candidates: Vec<_> = eligible
+            .iter()
+            .map(|(object, _)| Candidate::Object { object: *object })
+            .collect();
+        let mut slots = vec![];
+        for color in cost.colored.iter().copied().collect::<BTreeSet<_>>() {
+            let allowed: Vec<u32> = eligible
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, colors))| color != Color::C && colors.contains(&color))
+                .map(|(index, _)| index as u32)
+                .collect();
+            let symbols = cost
+                .colored
+                .iter()
+                .filter(|&&symbol| symbol == color)
+                .count() as u32;
+            let available_count = available
+                .get(&color)
+                .cloned()
+                .unwrap_or_default()
+                .to_u32()
+                .unwrap_or(u32::MAX);
+            let min = symbols.saturating_sub(available_count);
+            let max = symbols.min(allowed.len() as u32);
+            if min > max {
+                return Ok(None);
+            }
+            if max > 0 {
+                let subject = candidates.len() as u32;
+                candidates.push(Candidate::Color { color });
+                slots.push(Slot {
+                    role: SlotRole::Choice,
+                    subject: Some(subject),
+                    allowed,
+                    min,
+                    max,
+                    repeat: false,
+                });
+            }
+        }
+        if cost.generic > Quantity::zero() {
+            let max = (eligible.len() as u32).min(cost.generic.to_u32().unwrap_or(u32::MAX));
+            slots.push(Slot {
+                role: SlotRole::Choice,
+                subject: None,
+                allowed: (0..eligible.len() as u32).collect(),
+                min: 0,
+                max,
+                repeat: false,
+            });
+        }
+        if slots.is_empty() || distinct_payment_choices(&slots, minimum, minimum).is_none() {
+            return Ok(None);
+        }
+        let rules = vec![
+            JointRule::Distinct {
+                slots: (0..slots.len() as u32).collect(),
+            },
+            JointRule::Total {
+                min: minimum,
+                max: eligible.len() as u32,
+            },
+        ];
+        Ok(Some(self.decision(
+            entry.controller,
+            Reason::ChosenObjectCost {
+                action: ChosenCostAction::Tap,
+            },
+            candidates,
+            Shape::Pick { slots, rules },
+        )))
+    }
+
     pub(super) fn mana_due(
         &self,
         entry: &StackInstance,
@@ -224,6 +346,28 @@ impl RulesTxn {
                 return Err("invalid delve payment".into());
             }
             cost.generic.subtract(&count);
+        }
+        if let Some(selected) = &cast.tap_payment {
+            let eligible: BTreeMap<_, _> = self.convoke_candidates(entry)?.into_iter().collect();
+            let mut used = BTreeSet::new();
+            for (object, color) in selected {
+                let colors = eligible.get(object).ok_or("ineligible convoke creature")?;
+                if !used.insert(object) {
+                    return Err("duplicate convoke creature".into());
+                }
+                match color {
+                    Some(color) if *color != Color::C && colors.contains(color) => {
+                        let index = cost
+                            .colored
+                            .iter()
+                            .position(|symbol| symbol == color)
+                            .ok_or("unmatched convoke color")?;
+                        cost.colored.remove(index);
+                    }
+                    None if cost.generic > Quantity::zero() => cost.generic.subtract(&1.into()),
+                    _ => return Err("invalid convoke payment".into()),
+                }
+            }
         }
         Ok(cost)
     }
@@ -277,12 +421,28 @@ impl RulesTxn {
         ))
     }
 
+    /// Quote whether the caster can finish producing mana with the current
+    /// pool and the payment choices that would follow.
+    pub fn quote_finish_spell_mana(&self, viewer: PlayerId) -> Result<bool, String> {
+        let Frame::Mana { cast } = &self.state.rules.frame else {
+            return Ok(false);
+        };
+        if !cast.origin.is_spell() || self.top()?.controller != viewer {
+            return Ok(false);
+        }
+        Ok(matches!(
+            self.finish_mana_frame(cast.clone())?,
+            Frame::SpendMana { .. }
+        ))
+    }
+
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
         Ok(
             if self.state.rules.players[stack.controller.0 as usize]
                 .can_pay_life(&phyrexian_life(&stack.hybrid_colors))
                 && (self.delve_decision(&cast)?.is_some()
+                    || self.convoke_decision(&cast)?.is_some()
                     || self.can_pay_announced(stack, &stack.total_cost)?)
             {
                 Frame::SpendMana { cast }
@@ -327,6 +487,32 @@ impl RulesTxn {
             .ok_or("missing spending input")?;
         if matches!(input.answer, Answer::Pick { .. }) && self.delve_decision(&cast)?.is_some() {
             cast.delve = Some(input.objects()?);
+            self.mana_due(self.top()?, &cast)?;
+            self.rules_mut().frame = Frame::SpendMana { cast };
+            return Ok(());
+        }
+        if let Answer::Pick { picks } = &input.answer
+            && let Some(decision) = self.convoke_decision(&cast)?
+            && let Shape::Pick { slots, .. } = &decision.shape
+        {
+            let mut selected = vec![];
+            for (slot, choices) in slots.iter().zip(picks) {
+                let color = if let Some(index) = slot.subject {
+                    let Candidate::Color { color } = decision.candidate(index)? else {
+                        return Err("invalid convoke symbol".into());
+                    };
+                    Some(*color)
+                } else {
+                    None
+                };
+                for &index in choices {
+                    let Candidate::Object { object } = decision.candidate(index)? else {
+                        return Err("invalid convoke choice".into());
+                    };
+                    selected.push((*object, color));
+                }
+            }
+            cast.tap_payment = Some(selected);
             self.mana_due(self.top()?, &cast)?;
             self.rules_mut().frame = Frame::SpendMana { cast };
             return Ok(());
@@ -477,6 +663,15 @@ impl RulesTxn {
                     object: *object,
                     destination: Zone::Exile,
                 },
+                BatchCause::Payment {
+                    stack_id: cast.stack_id,
+                    player: stack.controller,
+                },
+            )?;
+        }
+        for (object, _) in cast.tap_payment.iter().flatten() {
+            self.commit(
+                ProposedEvent::Tap { object: *object },
                 BatchCause::Payment {
                     stack_id: cast.stack_id,
                     player: stack.controller,

@@ -1644,3 +1644,64 @@ fn treasure_cruise_partial_delve_survives_restore() {
     }
     panic!("Treasure Cruise did not reach delve payment");
 }
+
+/// CR 702.51: creatures cover only generic mana or their own colors.
+#[test]
+fn hour_of_reckoning_convokes_white_and_generic() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    const HOUR: &str = record!("3bc13640-03f8-4b19-b0a4-7e7cb5271c0c");
+    let mut setup = board(&[(HOUR, &[Cell::Convoke])])
+        .permanent_or_hand("Hour of Reckoning", 0, 0, true)
+        .permanent_or_hand("Leonin Snarecaster", 1, 1, false)
+        .permanent_or_hand("Llanowar Elves", 0, 0, false)
+        .permanent_or_hand("Isamaru, Hound of Konda", 0, 0, true);
+    for _ in 0..2 {
+        setup = setup.permanent_or_hand("Leonin Snarecaster", 0, 0, false);
+    }
+    for _ in 0..3 {
+        setup = setup.permanent_or_hand("Grizzly Bears", 0, 0, false);
+    }
+    let mut game = Game::new(
+        setup
+            .permanent_or_hand("Plains", 0, 0, false)
+            .libraries("Island", 2)
+            .prepare(),
+    );
+    let elf = Driver::object(&game, 2);
+    Driver::action(&mut game, Action::ActivateMana { object: elf });
+    Driver::cast(&mut game, CardId(3));
+    Driver::pay(&mut game, &[9]);
+    settle(&mut game);
+    assert!(!game.state.rules.objects[&CardId(3)].attack_ready);
+    let catalog = game.prepared.clone();
+    let mut strategy = Strategy::new(&catalog.catalog, Policy::Develop, [0; 4]);
+    Driver::cast(&mut game, CardId(0));
+    for _ in 0..3 {
+        let decision = Driver::request(&mut game, u64::MAX);
+        let view = observation(&game, 0);
+        if let Shape::Pick { slots, .. } = &decision.shape {
+            assert_eq!(slots.len(), 2);
+            assert_eq!(slots[0].min, 3);
+            assert_eq!(slots[0].allowed.len(), 3);
+            assert_eq!(slots[1].allowed.len(), 6);
+            let subject = slots[0].subject.unwrap();
+            assert_eq!(
+                decision.candidate(subject).unwrap(),
+                &Candidate::Color { color: Color::W }
+            );
+            checked(&game);
+        }
+        let answer = strategy.choose_with_game(&view, &game).unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Priority
+    );
+    for id in 2..9 {
+        assert!(game.state.rules.objects[&CardId(id)].tapped);
+    }
+    assert!(!game.state.rules.objects[&CardId(1)].tapped);
+    checked(&game);
+}

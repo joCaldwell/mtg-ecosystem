@@ -299,6 +299,8 @@ pub enum Cell {
     Flashback,
     /// CR 702.66: exile graveyard cards for generic mana during spell payment.
     Delve,
+    /// CR 702.51: tap creatures to pay colored or generic mana costs.
+    Convoke,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -445,7 +447,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Kicker
         | C::Buyback
         | C::Flashback
-        | C::Delve => Tiers::EXECUTES,
+        | C::Delve
+        | C::Convoke => Tiers::EXECUTES,
     }
 }
 
@@ -693,6 +696,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if !d.characteristics.hybrid_mana.is_empty() {
         cells.insert(Cell::HybridManaCost);
+    }
+    if d.convoke {
+        cells.insert(Cell::Convoke);
     }
     if d.delve {
         cells.insert(Cell::Delve);

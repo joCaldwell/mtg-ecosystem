@@ -1861,6 +1861,8 @@ pub struct Definition {
     pub flashback: Option<ManaCost>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub delve: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub convoke: bool,
     pub oracle_id: String,
     pub name: String,
     pub characteristics: Characteristics,
