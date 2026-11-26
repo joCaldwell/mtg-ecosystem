@@ -215,6 +215,11 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             action,
             duration,
         } => combat::lower(cx, what, action, duration),
+        Step::CombatRule {
+            what,
+            rule,
+            duration,
+        } => combat::lower_rule(cx, what, rule, duration),
         Step::Exile { what } => exile::lower(cx, what),
         Step::Untap { what } => tap::untap(cx, what),
         Step::Tap { what } => tap::tap(cx, what),

@@ -414,7 +414,13 @@ impl Strategy<'_> {
                             _ => u8::MAX,
                         }
                     });
-                    picks.push(defender.filter(|_| attack).into_iter().collect());
+                    // CR 508.1d: a required attacker with a legal defender attacks.
+                    picks.push(
+                        defender
+                            .filter(|_| attack || slot.min > 0)
+                            .into_iter()
+                            .collect(),
+                    );
                 }
                 Answer::Pick { picks }
             }
@@ -432,19 +438,33 @@ impl Strategy<'_> {
                         ))
                     })
                     .collect::<Result<Vec<_>, String>>()?;
-                let menace_attackers = rules
-                    .iter()
-                    .filter_map(|r| {
-                        if let JointRule::PickedAtLeast { candidates, .. } = r {
-                            Some(candidates)
-                        } else {
-                            None
+                // CR 509.1b, 702.111b: (least, greatest) blockers of each
+                // attacker named by a count rule.
+                let mut counted: Vec<(_, usize, Option<usize>)> = vec![];
+                for r in rules {
+                    let (candidates, least, most) = match r {
+                        JointRule::PickedAtLeast { candidates, count } => {
+                            (candidates, *count as usize, None)
                         }
-                    })
-                    .flatten()
-                    .copied()
-                    .map(object)
-                    .collect::<Result<Vec<_>, _>>()?;
+                        JointRule::PickedAtMost { candidates, count } => {
+                            (candidates, 1, Some(*count as usize))
+                        }
+                        _ => continue,
+                    };
+                    for c in candidates {
+                        let attacker = object(*c)?;
+                        match counted.iter_mut().find(|(a, _, _)| *a == attacker) {
+                            Some((_, l, m)) => {
+                                *l = (*l).max(least);
+                                *m = match (*m, most) {
+                                    (Some(a), Some(b)) => Some(a.min(b)),
+                                    (a, b) => a.or(b),
+                                };
+                            }
+                            None => counted.push((attacker, least, most)),
+                        }
+                    }
+                }
                 let mut blocks = vec![];
                 let mut blocked = Vec::new();
                 if self.policy == Policy::Develop {
@@ -500,20 +520,32 @@ impl Strategy<'_> {
                         }
                     }
                 }
-                // CR702.111b: complete a menace pair with a remaining legal
-                // blocker, or withdraw the singleton. Observation/catalog only.
-                for attacker in &menace_attackers {
-                    if blocks.iter().filter(|(_, a)| a == attacker).count() == 1 {
-                        if let Some((blocker_handle, _)) =
+                // CR 509.1b, 702.111b: complete a counted block with remaining
+                // legal blockers, or withdraw it. Observation/catalog only.
+                for (attacker, least, most) in &counted {
+                    let n = blocks.iter().filter(|(_, a)| a == attacker).count();
+                    if n == 0 {
+                        continue;
+                    }
+                    let mut added = vec![];
+                    while n + added.len() < *least {
+                        let Some((blocker_handle, _)) =
                             legal_attackers.iter().find(|(blocker, allowed)| {
                                 allowed.contains(attacker)
                                     && !blocks.iter().any(|(b, _)| b == blocker)
+                                    && !added.contains(blocker)
                             })
-                        {
-                            blocks.push((blocker_handle.clone(), attacker.clone()));
-                        } else {
-                            blocks.retain(|(_, a)| a != attacker);
-                        }
+                        else {
+                            break;
+                        };
+                        added.push(blocker_handle.clone());
+                    }
+                    // CR 509.1b: least above most leaves no legal block.
+                    let total = n + added.len();
+                    if total < *least || most.is_some_and(|m| total > m) {
+                        blocks.retain(|(_, a)| a != attacker);
+                    } else {
+                        blocks.extend(added.into_iter().map(|b| (b, attacker.clone())));
                     }
                 }
 

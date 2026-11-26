@@ -106,6 +106,50 @@ impl RulesTxn {
                 || self.has_keyword(blocker, KeywordAbility::Flying)
                 || self.has_keyword(blocker, KeywordAbility::Reach))
             && !self.landwalk_prevents_block(attacker, &keywords)
+            && !self.evasion_prevents_block(blocker, attacker, &keywords)
+            && self.block_rules_permit(blocker, attacker)
+    }
+
+    // CR 702.13b, 702.28b, 702.31b, 702.36b, 702.118b: checked against the
+    // current characteristics at the declaration (CR 509.1b); different
+    // evasion abilities are cumulative.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn evasion_prevents_block(
+        &self,
+        blocker: ObjectId,
+        attacker: ObjectId,
+        keywords: &[KeywordAbility],
+    ) -> bool {
+        use KeywordAbility as K;
+        let blocker_keywords = self.current_keywords(blocker);
+        let has = |k| keywords.contains(&k);
+        if has(K::Shadow) != blocker_keywords.contains(&K::Shadow)
+            || (has(K::Horsemanship) && !blocker_keywords.contains(&K::Horsemanship))
+        {
+            return true;
+        }
+        if !(has(K::Fear) || has(K::Intimidate) || has(K::Skulk)) {
+            return false;
+        }
+        let (Ok(blocking), Ok(attacking)) = (
+            self.characteristics(blocker),
+            self.characteristics(attacker),
+        ) else {
+            return true;
+        };
+        let artifact = blocking.has_type(CardKind::Artifact);
+        let shares_color = blocking
+            .colors
+            .iter()
+            .any(|c| *c != Color::C && attacking.colors.contains(c));
+        (has(K::Fear) && !artifact && !blocking.colors.contains(&Color::B))
+            || (has(K::Intimidate) && !artifact && !shares_color)
+            || (has(K::Skulk)
+                && blocking
+                    .power
+                    .as_ref()
+                    .zip(attacking.power.as_ref())
+                    .is_none_or(|(b, a)| b > a))
     }
 
     // CR 509.1b/702.14: each attack has its own defending player. Basic land
