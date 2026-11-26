@@ -1069,6 +1069,142 @@ impl RulesTxn {
         Ok(facts)
     }
 
+    /// CR 604.3, 613.4a, 208.2a: layer 7a. The object's own
+    /// characteristic-defining power and toughness apply in every zone and
+    /// are read each time the value is looked at. Counts read only layers
+    /// 1-6 of other objects (`kir::statics`), so no CDA reads another's
+    /// layer-7 result.
+    pub(super) fn characteristic_power_toughness(
+        &self,
+        object: ObjectId,
+        c: &mut Characteristics,
+    ) -> Result<(), String> {
+        let Ok(source) = self.current(object) else {
+            return Ok(());
+        };
+        for effect in self.static_abilities_in(source, FunctioningZone::Any) {
+            let StaticEffect::DefinePowerToughness { power, toughness } = effect else {
+                continue;
+            };
+            for (amount, stat) in [(power, &mut c.power), (toughness, &mut c.toughness)] {
+                if let (Some(amount), Some(stat)) = (amount, stat.as_mut()) {
+                    *stat = self.characteristic_amount(source, amount)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn characteristic_amount(&self, source: &Object, amount: &Amount) -> Result<Quantity, String> {
+        Ok(match amount {
+            Amount::Fixed { value } => value.clone(),
+            Amount::Count { set } => {
+                let count = self.characteristic_set(source, set)?.len();
+                Quantity::from(i64::try_from(count).map_err(|_| "CDA count exceeds object limit")?)
+            }
+            Amount::Times { factor, of } => {
+                let mut value = self.characteristic_amount(source, of)?;
+                value.multiply(factor);
+                value
+            }
+            Amount::Sum { terms } => {
+                let mut sum = Quantity::zero();
+                for term in terms {
+                    sum.add(&self.characteristic_amount(source, term)?);
+                }
+                sum
+            }
+            // CR 202.3: zero when no permanent matches (CR 208.2a).
+            Amount::Greatest {
+                set,
+                stat: mtg_contracts::kir::Stat::ManaValue,
+            } => self
+                .characteristic_set(source, set)?
+                .into_iter()
+                .map(|(_, c)| c.printed_mana_value())
+                .fold(Quantity::zero(), Quantity::max),
+            Amount::Devotion { player, colors } if *player == PlayerExpr::static_controller() => {
+                self.devotion(source.controller, colors)
+                    .ok_or("missing devotion definition")?
+            }
+            Amount::Distinct {
+                set,
+                characteristic,
+            } => {
+                use mtg_contracts::kir::DistinctCharacteristic as D;
+                let mut seen = BTreeSet::new();
+                for (_, c) in self.characteristic_set(source, set)? {
+                    match characteristic {
+                        // CR 205.2a: each card type the object has.
+                        D::CardType => seen.extend(
+                            std::iter::once(c.kind)
+                                .chain(c.additional_types.iter().copied())
+                                .map(|kind| format!("{kind:?}")),
+                        ),
+                        // CR 205.3i: the five basic land types.
+                        D::BasicLandType => seen.extend(
+                            c.subtypes
+                                .iter()
+                                .filter(|s| {
+                                    matches!(
+                                        s.as_str(),
+                                        "Plains" | "Island" | "Swamp" | "Mountain" | "Forest"
+                                    )
+                                })
+                                .cloned(),
+                        ),
+                        // CR 105.1: colorless is not a color.
+                        D::Color => seen.extend(
+                            c.colors
+                                .iter()
+                                .filter(|color| **color != Color::C)
+                                .map(|color| format!("{color:?}")),
+                        ),
+                    }
+                }
+                Quantity::from(seen.len() as i64)
+            }
+            _ => return Err("characteristic-defining amount has no evaluation".into()),
+        })
+    }
+
+    /// The objects a characteristic-defining count reads, with their
+    /// layer 1-5 characteristics. Tokens cease to exist in graveyards
+    /// (CR 111.7); phased-out permanents are treated as though they don't
+    /// exist (CR 702.26b).
+    fn characteristic_set(
+        &self,
+        source: &Object,
+        set: &SetExpr,
+    ) -> Result<Vec<(ObjectId, Characteristics)>, String> {
+        let SetExpr::Matching { zone, filter } = set else {
+            return Err("characteristic-defining set has no evaluation".into());
+        };
+        let mut members = Vec::new();
+        for target in self.state.rules.objects.values() {
+            let present = match (zone, target.zone) {
+                (ZoneExpr::Battlefield, _) => target.present_on_battlefield(),
+                (ZoneExpr::Graveyards, Zone::Graveyard { .. }) => true,
+                (ZoneExpr::Graveyard { of }, Zone::Graveyard { owner })
+                | (ZoneExpr::Hand { of }, Zone::Hand { owner }) => {
+                    self.static_player(of, source.controller, owner)
+                }
+                _ => false,
+            };
+            if !present
+                || (target.zone != Zone::Battlefield
+                    && self.state.rules.tokens.contains_key(&target.id.card))
+            {
+                continue;
+            }
+            let characteristics = self.color_layer(target.id)?;
+            if self.static_predicate(filter, source, target, &characteristics, target.controller) {
+                members.push((target.id, characteristics.into_owned()));
+            }
+        }
+        Ok(members)
+    }
+
     #[cfg(feature = "testkit")]
     pub(crate) fn derived_characteristics(
         &self,
@@ -1083,6 +1219,7 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<Characteristics, String> {
         let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
+        self.characteristic_power_toughness(object, &mut c)?;
         if c.has_type(CardKind::Creature) {
             let statics = self.static_changes(object, Layer::PowerToughnessSet, sources);
             // CR 613.4b: a setter can leave either characteristic alone.

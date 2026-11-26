@@ -263,6 +263,9 @@ pub enum Capability {
     StaticDamageReplacementV1,
     /// CR 615.12: damage that can't be prevented.
     UnpreventableDamageV1,
+    /// CR 604.3, 613.4a: a characteristic-defining ability that defines the
+    /// source's power and/or toughness in every zone.
+    CharacteristicPowerToughnessV1,
 
     NormalLayoutV1,
     ModalDoubleFacedV1,
@@ -425,7 +428,8 @@ pub enum FunctioningZone {
     Graveyard,
     Battlefield,
     Stack,
-    /// Reserved for the source card's own graveyard-move replacement.
+    /// Reserved for the source card's own graveyard-move replacement and
+    /// characteristic-defining abilities (CR 604.3).
     Any,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -465,3 +465,55 @@ fn entry_reveal_lowers_one_filtered_hand_card_or_rejects() {
         assert_eq!(code(failure), expected, "{what}");
     }
 }
+
+/// CR 208.2a, 604.3: a printed star is zero until one self CDA defines the
+/// stat; `N+*` prints the fixed term of that CDA's sum, and a CDA cannot
+/// define a stat printed as a number.
+#[test]
+fn printed_stars_need_their_characteristic_defining_ability() {
+    use crate::assemble::{printed_stat, stars_defined};
+    let n = |v: i64| Quantity::from(v);
+    assert_eq!(printed_stat("*").unwrap(), (n(0), Some(n(0))));
+    assert_eq!(printed_stat("1+*").unwrap(), (n(1), Some(n(1))));
+    assert_eq!(printed_stat("*+1").unwrap(), (n(1), Some(n(1))));
+    assert_eq!(printed_stat("3").unwrap(), (n(3), None));
+    for spelling in ["7-*", "*\u{b2}", "+1", "+*"] {
+        assert!(printed_stat(spelling).is_err(), "{spelling}");
+    }
+    let count = json!({"amount":"count","of":{"types":["creature"],"cls":"card",
+        "zone":{"zone":"graveyard","owner":"all-players"}}});
+    let lhurgoyf = characteristic_pt(&json!({"static":"group","effects":[
+        {"static":"cda-pt","what":{"ref":"self"},"stat":"power","value":count},
+        {"static":"cda-pt","what":{"ref":"self"},"stat":"toughness",
+         "value":{"amount":"plus","a":count,"b":{"amount":"fixed","value":1}}}]}))
+    .unwrap()
+    .unwrap();
+    let statics = [lhurgoyf];
+    stars_defined(&statics, &[Some(n(0)), Some(n(1))]).unwrap();
+    for (stars, reason) in [
+        (
+            [None, Some(n(1))],
+            "characteristic-defining ability for a printed number",
+        ),
+        (
+            [Some(n(0)), Some(n(2))],
+            "printed fixed term outside the characteristic-defining sum",
+        ),
+    ] {
+        let failure = stars_defined(&statics, &stars).unwrap_err();
+        assert_eq!(failure.reason, reason);
+    }
+    let failure = stars_defined(&[], &[Some(n(0)), None]).unwrap_err();
+    assert_eq!(
+        (failure.path.as_str(), failure.reason.as_str()),
+        (
+            "source.power",
+            "printed star without a characteristic-defining ability"
+        )
+    );
+    let life = characteristic_pt(&json!({"static":"cda-pt","what":{"ref":"self"},
+        "stat":"both","value":{"amount":"life-total","of":{"player":"you"}}}))
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(code(life), "static:cda-pt:amount:life_total");
+}

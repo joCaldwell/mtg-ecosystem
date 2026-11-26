@@ -69,6 +69,185 @@ pub(crate) fn every_creature_type_cda(value: &serde_json::Value) -> Option<Resul
     )
 }
 
+/// CR 604.3, 208.2a, 613.4a: "[This creature's] power [and/or toughness]
+/// is equal to ..." (or a group of such sentences) as one
+/// characteristic-defining ability of the source itself, functioning in
+/// every zone. `None` means the block is some other static.
+pub(crate) fn characteristic_pt(
+    value: &serde_json::Value,
+) -> Option<Result<StaticAbility, Failure>> {
+    let effect = typed::<ast::StaticEffect>(value, "static").ok()?;
+    let parts: Vec<&ast::StaticEffectCdaPt> = match &effect {
+        ast::StaticEffect::CdaPt(x) => vec![&**x],
+        ast::StaticEffect::Group(g)
+            if !g.effects.is_empty()
+                && g.effects
+                    .iter()
+                    .all(|e| matches!(e, ast::StaticEffect::CdaPt(_))) =>
+        {
+            g.effects
+                .iter()
+                .filter_map(|e| match e {
+                    ast::StaticEffect::CdaPt(x) => Some(&**x),
+                    _ => None,
+                })
+                .collect()
+        }
+        _ => return None,
+    };
+    Some((|| {
+        let (mut power, mut toughness) = (None, None);
+        for part in parts {
+            if !matches!(&*part.what, ast::ObjectRef::SelfObject(_))
+                && !matches!(&*part.what, ast::ObjectRef::This(this) if this.noun == "creature")
+            {
+                return Err(gap("cda-pt:source"));
+            }
+            let value = cda_value(&part.value)?;
+            use ast::EffectMultiplyPtStat as Stat;
+            for (defined, slot) in [
+                (matches!(part.stat, Stat::Power | Stat::Both), &mut power),
+                (
+                    matches!(part.stat, Stat::Toughness | Stat::Both),
+                    &mut toughness,
+                ),
+            ] {
+                if defined {
+                    if slot.is_some() {
+                        return Err(gap("cda-pt:repeated-stat"));
+                    }
+                    *slot = Some(value.clone());
+                }
+            }
+        }
+        Ok(ability(
+            FunctioningZone::Any,
+            StaticEffect::DefinePowerToughness { power, toughness },
+        ))
+    })())
+}
+
+/// CR 208.2a: the values a characteristic-defining ability can define.
+/// Each reads public facts continuously (CR 604.3); anything else rejects
+/// by name under `static:cda-pt:*`.
+fn cda_value(value: &ast::Amount) -> Result<Amount, Failure> {
+    use ast::Amount as A;
+    Ok(match value {
+        A::Fixed(n) if n.value >= 0 => Amount::fixed(n.value),
+        A::Count(n) => Amount::Count {
+            set: cda_set(&n.of)?,
+        },
+        A::Plus(x) => {
+            let mut terms = Vec::new();
+            for term in [&x.a, &x.b] {
+                match cda_value(term)? {
+                    Amount::Sum { terms: inner } => terms.extend(inner),
+                    other => terms.push(other),
+                }
+            }
+            Amount::Sum { terms }
+        }
+        A::Twice(x) => Amount::Times {
+            factor: Quantity::from(2),
+            of: Box::new(cda_value(&x.of)?),
+        },
+        A::Devotion(_) => amount(value)?,
+        // CR 700.5: the mana symbols of one color among the mana costs of
+        // the permanents you control are your devotion to that color.
+        A::ManaSymbols(x)
+            if present_fields(&x.r#in) == ["cls", "control"]
+                && x.r#in.cls == Some(ast::ObjectFilterCls::Permanent)
+                && x.r#in.control == Some(ast::ObjectFilterControl::You) =>
+        {
+            Amount::Devotion {
+                player: PlayerExpr::static_controller(),
+                colors: vec![color(&x.color)],
+            }
+        }
+        A::AttributeExtremum(x)
+            if x.extremum == ast::AmountAttributeExtremumExtremum::Maximum
+                && x.attribute == ast::ObjectFilterImplicitComparisonAttribute::ManaValue =>
+        {
+            let set = cda_set(&x.among)?;
+            if matches!(
+                set,
+                SetExpr::Matching {
+                    zone: ZoneExpr::Hand { .. },
+                    ..
+                }
+            ) {
+                return Err(gap("cda-pt:greatest:zone"));
+            }
+            Amount::Greatest {
+                set,
+                stat: kir::Stat::ManaValue,
+            }
+        }
+        A::DistinctCount(x) => {
+            use ast::AmountDistinctCountCharacteristic as C;
+            let characteristic = match x.characteristic {
+                C::CardType => kir::DistinctCharacteristic::CardType,
+                C::BasicLandType => kir::DistinctCharacteristic::BasicLandType,
+                C::Color => kir::DistinctCharacteristic::Color,
+                other => return Err(gap(&format!("cda-pt:distinct:{}", variant(&other)))),
+            };
+            let ast::ObjectRef::Each(each) = &*x.among else {
+                return Err(gap("cda-pt:distinct:among"));
+            };
+            Amount::Distinct {
+                set: cda_set(&each.filter)?,
+                characteristic,
+            }
+        }
+        other => return Err(gap(&format!("cda-pt:amount:{}", variant(other)))),
+    })
+}
+
+/// CR 400.2, 404.2: the public objects a characteristic-defining count
+/// reads: permanents, graveyard cards, or a whole hand (whose size is
+/// public). "You" is the source's controller, or its owner outside the
+/// battlefield and stack (CR 109.4, 109.5).
+fn cda_set(filter: &ast::ObjectFilter) -> Result<SetExpr, Failure> {
+    use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+    let mut terms = filter.clone();
+    let zone = match terms.zone.take().as_deref() {
+        None
+        | Some(ast::ZoneRef {
+            zone: ast::Zone::Battlefield,
+            depth: None,
+            position: None,
+            owner: None,
+        }) => ZoneExpr::Battlefield,
+        Some(ast::ZoneRef {
+            zone: zone @ (ast::Zone::Graveyard | ast::Zone::Hand),
+            depth: None,
+            position: None,
+            owner,
+        }) => {
+            let of = match owner.as_deref() {
+                Some(Owner::Your) => PlayerExpr::static_controller(),
+                Some(Owner::AllOpponents | Owner::EachOpponent) => PlayerExpr::EachOpponent,
+                Some(Owner::AllPlayers | Owner::EachPlayer | Owner::Any) => PlayerExpr::EachPlayer,
+                _ => return Err(gap("cda-pt:zone-owner")),
+            };
+            match zone {
+                ast::Zone::Hand => ZoneExpr::Hand { of },
+                _ if of == PlayerExpr::EachPlayer => ZoneExpr::Graveyards,
+                _ => ZoneExpr::Graveyard { of },
+            }
+        }
+        Some(_) => return Err(gap("cda-pt:zone")),
+    };
+    if zone != ZoneExpr::Battlefield && terms.cls == Some(ast::ObjectFilterCls::Card) {
+        terms.cls = None;
+    }
+    let filter = static_filter(&terms)?;
+    if matches!(zone, ZoneExpr::Hand { .. }) && !filter.0.is_empty() {
+        return Err(gap("cda-pt:filtered-hand"));
+    }
+    Ok(SetExpr::Matching { zone, filter })
+}
+
 fn ability(functioning_zone: FunctioningZone, effect: StaticEffect) -> StaticAbility {
     StaticAbility {
         functioning_zone,
@@ -138,6 +317,10 @@ fn lower(
                     }
                     StaticEffect::EntersWithPlusOneCounters { .. } => {
                         return Err(gap("enters-with-counters:conditional"));
+                    }
+                    // CR 604.3a(5): a conditional value is not a CDA.
+                    StaticEffect::DefinePowerToughness { .. } => {
+                        return Err(gap("cda-pt:conditional"));
                     }
                 };
                 *condition = and(condition.take(), Some(guard.clone()));
