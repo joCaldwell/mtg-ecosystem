@@ -75,7 +75,11 @@ impl RulesTxn {
         self.program_for(entry).is_ok_and(|program| {
             program
                 .targets
-                .get(slot)
+                .get(if program.variable_target_count().is_some() {
+                    0
+                } else {
+                    slot
+                })
                 .is_some_and(|spec| self.object_target_legal_for(entry, object, spec))
         })
     }

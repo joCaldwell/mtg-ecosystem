@@ -137,6 +137,8 @@ pub enum Node {
     /// of the single "up to N" target occurrence simultaneously.
     TapTargets {
         count: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        variable: Option<VariableTargetCount>,
         tap: bool,
     },
     /// CR 115.3, 608.2b, 701.8, 400.3: destroy, exile or return to owners'
@@ -144,6 +146,8 @@ pub enum Node {
     /// target occurrence in one simultaneous event.
     RemoveTargets {
         count: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        variable: Option<VariableTargetCount>,
         removal: GroupRemoval,
     },
     /// CR 118.12, 608.2b: sacrifice one controlled creature if able;
@@ -273,4 +277,13 @@ impl Node {
             | Self::RemoveTargets { .. } => false,
         }
     }
+}
+
+/// CR 601.2b-c: the sole occurrence's cardinality at announcement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VariableTargetCount {
+    Any,
+    ExactlyX,
+    UpToX,
 }

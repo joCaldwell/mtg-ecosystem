@@ -478,3 +478,142 @@ fn animal_sanctuary_targets_creature_subtype_alternatives() {
         Quantity::from(1)
     );
 }
+
+/// CR 115.3, 601.2b–c, 608.2b: choose X first, then announce X distinct
+/// artifacts. Every legal member of the occurrence resolves together.
+#[test]
+fn by_force_announces_exactly_x_distinct_targets() {
+    let prepared = board(&[(
+        record!("7ce950fb-e065-45d3-aeff-f8c475460754"),
+        &[Cell::RemoveTargetGroup],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("By Force", 0, 0, true)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 1, 1, false)
+    .permanent_or_hand("Sol Ring", 0, 0, false)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let x = Driver::request(&mut g, u64::MAX);
+    assert_eq!(x.reason, Reason::AnnounceX);
+    assert!(matches!(&x.shape, Shape::Number { max: Some(max), .. } if *max == 2.into()));
+    g.respond(x.player, x.id, Answer::Number { value: 2.into() })
+        .unwrap();
+    let d = targets(&mut g);
+    let first = Driver::object(&g, 4);
+    let second = Driver::object(&g, 5);
+    let first_index = d.index(&Candidate::Object { object: first }).unwrap();
+    assert!(
+        g.respond(
+            d.player,
+            d.id,
+            Answer::Pick {
+                picks: vec![vec![first_index; 2]]
+            }
+        )
+        .is_err()
+    );
+    answer_targets(&mut g, &d, &[first, second]);
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 4), Zone::Graveyard { owner: PlayerId(1) });
+    assert_eq!(zone(&g, 5), Zone::Graveyard { owner: PlayerId(0) });
+}
+
+#[test]
+fn scapegoat_chooses_zero_or_multiple_distinct_creatures() {
+    for count in [0, 2] {
+        let prepared = board(&[(
+            record!("04eb4fc0-0cc5-44f1-af5a-44579125d5c2"),
+            &[Cell::RemoveTargetGroup],
+            Tiers::EXECUTES,
+        )])
+        .permanent_or_hand("Scapegoat", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        let d = targets(&mut g);
+        assert!(!offers(&d, Driver::object(&g, 5)));
+        let picks = [Driver::object(&g, 3), Driver::object(&g, 4)];
+        answer_targets(&mut g, &d, &picks[..count]);
+        Driver::pay(&mut g, &[1]);
+        assert_eq!(
+            Driver::request(&mut g, u64::MAX).reason,
+            Reason::SacrificeCost
+        );
+        let sacrificed = Driver::object(&g, 2);
+        Driver::pick_object(&mut g, sacrificed);
+        settle(&mut g);
+        assert_eq!(zone(&g, 2), Zone::Graveyard { owner: PlayerId(0) });
+        for index in [3, 4] {
+            assert_eq!(
+                zone(&g, index),
+                if count == 0 {
+                    Zone::Battlefield
+                } else {
+                    Zone::Hand { owner: PlayerId(0) }
+                }
+            );
+        }
+    }
+}
+
+/// Runtime witness for an up-to-X batch using the exact-X fixture's
+/// artifacts and cost. Its variant exercises the same audited batch cell.
+#[test]
+fn announced_x_caps_a_variable_target_choice() {
+    use mtg_contracts::{
+        Instruction,
+        kir::{Node, VariableTargetCount},
+    };
+    let mtg_compiler::CompileResult::Lowered { mut definition } = mtg_witness::compile(
+        mtg_witness::R5_MANIFEST,
+        record!("7ce950fb-e065-45d3-aeff-f8c475460754"),
+    ) else {
+        panic!("By Force must lower");
+    };
+    let program = definition.spell.as_mut().unwrap();
+    let Instruction::Kernel {
+        node: Node::RemoveTargets { variable, .. },
+        ..
+    } = &mut program.instructions[0]
+    else {
+        panic!("expected batch")
+    };
+    *variable = Some(VariableTargetCount::UpToX);
+    definition.validate().unwrap();
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let prepared = Board::new(catalog, "up-to-x-targets")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .permanent_or_hand("By Force", 0, 0, true)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 1, 1, false)
+        .permanent_or_hand("Sol Ring", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::answer(&mut g, u64::MAX, Answer::Number { value: 1.into() });
+    let d = targets(&mut g);
+    assert!(
+        matches!(&d.shape, Shape::Pick { slots, .. } if slots[0].min == 0 && slots[0].max == 1)
+    );
+    answer_targets(&mut g, &d, &[]);
+    Driver::pay(&mut g, &[1, 2]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 3), Zone::Battlefield);
+    assert_eq!(zone(&g, 4), Zone::Battlefield);
+}

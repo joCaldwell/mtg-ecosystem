@@ -284,6 +284,14 @@ impl Walk<'_, '_> {
 
     // The permanent filter is checked at both target boundaries (CR 601.2c,
     // 608.2b). A disjunction that includes another type cannot prove creature.
+    fn batch_target_count(&self, count: u32, variable: Option<VariableTargetCount>) -> bool {
+        match variable {
+            None => (2..=7).contains(&count),
+            Some(VariableTargetCount::Any) => count == 1,
+            Some(_) => count == 1 && (self.scan || self.env.announced_x),
+        }
+    }
+
     fn creature_target(&self, slot: u32) -> Result<bool, KirError> {
         let domain = self.domain(slot)?;
         Ok(domain == TargetDomain::BattlefieldCreature
@@ -1114,10 +1122,12 @@ impl Walk<'_, '_> {
                 self.bound.pop();
                 result
             }
-            Node::TapTargets { count, .. } => {
+            Node::TapTargets {
+                count, variable, ..
+            } => {
                 // CR 115.3, 601.2c, 608.2b: one occurrence, at most N distinct
                 // objects. The program admits these slots only as one group.
-                if !(2..=7).contains(count) {
+                if !self.batch_target_count(*count, *variable) {
                     return unaudited("tap target group bounds");
                 }
                 self.out.target_slots.extend(0..*count);
@@ -1166,10 +1176,12 @@ impl Walk<'_, '_> {
                 }
                 Ok(())
             }
-            Node::RemoveTargets { count, .. } => {
+            Node::RemoveTargets {
+                count, variable, ..
+            } => {
                 // CR 115.3, 601.2c, 608.2b: one occurrence, exactly or at most N distinct
                 // objects. The program admits these slots only as one group.
-                if !(2..=7).contains(count) {
+                if !self.batch_target_count(*count, *variable) {
                     return unaudited("removal target group bounds");
                 }
                 self.out.target_slots.extend(0..*count);

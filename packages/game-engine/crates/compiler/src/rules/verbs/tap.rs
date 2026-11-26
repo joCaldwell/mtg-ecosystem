@@ -36,7 +36,11 @@ pub(super) fn tap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Instr
     }
     if let Some(count) = bind_optional_target_group(cx.program, cx.slots, &what)? {
         return Ok(Instruction::Kernel {
-            node: kir::Node::TapTargets { count, tap: true },
+            node: kir::Node::TapTargets {
+                count,
+                variable: None,
+                tap: true,
+            },
             source_block: cx.source_block,
         });
     }
@@ -64,7 +68,11 @@ pub(super) fn untap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Ins
     }
     if let Some(count) = bind_optional_target_group(cx.program, cx.slots, &what)? {
         return Ok(Instruction::Kernel {
-            node: kir::Node::TapTargets { count, tap: false },
+            node: kir::Node::TapTargets {
+                count,
+                variable: None,
+                tap: false,
+            },
             source_block: cx.source_block,
         });
     }

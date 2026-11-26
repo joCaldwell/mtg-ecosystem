@@ -175,7 +175,7 @@ impl RulesTxn {
         source: &Characteristics,
         source_object: Option<ObjectId>,
     ) -> bool {
-        if program.optional_target {
+        if program.optional_target || program.variable_target_count().is_some() {
             return true;
         }
         // CR 115.3, 601.2c: a counted occurrence needs that many distinct

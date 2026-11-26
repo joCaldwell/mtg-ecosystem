@@ -305,20 +305,40 @@ impl RulesTxn {
                     .collect(),
                 _ => return Err("target domain outside the admitted decision algebra".into()),
             };
+            let (min, max) = if let Some(variable) = program.variable_target_count() {
+                use mtg_contracts::kir::VariableTargetCount::*;
+                let eligible =
+                    u32::try_from(candidates.len()).map_err(|_| "target choice limit")?;
+                let announced = entry.x.as_ref().and_then(Quantity::to_u32);
+                match variable {
+                    Any => (0, eligible),
+                    ExactlyX => {
+                        let x = announced.ok_or("invalid X target count")?;
+                        (x, x)
+                    }
+                    UpToX => (0, eligible.min(announced.unwrap_or(u32::MAX))),
+                }
+            } else {
+                let min = match (grouped, program.optional_target) {
+                    (_, true) => 0,
+                    (true, false) => program.targets.len() as u32,
+                    (false, false) => 1,
+                };
+                (
+                    min,
+                    if grouped {
+                        program.targets.len() as u32
+                    } else {
+                        1
+                    },
+                )
+            };
             slots.push(Slot {
                 role: SlotRole::Target { spec: spec.slot },
                 subject: None,
                 allowed,
-                min: match (grouped, program.optional_target) {
-                    (_, true) => 0,
-                    (true, false) => program.targets.len() as u32,
-                    (false, false) => 1,
-                },
-                max: if grouped {
-                    program.targets.len() as u32
-                } else {
-                    1
-                },
+                min,
+                max,
                 repeat: false,
             });
         }

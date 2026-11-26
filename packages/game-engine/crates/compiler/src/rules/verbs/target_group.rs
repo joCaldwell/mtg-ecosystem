@@ -139,12 +139,74 @@ fn members(step: &Step) -> Option<(Group, Vec<Step>)> {
     Some((group, steps))
 }
 
+/// CR 115.3, 601.2b-c: one selection uses the announced X or the eligible
+/// object set. Only audited simultaneous battlefield actions are admitted.
+fn variable_batch(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instruction>>, Failure> {
+    use kir::VariableTargetCount::*;
+    if !matches!(
+        step,
+        Step::Tap { .. }
+            | Step::Untap { .. }
+            | Step::Destroy { .. }
+            | Step::Exile { .. }
+            | Step::ReturnToHand { .. }
+    ) {
+        return Ok(None);
+    }
+    let mut step = step.clone();
+    let Some(Field::Json(value)) = field(&mut step) else {
+        return Ok(None);
+    };
+    if value["ref"] != "target" || value["count"]["amount"] == "fixed" {
+        return Ok(None);
+    }
+    let ast::ObjectRef::Target(target) = object(value)? else {
+        return Ok(None);
+    };
+    let variable = match (&*target.count, target.up_to) {
+        (ast::Amount::X(_), None) => ExactlyX,
+        (ast::Amount::X(_), Some(true)) => UpToX,
+        (ast::Amount::Chosen(count), None) if count.minimum == 0 && count.maximum.is_none() => Any,
+        _ => return Ok(None),
+    };
+    if !cx.program.targets.is_empty() {
+        return Ok(None);
+    }
+    let Some(selection) = target.selection_id else {
+        return Ok(None);
+    };
+    member(
+        Field::Json(value),
+        &Group {
+            count: 1,
+            up_to: false,
+            selection,
+        },
+        0,
+    )?;
+    let leaf = lower_step(cx, &step)?;
+    let mut instructions = batch(cx, 1, vec![leaf]);
+    let [Instruction::Kernel { node, .. }] = instructions.as_mut_slice() else {
+        unreachable!("one batch instruction");
+    };
+    match node {
+        kir::Node::TapTargets {
+            variable: count, ..
+        }
+        | kir::Node::RemoveTargets {
+            variable: count, ..
+        } => *count = Some(variable),
+        _ => return Err(operand("target", "count")),
+    }
+    Ok(Some(instructions))
+}
+
 /// Lower one step whose operand is a counted occurrence, or `None` when it
 /// is not one. The group is the program's only target occurrence; a later
 /// step may name the same occurrence again (one selection identity).
 pub(super) fn lower(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instruction>>, Failure> {
     let Some((group, steps)) = members(step) else {
-        return Ok(None);
+        return variable_batch(cx, step);
     };
     // A spell deals its damage to each member; another source's damage
     // events would be observable one at a time (CR 120.3).
@@ -206,13 +268,22 @@ fn batch(cx: &StepCx<'_>, count: u32, leaves: Vec<Instruction>) -> Vec<Instructi
     let node = leaves.iter().try_fold(None, |kind, instruction| {
         let Instruction::Kernel { node, .. } = instruction;
         let this = match node.verb()? {
-            Verb::Tap { .. } => kir::Node::TapTargets { count, tap: true },
-            Verb::Untap { .. } => kir::Node::TapTargets { count, tap: false },
+            Verb::Tap { .. } => kir::Node::TapTargets {
+                count,
+                variable: None,
+                tap: true,
+            },
+            Verb::Untap { .. } => kir::Node::TapTargets {
+                count,
+                variable: None,
+                tap: false,
+            },
             Verb::Destroy {
                 regeneration_forbidden: false,
                 ..
             } => kir::Node::RemoveTargets {
                 count,
+                variable: None,
                 removal: kir::GroupRemoval::Destroy,
             },
             Verb::Move {
@@ -220,6 +291,7 @@ fn batch(cx: &StepCx<'_>, count: u32, leaves: Vec<Instruction>) -> Vec<Instructi
                 ..
             } => kir::Node::RemoveTargets {
                 count,
+                variable: None,
                 removal: kir::GroupRemoval::Exile,
             },
             Verb::Move {
@@ -227,6 +299,7 @@ fn batch(cx: &StepCx<'_>, count: u32, leaves: Vec<Instruction>) -> Vec<Instructi
                 ..
             } => kir::Node::RemoveTargets {
                 count,
+                variable: None,
                 removal: kir::GroupRemoval::OwnerHand,
             },
             _ => return None,

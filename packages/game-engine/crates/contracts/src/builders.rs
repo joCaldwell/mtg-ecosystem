@@ -80,6 +80,21 @@ impl TargetSpec {
 }
 
 impl SpellProgram {
+    /// The variable bound for a single simultaneous target occurrence.
+    pub fn variable_target_count(&self) -> Option<kir::VariableTargetCount> {
+        self.instructions
+            .iter()
+            .find_map(|instruction| match instruction {
+                Instruction::Kernel {
+                    node:
+                        kir::Node::TapTargets { variable, .. }
+                        | kir::Node::RemoveTargets { variable, .. },
+                    ..
+                } => *variable,
+                _ => None,
+            })
+    }
+
     /// CR 115.3, 601.2c: the number of objects one printed counted target
     /// occurrence ("two target", "up to three target") announces. Its slots
     /// share one domain and filter; slot zero keeps the archive selection

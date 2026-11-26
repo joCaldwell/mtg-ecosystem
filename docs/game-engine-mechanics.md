@@ -374,8 +374,12 @@ An unchosen or illegal member skips its leaves; all illegal counters the spell
 (CR 608.2b). Per-member damage is separate events; recheck that once batched or
 creature-damage triggers are admitted. Victimize declares its creature-card
 targets before the sacrifice. A successful sacrifice returns the legal survivors
-tapped simultaneously. Other graveyard group entries, "any number" and X
-counts, mixed required and optional occurrences
+tapped simultaneously. A single battlefield tap, untap, destroy, exile or
+return-to-hand batch can announce any number of distinct legal targets,
+exactly the announced X, or any number up to the announced X (CR 115.3,
+601.2b–c). Exact X is bounded by the legal candidates offered at announcement.
+Zero targets still allows untargeted actions to resolve. Other graveyard group
+entries, derived X counts, mixed required and optional occurrences
 and optional permanent spells reject. "Target player or planeswalker" announces
 players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
 120.3). Already-matching tap status emits no event and combat membership is

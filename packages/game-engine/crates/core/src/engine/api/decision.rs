@@ -92,7 +92,7 @@ impl RulesTxn {
                 vec![],
                 Shape::Number {
                     min: 0.into(),
-                    max: None,
+                    max: self.x_target_selection_limit()?,
                 },
             ),
             Frame::SpendMana { cast } if let Some(decision) = self.delve_decision(cast)? => {
