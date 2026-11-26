@@ -1705,3 +1705,61 @@ fn hour_of_reckoning_convokes_white_and_generic() {
     assert!(!game.state.rules.objects[&CardId(1)].tapped);
     checked(&game);
 }
+
+/// CR 702.126: artifacts can pay only generic mana and must be controlled
+/// by the caster. The two white symbols still require mana.
+#[test]
+fn organic_extinction_improvises_generic_only() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    const ORGANIC: &str = record!("d9e24d7c-0907-45c1-b5d3-9fb16a929868");
+    let mut setup = board(&[(ORGANIC, &[Cell::Improvise])])
+        .permanent_or_hand("Organic Extinction", 0, 0, true)
+        .permanent_or_hand("Darksteel Relic", 1, 1, false)
+        .permanent_or_hand("Leonin Snarecaster", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false);
+    for _ in 0..8 {
+        setup = setup.permanent_or_hand("Darksteel Relic", 0, 0, false);
+    }
+    let mut game = Game::new(setup.libraries("Island", 2).prepare());
+    let catalog = game.prepared.clone();
+    let mut strategy = Strategy::new(&catalog.catalog, Policy::Develop, [0; 4]);
+    Driver::cast(&mut game, CardId(0));
+    let mut saw_improvise = false;
+    for _ in 0..10 {
+        let decision = Driver::request(&mut game, u64::MAX);
+        if decision.reason == Reason::Priority {
+            assert!(saw_improvise);
+            assert!(!game.state.rules.objects[&CardId(1)].tapped);
+            assert!(!game.state.rules.objects[&CardId(2)].tapped);
+            for id in 3..13 {
+                assert!(game.state.rules.objects[&CardId(id)].tapped);
+            }
+            checked(&game);
+            return;
+        }
+        if let Shape::Pick { slots, .. } = &decision.shape {
+            assert_eq!(slots.len(), 1);
+            assert_eq!(slots[0].subject, None);
+            assert_eq!(slots[0].allowed.len(), 8);
+            saw_improvise = true;
+        }
+        if let Shape::Pay {
+            cost,
+            step: PayStep::Spend,
+            ..
+        } = &decision.shape
+        {
+            assert!(saw_improvise);
+            assert_eq!(cost.generic, 0.into());
+            assert_eq!(cost.colored, [Color::W, Color::W]);
+            checked(&game);
+        }
+        let answer = strategy
+            .choose_with_game(&observation(&game, 0), &game)
+            .unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+    panic!("Organic Extinction did not complete payment");
+}

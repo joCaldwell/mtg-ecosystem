@@ -1863,6 +1863,8 @@ pub struct Definition {
     pub delve: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub convoke: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub improvise: bool,
     pub oracle_id: String,
     pub name: String,
     pub characteristics: Characteristics,

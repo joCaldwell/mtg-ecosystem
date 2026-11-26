@@ -1032,11 +1032,16 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
-                        [one] if one.keyword == "delve" || one.keyword == "convoke" => {
-                            let expected = if one.keyword == "delve" {
-                                "Delve"
-                            } else {
-                                "Convoke"
+                        [one]
+                            if matches!(
+                                one.keyword.as_str(),
+                                "delve" | "convoke" | "improvise"
+                            ) =>
+                        {
+                            let expected = match one.keyword.as_str() {
+                                "delve" => "Delve",
+                                "convoke" => "Convoke",
+                                _ => "Improvise",
                             };
                             if text != expected
                                 || one.cost.is_some()
@@ -1049,10 +1054,10 @@ fn compose_face(
                                     format!("keyword:{}:parameters", one.keyword),
                                 ));
                             }
-                            if one.keyword == "delve" {
-                                definition.delve = true;
-                            } else {
-                                definition.convoke = true;
+                            match expected {
+                                "Delve" => definition.delve = true,
+                                "Convoke" => definition.convoke = true,
+                                _ => definition.improvise = true,
                             }
                         }
                         [one] if one.keyword == "affinity" => {

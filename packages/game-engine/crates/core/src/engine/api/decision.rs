@@ -99,7 +99,9 @@ impl RulesTxn {
             Frame::SpendMana { cast } if let Some(decision) = self.delve_decision(cast)? => {
                 decision
             }
-            Frame::SpendMana { cast } if let Some(decision) = self.convoke_decision(cast)? => {
+            Frame::SpendMana { cast }
+                if let Some(decision) = self.tap_payment_decision(cast)? =>
+            {
                 decision
             }
             Frame::Mana { cast } | Frame::SpendMana { cast } => {

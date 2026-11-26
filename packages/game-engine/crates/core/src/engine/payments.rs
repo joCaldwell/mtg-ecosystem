@@ -209,15 +209,22 @@ impl RulesTxn {
     }
 
     // CR 601.2h, 702.51: this ability taps a creature as spell payment.
-    // The creature's own tap abilities and summoning sickness are irrelevant.
+    // Improvise (CR 702.126) taps artifacts and pays generic mana only.
+    // The permanent's own tap abilities and summoning sickness are irrelevant.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    fn convoke_candidates(
+    fn tap_payment_candidates(
         &self,
         entry: &StackInstance,
     ) -> Result<Vec<(ObjectId, Vec<Color>)>, String> {
-        if !entry.kind.is_spell() || !self.stack_definition(entry)?.convoke {
+        if !entry.kind.is_spell() {
             return Ok(vec![]);
         }
+        let definition = self.stack_definition(entry)?;
+        let kind = match (definition.convoke, definition.improvise) {
+            (true, false) => CardKind::Creature,
+            (false, true) => CardKind::Artifact,
+            _ => return Ok(vec![]),
+        };
         let mut candidates = vec![];
         for object in self.state.rules.objects.values().filter(|object| {
             object.present_on_battlefield()
@@ -225,14 +232,19 @@ impl RulesTxn {
                 && !object.tapped
         }) {
             let characteristics = self.derived_characteristics_with_sources(object.id, None)?;
-            if characteristics.has_type(CardKind::Creature) {
-                candidates.push((object.id, characteristics.colors.clone()));
+            if characteristics.has_type(kind) {
+                let colors = if definition.convoke {
+                    characteristics.colors.clone()
+                } else {
+                    vec![]
+                };
+                candidates.push((object.id, colors));
             }
         }
         Ok(candidates)
     }
 
-    pub(super) fn convoke_decision(
+    pub(super) fn tap_payment_decision(
         &self,
         cast: &Casting,
     ) -> Result<Option<Decision<Rules>>, String> {
@@ -240,7 +252,7 @@ impl RulesTxn {
             return Ok(None);
         }
         let entry = self.top()?;
-        let eligible = self.convoke_candidates(entry)?;
+        let eligible = self.tap_payment_candidates(entry)?;
         if eligible.is_empty() {
             return Ok(None);
         }
@@ -348,12 +360,15 @@ impl RulesTxn {
             cost.generic.subtract(&count);
         }
         if let Some(selected) = &cast.tap_payment {
-            let eligible: BTreeMap<_, _> = self.convoke_candidates(entry)?.into_iter().collect();
+            let eligible: BTreeMap<_, _> =
+                self.tap_payment_candidates(entry)?.into_iter().collect();
             let mut used = BTreeSet::new();
             for (object, color) in selected {
-                let colors = eligible.get(object).ok_or("ineligible convoke creature")?;
+                let colors = eligible
+                    .get(object)
+                    .ok_or("ineligible tap payment permanent")?;
                 if !used.insert(object) {
-                    return Err("duplicate convoke creature".into());
+                    return Err("duplicate tap payment permanent".into());
                 }
                 match color {
                     Some(color) if *color != Color::C && colors.contains(color) => {
@@ -361,11 +376,11 @@ impl RulesTxn {
                             .colored
                             .iter()
                             .position(|symbol| symbol == color)
-                            .ok_or("unmatched convoke color")?;
+                            .ok_or("unmatched tap payment color")?;
                         cost.colored.remove(index);
                     }
                     None if cost.generic > Quantity::zero() => cost.generic.subtract(&1.into()),
-                    _ => return Err("invalid convoke payment".into()),
+                    _ => return Err("invalid tap payment payment".into()),
                 }
             }
         }
@@ -442,7 +457,7 @@ impl RulesTxn {
             if self.state.rules.players[stack.controller.0 as usize]
                 .can_pay_life(&phyrexian_life(&stack.hybrid_colors))
                 && (self.delve_decision(&cast)?.is_some()
-                    || self.convoke_decision(&cast)?.is_some()
+                    || self.tap_payment_decision(&cast)?.is_some()
                     || self.can_pay_announced(stack, &stack.total_cost)?)
             {
                 Frame::SpendMana { cast }
@@ -492,14 +507,14 @@ impl RulesTxn {
             return Ok(());
         }
         if let Answer::Pick { picks } = &input.answer
-            && let Some(decision) = self.convoke_decision(&cast)?
+            && let Some(decision) = self.tap_payment_decision(&cast)?
             && let Shape::Pick { slots, .. } = &decision.shape
         {
             let mut selected = vec![];
             for (slot, choices) in slots.iter().zip(picks) {
                 let color = if let Some(index) = slot.subject {
                     let Candidate::Color { color } = decision.candidate(index)? else {
-                        return Err("invalid convoke symbol".into());
+                        return Err("invalid tap payment symbol".into());
                     };
                     Some(*color)
                 } else {
@@ -507,7 +522,7 @@ impl RulesTxn {
                 };
                 for &index in choices {
                     let Candidate::Object { object } = decision.candidate(index)? else {
-                        return Err("invalid convoke choice".into());
+                        return Err("invalid tap payment choice".into());
                     };
                     selected.push((*object, color));
                 }

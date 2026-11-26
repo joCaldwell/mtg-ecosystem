@@ -47,6 +47,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "affinity"
                 | "delve"
                 | "convoke"
+                | "improvise"
                 | "cycling"
                 | "typecycling"
                 | "flashback"

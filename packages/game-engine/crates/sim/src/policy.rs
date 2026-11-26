@@ -27,11 +27,12 @@ pub fn can_fund(
 
 // Reserve every possible convoker while planning real mana. A land creature
 // may otherwise be planned both as a mana source and as a convoker.
-fn convoke_plan<'a>(
+fn tap_payment_plan<'a>(
     view: &'a mtg_core::PermittedView,
     cost: &ManaCost,
+    kind: CardKind,
 ) -> (ManaCost, Vec<&'a ObjectHandle>) {
-    let creatures: Vec<_> = view
+    let permanents: Vec<_> = view
         .objects
         .iter()
         .filter(|object| {
@@ -42,23 +43,23 @@ fn convoke_plan<'a>(
                 && object
                     .characteristics
                     .as_ref()
-                    .is_some_and(|c| c.has_type(CardKind::Creature))
+                    .is_some_and(|c| c.has_type(kind))
         })
         .collect();
     let mut due = cost.clone();
-    if creatures.is_empty() {
+    if permanents.is_empty() {
         return (due, vec![]);
     }
     let colors: std::collections::BTreeSet<_> = cost
         .colored
         .iter()
         .copied()
-        .filter(|&c| c != Color::C)
+        .filter(|&c| kind == CardKind::Creature && c != Color::C)
         .collect();
     let mut slots: Vec<_> = colors
         .iter()
         .map(|color| {
-            let allowed: Vec<_> = creatures
+            let allowed: Vec<_> = permanents
                 .iter()
                 .enumerate()
                 .filter(|(_, o)| {
@@ -83,11 +84,11 @@ fn convoke_plan<'a>(
         role: mtg_core::SlotRole::Choice,
         subject: None,
         min: 0,
-        max: (creatures.len() as u32).min(cost.generic.to_u32().unwrap_or(u32::MAX)),
-        allowed: (0..creatures.len() as u32).collect(),
+        max: (permanents.len() as u32).min(cost.generic.to_u32().unwrap_or(u32::MAX)),
+        allowed: (0..permanents.len() as u32).collect(),
         repeat: false,
     });
-    let mut picked = mtg_core::distinct_payment_choices(&slots, 0, creatures.len() as u32)
+    let mut picked = mtg_core::distinct_payment_choices(&slots, 0, permanents.len() as u32)
         .expect("convoke planning permits no picks");
     let generic = picked.pop().unwrap_or_default().len();
     due.generic.subtract(&Quantity::from(generic as i64));
@@ -103,7 +104,10 @@ fn convoke_plan<'a>(
     }
     (
         due,
-        creatures.into_iter().map(|object| &object.handle).collect(),
+        permanents
+            .into_iter()
+            .map(|object| &object.handle)
+            .collect(),
     )
 }
 
@@ -403,13 +407,15 @@ impl Strategy<'_> {
                     .flatten()
                     .map(|(definition, _)| definition);
                 let (due, reserved) = if spell.is_some_and(|d| d.convoke) {
-                    convoke_plan(v, cost)
+                    tap_payment_plan(v, cost, CardKind::Creature)
+                } else if spell.is_some_and(|d| d.improvise) {
+                    tap_payment_plan(v, cost, CardKind::Artifact)
                 } else if spell.is_some_and(|d| d.delve) {
                     (delve_mana_due(cost.clone(), v, None), vec![])
                 } else {
                     (cost.clone(), vec![])
                 };
-                let payable = if spell.is_some_and(|d| d.convoke || d.delve)
+                let payable = if spell.is_some_and(|d| d.convoke || d.delve || d.improvise)
                     && let Some(game) = game
                 {
                     game.quote_finish_spell_mana(v.viewer)?
@@ -846,14 +852,19 @@ impl Strategy<'_> {
                     action: mtg_contracts::ChosenCostAction::Tap,
                 },
                 Shape::Pick { slots, rules },
-            ) if self.top_program(v).is_some_and(|(d, _)| d.convoke) => Answer::Pick {
-                picks: mtg_core::distinct_payment_choices(
-                    slots,
-                    mtg_core::payment_choice_minimum(rules),
-                    mtg_core::payment_choice_minimum(rules),
-                )
-                .ok_or("missing legal convoke allocation")?,
-            },
+            ) if self
+                .top_program(v)
+                .is_some_and(|(d, _)| d.convoke || d.improvise) =>
+            {
+                Answer::Pick {
+                    picks: mtg_core::distinct_payment_choices(
+                        slots,
+                        mtg_core::payment_choice_minimum(rules),
+                        mtg_core::payment_choice_minimum(rules),
+                    )
+                    .ok_or("missing legal convoke allocation")?,
+                }
+            }
             // CR 701.22a, 701.25a: keep every looked-at card on top.
             (
                 Reason::Discard

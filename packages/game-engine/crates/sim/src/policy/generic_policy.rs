@@ -1047,8 +1047,13 @@ impl Strategy<'_> {
         Vec<mtg_contracts::HybridPayment>,
         std::collections::VecDeque<mana_policy::PlannedMana>,
     )> {
-        if definition.convoke {
-            let (due, reserved) = super::convoke_plan(view, &cost);
+        if definition.convoke || definition.improvise {
+            let kind = if definition.convoke {
+                CardKind::Creature
+            } else {
+                CardKind::Artifact
+            };
+            let (due, reserved) = super::tap_payment_plan(view, &cost, kind);
             if let Some(plan) = mana_policy::hybrid_plan_reserved(
                 self.catalog,
                 view,

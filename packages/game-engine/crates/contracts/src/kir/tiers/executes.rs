@@ -1263,6 +1263,9 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     if !shell {
         return cell("shell", name(&c.kind));
     }
+    if d.improvise && (d.spell.is_none() || d.delve || d.convoke) {
+        return cell("keyword", "improvise");
+    }
     if d.convoke && (d.spell.is_none() || d.delve) {
         return cell("keyword", "convoke");
     }
