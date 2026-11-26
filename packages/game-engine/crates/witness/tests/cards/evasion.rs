@@ -148,7 +148,7 @@ pub(super) fn refuses(g: &mut Game, d: &Decision<Rules>, blocks: &[(u32, u32)]) 
         .map(|(b, a)| (Driver::object(g, *b), Driver::object(g, *a)))
         .collect();
     let answer = forged_block(d, blocks);
-    assert!(g.respond(d.player, d.id.clone(), answer).is_err());
+    assert!(g.respond(d.player, d.id, answer).is_err());
     assert_eq!(g.snapshot().unwrap(), before);
 }
 
@@ -158,7 +158,7 @@ pub(super) fn accepts(g: &mut Game, d: &Decision<Rules>, blocks: &[(u32, u32)]) 
         .iter()
         .map(|(b, a)| (Driver::object(g, *b), Driver::object(g, *a)))
         .collect();
-    g.respond(d.player, d.id.clone(), d.block(blocks)).unwrap();
+    g.respond(d.player, d.id, d.block(blocks)).unwrap();
     checked(g);
 }
 

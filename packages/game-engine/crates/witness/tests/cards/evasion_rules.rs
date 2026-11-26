@@ -297,7 +297,7 @@ fn attack_restrictions_remove_defenders_before_requirements() {
                 .map(|(id, p)| (Driver::object(&g, *id), PlayerId(*p)))
                 .collect(),
         );
-        assert!(g.respond(d.player, d.id.clone(), answer).is_err());
+        assert!(g.respond(d.player, d.id, answer).is_err());
         assert_eq!(g.snapshot().unwrap(), before);
     }
     let answer = d.attack(vec![
@@ -318,7 +318,7 @@ fn attack_restrictions_remove_defenders_before_requirements() {
     );
     let d = until(&mut g, &Reason::Attackers);
     assert_eq!(attack_offer(&g, &d)[&3], (vec![], 0));
-    g.respond(d.player, d.id.clone(), d.attack(vec![])).unwrap();
+    g.respond(d.player, d.id, d.attack(vec![])).unwrap();
     checked(&g);
 }
 
@@ -385,12 +385,8 @@ fn defender_pretense_offers_the_creature_as_an_attacker() {
     activate(&mut g, 0, vec![]);
     let d = until(&mut g, &Reason::Attackers);
     assert_eq!(attack_offer(&g, &d)[&0], (vec![1, 2, 3], 0));
-    g.respond(
-        d.player,
-        d.id.clone(),
-        d.attack(vec![(phalanx, PlayerId(1))]),
-    )
-    .unwrap();
+    g.respond(d.player, d.id, d.attack(vec![(phalanx, PlayerId(1))]))
+        .unwrap();
     checked(&g);
 }
 
@@ -416,9 +412,9 @@ fn attacks_this_turn_if_able_requires_the_target() {
     assert_eq!(offer[&1], (vec![1, 2, 3], 1));
     assert_eq!(offer[&0].1, 0);
     let before = g.snapshot().unwrap();
-    assert!(g.respond(d.player, d.id.clone(), d.attack(vec![])).is_err());
+    assert!(g.respond(d.player, d.id, d.attack(vec![])).is_err());
     assert_eq!(g.snapshot().unwrap(), before);
-    g.respond(d.player, d.id.clone(), d.attack(vec![(bears, PlayerId(2))]))
+    g.respond(d.player, d.id, d.attack(vec![(bears, PlayerId(2))]))
         .unwrap();
     checked(&g);
 }
