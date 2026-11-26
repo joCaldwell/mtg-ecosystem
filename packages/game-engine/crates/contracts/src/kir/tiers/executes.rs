@@ -165,6 +165,16 @@ fn program(
     event: Option<&TriggerCondition>,
     announced_x: bool,
 ) -> Result<(), String> {
+    validate_program(p, context, event, announced_x, false)
+}
+
+fn validate_program(
+    p: &SpellProgram,
+    context: Context,
+    event: Option<&TriggerCondition>,
+    announced_x: bool,
+    modal: bool,
+) -> Result<(), String> {
     if p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
         || p.instructions.is_empty()
@@ -198,7 +208,7 @@ fn program(
     }) {
         return cell("target", format!("{}:{}", name(&t.domain), name(&context)));
     }
-    validate_target_bindings(p, Some(context))?;
+    validate_target_bindings(p, Some(context), modal)?;
     let env = kir::Env {
         context,
         targets: &p.targets,
@@ -322,10 +332,14 @@ pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<()
     {
         return cell("target", "resolution_trigger_announcement");
     }
-    validate_target_bindings(p, None)
+    validate_target_bindings(p, None, false)
 }
 
-fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Result<(), String> {
+fn validate_target_bindings(
+    p: &SpellProgram,
+    context: Option<Context>,
+    modal: bool,
+) -> Result<(), String> {
     // CR 115.1d, 601.2c, 608.2b: zero targets is a legal announcement.
     // A skipped occurrence can be read only by an independent leaf whose
     // entire action applies to that one object.
@@ -468,7 +482,12 @@ fn validate_target_bindings(p: &SpellProgram, context: Option<Context>) -> Resul
                 })
             )
         });
+    let independent_modal_objects = modal
+        && p.targets
+            .iter()
+            .all(|t| domain(t.domain).is_some_and(|(route, _)| route == Route::Object));
     if !fight_pair
+        && !independent_modal_objects
         && p.targets
             .windows(2)
             .any(|pair| pair[0].domain != pair[1].domain || pair[0].filter != pair[1].filter)
@@ -774,7 +793,9 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     }
     for p in a.programs() {
         cost(d, a, p)?;
-        program(p, Context::Activated, None, false)?;
+        if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
+            program(p, Context::Activated, None, false)?;
+        }
     }
     Ok(())
 }
@@ -830,7 +851,9 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
         modal_shape(&a.program, modal, true)?;
     }
     for p in a.programs() {
-        program(p, Context::Triggered, Some(&a.condition), false)?;
+        if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
+            program(p, Context::Triggered, Some(&a.condition), false)?;
+        }
     }
     Ok(())
 }
@@ -1298,7 +1321,15 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
             )?;
         }
         for variant in d.spell_programs() {
-            program(variant, Context::Spell, None, d.x_mana_cost)?;
+            if d.modal_spell.as_ref().and_then(|m| m.selections.get(&0)) != Some(variant) {
+                validate_program(
+                    variant,
+                    Context::Spell,
+                    None,
+                    d.x_mana_cost,
+                    d.modal_spell.is_some(),
+                )?;
+            }
         }
     }
     if d.static_abilities
@@ -1332,16 +1363,13 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     Ok(())
 }
 
-/// CR 700.2a–d: a legal selection has every target the selected modes
-/// require. This row admits one target at most, using an existing casting,
-/// activation or trigger-placement decision with a mandatory slot: a
-/// battlefield permanent or creature (possibly one its controller controls),
-/// a card in its controller's graveyard, any damage target or a player.
+/// CR 700.2a–d: a selection announces the targets of its chosen modes.
+/// Multiple spell targets share the object announcement route.
 fn modal_shape(base: &SpellProgram, modal: &ModalSpell, ability: bool) -> Result<(), String> {
     let count = modal.labels.len();
     if !(2..=ModalSpell::MAX_MODES).contains(&count)
         || modal.labels.iter().any(|label| label.trim().is_empty())
-        || modal.min == 0
+        || modal.max == 0
         || modal.min > modal.max
         || modal.max as usize > count
         || !modal
@@ -1358,31 +1386,34 @@ fn modal_shape(base: &SpellProgram, modal: &ModalSpell, ability: bool) -> Result
     {
         return cell("modal", "announcement_shape");
     }
-    for variant in modal.selections.values() {
-        if variant.timing != base.timing
+    for (&mask, variant) in &modal.selections {
+        if mask == 0 {
+            if variant != base {
+                return cell("modal", "zero_selection_shape");
+            }
+            continue;
+        }
+        if variant.instructions.is_empty()
+            || variant.timing != base.timing
             || variant.additional_sacrifice.is_some()
             || !variant.optional_additional_costs.is_empty()
             || variant
                 .instructions
                 .iter()
                 .any(|i| i.source_block() != modal.source_block)
-            || !matches!(
-                variant.targets.as_slice(),
-                [] | [TargetSpec {
-                    domain: TargetDomain::BattlefieldPermanent
-                        | TargetDomain::BattlefieldCreature
-                        | TargetDomain::ControlledBattlefieldPermanent
-                        | TargetDomain::ControlledBattlefieldCreature
-                        | TargetDomain::GraveyardCard { .. }
-                        | TargetDomain::OwnGraveyardCard
-                        | TargetDomain::OwnGraveyardCreatureCard
-                        | TargetDomain::AnyDamageTarget
-                        | TargetDomain::AnyPlayer
-                        | TargetDomain::PlayerOrPlaneswalker
-                        | TargetDomain::OpponentPlayer,
-                    ..
-                }]
-            )
+            || (variant.targets.len() > 1
+                && (ability
+                    || variant
+                        .targets
+                        .iter()
+                        .any(|t| domain(t.domain).is_none_or(|(route, _)| route != Route::Object))))
+            || (variant.targets.len() > 1
+                && variant.target_group().is_none()
+                && variant.instructions.iter().any(|instruction| {
+                    let Instruction::Kernel { node, .. } = instruction;
+                    let slots = kir::target_slots(node);
+                    !slots.is_empty() && !matches!(node, kir::Node::Do(_) if slots.len() == 1)
+                }))
             || (ability && variant.optional_target)
         {
             return cell("modal", "selection_shape");

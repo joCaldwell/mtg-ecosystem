@@ -24,8 +24,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "a534be8d3f36192531fb9a6ac48a68666746473b177ce3117475a0ceb3e5522c",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    117,
-    "e4c8435b12e4052afde4ed8fde6865491f8a40a023145aa9ffefd22c98d407bd",
+    118,
+    "38341694c19e57e5d00ef72286fc7d33b731020566d61465d36cae68e799dce1",
 );
 const WORK_PIN: (u32, &str) = (
     62,
@@ -840,6 +840,21 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .chain([{
             let mut sample: Value =
                 serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+            let event = Event::TriggeredAbilityNotPlaced {
+                trigger_id: TriggerId(1),
+                stack_id: StackId(1),
+                reason: TriggerPlacementFailure::NoModesChosen,
+            };
+            sample["trace"]["events"] = serde_json::json!([event]);
+            sample["trace"]["records"] = serde_json::json!([TraceRecord {
+                sequence: 1,
+                boundary: 1,
+                decisions_seen: 1,
+                concessions_seen: 0,
+                record: EvidenceRecord::Event {
+                    event: Box::new(event)
+                },
+            }]);
             let history = &mut sample["state"]["cast_history"][0];
             history["attacked"] = true.into();
             history["creature_died"] = true.into();

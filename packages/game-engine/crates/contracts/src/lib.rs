@@ -1312,7 +1312,7 @@ impl ModalSpell {
         } else {
             0
         };
-        (1..limit).filter(move |mask| (min..=max).contains(&mask.count_ones()))
+        (0..limit).filter(move |mask| (min..=max).contains(&mask.count_ones()))
     }
 }
 fn single_sacrifice() -> u32 {

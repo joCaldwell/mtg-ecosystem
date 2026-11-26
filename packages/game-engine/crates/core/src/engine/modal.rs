@@ -76,13 +76,17 @@ impl RulesTxn {
             })
             .map(|(&mask, _)| Candidate::Modes {
                 mask,
-                labels: modal
-                    .labels
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| mask & (1 << i) != 0)
-                    .map(|(_, label)| label.replace('~', &definition.name))
-                    .collect(),
+                labels: if mask == 0 {
+                    vec!["No modes".into()]
+                } else {
+                    modal
+                        .labels
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| mask & (1 << i) != 0)
+                        .map(|(_, label)| label.replace('~', &definition.name))
+                        .collect()
+                },
             })
             .collect();
         // Proposal and placement admit a modal occurrence only with an
@@ -148,13 +152,20 @@ impl RulesTxn {
     }
 
     /// CR 603.3c: the trigger keeps its placement frame; a selection with a
-    /// target asks for it next, otherwise the trigger is placed.
+    /// target asks for it next. With no chosen mode, remove the trigger (CR 700.2b).
     pub(super) fn bind_trigger_modes(
         &mut self,
         placement: TriggerPlacement,
         stack_id: StackId,
     ) -> Result<(), String> {
         self.bind_mode_answer(stack_id)?;
+        if self.top()?.mode_mask == Some(0) {
+            return self.reject_trigger_placement(
+                placement,
+                stack_id,
+                TriggerPlacementFailure::NoModesChosen,
+            );
+        }
         if !self.program()?.targets.is_empty() {
             self.rules_mut().frame = Frame::TriggerTargets {
                 placement,
@@ -185,6 +196,9 @@ impl RulesTxn {
     /// its admitted selections, and is absent exactly while its modes are
     /// being chosen (or the game stopped during that announcement).
     pub(super) fn validate_modes(&self, entry: &StackInstance) -> Result<(), String> {
+        if matches!(entry.kind, StackKind::Triggered { .. }) && entry.mode_mask == Some(0) {
+            return Err("zero-mode trigger remained on the stack".into());
+        }
         let modal = self.modal_declaration(entry)?;
         let frame = self.underlying_mana_frame(&self.state.rules.frame)?;
         let top = self
