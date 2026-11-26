@@ -21,15 +21,15 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     72,
-    "49a76da7289b7937f11a150d8ada2f26110e6a96455b050383e215c380cb5315",
+    "64b23c0432859118a671ec20fe60f6a107390395b70b9f0c10b3ce1a6d8ae15e",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     107,
-    "52de44e3b3977ade40a039b49feaaf8a318fcf1f984a053f18b122aa4e28eac1",
+    "c1121198eb09b61e98579d4ee2ad469e9b22331b13e7948ef6de161a2bb49cff",
 );
 const WORK_PIN: (u32, &str) = (
-    56,
-    "b33a47e5d01c6830ba59d896dd6b8a6cefaee639ad545e4ca709fe29258e78db",
+    58,
+    "39506ea16df427a3bae68c471c200f940293aaf26a571db3110859e29094e92f",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -603,24 +603,42 @@ fn activation_condition_shapes() -> Vec<Game> {
     vec![window, game]
 }
 
-/// Intervening comparisons carry one of three measured values in the saved
-/// resolution check. Substitute each variant to fingerprint its wire shape.
+/// Substitute each measured variant in a saved resolution check to
+/// fingerprint its wire shape.
 fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
     let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    let controller = PlayerId(0);
     [
         ControllerMeasurement::Life(5.into()),
         ControllerMeasurement::HandCount(7),
         ControllerMeasurement::GraveyardCount(3),
     ]
     .into_iter()
-    .map(move |observed| {
+    .map(move |observed| InterveningCheck::ControllerComparison {
+        controller,
+        observed,
+        passed: true,
+    })
+    .chain([
+        InterveningCheck::ControlsOwnCommander {
+            controller,
+            commander: Some(ObjectId {
+                card: CardId(7),
+                face: mtg_contracts::CardFace::Front,
+                incarnation: 2,
+            }),
+            passed: true,
+        },
+        InterveningCheck::OpponentControlsMore {
+            controller,
+            own: 2,
+            opponents: vec![(PlayerId(1), 3), (PlayerId(2), 2)],
+            passed: true,
+        },
+    ])
+    .map(move |check| {
         sample["state"]["rules"]["frame"]["frame"]["condition_check"] =
-            serde_json::to_value(InterveningCheck::ControllerComparison {
-                controller: PlayerId(0),
-                observed,
-                passed: true,
-            })
-            .unwrap();
+            serde_json::to_value(check).unwrap();
         serde_json::to_string(&sample).unwrap()
     })
 }
@@ -670,6 +688,81 @@ fn suspended_proliferate() -> Game {
     game
 }
 
+/// A stack target offer with two public regeneration shields. The first
+/// shield can be projected while the second still keeps work suspended.
+fn stack_target_and_shields() -> Game {
+    use mtg_contracts::kir::{Ref, SetExpr, Verb};
+
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for (name, domain, verb) in [
+        (
+            "Unsummon",
+            TargetDomain::BattlefieldCreature,
+            Verb::Regenerate {
+                what: SetExpr::target(0),
+            },
+        ),
+        (
+            "Giant Growth",
+            TargetDomain::StackSpell,
+            Verb::Counter {
+                what: Ref::Target { slot: 0 },
+            },
+        ),
+    ] {
+        let spell = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == name)
+            .unwrap();
+        spell.source_labels = None;
+        let program = spell.spell.as_mut().unwrap();
+        program.targets[0].domain = domain;
+        program.instructions = vec![Instruction::act(verb, 0)];
+        spell.capabilities = spell.requirements();
+    }
+    let mut board =
+        Board::new(catalog, "formats-stack-target-and-shields").step(TurnStep::PrecombatMain);
+    for _ in 0..3 {
+        board = board.permanent_or_hand("Unsummon", 0, 0, true);
+    }
+    board = board
+        .permanent_or_hand("Giant Growth", 0, 0, true)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false);
+    for _ in 0..3 {
+        board = board.permanent_or_hand("Island", 0, 0, false);
+    }
+    let mut game = Game::new(board.prepare());
+    let bear = Driver::object(&game, 4);
+    for card in 0..3 {
+        Driver::cast(&mut game, CardId(card));
+        Driver::pick_object(&mut game, bear);
+        Driver::pay(&mut game, &[6 + card]);
+        if card < 2 {
+            for _ in game.live_players() {
+                Driver::pass(&mut game);
+            }
+        }
+    }
+    Driver::cast(&mut game, CardId(3));
+    let offer = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(
+        offer.candidates.as_slice(),
+        [Candidate::Stack { .. }]
+    ));
+    assert_eq!(game.state.rules.effects.len(), 2);
+    game
+}
+
+fn pending_stack_target() -> Game {
+    let mut game = stack_target_and_shields();
+    let offer = Driver::request(&mut game, u64::MAX);
+    let answer = offer.pick_one(&offer.candidates[0]).unwrap();
+    game.respond(offer.player, offer.id, answer).unwrap();
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -679,6 +772,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            pending_stack_target(),
         ])
         .chain(mana_riders())
         .chain([granted_mana()])
@@ -719,6 +813,22 @@ fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
             }
         }
     }
+    let game = stack_target_and_shields();
+    let units = 6 + game.state.rules.objects.len() + game.state.rules.stack.len();
+    let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(0), Budget::new(units as u64))
+    else {
+        panic!("observation should suspend after the first regeneration shield");
+    };
+    let raw = game.save_work(&work).unwrap();
+    let saved: Value = serde_json::from_str(&raw).unwrap();
+    let builder = &saved["data"]["task"]["builder"];
+    assert_eq!(builder["decision"]["candidates"][0]["candidate"], "stack");
+    assert_eq!(
+        builder["view"]["effects"][0]["effect"],
+        "regeneration_shield"
+    );
+    game.restore_work(&raw).unwrap();
+    samples.push(raw);
     assert!(!samples.is_empty(), "no suspended work to fingerprint");
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

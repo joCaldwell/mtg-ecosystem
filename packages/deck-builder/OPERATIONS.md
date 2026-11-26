@@ -1,40 +1,37 @@
 # Deck-builder operations
 
 Run from `packages/deck-builder` unless marked repository root, using pinned Node
-through `scripts/engine-env.sh`. Backend TypeScript executes directly; connections
-use WAL, foreign keys and a five-second busy timeout. Backend launch commands
-delegate to the Multiverse process manager, preserving data, environment/dotenv and
-`.dev` PID/log paths; the direct entrypoint is `node ../multiverse/src/server.ts`.
-The [spec](../../docs/deck-builder-spec.md) owns behavior, authorization, OAuth,
-rate limits and health/logging contracts; this guide owns operator commands.
-Historical rollout receipts remain at Git `33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb`.
+through `scripts/engine-env.sh`. Connections use WAL, foreign keys and a five-second
+busy timeout. Launch commands delegate to the Multiverse process manager (data,
+dotenv and `.dev` PID/log paths preserved); the direct entrypoint is
+`node ../multiverse/src/server.ts`. The [spec](../../docs/deck-builder-spec.md) owns
+behavior, authorization, OAuth, rate limits and health/logging; this guide owns
+operator commands. Historical rollout receipts are at Git `33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb`.
 
 ## Card refresh and scheduled jobs
 
 The serving process schedules work; it never ingests bulk data itself.
 
-- `npm run refresh [-- --force]` opens a separate connection and refreshes oracle
-  cards, then prices. `--force` bypasses cache freshness and the
-  unchanged-price check. The Settings button enqueues the same child without
-  `--force` and returns immediately.
+- `npm run refresh [-- --force]` refreshes oracle cards, then prices, on a separate
+  connection; `--force` bypasses cache freshness and the unchanged-price check.
+  The Settings button enqueues the same child without `--force`.
 - Oracle downloads are cached in `DATA_DIR/.scryfall-cache/oracle-cards.json` for
-  24 hours, independent of the parser's cache. Default-printing prices stream from
-  the download and are not kept on disk.
-- Refresh runs on boot when card/price data is stale or missing (or a price-store
-  marker is missing/old), then daily. Backup runs at 02:00 UTC; an overdue backup
-  runs on the next 30-second tick. A failed refresh or backup retries one hour
-  after its last run. One job runs at a time; queued requests coalesce.
-- `GET /api/settings` and Settings show each job's last run, result, next run,
-  active job and queue. Backup status adds `last_success_at` and `stale` (over 36
-  hours or never), also in Admin Settings and `GET /api/admin`. CLI runs write the
-  same status. Hosted failures emit one redacted `job_error`.
+  24 hours (independent of the parser's cache); price downloads are streamed, not kept.
+- Refresh runs on boot when card/price data or a price-store marker is stale or
+  missing, then daily. Backup runs at 02:00 UTC; an overdue backup runs on the next
+  30-second tick. Failed jobs retry an hour after their last run. One job runs at a
+  time; queued requests coalesce.
+- `GET /api/settings`, Settings, Admin Settings and `GET /api/admin` show each job's
+  last run/result, next run, active job and queue; backup adds `last_success_at` and
+  `stale` (over 36 hours or never). CLI runs write the same status. Hosted failures
+  emit one redacted `job_error`.
 - `meta['job:lock']` is an atomic SQLite lease shared by refresh and backup,
   including manual commands. Leases older than two hours are reclaimed; release
-  removes only the holder's lease. After a killed process, wait for expiry; never
+  removes only the holder's lease. After a killed process wait for expiry; never
   delete a lock while a job is alive.
-- Staging, truncation thresholds (refuse below 90% of active cards), retirement and
-  atomic price/token publication follow spec §§4.1, 4.4 and 4.5. Failed staging
-  leaves the previous facts and prices usable. To audit stored quotes:
+- Truncation (below 90% of active cards), retirement and atomic price/token
+  publication follow spec §§4.1, 4.4 and 4.5; failed staging leaves previous facts
+  usable. Audit stored quotes with
   `SELECT store, currency, count(*) FROM card_prices JOIN cards USING(oracle_id) GROUP BY store, currency;`
 
 Local `GET /api/health` returns `{ ok, schema_version, cards, last_ingest }` under
@@ -47,25 +44,25 @@ or bucket reachability. Test refresh/migrations on disposable copies, never live
 npm run backup
 ```
 
-This uses Node's online SQLite backup (including committed WAL), writes a temporary
-file, then renames it to `DATA_DIR/backups/deck-builder-YYYY-MM-DDTHH-mm-ss-SSSZ-<uuid>.db`.
-The newest 14 local snapshots are kept. Never copy only `deck-builder.db` while a
-server runs: committed data may be in its WAL. Budget disk for 14 snapshots, one
-in flight, the live DB/WAL and the download cache.
+Node's online SQLite backup (including committed WAL) writes a temporary file, then
+renames it to `DATA_DIR/backups/deck-builder-YYYY-MM-DDTHH-mm-ss-SSSZ-<uuid>.db`;
+the newest 14 local snapshots are kept. Never copy only `deck-builder.db` while a
+server runs: committed data may be in its WAL. Budget disk for 14 snapshots, one in
+flight, the live DB/WAL and the download cache.
 
-Off-volume upload needs all four `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`,
+Off-volume upload needs all of `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`,
 `BACKUP_S3_ACCESS_KEY` and `BACKUP_S3_SECRET_KEY` (last two secret). The ops-only
 `@aws-sdk/client-s3` dependency uploads to `backups/<same name>` with region `auto`
 and path-style addressing. Partial configuration or upload failure fails the job
 but keeps the local snapshot. After a successful upload and complete listing, remote
 retention keeps the newest snapshot of each of the last 14 UTC days and 6 UTC
 months, plus the newest upload. `archive/` keys and unrecognised objects are never
-touched; failed uploads/listings never prune. Source/documentation checks never
-authorize bucket cleanup; inspect deployed code before relying on a retention change.
+touched; failed uploads/listings never prune. Documentation never authorizes bucket
+cleanup; inspect deployed code before relying on a retention change.
 
 ## Restore drill
 
-Restore replaces the destination database. Take a backup, then stop the server.
+Restore replaces the destination database: take a backup, then stop the server.
 Restore validates integrity, foreign keys and supported schema on a temporary
 online copy, reports the deck count, checkpoints the stopped destination and
 atomically renames the copy into place. A running server or active job blocks it
@@ -82,7 +79,8 @@ npm start
 curl --fail http://127.0.0.1:8787/api/health
 ```
 
-Nondestructive rehearsal against a separate destination:
+Nondestructive rehearsal against a separate destination, then compare deck counts
+and contents at `http://localhost:8799` and stop the drill (one server per database):
 
 ```sh
 DECKBUILDER_DB=/tmp/deck-builder-restore.db node src/cli.ts restore /private/path/post-claim-backup.db
@@ -90,10 +88,8 @@ DECKBUILDER_DB=/tmp/deck-builder-restore.db DECKBUILDER_DATA=/tmp/deck-builder-d
 curl --fail http://127.0.0.1:8799/api/health
 ```
 
-Compare deck counts and a deck's contents at `http://localhost:8799`, then stop the
-drill. Run one server per database. To copy a database without touching its source
-(read-only online backup, destination 0600, never overwrites), run from the
-repository root:
+To copy a database without touching its source (read-only online backup,
+destination 0600, never overwrites), from the repository root:
 
 ```sh
 node packages/deck-builder/scripts/online-copy.mjs SOURCE.db packages/deck-builder/.dev/copy/owner-online.db
@@ -107,8 +103,7 @@ and `DECKBUILDER_WEB_PORT`. Local mode is implicit UI user 1; MCP always needs a
 bearer.
 
 Settings creates labelled once-shown tokens; store them in a private mode 0600
-file. SQLite holds hashes only and revocation applies on the next request. The
-stdio shim neither recovers nor mints secrets:
+file. The stdio shim neither recovers nor mints secrets:
 
 ```sh
 node /absolute/path/to/packages/deck-builder/src/mcp/stdio.ts --name my-agent --token-file /private/path/to/token
@@ -119,8 +114,7 @@ Priority is `--token-file`, `DECKBUILDER_TOKEN_FILE`, then local
 The first local migration hashes the legacy `agent-token`, binds its drafts and
 renames it to `stdio-token` (0600); retries are idempotent. Hosted mode never
 imports a laptop token. Rehearse migrations only on an online copy plus a private
-copied token with explicit DB/DATA overrides. Spec §§10.1 and 17 own credential,
-attribution, tenant and migration contracts.
+copied token with explicit DB/DATA overrides.
 
 ## Hosted variables, secrets and provider redirects
 
@@ -148,10 +142,10 @@ OAuth responses or provider credentials. Local `.env` is ignored and mode 0600.
 | `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET` | No | Optional off-volume backup destination |
 | `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY` | Yes | Required with the backup destination |
 
-`DECKBUILDER_TOKEN_FILE` is a local stdio client path, not a service credential;
-`DECKBUILDER_WEB_PORT` is dev-only. No Google button appears until both Google
-credentials exist. There is no Sentry integration. Distinct environments use
-distinct secrets; never commit operator identity.
+`DECKBUILDER_TOKEN_FILE` is a local stdio client path; `DECKBUILDER_WEB_PORT` is
+dev-only. No Google button appears without both Google credentials. There is no
+Sentry integration. Distinct environments use distinct secrets; never commit
+operator identity.
 
 Before using a Railway domain, add the exact Discord redirect
 `https://<railway-domain>/api/auth/callback/discord` (Developer Portal → OAuth2 →
@@ -166,22 +160,20 @@ Use their current metadata; CIMD/DCR rules are spec §17.7.
 Keep `BETTER_AUTH_SECRET` stable: it protects sessions and encrypted provider
 tokens. TLS terminates at Railway. Trust proxy headers only behind one ingress
 that overwrites them; on a new ingress verify X-Real-IP/rightmost XFF including
-IPv6 ([network specs](https://docs.railway.com/networking/public-networking/specs-and-limits)).
-Never add a second untrusted route. Use `/api/health` directly as the Railway
-health-check path ([healthcheck hostname](https://docs.railway.com/deployments/healthchecks#healthcheck-hostname));
-the deployment port must match `PORT`. One replica is mandatory while limits are
-in memory and SQLite has one writer. Never replace DNS-pinned CIMD fetch with
-ordinary fetch.
+IPv6 ([network specs](https://docs.railway.com/networking/public-networking/specs-and-limits))
+and never add a second untrusted route. Use `/api/health` as the health-check path
+([healthcheck hostname](https://docs.railway.com/deployments/healthchecks#healthcheck-hostname));
+the deployment port must match `PORT`. One replica is mandatory (in-memory limits,
+one SQLite writer).
 
 ## Account lifecycle and auth schema
 
-Settings exports/deletes accounts under spec §17.5. Restoring an older snapshot
+Settings exports/deletes accounts (spec §17.5). Restoring an older snapshot
 restores credentials and deleted content: repeat erasures/revocations. No
-impersonation and no manual `auth_id` rewrite. If an identity was created before
-the owner claim, delete it through its own UI before claiming user 1.
-
-Generate auth SQL offline against an **in-memory** database and compare with
-`src/migrations/auth-v12.sql`; never generate against production or run `auth migrate`:
+impersonation or manual `auth_id` rewrite; delete any identity created before the
+owner claim through its own UI before claiming user 1. Generate auth SQL against an
+**in-memory** database and compare with `src/migrations/auth-v12.sql`; never
+generate against production or run `auth migrate`:
 
 ```sh
 npx auth@1.7.13 generate --config scripts/auth-schema.ts --output <temporary.sql> --yes
@@ -198,9 +190,9 @@ Project **deck-builder** (`2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8`), service
 | production | `release` | `https://deck-builder-production-00d7.up.railway.app` | `production-data`, 5000 MB at `/data`; `backups-production` |
 | staging | `main` | `https://deck-builder-staging.up.railway.app` | `staging-data`, 5000 MB at `/data`; `backups-staging` |
 
-Exactly **one replica per environment**, no sleep/serverless. The web process
+Exactly **one replica per environment**, no sleep/serverless; the web process
 schedules refresh/backup children on the same volume. **Production is the primary
-database**; never deploy a local database over hosted user data, and migrations
+database**: never deploy a local database over hosted user data, and migrations
 preserve/backfill all user content (D19). Production releases use an explicit
 owner-verified SHA on `release`; staging follows `main`.
 
@@ -208,23 +200,22 @@ From the repository root: `docker build -f packages/deck-builder/Dockerfile -t d
 The `node:26-slim` image builds the product with Vite and runs
 `node ../multiverse/src/server.ts` with production dependencies only. The allowlist
 `.dockerignore` admits product/backend/shared game inputs plus qualified SDK and
-generated manifests; prepare those through their owning procedures first (the image
-never generates SDK/native artifacts), and never admit `.env`, databases, tokens,
-caches, tests or `.git`. Final-image checks verify SDK hashes and public imports;
-`HEALTHCHECK` uses `/api/health` on 8787. Verify the actual image before promotion.
-Watch paths cover product, backend, shared display inputs and root lock/config.
+generated manifests prepared through their owning procedures (the image never
+generates them); never admit `.env`, databases, tokens, caches, tests or `.git`.
+Final-image checks verify SDK hashes and public imports; `HEALTHCHECK` uses
+`/api/health` on 8787. Verify the actual image before promotion.
 
 The image defaults to `USER node`. Railway needs `RAILWAY_RUN_UID=0` for its
 root-owned volume; the entrypoint prepares only the data directory, then
-`exec setpriv --reuid=node --regid=node --init-groups ...`. Node and scheduler
-children run as UID/GID 1000. SSH commands run as root, so prefix database
-commands with the same `setpriv`. Never leave a root-running Node service
+`exec setpriv --reuid=node --regid=node --init-groups ...`, so Node and scheduler
+children run as UID/GID 1000. SSH commands run as root: prefix database commands
+with the same `setpriv`. Never leave a root-running Node service
 ([volume permissions](https://docs.railway.com/volumes/reference)).
 
 Infrastructure lives in `.railway/railway.ts` (CLI 5.63.1; `railway@3.16.0` in
 `.railway/package-lock.json`, install with `npm ci --prefix .railway`). It picks
-`release`/`main` from the linked environment, keeps secrets with `preserve()` and
-stores no identities, credentials or domains; it sets `deploy.drainingSeconds: 30`
+`release`/`main` from the linked environment, keeps secrets with `preserve()`,
+stores no identities, credentials or domains, and sets `deploy.drainingSeconds: 30`
 so a refresh child can release SQLite before SIGKILL ([teardown](https://docs.railway.com/deployments/deployment-teardown)).
 Plan before changing either graph and review every delete:
 
@@ -241,9 +232,9 @@ schedules are not config-as-code.
 
 ## Logs and monitoring
 
-Log fields and redaction are spec-owned; request IDs correlate logs and never
-authorize. Railway owns [log retention](https://docs.railway.com/observability/logs).
-Railway parses application JSON into fields; filter on them or inspect `.message`:
+Request IDs correlate logs and never authorize. Railway owns
+[log retention](https://docs.railway.com/observability/logs) and parses application
+JSON into fields; filter on them or inspect `.message`:
 
 ```sh
 railway logs --environment production --service deck-builder --lines 200 --json | jq 'select(.user_id == 1 or (.message // "" | contains("user_id")))'
@@ -262,10 +253,9 @@ railway usage limit status --workspace 51a41279-bc88-41a9-b0d5-4ef13a0f1a9d --ta
 railway usage limit set --workspace 51a41279-bc88-41a9-b0d5-4ef13a0f1a9d --target workspace --soft 25 --json
 ```
 
-Native volume backup schedules require a Pro workspace and are not enabled. If the
-owner upgrades, enable Daily and Weekly per environment under deck-builder →
-Backups ([backups](https://docs.railway.com/volumes/backups)). Native snapshots
-never replace online backups or the restore drill.
+Native volume [backups](https://docs.railway.com/volumes/backups) need a Pro
+workspace and are not enabled; if the owner upgrades, enable Daily and Weekly per
+environment. They never replace online backups or the restore drill.
 
 ## Rollback and restore safety
 
@@ -295,12 +285,11 @@ rewinds SQLite; do not force-reset `release` casually.
 
 **Never restore the pre-claim production snapshot.** `backups/deck-builder-2026-10-25.db`
 resets user 1 to `auth_id NULL`, locking the owner out or permitting a new claim.
-It was copied to `archive/pre-claim-deck-builder-2026-10-25.db` (73,711,616 bytes),
-marked `restore_policy=do-not-restore`; the original remains. Both are quarantined
-owner-only evidence and retention never touches `archive/`. For recovery choose a
-fresh post-claim snapshot, open it read-only and confirm user 1's `auth_id` is
-non-null, the schema is supported and deck/memory counts match. Check identity,
-not filename dates.
+Its copy `archive/pre-claim-deck-builder-2026-10-25.db` (73,711,616 bytes) is
+marked `restore_policy=do-not-restore`; both are quarantined owner-only evidence and
+retention never touches `archive/`. For recovery choose a fresh post-claim
+snapshot, open it read-only and confirm user 1's `auth_id` is non-null, the schema
+is supported and deck/memory counts match. Check identity, not filename dates.
 
 ## Secret rotation and owner claim lifecycle
 
@@ -345,11 +334,10 @@ a backup object.
 ## Move an instance or rehearse a bucket restore
 
 Never copy a bare database from a running instance or change the laptop's live
-`data/`. Copy with the online API (`scripts/online-copy.mjs`) and validate/migrate
-only the destination. Give the destination its own volume, origin and secrets; do
-not copy token files or `.env`. Before replacing a destination, back it up, warn
-users and switch to a maintenance deployment that holds the volume without opening
-SQLite:
+`data/`. Copy with `scripts/online-copy.mjs` and validate/migrate only the
+destination. Give the destination its own volume, origin and secrets; do not copy
+token files or `.env`. Before replacing a destination, back it up, warn users and
+switch to a maintenance deployment that holds the volume without opening SQLite:
 
 ```sh
 # Set the destination environment explicitly. This example is STAGING.
@@ -386,25 +374,25 @@ JSON
 curl --fail https://deck-builder-staging.up.railway.app/api/health
 ```
 
-Verify UID 1000 in `/proc/1/status`. Run restore as node so the database and
-sidecars stay service-writable; if Node ever ran as root, repair ownership first.
-Remove uploaded restore inputs after verification. A different public origin needs
+Verify UID 1000 in `/proc/1/status`. Restore as node so the database and sidecars
+stay service-writable; if Node ever ran as root, repair ownership first. Remove
+uploaded restore inputs after verification. A different public origin needs
 provider redirects and OAuth reconnects.
 
 ## Server won't start: stale lock recovery
 
-Locks contain `{pid, hostname, token}`. Startup reclaims a lock from a foreign
-hostname, a dead PID or its own reused PID (including container PID 1); a live
-holder on the same hostname or a second in-process acquisition still refuses. The
-same checks protect restore and CLI commands.
+Locks contain `{pid, hostname, token}`. Startup, restore and CLI commands reclaim a
+lock from a foreign hostname, a dead PID or their own reused PID (including
+container PID 1); a live same-host holder or a second in-process acquisition still
+refuses.
 
 If an older deployment is crash-looping, do not redeploy repeatedly or delete
 locks blindly. Pause retries, enter a maintenance container on the same volume and
 inspect hostname/PID and lock metadata (never auth/token files). Confirm no web,
 refresh, backup or restore process is alive; take an online backup if possible.
 Only then remove `/data/deck-builder.db.server-lock` and deploy compatible code.
-Never remove it under a live holder. The separate `meta['job:lock']` lease follows
-its own two-hour rule; never clear it while its child is alive.
+The separate `meta['job:lock']` lease follows its own two-hour rule; never clear
+it while its child is alive.
 
 ## Authenticated smoke tests
 
@@ -430,20 +418,20 @@ node packages/deck-builder/scripts/fetch-bucket-backup.mjs
 It writes `~/.local/share/deck-builder-offline/<YYYY-MM>/` (0700/0600), never
 deletes bucket objects or overwrites files, and verifies integrity plus the
 claimed owner. Store the copy independently, keep six monthly copies and repeat
-erasures/revocations if recovering one. The quarantined pre-claim archive stays
-excluded from restore selection.
+erasures/revocations if recovering one. The pre-claim quarantine stays excluded
+from restore selection.
 
 ## Owner release promotion
 
-Promotion is an explicit owner action, never a standing agent task or an effect of
-development/documentation work. Select one reviewed SHA after staging checks,
+Promotion is an explicit owner action, never an agent task or a side effect of
+development. Select one reviewed SHA after staging checks,
 schema/migration/content review, refresh/store checks and an owner session/SSE
-smoke. Immediately before promotion take a post-claim online snapshot (below),
-then push that SHA to `release`. Never push whatever `main` names. Follow the exact
-deployment to `SUCCESS`, then check health/schema, owner roster, jobs and backups;
-a build upload is not deployment success. Protect `release` against unreviewed
-updates, deletion and force pushes with an explicit owner bypass, or record the
-plan limitation that prevents it.
+smoke. Immediately before promotion take a pre-promotion snapshot (below), then
+push that SHA to `release`; never push whatever `main` names. Follow the exact
+deployment to `SUCCESS` (a build upload is not success), then check health/schema,
+owner roster, jobs and backups. Protect `release` against unreviewed updates,
+deletion and force pushes with an explicit owner bypass, or record the plan
+limitation that prevents it.
 
 ### Pre-promotion online snapshot
 
@@ -467,6 +455,6 @@ remains an option. Before retiring one object, verify the new schema/data, a
 successful restore of a newer backup and an independent off-Railway copy, and
 record the exact key and the owner's decision. Deletion is a manual owner action
 on one verified key, never a wildcard job. The pre-claim quarantine keeps its
-**do-not-restore** restriction. Source/documentation maintenance grants no cleanup
+**do-not-restore** restriction. Documentation maintenance grants no cleanup
 permission for archives, quarantined snapshots, live databases, credential files
 or backup objects.

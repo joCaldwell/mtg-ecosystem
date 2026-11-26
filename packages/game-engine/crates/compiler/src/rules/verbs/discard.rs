@@ -39,6 +39,11 @@ pub(super) fn lower(cx: &mut StepCx<'_>, discard: &DiscardStep) -> Result<Instru
         ast::PlayerRef::ThatPlayer(_) if cx.player_binding == PlayerBinding::DamageRecipient => {
             PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer)
         }
+        ast::PlayerRef::DefendingPlayer(_)
+            if cx.player_binding.event_role() == Some(kir::EventPlayerRole::DefendingPlayer) =>
+        {
+            PlayerExpr::event(kir::EventPlayerRole::DefendingPlayer)
+        }
         ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
         ast::PlayerRef::TargetOpponent(target) => match *target {
             ast::PlayerRefTargetOpponent {

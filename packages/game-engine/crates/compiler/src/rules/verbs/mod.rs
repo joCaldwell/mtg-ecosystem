@@ -7,6 +7,7 @@ use super::*;
 
 mod combat;
 mod continuous;
+mod counter;
 mod counters;
 mod damage;
 mod destroy;
@@ -20,10 +21,12 @@ mod life;
 mod mill;
 mod move_zone;
 mod pump;
+mod regenerate;
 mod return_to_hand;
 mod sacrifice;
 mod tap;
 mod tokens;
+mod transform;
 
 /// What every verb lowerer reads besides its own step.
 pub(crate) struct StepCx<'a> {
@@ -144,6 +147,11 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
         Step::Exile { what } => exile::lower(cx, what),
         Step::Untap { what } => tap::untap(cx, what),
         Step::Tap { what } => tap::tap(cx, what),
+        Step::Transform {
+            what,
+            who,
+            optional,
+        } => transform::lower(cx, what, who, *optional),
         Step::Destroy {
             what,
             optional,
@@ -227,9 +235,9 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             abilities,
             duration,
         } => gain_abilities::lower(cx, what, abilities, duration),
-        Step::Regenerate { .. } => Err(step("regenerate", "unlowered")),
+        Step::Regenerate { what } => regenerate::lower(cx, what),
         Step::PreventDamage { .. } => Err(step("prevent-damage", "unlowered")),
-        Step::Counter { .. } => Err(step("counter", "unlowered")),
+        Step::Counter { what } => counter::lower(cx, what),
     }
 }
 

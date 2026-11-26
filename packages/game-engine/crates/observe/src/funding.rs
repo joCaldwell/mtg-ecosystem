@@ -81,7 +81,7 @@ pub(super) fn funding(
             };
             // Alternate-face costs are handled by the exact rules decision.
             // This advisory filter has no review for modal double-faced cards.
-            if def.modal_back.is_some() {
+            if def.back_face.is_some() {
                 return 2;
             }
             let (cost, hybrid) = match action {

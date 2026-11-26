@@ -3,6 +3,9 @@ use crate::query::{self, ObjectFacts, Tri};
 use mtg_contracts::kir::{self, Atom, EventPattern, PlayerExpr, Pred, Ref};
 use std::borrow::Cow;
 
+mod targeting;
+pub(super) use targeting::TargetTriggerDraft;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TriggerId(pub u64);
@@ -12,6 +15,9 @@ pub fn is_zero(value: &u64) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PendingTrigger {
+    /// CR 113.7a, 712.18: the face whose ability triggered.
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub source_face: CardFace,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     death_controller: Option<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,33 +39,56 @@ pub struct TriggerPlacement {
     cleanup: bool,
     changed: bool,
     remaining: Vec<PlayerId>,
+    before: u64,
     order: Vec<TriggerId>,
 }
 /// Batch occurrences and completed casts have independent identity domains.
 /// The untagged batch alternative preserves the existing {batch,path} bytes;
 /// cast IDs name the real SpellCast event, not an invented event-group slot.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TriggerOccurrenceId {
     Batch(OccurrenceId),
     Cast(CastOccurrenceId),
+    Target(TargetOccurrenceId),
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CastOccurrenceId {
     pub cast: StackId,
 }
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TargetOccurrenceId {
+    pub targeting: StackId,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum MixedMovement {
+enum TriggerMovement {
     Entry,
     Death,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct TriggerMember<'a> {
+    source: ObjectId,
+    face: CardFace,
+    ability: EffectiveTriggerAbility,
+    event: &'a TriggerOccurrenceId,
+    subject: Option<ObjectId>,
+    damage: Option<DamageId>,
+}
+
 #[derive(Default)]
-struct MixedTriggerOccurrences<'a> {
-    batches: BTreeSet<(ObjectId, EffectiveTriggerAbility, u64, &'a [u32])>,
-    movements: BTreeSet<(ObjectId, EffectiveTriggerAbility, MixedMovement)>,
+struct TriggerOccurrences<'a> {
+    members: BTreeSet<TriggerMember<'a>>,
+    movements: BTreeSet<(
+        ObjectId,
+        CardFace,
+        EffectiveTriggerAbility,
+        ObjectId,
+        TriggerMovement,
+    )>,
 }
 
 /// Semantic successful-cast ledger, independent of observers and tracing.
@@ -93,6 +122,15 @@ testkit_fields! {
         pub spell: ObjectBefore,
     }
 }
+/// The event subject's resolving binding (CR 400.7, 608.2h).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedObject {
+    controller_at_match: PlayerId,
+    pub(super) last_known: Box<ObjectBefore>,
+    pub(super) handles: Vec<publish::StoredObjectHandle>,
+}
+
 /// Actual trigger-event evidence, independent of whether the event has an object.
 /// Source/controller facts are frozen separately at collection (CR 603.3a).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +141,8 @@ pub enum TriggerEventWitness {
     Entered {
         movement: Option<MoveOutcome>,
         entrant: Box<ObjectBefore>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binding: Option<ObservedObject>,
     },
     /// Immutable damage-time facts, independent of departure-refreshed source
     /// LKI. None identifies the genuine legacy CombatDamage leaf; Some names
@@ -118,7 +158,25 @@ pub enum TriggerEventWitness {
     },
     CreatureAttacked {
         attacker: Box<ObjectBefore>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binding: Option<ObservedObject>,
         defender_player_id: PlayerId,
+    },
+    AttackerUnblocked {
+        attacker: Box<ObjectBefore>,
+        defender: PlayerId,
+        controller_at_match: PlayerId,
+    },
+    BecameTarget {
+        target: Box<ObjectBefore>,
+        target_controller_live: bool,
+        actor: PlayerId,
+        is_spell: bool,
+        controller_at_match: PlayerId,
+    },
+    CardDrawn {
+        player: PlayerId,
+        controller_at_match: PlayerId,
     },
     SpellCast {
         cast: Box<CastOccurrence>,
@@ -148,9 +206,32 @@ pub enum TriggerEventWitness {
     },
 }
 impl TriggerEventWitness {
+    pub(super) fn observed_object(&self) -> Option<&ObservedObject> {
+        match self {
+            Self::Entered { binding, .. } | Self::CreatureAttacked { binding, .. } => {
+                binding.as_ref()
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn refresh_observed_object(&mut self, facts: &ObjectBefore) {
+        match self {
+            Self::Entered { binding, .. } | Self::CreatureAttacked { binding, .. } => {
+                if let Some(binding) = binding
+                    && binding.last_known.object == facts.object
+                {
+                    *binding.last_known = facts.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn subject(&self) -> Option<ObjectId> {
         match self {
             Self::Entered { entrant, .. } => Some(entrant.object),
+            Self::BecameTarget { target, .. } => Some(target.object),
             Self::Moved { movement: m } => Some(if m.destination == Zone::Battlefield {
                 m.successor
             } else {
@@ -159,14 +240,21 @@ impl TriggerEventWitness {
             Self::TokenEntered { object }
             | Self::Tapped { object, .. }
             | Self::PermanentLeftGame { object, .. } => Some(*object),
-            Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
+            Self::CreatureAttacked { attacker, .. } | Self::AttackerUnblocked { attacker, .. } => {
+                Some(attacker.object)
+            }
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
-            Self::StepBegan { .. } | Self::SpellCast { .. } | Self::ResolutionPaid { .. } => None,
+            Self::StepBegan { .. }
+            | Self::SpellCast { .. }
+            | Self::CardDrawn { .. }
+            | Self::ResolutionPaid { .. } => None,
         }
     }
     pub(super) fn event_player(&self) -> Option<PlayerId> {
         match self {
             Self::StepBegan { active, .. } => *active,
+            Self::CardDrawn { player, .. } => Some(*player),
+            Self::AttackerUnblocked { defender, .. } => Some(*defender),
             Self::SpellCast { cast } => Some(cast.caster),
             _ => None,
         }
@@ -190,7 +278,8 @@ impl TriggerEventWitness {
         }
         match (&**second, self) {
             (EventPattern::Dies { .. }, witness) if witness.dies() => Some(second),
-            (EventPattern::Attacks { .. }, Self::CreatureAttacked { .. }) => Some(second),
+            (EventPattern::Attacks { .. }, Self::CreatureAttacked { .. })
+            | (EventPattern::Cast { .. }, Self::SpellCast { .. }) => Some(second),
             _ => None,
         }
     }
@@ -371,6 +460,38 @@ pub(crate) fn binds_death_controller(ability: &TriggeredAbility) -> bool {
 
 /// The entry evidence of an entering permanent whose characteristics a
 /// pattern read (CR 603.6a, 603.10).
+fn binds_observed_object(ability: &TriggeredAbility) -> bool {
+    ability.programs().any(|program| {
+        program.instructions.iter().any(|i| {
+            matches!(
+                i.verb(),
+                Some(
+                    kir::Verb::Damage {
+                        source: Ref::EventObject { .. },
+                        ..
+                    } | kir::Verb::PutCounters {
+                        on: kir::SetExpr::One {
+                            object: Ref::EventObject { .. }
+                        },
+                        ..
+                    }
+                )
+            )
+        })
+    })
+}
+
+impl StackKind {
+    pub(super) fn observed_object(&self) -> Result<&ObservedObject, String> {
+        match self {
+            Self::Triggered { witness, .. } => witness
+                .observed_object()
+                .ok_or("missing event object binding".into()),
+            _ => Err("event object outside a triggered invocation".into()),
+        }
+    }
+}
+
 fn entry_witness(
     entrant: &ObjectBefore,
     witness: &TriggerEventWitness,
@@ -383,6 +504,7 @@ fn entry_witness(
     Ok(TriggerEventWitness::Entered {
         movement,
         entrant: Box::new(entrant.clone()),
+        binding: None,
     })
 }
 
@@ -548,11 +670,29 @@ impl RulesTxn {
                         }
                         witnesses.push(TriggerEventWitness::CreatureAttacked {
                             attacker: Box::new(prior),
+                            binding: None,
                             defender_player_id: *defender,
                         });
                     }
                     witnesses
                 }
+                // CR 509.1h, 509.3g, 802.4: one declaration for each actual
+                // defending player. A previously blocked attacker stays blocked.
+                EventOutcome::BlockersDeclared { player, .. } => self
+                    .state
+                    .rules
+                    .combat
+                    .iter()
+                    .filter(|attack| attack.defender == *player && !attack.blocked)
+                    .map(|attack| {
+                        let attacker = self.object_before(attack.attacker)?;
+                        Ok(TriggerEventWitness::AttackerUnblocked {
+                            defender: *player,
+                            controller_at_match: attacker.controller,
+                            attacker: Box::new(attacker),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?,
                 EventOutcome::Tapped { object }
                 | EventOutcome::Regenerated {
                     object,
@@ -578,6 +718,23 @@ impl RulesTxn {
                     }]
                 }
 
+                // CR 121.1–2, 121.5, 903.9b: only a completed draw's
+                // library-to-hand move counts. Replacement moves and an
+                // unsuccessful attempt do not trigger.
+                EventOutcome::Moved { movement }
+                    if matches!(cause, BatchCause::DrawStep { player }
+                        | BatchCause::InstructionDraw { player, .. }
+                        if movement.from == (Zone::Library { owner: *player })
+                            && movement.destination == (Zone::Hand { owner: *player })) =>
+                {
+                    let Zone::Hand { owner: player } = movement.destination else {
+                        return Err("draw witness has no hand destination".into());
+                    };
+                    vec![TriggerEventWitness::CardDrawn {
+                        player,
+                        controller_at_match: player,
+                    }]
+                }
                 EventOutcome::Milled { movements, .. }
                 | EventOutcome::Surveilled { movements, .. } => movements
                     .iter()
@@ -601,6 +758,8 @@ impl RulesTxn {
                         witness,
                         TriggerEventWitness::StepBegan { .. }
                             | TriggerEventWitness::CreatureAttacked { .. }
+                            | TriggerEventWitness::CardDrawn { .. }
+                            | TriggerEventWitness::AttackerUnblocked { .. }
                             | TriggerEventWitness::DamageDealt { .. }
                             | TriggerEventWitness::Tapped { .. }
                     )
@@ -759,7 +918,7 @@ impl RulesTxn {
                 let matches = match pattern {
                     EventPattern::Enters { object: pred } => enters && {
                         let subject = subject.ok_or("missing entrant identity")?;
-                        if pred.reads_characteristics() {
+                        if pred.reads_characteristics() || binds_observed_object(definition) {
                             if entry_facts.is_none() {
                                 entry_facts = Some(observers.object_before(subject)?);
                             }
@@ -805,6 +964,18 @@ impl RulesTxn {
                                     live: observers.is_live(cast.caster),
                                 }), you, cast.spell.object, &identity))
                     }
+                    EventPattern::AttacksUnblocked { attacker: pred } => {
+                        matches!(&witness, TriggerEventWitness::AttackerUnblocked { attacker, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts: attacker,
+                                token: token(attacker.object),
+                                live: observers.is_live(attacker.controller),
+                            }), you, attacker.object, &identity))
+                    }
+                    EventPattern::Draws { player } => {
+                        matches!(&witness, TriggerEventWitness::CardDrawn { player: drawing, .. }
+                            if player_in(player, Some(*drawing), you))
+                    }
                     EventPattern::StepBegins { step, active: player } => {
                         matches!(&witness, TriggerEventWitness::StepBegan { turn, active, .. }
                             if step_matches(*step, turn) && player_in(player, *active, you))
@@ -838,13 +1009,18 @@ impl RulesTxn {
                                     identity_holds(pred, damage.source.object, &identity)
                                 })
                     }
-                    EventPattern::AnyOf { .. } => false,
+                    EventPattern::BecomesTarget { .. } | EventPattern::AnyOf { .. } => false,
                 };
                 if matches
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
                 {
                     let mut matched_witness = entry_witness.unwrap_or_else(|| witness.clone());
+                    if let TriggerEventWitness::CardDrawn { controller_at_match, .. }
+                        | TriggerEventWitness::AttackerUnblocked { controller_at_match, .. } = &mut matched_witness
+                    {
+                        *controller_at_match = you;
+                    }
                     if let TriggerEventWitness::DamageDealt { match_source, .. } =
                         &mut matched_witness
                     {
@@ -856,6 +1032,12 @@ impl RulesTxn {
                             None
                         };
                     }
+                    let observed = if binds_observed_object(definition) {
+                        let object = subject.ok_or("missing bound event object")?;
+                        Some(observers.object_before(object)?)
+                    } else {
+                        None
+                    };
                     let intervening = choices::intervening(definition)?;
                     matched.push((
                         if binds_death_controller(definition) {
@@ -886,6 +1068,7 @@ impl RulesTxn {
                             })
                             .transpose()?,
                         matched_witness,
+                        observed,
                 ));
                 }
             }
@@ -896,10 +1079,12 @@ impl RulesTxn {
         // their ordinary diagnostic below, but consume no trigger capacity.
         let emission = matched
             .iter()
-            .filter(|(_, _, _, condition, _)| condition.as_ref().is_none_or(|c| c.passed()))
+            .filter(|(_, _, _, condition, _, _)| condition.as_ref().is_none_or(|c| c.passed()))
             .count();
         self.preflight_trigger_emission(emission)?;
-        for (death_controller, source_facts, ability, match_condition, witness) in matched {
+        for (death_controller, source_facts, ability, match_condition, mut witness, observed) in
+            matched
+        {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
                     source: source_facts.object,
@@ -913,6 +1098,18 @@ impl RulesTxn {
                 if !check.passed() {
                     continue;
                 }
+            }
+            if let Some(facts) = observed {
+                let binding = match &mut witness {
+                    TriggerEventWitness::Entered { binding, .. }
+                    | TriggerEventWitness::CreatureAttacked { binding, .. } => binding,
+                    _ => return Err("bound event object has no typed witness".into()),
+                };
+                *binding = Some(ObservedObject {
+                    controller_at_match: source_facts.controller,
+                    handles: self.capture_trigger_source_handles(facts.object)?,
+                    last_known: Box::new(facts),
+                });
             }
             self.enqueue_trigger(
                 ability,
@@ -940,7 +1137,10 @@ impl RulesTxn {
         self.rules_mut().next_trigger_id += 1;
         let source = source_facts.object;
         let source_handles = self.capture_trigger_source_handles(source)?;
+        // CR 113.7a: the face the facts were captured with as it triggered.
+        let source_face = face_after(source_facts.object.face, source_facts.transforms);
         self.rules_mut().pending_triggers.push(PendingTrigger {
+            source_face,
             death_controller,
             match_condition,
             id,
@@ -1028,6 +1228,7 @@ impl RulesTxn {
                 cleanup,
                 changed,
                 remaining: self.apnap_players(),
+                before: self.state.rules.next_trigger_id,
                 order: vec![],
             },
         };
@@ -1041,7 +1242,7 @@ impl RulesTxn {
             .rules
             .pending_triggers
             .iter()
-            .filter(|t| t.controller == *player)
+            .filter(|t| t.id.0 < placement.before && t.controller == *player)
             .map(|t| t.id)
             .collect()
     }
@@ -1109,6 +1310,7 @@ impl RulesTxn {
                     let trigger = self.rules_mut().pending_triggers.remove(index);
                     self.validate_match_condition(
                         trigger.source,
+                        trigger.source_face,
                         trigger.ability,
                         trigger.controller,
                         trigger.match_condition.as_ref(),
@@ -1127,8 +1329,11 @@ impl RulesTxn {
                         .ok_or("stack ID resource limit")?;
                     let targeted = match trigger.ability {
                         EffectiveTriggerAbility::Intrinsic { .. } => {
-                            let ability =
-                                self.effective_trigger(trigger.source, trigger.ability)?;
+                            let ability = self.effective_trigger(
+                                trigger.source,
+                                trigger.source_face,
+                                trigger.ability,
+                            )?;
                             !ability.program.targets.is_empty() || ability.modal.is_some()
                         }
                         EffectiveTriggerAbility::Followup { creator } => {
@@ -1139,7 +1344,18 @@ impl RulesTxn {
                         generic: Quantity::zero(),
                         colored: vec![],
                     };
+                    // CR 701.27f: the transform count as an ability is put on
+                    // the stack, or as a delayed trigger was created.
+                    let source_transforms = match trigger.ability {
+                        EffectiveTriggerAbility::Followup { creator } => {
+                            self.resolution_trigger_transforms(creator)?
+                        }
+                        EffectiveTriggerAbility::Intrinsic { .. } => self
+                            .current(trigger.source)
+                            .map_or(trigger.source_facts.transforms, |o| o.transforms),
+                    };
                     self.rules_mut().stack.push(StackInstance {
+                        target_triggers: vec![],
                         mode_mask: None,
                         hybrid_colors: vec![],
                         cost_lock: None,
@@ -1156,6 +1372,8 @@ impl RulesTxn {
                         announced_entity_targets: vec![],
                         stack_targets: vec![],
                         announced_stack_targets: vec![],
+                        source_face: trigger.source_face,
+                        source_transforms,
                         kind: StackKind::Triggered {
                             match_condition: trigger.match_condition,
                             ability: trigger.ability,
@@ -1355,6 +1573,7 @@ impl RulesTxn {
     fn validate_trigger_source(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         fact: &ObjectBefore,
@@ -1362,11 +1581,16 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let intrinsic = match ability {
             EffectiveTriggerAbility::Intrinsic { .. } => {
-                Some(self.effective_trigger(source, ability)?)
+                Some(self.effective_trigger(source, face, ability)?)
             }
             EffectiveTriggerAbility::Followup { .. } => None,
         };
+        // CR 712.18: only a transforming card's ability can come from a
+        // face other than the one its incarnation entered with. A bound
+        // entrant's witness preserves its controller at entry even if a
+        // later departure refreshes the source facts under different control.
         if controller.0 >= 4
+            || (face != source.face && !self.definition(source.card)?.transforms())
             || fact.object != source
             || fact.owner
                 != self
@@ -1382,6 +1606,7 @@ impl RulesTxn {
                 definition.functioning_zone != FunctioningZone::Battlefield
                     || fact.zone != Zone::Battlefield
                     || (*definition.condition.pattern() == EventPattern::self_enters()
+                        && !binds_observed_object(&definition)
                         && fact.controller != controller)
             })
             || handles.len() != 4
@@ -1389,7 +1614,7 @@ impl RulesTxn {
             return Err("snapshot trigger source invariant".into());
         }
         {
-            self.validate_characteristic_identity(source, &fact.characteristics)?;
+            self.validate_characteristic_identity(source, fact.transforms, &fact.characteristics)?;
         }
         Ok(())
     }
@@ -1398,7 +1623,7 @@ impl RulesTxn {
         entrant: &ObjectBefore,
         movement: Option<&MoveOutcome>,
     ) -> Result<bool, String> {
-        self.validate_characteristic_identity(entrant.object, &entrant.characteristics)?;
+        self.validate_fact_identity(entrant)?;
         let token = self.state.rules.tokens.get(&entrant.object.card);
         let actual_entry = match movement {
             Some(m) => {
@@ -1440,7 +1665,7 @@ impl RulesTxn {
                 .is_some_and(|c| c.owner == entrant.owner))
     }
     fn valid_cast_facts(&self, cast: &CastOccurrence) -> Result<bool, String> {
-        self.validate_characteristic_identity(cast.spell.object, &cast.spell.characteristics)?;
+        self.validate_fact_identity(&cast.spell)?;
         Ok(cast.history.turn_number > 0
             && cast.history.turn_number <= self.state.rules.turn.number
             && (!cast.history.first_from_exile || cast.cast_from == Zone::Exile)
@@ -1473,12 +1698,13 @@ impl RulesTxn {
     fn validate_trigger_witness(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         death_controller: Option<PlayerId>,
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
-        let definition = self.effective_trigger(source, ability)?;
+        let definition = self.effective_trigger(source, face, ability)?;
         let pattern = witness
             .branch(definition.condition.pattern())
             .ok_or("snapshot trigger witness has no matching alternative")?;
@@ -1510,6 +1736,38 @@ impl RulesTxn {
         };
         // CR 603.10a: exactly the reviewed opponent-death row freezes the
         // dying creature's controller, pending or on the stack alike.
+        let binds_object = binds_observed_object(&definition);
+        match witness.observed_object() {
+            Some(binding) if binds_object => {
+                let facts = &binding.last_known;
+                if Some(facts.object) != witness.subject()
+                    || binding.controller_at_match != controller
+                    || facts.zone != Zone::Battlefield
+                    || !self
+                        .state
+                        .rules
+                        .original_seating
+                        .contains(&facts.controller)
+                    || !self
+                        .state
+                        .rules
+                        .original_seating
+                        .contains(&facts.default_controller)
+                    || binding.handles.len() != 4
+                    || self
+                        .state
+                        .rules
+                        .cards
+                        .get(&facts.object.card)
+                        .is_none_or(|card| card.owner != facts.owner)
+                {
+                    return Err("snapshot event object binding invariant".into());
+                }
+                self.validate_fact_identity(facts)?;
+            }
+            None if !binds_object => {}
+            _ => return Err("snapshot missing or unexpected event object binding".into()),
+        }
         let binds = binds_death_controller(&definition);
         if death_controller.is_some() != binds
             || death_controller.is_some_and(|p| p.0 >= 4 || p == controller)
@@ -1526,12 +1784,9 @@ impl RulesTxn {
                 match_source,
             } => {
                 let fact = &damage.source;
-                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                self.validate_fact_identity(fact)?;
                 if let Some(appearance) = match_source {
-                    self.validate_characteristic_identity(
-                        appearance.object,
-                        &appearance.characteristics,
-                    )?;
+                    self.validate_fact_identity(appearance)?;
                     if appearance.object != fact.object
                         || appearance.owner != fact.owner
                         || appearance.default_controller != fact.default_controller
@@ -1591,15 +1846,14 @@ impl RulesTxn {
             TriggerEventWitness::CreatureAttacked {
                 attacker,
                 defender_player_id,
+                ..
             } => {
                 // CR 603.3a: the controller of the attacking source at the
                 // event controls its own attack trigger.
-                if matches!(definition.condition.pattern(), EventPattern::AnyOf { .. })
-                    && attacker.controller != controller
-                {
+                if attacker.object == source && attacker.controller != controller {
                     return Err("snapshot invalid self-attack trigger controller".into());
                 }
-                self.validate_characteristic_identity(attacker.object, &attacker.characteristics)?;
+                self.validate_fact_identity(attacker)?;
                 attacker.zone == Zone::Battlefield
                     && !attacker.tapped
                     && (attacker.attack_ready || attacker.keywords.contains(&KeywordAbility::Haste))
@@ -1622,6 +1876,66 @@ impl RulesTxn {
                 // Deliberately no current combat/player-liveness requirement:
                 // CR 113.7a/800.4 preserve a surviving controller's invocation.
                 // Accepted-input replay proves the actual declaration/facts.
+            }
+            TriggerEventWitness::BecameTarget {
+                target,
+                target_controller_live,
+                actor,
+                is_spell,
+                controller_at_match,
+            } => {
+                *controller_at_match == controller
+                    && self.valid_target_match(
+                        source,
+                        controller,
+                        pattern,
+                        Frozen {
+                            live: *target_controller_live,
+                            ..frozen(target)
+                        },
+                        *actor,
+                        *is_spell,
+                    )?
+            }
+            TriggerEventWitness::AttackerUnblocked {
+                attacker,
+                defender,
+                controller_at_match,
+            } => {
+                self.validate_fact_identity(attacker)?;
+                *controller_at_match == controller
+                    && attacker.zone == Zone::Battlefield
+                    && attacker.characteristics.has_type(CardKind::Creature)
+                    && self.state.rules.original_seating.contains(defender)
+                    && self
+                        .state
+                        .rules
+                        .original_seating
+                        .contains(&attacker.controller)
+                    && self
+                        .state
+                        .rules
+                        .original_seating
+                        .contains(&attacker.default_controller)
+                    && *defender != attacker.controller
+                    && (attacker.object != source || attacker.controller == controller)
+                    && self
+                        .state
+                        .rules
+                        .cards
+                        .get(&attacker.object.card)
+                        .is_some_and(|card| card.owner == attacker.owner)
+                    && matches!(pattern, EventPattern::AttacksUnblocked { attacker: pred }
+                        if holds(pred, Some(&frozen(attacker)), controller, attacker.object, &identity(attacker.object)))
+            }
+            TriggerEventWitness::CardDrawn {
+                player,
+                controller_at_match,
+            } => {
+                *controller_at_match == controller
+                    && self.state.rules.original_seating.contains(player)
+                    && matches!(pattern, EventPattern::Draws { player: expected }
+                        if player_in(expected, Some(*player), controller))
             }
             TriggerEventWitness::SpellCast { cast } => {
                 self.valid_cast_facts(cast)?
@@ -1654,7 +1968,7 @@ impl RulesTxn {
                     .is_some_and(|t| !t.is_copy())
                     && object.incarnation == 0
                     && matches!(pattern, EventPattern::Enters { object: pred }
-                        if !pred.reads_characteristics()
+                        if !pred.reads_characteristics() && !binds_object
                             && identity_holds(pred, *object, &identity(*object)))
                     && death_controller.is_none()
             }
@@ -1668,12 +1982,15 @@ impl RulesTxn {
                     && *at_tap == controller
                     && death_controller.is_none()
             }
-            TriggerEventWitness::Entered { entrant, movement } => {
+            TriggerEventWitness::Entered {
+                entrant, movement, ..
+            } => {
                 death_controller.is_none()
                     && self.valid_entry_subject(entrant, movement.as_ref())?
                     && entrant.zone == Zone::Battlefield
                     && matches!(pattern, EventPattern::Enters { object: pred }
-                        if pred.reads_characteristics()
+                        if (pred.reads_characteristics() || binds_object)
+                            && (entrant.object != source || entrant.controller == controller)
                             && holds(pred, Some(&frozen(entrant)), controller, entrant.object,
                                 &identity(entrant.object)))
             }
@@ -1705,6 +2022,7 @@ impl RulesTxn {
                         EventPattern::Enters { object: pred } => {
                             witness.enters()
                                 && !pred.reads_characteristics()
+                                && !binds_object
                                 && identity_holds(pred, subject, &identity(subject))
                         }
                         _ => false,
@@ -1725,56 +2043,76 @@ impl RulesTxn {
             (TriggerOccurrenceId::Cast(id), TriggerEventWitness::SpellCast { cast }) => {
                 id.cast == cast.stack_id && id.cast.0 < self.state.rules.next_stack_id
             }
+            (
+                TriggerOccurrenceId::Target(id),
+                TriggerEventWitness::BecameTarget {
+                    target,
+                    actor,
+                    is_spell,
+                    ..
+                },
+            ) => {
+                id.targeting.0 < self.state.rules.next_stack_id
+                    && self.entry(id.targeting).map_or(true, |entry| {
+                        entry.controller == *actor
+                            && entry.kind.is_spell() == *is_spell
+                            && Self::targeted_permanents(entry).contains(&target.object)
+                            && self.stack_entry_complete(entry)
+                    })
+            }
             (TriggerOccurrenceId::Batch(id), w) => {
-                !matches!(w, TriggerEventWitness::SpellCast { .. })
-                    && id.batch < self.state.rules.next_batch_id
+                !matches!(
+                    w,
+                    TriggerEventWitness::SpellCast { .. }
+                        | TriggerEventWitness::BecameTarget { .. }
+                ) && id.batch < self.state.rules.next_batch_id
             }
             _ => false,
         }
     }
 
-    fn validate_alternative_occurrence<'a>(
-        &self,
+    fn validate_trigger_occurrence<'a>(
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         event: &'a TriggerOccurrenceId,
         witness: &TriggerEventWitness,
-        seen: &mut MixedTriggerOccurrences<'a>,
+        seen: &mut TriggerOccurrences<'a>,
     ) -> Result<(), String> {
         if matches!(ability, EffectiveTriggerAbility::Followup { .. }) {
             return Ok(());
         }
-        if matches!(
-            self.effective_trigger(source, ability)?.condition.pattern(),
-            EventPattern::AnyOf { .. }
-        ) {
-            let TriggerOccurrenceId::Batch(occurrence) = event else {
-                return Err("snapshot mixed trigger has no batch occurrence".into());
-            };
-            if !seen
-                .batches
-                .insert((source, ability, occurrence.batch, &occurrence.path))
-            {
-                return Err("snapshot duplicate mixed trigger occurrence".into());
-            }
-            // CR 400.7, 603.2c: this incarnation can enter once and die once,
-            // regardless of the recorded occurrence IDs.
-            let movement = if witness.enters() {
-                Some(MixedMovement::Entry)
-            } else if witness.dies() {
-                Some(MixedMovement::Death)
-            } else {
-                None
-            };
-            if let Some(movement) = movement
-                && !seen.movements.insert((source, ability, movement))
-            {
-                return Err(match movement {
-                    MixedMovement::Entry => "snapshot duplicate mixed trigger entry",
-                    MixedMovement::Death => "snapshot duplicate mixed trigger death",
-                }
-                .into());
-            }
+        let subject = witness.subject();
+        let damage_member = match witness {
+            TriggerEventWitness::DamageDealt { damage, .. } => Some(damage.id),
+            _ => None,
+        };
+        if !seen.members.insert(TriggerMember {
+            source,
+            face,
+            ability,
+            event,
+            subject,
+            damage: damage_member,
+        }) {
+            return Err("snapshot duplicate trigger occurrence".into());
+        }
+        // CR 400.7, 603.2c: a particular incarnation enters once and dies
+        // once, even if a saved trigger gives it a second occurrence ID.
+        let movement = if witness.enters() {
+            Some(TriggerMovement::Entry)
+        } else if witness.dies() {
+            Some(TriggerMovement::Death)
+        } else {
+            None
+        };
+        if let Some(movement) = movement
+            && let Some(subject) = subject
+            && !seen
+                .movements
+                .insert((source, face, ability, subject, movement))
+        {
+            return Err("snapshot duplicate trigger movement".into());
         }
         Ok(())
     }
@@ -1796,6 +2134,7 @@ impl RulesTxn {
         };
         self.validate_trigger_source(
             entry.source,
+            entry.program_face(),
             *ability,
             entry.controller,
             entry
@@ -1806,6 +2145,7 @@ impl RulesTxn {
         )?;
         self.validate_match_condition(
             entry.source,
+            entry.program_face(),
             *ability,
             entry.controller,
             match_condition.as_ref(),
@@ -1826,6 +2166,7 @@ impl RulesTxn {
         } else {
             self.validate_trigger_witness(
                 entry.source,
+                entry.program_face(),
                 *ability,
                 entry.controller,
                 entry.death_controller,
@@ -1870,10 +2211,11 @@ impl RulesTxn {
             return Err("snapshot trigger/stack resource bound".into());
         }
         let mut ids = BTreeSet::new();
-        let mut alternatives = MixedTriggerOccurrences::default();
+        let mut occurrences = TriggerOccurrences::default();
         for trigger in &self.state.rules.pending_triggers {
             self.validate_trigger_source(
                 trigger.source,
+                trigger.source_face,
                 trigger.ability,
                 trigger.controller,
                 &trigger.source_facts,
@@ -1881,6 +2223,7 @@ impl RulesTxn {
             )?;
             self.validate_match_condition(
                 trigger.source,
+                trigger.source_face,
                 trigger.ability,
                 trigger.controller,
                 trigger.match_condition.as_ref(),
@@ -1908,21 +2251,29 @@ impl RulesTxn {
             } else {
                 self.validate_trigger_witness(
                     trigger.source,
+                    trigger.source_face,
                     trigger.ability,
                     trigger.controller,
                     trigger.death_controller,
                     &trigger.witness,
                 )?;
             }
-            self.validate_alternative_occurrence(
+            Self::validate_trigger_occurrence(
                 trigger.source,
+                trigger.source_face,
                 trigger.ability,
                 &trigger.event,
                 &trigger.witness,
-                &mut alternatives,
+                &mut occurrences,
             )?;
         }
-        for entry in &self.state.rules.stack {
+        for entry in self
+            .state
+            .rules
+            .stack
+            .iter()
+            .chain(self.state.rules.detached.values())
+        {
             if let Some(id) = self.validate_trigger_entry(entry)?
                 && !ids.insert(id)
             {
@@ -1935,29 +2286,30 @@ impl RulesTxn {
                 ..
             } = &entry.kind
             {
-                self.validate_alternative_occurrence(
+                Self::validate_trigger_occurrence(
                     entry.source,
+                    entry.program_face(),
                     *ability,
                     event,
                     witness,
-                    &mut alternatives,
+                    &mut occurrences,
                 )?;
             }
         }
         if let Frame::TriggerOrder { placement } | Frame::TriggerTargets { placement, .. } =
             &self.state.rules.frame
         {
-            if placement.remaining.iter().any(|p| !self.is_live(*p))
+            if placement.before > self.state.rules.next_trigger_id
+                || placement.remaining.iter().any(|p| !self.is_live(*p))
                 || placement.remaining.iter().collect::<BTreeSet<_>>().len()
                     != placement.remaining.len()
                 || placement.order.iter().collect::<BTreeSet<_>>().len() != placement.order.len()
                 || placement.order.iter().any(|id| {
-                    !self
-                        .state
-                        .rules
-                        .pending_triggers
-                        .iter()
-                        .any(|t| t.id == *id && Some(&t.controller) == placement.remaining.first())
+                    !self.state.rules.pending_triggers.iter().any(|t| {
+                        t.id == *id
+                            && t.id.0 < placement.before
+                            && Some(&t.controller) == placement.remaining.first()
+                    })
                 })
             {
                 return Err("snapshot APNAP placement invariant".into());
@@ -2025,6 +2377,8 @@ impl RulesTxn {
             stack_id,
             player,
         })?;
+        self.stage_target_triggers()?;
+        self.finish_target_triggers(stack_id)?;
         self.rules_mut().frame = Frame::TriggerOrder { placement };
         Ok(())
     }
@@ -2068,6 +2422,8 @@ impl RulesTxn {
             stack_id,
             player,
         })?;
+        self.stage_target_triggers()?;
+        self.finish_target_triggers(stack_id)?;
         self.rules_mut().frame = Frame::TriggerOrder { placement };
         Ok(())
     }
@@ -2084,11 +2440,12 @@ impl RulesTxn {
     pub(super) fn effective_trigger(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
     ) -> Result<std::borrow::Cow<'_, mtg_contracts::TriggeredAbility>, String> {
         match ability {
             EffectiveTriggerAbility::Intrinsic { index } => self
-                .copiable_definition(source)?
+                .face_definition(source.card, face)?
                 .triggered
                 .get(index as usize)
                 .map(std::borrow::Cow::Borrowed)

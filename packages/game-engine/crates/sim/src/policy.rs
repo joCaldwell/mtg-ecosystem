@@ -285,6 +285,27 @@ impl Strategy<'_> {
                         picks.push(vec![]);
                         continue;
                     }
+                    if matches!(
+                        spec.domain,
+                        mtg_contracts::TargetDomain::StackSpell
+                            | mtg_contracts::TargetDomain::ControlledCreatureSpell
+                            | mtg_contracts::TargetDomain::StackActivatedOrTriggeredAbility
+                    ) {
+                        let handles = allowed
+                            .iter()
+                            .map(|&i| match d.candidate(i)? {
+                                Candidate::Stack { stack } => Ok(stack.clone()),
+                                _ => Err("invalid stack target candidate".to_owned()),
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let target = self.stack_target(v, spec, Some(&handles));
+                        let index = target
+                            .and_then(|h| handles.iter().position(|row| *row == h))
+                            .and_then(|n| allowed.get(n))
+                            .or_else(|| allowed.first());
+                        picks.push(index.copied().into_iter().collect());
+                        continue;
+                    }
                     let entities: Vec<_> = allowed
                         .iter()
                         .map(|i| match d.candidate(*i)? {

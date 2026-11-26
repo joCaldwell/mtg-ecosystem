@@ -8,17 +8,12 @@ for package ownership and development constraints.
 
 [Multiverse](packages/multiverse/README.md) owns account/session UX, navigation,
 Home, the deck editor and the browser build/process. [Game](packages/game/README.md)
-owns the existing session UI, launch/recovery, native supervision and shared DTOs
-in `web/`, `server/` and `shared/`, composed in that same process. The existing
-[deck-builder backend](packages/deck-builder/AGENTS.md) owns authentication,
-Actor/SQLite capabilities, deck data, CLI and MCP. There is one account/data
-system; no authentication or database migration occurred.
-
-Home and owned-deck setup work. The table preview is a qualified captured sample,
-not the selected library deck. The initial game direction is one human and three
-automated opponents. Real automated launch, account-to-seat provisioning,
-arbitrary-deck admission and complete browser play remain unfinished.
-Product sign-in grants no Rust seat. See [application contracts](packages/multiverse/web/ARCHITECTURE.md#application-boundaries).
+owns the session UI, launch/recovery, native supervision and shared DTOs, composed
+in that process. The [deck-builder backend](packages/deck-builder/AGENTS.md) owns
+authentication, Actor/SQLite capabilities, deck data, CLI and MCP; there is one
+account/data system. Product sign-in grants no Rust seat. [Application boundaries](packages/multiverse/web/ARCHITECTURE.md#application-boundaries)
+and [game launch](packages/multiverse/web/ARCHITECTURE.md#game-launch) own
+current launch scope and remaining gates.
 
 ## Documentation map
 
@@ -33,14 +28,11 @@ Product sign-in grants no Rust seat. See [application contracts](packages/multiv
 | Engine environment, verification and storage | [Development and verification](docs/game-engine-development.md), [storage](docs/game-engine-storage.md) |
 | Parser, archives and ingestion | [Parser](docs/oracle_parser.md), [data contracts](docs/oracle_parser.md#data-contracts), [Scryfall](docs/oracle_parser.md#ingestion) |
 
-Read the target package's `AGENTS.md` before editing. Use its locked local tools
+Read the target package's `AGENTS.md` before editing and use its locked tools
 and focused checks; there is no root application/native acceptance command.
-Engine bootstrap is conditional on missing/broken dependencies, not onboarding
-work for every task. See [documentation and handoff policy](AGENTS.md#documentation-and-handoff).
-
-Current manuals describe supported behavior; Rust/types/data and exact evidence
-identities resolve implementation details. Old plans and transcripts live in Git
-history. Historical test counts never establish current combined acceptance.
+Manuals describe current supported behavior; Rust/types/data and exact evidence
+identities resolve details, and old plans live in Git history. See
+[documentation and handoff policy](AGENTS.md#documentation-and-handoff).
 
 ## System architecture
 
@@ -64,18 +56,17 @@ Scryfall → TypeScript parser → nonexecutable source/AST archive
 
 Compile complete supported sources or reject them. Parser acceptance/reference
 binding, compiler support, pod admission, hosting/search review and browser
-qualification are separate claims. Core imports the IR contracts and the permitted view. The NumPy gym runs native
-matches and encodes the choosing seat’s observation. Core has no host I/O, clocks or OS randomness; profiles select admission data, never mechanics.
-The host owns HTTP/auth/SQLite, resource groups and exact durable recovery, with
-its own build identity. [Engine scope](docs/game-engine-current.md) and
-[host contracts](docs/game-engine-server.md) define the finite supported release.
-General per-set `build-ir` emission and complete printing/set indexes remain
+qualification are separate claims. Core imports the IR contracts and permitted
+view and has no host I/O, clocks or OS randomness; profiles select admission data,
+never mechanics. The NumPy gym runs native matches and encodes the choosing seat's
+observation. The host owns HTTP/auth/SQLite, resource groups and exact durable
+recovery, with its own build identity. [Engine scope](docs/game-engine-current.md)
+and [host contracts](docs/game-engine-server.md) define the finite supported
+release. Per-set `build-ir` emission and complete printing/set indexes remain
 unfinished; generated card data is not hand-edited source.
 
 The deck library uses independent Scryfall/SQLite facts, not parser AST or Card IR.
 External agents use MCP and the same Actor-scoped capabilities as HTTP.
-[Application boundaries](packages/multiverse/web/ARCHITECTURE.md#application-boundaries)
-define product/display/session ownership and the remaining game-launch gates.
 
 ## Vocabulary
 

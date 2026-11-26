@@ -35,7 +35,7 @@ impl RulesTxn {
         let Some(index) = entry.kind.activated_index() else {
             return Ok(None);
         };
-        let definition = self.copiable_definition(entry.source)?;
+        let definition = self.stack_definition(entry)?;
         match &definition
             .activated
             .get(index as usize)
@@ -464,7 +464,11 @@ impl RulesTxn {
         {
             return Err("snapshot chosen-object payment identity invariant".into());
         }
-        self.validate_characteristic_identity(id, &paid.before.characteristics)?;
+        self.validate_characteristic_identity(
+            id,
+            paid.before.transforms,
+            &paid.before.characteristics,
+        )?;
         let valid = match (&paid.outcome, action) {
             (CostOutcome::Tapped { later_untapped }, Tap) => {
                 paid.before.zone == Zone::Battlefield

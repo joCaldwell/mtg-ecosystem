@@ -8,8 +8,7 @@ package and delegate; package manuals own their commands.
 
 Inspect status, branch, HEAD, assigned base and existing changes. Independent work
 uses current `origin/main`; dependent work uses its assigned base. In T3 use a
-bound checkout. Coordinate owned files and one native-work owner. Preserve
-unrelated changes, measured source, evidence and meaningful failures.
+bound checkout. Coordinate owned files and one native-work owner.
 
 ```sh
 git status --short --branch
@@ -18,9 +17,9 @@ sh scripts/engine-env.sh node scripts/engine-doctor.ts --json
 sh scripts/engine-env.sh node scripts/check-engine.ts --plan
 ```
 
-Agents own routine implementation, verification and publication. Ask Josh for
-unresolved product intent, unauthorized destructive actions or inaccessible
-credentials. Failed checks never authorize changing expected rules outcomes.
+Ask Josh only for unresolved product intent, unauthorized destructive actions or
+inaccessible credentials. Failed checks never authorize changing expected rules
+outcomes.
 
 ## Fresh worktree
 
@@ -31,71 +30,63 @@ sh scripts/engine-bootstrap.sh
 sh scripts/engine-env.sh npm run check:engine:tooling
 ```
 
-Bootstrap uses locked root/engine/parser `npm ci --include-workspace-root
---include=dev --ignore-scripts --no-audit --no-fund`, then doctor. It neither
-installs native tools nor builds/fetches/regenerates anything or changes refs;
-applications/SDK use isolated installs. [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/).
-
-Doctor JSON: `format_version: 1`, `healthy`, `checks`, optional `error.code`.
-Exits: 0 healthy/warnings, 1 unhealthy, 2 invalid arguments/configuration. Launcher
-failures may precede JSON; inspect stderr/status. Checks cover direct locked
-workspace dependencies, not complete transitive/cache integrity; upstream refs
-are local. Free-space failure/warning thresholds are 256 MiB/2 GiB at worktree
-and nearest target ancestor; native cache budgets are separate.
+Bootstrap runs locked root/engine/parser `npm ci` without scripts, then doctor;
+it installs no native tools, builds or fetches nothing and changes no refs.
+Applications/SDK use isolated installs. Doctor (`scripts/engine-doctor.ts`)
+exits 0 healthy/warnings, 1 unhealthy, 2 invalid arguments; launcher failures may
+precede its JSON, so inspect stderr/status. It checks direct locked workspace
+dependencies, not transitive or cache integrity, and fails/warns below 256 MiB/2 GiB
+free at the worktree and nearest target ancestor.
 
 ## Toolchain setup
 
 [.node-version](../.node-version) and [rust-toolchain.toml](../rust-toolchain.toml)
-pin Node 26.11.1 and Rust/Cargo 1.99.0. Doctor requires npm (tested 12.2.1, unpinned),
-rustfmt, Clippy, Python 3, Git and Linux `flock`; native hosting requires Linux.
+pin Node 26.11.1 and Rust/Cargo 1.99.0. Doctor requires npm (tested 12.2.1,
+unpinned), rustfmt, Clippy, Python 3, Git and Linux `flock`; native hosting
+requires Linux.
 
 `sh scripts/engine-env.sh COMMAND [ARG ...]` selects existing
 `~/.local/share/mtg-ecosystem/engine-toolchains/rust1990-node26111-v1/{usr/bin,usr/lib}`.
-`MTG_ENGINE_TOOLCHAIN_ROOT` overrides with an existing absolute bundle; missing
-explicit overrides fail, absent default permits PATH. Launcher checks Node and
-sets process-local PATH/LD_LIBRARY_PATH, RUSTUP_TOOLCHAIN and RUSTUP_AUTO_INSTALL=0.
-It installs nothing; npm comes from PATH. New machines need
+`MTG_ENGINE_TOOLCHAIN_ROOT` overrides it with an existing absolute bundle; a
+missing explicit override fails, an absent default falls back to PATH. The
+launcher sets process-local PATH/LD_LIBRARY_PATH, RUSTUP_TOOLCHAIN and
+RUSTUP_AUTO_INSTALL=0 and installs nothing. New machines need
 [official Node/checksums](https://nodejs.org/en/download/archive/v26.11.1) and,
-with rustup, optional `rustup toolchain install 1.99.0 --profile minimal
---component rustfmt --component clippy`. Preserve user proxies/global defaults;
-missing libraries require compatible setup, not copied bare executables.
-[Rustup environment](https://rust-lang.github.io/rustup/environment-variables.html).
+with rustup, `rustup toolchain install 1.99.0 --profile minimal --component
+rustfmt --component clippy`. Preserve user proxies/global defaults; missing
+libraries need compatible setup, not copied bare executables.
 
 ## Choose focused checks
 
 Build first. Run the cheapest compile check that covers the diff and one directly
 affected witness when useful. Docs-only changes need the docs guard and
-`git diff --check`. Follow affected package requirements. Defer broad regressions,
-property matrices, end-to-end qualification and extra reviews unless requested or
-needed to diagnose a failure. Confirm the selector executed; skipped and unrun
-checks are omissions.
+`git diff --check`. Defer broad regressions, property matrices, end-to-end
+qualification and extra reviews unless requested or needed to diagnose a
+failure. Confirm the selector executed; skipped and unrun checks are omissions.
 
-Choose a witness for the changed boundary. Use exact frozen source for rules and
+Choose a witness for the changed boundary: exact frozen source for rules and
 compiler changes, affected harness tests for verification tooling, and a targeted
-shape, isolation, atomic rejection or recovery test for changes to those contracts.
-Prefer shared invariant cases to per-card matrices. Retain counterexamples, and
-use baselines only for behavior that should be preserved.
+shape, isolation, atomic rejection or recovery test for those contracts. Prefer
+shared invariant cases to per-card matrices; retain counterexamples and use
+baselines only for behavior that should be preserved.
 
-Live attempts require a done criterion and deadline before starting. A bounded
-witness qualifies only its exercised path, never a full game. Preserve explicit
-long-run acceptance requests separately. Timeout means inconclusive; retain the
-record without restarting blindly or repeatedly polling unchanged state.
+Live attempts need a done criterion and deadline before starting. A bounded
+witness qualifies only its exercised path, never a full game. Timeout means
+inconclusive; retain the record without blind restarts or polling unchanged state.
 
 Run once on stable inputs. Reuse receipts only after comparing tested source,
-tests, fixtures, dependencies, configuration and relevant producer identities;
-record the bridge and omissions. Changed shared inputs invalidate dependents.
-Docs, review, commit/push and unrelated merges alone do not require native reruns.
-Review immutable commits using base-branch instructions. Preserve test expectations
-unless the contract changes. Skip automatic review agents; when review is needed,
-focus it on the diff and any unresolved findings.
+tests, fixtures, dependencies, configuration and producer identities; record the
+bridge and omissions. Changed shared inputs invalidate dependents. Docs, review,
+commit/push and unrelated merges alone need no native reruns. Review immutable
+commits using base-branch instructions, focused on the diff and unresolved
+findings; skip automatic review agents.
 
 After three unsuccessful repair rounds for the same failure, retain reproduction
-and attempted fixes, stop that loop and escalate the blocked claim to Josh;
-continue independent work. Never retry until green, add sleeps, hide flakes or
-weaken rules/privacy/recovery assertions. Remove redundant/obsolete tests only
-with a concrete retained coverage replacement or documented obsolete contract;
-unexplained failures remain visible. Add permanent rules for demonstrated misses
-with a diff trigger, check and regression reference; prune obsolete rules.
+and attempted fixes, stop that loop and escalate the blocked claim to Josh while
+continuing independent work. Never retry until green, add sleeps, hide flakes or
+weaken rules/privacy/recovery assertions. Remove tests only with a concrete
+retained replacement or a documented obsolete contract. Add a permanent rule only
+for a demonstrated miss, with its trigger and check; prune obsolete rules.
 
 ### Inner loop and one gate
 
@@ -114,24 +105,21 @@ sh scripts/engine-env.sh npm run check:engine:gate
 | `npm run check:engine:gate` | The above with Clippy `-D warnings`, parser archive agreement, every workspace unit, doc and integration test, and all harness self-tests |
 | `npm run check:engine:tooling` | Harness self-tests and live guards; no Cargo or lock |
 
-Prefix with `sh scripts/engine-env.sh`. `--plan` prints commands and omissions
-without executing them. Every debug command shares one feature shape
-(`--workspace --features mtg-core/testkit`) and one `dev`/`test` profile:
-dependencies at opt-level 2 without debug info, `mtg-core`/`mtg-contracts` at
-opt-level 1 (the fastest measured rebuild-plus-test setting), other members
-unoptimized, all with line tables, assertions and overflow checks. The production check builds
-the host and simulator without `testkit`, so dead code stays visible. No plan
-builds release or runs `mtg-sim`. Compiler-coverage PRs add one whole-archive
-scan through `engine:decks coverage --all` before publishing. Python suites need
-explicit filenames (discovery misses hyphens).
+Prefix with `sh scripts/engine-env.sh`; `--plan` prints commands and omissions
+without executing. Every debug command shares one feature shape
+(`--workspace --features mtg-core/testkit`) and the root `Cargo.toml` `dev`/`test`
+profile, keeping assertions and overflow checks. The production check builds host and simulator without
+`testkit`, so dead code stays visible. No plan builds release or runs `mtg-sim`.
+Compiler-coverage PRs also run one whole-archive `engine:decks coverage --all`
+before publishing and report its family scoreboard. Python suites need explicit
+filenames (discovery misses hyphens).
 
 ### Engine test topology
 
-Cargo builds twelve test executables. Eight library harnesses cover the view,
-encoder, batched environment, local contracts,
-compiler lowering and catalog regeneration, private core anchors, simulator
-policies/search/smoke, and server unit tests. Four integration suites own the
-cross-module behavior.
+Cargo builds twelve test executables: eight library harnesses (view, encoder,
+batched environment, local contracts, compiler lowering and catalog
+regeneration, private core anchors, simulator policies/search/smoke, server
+units) and four integration suites for cross-module behavior.
 
 | Integration target | Scope |
 | --- | --- |
@@ -140,27 +128,18 @@ cross-module behavior.
 | `mtg-witness --test cards` | Runtime witnesses compiled from exact frozen R4 source |
 | `mtg-server --test host` | Host protocol, store, authorization and recovery, including the opt-in systemd resume case |
 
-Core's non-default `testkit` feature supplies `FixtureCatalog` (one parse per
-catalog per process), `Board` (name-based private scenarios) and `Driver`
-(trusted request/response helpers). Public adversarial modules use the public
-API and the permitted-input helpers in `core/tests/support`. Compiler-backed
-witnesses stay in their own crate. Nine core endpoints (including surviving priority after a
-concession) and a compiled R4 combat-trigger endpoint exercise the same
-`assert_recoverable` matrix. Each checks replay, restored state, fork and trace
-at quanta 1 and `u64::MAX` in Off, Compact, Stream and Detailed modes. Mechanic-specific
-forgery, privacy and saved-work assertions stay with their witnesses.
+Core's non-default `testkit` feature supplies `FixtureCatalog`, `Board`
+(name-based private scenarios) and `Driver` (trusted request/response helpers);
+public adversarial modules use only the public API and `core/tests/support`.
+Recovery endpoints share `assert_recoverable` (replay, restore, fork and trace at
+quanta 1 and `u64::MAX` in every trace mode); mechanic-specific forgery, privacy
+and saved-work assertions stay with their witnesses.
 
-The gate runs `cargo test --tests` directly with one libtest thread budget
-(minimum of available CPUs and 16). Test helpers must not spawn their own thread
-pools (13 GiB nested-pool lesson). Each of the twelve named harnesses must report
-a passing test. The host's opt-in systemd case shares its executing harness.
-The separate `cargo test --doc` phase requires both passing core compile-fail
-examples for action continuations and player sessions.
-
-With eight Cargo jobs, commit `173bdcf2` measured 177.354 s cold (6.71 GiB
-target, 3.01 GiB largest-process peak RSS), 32.585 s warm (median of three)
-and 43.865 s after a one-line core edit. The slowest individual test took
-4.722 s. [PR #199](https://github.com/joCaldwell/mtg-ecosystem/pull/199)
+The gate runs `cargo test --tests` with one libtest thread budget (minimum of
+available CPUs and 16); test helpers must not spawn their own thread pools
+(nested pools once reached 13 GiB). Each of the twelve harnesses must report a
+passing test. The separate `cargo test --doc` phase requires both core
+compile-fail examples (action continuations and player sessions) to pass.
 
 ## Cargo coordination and cache integration
 
@@ -179,40 +158,36 @@ budget and eviction.
 ## Bound and publish a batch
 
 Deliver one complete mechanic family through shared systems and exact witnesses,
-never card-name dispatch. Keep follow-on admission/policy/consumer qualification
+never card-name dispatch; keep follow-on admission/policy/consumer qualification
 separate unless correctness requires it. Aim for a focused checkpoint within
-30 minutes. Publish provisional draft PRs with exact passed, failed and deferred
-checks when qualification is incomplete. Preserve guards and failure evidence.
+30 minutes and publish provisional draft PRs with exact passed, failed and
+deferred checks. Stage owned files only, disable signing locally (including
+scratch Git fixtures) and freeze measured source/index during Git operations. If
+publication blocks, preserve failures, patches, bases and source snapshots.
+Retire worktrees only through [storage policy](game-engine-storage.md#worktree-lifecycle).
 
-Commit/push coherent focused work; stage owned files only, never force-push or
-merge incidentally. Disable signing locally, including scratch Git fixtures.
-Freeze measured source/index during Git operations. Preserve failures, patches,
-bases and source snapshots if publication blocks. Retire worktrees only through
-[storage policy](game-engine-storage.md#worktree-lifecycle).
-
-## Hand off verifiable state
-
-Report branch/worktree/base/HEAD, publication/dirty paths, resulting behavior,
-commands/selectors/results, identities/receipt locations/bridges/omissions,
-processes/native owner, retained artifacts and remaining work. Confirm remote
-push. Separate implementation, verification, build and known lock-wait time;
-label unitemized time. Successors recheck identities/ownership. Propagate this
-policy and relevant receipts to current children and every new delegate brief.
+Hand off branch/worktree/base/HEAD, publication and dirty paths, behavior,
+commands/selectors/results, identities, receipt locations, bridges, omissions,
+live processes/native owner, retained artifacts and remaining work; confirm the
+push and separate implementation, verification, build and lock-wait time.
+Successors recheck identities and ownership. Pass this policy and relevant
+receipts to every delegate brief.
 
 ## Batched NumPy environment
 
 Build the native extension with `PYO3_PYTHON=/usr/bin/python3 sh scripts/engine-env.sh cargo build --locked -p mtg-env`.
-On Linux, `python3 packages/game-engine/crates/env/python/smoke.py target/engine/debug/libmtg_env.so` loads that exact library.
-A Python module search path containing the library named `mtg_env.so` supports `import mtg_env`.
-Native PyO3 supports Python 3.14. The runtime requires NumPy.
+On Linux, `python3 packages/game-engine/crates/env/python/smoke.py target/engine/debug/libmtg_env.so`
+loads that exact library; a module search path containing it named `mtg_env.so`
+supports `import mtg_env`. Native PyO3 supports Python 3.14; the runtime requires NumPy.
 
 `VecEnv(catalog_dir_or_profile, pods=None, num_envs=1, threads=32, seed=0, config=None)`
-accepts a profile name and its default decks, or pod files selected by environment index modulo pod count.
-Each embedded-profile pod file contains the four serialized decklists. A bulk catalog directory
-requires a `manifest_sha256` configuration value and dynamic pod files in the simulator's
-`{"decks": [...]}` multi-seat format. Episode seeds bind the supplied seed, environment index
-and episode ordinal. Explicit reset restarts episode zero. Each rules and query call uses
-the pod driver's 1024-unit quantum.
+accepts a profile name and its default decks, or pod files selected by
+environment index modulo pod count. An embedded-profile pod file contains the
+four serialized decklists. A bulk catalog directory requires a `manifest_sha256`
+configuration value and dynamic pod files in the simulator's `{"decks": [...]}`
+multi-seat format. Episode seeds bind the supplied seed, environment index and
+episode ordinal; explicit reset restarts episode zero. Each rules and query call
+uses the pod driver's 1024-unit quantum.
 
 ```python
 env = mtg_env.VecEnv("commander-foundations-v1", num_envs=32, seed=57)
@@ -223,49 +198,52 @@ with env.buffers() as batch:
 env.step(actions)
 ```
 
-Arrays from `buffers()` borrow contiguous Rust storage. Batch exit or `release()` drops
-the batch's references. Slices and retained arrays continue to hold a lease, and the
-next step or reset immediately raises a Python exception while any lease is live.
-Copy a tensor to retain its contents across steps. Reset and step release the GIL. Each environment owns a persistent thread pool.
-Worker `w` writes rows whose batch index modulo the worker count is `w`. An internal fault requires a reset. An invalid input leaves all games
-at the previous decision.
+Arrays from `buffers()` borrow contiguous Rust storage. Batch exit or `release()`
+drops the batch's references; slices and retained arrays keep a lease, and the
+next step or reset raises while any lease is live, so copy tensors to keep them.
+Reset and step release the GIL. Each environment owns a persistent thread pool;
+worker `w` writes rows whose batch index modulo the worker count is `w`. An
+internal fault requires a reset; an invalid input leaves all games at the
+previous decision.
 
-`payment` accepts `auto` (default) or `manual`. Spend always uses the exact solver.
-`opponents` accepts `self_play` (default) or `baseline` (seat zero acts, the other
-seats use Develop). `mask_unfundable` defaults to true. The encoder proves fixed costs
-from the visible pool and intrinsic single-color lands. Uncertain sources or payments
-retain a candidate with funding code 2, as do visible spell-cost reducers. Filtering
-preserves the original pointers if it would otherwise empty the head. `head` selects pointer (0) or
-number (1). Pointers 0–127 address ordered candidates, 128 ends a slot or ordering,
-129 and 130 finish production with undo or keep. Numbers 0–62 are literal and 63
-selects the numeric upper bound. For AnnounceX, fully modeled resources can tighten
-this bound. With uncertain sources or reductions, the published maximum applies.
-An unbounded decision with unknown supply uses the signed 32-bit ceiling.
+`payment` is `auto` (default) or `manual`; spend always uses the exact solver.
+`opponents` is `self_play` (default) or `baseline` (seat zero acts, other seats
+use Develop). `mask_unfundable` defaults to true: the encoder proves fixed costs
+from the visible pool and intrinsic single-color lands, keeps a candidate with
+funding code 2 for uncertain sources, payments or visible spell-cost reducers,
+and preserves the original pointers if filtering would empty the head. `head`
+selects pointer (0) or number (1). Pointers 0–127 address ordered candidates,
+128 ends a slot or ordering, 129 and 130 finish production with undo or keep.
+Numbers 0–62 are literal and 63 selects the numeric upper bound, which AnnounceX
+can tighten when resources are fully modeled; otherwise the published maximum
+applies, and an unbounded decision with unknown supply uses the signed 32-bit
+ceiling.
 
-Entity rows preserve object order, then stack order, then remembered library positions,
-then one hand-zone row per publicly known revealed hand card, in published order.
-Remembered positions and known hand cards have no targetable handle. Missing entity
-and seat references are -1. Card zero represents absent identity. Player features and
-entity seat references rotate around the viewer. `seat` and terminal rewards use
-absolute seat order. A terminal step returns the next opening observation alongside
-the previous episode's reward, done and counters. Info columns 0–3 count illegal
-actions, cast reversals, censor class (0 outcome, 1 workload limit, 2 engine capacity, 3 tensor capacity),
-and completed rules decisions. Tensor overflow ends the episode with zero reward and a fresh opening observation.
-Numeric features saturate at the signed 32-bit limits.
-The observation wire supplies no lore-counter or selected-mode field.
+Entity rows preserve object order, then stack order, then remembered library
+positions, then one hand-zone row per publicly known revealed hand card in
+published order; remembered positions and known hand cards have no targetable
+handle. Missing entity and seat references are -1; card zero is absent identity.
+Player features and entity seat references rotate around the viewer; `seat` and
+terminal rewards use absolute seat order. A terminal step returns the next
+opening observation with the previous episode's reward, done and counters. Info
+columns 0–3 count illegal actions, cast reversals, censor class (0 outcome,
+1 workload limit, 2 engine capacity, 3 tensor capacity) and completed rules
+decisions. Tensor overflow ends the episode with zero reward and a fresh opening
+observation. Numeric features saturate at the signed 32-bit limits. The
+observation wire has no lore-counter or selected-mode field.
 
-`catalog()` exposes padded 192-token rows, lengths, sixteen numeric features and the
-SHA-256 of the sorted vocabulary encoded as compact JSON. Token IDs start at one.
-An overlength definition ends with a truncation token. Bind model inputs to both
-catalog and vocabulary identity.
+`catalog()` exposes padded 192-token rows, lengths, sixteen numeric features and
+the SHA-256 of the sorted vocabulary encoded as compact JSON. Token IDs start at
+one; an overlength definition ends with a truncation token. Bind model inputs to
+both catalog and vocabulary identity.
 
 ## Measurement and deck work
 
 Check output streams subprocess output. Timing JSONL records source/driver
-identity, commands, exits, wall/CPU/peak RSS, lock waits and host load;
-`MTG_ENGINE_TIMING_FILE` selects a create-new path and source mutation fails.
-RSS is the largest single process. Compare only matching source, workload and
-cache state; label cold builds.
+identity, commands, exits, wall/CPU/peak RSS (largest single process), lock waits
+and host load; `MTG_ENGINE_TIMING_FILE` selects a create-new path and source
+mutation fails. Compare only matching source, workload and cache state; label
+cold builds.
 
 `npm run engine:decks -- COMMAND` is the one deck harness, on a release
 `mtg-sim` built from this checkout:
@@ -277,13 +255,12 @@ npm run engine:decks -- play "Jo's Cascade" 0
 npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --pod-decks A.json --swap SLOT:REMOVE:ADD --blocks 8 --out generated/NEW
 ```
 
-`coverage` lowers only the deck snapshot's Oracle IDs (`--all`: the whole
-archive) and reports compiled slots, blocking cards, top blockers, the Track 3A
-family scoreboard and baseline deltas. The scoreboard classifies every blocker
-of each unsupported card into a family and counts, deck-first, the deck slots
-and cards each family touches and alone blocks ("sole"), plus Commander-legal
-archive cards with `--all`; every 3A PR reports against it. `stage` accepts only the registered Archive R4 file, requires every card
-to compile and templates the reviewed `commander-foundations-v1` profile.
-`play` stages and plays one seeded match from a detached HEAD under
-`generated/deck-play.*`, with live journals in its `live-journals/`. `bench` wraps the [paired runner](game-engine-search.md#paired-deck-experiments)
+The script docstring (`scripts/engine-decks.py`) owns options and report
+contents. `coverage` joins `catalog coverage` receipts to the deck snapshot
+(`--all`: the whole archive) and ranks blockers by family, counting the deck
+slots and cards each family touches and alone blocks. `stage` accepts only the
+registered Archive R4 file, requires every card to compile and templates the
+reviewed `commander-foundations-v1` profile. `play` stages and plays one seeded
+match from a detached HEAD under `generated/deck-play.*` (live journals in its
+`live-journals/`). `bench` wraps the [paired runner](game-engine-search.md#paired-deck-experiments)
 and writes its report and Markdown summary.

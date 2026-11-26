@@ -45,7 +45,7 @@ impl RulesTxn {
                 .as_ref()
                 .map(|f| (f, 1, None)),
             StackKind::Activated { ability, .. } => match &self
-                .copiable_definition(entry.source)
+                .stack_definition(entry)
                 .ok()?
                 .activated
                 .get(ability as usize)?
@@ -130,7 +130,7 @@ impl RulesTxn {
         }
         let self_cost = match stack.kind {
             StackKind::Activated { ability, .. } => {
-                self.copiable_definition(stack.source)?.activated[ability as usize].cost
+                self.stack_definition(stack)?.activated[ability as usize].cost
                     == ActivationCost::SacrificeSource
             }
             _ => false,
@@ -362,7 +362,7 @@ impl RulesTxn {
                 {
                     return Err("snapshot sacrificed cost facts invariant".into());
                 }
-                self.validate_characteristic_identity(f.object, &f.characteristics)?;
+                self.validate_fact_identity(f)?;
             }
             let count = self
                 .invocation_sacrifice(e)

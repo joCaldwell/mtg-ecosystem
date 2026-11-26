@@ -35,7 +35,9 @@ impl StackKind {
             Self::Triggered {
                 witness:
                     witness @ (TriggerEventWitness::StepBegan { .. }
-                    | TriggerEventWitness::SpellCast { .. }),
+                    | TriggerEventWitness::SpellCast { .. }
+                    | TriggerEventWitness::CardDrawn { .. }
+                    | TriggerEventWitness::AttackerUnblocked { .. }),
                 ..
             } => Ok(witness.event_player()),
             _ => Err("unbound event-player recipient".into()),
@@ -268,6 +270,7 @@ impl RulesTxn {
                             Err("action event requires a player damage recipient".into())
                         }
                     },
+                    TriggerEventWitness::AttackerUnblocked { defender, .. } => Ok(*defender),
                     _ => Err("unbound damage-recipient action".into()),
                 }
             }
@@ -474,9 +477,7 @@ impl RulesTxn {
     pub(super) fn actions_step(&mut self, frame: Frame) -> Result<(), String> {
         match frame {
             Frame::EntityTargets { cast } => self.bind_entity_targets(cast)?,
-            Frame::StackTargets { .. } => {
-                return Err("stack targets outside admitted decision algebra".into());
-            }
+            Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
             Frame::PlayerTargets { cast } => {
                 let input = self
                     .rules_mut()
@@ -872,7 +873,7 @@ impl RulesTxn {
                 let movement = self.move_object_for(
                     object,
                     Zone::Hand { owner: player },
-                    BatchCause::Instruction {
+                    BatchCause::InstructionDraw {
                         stack_id: frame.stack_id,
                         player,
                         source: self.entry(frame.stack_id)?.source,
@@ -892,7 +893,7 @@ impl RulesTxn {
         } else {
             self.commit(
                 ProposedEvent::FailedDraw { player },
-                BatchCause::Instruction {
+                BatchCause::InstructionDraw {
                     stack_id: frame.stack_id,
                     player,
                     source: self.entry(frame.stack_id)?.source,
@@ -1230,6 +1231,7 @@ impl RulesTxn {
         }
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
             self.validate_library_reorder_outcome(frame, Some(instruction), outcome)?;
+            self.validate_counter_outcome(frame, outcome)?;
         }
         if self
             .state
@@ -1320,7 +1322,8 @@ impl RulesTxn {
             self.validate_activated_entry(entry, *ability, source_handles)?;
             self.validate_activation_condition_check(
                 entry.controller,
-                self.activated_condition(entry.source, *ability)?.as_ref(),
+                self.activated_condition(entry.source, entry.source_face, *ability)?
+                    .as_ref(),
                 condition.as_ref(),
             )?;
         }

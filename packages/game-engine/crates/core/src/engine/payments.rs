@@ -205,7 +205,7 @@ impl RulesTxn {
 
         let cost = stack.total_cost.clone();
         if let StackKind::Activated { ability, .. } = &stack.kind
-            && let activated = &self.copiable_definition(stack.source)?.activated[*ability as usize]
+            && let activated = &self.stack_definition(&stack)?.activated[*ability as usize]
             && matches!(
                 activated.cost,
                 ActivationCost::DiscardSource { .. } | ActivationCost::ExileSource { .. }
@@ -216,7 +216,7 @@ impl RulesTxn {
         }
         if let StackKind::Activated { ability, .. } = stack.kind
             && let ActivationCost::Composite { costs } =
-                &self.copiable_definition(stack.source)?.activated[ability as usize].cost
+                &self.stack_definition(&stack)?.activated[ability as usize].cost
             && !self.permanent_source_costs_payable(stack.source, stack.controller, costs)
         {
             return Ok(AnnouncementPayment::Unpayable);
@@ -225,7 +225,7 @@ impl RulesTxn {
         // source untapped under its controller when the cost is paid.
         let tap_with_sacrifice = match stack.kind {
             StackKind::Activated { ability, .. } => matches!(
-                self.copiable_definition(stack.source)?.activated[ability as usize].cost,
+                self.stack_definition(&stack)?.activated[ability as usize].cost,
                 ActivationCost::SacrificePermanent { tap: true, .. }
             ),
             _ => false,
@@ -284,7 +284,7 @@ impl RulesTxn {
         // of another hand card, no effect-time discard, no early cost on failure.
         if let StackKind::Activated { ability, .. } = &stack.kind
             && matches!(
-                self.copiable_definition(stack.source)?.activated[*ability as usize].cost,
+                self.stack_definition(&stack)?.activated[*ability as usize].cost,
                 ActivationCost::DiscardSource { .. }
             )
         {
@@ -306,7 +306,7 @@ impl RulesTxn {
         // preflighted source card from the zone its ability functions in.
         if let StackKind::Activated { ability, .. } = &stack.kind
             && matches!(
-                self.copiable_definition(stack.source)?.activated[*ability as usize].cost,
+                self.stack_definition(&stack)?.activated[*ability as usize].cost,
                 ActivationCost::ExileSource { .. }
             )
         {
@@ -325,10 +325,10 @@ impl RulesTxn {
             )?;
         }
         if let StackKind::Activated { ability, .. } = stack.kind
-            && let ActivationCost::Composite { costs } =
-                self.copiable_definition(stack.source)?.activated[ability as usize]
-                    .cost
-                    .clone()
+            && let ActivationCost::Composite { costs } = self.stack_definition(&stack)?.activated
+                [ability as usize]
+                .cost
+                .clone()
         {
             self.pay_permanent_source_costs(
                 stack.source,
@@ -369,6 +369,7 @@ impl RulesTxn {
             self.record_event(Event::SpellCast {
                 stack_id: cast.stack_id,
             })?;
+            self.finish_target_triggers(stack.id)?;
             self.collect_cast_triggers(&stack)?;
             self.rules_mut().commanders.record_cast(
                 stack.source.card,

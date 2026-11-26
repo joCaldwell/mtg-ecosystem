@@ -114,6 +114,10 @@ pub enum ManaAbilityKind {
 #[serde(deny_unknown_fields)]
 pub struct ManaAbilityUse {
     pub source: ObjectId,
+    /// CR 712.18: the face whose ability was used; a transformed permanent's
+    /// other face has different abilities.
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub face: CardFace,
     pub kind: ManaAbilityKind,
     pub index: u32,
     pub turn: u64,
@@ -237,6 +241,7 @@ impl RulesTxn {
     pub(super) fn mana_use_key(&self, source: ObjectId, index: u32) -> ManaAbilityUse {
         ManaAbilityUse {
             source,
+            face: self.current(source).map_or(source.face, Object::face),
             kind: ManaAbilityKind::Mana,
             index,
             turn: self.state.rules.turn.number,
@@ -298,7 +303,7 @@ impl RulesTxn {
             if k.turn != self.state.rules.turn.number
                 || self.current(k.source)?.zone != Zone::Battlefield
                 || self
-                    .copiable_definition(k.source)?
+                    .face_definition(k.source.card, k.face)?
                     .mana_abilities
                     .get(k.index as usize)
                     .is_none_or(|a| a.restriction.is_none())
@@ -1333,6 +1338,8 @@ impl RulesTxn {
                         marked_damage: r.source.marked_damage.clone(),
                         deathtouch_damage: r.source.deathtouch_damage,
                         plus_one_counters: r.counters.clone(),
+                        transforms: 0,
+                        adventure_player: None,
                     },
                 );
                 // CR 733.1/800.4c: restore only the recorded object, then

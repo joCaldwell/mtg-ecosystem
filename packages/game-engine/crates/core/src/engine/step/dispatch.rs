@@ -141,6 +141,7 @@ impl RulesTxn {
                         old.extend(new);
                     }
                 }
+                self.stage_target_triggers()?;
                 if cast.origin.is_spell() {
                     self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                 } else {

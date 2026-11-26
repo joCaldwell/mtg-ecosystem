@@ -61,6 +61,7 @@ pub(crate) struct Source {
     name: String,
     layout: String,
     pub(crate) color_identity: Vec<Color>,
+    colors: Option<Vec<Color>>,
     card_faces: Option<Box<RawValue>>,
     loyalty: Option<Box<RawValue>>,
     defense: Option<Box<RawValue>>,
@@ -72,7 +73,8 @@ pub(crate) struct SourceFace {
     pub(crate) oracle_text: String,
     pub(crate) mana_cost: String,
     pub(crate) type_line: String,
-    pub(crate) colors: Vec<Color>,
+    /// Absent on an adventurer's parts, whose colors follow their mana costs.
+    pub(crate) colors: Option<Vec<Color>>,
     pub(crate) power: Option<String>,
     pub(crate) toughness: Option<String>,
     loyalty: Option<Box<RawValue>>,
@@ -115,6 +117,7 @@ pub(crate) fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
 }
 
 pub(crate) struct CardSource {
+    pub(crate) layout: FaceLayout,
     pub(crate) record: Record,
     pub(crate) shape: serde_json::Value,
     pub(crate) source: Source,
@@ -122,7 +125,15 @@ pub(crate) struct CardSource {
     pub(crate) ast_sha256: String,
 }
 
-/// CR 712.3, 712.8: modal faces are independent printed sets of characteristics.
+impl CardSource {
+    /// The card's printed colors (Scryfall's top-level `colors`).
+    pub(crate) fn printed_colors(&self) -> Option<&[Color]> {
+        self.source.colors.as_deref()
+    }
+}
+
+/// CR 712.3, 712.8, 715.2: each face of a double-faced card, and each part
+/// of an adventurer, is an independent printed set of characteristics.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
     let r: Record = decode(record, "record")?;
@@ -141,28 +152,49 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
     if source.oracle_id != r.oracle_identity || source.id.is_empty() || source.name.is_empty() {
         return Err(invalid("source", "missing or mismatched card identity"));
     }
-    let printed: Vec<SourceFace> = match (source.layout.as_str(), &source.card_faces) {
-        ("normal", None) if source.loyalty.is_none() && source.defense.is_none() => {
-            vec![decode(r.source.get(), "source")?]
+    let layout = match source.layout.as_str() {
+        "normal" => FaceLayout::Single,
+        "modal_dfc" => FaceLayout::ModalDoubleFaced,
+        "transform" => FaceLayout::Transforming,
+        "adventure" => FaceLayout::Adventurer,
+        layout => return Err(unsupported("source.layout", format!("layout:{layout}"))),
+    };
+    let printed: Vec<SourceFace> = match (layout, &source.card_faces) {
+        _ if source.loyalty.is_some() || source.defense.is_some() => {
+            return Err(unsupported(
+                "source.layout",
+                "unsupported normal or two-part face shell",
+            ));
         }
-        ("modal_dfc", Some(faces)) if source.loyalty.is_none() && source.defense.is_none() => {
+        (FaceLayout::Single, None) => vec![decode(r.source.get(), "source")?],
+        (FaceLayout::Single, Some(_)) | (_, None) => {
+            return Err(unsupported(
+                "source.layout",
+                "unsupported normal or two-part face shell",
+            ));
+        }
+        (_, Some(faces)) => {
             let faces: [SourceFace; 2] = decode(faces.get(), "source.card_faces")?;
             if source.name != format!("{} // {}", faces[0].name, faces[1].name) {
                 return Err(invalid(
                     "source.name",
-                    "card name does not match its modal faces",
+                    "card name does not match its printed parts",
+                ));
+            }
+            // CR 715.2, 202.2: an adventurer's parts have no color indicator,
+            // and each part's colors follow its own mana cost; double-faced
+            // faces print their colors (CR 712.8).
+            let adventure = layout == FaceLayout::Adventurer;
+            if faces.iter().any(|face| {
+                face.colors.is_some() == adventure || (adventure && face.color_indicator.is_some())
+            }) || (adventure && source.colors.is_none())
+            {
+                return Err(unsupported(
+                    "source.face",
+                    "unsupported part colors or color indicator",
                 ));
             }
             faces.into()
-        }
-        ("normal" | "modal_dfc", _) => {
-            return Err(unsupported(
-                "source.layout",
-                "unsupported normal or modal face shell",
-            ));
-        }
-        (layout, _) => {
-            return Err(unsupported("source.layout", format!("layout:{layout}")));
         }
     };
     if r.status != "parsed" {
@@ -186,7 +218,10 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
             if source.loyalty.is_some()
                 || source.defense.is_some()
                 || source.color_indicator.as_ref().is_some_and(|colors| {
-                    colors.is_empty() || colors.iter().any(|c| !source.colors.contains(c))
+                    colors.is_empty()
+                        || colors
+                            .iter()
+                            .any(|c| !source.colors.as_ref().is_some_and(|all| all.contains(c)))
                 })
             {
                 return Err(unsupported(
@@ -211,6 +246,7 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
     }
     let shape = decode(r.source.get(), "source")?;
     Ok(CardSource {
+        layout,
         record: r,
         shape,
         source,

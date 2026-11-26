@@ -3,6 +3,7 @@
 use super::*;
 use crate::{FunctioningZone, Instruction, SpellProgram, SpellResolution, SpellTiming};
 
+mod counter;
 mod counters;
 mod damage;
 mod destroy;
@@ -295,7 +296,15 @@ impl Walk<'_, '_> {
                 if self.env.event.is_none() || self.env.context != Context::Triggered {
                     return scope("event object outside a triggered ability");
                 }
-                return unaudited(format!("event object {role:?}"));
+                if self
+                    .env
+                    .event
+                    .and_then(|event| event.pattern().object_role())
+                    != Some(*role)
+                {
+                    return scope(format!("event does not bind object {role:?}"));
+                }
+                RefKind::Object
             }
             Ref::EnteringObject => return unaudited("entering-object reference"),
             Ref::LinkedPool { .. } => return unaudited("linked pool reference"),
@@ -600,7 +609,10 @@ impl Walk<'_, '_> {
             Cond::All { conditions } => conditions.iter().try_for_each(|c| self.condition(c)),
             // CR 603.4: only an intervening "if" reads these, through
             // [`Intervening`]; no resolving control node does.
-            Cond::Satisfies { .. } | Cond::CastBy { .. } => {
+            Cond::Satisfies { .. }
+            | Cond::CastBy { .. }
+            | Cond::ControlsOwnCommander { .. }
+            | Cond::OpponentControlsMore { .. } => {
                 unaudited("intervening condition in a resolving node")
             }
         }
@@ -984,6 +996,14 @@ impl Walk<'_, '_> {
                 payer,
                 payment,
                 node,
+            } if self.counter_payment(payer, payment, node) => {
+                self.player(payer)?;
+                self.node(node, false)
+            }
+            Node::UnlessPays {
+                payer,
+                payment,
+                node,
             }
             | Node::IfPays {
                 payer,
@@ -1159,6 +1179,8 @@ impl Walk<'_, '_> {
             | Verb::GiveCounters { .. } => {
                 unaudited("keyword action needs a top-level instruction")
             }
+            Verb::Counter { .. } => unaudited("counter requires a direct instruction or payment"),
+            Verb::Regenerate { .. } => unaudited("regeneration needs persistent provenance"),
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
@@ -1190,7 +1212,9 @@ impl Walk<'_, '_> {
     fn recipient_role(role: EventPlayerRole) -> bool {
         matches!(
             role,
-            EventPlayerRole::Caster | EventPlayerRole::ActivePlayer
+            EventPlayerRole::Caster
+                | EventPlayerRole::ActivePlayer
+                | EventPlayerRole::DrawingPlayer
         )
     }
 
@@ -1259,6 +1283,8 @@ impl Walk<'_, '_> {
                 what,
                 regeneration_forbidden,
             } => self.audit_destroy(what, *regeneration_forbidden),
+            Verb::Counter { what } => self.audit_counter(what),
+            Verb::Regenerate { what } => self.audit_regenerate(what),
             Verb::Move { what, to } => self.audit_move(what, to),
             Verb::Tap { what } => self.audit_tap(what),
             Verb::Untap { what } => self.audit_untap(what),
@@ -1321,17 +1347,22 @@ impl Walk<'_, '_> {
             {
                 Ok(Cell::Attachment)
             }
-            Verb::Regenerate { .. }
-            | Verb::AddMana { .. }
-            | Verb::Counter { .. }
+            Verb::AddMana { .. }
             | Verb::CopyStackObject { .. }
             | Verb::Attach { .. }
             | Verb::ReturnCapturedExile {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
-            | Verb::Transform { .. }
             | Verb::SetDesignation { .. }
             | Verb::Builtin { .. } => unaudited("verb"),
+            // CR 701.27a,f: a permanent's own activated or triggered ability
+            // transforms that permanent.
+            Verb::Transform { what: Ref::Source }
+                if matches!(self.env.context, Context::Activated | Context::Triggered) =>
+            {
+                Ok(Cell::TransformSource)
+            }
+            Verb::Transform { .. } => unaudited("transform operand"),
         }
     }
 
@@ -1414,8 +1445,17 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         Verb::Damage { to, amount, .. } => damage::capabilities(to, amount, out),
         Verb::Destroy { what, .. } => destroy::capabilities(what, out),
+        Verb::Counter { .. } => {
+            out.insert(Capability::CounterStackObjectV1);
+        }
+        Verb::Regenerate { .. } => {
+            out.insert(Capability::RegenerationShieldV1);
+        }
         Verb::Move { what, to } => move_zone::capabilities(what, to, out),
         Verb::Tap { what } => tap::tap_capabilities(what, out),
+        Verb::Transform { .. } => {
+            out.insert(Capability::TransformSourceV1);
+        }
         Verb::Untap { what } => tap::untap_capabilities(what, out),
         Verb::CreateTokens { token, .. } => tokens::capabilities(token, out),
         Verb::PutCounters { counter, .. } => counters::capabilities(counter, out),
@@ -1440,16 +1480,13 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         Verb::Scry { .. }
         | Verb::Surveil { .. }
-        | Verb::Regenerate { .. }
         | Verb::AddMana { .. }
         | Verb::Search { .. }
-        | Verb::Counter { .. }
         | Verb::CopyStackObject { .. }
         | Verb::Attach { .. }
         | Verb::ReturnCapturedExile {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
-        | Verb::Transform { .. }
         | Verb::SetDesignation { .. }
         | Verb::Shuffle { .. }
         | Verb::Builtin { .. } => {}
@@ -1556,6 +1593,8 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
     match event.pattern() {
         // CR 601.2: the caster of the triggering spell.
         EventPattern::Cast { .. } => &[EventPlayerRole::Caster],
+        EventPattern::Draws { .. } => &[EventPlayerRole::DrawingPlayer],
+        EventPattern::AttacksUnblocked { .. } => &[EventPlayerRole::DefendingPlayer],
         // CR 500: the player whose step began.
         EventPattern::StepBegins { .. } => &[EventPlayerRole::ActivePlayer],
         _ => &[],

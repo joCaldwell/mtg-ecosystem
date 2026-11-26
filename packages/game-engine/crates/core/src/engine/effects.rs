@@ -41,6 +41,9 @@ pub enum DamageKind {
 pub struct EffectOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activated_ability: Option<u32>,
+    /// CR 113.7a, 712.18: the face whose program created the effect.
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub source_face: CardFace,
     pub stack_id: StackId,
     pub source: ObjectId,
     pub controller: PlayerId,
@@ -102,7 +105,9 @@ impl ResolvedEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
-    RegenerationShield,
+    RegenerationShield {
+        target: ObjectId,
+    },
     ProtectControllerUntilNextTurn,
     RemoveIndestructibleSet {
         targets: Vec<ObjectId>,
@@ -504,7 +509,11 @@ impl RulesTxn {
                 .is_some_and(|active| self.static_player(player, source.controller, active)),
             Cond::Not { condition } => !self.static_condition(source, condition),
             Cond::All { conditions } => conditions.iter().all(|c| self.static_condition(source, c)),
-            Cond::CostPaid { .. } | Cond::Satisfies { .. } | Cond::CastBy { .. } => false,
+            Cond::CostPaid { .. }
+            | Cond::Satisfies { .. }
+            | Cond::CastBy { .. }
+            | Cond::ControlsOwnCommander { .. }
+            | Cond::OpponentControlsMore { .. } => false,
         }
     }
 
@@ -1076,7 +1085,8 @@ impl RulesTxn {
             StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
         };
         let target_handles = match &kind {
-            ResolvedEffectKind::GrantKeywords { target, .. }
+            ResolvedEffectKind::RegenerationShield { target }
+            | ResolvedEffectKind::GrantKeywords { target, .. }
             | ResolvedEffectKind::ModifyPowerToughness { target, .. }
             | ResolvedEffectKind::CombatProhibition {
                 affects: CombatProhibitionScope::Target { target },
@@ -1090,6 +1100,7 @@ impl RulesTxn {
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
+                source_face: self.entry(frame.stack_id)?.program_face(),
                 stack_id: frame.stack_id,
                 source: self.entry(frame.stack_id)?.source,
                 controller: self.entry(frame.stack_id)?.controller,
@@ -1194,7 +1205,13 @@ impl RulesTxn {
             cursor: frame.cursor,
             source_block: block,
         };
-        let handles = match &self.entry(frame.stack_id)?.kind {
+        let entry = self.entry(frame.stack_id)?;
+        let handles = match &entry.kind {
+            StackKind::Triggered { witness, .. } if damage.source.object != entry.source => witness
+                .observed_object()
+                .ok_or("missing damage object handles")?
+                .handles
+                .clone(),
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
             StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
@@ -1651,21 +1668,29 @@ impl RulesTxn {
                     (Frame::Resolve { frame }, _) => frame,
                     _ => return Err("effect outside resolving instruction".into()),
                 };
-                if self.entry(frame.stack_id)?.kind.activated_index()
-                    != effect.origin.activated_ability
-                    || self.entry(frame.stack_id)?.source != effect.origin.source
+                let entry = self.entry(frame.stack_id)?;
+                if entry.kind.activated_index() != effect.origin.activated_ability
+                    || entry.source != effect.origin.source
+                    || entry.program_face() != effect.origin.source_face
                     || frame.stack_id != effect.origin.stack_id
-                    || self.entry(frame.stack_id)?.controller != effect.origin.controller
+                    || entry.controller != effect.origin.controller
                     || frame.cursor != effect.origin.cursor
                 {
                     return Err("unbound continuous effect".into());
                 }
                 let instruction = self
-                    .program_for(self.entry(frame.stack_id)?)?
+                    .program_for(entry)?
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
+                    (
+                        kernel!(Regenerate { what } @ source_block),
+                        ResolvedEffectKind::RegenerationShield { target },
+                    ) => {
+                        *source_block == effect.origin.source_block
+                            && self.regeneration_target(frame, what)? == Some(*target)
+                    }
                     (
                         Instruction::Kernel {
                             node: mtg_contracts::kir::Node::Do(verb),
@@ -1795,7 +1820,8 @@ impl RulesTxn {
                                 })
                             })
                     }
-                    ResolvedEffectKind::GrantKeywords { target, .. }
+                    ResolvedEffectKind::RegenerationShield { target }
+                    | ResolvedEffectKind::GrantKeywords { target, .. }
                     | ResolvedEffectKind::ModifyPowerToughness { target, .. }
                     | ResolvedEffectKind::CombatProhibition {
                         affects: CombatProhibitionScope::Target { target },
@@ -2046,7 +2072,12 @@ impl RulesTxn {
                 }
                 last_setter = Some(*timestamp);
             }
-            if e.origin.stack_id.0 >= self.state.rules.next_stack_id {
+            if e.origin.stack_id.0 >= self.state.rules.next_stack_id
+                // CR 712.18: only a transforming card's program can come
+                // from a face other than the one its incarnation has.
+                || (e.origin.source_face != e.origin.source.face
+                    && !self.definition(e.origin.source.card)?.transforms())
+            {
                 return Err("effect origin stack identity invariant".into());
             }
 
@@ -2057,6 +2088,30 @@ impl RulesTxn {
             let mut bound = false;
             for instruction in instructions {
                 bound |= match (instruction, &e.kind) {
+                    (
+                        kernel!(Regenerate { what } @ source_block),
+                        ResolvedEffectKind::RegenerationShield { target },
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && self
+                                .current(*target)
+                                .is_ok_and(|o| o.zone == Zone::Battlefield)
+                            && e.target_handles.len() == 4
+                            && (0..4).all(|viewer| {
+                                self.object_handle_id(PlayerId(viewer), *target).is_ok_and(
+                                    |handle| *handle == e.target_handles[viewer as usize],
+                                )
+                            })
+                            && match what {
+                                SetExpr::One {
+                                    object: Ref::Source,
+                                } => *target == e.origin.source,
+                                SetExpr::One {
+                                    object: Ref::Target { .. },
+                                } => true,
+                                _ => false,
+                            }
+                    }
                     (
                         kernel!(GainControl { what, controller, until } @ source_block),
                         ResolvedEffectKind::GainControl {
@@ -2584,11 +2639,14 @@ impl RulesTxn {
                     expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
                 }
             }
-            ResolvedEffectKind::RegenerationShield => VisibleEffect::RegenerationShield {
-                handle,
-                origin,
-                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
-            },
+            ResolvedEffectKind::RegenerationShield { target } => {
+                VisibleEffect::RegenerationShield {
+                    handle,
+                    origin,
+                    target: target_view(*target)?,
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
 
             ResolvedEffectKind::RemoveIndestructibleSet { targets, .. } => {
                 VisibleEffect::RemoveIndestructibleSet {
@@ -2867,14 +2925,31 @@ impl RulesTxn {
                     .any(|values| values.animation.is_some()))
     }
 
-    // Copiable identity is immutable within each incarnation. Independent
-    // replay proves the continuous changes present at the capture boundary.
+    /// `validate_characteristic_identity` for captured facts, whose transform
+    /// count names the face they were captured with (CR 712.18).
+    pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
+        self.validate_characteristic_identity(fact.object, fact.transforms, &fact.characteristics)
+    }
+
+    // Copiable identity is immutable within each incarnation except for the
+    // face a transforming permanent has up, which `transforms` records.
+    // Independent replay proves the continuous changes present at the
+    // capture boundary.
     pub(crate) fn validate_characteristic_identity(
         &self,
         source: ObjectId,
+        transforms: u32,
         c: &Characteristics,
     ) -> Result<(), String> {
-        let mut base = self.copiable_definition(source)?.characteristics.clone();
+        let definition = self.definition(source.card)?;
+        if transforms > 0 && !definition.transforms() {
+            return Err("captured facts transformed a card that does not transform".into());
+        }
+        let mut base = definition
+            .face(face_after(source.face, transforms))
+            .ok_or("card has no selected face")?
+            .characteristics
+            .clone();
         if c.has_type(CardKind::Creature) != c.power.is_some()
             || c.power.is_some() != c.toughness.is_some()
         {
@@ -2956,6 +3031,7 @@ impl RulesTxn {
         current: ObjectBefore,
     ) -> bool {
         ObjectBefore {
+            transforms: frozen.transforms,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
             ..current
@@ -2966,7 +3042,7 @@ impl RulesTxn {
         damage: &PreparedDamage,
         fact: &ObjectBefore,
     ) -> Result<(), String> {
-        self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+        self.validate_fact_identity(fact)?;
         if fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || fact.marked_damage.is_negative()
@@ -2979,6 +3055,7 @@ impl RulesTxn {
             || (fact.attack_ready && !damage.source.attack_ready)
             || (fact.controller != damage.source.controller && fact.zone != Zone::Battlefield)
             || (ObjectBefore {
+                transforms: fact.transforms,
                 controller: fact.controller,
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
@@ -3047,11 +3124,16 @@ impl RulesTxn {
             {
                 return Err("damage source identity/quantity invariant".into());
             }
-            self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
+            self.validate_fact_identity(&d.source)?;
             if let Some(fact) = &d.source_appearance {
                 self.validate_source_appearance(d, fact)?;
             }
-            let source_definition = self.copiable_definition(d.source.object)?;
+            // CR 712.18: the face the damage source had when its facts were
+            // captured.
+            let source_definition = self.face_definition(
+                d.source.object.card,
+                face_after(d.source.object.face, d.source.transforms),
+            )?;
             let expected_keywords = source_definition.keywords.as_slice();
             let battlefield_creature = d.source.zone == Zone::Battlefield
                 && d.source.characteristics.has_type(CardKind::Creature);
@@ -3127,60 +3209,49 @@ impl RulesTxn {
                 } else if instruction.set_damage().is_some() {
                     self.validate_wipe_damage_transaction(tx, frame)?;
                 } else {
-                    let (target_slot, amount, source_block, recipient) = match instruction {
-                        kernel!(Damage {
-                            to: mtg_contracts::kir::DamageTo::Ref {
-                                who: mtg_contracts::kir::Ref::Target { slot: _ }
-                            },
-                            amount: fixed!(_),
-                            ..
-                        })
-                        | kernel!(Damage {
-                            to: mtg_contracts::kir::DamageTo::Ref {
-                                who: mtg_contracts::kir::Ref::Target { slot: _ }
-                            },
-                            amount: announced_x!(),
-                            ..
-                        }) => {
-                            let (slot, amount, block, target) = self.directed_damage_operands(
-                                self.entry(frame.stack_id)?,
-                                instruction,
-                            )?;
-                            (Some(slot), amount, block, target)
-                        }
-
-                        kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) => {
-                            (
-                                None,
-                                amount,
-                                *source_block,
-                                TargetEntity::Player {
-                                    player: self.entry(frame.stack_id)?.controller,
-                                },
-                            )
-                        }
-                        _ => return Err("damage continuation not damage instruction".into()),
+                    use mtg_contracts::kir::{DamageTo, Ref};
+                    let kernel!(Damage { source, to: DamageTo::Ref { who }, amount } @ source_block) =
+                        instruction
+                    else {
+                        return Err("damage continuation not damage instruction".into());
                     };
+                    let entry = self.entry(frame.stack_id)?;
+                    let (target_slot, recipient) = match who {
+                        Ref::Target { slot } => {
+                            (Some(*slot), self.directed_damage_target(entry, *slot)?)
+                        }
+                        Ref::Controller { .. } => (
+                            None,
+                            TargetEntity::Player {
+                                player: entry.controller,
+                            },
+                        ),
+                        _ => return Err("unexpected directed damage recipient".into()),
+                    };
+                    let (current_source, _) = self.damage_source(entry, *source)?;
                     let expected = BatchCause::Instruction {
                         stack_id: frame.stack_id,
                         player: self.entry(frame.stack_id)?.controller,
                         source: self.entry(frame.stack_id)?.source,
                         cursor: frame.cursor,
-                        source_block,
+                        source_block: *source_block,
                     };
                     let d = tx.entries.first().ok_or("empty noncombat damage")?;
+                    let controller = if matches!(source, Ref::EventObject { .. }) {
+                        d.source.controller
+                    } else {
+                        entry.controller
+                    };
+                    let amount = Self::directed_damage_amount(entry, amount, &d.source)?;
                     if tx.entries.len() != 1
                         || tx.cause != expected
-                        || d.original_amount != *amount
+                        || d.original_amount != amount
                         || recipient != d.recipient.entity()
                         || target_slot.is_some_and(|slot| {
                             frame.legal_targets.get(slot as usize) != Some(&true)
                         })
-                        || d.controller != self.entry(frame.stack_id)?.controller
-                        || !self.prepared_damage_source_matches(
-                            d,
-                            self.source_facts(self.entry(frame.stack_id)?)?,
-                        )
+                        || d.controller != controller
+                        || !self.prepared_damage_source_matches(d, current_source)
                     {
                         return Err("unbound noncombat damage transaction".into());
                     }
@@ -3226,10 +3297,7 @@ impl RulesTxn {
                         .as_deref()
                         .ok_or("missing consumed fixed-color protection facts")?;
                     let protector = &qualification.effect_source;
-                    self.validate_characteristic_identity(
-                        protector.object,
-                        &protector.characteristics,
-                    )?;
+                    self.validate_fact_identity(protector)?;
                     self.validate_source_appearance(d, &qualification.damage_source)?;
                     // Replay proves the already-consumed recipient and damage-time
                     // colors even when either object or its color provider left.

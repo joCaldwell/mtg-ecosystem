@@ -71,6 +71,17 @@ pub enum InterveningCheck {
         controller: PlayerId,
         cast: Option<EntryCast>,
     },
+    ControlsOwnCommander {
+        controller: PlayerId,
+        commander: Option<ObjectId>,
+        passed: bool,
+    },
+    OpponentControlsMore {
+        controller: PlayerId,
+        own: u32,
+        opponents: Vec<(PlayerId, u32)>,
+        passed: bool,
+    },
     ControllerHandEmpty {
         controller: PlayerId,
         hand_count: u32,
@@ -105,7 +116,9 @@ pub enum InterveningCheck {
 impl InterveningCheck {
     pub fn passed(&self) -> bool {
         match self {
-            Self::ControllerHandEmpty { passed, .. }
+            Self::ControlsOwnCommander { passed, .. }
+            | Self::OpponentControlsMore { passed, .. }
+            | Self::ControllerHandEmpty { passed, .. }
             | Self::ControllerComparison { passed, .. }
             | Self::SourceStatus { passed, .. }
             | Self::BattlefieldCount { passed, .. } => *passed,
@@ -138,6 +151,29 @@ impl InterveningCheck {
                             && c.spell.card == entrant.card
                             && c.spell.incarnation.checked_add(1) == Some(entrant.incarnation)
                     })
+            }
+            (
+                Intervening::ControlsOwnCommander,
+                Self::ControlsOwnCommander {
+                    controller: checked,
+                    commander,
+                    passed,
+                },
+            ) => *checked == controller && *passed == commander.is_some(),
+            (
+                Intervening::OpponentControlsMore { .. },
+                Self::OpponentControlsMore {
+                    controller: checked,
+                    own,
+                    opponents,
+                    passed,
+                },
+            ) => {
+                *checked == controller
+                    && opponents.len() <= 3
+                    && opponents.iter().all(|(p, _)| p.0 < 4 && *p != controller)
+                    && opponents.windows(2).all(|pair| pair[0].0 < pair[1].0)
+                    && *passed == opponents.iter().any(|(_, count)| count > own)
             }
             (
                 Intervening::ControllerHandEmpty,
@@ -330,6 +366,56 @@ impl RulesTxn {
                 controller,
                 cast,
             },
+            Intervening::ControlsOwnCommander => {
+                let commander = self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .find(|object| {
+                        object.present_on_battlefield()
+                            && object.controller == controller
+                            && self
+                                .state
+                                .rules
+                                .commanders
+                                .history(object.id.card)
+                                .is_some_and(|history| history.owner == controller)
+                    })
+                    .map(|object| object.id);
+                InterveningCheck::ControlsOwnCommander {
+                    controller,
+                    commander,
+                    passed: commander.is_some(),
+                }
+            }
+            Intervening::OpponentControlsMore { kind } => {
+                let mut counts = [0_u32; 4];
+                for object in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield())
+                {
+                    if self.characteristics(object.id)?.has_type(*kind) {
+                        counts[object.controller.0 as usize] += 1;
+                    }
+                }
+                let own = counts[controller.0 as usize];
+                let mut opponents = self
+                    .opponents(controller)
+                    .into_iter()
+                    .map(|p| (p, counts[p.0 as usize]))
+                    .collect::<Vec<_>>();
+                opponents.sort_unstable();
+                InterveningCheck::OpponentControlsMore {
+                    controller,
+                    own,
+                    passed: opponents.iter().any(|(_, count)| *count > own),
+                    opponents,
+                }
+            }
             Intervening::ControllerHandEmpty => {
                 let hand_count = self.trigger_hand_count(controller)?;
                 InterveningCheck::ControllerHandEmpty {
@@ -473,7 +559,7 @@ impl RulesTxn {
         if matches!(ability, EffectiveTriggerAbility::Followup { .. }) {
             return Ok(None);
         }
-        let definition = self.effective_trigger(stack.source, *ability)?;
+        let definition = self.effective_trigger(stack.source, stack.program_face(), *ability)?;
         let Some(condition) = intervening(&definition)? else {
             return Ok(None);
         };
@@ -513,7 +599,7 @@ impl RulesTxn {
             StackKind::Triggered {
                 ability: ability @ EffectiveTriggerAbility::Intrinsic { .. },
                 ..
-            } => Some(self.effective_trigger(entry.source, ability)?),
+            } => Some(self.effective_trigger(entry.source, entry.program_face(), ability)?),
             _ => None,
         };
         let expected = match &definition {
@@ -526,8 +612,11 @@ impl RulesTxn {
         {
             return Err("cast-entry resolution lost its match evidence".into());
         }
-        if let Some(InterveningCheck::ControllerComparison { passed: false, .. }) =
-            &frame.condition_check
+        if let Some(
+            InterveningCheck::ControllerComparison { passed: false, .. }
+            | InterveningCheck::ControlsOwnCommander { passed: false, .. }
+            | InterveningCheck::OpponentControlsMore { passed: false, .. },
+        ) = &frame.condition_check
             && (frame.cursor != 0
                 || frame.draw_progress.is_some()
                 || frame.each_player_draw.is_some()
@@ -598,6 +687,7 @@ impl RulesTxn {
     pub(super) fn validate_match_condition(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         check: Option<&InterveningCheck>,
@@ -623,7 +713,26 @@ impl RulesTxn {
         {
             return Err("cast-entry condition does not identify its completed movement".into());
         }
-        let definition = self.effective_trigger(source, ability)?;
+        if let Some(InterveningCheck::ControlsOwnCommander {
+            commander: Some(object),
+            ..
+        }) = check
+            && (self
+                .state
+                .rules
+                .commanders
+                .history(object.card)
+                .is_none_or(|c| c.owner != controller)
+                || self
+                    .state
+                    .rules
+                    .objects
+                    .get(&object.card)
+                    .is_none_or(|current| current.id.incarnation < object.incarnation))
+        {
+            return Err("invalid intervening commander evidence".into());
+        }
+        let definition = self.effective_trigger(source, face, ability)?;
         let expected = intervening(&definition)?;
         match (expected, check) {
             (None, None) => Ok(()),
@@ -653,7 +762,8 @@ impl RulesTxn {
         &'a self,
         origin: &EffectOrigin,
     ) -> Result<Vec<&'a SpellProgram>, String> {
-        let d = self.copiable_definition(origin.source)?;
+        // CR 113.7a: the program of the face that created the effect.
+        let d = self.face_definition(origin.source.card, origin.source_face)?;
         if let Some(index) = origin.activated_ability {
             return Ok(d
                 .activated

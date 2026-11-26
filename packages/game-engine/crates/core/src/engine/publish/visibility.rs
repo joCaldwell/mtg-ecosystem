@@ -191,7 +191,7 @@ pub(super) struct ProjectionCache {
 type ObjectCores = std::cell::RefCell<Arc<BTreeMap<ObjectId, Arc<ObjectCore>>>>;
 #[derive(Clone)]
 struct ObjectCore {
-    modal_faces: Option<VisibleModalFaces>,
+    faces: Option<VisibleFaces>,
     keywords: Vec<KeywordAbility>,
     granted_mana: Vec<ManaAbility>,
     restrictions: Vec<CreatureRestriction>,
@@ -390,7 +390,7 @@ impl RulesTxn {
             .ok_or("missing pending trigger")?;
         Ok(VisiblePendingTrigger {
             label: self
-                .trigger_source_label(trigger.source, trigger.ability)
+                .trigger_source_label(trigger.source, trigger.source_face, trigger.ability)
                 .map(str::to_owned),
             handle: self
                 .state
@@ -646,8 +646,8 @@ impl RulesTxn {
         if let Some(link) = &object.hideaway {
             return Ok(VisibleObject {
                 entered_this_turn: false,
-                modal_faces: if self.is_live(viewer) && link.may_look(viewer) {
-                    self.visible_modal_faces(object.id)?
+                faces: if self.is_live(viewer) && link.may_look(viewer) {
+                    self.visible_faces(object)?
                 } else {
                     None
                 },
@@ -702,7 +702,7 @@ impl RulesTxn {
         // Same position as the unshared projection: after this viewer's
         // attachment handles and before its own handle.
         let ObjectCore {
-            modal_faces,
+            faces,
             keywords,
             granted_mana,
             restrictions,
@@ -723,7 +723,7 @@ impl RulesTxn {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
-            modal_faces,
+            faces,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
@@ -759,16 +759,15 @@ impl RulesTxn {
             tapped: object.tapped,
         })
     }
-    fn visible_modal_faces(&self, object: ObjectId) -> Result<Option<VisibleModalFaces>, String> {
-        let definition = self.definition(object.card)?;
-        Ok(definition
-            .modal_back
-            .as_ref()
-            .map(|back| VisibleModalFaces {
-                front_name: definition.name.clone(),
-                back_name: back.name.clone(),
-                active_face: object.face,
-            }))
+    fn visible_faces(&self, object: &Object) -> Result<Option<VisibleFaces>, String> {
+        let definition = self.definition(object.id.card)?;
+        Ok(definition.back_face.as_ref().map(|back| VisibleFaces {
+            layout: definition.layout,
+            front_name: definition.name.clone(),
+            back_name: back.name.clone(),
+            active_face: object.face(),
+            on_adventure: object.adventure_player.is_some(),
+        }))
     }
 
     // Rows of a visible, face-up object that no viewer's handles enter, in the
@@ -781,7 +780,7 @@ impl RulesTxn {
     ) -> Result<ObjectCore, String> {
         let static_sources = index.map(|index| index.static_sources.as_slice());
         Ok(ObjectCore {
-            modal_faces: self.visible_modal_faces(object.id)?,
+            faces: self.visible_faces(object)?,
             keywords: if object.zone == Zone::Battlefield {
                 let keywords = self.current_keywords_with_sources(object.id, static_sources);
                 if self.target_is_creature(object.id) {
@@ -982,7 +981,7 @@ impl RulesTxn {
             hybrid_colors: instance.hybrid_colors.clone(),
             mana_value: (instance.kind.is_spell()
                 && (instance.x.is_some()
-                    || self.definition(instance.source.card)?.modal_back.is_some()))
+                    || self.definition(instance.source.card)?.back_face.is_some()))
             .then(|| self.stack_mana_value(instance))
             .transpose()?,
             triggered,

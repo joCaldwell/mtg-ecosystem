@@ -378,9 +378,20 @@ pub fn matches_target_domain(
     }
 }
 
-/// CR 601.2c: a stack-spell filter names alternative card types only.
-pub fn spell_matches_filter(spell: &Characteristics, filter: &PermanentFilter) -> bool {
-    filter.types.iter().any(|kind| spell.has_type(*kind))
+/// CR 202.3e, 601.2c: use the announced spell's types and stack mana value.
+pub fn spell_matches_filter(
+    spell: &Characteristics,
+    mana_value: &Quantity,
+    filter: &PermanentFilter,
+) -> bool {
+    (filter.types.is_empty() || filter.types.iter().any(|kind| spell.has_type(*kind)))
+        && !filter.non_types.iter().any(|kind| spell.has_type(*kind))
+        && filter.predicate.as_ref().is_none_or(|pred| {
+            pred.0.iter().all(|atom| match atom {
+                Atom::ManaValue { cmp, value } => compare(Some(mana_value), *cmp, value),
+                _ => false,
+            })
+        })
 }
 
 /// A visible object alone. Facts that need the surrounding view are unknown;

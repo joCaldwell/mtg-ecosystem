@@ -124,6 +124,7 @@ pub enum Cell {
     // CR 120: damage.
     DamageTarget,
     DamageTargetX,
+    DamageEventObject,
     DamageController,
     DamageSet,
     DamageSelectedPlayers,
@@ -148,6 +149,9 @@ pub enum Cell {
     MoveSet,
     // CR 301.5 and 303.4: the attachment shell and its host.
     Attachment,
+    CounterStackTarget,
+    RegenerateSource,
+    RegenerateTarget,
     // CR 701.26: tap and untap.
     TapTarget,
     TapTargetGroup,
@@ -156,6 +160,8 @@ pub enum Cell {
     UntapTarget,
     UntapSet,
     UntapControllerLands,
+    /// CR 701.27a,f: a permanent's ability transforms that permanent.
+    TransformSource,
     // CR 701.17: mill.
     MillController,
     MillTargetPlayer,
@@ -182,6 +188,7 @@ pub enum Cell {
     TokensForTargetController,
     // CR 122: counters.
     PlusOneCountersSource,
+    PlusOneCountersEventObject,
     PlusOneCountersTarget,
     PlusOneCountersSet,
     // CR 611.2c, 613: until end of turn.
@@ -304,6 +311,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DrawEachPlayer
         | C::DrawEventPlayer
         | C::DamageTargetX
+        | C::DamageEventObject
         | C::DamageSet
         | C::DamageSelectedPlayers
         | C::DestroyTargetPermanent
@@ -319,6 +327,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ExileGraveyards
         | C::MoveSet
         | C::Attachment
+        | C::CounterStackTarget
+        | C::RegenerateSource
+        | C::RegenerateTarget
         | C::TapTarget
         | C::TapTargetGroup
         | C::TapStatusSource
@@ -326,6 +337,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::UntapTarget
         | C::UntapSet
         | C::UntapControllerLands
+        | C::TransformSource
         | C::MillController
         | C::MillTargetPlayer
         | C::MillTargetPlayerX
@@ -344,6 +356,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::PlusOneCountersSet
+        | C::PlusOneCountersEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
         | C::SourceKeywordsUntilEndOfTurn
@@ -433,7 +446,12 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::AnyDamageTargetV1
         | C::NoncombatDamageV1
         | C::SelfDiesV1 => Tiers::SEARCH_HOSTING,
-        C::ModalChoiceV1 | C::ModalDoubleFacedV1 | C::GrantedManaAbilitiesV1 => Tiers::EXECUTES,
+        C::ModalChoiceV1
+        | C::ModalDoubleFacedV1
+        | C::TransformingDoubleFacedV1
+        | C::AdventurerV1
+        | C::TransformSourceV1
+        | C::GrantedManaAbilitiesV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1
@@ -524,6 +542,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::FightV1
         | C::PopulateV1
         | C::PlayerCountersV1
+        | C::RegenerationShieldV1
         | C::ProliferateV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1
@@ -669,7 +688,7 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             _ => {}
         }
     }
-    if let Some(back) = &d.modal_back {
+    if let Some(back) = &d.back_face {
         cells.extend(definition_cells(back)?);
     }
     Ok(cells)

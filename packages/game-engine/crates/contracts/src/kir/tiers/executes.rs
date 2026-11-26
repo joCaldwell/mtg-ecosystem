@@ -65,15 +65,14 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => {
             (Route::Object, ANY)
         }
-        TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-            (Route::Stack, SPELL | ACTIVATED)
-        }
+        TargetDomain::StackSpell
+        | TargetDomain::ControlledCreatureSpell
+        | TargetDomain::StackActivatedOrTriggeredAbility => (Route::Stack, SPELL | ACTIVATED),
         TargetDomain::PlayerOrPlaneswalker => (Route::Player, SPELL),
         TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
-        | TargetDomain::BlockingBattlefieldCreature
-        | TargetDomain::ControlledCreatureSpell => return None,
+        | TargetDomain::BlockingBattlefieldCreature => return None,
     })
 }
 
@@ -112,7 +111,9 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
             | kir::Cond::Exists { .. }
             | kir::Cond::ActivePlayer { .. }
             | kir::Cond::Satisfies { .. }
-            | kir::Cond::CastBy { .. } => {}
+            | kir::Cond::CastBy { .. }
+            | kir::Cond::ControlsOwnCommander { .. }
+            | kir::Cond::OpponentControlsMore { .. } => {}
         }
     }
     match node {
@@ -327,31 +328,40 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                     | TargetDomain::StackSpell
                     | TargetDomain::OwnGraveyardCard
                     | TargetDomain::OwnGraveyardCreatureCard
-            ) || (matches!(
-                t.domain,
-                TargetDomain::StackSpell
-                    | TargetDomain::OwnGraveyardCard
-                    | TargetDomain::OwnGraveyardCreatureCard
-            ) && ((f.types.is_empty() && f.predicate.is_none())
-                || !f.non_types.is_empty()
-                || !f.non_colors.is_empty()
-                || f.opponent
-                || f.power.is_some()
-                || f.tapped))
+            ) || (t.domain == TargetDomain::StackSpell
+                && (f.types.is_empty() && f.non_types.is_empty() && f.predicate.is_none()
+                    || !f.non_colors.is_empty()
+                    || f.opponent
+                    || f.power.is_some()
+                    || f.tapped))
+                || (matches!(
+                    t.domain,
+                    TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+                ) && ((f.types.is_empty() && f.predicate.is_none())
+                    || !f.non_types.is_empty()
+                    || !f.non_colors.is_empty()
+                    || f.opponent
+                    || f.power.is_some()
+                    || f.tapped))
                 || (matches!(t.domain, TargetDomain::OwnGraveyardCreatureCard)
                     && (!f.types.is_empty() || f.predicate.is_none()))
                 || f.predicate.as_ref().is_some_and(|predicate| {
-                    t.domain == TargetDomain::StackSpell
-                        || f.power.is_some()
-                        || kir::audit_target_predicate(
-                            predicate,
-                            matches!(
-                                t.domain,
-                                TargetDomain::OwnGraveyardCard
-                                    | TargetDomain::OwnGraveyardCreatureCard
-                            ),
-                        )
-                        .is_err()
+                    if t.domain == TargetDomain::StackSpell {
+                        !matches!(predicate.0.as_slice(),
+                            [kir::Atom::ManaValue { value: kir::Amount::Fixed { value }, .. }]
+                                if !value.is_negative())
+                    } else {
+                        f.power.is_some()
+                            || kir::audit_target_predicate(
+                                predicate,
+                                matches!(
+                                    t.domain,
+                                    TargetDomain::OwnGraveyardCard
+                                        | TargetDomain::OwnGraveyardCreatureCard
+                                ),
+                            )
+                            .is_err()
+                    }
                 })
                 || f.types
                     .iter()
@@ -762,7 +772,7 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
 pub(crate) fn validate(d: &Definition) -> Result<(), String> {
     let p = &d.provenance;
     let source: serde_json::Value = strict_read(&p.source_json)?;
-    let abilities_json = match &d.modal_back {
+    let abilities_json = match &d.back_face {
         Some(back) => format!("[{},{}]", p.abilities_json, back.provenance.abilities_json),
         None => format!("[{}]", p.abilities_json),
     };
@@ -772,40 +782,110 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
     {
         return Err("invalid source/AST provenance".into());
     }
-    if let Some(back) = &d.modal_back {
-        let printed = source["card_faces"]
-            .as_array()
-            .filter(|faces| faces.len() == 2)
-            .ok_or("modal double-faced definition requires two printed faces")?;
-        if source["layout"] != "modal_dfc"
-            || !back.composed
-            || back.modal_back.is_some()
-            || back.oracle_id != d.oracle_id
-            || back.characteristics.color_identity != d.characteristics.color_identity
-            || source["color_identity"]
-                != serde_json::to_value(&d.characteristics.color_identity)
-                    .map_err(|e| e.to_string())?
-            || [d, back].into_iter().zip(printed).any(|(face, source)| {
-                source["name"] != face.name
-                    || face.source_labels.is_none()
-                    || face.flashback.is_some()
-            })
-        {
-            return Err("unsupported or inconsistent modal double-faced definition".into());
-        }
-        let mut back_provenance = back.provenance.clone();
-        back_provenance.abilities_json.clone_from(&p.abilities_json);
-        if &back_provenance != p {
-            return Err("modal double-faced source provenance differs by face".into());
-        }
-        validate_face(d, &printed[0])?;
-        validate_face(back, &printed[1])
-    } else {
-        if source["layout"] == "modal_dfc" {
-            return Err("modal double-faced definition requires its back face".into());
-        }
-        validate_face(d, &source)
+    // Scryfall's layout names the printed relationship of the two parts
+    // (https://scryfall.com/docs/api/layouts); every other layout rejects.
+    let layout = match source["layout"].as_str() {
+        Some("modal_dfc") => FaceLayout::ModalDoubleFaced,
+        Some("transform") => FaceLayout::Transforming,
+        Some("adventure") => FaceLayout::Adventurer,
+        _ => FaceLayout::Single,
+    };
+    if d.layout != layout || d.back_face.is_some() == layout.is_single() {
+        return Err("definition layout disagrees with its printed source".into());
     }
+    let Some(back) = &d.back_face else {
+        if d.characteristics.front_face_mana_value.is_some() || adventure_subtype(d) {
+            return Err("single-face definition has two-part characteristics".into());
+        }
+        return validate_face(d, &source);
+    };
+    let printed = source["card_faces"]
+        .as_array()
+        .filter(|faces| faces.len() == 2)
+        .ok_or("two-part definition requires two printed faces")?;
+    if !back.composed
+        || !back.layout.is_single()
+        || back.back_face.is_some()
+        || back.oracle_id != d.oracle_id
+        || back.characteristics.color_identity != d.characteristics.color_identity
+        || source["color_identity"]
+            != serde_json::to_value(&d.characteristics.color_identity).map_err(|e| e.to_string())?
+        || [d, back].into_iter().zip(printed).any(|(face, source)| {
+            source["name"] != face.name || face.source_labels.is_none() || face.flashback.is_some()
+        })
+        || d.characteristics.front_face_mana_value.is_some()
+        || adventure_subtype(d)
+    {
+        return Err("unsupported or inconsistent two-part definition".into());
+    }
+    let permanent = |d: &Definition| {
+        !matches!(
+            d.characteristics.kind,
+            CardKind::Instant | CardKind::Sorcery
+        )
+    };
+    let shape = match d.layout {
+        FaceLayout::ModalDoubleFaced => {
+            back.characteristics.front_face_mana_value.is_none() && !adventure_subtype(back)
+        }
+        // CR 712.2, 712.8e, 712.10, 202.3b: both faces of an admitted
+        // transforming card are permanents; the back face has no mana cost
+        // and takes its mana value from the front face's mana cost. A
+        // permanent that stops being a creature leaves combat (CR 506.4);
+        // that transition has no reviewed executor, so either both faces
+        // are creatures or neither is.
+        FaceLayout::Transforming => {
+            let c = &back.characteristics;
+            permanent(d)
+                && permanent(back)
+                && d.characteristics.has_type(CardKind::Creature) == c.has_type(CardKind::Creature)
+                && c.mana_cost.generic == Quantity::zero()
+                && c.mana_cost.colored.is_empty()
+                && c.hybrid_mana.is_empty()
+                && !back.x_mana_cost
+                && !d.x_mana_cost
+                && c.front_face_mana_value.as_ref()
+                    == Some(
+                        &Characteristics {
+                            front_face_mana_value: None,
+                            ..d.characteristics.clone()
+                        }
+                        .printed_mana_value(),
+                    )
+                && !adventure_subtype(back)
+        }
+        // CR 715.2-715.3: the inset Adventure is an instant or sorcery spell
+        // with no ability other than its spell effect; the card's normal
+        // characteristics are a permanent's.
+        FaceLayout::Adventurer => {
+            permanent(d)
+                && !permanent(back)
+                && adventure_subtype(back)
+                && back.spell.is_some()
+                && back.characteristics.front_face_mana_value.is_none()
+                && back.activated.is_empty()
+                && back.triggered.is_empty()
+                && back.mana_abilities.is_empty()
+                && back.static_abilities.is_empty()
+                && back.keywords.is_empty()
+        }
+        FaceLayout::Single => false,
+    };
+    if !shape {
+        return Err("unsupported or inconsistent two-part definition".into());
+    }
+    let mut back_provenance = back.provenance.clone();
+    back_provenance.abilities_json.clone_from(&p.abilities_json);
+    if &back_provenance != p {
+        return Err("two-part source provenance differs by face".into());
+    }
+    validate_face(d, &printed[0])?;
+    validate_face(back, &printed[1])
+}
+
+/// CR 715.2: the Adventure subtype marks an adventurer's inset spell.
+fn adventure_subtype(d: &Definition) -> bool {
+    d.characteristics.subtypes.iter().any(|s| s == "Adventure")
 }
 
 fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), String> {
@@ -871,7 +951,12 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         || c.snow
         || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
-            unsupported_rules_subtype(s)
+            // CR 715.2: only an instant or sorcery Adventure; `validate`
+            // admits it only as an adventurer's back part.
+            (unsupported_rules_subtype(s)
+                && !(s == "Adventure"
+                    && matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+                    && c.subtypes == ["Adventure"]))
                 || (s == "Aura" && (c.kind != CardKind::Enchantment || c.subtypes != ["Aura"]))
                 || (s == "Equipment"
                     && (c.kind != CardKind::Artifact || c.subtypes != ["Equipment"]))
@@ -1324,8 +1409,8 @@ mod tests {
             assert!(d.validate().is_err());
         }
 
-        // Cost row: an entity-routed target cannot be paid with pure mana,
-        // and a stack target cannot be paid by tapping.
+        // Cost row: the entity route admits pure tap, and the stack route
+        // admits mana. Pure tap on the stack route remains unaudited.
         let mana = ActivationCost::Mana {
             cost: ManaCost {
                 generic: 1.into(),
@@ -1358,7 +1443,7 @@ mod tests {
                 ))
             })
         };
-        assert!(counter(mana).validate().is_err());
+        counter(mana).validate().unwrap();
         assert!(counter(ActivationCost::TapSource).validate().is_err());
 
         // Target row: a triggered ability cannot announce a stack target.

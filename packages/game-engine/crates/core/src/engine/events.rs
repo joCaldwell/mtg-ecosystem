@@ -28,6 +28,13 @@ pub enum BatchCause {
     DrawStep {
         player: PlayerId,
     },
+    InstructionDraw {
+        stack_id: StackId,
+        player: PlayerId,
+        source: ObjectId,
+        cursor: u32,
+        source_block: u32,
+    },
     ManaActivation {
         decision_id: u64,
         player: PlayerId,
@@ -80,6 +87,7 @@ impl BatchCause {
             Self::TurnProgression => &["106.4", "500.5", "800.4j"],
             Self::UntapStep => &["502.3", "502.4"],
             Self::DrawStep { .. } => &["504.1", "400.7"],
+            Self::InstructionDraw { .. } => &["121.1", "121.2", "400.7", "608.2"],
             Self::ManaActivation { .. } => &["106.3", "305.6", "605.3b"],
             Self::Casting { .. } | Self::Payment { .. } => &["601.2"],
             Self::CastReversal { .. } => &["733.1", "733.2"],
@@ -102,6 +110,9 @@ pub enum EventGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectBefore {
+    /// CR 701.27a: the object's transform count (`Object::transforms`).
+    #[serde(default, skip_serializing_if = "state::is_zero_count")]
+    pub transforms: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -215,7 +226,7 @@ pub struct TurnBefore {
     pub live_turn_order: Vec<PlayerId>,
     pub stack_empty: bool,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OccurrenceId {
     pub batch: u64,
@@ -285,6 +296,7 @@ enum BatchAuthority<'a> {
         &'a [regeneration::ShieldMember],
     ),
     CreateRegenerationShield,
+    CounterStackObject,
     PlaceCounters,
     /// CR 614.1c, 614.12: the entry replacements chosen for each entrant
     /// of one entry batch, all read against the same prior state.
@@ -836,8 +848,8 @@ impl RulesTxn {
                 .iter()
                 .filter(|effect| {
                     events.iter().any(|event| {
-                            (matches!(effect.kind, ResolvedEffectKind::RegenerationShield) &&
-                                regeneration::destruction_object(event) == Some(effect.origin.source)) ||
+                            matches!(effect.kind, ResolvedEffectKind::RegenerationShield { target }
+                                if regeneration::destruction_object(event) == Some(target)) ||
                             matches!(event, ProposedEvent::LandPlayed { player }
                                 if effect.additional_land_plays(*player, self.state.rules.turn.number).is_some())
                         })
@@ -1005,7 +1017,8 @@ impl RulesTxn {
                         | ResolvedEffectKind::SetCharacteristics { targets, .. }
                         | ResolvedEffectKind::PumpAnnouncedX { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
-                        ResolvedEffectKind::GrantKeywords { target, .. }
+                        ResolvedEffectKind::RegenerationShield { target }
+                        | ResolvedEffectKind::GrantKeywords { target, .. }
                         | ResolvedEffectKind::ModifyPowerToughness { target, .. }
                         | ResolvedEffectKind::CombatProhibition {
                             affects: mtg_contracts::kir::CombatProhibitionScope::Target { target },
@@ -1581,7 +1594,7 @@ impl RulesTxn {
             .any(|event| regeneration::creates_shield(event))
         {
             let Frame::Resolve { frame } = &self.state.rules.frame else {
-                return Err("regeneration shield requires a resolving activation".into());
+                return Err("regeneration shield requires a resolving instruction".into());
             };
             let EventGroup::Occurrence {
                 proposed: ProposedEvent::CreateEffect { effect },
@@ -1594,6 +1607,12 @@ impl RulesTxn {
                 return Err("regeneration shield creation cause mismatch".into());
             }
             BatchAuthority::CreateRegenerationShield
+        } else if events
+            .iter()
+            .any(|event| matches!(event, ProposedEvent::CounterStackObject { .. }))
+        {
+            self.authorize_counter(&cause, &group)?;
+            BatchAuthority::CounterStackObject
         } else if let Some(proof) = &replacement {
             regeneration_members = match &self.state.rules.frame {
                 Frame::GraveyardGroup { tx } if tx.is_publication(&cause, &group) => {
@@ -1975,6 +1994,7 @@ impl RulesTxn {
             owner
         };
         self.remove_from_combat(*object);
+        self.remove_regeneration_shields(*object);
         for library in self.rules_mut().libraries.values_mut() {
             library.retain(|c| *c != object.card);
         }
@@ -2035,6 +2055,8 @@ impl RulesTxn {
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 plus_one_counters,
+                transforms: 0,
+                adventure_player: None,
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
@@ -2070,7 +2092,7 @@ impl RulesTxn {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        self.validate_characteristic_identity(object, &fact.characteristics)?;
+        self.validate_characteristic_identity(object, fact.transforms, &fact.characteristics)?;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone
@@ -2497,15 +2519,9 @@ impl RulesTxn {
                     }
                 }
             }
-            ProposedEvent::CounterStackObject {
-                target,
-                countering,
-                domain,
-            } => {
-                if countering.0 >= self.state.rules.next_stack_id
-                    || !self.stack_target_legal(*target, *countering, *domain)
-                {
-                    return Err("invalid countered stack object".into());
+            ProposedEvent::CounterStackObject { target, .. } => {
+                if !matches!(authority, BatchAuthority::CounterStackObject) {
+                    return Err("counter requires authenticated resolution".into());
                 }
                 let index = self
                     .state
@@ -2515,6 +2531,9 @@ impl RulesTxn {
                     .position(|entry| entry.id == *target)
                     .ok_or("missing counter target")?;
                 let entry = &self.state.rules.stack[index];
+                if !self.stack_entry_complete(entry) {
+                    return Err("counter target is incomplete".into());
+                }
                 if self.spell_cannot_be_countered(entry)? {
                     return Ok(EventOutcome::CounterPrevented { target: *target });
                 }
@@ -2528,13 +2547,7 @@ impl RulesTxn {
                         .get(&source.card)
                         .ok_or("missing countered spell physical card")?
                         .owner;
-                    let destination = self.stack_departure(
-                        entry,
-                        replacement
-                            .and_then(|proof| proof.get(&source))
-                            .copied()
-                            .unwrap_or(Zone::Graveyard { owner }),
-                    );
+                    let destination = self.stack_departure(entry, Zone::Graveyard { owner });
                     let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                         &ProposedEvent::Move {
                             object: source,
@@ -2938,8 +2951,31 @@ impl RulesTxn {
                     owner: *owner,
                 }
             }
-            ProposedEvent::Transform { .. } => {
-                return Err("unsupported transform invocation".into());
+            // CR 701.27a, 712.18: the same object turns over; every effect
+            // that applied to it continues to apply.
+            ProposedEvent::Transform { object } => {
+                let o = self.current(*object)?;
+                let definition = self.definition(object.card)?;
+                let next = o.transforms.checked_add(1).ok_or("transform count limit")?;
+                if !o.present_on_battlefield()
+                    || !definition.transforms()
+                    || definition
+                        .face(state::face_after(object.face, next))
+                        .is_none_or(|face| {
+                            matches!(
+                                face.characteristics.kind,
+                                CardKind::Instant | CardKind::Sorcery
+                            )
+                        })
+                {
+                    return Err("invalid transform event".into());
+                }
+                self.rules_mut()
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing transforming object")?
+                    .transforms = next;
+                EventOutcome::Transformed { object: *object }
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;
@@ -3088,6 +3124,7 @@ impl RulesTxn {
                     .commander_returns
                     .retain(|id| id.card != object.card);
                 self.remove_from_combat(*object);
+                self.remove_regeneration_shields(*object);
                 for library in self.rules_mut().libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }

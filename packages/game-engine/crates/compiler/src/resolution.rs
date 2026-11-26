@@ -236,8 +236,21 @@ impl Resolution {
             let RefEntry::Ref(r) = entry else { continue };
             let expression = ability.pointer(&r.path);
             let ResolvedRef::Target(t) = &*r.r#ref else {
-                // CR 608.2b-c: the singular follow-up lowerers for these
-                // object effects consume only an announced antecedent.
+                if let ResolvedRef::EventObject(event) = &*r.r#ref
+                    && (Site {
+                        kind: BlockKind::of(ability),
+                        ability,
+                        block,
+                        path: &r.path,
+                        scope: r.scope.as_deref(),
+                        operand: expression,
+                    })
+                    .observed_object(&event.role)
+                {
+                    continue;
+                }
+                // CR 608.2b-c: other singular follow-up object effects
+                // consume an announced antecedent.
                 if expression.is_some_and(|e| matches!(e["ref"].as_str(), Some("it" | "that")))
                     && r.path.rsplit_once('/').is_some_and(|(step, operand)| {
                         matches!(operand, "what" | "on")
@@ -419,6 +432,38 @@ impl Resolution {
         Ok(block.refs.iter().any(|entry| entry_path(entry) == path))
     }
 
+    pub(super) fn binds_counter_payer(
+        &self,
+        index: usize,
+        who: &str,
+        implicit: &str,
+        slot: u32,
+    ) -> Result<bool, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        let of = format!("{who}/of");
+        let selection = block.refs.iter().any(
+            |entry| matches!(entry, RefEntry::Evaluated(e) if e.path == who && e.scope.is_none()),
+        );
+        let target = block.refs.iter().any(|entry| {
+            matches!(entry, RefEntry::Ref(r) if r.path == of && r.scope.is_none()
+                && matches!(&*r.r#ref, ResolvedRef::Target(t) if t.slot == i64::from(slot)))
+        });
+        let payer = block
+            .refs
+            .iter()
+            .find(|entry| entry_path(entry) == implicit);
+        Ok(selection
+            && target
+            && payer.is_some_and(|entry| {
+                matches!(entry, RefEntry::Ref(r) if r.scope.is_none()
+                && matches!(&*r.r#ref, ResolvedRef::StepResult(p)
+                    if p.step == who && p.role == crate::ast::StepResultRole::Selection))
+            }))
+    }
+
     /// CR 109.5, 603.2, 608.2d: the kernel player a printed player operand
     /// of block `index` at `path` resolves to: the block's own controller
     /// ("you") or a kernel event player of its own trigger. Any other
@@ -577,6 +622,7 @@ impl Resolution {
 pub(super) fn kernel_event_player(role: &str) -> Option<(kir::EventPlayerRole, &'static str)> {
     match role {
         "active-player" => Some((kir::EventPlayerRole::ActivePlayer, "phase")),
+        "draws" => Some((kir::EventPlayerRole::DrawingPlayer, "draws")),
         "caster" => Some((kir::EventPlayerRole::Caster, "cast")),
         "activating-player" => Some((kir::EventPlayerRole::ActivatingPlayer, "activate")),
         _ => None,
@@ -688,6 +734,26 @@ impl Site<'_> {
     fn selection(&self) -> bool {
         self.operand.is_some_and(|e| e.get("selectionId").is_some())
     }
+    /// CR 603.2, 608.2h: these resolving operands read the event's object.
+    /// Share the exact row with the later announcement-slot validation.
+    fn observed_object(&self, role: &str) -> bool {
+        self.kind == BlockKind::Triggered
+            && self.scope.is_none()
+            && self.word() == Some("it")
+            && matches!(role, "enters" | "attacks")
+            && self.ability["trigger"]["trigger"] == role
+            && matches!(
+                (
+                    self.ability["effects"][0]["steps"][0]["effect"].as_str(),
+                    self.path
+                ),
+                (
+                    Some("damage"),
+                    "/effects/0/steps/0/source" | "/effects/0/steps/0/amount/of"
+                ) | (Some("put-counters"), "/effects/0/steps/0/on")
+                    | (Some("pump"), "/effects/0/steps/0/what")
+            )
+    }
     /// The bare printed player "you".
     fn you(&self) -> bool {
         self.operand.is_some_and(|e| {
@@ -726,9 +792,20 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
             && controller_row(resolved, at);
     }
     let word = at.word();
+    if at.kind == BlockKind::Triggered
+        && at.path == "/condition/what"
+        && at.scope.is_none()
+        && word == Some("commander")
+        && at.ability["condition"]["condition"] == "control"
+    {
+        return resolved.is_none();
+    }
     let reflexive = at.ability.pointer("/effects/1/steps/0/effect")
         == Some(&Value::from("create-reflexive-trigger"));
     if let Some(ResolvedRef::EventObject(event)) = resolved {
+        if at.observed_object(&event.role) {
+            return true;
+        }
         let self_event = at
             .ability
             .pointer("/trigger/what/ref")

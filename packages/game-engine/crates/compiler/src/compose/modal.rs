@@ -217,6 +217,7 @@ pub(super) fn lower(
             &mut slots,
             Context::Spell,
             |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
+            PlayerBinding::Unbound,
         )?;
         modes.push(mode);
     }

@@ -44,6 +44,13 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
                 spell: Pred::default(),
             }),
         ),
+        (
+            "draws",
+            "draws",
+            TriggerCondition::on(EventPattern::Draws {
+                player: PlayerExpr::EachOpponent,
+            }),
+        ),
     ] {
         let (kernel, supplier) = resolution::kernel_event_player(role).unwrap();
         assert_eq!(
@@ -65,6 +72,7 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
     for (role, scope, ability) in [
         ("active-player", None, &cast),
         ("caster", None, &upkeep),
+        ("draws", None, &cast),
         ("active-player", Some("/effects/0/steps/0"), &upkeep),
         ("activating-player", None, &draws),
     ] {
@@ -76,10 +84,7 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
             "{role} {scope:?}"
         );
     }
-    // An event player the kernel does not name keeps its trigger discriminant;
-    // the lowerer that reads it decides (composition reads no such role yet).
     assert!(event_player_block("draws", None).references(&draws).is_ok());
-    assert_eq!(resolution::kernel_event_player("draws"), None);
 }
 
 /// One block with a single resolved reference entry.

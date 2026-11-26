@@ -17,13 +17,25 @@ pub struct NoncombatDamageOccurrence {
     pub amount: Quantity,
 }
 fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
+    for target in &mut entry.target_triggers {
+        target.refresh_source(fact);
+    }
+    if let StackKind::Triggered { witness, .. } = &mut entry.kind {
+        witness.refresh_observed_object(fact);
+    }
     if entry.source == fact.object && entry.source_facts.is_some() {
         entry.source_facts = Some(fact.clone());
     }
 }
 /// Whether `update_entry` would write `entry` for this departure.
 fn reads_last_known(entry: &StackInstance, fact: &ObjectBefore) -> bool {
-    entry.source == fact.object && entry.source_facts.is_some()
+    entry
+        .target_triggers
+        .iter()
+        .any(|target| target.source() == fact.object)
+        || (entry.source == fact.object && entry.source_facts.is_some())
+        || matches!(&entry.kind, StackKind::Triggered { witness, .. }
+            if witness.observed_object().is_some_and(|binding| binding.last_known.object == fact.object))
 }
 fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &ObjectBefore) {
     for entry in entries {
@@ -47,6 +59,7 @@ impl RulesTxn {
     pub(crate) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
+            transforms: o.transforms,
             battlefield_entry_turn: o.battlefield_entry_turn,
             keyword_timestamp: o.keyword_timestamp,
             keywords: { self.current_keywords(object) },
@@ -92,6 +105,7 @@ impl RulesTxn {
             }
         }
         for trigger in &mut rules.pending_triggers {
+            trigger.witness.refresh_observed_object(fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }
@@ -252,6 +266,7 @@ impl RulesTxn {
                 old.extend(new);
             }
         }
+        self.stage_target_triggers()?;
         if cast.origin.is_spell() {
             self.rules_mut().frame = self.announcement_mana_frame(cast)?;
         } else {
@@ -269,7 +284,7 @@ impl RulesTxn {
             return Err("targeted activation kind".into());
         };
         {
-            match &self.copiable_definition(entry.source)?.activated[ability as usize].cost {
+            match &self.stack_definition(&entry)?.activated[ability as usize].cost {
                 ActivationCost::ChooseObjects(cost) => {
                     let mut cast = cast;
                     self.rules_mut().frame = if cost.mana.is_some() {
@@ -319,7 +334,7 @@ impl RulesTxn {
                 && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
         });
         if !source_payable
-            || self.copiable_definition(entry.source)?.activated[ability as usize].cost
+            || self.stack_definition(&entry)?.activated[ability as usize].cost
                 != ActivationCost::TapSource
         {
             return self.reverse_cast(cast, "activation source no longer payable", true);
@@ -348,7 +363,11 @@ impl RulesTxn {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            self.validate_characteristic_identity(entry.source, &fact.characteristics)?;
+            self.validate_characteristic_identity(
+                entry.source,
+                fact.transforms,
+                &fact.characteristics,
+            )?;
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {
@@ -416,25 +435,62 @@ impl RulesTxn {
         }
         Ok(())
     }
-    // Use the same announced target and amount when preparing or restoring damage.
-    pub(super) fn directed_damage_operands<'a>(
+    pub(super) fn damage_source(
         &self,
-        spell: &'a StackInstance,
-        instruction: &'a Instruction,
-    ) -> Result<(u32, &'a Quantity, u32, TargetEntity), String> {
-        let (slot, amount, block) = match instruction {
-            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Target { slot: target_slot } }, amount: fixed!(amount), .. } @ source_block) => {
-                (*target_slot, amount, *source_block)
+        entry: &StackInstance,
+        source: mtg_contracts::kir::Ref,
+    ) -> Result<(ObjectBefore, PlayerId), String> {
+        use mtg_contracts::kir::Ref;
+        match (source, &entry.kind) {
+            (Ref::Source, _) => Ok((self.source_facts(entry)?, entry.controller)),
+            (Ref::EventObject { .. }, StackKind::Triggered { witness, .. }) => {
+                let binding = witness
+                    .observed_object()
+                    .ok_or("missing event object binding")?;
+                let facts = self
+                    .current_source_facts(binding.last_known.object)
+                    .unwrap_or_else(|_| (*binding.last_known).clone());
+                let controller = facts.controller;
+                Ok((facts, controller))
             }
-            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Target { slot: target_slot } }, amount: announced_x!(), .. } @ source_block) => {
-                (
-                    *target_slot,
-                    spell.x.as_ref().ok_or("missing announced X")?,
-                    *source_block,
-                )
-            }
-            _ => return Err("expected directed damage instruction".into()),
-        };
+            _ => Err("unbound damage source".into()),
+        }
+    }
+
+    // CR 608.2h, 107.1b, 107.2, 208.3: use the creature's power at resolution
+    // or departure. A noncreature permanent's printed power is unavailable.
+    pub(super) fn directed_damage_amount(
+        spell: &StackInstance,
+        amount: &mtg_contracts::kir::Amount,
+        source: &ObjectBefore,
+    ) -> Result<Quantity, String> {
+        use mtg_contracts::kir::{Amount, Ref, Stat};
+        match amount {
+            Amount::Fixed { value } => Ok(value.clone()),
+            Amount::Var {
+                of: Ref::AnnouncedX,
+            } => spell.x.clone().ok_or("missing announced X".into()),
+            Amount::StatOf {
+                object: Ref::EventObject { .. },
+                stat: Stat::Power,
+            } => Ok(source
+                .characteristics
+                .power
+                .as_ref()
+                .filter(|_| source.characteristics.has_type(CardKind::Creature))
+                .cloned()
+                .unwrap_or_default()
+                .max(Quantity::zero())),
+            _ => Err("unbound directed damage amount".into()),
+        }
+    }
+
+    // Use the same announced target when preparing or restoring damage.
+    pub(super) fn directed_damage_target(
+        &self,
+        spell: &StackInstance,
+        slot: u32,
+    ) -> Result<TargetEntity, String> {
         let index = slot as usize;
         let spec = self.program_for(spell)?.targets.get(index);
         let target = match spec.map(|spec| spec.domain) {
@@ -474,7 +530,7 @@ impl RulesTxn {
 
             _ => return Err("unsupported directed damage target domain".into()),
         };
-        Ok((slot, amount, block, target))
+        Ok(target)
     }
 
     pub(super) fn commit_opponent_life(
@@ -559,86 +615,42 @@ impl RulesTxn {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        let (block, proposed, damage) = match instruction {
-            kernel!(Damage {
-                to: mtg_contracts::kir::DamageTo::Ref {
-                    who: mtg_contracts::kir::Ref::Target { slot: _ }
-                },
-                amount: fixed!(_),
-                ..
-            })
-            | kernel!(Damage {
-                to: mtg_contracts::kir::DamageTo::Ref {
-                    who: mtg_contracts::kir::Ref::Target { slot: _ }
-                },
-                amount: announced_x!(),
-                ..
-            }) => {
-                let (target_slot, amount, source_block, target) =
-                    self.directed_damage_operands(self.entry(frame.stack_id)?, &instruction)?;
-                if *amount == Quantity::zero()
-                    || frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.entity_legal(target)
-                {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
-                }
-                let recipient = match target {
-                    TargetEntity::Player { player } => DamageRecipient::Player { player },
-                    TargetEntity::Object { object } => DamageRecipient::Creature { object },
-                };
-                (
-                    source_block,
-                    ProposedEvent::NoncombatDamage {
-                        damage: Box::new(NoncombatDamageOccurrence {
-                            source: self.source_facts(self.entry(frame.stack_id)?)?,
-                            controller: self.entry(frame.stack_id)?.controller,
-                            recipient,
-                            amount: amount.clone(),
-                        }),
-                    },
-                    true,
-                )
-            }
-            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) =>
-            {
-                // CR 109.5/113.7a: use the trigger's frozen controller and
-                // the land's current or last-known source facts.
-                let controller = self.entry(frame.stack_id)?.controller;
-                let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(self.entry(frame.stack_id)?)?,
-                    controller,
-                    recipient: DamageRecipient::Player { player: controller },
-                    amount,
-                };
-                return self.prepare_noncombat_damage(frame, damage, source_block);
-            }
-            _ => return Err("unexpected damage/life instruction".into()),
+        use mtg_contracts::kir::{DamageTo, Ref};
+        let kernel!(Damage { source, to: DamageTo::Ref { who }, amount } @ source_block) =
+            instruction
+        else {
+            return Err("unexpected damage instruction".into());
         };
-        if let ProposedEvent::NoncombatDamage { damage } = proposed {
-            return self.prepare_noncombat_damage(frame, *damage, block);
-        }
-        let actual = self.commit(
-            proposed,
-            BatchCause::Instruction {
-                stack_id: frame.stack_id,
-                player: self.entry(frame.stack_id)?.controller,
-                source: self.entry(frame.stack_id)?.source,
-                cursor: frame.cursor,
-                source_block: block,
-            },
-        )?;
-        self.finish_instruction(
+        let entry = self.entry(frame.stack_id)?;
+        let (source, controller) = self.damage_source(entry, source)?;
+        let amount = Self::directed_damage_amount(entry, &amount, &source)?;
+        let target = match who {
+            Ref::Target { slot } if frame.legal_targets.get(slot as usize) == Some(&true) => {
+                let target = self.directed_damage_target(entry, slot)?;
+                self.entity_legal(target).then_some(target)
+            }
+            Ref::Target { .. } => None,
+            Ref::Controller { .. } => Some(TargetEntity::Player {
+                player: entry.controller,
+            }),
+            _ => return Err("unexpected directed damage recipient".into()),
+        };
+        let Some(target) = target.filter(|_| amount > Quantity::zero()) else {
+            return self.finish_instruction(frame, InstructionOutcome::Damage { actual: None });
+        };
+        let recipient = match target {
+            TargetEntity::Player { player } => DamageRecipient::Player { player },
+            TargetEntity::Object { object } => DamageRecipient::Creature { object },
+        };
+        self.prepare_noncombat_damage(
             frame,
-            if damage {
-                InstructionOutcome::Damage {
-                    actual: Some(actual),
-                }
-            } else {
-                InstructionOutcome::Life {
-                    actual: Some(actual),
-                }
+            NoncombatDamageOccurrence {
+                source,
+                controller,
+                recipient,
+                amount,
             },
+            source_block,
         )
     }
     // CR 120.2b/120.3a,e/903.10a: spell/ability damage changes life or marks

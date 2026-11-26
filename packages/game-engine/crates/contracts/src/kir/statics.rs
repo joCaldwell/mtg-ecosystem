@@ -310,7 +310,11 @@ fn condition_supported(condition: &Cond) -> bool {
         Cond::All { conditions } => {
             !conditions.is_empty() && conditions.iter().all(condition_supported)
         }
-        Cond::CostPaid { .. } | Cond::Satisfies { .. } | Cond::CastBy { .. } => false,
+        Cond::CostPaid { .. }
+        | Cond::Satisfies { .. }
+        | Cond::CastBy { .. }
+        | Cond::ControlsOwnCommander { .. }
+        | Cond::OpponentControlsMore { .. } => false,
     }
 }
 
