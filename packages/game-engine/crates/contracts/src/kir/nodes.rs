@@ -18,6 +18,11 @@ pub enum GroupRemoval {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "cond", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Cond {
+    TurnHistory {
+        fact: super::TurnFact,
+        cmp: Cmp,
+        value: Quantity,
+    },
     Compare {
         left: Amount,
         cmp: Cmp,

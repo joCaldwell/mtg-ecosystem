@@ -677,6 +677,12 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 | `Blocks`, `BecomesBlocked` | each declared blocker once, and each attacker unblocked until that declaration, before it (CR 509.3a, 509.3c) |
 | `IsDealtDamage` | a creature dealt positive damage, once per simultaneous damage event (CR 120.3, 603.2c) |
 
+Intervening comparisons can read this turn’s declared attacks, creature deaths
+(any seat or under your control), departures under your control, spells cast
+(all, noncreature, or from your hand), draws and total life gained. Departures
+use the pre-move controller and types. Each check reads the current turn from
+its start, including the event that caused the trigger (CR 603.4, 603.10a).
+
 A per-turn player ledger (spells as frozen stack facts, draws, life-gain
 events) counts from the turn's start, whether or not the source was present,
 and resets with the turn. A `TurnOrdinal` on cast, draw or life gain triggers
