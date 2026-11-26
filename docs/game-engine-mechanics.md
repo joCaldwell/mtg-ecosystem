@@ -254,6 +254,12 @@ order: damage to its controller through the ordinary damage transaction, or
 life gain (CR 605.3b, 608.2c). A nested activation's payment rechecks every
 outer cost before the spend decision.
 
+Statics can grant quoted mana abilities in layer 6 (CR 113.10a, 613.1f). The
+recipient taps itself; "you" is its activator (CR 109.5, 302.6). Its printed,
+then granted (timestamp order) abilities drive activation, CR 106.7,
+observations and the planner; saves must match them. Grants admit tap and life
+costs only, without riders, restrictions, conditions or tapped-status filters.
+
 Reversal (CR 733.1) restores receipt-recorded mana, taps and counters. An
 activation that paid life or performed riders is kept, and with it every
 activation of that attempt. Spend-restricted mana has no producer and no spend
@@ -729,9 +735,8 @@ keyword line must match those qualities exactly. Other qualities such as types,
 subtypes, players or everything reject by name. Static grants of hexproof,
 shroud or indestructible may name noncreature recipients (CR 702.11, 702.12,
 702.18). Other granted keywords still need a creature scope. Grant filters
-cannot test keywords and no ability removal is admitted. Layer 6 grants
-therefore have no dependencies and give the same result in any timestamp order
-(CR 613.7, 613.8).
+cannot test abilities and no ability removal is admitted, so layer 6 grants
+have no dependencies (CR 613.7, 613.8).
 
 <a id="abilities-targets-and-triggers"></a>
 
@@ -921,10 +926,8 @@ step-result filters and another player's referents reject.
 
 ## Derived capability tiers
 
-Every compiled card is lowered one printed block at a time. Its definition
-carries `composed: true` and `composed_ability_v1`. Rust checks the complete
-capability set and rejects a surface with no executor. The schema describes the
-structural form of the single `Kernel` instruction.
+Cards lower one printed block at a time into `composed: true` definitions.
+Rust checks the complete capability set and rejects a surface with no executor.
 
 A definition consists of cells: the audited kernel cells `kir::check` names
 (`kir::Cell`, one `(verb, operand kinds, context)` row each) and the reviewed
@@ -943,9 +946,7 @@ or profile appears in them, and a newly opened cell starts at `Executes`.
 The three reviews above `Executes` are independent: a hosting review says
 nothing about hidden information. A rejected hosting or search request names
 the capabilities (`UnreviewedCapabilities`) or kernel cells (`UnqualifiedCells`)
-below its tier. On all 2,370 Archive R4 definitions and every fixture catalog
-the derived decisions equal the capability lists they replaced.
-
+below its tier.
 `Executes` is decided per surface, each row independent (CR 113.3, 602.1, 603.1,
 608.2); a surface without a row rejects under `cell:<surface>:<detail>`:
 
@@ -955,7 +956,7 @@ the derived decisions equal the capability lists they replaced.
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
 | Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, chosen discard/tap/graveyard exile, the cycling and typecycling hand discard, and a graveyard source exiled after mana, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
-| Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
+| Static, mana, keyword | Own entry tapped, scoped continuous changes, granted mana abilities and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
 | Card shell | Normal cards and [modal double-faced cards](#modal-double-faced-cards) whose faces have complete bound source and supported spell costs and keywords. |
 

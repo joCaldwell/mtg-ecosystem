@@ -179,8 +179,8 @@ fn quoted_ability(
             Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(quoted()),
         })
         .collect::<Result<_, _>>()?;
-    let mana = lower_mana_ability(&costs, &typed, None, block, kind, &|_| false)?
-        .ok_or_else(quoted)?;
+    let mana =
+        lower_mana_ability(&costs, &typed, None, block, kind, &|_| false)?.ok_or_else(quoted)?;
     Ok(QuotedAbility::Mana(mana))
 }
 

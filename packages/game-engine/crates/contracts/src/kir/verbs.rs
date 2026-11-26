@@ -138,9 +138,7 @@ pub enum Change {
     /// Layer 6 (CR 113.10, 113.10a, 613.1f): quoted mana abilities the
     /// recipients have. Each belongs to the object that has it: that object
     /// pays its costs and "you" is whoever activates it (CR 109.5).
-    AddManaAbilities {
-        abilities: Vec<crate::ManaAbility>,
-    },
+    AddManaAbilities { abilities: Vec<crate::ManaAbility> },
     /// Layer 5.
     SetColors { colors: Vec<Color> },
     /// Layer 4.

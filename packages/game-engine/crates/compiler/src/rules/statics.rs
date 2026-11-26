@@ -893,9 +893,11 @@ fn modify(
                 let (mut keywords, mut mana) = (Vec::new(), Vec::new());
                 for (grant, raw_grant) in m.abilities.iter().zip(raw_abilities) {
                     match grant {
-                        ast::GainedAbility::Quoted(_) => match (site.quoted)(&raw_grant["ability"])? {
-                            QuotedAbility::Mana(ability) => mana.push(ability),
-                        },
+                        ast::GainedAbility::Quoted(_) => {
+                            match (site.quoted)(&raw_grant["ability"])? {
+                                QuotedAbility::Mana(ability) => mana.push(ability),
+                            }
+                        }
                         other => keywords.push(keyword(other)?),
                     }
                 }

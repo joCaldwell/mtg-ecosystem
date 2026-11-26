@@ -304,10 +304,20 @@ pub(super) fn plan_for(
             .map(|p| p.life.clone())
             .unwrap_or_default();
         let printed = d.mana_abilities.iter().enumerate().map(|(index, a)| {
-            (ManaAbilityIdentity::Printed { index: index as u32 }, a)
+            (
+                ManaAbilityIdentity::Printed {
+                    index: index as u32,
+                },
+                a,
+            )
         });
         let granted = o.granted_mana.iter().enumerate().map(|(index, a)| {
-            (ManaAbilityIdentity::Granted { index: index as u32 }, a)
+            (
+                ManaAbilityIdentity::Granted {
+                    index: index as u32,
+                },
+                a,
+            )
         });
         for (identity, ability) in printed.chain(granted) {
             if !usable_printed(ability, o, &life) {
@@ -489,7 +499,10 @@ mod tests {
         };
         let plan = plan_for(&c, &v, &cost, None).expect("granted blue");
         assert_eq!(plan.len(), 1);
-        assert_eq!(plan[0].ability, Some(ManaAbilityIdentity::Granted { index: 0 }));
+        assert_eq!(
+            plan[0].ability,
+            Some(ManaAbilityIdentity::Granted { index: 0 })
+        );
         let table = could_produce_table(&c, &v);
         assert!(table.values().any(|(_, colors)| colors.contains(&Color::U)));
         v.objects[0].granted_mana.clear();

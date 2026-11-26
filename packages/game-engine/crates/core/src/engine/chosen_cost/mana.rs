@@ -120,7 +120,8 @@ impl RulesTxn {
                     options.push(vec![(color, one.clone())])
                 }
                 ManaAbilityIdentity::Printed { .. } | ManaAbilityIdentity::Granted { .. } => {
-                    let Some((_, ability)) = current.iter().find(|(slot, _)| slot.identity() == choice)
+                    let Some((_, ability)) =
+                        current.iter().find(|(slot, _)| slot.identity() == choice)
                     else {
                         return Err("missing mana ability choice".into());
                     };

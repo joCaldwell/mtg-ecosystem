@@ -185,7 +185,12 @@ impl RulesTxn {
         object: ObjectId,
     ) -> Result<Vec<(ManaSlot, ManaAbility)>, String> {
         let mut out = vec![];
-        for (index, a) in self.copiable_definition(object)?.mana_abilities.iter().enumerate() {
+        for (index, a) in self
+            .copiable_definition(object)?
+            .mana_abilities
+            .iter()
+            .enumerate()
+        {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             out.push((ManaSlot::Printed(index), a.clone()));
         }
@@ -212,8 +217,10 @@ impl RulesTxn {
     /// The activation is still the source's current ability at its slot;
     /// admitted grants cannot change while their activation is open.
     fn activation_matches(&self, a: &ManaActivation) -> Result<bool, String> {
-        Ok(self.mana_ability_at(a.source, a.slot()).ok().as_ref() == Some(&a.ability)
-            && a.rider as usize <= a.ability.riders.len())
+        Ok(
+            self.mana_ability_at(a.source, a.slot()).ok().as_ref() == Some(&a.ability)
+                && a.rider as usize <= a.ability.riders.len(),
+        )
     }
     pub(super) fn mana_use_key(&self, source: ObjectId, index: u32) -> ManaAbilityUse {
         ManaAbilityUse {
@@ -360,7 +367,7 @@ impl RulesTxn {
                         controller,
                         colors_only,
                     } => reads.push((key, *controller, *colors_only)),
-                    production => types.extend(self.mana_colors(o.controller, &production)?),
+                    production => types.extend(self.mana_colors(o.controller, production)?),
                 }
             }
             table.insert(key, types);

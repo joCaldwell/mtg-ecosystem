@@ -6,18 +6,21 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{
-    AttachmentKind, Atom, Cell, Change, ExecutionTier, Pred, Scope, StaticEffect, definition_cells,
+    Atom, AttachmentKind, Cell, Change, ExecutionTier, Pred, Scope, StaticEffect, definition_cells,
     definition_tiers,
 };
 use mtg_contracts::{ManaProduction, strict_read};
 use mtg_core::ManaAbilityIdentity;
 
-const LANTERN: &str =
-    include_str!("../../../../../tests/fixtures/phase1-r4/539f5396-d99a-417d-a84c-dff7930b5900.json");
-const GEMHIDE: &str =
-    include_str!("../../../../../tests/fixtures/phase1-r4/2c09ca09-8e62-4fe3-9b3d-61573dd2ffbc.json");
-const GROWTH: &str =
-    include_str!("../../../../../tests/fixtures/phase1-r4/947a2665-2f4d-4193-8768-118f85334549.json");
+const LANTERN: &str = include_str!(
+    "../../../../../tests/fixtures/phase1-r4/539f5396-d99a-417d-a84c-dff7930b5900.json"
+);
+const GEMHIDE: &str = include_str!(
+    "../../../../../tests/fixtures/phase1-r4/2c09ca09-8e62-4fe3-9b3d-61573dd2ffbc.json"
+);
+const GROWTH: &str = include_str!(
+    "../../../../../tests/fixtures/phase1-r4/947a2665-2f4d-4193-8768-118f85334549.json"
+);
 
 fn lowered(raw: &str) -> Definition {
     let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
@@ -156,12 +159,17 @@ fn quoted_mana_grants_lower_with_distinct_recipients() {
     );
     for name in ["Chromatic Lantern", "Gemhide Sliver", "Abundant Growth"] {
         let d = find(name);
+        assert!(d.capabilities.contains(&Capability::GrantedManaAbilitiesV1));
         assert!(
-            d.capabilities
-                .contains(&Capability::GrantedManaAbilitiesV1)
+            definition_cells(d)
+                .unwrap()
+                .contains(&Cell::ManaAbilitySelection)
         );
-        assert!(definition_cells(d).unwrap().contains(&Cell::ManaAbilitySelection));
-        assert!(!definition_tiers(d).unwrap().admits(ExecutionTier::HeadlessQualified));
+        assert!(
+            !definition_tiers(d)
+                .unwrap()
+                .admits(ExecutionTier::HeadlessQualified)
+        );
     }
 }
 
@@ -270,10 +278,19 @@ fn gemhide_slivers_grant_every_sliver_and_respect_summoning_sickness() {
         .filter(|o| o.zone == Zone::Battlefield)
     {
         assert_eq!(o.granted_mana.len(), 2);
-        assert!(o.granted_mana.iter().all(|a| a.production == ManaProduction::AnyColor));
+        assert!(
+            o.granted_mana
+                .iter()
+                .all(|a| a.production == ManaProduction::AnyColor)
+        );
     }
     let mut sick = g.fork();
-    sick.state.rules.objects.get_mut(&CardId(0)).unwrap().attack_ready = false;
+    sick.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .attack_ready = false;
     assert!(
         !sick
             .next_test_decision()
@@ -319,7 +336,7 @@ fn abundant_growth_grants_only_its_enchanted_land() {
     g.respond(r.player, r.id, r.targets(vec![plains])).unwrap();
     Driver::pay(&mut g, &[1]);
     let before = hand(&g);
-    while !g.state.rules.stack.is_empty() || g.state.rules.pending_triggers.len() > 0 {
+    while !g.state.rules.stack.is_empty() || !g.state.rules.pending_triggers.is_empty() {
         Driver::pass(&mut g);
         Driver::request(&mut g, u64::MAX);
     }
@@ -386,7 +403,9 @@ fn forged_granted_mana_activations_reject() {
     assert!(forge(&|a| {
         a.as_object_mut().unwrap().remove("granted");
     }));
-    assert!(forge(&|a| a["ability"]["production"] = serde_json::json!({"mana": "fixed", "symbols": ["G"]})));
+    assert!(forge(
+        &|a| a["ability"]["production"] = serde_json::json!({"mana": "fixed", "symbols": ["G"]})
+    ));
 }
 
 /// CR 113.10a, 602.1: only the admitted grant shape validates. A recipient
