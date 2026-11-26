@@ -696,8 +696,12 @@ impl Site<'_> {
         if self.kind == BlockKind::Static
             && ((self.path.starts_with("/effect/condition/")
                 && self.ability["effect"]["static"] == "enters-tapped")
-                || (matches!(self.path, "/effect/who" | "/effect/costs/0/payer")
-                    && self.ability["effect"]["static"] == "entry-choice"))
+                || (matches!(
+                    self.path,
+                    "/effect/who"
+                        | "/effect/costs/0/payer"
+                        | "/effect/costs/0/what/filter/zone/owner"
+                ) && self.ability["effect"]["static"] == "entry-choice"))
         {
             Some(ControllerRole::EnteringController)
         } else if self.quoted_ability() {

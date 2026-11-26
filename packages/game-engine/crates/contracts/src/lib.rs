@@ -236,6 +236,7 @@ pub enum Capability {
     StepBeginningTriggerV1,
     EntersTappedV1,
     EntryLifePaymentV1,
+    EntryRevealV1,
     ConditionalEntryTappedV1,
     EntryPlusOneCountersV1,
 
