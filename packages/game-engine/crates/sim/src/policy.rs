@@ -49,6 +49,7 @@ pub struct PolicyMemory {
     mana_bundle: Option<Vec<Color>>,
     mana_ability: Option<mtg_core::ManaAbilityIdentity>,
     payment: PaymentAttempt,
+    planned_x: Option<Quantity>,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
     /// The activations the pending priority decision offers, when one is
     /// published; Develop never selects an activation outside them.
@@ -108,6 +109,7 @@ impl PolicyMemory {
         self.mana_bundle = None;
         self.mana_ability = None;
         self.hybrid_choices.clear();
+        self.planned_x = None;
     }
 
     pub fn choose(
@@ -116,12 +118,32 @@ impl PolicyMemory {
         policy: Policy,
         observation: &Observation,
     ) -> Result<Answer, String> {
+        self.choose_inner(catalog, policy, observation, None)
+    }
+
+    pub fn choose_with_game(
+        &mut self,
+        catalog: &Catalog,
+        policy: Policy,
+        observation: &Observation,
+        game: &mtg_core::Game,
+    ) -> Result<Answer, String> {
+        self.choose_inner(catalog, policy, observation, Some(game))
+    }
+
+    fn choose_inner(
+        &mut self,
+        catalog: &Catalog,
+        policy: Policy,
+        observation: &Observation,
+        game: Option<&mtg_core::Game>,
+    ) -> Result<Answer, String> {
         let mut strategy = Strategy {
             catalog,
             policy,
             memory: std::mem::take(self),
         };
-        let answer = strategy.choose(observation);
+        let answer = strategy.choose_inner(observation, game);
         *self = strategy.memory;
         answer
     }
@@ -161,6 +183,22 @@ pub(crate) fn damage_assignment(
 }
 impl Strategy<'_> {
     pub fn choose(&mut self, o: &Observation) -> Result<Answer, String> {
+        self.choose_inner(o, None)
+    }
+
+    pub fn choose_with_game(
+        &mut self,
+        o: &Observation,
+        game: &mtg_core::Game,
+    ) -> Result<Answer, String> {
+        self.choose_inner(o, Some(game))
+    }
+
+    fn choose_inner(
+        &mut self,
+        o: &Observation,
+        game: Option<&mtg_core::Game>,
+    ) -> Result<Answer, String> {
         let v = &o.view;
         let d = o.decision.as_ref().ok_or("missing match decision")?;
         let object = |i: u32| match d.candidate(i)? {
@@ -169,7 +207,7 @@ impl Strategy<'_> {
         };
         let answer = match (&d.reason, &d.shape) {
             (Reason::Priority, _) => d.pick_one(&Candidate::Action {
-                action: self.priority(o)?,
+                action: self.priority_with_game(o, game)?,
             })?,
             (
                 Reason::Mulligan {
@@ -225,8 +263,13 @@ impl Strategy<'_> {
             (Reason::GraveyardReplacementOrder { .. }, _) => flag(d, Flag::Accept)?,
             (Reason::AnnounceX, Shape::Number { .. }) => Answer::Number {
                 value: self
-                    .top_program(v)
-                    .and_then(|(d, p)| self.choose_x(v, d, p))
+                    .memory
+                    .planned_x
+                    .take()
+                    .or_else(|| {
+                        self.top_program(v)
+                            .and_then(|(d, p)| self.choose_x(v, d, p, None))
+                    })
                     .unwrap_or_default(),
             },
             (Reason::BottomOpening, Shape::Order { items, min, .. }) => Answer::Order {

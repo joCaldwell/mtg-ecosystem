@@ -98,6 +98,24 @@ impl RulesTxn {
         None
     }
 
+    /// Quote an ordinary front-face cast for its priority holder using the
+    /// same cost construction that will lock at CR 601.2f. Optional and
+    /// hybrid costs are left to their respective announcement choices.
+    pub fn quote_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+        x: Option<&Quantity>,
+    ) -> Result<ManaCost, String> {
+        let object = self.resolve_handle(viewer, card)?;
+        let proposal = self.priority_spell_announcement(viewer, object.card, CardFace::Front)?;
+        let source = ObjectId {
+            face: proposal.face,
+            ..proposal.original_object
+        };
+        self.casting_cost(source, viewer, proposal.cast_from, x)
+    }
+
     pub(super) fn validate_priority_spell_cast(
         &self,
         player: PlayerId,
@@ -136,6 +154,7 @@ impl RulesTxn {
             },
             player,
             cast_from,
+            None,
         )?;
         let id = StackId(self.state.rules.next_stack_id);
         self.rules_mut().next_stack_id = self
