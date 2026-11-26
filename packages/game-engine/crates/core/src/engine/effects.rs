@@ -3137,8 +3137,8 @@ impl RulesTxn {
                 })
                 .flatten()
         };
-        if base.additional_types != c.additional_types || base.colors != c.colors {
-            if base.additional_types.iter().any(|kind| !c.has_type(*kind))
+        if (base.additional_types != c.additional_types || base.colors != c.colors)
+            && (base.additional_types.iter().any(|kind| !c.has_type(*kind))
                 || c.additional_types.contains(&c.kind)
                 || c.additional_types.windows(2).any(|kinds| kinds[0] >= kinds[1])
                 || c.additional_types.iter().any(|kind| {
@@ -3156,10 +3156,9 @@ impl RulesTxn {
                 })
                 || (base.colors != c.colors
                     && !vocabulary().any(|change| matches!(change, Change::SetColors { colors } if *colors == c.colors))
-                    && !self.characteristic_set_vocabulary().any(|values| values.colors.as_ref() == Some(&c.colors)))
-            {
-                return Err("historical type or color outside admitted static changes".into());
-            }
+                    && !self.characteristic_set_vocabulary().any(|values| values.colors.as_ref() == Some(&c.colors))))
+        {
+            return Err("historical type or color outside admitted static changes".into());
         }
         if base.subtypes != c.subtypes {
             let animations = || {
