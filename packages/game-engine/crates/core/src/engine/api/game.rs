@@ -126,6 +126,7 @@ impl RulesTxn {
             rules: RulesState::new(RulesTables {
                 mana_ability_uses: BTreeSet::new(),
                 activation_uses: BTreeSet::new(),
+                trigger_uses: BTreeSet::new(),
                 tokens: Arc::default(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,

@@ -572,7 +572,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         // CR 603.4: opened with its executor and rules tests; no review yet.
         | C::InterveningIfV1
         | C::ResolutionTriggerV1
-        | C::EventTriggerV1 => Tiers::EXECUTES,
+        | C::EventTriggerV1
+        | C::TriggerTurnHistoryV1 => Tiers::EXECUTES,
     }
 }
 
