@@ -230,7 +230,9 @@ impl RulesTxn {
                 Change::RemoveKeywords { keywords } => {
                     rows.push(((timestamp, 0, rank), Row::Remove(keywords)))
                 }
-                Change::RemoveAllAbilities { .. } => rows.push(((timestamp, 0, rank), Row::RemoveAll)),
+                Change::RemoveAllAbilities { .. } => {
+                    rows.push(((timestamp, 0, rank), Row::RemoveAll))
+                }
                 Change::ForbidKeywords { keywords } => forbidden.extend(keywords.iter().copied()),
                 _ => {}
             }

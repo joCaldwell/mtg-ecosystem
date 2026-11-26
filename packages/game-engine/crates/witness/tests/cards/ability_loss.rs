@@ -765,7 +765,10 @@ fn former_equipment_becomes_unattached() {
     assert_eq!(pt(&g, bears), (q(12), q(12)));
     cast_on(&mut g, 2, &[hammer], &[12, 13, 14]);
     let c = g.characteristics(hammer).unwrap();
-    assert_eq!((c.kind, c.subtypes.clone()), (CardKind::Land, vec!["Forest".to_string()]));
+    assert_eq!(
+        (c.kind, c.subtypes.clone()),
+        (CardKind::Land, vec!["Forest".to_string()])
+    );
     assert_eq!(g.current(hammer).unwrap().attached_to, None);
     assert_eq!(pt(&g, bears), (q(2), q(2)));
     let song = object(&g, 2);

@@ -47,7 +47,6 @@ pub(super) struct Removal<'a> {
     rank: u8,
 }
 
-
 fn first_layer(changes: &[Change]) -> Option<Layer> {
     changes.iter().map(Change::layer).min()
 }
@@ -328,7 +327,9 @@ impl RulesTxn {
                 };
                 for (other, granting, grant) in &rows {
                     let overlaps = match (grant, removed) {
-                        (Change::AddKeywords { .. } | Change::AddManaAbilities { .. }, None) => true,
+                        (Change::AddKeywords { .. } | Change::AddManaAbilities { .. }, None) => {
+                            true
+                        }
                         (Change::AddKeywords { keywords }, Some(removed)) => {
                             keywords.iter().any(|k| removed.contains(k))
                         }
@@ -452,12 +453,11 @@ impl RulesTxn {
             // reaches it back (its loop is a sink).
             let mut reach = depends.clone();
             for k in 0..n {
-                for i in 0..n {
-                    if reach[i][k] {
-                        for j in 0..n {
-                            if reach[k][j] {
-                                reach[i][j] = true;
-                            }
+                let via = reach[k].clone();
+                for row in &mut reach {
+                    if row[k] {
+                        for (cell, through) in row.iter_mut().zip(&via) {
+                            *cell |= *through;
                         }
                     }
                 }
@@ -518,7 +518,11 @@ impl RulesTxn {
 
     /// The objects `effect` applies to in `state`; empty when its source no
     /// longer has the ability (CR 305.7).
-    fn layer4_application(&self, effect: &Eff<'_>, state: &Layer4) -> Result<Vec<ObjectId>, String> {
+    fn layer4_application(
+        &self,
+        effect: &Eff<'_>,
+        state: &Layer4,
+    ) -> Result<Vec<ObjectId>, String> {
         let (source, affects) = match &effect.kind {
             EffKind::Resolved { targets, .. } => return Ok(targets.clone()),
             EffKind::Static {
