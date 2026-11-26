@@ -7,32 +7,32 @@ fn catalog() -> Catalog {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/027dd013-baa7-4111-b3c9-f4d1414e9c45.json"
+            "../../../../../tests/fixtures/phase1-r5/027dd013-baa7-4111-b3c9-f4d1414e9c45.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/672e190d-8ea0-4a2e-b74f-5d35304631e4.json"
+            "../../../../../tests/fixtures/phase1-r5/672e190d-8ea0-4a2e-b74f-5d35304631e4.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/9e7a240d-dc33-47ac-9f17-77fab4c1c340.json"
+            "../../../../../tests/fixtures/phase1-r5/9e7a240d-dc33-47ac-9f17-77fab4c1c340.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/f0ec8681-da50-466b-8cdd-1dc710deccd9.json"
+            "../../../../../tests/fixtures/phase1-r5/f0ec8681-da50-466b-8cdd-1dc710deccd9.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/139fb542-89fd-4b9e-87e6-ec925bcca93a.json"
+            "../../../../../tests/fixtures/phase1-r5/139fb542-89fd-4b9e-87e6-ec925bcca93a.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/f1750962-a87c-49f6-b731-02ae971ac6ea.json"
+            "../../../../../tests/fixtures/phase1-r5/f1750962-a87c-49f6-b731-02ae971ac6ea.json"
         ),
         // Port Town and Gilt-Leaf Palace (entry reveals).
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/458d2b12-f578-4392-98d3-c3bc83f316c4.json"
+            "../../../../../tests/fixtures/phase1-r5/458d2b12-f578-4392-98d3-c3bc83f316c4.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/85573a3d-2993-491a-8f8d-bbdb844fa84e.json"
+            "../../../../../tests/fixtures/phase1-r5/85573a3d-2993-491a-8f8d-bbdb844fa84e.json"
         ),
     ] {
-        let compiled = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let compiled = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
             panic!("entry replacement source did not lower: {compiled:?}");
         };

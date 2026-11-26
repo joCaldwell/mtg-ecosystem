@@ -1,4 +1,4 @@
-//! Frozen R4 delayed and reflexive trigger witnesses.
+//! Frozen R5 delayed and reflexive trigger witnesses.
 //! CR 400.7j, 513.2, 603.3b, 603.7, 603.12.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;

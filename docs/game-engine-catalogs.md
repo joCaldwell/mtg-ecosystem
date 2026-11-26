@@ -6,11 +6,14 @@ owns the pinned environment and per-worktree Cargo lock.
 
 ## Catalog source and commands
 
-The executable source is Archive R4. The full archive stays outside Git;
-`tests/fixtures/phase1-r4/` holds only the extracted records a manifest, witness
+The executable source is Archive R5. The full archive stays outside Git;
+`tests/fixtures/phase1-r5/` holds only the extracted records a manifest, witness
 or compiler test uses. `accepted-archives.json` pins the whole file, header,
 parser and corpus, and each `provenance.json` row pins its exact card line.
-Oracle parser tests own their pre-R4 records under
+R4 (same corpus, older parser) stays registered without record pins so its
+bulk IR can still be rebuilt for comparison. The header records the generating
+Git revision, so a regenerated archive is accepted only if it is byte-identical
+to the registered file. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
 From repository root (`engine:dev` builds `mtg-sim` under the target lock):
@@ -18,7 +21,7 @@ From repository root (`engine:dev` builds `mtg-sim` under the target lock):
 ```sh
 npm run engine:dev -- build -p mtg-sim
 SIM=target/engine/debug/mtg-sim
-$SIM catalog build packages/game-engine/tests/fixtures/catalogs/phase1-r4.json [--write]
+$SIM catalog build packages/game-engine/tests/fixtures/catalogs/phase1-r5.json [--write]
 $SIM catalog extract /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json 'Exact Card Name' oracle-id
 $SIM catalog verify /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json
 ```
@@ -27,8 +30,8 @@ Filesystem and embedded loaders both lower every selected record through
 composition. `build` checks the resulting schema-1 catalog and digest against the
 committed outputs; `--write` regenerates both together, and the `mtg-compiler`
 unit tests check every manifest without writing. The base, action and match
-manifests supply the smoke, scenario and Foundations startup fixtures; phase1-r4
-and witness-r4 exercise individual compiler and rules paths. A failed build
+manifests supply the smoke, scenario and Foundations startup fixtures; phase1-r5
+and witness-r5 exercise individual compiler and rules paths. A failed build
 prints its typed `CatalogError` as JSON on stderr.
 
 `catalogs/*.json` are manifests (expected IR lives outside that directory) with
@@ -186,7 +189,7 @@ tested rules operation wherever the algebra cannot already express it.
 
 ## Compositional lowering
 
-Archive R4 supplies the source, parsed abilities and bound resolution graph.
+Archive R5 supplies the source, parsed abilities and bound resolution graph.
 `compose` lowers every printed ability to KIR or rejects the complete record;
 missing references, unaudited operators and unsupported procedures such as
 look-at and reveal reject explicitly. Normalized source lines must equal the

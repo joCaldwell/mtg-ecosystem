@@ -182,7 +182,7 @@ fn selective_set_damage_uses_the_stack_controller_and_scores_lethal_recipients()
 
 #[test]
 fn tap_cantrip_policy_consumes_admitted_program_and_offered_candidates() {
-    let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
     let mut v = board::view();
     v.active = Some(v.viewer);
     v.turn.step = TurnStep::PrecombatMain;
@@ -246,7 +246,7 @@ fn tap_cantrip_policy_consumes_admitted_program_and_offered_candidates() {
 
 #[test]
 fn mana_planner_preserves_flexible_source_for_the_second_color() {
-    let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
     let mut v = board::view();
     v.objects = vec![
         board::card(&c, "Birds of Paradise", v.viewer.0, Zone::Battlefield),
@@ -270,7 +270,7 @@ fn mana_planner_preserves_flexible_source_for_the_second_color() {
 
 #[test]
 fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
-    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
     let mut v = board::view();
     v.objects = vec![board::card(&c, "Storm Crow", 0, Zone::Battlefield)];
     stack_spell(&mut v, &c, "Lightning Bolt", 3);
@@ -339,7 +339,7 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
 
 #[test]
 fn generic_policy_develops_flash_at_opponents_end_and_chooses_legends() {
-    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
     let mut v = board::view();
     let viewer = v.viewer;
     let d = c
@@ -409,7 +409,7 @@ mod permanent_owner_hand_policy_tests {
     use super::*;
 
     fn fixture(name: &str, target: &str) -> (Catalog, PermittedView) {
-        let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         assert!(
             d.capabilities
@@ -594,7 +594,7 @@ mod activated_permanent_tap_policy_tests {
     use super::*;
 
     fn fixture() -> (Catalog, PermittedView) {
-        let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
         let d = c
             .definitions
             .iter()
@@ -740,7 +740,7 @@ mod activated_headless_policy_tests {
     use super::*;
 
     fn baseline() -> (Catalog, PermittedView) {
-        let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
         let mut v = board::view();
         v.active = Some(v.viewer);
         v.turn_owner = v.viewer;
@@ -901,7 +901,7 @@ mod temporal_adept_policy_tests {
     use super::*;
 
     fn fixture(target: &str) -> (Catalog, PermittedView) {
-        let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
         let d = c
             .definitions
             .iter()
@@ -1132,7 +1132,7 @@ mod temporal_adept_policy_tests {
 mod untap_activation_policy_tests {
     use super::*;
     fn fixture() -> (Catalog, PermittedView) {
-        let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
         let mut v = board::view();
         v.active = Some(v.viewer);
         v.turn_owner = v.viewer;
@@ -1286,7 +1286,7 @@ mod untap_activation_policy_tests {
 #[test]
 fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_back() {
     use mtg_contracts::KeywordAbility;
-    let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
     for (spell, protected, ordinary) in [
         ("Murder", "Darksteel Myr", "Grizzly Bears"),
         ("Shatter", "Darksteel Relic", "Sol Ring"),
@@ -1419,7 +1419,7 @@ mod shared_query_tests {
     // permanent and counted phased-out permanents.
     #[test]
     fn policy_filters_and_sets_follow_the_shared_core_predicates() {
-        let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+        let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
         let mut v = view();
         let me = v.viewer;
         let opponent = (0..4).find(|p| PlayerId(*p) != me).unwrap();
@@ -1485,14 +1485,14 @@ mod shared_query_tests {
 #[test]
 fn life_payment_activation_respects_frozen_life_and_offered_candidates() {
     let mtg_compiler::CompileResult::Lowered { definition: greed } = mtg_compiler::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
         include_str!(
-            "../../../../tests/fixtures/phase1-r4/1ff62220-be95-4901-b8d8-812b9a1a1b0a.json"
+            "../../../../tests/fixtures/phase1-r5/1ff62220-be95-4901-b8d8-812b9a1a1b0a.json"
         ),
     ) else {
         panic!("Greed lowers");
     };
-    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
     c.definitions.push(*greed);
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     let mut v = board::view();
@@ -1557,7 +1557,7 @@ fn life_payment_activation_respects_frozen_life_and_offered_candidates() {
 /// matching hand card.
 #[test]
 fn generic_policy_reveals_for_entry_and_prefers_untapped_land_plays() {
-    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
     let plains = c
         .definitions
         .iter_mut()

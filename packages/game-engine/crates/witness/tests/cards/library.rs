@@ -1,5 +1,5 @@
 //! Track 3A waves W4 and W6: library search, shuffle, scry and surveil from
-//! exact frozen R4 source, on seeded private boards. Every choice is checked
+//! exact frozen R5 source, on seeded private boards. Every choice is checked
 //! for state validity, an exact snapshot round trip and per-seat privacy;
 //! every finished resolution replays from its journal.
 //! Pinned CR 401.2, 608.2d, 608.2h, 701.22a-d, 701.23a-e, 701.24a,
@@ -11,7 +11,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -55,7 +55,7 @@ fn board(cards: &[(&str, &[Cell])]) -> Board {
 fn catalog(cards: &[(&str, &[Cell])]) -> Catalog {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for &(raw, cells) in cards {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("frozen library witness failed: {result:?}");
         };
@@ -610,7 +610,7 @@ fn consider_surveils_into_the_graveyard_then_draws() {
 /// executor, so the card rejects explicitly.
 #[test]
 fn cultivate_split_destination_rejects() {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, CULTIVATE);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, CULTIVATE);
     let mtg_compiler::CompileResult::Unsupported { reason, .. } = result else {
         panic!("split search must reject: {result:?}");
     };

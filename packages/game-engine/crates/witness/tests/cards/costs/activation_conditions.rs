@@ -1,4 +1,4 @@
-//! "Activate only if" conditions from frozen R4 (CR 602.1b, 602.5, 605.3a,
+//! "Activate only if" conditions from frozen R5 (CR 602.1b, 602.5, 605.3a,
 //! 506.1, 102.1). One measurement decides whether an activation is offered
 //! and whether it may begin; the counts it read stay with the activation
 //! and a snapshot whose counts fail the condition is rejected.
@@ -9,7 +9,7 @@ use mtg_core::ManaAbilityIdentity;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../../tests/fixtures/phase1-r4/",
+            "../../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))

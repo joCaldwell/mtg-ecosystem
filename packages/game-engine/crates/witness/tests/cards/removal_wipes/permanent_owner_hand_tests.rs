@@ -1,6 +1,6 @@
 //! Complete Regress/Disperse sources in private configurations, not legal pods.
 //! Accepted spell payments/concessions; initial ownership/control is explicit.
-//! Pinned CR400.3/7,608.2b,800.4a,903.9b:
+//! Pinned CR500.3/7,608.2b,800.4a,903.9b:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_core::testkit::{Feature, ProfileError};
@@ -9,14 +9,14 @@ fn prepared(rows: &[(&str, u8, u8, bool)], commander: bool) -> Prepared {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
+            "../../../../../tests/fixtures/phase1-r5/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"
+            "../../../../../tests/fixtures/phase1-r5/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"
         ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
             raw,
         ) else {
             panic!("complete permanent owner-hand source must lower");

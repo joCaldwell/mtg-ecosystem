@@ -337,14 +337,14 @@ mod tests {
                 .unwrap_err()
                 .contains("limit")
         );
-        let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json")
+        let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r5.json")
             .as_bytes()
             .to_vec();
         let mut accepted = accepted_manifest(line_text(&header).unwrap())
             .unwrap()
             .clone();
         let raw =
-            include_str!("../../../tests/fixtures/phase1-r4/compose-strip-mine.json").as_bytes();
+            include_str!("../../../tests/fixtures/phase1-r5/compose-strip-mine.json").as_bytes();
         accepted.file_sha256 = Some(sha256(&[header.as_slice(), raw].concat()));
         let (catalog, index, _) = intake(Cursor::new(raw), header.clone(), &accepted).unwrap();
         assert_eq!(catalog.definitions.len(), 1);

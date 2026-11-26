@@ -5,7 +5,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../../tests/fixtures/phase1-r4/",
+            "../../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -26,7 +26,7 @@ const PIT_FIGHT: &str = record!("ef4b0ced-70a1-41d8-9aed-34e75f979c5f");
 const CONSULATE_SURVEILLANCE: &str = record!("06d62e22-df9c-488e-8d2d-793eaf4cd75c");
 
 fn compile(raw: &str) -> mtg_compiler::CompileResult {
-    mtg_witness::compile(mtg_witness::R4_MANIFEST, raw)
+    mtg_witness::compile(mtg_witness::R5_MANIFEST, raw)
 }
 
 fn board(records: &[&str]) -> Board {

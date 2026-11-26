@@ -7,9 +7,9 @@ use super::*;
 fn prepared(already_tapped: bool) -> Prepared {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-        include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/d4bbdd0c-e578-49ed-b2f7-b1decb04ee87.json"
+            "../../../../../tests/fixtures/phase1-r5/d4bbdd0c-e578-49ed-b2f7-b1decb04ee87.json"
         ),
     ) else {
         panic!("complete Pressure Point source must lower");

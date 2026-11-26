@@ -708,7 +708,7 @@ mod guard_tests {
             .collect();
         assert_eq!(
             names,
-            ["action", "base", "match", "phase1-r4", "witness-r4"]
+            ["action", "base", "match", "phase1-r5", "witness-r5"]
         );
         for path in manifests {
             let manifest: CatalogManifest = strict_read(&read_file(&path).unwrap()).unwrap();
@@ -778,10 +778,10 @@ mod guard_tests {
         provenance
             .records
             .iter_mut()
-            .find(|r| r.file == "phase1-r4/grizzly-bears.json")
+            .find(|r| r.file == "phase1-r5/grizzly-bears.json")
             .unwrap()
             .archive = "archive-manifest-current.json".into();
-        for file in ["accepted-archives.json", "archive-manifest-phase1-r4.json"] {
+        for file in ["accepted-archives.json", "archive-manifest-phase1-r5.json"] {
             fs::write(
                 scratch.0.join(file),
                 embedded_file(Path::new(file)).unwrap(),
@@ -835,8 +835,8 @@ mod guard_tests {
             "header",
             "version",
         ] {
-            // Two pinned Archive R4 rows that composition lowers.
-            let manifest = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":["../phase1-r4/compose-strip-mine.json","../phase1-r4/compose-hire-a-crew.json"],"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
+            // Two pinned Archive R5 rows that composition lowers.
+            let manifest = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":["../phase1-r5/compose-strip-mine.json","../phase1-r5/compose-hire-a-crew.json"],"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
             let result = build_with(Path::new("catalogs/r4.json"), |p| {
                 let raw = if p == Path::new("catalogs/r4.json") {
                     manifest.clone()
@@ -856,11 +856,11 @@ mod guard_tests {
                 if p == Path::new("provenance.json") {
                     let rows = v["records"].as_array_mut().unwrap();
                     if change == "missing" {
-                        rows.retain(|r| r["file"] != "phase1-r4/compose-strip-mine.json");
+                        rows.retain(|r| r["file"] != "phase1-r5/compose-strip-mine.json");
                     }
                     if let Some(row) = rows
                         .iter_mut()
-                        .find(|r| r["file"] == "phase1-r4/compose-strip-mine.json")
+                        .find(|r| r["file"] == "phase1-r5/compose-strip-mine.json")
                     {
                         if change == "record" {
                             row["record_sha256"] = "0".repeat(64).into();
@@ -876,13 +876,13 @@ mod guard_tests {
                         }
                     }
                 }
-                if p == Path::new("archive-manifest-phase1-r4.json") && change == "header" {
+                if p == Path::new("archive-manifest-phase1-r5.json") && change == "header" {
                     v["schemaVersion"] = 3.into();
                 }
                 // Preserve source/header bytes except where deliberately changed.
                 if p == Path::new("catalogs/r4.json")
                     || p == Path::new("provenance.json")
-                    || (p == Path::new("archive-manifest-phase1-r4.json") && change == "header")
+                    || (p == Path::new("archive-manifest-phase1-r5.json") && change == "header")
                 {
                     Ok(v.to_string())
                 } else {
@@ -890,7 +890,7 @@ mod guard_tests {
                 }
             });
             if change == "none" {
-                let (_, catalog) = result.expect("pinned R4 rows build unchanged");
+                let (_, catalog) = result.expect("pinned R5 rows build unchanged");
                 assert_eq!(catalog.definitions.len(), 2);
                 continue;
             }
@@ -910,7 +910,7 @@ mod guard_tests {
         let scratch = Scratch::new();
         let header = fixtures::MANIFEST.as_bytes().to_vec();
         let raw = override_raw.unwrap_or_else(|| {
-            embedded_file(Path::new("phase1-r4/island.json"))
+            embedded_file(Path::new("phase1-r5/island.json"))
                 .unwrap()
                 .into_bytes()
         });
@@ -942,7 +942,7 @@ mod guard_tests {
     #[test]
     fn extraction_preserves_raw_bytes_and_records_archive_and_line() {
         let island: serde_json::Value =
-            strict_read(&embedded_file(Path::new("phase1-r4/island.json")).unwrap()).unwrap();
+            strict_read(&embedded_file(Path::new("phase1-r5/island.json")).unwrap()).unwrap();
         let id = island["oracleIdentity"].as_str().unwrap();
         let (scratch, result, raw) = extraction_case(&["Island".into(), id.into()], false, None);
         let report = result.unwrap();
@@ -950,7 +950,7 @@ mod guard_tests {
         assert_eq!(fs::read(scratch.0.join(format!("{id}.json"))).unwrap(), raw);
         let p: FixtureProvenance =
             strict_read(&fs::read_to_string(scratch.0.join("provenance.json")).unwrap()).unwrap();
-        assert_eq!(p.records[0].archive, "archive-manifest-phase1-r4.json");
+        assert_eq!(p.records[0].archive, "archive-manifest-phase1-r5.json");
         assert_eq!(
             p.records[0].record_sha256,
             sha256(std::str::from_utf8(&raw).unwrap().trim_end().as_bytes())
@@ -1021,7 +1021,7 @@ mod guard_tests {
     fn extraction_keeps_unparsed_records_without_inventing_an_ast_hash() {
         // Preserve the source/binding raw JSON spellings when changing only
         // these envelope fields; all are covered by the synthetic file hash.
-        let raw = embedded_file(Path::new("phase1-r4/island.json")).unwrap();
+        let raw = embedded_file(Path::new("phase1-r5/island.json")).unwrap();
         let original: serde_json::Value = strict_read(&raw).unwrap();
         let changed = raw
             .replace(
@@ -1050,7 +1050,7 @@ mod guard_tests {
         // Preserve raw source spelling while modeling the documented excluded
         // envelope. The private stream boundary uses its own synthetic file pin.
         let mut record: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
-            serde_json::from_str(&embedded_file(Path::new("phase1-r4/island.json")).unwrap())
+            serde_json::from_str(&embedded_file(Path::new("phase1-r5/island.json")).unwrap())
                 .unwrap();
         for key in ["binding", "bindingSha256", "astSha256", "faces"] {
             record.remove(key);

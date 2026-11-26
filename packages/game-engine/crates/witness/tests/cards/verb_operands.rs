@@ -1,4 +1,4 @@
-//! Frozen R4 witnesses. CR 107.1b, 111.2, 120.2, 121.2, 608.2b/h,
+//! Frozen R5 witnesses. CR 107.1b, 111.2, 120.2, 121.2, 608.2b/h,
 //! 611.2c, 613.1f, 613.7b, 701.26, 800.4a.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{Cell, Tiers, definition_cells, definition_tiers};
@@ -7,7 +7,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -22,7 +22,7 @@ fn board_with(cards: &[(&str, Cell)], support: Option<&Definition>) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     catalog.definitions.extend(support.cloned());
     for &(raw, cell) in cards {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("frozen verb witness failed: {result:?}");
         };

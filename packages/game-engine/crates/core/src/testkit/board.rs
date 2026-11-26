@@ -29,7 +29,7 @@ impl FixtureCatalog {
             Self::Base => catalog!("expected-ir.json"),
             Self::Action => catalog!("expected-action-ir.json"),
             Self::Match => catalog!("expected-match-ir.json"),
-            Self::Witness => catalog!("expected-witness-r4-ir.json"),
+            Self::Witness => catalog!("expected-witness-r5-ir.json"),
         }
     }
 }

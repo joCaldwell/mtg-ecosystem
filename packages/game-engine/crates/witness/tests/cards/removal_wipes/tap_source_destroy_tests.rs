@@ -9,17 +9,17 @@ fn prepared() -> Prepared {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57.json"
+            "../../../../../tests/fixtures/phase1-r5/9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
+            "../../../../../tests/fixtures/phase1-r5/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/b795ecfd-31ac-4a2a-9679-97b088932d93.json"
+            "../../../../../tests/fixtures/phase1-r5/b795ecfd-31ac-4a2a-9679-97b088932d93.json"
         ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
             raw,
         ) else {
             panic!("complete tap-source destruction witness must lower");

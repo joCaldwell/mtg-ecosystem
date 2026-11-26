@@ -245,7 +245,7 @@ fn headless_pods_admit_every_executing_definition() {
     // Every compiled definition executes, so inspection reports no
     // capability gap for any role; only copy capacity stays fenced.
     let catalog = Catalog::read(include_str!(
-        "../../../../../tests/fixtures/expected-phase1-r4-ir.json"
+        "../../../../../tests/fixtures/expected-phase1-r5-ir.json"
     ))
     .unwrap();
     let names = BTreeMap::new();

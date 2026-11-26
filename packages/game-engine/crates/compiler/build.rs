@@ -30,7 +30,7 @@ fn main() {
     let mut files: BTreeSet<PathBuf> = [
         "accepted-archives.json",
         "provenance.json",
-        "archive-manifest-phase1-r4.json",
+        "archive-manifest-phase1-r5.json",
     ]
     .into_iter()
     .map(PathBuf::from)
@@ -79,7 +79,7 @@ fn main() {
     }
     generated += "];\n";
     let header =
-        fs::read_to_string(root.join("archive-manifest-phase1-r4.json")).unwrap_or_default();
+        fs::read_to_string(root.join("archive-manifest-phase1-r5.json")).unwrap_or_default();
     generated += &format!("pub const MANIFEST: &str = {header:?};\n");
     fs::write(
         PathBuf::from(env::var("OUT_DIR").unwrap()).join("fixtures.rs"),

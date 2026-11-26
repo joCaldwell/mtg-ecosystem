@@ -1,26 +1,26 @@
-//! Modal spell lowering from frozen R4 source: each legal selection is an
+//! Modal spell lowering from frozen R5 source: each legal selection is an
 //! ordinary program in printed order, and every departure from the printed
 //! declaration rejects by name (CR 601.2b, 700.2a-d, 608.2c).
 use super::*;
 use serde_json::json;
 
-const R4: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+const R5: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json");
 const GRIXIS_CHARM: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/387ae7be-1cb5-4ae8-bb63-edf4941945a9.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/387ae7be-1cb5-4ae8-bb63-edf4941945a9.json");
 const AUSTERE_COMMAND: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/09cc8709-fe10-472a-b05c-e89f3523018d.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/09cc8709-fe10-472a-b05c-e89f3523018d.json");
 const FAREWELL: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/4eb813fd-2d5a-4b02-8193-662681ef4e7d.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/4eb813fd-2d5a-4b02-8193-662681ef4e7d.json");
 
 fn lowered(raw: &str) -> Definition {
-    match compile(R4, raw) {
+    match compile(R5, raw) {
         CompileResult::Lowered { definition } => *definition,
         other => panic!("frozen modal source must lower: {other:?}"),
     }
 }
 
 fn reason(raw: &str) -> String {
-    match compile(R4, raw) {
+    match compile(R5, raw) {
         CompileResult::Unsupported { reason, .. } | CompileResult::Invalid { reason, .. } => reason,
         CompileResult::Lowered { .. } => panic!("changed modal source lowered"),
     }
@@ -146,13 +146,13 @@ fn modal_executable_shape_is_closed() {
 }
 
 const TRUFFLESNOUT: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/8a15841a-dcb6-454a-b865-43a067f42b4e.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/8a15841a-dcb6-454a-b865-43a067f42b4e.json");
 const COLISEUM_BEHEMOTH: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/076cf4f1-b3d4-4175-b976-938ad851cc0e.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/076cf4f1-b3d4-4175-b976-938ad851cc0e.json");
 const KNIGHT_OF_AUTUMN: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/c4212ba4-8c43-40ca-aa36-b3b535659fa8.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/c4212ba4-8c43-40ca-aa36-b3b535659fa8.json");
 const GOBLIN_CRATERMAKER: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/1962d9b3-f057-4d2c-9c5b-386d9a66148a.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/1962d9b3-f057-4d2c-9c5b-386d9a66148a.json");
 
 /// CR 603.3c, 700.2: a modal trigger keeps its event and timing on an empty
 /// base program; each selection is its modes' complete programs in order.
@@ -266,7 +266,7 @@ fn modal_ability_executable_shape_is_closed() {
 
 /// CR 605.1a: a modal activation with a mode that adds mana would be a mana
 /// ability, which never uses the stack; it rejects by name instead of
-/// lowering as a modal stack activation. No frozen R4 record has one, and a
+/// lowering as a modal stack activation. No frozen R5 record has one, and a
 /// changed record fails the archive's span coverage first, so the guard the
 /// activated block runs on its effects is checked on Goblin Cratermaker's
 /// frozen effects with one mode replaced.
