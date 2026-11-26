@@ -16,6 +16,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         hybrid_mana: vec![],
         additional_types: vec![],
         subtypes: vec![kind.name().into()],
+        all_creature_types: false,
         basic: false,
         legendary: false,
         snow: false,

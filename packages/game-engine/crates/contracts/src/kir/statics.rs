@@ -478,6 +478,19 @@ impl crate::StaticAbility {
                                     matches!(k, CardKind::Artifact | CardKind::Enchantment)
                                 })
                         }
+                        // CR 205.3d, 205.3m: every creature type counts only
+                        // while the recipient is a creature, so the change
+                        // needs no type filter and its scope reads nothing a
+                        // layer-4 effect changes (CR 613.8a). Scopes reaching
+                        // other zones are not admitted.
+                        Change::AllCreatureTypes => {
+                            changes.len() == 1
+                                && match affects {
+                                    Scope::Source => kind == CardKind::Creature,
+                                    Scope::Attachment { filter, .. } => filter.0.is_empty(),
+                                    Scope::Matching { .. } => false,
+                                }
+                        }
                     };
                     if !supported {
                         return invalid("continuous-change");

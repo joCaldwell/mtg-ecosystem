@@ -316,8 +316,8 @@ impl RulesTxn {
             Atom::Type { kind } => characteristics.has_type(*kind),
             Atom::NotType { kind } => !characteristics.has_type(*kind),
             Atom::AnyType { kinds } => kinds.iter().any(|k| characteristics.has_type(*k)),
-            Atom::Subtype { subtype } => characteristics.subtypes.contains(subtype),
-            Atom::NotSubtype { subtype } => !characteristics.subtypes.contains(subtype),
+            Atom::Subtype { subtype } => characteristics.has_subtype(subtype),
+            Atom::NotSubtype { subtype } => !characteristics.has_subtype(subtype),
             Atom::Basic => characteristics.basic,
             Atom::NotBasic => !characteristics.basic,
             Atom::Legendary => characteristics.legendary,
@@ -807,53 +807,73 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    fn resolved_type_layer(
+    /// Layer 4 (CR 613.1d). A printed characteristic-defining ability
+    /// (changeling, CR 702.73a) is already in the copiable values and
+    /// applies first (CR 613.3); resolved animations and admitted static
+    /// type changes then apply in timestamp order (CR 613.7), so a later
+    /// creature-subtype replacement removes every creature type and a later
+    /// "is every creature type" restores them.
+    pub(super) fn structural_characteristics(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let mut facts =
             std::borrow::Cow::Borrowed(&self.copiable_definition(object)?.characteristics);
+        enum Row<'a> {
+            Resolved(&'a mtg_contracts::kir::Animation),
+            Static(&'a Change),
+        }
+        let mut rows: Vec<(u64, u8, Row<'_>)> = self
+            .resolved_characteristic_sets(object)
+            .filter_map(|(time, values)| Some((time, 0, Row::Resolved(values.animation.as_ref()?))))
+            .collect();
+        rows.extend(
+            self.static_changes(object, Layer::Type, None)
+                .into_iter()
+                .map(|(time, change)| (time, 1, Row::Static(change))),
+        );
         // CR 613.7b: retained rows are in creation order, including
         // replacement of the creature subtypes added by an earlier row.
-        for (_, values) in self.resolved_characteristic_sets(object) {
-            let Some(animation) = &values.animation else {
-                continue;
-            };
-            let facts = facts.to_mut();
-            for kind in [CardKind::Creature, CardKind::Artifact] {
-                if (kind == CardKind::Creature || animation.add_artifact) && !facts.has_type(kind) {
-                    facts.additional_types.push(kind);
-                }
-            }
-            facts.additional_types.sort_unstable();
-            if animation.replace_creature_subtypes {
-                facts
-                    .subtypes
-                    .retain(|s| !mtg_contracts::kir::is_creature_subtype(s));
-            }
-            for subtype in &animation.creature_subtypes {
-                if !facts.subtypes.contains(subtype) {
-                    facts.subtypes.push(subtype.clone());
-                }
-            }
-        }
-        Ok(facts)
-    }
-
-    pub(super) fn structural_characteristics(
-        &self,
-        object: ObjectId,
-    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        let mut facts = self.resolved_type_layer(object)?;
-        for (_, change) in self.static_changes(object, Layer::Type, None) {
-            if let Change::AddTypes { kinds } = change {
-                for kind in kinds {
-                    if !facts.has_type(*kind) {
-                        let additional = &mut facts.to_mut().additional_types;
-                        additional.push(*kind);
-                        additional.sort_unstable();
+        rows.sort_by_key(|(time, order, _)| (*time, *order));
+        for (_, _, row) in rows {
+            match row {
+                Row::Resolved(animation) => {
+                    let facts = facts.to_mut();
+                    for kind in [CardKind::Creature, CardKind::Artifact] {
+                        if (kind == CardKind::Creature || animation.add_artifact)
+                            && !facts.has_type(kind)
+                        {
+                            facts.additional_types.push(kind);
+                        }
+                    }
+                    facts.additional_types.sort_unstable();
+                    if animation.replace_creature_subtypes {
+                        facts
+                            .subtypes
+                            .retain(|s| !mtg_contracts::kir::is_creature_subtype(s));
+                        facts.all_creature_types = false;
+                    }
+                    for subtype in &animation.creature_subtypes {
+                        if !facts.subtypes.contains(subtype) {
+                            facts.subtypes.push(subtype.clone());
+                        }
                     }
                 }
+                Row::Static(Change::AddTypes { kinds }) => {
+                    for kind in kinds {
+                        if !facts.has_type(*kind) {
+                            let additional = &mut facts.to_mut().additional_types;
+                            additional.push(*kind);
+                            additional.sort_unstable();
+                        }
+                    }
+                }
+                Row::Static(Change::AllCreatureTypes) => {
+                    if !facts.all_creature_types {
+                        facts.to_mut().all_creature_types = true;
+                    }
+                }
+                Row::Static(_) => {}
             }
         }
         Ok(facts)
@@ -3013,6 +3033,28 @@ impl RulesTxn {
                 return Err("historical subtype outside admitted animation".into());
             }
             base.subtypes.clone_from(&c.subtypes);
+        }
+        // CR 613.1d: a layer-4 static can make the object every creature
+        // type, and a resolved creature-subtype replacement can remove it.
+        if base.all_creature_types != c.all_creature_types {
+            let gained = c.all_creature_types
+                && self
+                    .prepared
+                    .catalog
+                    .definitions
+                    .iter()
+                    .flat_map(|d| &d.static_abilities)
+                    .any(|a| matches!(&a.effect, StaticEffect::Continuous { changes, .. }
+                        if changes.contains(&Change::AllCreatureTypes)));
+            let lost = !c.all_creature_types
+                && self
+                    .characteristic_set_vocabulary()
+                    .filter_map(|value| value.animation.as_ref())
+                    .any(|a| a.replace_creature_subtypes);
+            if !gained && !lost {
+                return Err("historical creature types outside admitted changes".into());
+            }
+            base.all_creature_types = c.all_creature_types;
         }
         base.additional_types.clone_from(&c.additional_types);
         base.colors.clone_from(&c.colors);

@@ -25,6 +25,16 @@ const TABLE: &[(&str, KeywordAbility)] = &[
     ("indestructible", KeywordAbility::Indestructible),
 ];
 
+/// The bare printed changeling keyword (CR 702.73a).
+pub(super) fn changeling() -> SourceKeyword {
+    SourceKeyword {
+        keyword: "changeling".into(),
+        cost: None,
+        filter: None,
+        protection_from: None,
+    }
+}
+
 pub(super) fn lower(
     kind: CardKind,
     keywords: &[SourceKeyword],

@@ -60,7 +60,7 @@ impl ManaSpellTraits {
     pub fn from_characteristics(c: &Characteristics) -> Self {
         let mut subtypes = 0;
         for subtype in SPELL_SUBTYPES {
-            if c.subtypes.iter().any(|name| name == subtype.printed()) {
+            if c.has_subtype(subtype.printed()) {
                 subtypes |= 1 << subtype.index();
             }
         }

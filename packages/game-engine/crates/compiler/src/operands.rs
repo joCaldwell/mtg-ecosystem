@@ -1002,9 +1002,22 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
             _ => Err(unsupported("effects.token.colors", "unsupported color")),
         })
         .collect::<Result<Vec<_>, _>>()?;
+    // CR 702.73a: a token with changeling is every creature type.
+    let changeling = serde_json::json!({"keyword": "changeling"});
+    let all_creature_types = match token.keywords.iter().filter(|k| **k == changeling).count() {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(unsupported(
+                "effects.token.keywords",
+                "repeated changeling",
+            ));
+        }
+    };
     let keywords = token
         .keywords
         .iter()
+        .filter(|k| **k != changeling)
         .map(|k| {
             let obj = k
                 .as_object()
@@ -1023,6 +1036,7 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
         additional_types,
         colors,
         subtypes: token.subtypes.clone(),
+        all_creature_types,
         power: i64::from(token.power.value).into(),
         toughness: i64::from(token.toughness.value).into(),
         keywords,
