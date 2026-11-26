@@ -45,6 +45,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "kicker"
                 | "buyback"
                 | "affinity"
+                | "delve"
                 | "cycling"
                 | "typecycling"
                 | "flashback"

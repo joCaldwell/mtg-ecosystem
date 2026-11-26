@@ -86,12 +86,103 @@ impl RulesTxn {
         Ok(())
     }
 
+    fn delve_candidates(&self, entry: &StackInstance) -> Result<Vec<ObjectId>, String> {
+        if !entry.kind.is_spell()
+            || !self.stack_definition(entry)?.delve
+            || entry.total_cost.generic == Quantity::zero()
+        {
+            return Ok(vec![]);
+        }
+        Ok(self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| {
+                object.zone
+                    == Zone::Graveyard {
+                        owner: entry.controller,
+                    }
+            })
+            .map(|object| object.id)
+            .collect())
+    }
+
+    pub(super) fn mana_due(
+        &self,
+        entry: &StackInstance,
+        cast: &Casting,
+    ) -> Result<ManaCost, String> {
+        let mut cost = entry.total_cost.clone();
+        if let Some(selected) = &cast.delve {
+            let eligible = self.delve_candidates(entry)?;
+            let count = Quantity::from(selected.len() as i64);
+            if count > cost.generic
+                || selected.iter().collect::<BTreeSet<_>>().len() != selected.len()
+                || selected.iter().any(|id| !eligible.contains(id))
+            {
+                return Err("invalid delve payment".into());
+            }
+            cost.generic.subtract(&count);
+        }
+        Ok(cost)
+    }
+
+    // CR 601.2g-h and 702.66a-b: choose cards after the mana ability window
+    // and keep the locked total intact. Exile only when payment commits.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn delve_decision(&self, cast: &Casting) -> Result<Option<Decision<Rules>>, String> {
+        if cast.delve.is_some() {
+            return Ok(None);
+        }
+        let entry = self.top()?;
+        let candidates = self.delve_candidates(entry)?;
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let max =
+            (candidates.len() as u32).min(entry.total_cost.generic.to_u32().unwrap_or(u32::MAX));
+        let mut colored = entry.total_cost.clone();
+        colored.generic = Quantity::zero();
+        let surplus = match self.payment_pool(entry.controller, &colored) {
+            Ok(pool) => pool.into_values().fold(Quantity::zero(), |mut sum, n| {
+                sum.add(&n);
+                sum
+            }),
+            Err(PaymentError::InsufficientMana) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let mut deficit = entry.total_cost.generic.clone();
+        deficit.subtract(&surplus);
+        let deficit = deficit.max(Quantity::zero());
+        if deficit > Quantity::from(i64::from(max)) {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.pick(
+                entry.controller,
+                Reason::ChosenObjectCost {
+                    action: ChosenCostAction::ExileFromGraveyard,
+                },
+                candidates
+                    .into_iter()
+                    .map(|object| Candidate::Object { object })
+                    .collect(),
+                deficit
+                    .to_u32()
+                    .ok_or("delve deficit exceeds candidate bound")?,
+                max,
+            ),
+        ))
+    }
+
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
         Ok(
             if self.state.rules.players[stack.controller.0 as usize]
                 .can_pay_life(&phyrexian_life(&stack.hybrid_colors))
-                && self.can_pay_announced(stack, &stack.total_cost)?
+                && (self.delve_decision(&cast)?.is_some()
+                    || self.can_pay_announced(stack, &stack.total_cost)?)
             {
                 Frame::SpendMana { cast }
             } else {
@@ -132,6 +223,12 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing spending input")?;
+        if matches!(input.answer, Answer::Pick { .. }) && self.delve_decision(&cast)?.is_some() {
+            cast.delve = Some(input.objects()?);
+            self.mana_due(self.top()?, &cast)?;
+            self.rules_mut().frame = Frame::SpendMana { cast };
+            return Ok(());
+        }
         let Answer::Pay {
             pay: PayAnswer::Spend { unrestricted },
         } = &input.answer
@@ -203,7 +300,7 @@ impl RulesTxn {
             return Err("announcement payment binding invariant".into());
         }
 
-        let cost = stack.total_cost.clone();
+        let cost = self.mana_due(&stack, cast)?;
         if let StackKind::Activated { ability, .. } = &stack.kind
             && let activated = &self.stack_definition(&stack)?.activated[*ability as usize]
             && matches!(
@@ -266,6 +363,18 @@ impl RulesTxn {
                 player: stack.controller,
             },
         )?;
+        for object in cast.delve.iter().flatten() {
+            self.commit(
+                ProposedEvent::Move {
+                    object: *object,
+                    destination: Zone::Exile,
+                },
+                BatchCause::Payment {
+                    stack_id: cast.stack_id,
+                    player: stack.controller,
+                },
+            )?;
+        }
         if life > Quantity::zero() {
             self.commit(
                 ProposedEvent::LoseLife {
@@ -364,7 +473,7 @@ impl RulesTxn {
             .stack
             .last_mut()
             .ok_or("missing stack")?
-            .paid = Some(cost);
+            .paid = Some(stack.total_cost.clone());
         if stack.kind.is_spell() {
             self.record_event(Event::SpellCast {
                 stack_id: cast.stack_id,

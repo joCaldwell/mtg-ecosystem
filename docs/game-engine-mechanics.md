@@ -249,6 +249,9 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   stack-static cost lock. Admitted parameters cover artifact, creature,
   artifact creature, enchantment, token, supported subtypes, historic
   permanents and outlaws.
+- **Delve** lets the caster exile cards from their graveyard to pay generic
+  mana after the cost locks (CR 601.2h, 702.66). The engine commits the
+  chosen exiles with the remaining mana payment.
 - **Cycling**: a hand activation on any card type paying fixed mana and
   discarding the card, then drawing one (CR 702.29a). **Typecycling** pays the
   same, then searches for one card of its type (basic land, or an allowlisted

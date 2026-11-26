@@ -1584,3 +1584,63 @@ fn simulator_quotes_sphere_increase_before_affinity_reduction() {
         );
     }
 }
+
+/// CR 702.66 and 601.2h: delve covers generic payment only and survives
+/// restoring the spend decision after graveyard cards have been chosen.
+#[test]
+fn treasure_cruise_partial_delve_survives_restore() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    const CRUISE: &str = record!("5b6bdf5a-2742-4851-92cd-a857a3852836");
+    let mut setup = board(&[(CRUISE, &[])])
+        .permanent_or_hand("Treasure Cruise", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .card("Island", 1, 1, Zone::Graveyard { owner: PlayerId(1) });
+    for _ in 0..6 {
+        setup = setup.card("Forest", 0, 0, Zone::Graveyard { owner: PlayerId(0) });
+    }
+    let mut game = Game::new(setup.libraries("Island", 4).prepare());
+    let catalog = game.prepared.clone();
+    let mut strategy = Strategy::new(&catalog.catalog, Policy::Develop, [0; 4]);
+    let mut saw_delve = false;
+    for _ in 0..12 {
+        let decision = Driver::request(&mut game, u64::MAX);
+        let view = observation(&game, 0);
+        if saw_delve {
+            assert!(
+                matches!(&decision.shape, Shape::Pay { cost, step: PayStep::Spend, .. }
+                if cost.generic == 1.into() && cost.colored == [Color::U])
+            );
+            game = Game::restore(catalog.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+            let answer = strategy.choose_with_game(&view, &game).unwrap();
+            game.respond(decision.player, decision.id, answer).unwrap();
+            Driver::request(&mut game, u64::MAX);
+            assert_eq!(
+                game.state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|object| object.zone == Zone::Exile)
+                    .count(),
+                6
+            );
+            assert_eq!(
+                game.state.rules.stack.last().unwrap().total_cost.generic,
+                7.into()
+            );
+            checked(&game);
+            return;
+        }
+        if let Reason::ChosenObjectCost {
+            action: mtg_contracts::ChosenCostAction::ExileFromGraveyard,
+        } = decision.reason
+        {
+            assert_eq!(decision.candidates.len(), 6);
+            saw_delve = true;
+        }
+        let answer = strategy.choose_with_game(&view, &game).unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+    panic!("Treasure Cruise did not reach delve payment");
+}

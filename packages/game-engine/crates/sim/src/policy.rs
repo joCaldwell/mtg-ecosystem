@@ -25,6 +25,24 @@ pub fn can_fund(
     mana_policy::hybrid_plan(catalog, view, cost, symbols).is_some()
 }
 
+fn delve_mana_due(
+    mut cost: ManaCost,
+    view: &mtg_core::PermittedView,
+    casting_card: Option<&ObjectHandle>,
+) -> ManaCost {
+    let graveyard = Quantity::from(
+        view.objects
+            .iter()
+            .filter(|object| {
+                object.zone == Zone::Graveyard { owner: view.viewer }
+                    && casting_card != Some(&object.handle)
+            })
+            .count() as i64,
+    );
+    cost.generic.subtract(&cost.generic.clone().min(graveyard));
+    cost
+}
+
 fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::Definition, String> {
     let found = catalog.definition_by_oracle_id(id);
     // Policy tests deliberately exercise catalogs with permuted definitions.
@@ -296,7 +314,16 @@ impl Strategy<'_> {
             ) => {
                 let outer = mana_ability_source.is_none();
                 let available = mana_policy::spendable_pool(v).ok_or("missing mana payer")?;
-                let payable = payment(cost, &available).is_some();
+                let due = if outer
+                    && self
+                        .top_program(v)
+                        .is_some_and(|(definition, _)| definition.delve)
+                {
+                    delve_mana_due(cost.clone(), v, None)
+                } else {
+                    cost.clone()
+                };
+                let payable = payment(&due, &available).is_some();
                 if outer && self.memory.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
                     // price. Nested activations consume the outer plan in order.
@@ -304,7 +331,7 @@ impl Strategy<'_> {
                         self.memory.mana_plan = mana_policy::plan_for(
                             self.catalog,
                             v,
-                            cost,
+                            &due,
                             self.memory.payment.exclude.as_ref(),
                         )
                         .unwrap_or_default();

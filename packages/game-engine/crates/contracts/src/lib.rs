@@ -1854,6 +1854,8 @@ pub struct Definition {
     /// and is exiled whenever it would leave the stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flashback: Option<ManaCost>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub delve: bool,
     pub oracle_id: String,
     pub name: String,
     pub characteristics: Characteristics,

@@ -1029,6 +1029,17 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
+                        [one] if one.keyword == "delve" => {
+                            if text != "Delve"
+                                || one.cost.is_some()
+                                || one.filter.is_some()
+                                || one.protection_from.is_some()
+                                || one.amount.is_some()
+                            {
+                                return Err(unsupported("keyword", "keyword:delve:parameters"));
+                            }
+                            definition.delve = true;
+                        }
                         [one] if one.keyword == "affinity" => {
                             definition
                                 .static_abilities

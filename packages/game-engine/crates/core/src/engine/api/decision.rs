@@ -96,11 +96,14 @@ impl RulesTxn {
                     max: None,
                 },
             ),
-            Frame::Mana { .. } | Frame::SpendMana { .. } => {
+            Frame::SpendMana { cast } if let Some(decision) = self.delve_decision(cast)? => {
+                decision
+            }
+            Frame::Mana { cast } | Frame::SpendMana { cast } => {
                 let entry = self.top()?;
                 self.payment_decision(
                     entry.controller,
-                    entry.total_cost.clone(),
+                    self.mana_due(entry, cast)?,
                     None,
                     matches!(self.state.rules.frame, Frame::Mana { .. }),
                 )?

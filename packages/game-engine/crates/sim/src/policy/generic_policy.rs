@@ -1096,6 +1096,11 @@ impl Strategy<'_> {
                     cost
                 }
             };
+            let cost = if d.delve {
+                super::delve_mana_due(cost, v, quote.map(|(_, card)| card))
+            } else {
+                cost
+            };
             if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
                 .is_none()
             {
@@ -1269,12 +1274,13 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let (choices, plan) = mana_policy::hybrid_plan(
-            self.catalog,
-            v,
-            cost.clone(),
-            &d.characteristics.hybrid_mana,
-        )?;
+        let due = if d.delve {
+            super::delve_mana_due(cost.clone(), v, Some(&o.handle))
+        } else {
+            cost.clone()
+        };
+        let (choices, plan) =
+            mana_policy::hybrid_plan(self.catalog, v, due, &d.characteristics.hybrid_mana)?;
         self.memory.payment.announced_cost = unchanged_cost.then_some(cost);
         self.memory.hybrid_choices = choices;
         self.memory.planned_x = x;

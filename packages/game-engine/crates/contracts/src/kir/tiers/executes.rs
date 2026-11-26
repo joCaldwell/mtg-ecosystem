@@ -1254,6 +1254,9 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     if !shell {
         return cell("shell", name(&c.kind));
     }
+    if d.delve && d.spell.is_none() {
+        return cell("keyword", "delve");
+    }
     if d.modal_spell.is_some() && !matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         return cell("modal", "nonspell");
     }

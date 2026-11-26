@@ -295,6 +295,8 @@ pub enum Cell {
     /// CR 702.34a: casting from the graveyard for the flashback cost, and
     /// exile as the spell leaves the stack.
     Flashback,
+    /// CR 702.66: exile graveyard cards for generic mana during spell payment.
+    Delve,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -439,7 +441,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SpellAdditionalSacrifice
         | C::Kicker
         | C::Buyback
-        | C::Flashback => Tiers::EXECUTES,
+        | C::Flashback
+        | C::Delve => Tiers::EXECUTES,
     }
 }
 
@@ -687,6 +690,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if !d.characteristics.hybrid_mana.is_empty() {
         cells.insert(Cell::HybridManaCost);
+    }
+    if d.delve {
+        cells.insert(Cell::Delve);
     }
     if d.flashback.is_some() {
         cells.insert(Cell::Flashback);

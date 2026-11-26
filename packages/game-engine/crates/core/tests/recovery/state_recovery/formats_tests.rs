@@ -24,8 +24,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "062147641d4e761a2198d77e15e8209cf00246f0dc38aae14c1c401a717363fc",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    115,
-    "e4c8435b12e4052afde4ed8fde6865491f8a40a023145aa9ffefd22c98d407bd",
+    116,
+    "fe31d1ae42eef03942691492ee0ee433b1f38685c3dbf2afc377b4c63acbce9b",
 );
 const WORK_PIN: (u32, &str) = (
     59,
@@ -817,6 +817,38 @@ fn pending_stack_target() -> Game {
     game
 }
 
+fn suspended_delve() -> Game {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let ring = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Sol Ring")
+        .unwrap();
+    ring.delve = true;
+    let mut game = Game::new(
+        Board::new(catalog, "snapshot-delve")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Sol Ring", 0, 0, true)
+            .card("Island", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
+            .libraries("Island", 2)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    let card = Driver::object(&game, 1);
+    Driver::pick_object(&mut game, card);
+    Driver::request(&mut game, u64::MAX);
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -828,6 +860,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             super::kernel_control_tests::suspended_control(),
             super::kernel_control_tests::suspended_creature_payment(),
             pending_stack_target(),
+            suspended_delve(),
         ])
         .chain(mana_riders())
         .chain([granted_mana()])
