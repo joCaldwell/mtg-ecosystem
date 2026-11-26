@@ -1005,7 +1005,10 @@ impl RulesTxn {
             cast_complete: instance.paid.is_some(),
             spell_copy: self.is_spell_copy(instance),
             flashback: instance.kind.is_spell()
-                && matches!(instance.cast_from, Zone::Graveyard { .. }),
+                && matches!(instance.cast_from, Zone::Graveyard { .. })
+                && self
+                    .stack_definition(instance)
+                    .is_ok_and(|d| d.flashback.is_some()),
             targets,
         })
     }

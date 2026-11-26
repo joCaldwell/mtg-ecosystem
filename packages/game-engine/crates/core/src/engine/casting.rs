@@ -38,7 +38,9 @@ impl RulesTxn {
             || (object.zone == (Zone::Command { owner: player })
                 && self.state.rules.commanders.history(card).is_some())
             || (object.zone == (Zone::Graveyard { owner: player })
-                && definition.flashback.is_some())
+                && (definition.flashback.is_some()
+                    || definition.retrace
+                    || definition.escape.is_some()))
             || (object.zone == Zone::Exile
                 && object.adventure_player == Some(player)
                 && face == CardFace::Front))
@@ -61,6 +63,37 @@ impl RulesTxn {
             self.spell_proposal_obstacle(program, player, &definition.characteristics)
         {
             return Err(reason.into());
+        }
+        // CR 702.81a, 601.2b: a retrace cast needs a land card to discard.
+        if definition.retrace
+            && object.zone == (Zone::Graveyard { owner: player })
+            && !self.state.rules.objects.values().any(|o| {
+                o.zone == (Zone::Hand { owner: player })
+                    && !self.state.rules.tokens.contains_key(&o.id.card)
+                    && self
+                        .characteristics(o.id)
+                        .is_ok_and(|c| c.has_type(CardKind::Land))
+            })
+        {
+            return Err("retrace requires a land card to discard".into());
+        }
+        // CR 702.138a, 601.2b: an escape cast needs enough other cards to exile.
+        if let Some(escape) = &definition.escape
+            && object.zone == (Zone::Graveyard { owner: player })
+            && self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| {
+                    o.zone == (Zone::Graveyard { owner: player })
+                        && o.id.card != card
+                        && !self.state.rules.tokens.contains_key(&o.id.card)
+                })
+                .count()
+                < escape.exile_other as usize
+        {
+            return Err("escape requires other graveyard cards to exile".into());
         }
         if let Some(modal) = &definition.modal_spell
             && !self.modal_has_selection(modal, player, &definition.characteristics, None)
@@ -99,8 +132,10 @@ impl RulesTxn {
     }
 
     /// Quote an ordinary front-face cast for its priority holder using the
-    /// same cost construction that will lock at CR 601.2f. Optional and
-    /// hybrid costs are left to their respective announcement choices.
+    /// same cost construction that will lock at CR 601.2f, including a
+    /// graveyard cast's flashback or escape cost or retrace's mana cost (CR
+    /// 702.34a, 702.81a, 702.138a). Optional and hybrid costs are left to
+    /// their respective announcement choices.
     pub fn quote_cast_cost(
         &self,
         viewer: PlayerId,
@@ -116,9 +151,11 @@ impl RulesTxn {
         self.casting_cost(source, viewer, proposal.cast_from, x)
     }
 
-    /// CR 118.9, 601.2f: quote the printed alternative cost (evoke) of the
-    /// same front-face proposal from hand or the command zone, with the
-    /// commander tax, increases and reductions that would lock with it.
+    /// CR 118.9, 601.2f: quote the printed alternative cost (evoke, CR
+    /// 702.74a, or dash, CR 702.109a) of the same front-face proposal from
+    /// hand or the command zone, with the commander tax, increases and
+    /// reductions that would lock with it. Graveyard routes (flashback,
+    /// retrace, escape) are the proposal's own cost: see `quote_cast_cost`.
     pub fn quote_alternative_cast_cost(
         &self,
         viewer: PlayerId,
@@ -340,7 +377,13 @@ impl RulesTxn {
             && self.definition(entry.source.card)?.layout == FaceLayout::Adventurer)
     }
     pub(super) fn stack_departure(&self, entry: &StackInstance, destination: Zone) -> Zone {
-        if entry.kind.is_spell() && matches!(entry.cast_from, Zone::Graveyard { .. }) {
+        // CR 702.81a: a retrace spell has no departure replacement.
+        if entry.kind.is_spell()
+            && matches!(entry.cast_from, Zone::Graveyard { .. })
+            && self
+                .stack_definition(entry)
+                .is_ok_and(|d| d.flashback.is_some())
+        {
             Zone::Exile
         } else {
             destination

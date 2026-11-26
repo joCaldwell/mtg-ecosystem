@@ -1440,6 +1440,7 @@ impl RulesTxn {
                         battlefield_entry_turn: r.source.battlefield_entry_turn,
                         control_upkeeps: r.source.control_upkeeps,
                         unearthed: r.source.unearthed,
+                        dashed: r.source.dashed,
                         keyword_timestamp: r.source.keyword_timestamp,
                         id: r.source.object,
                         controller: r.source.controller,
