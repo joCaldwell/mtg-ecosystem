@@ -1043,7 +1043,6 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
             .map_err(|_| operand("token_stat", "fixed:range")),
         other => Err(operand("token_stat", variant(&other))),
     };
-    let (power, toughness) = (stat(&token.power)?, stat(&token.toughness)?);
     if !token.supertypes.is_empty() {
         return Err(unsupported(
             "effects.token",
@@ -1072,6 +1071,10 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
             ));
         }
     };
+    let (Some(power), Some(toughness)) = (&token.power, &token.toughness) else {
+        return Err(operand("token_stat", "missing_power_or_toughness"));
+    };
+    let (power, toughness) = (stat(power)?, stat(toughness)?);
     let colors = token
         .colors
         .iter()

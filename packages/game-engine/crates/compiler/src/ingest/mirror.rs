@@ -659,8 +659,8 @@ pub(crate) struct SourceToken {
     pub(crate) types: Vec<String>,
     pub(crate) subtypes: Vec<String>,
     pub(crate) keywords: Vec<serde_json::Value>,
-    pub(crate) power: serde_json::Value,
-    pub(crate) toughness: serde_json::Value,
+    pub(crate) power: Option<serde_json::Value>,
+    pub(crate) toughness: Option<serde_json::Value>,
     /// Printed modifiers the token lowerer reads or rejects by name.
     #[serde(default, deserialize_with = "present_json_operand")]
     pub(crate) name: Option<serde_json::Value>,
