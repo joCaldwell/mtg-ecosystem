@@ -172,8 +172,8 @@ pub fn encode(
             g[12 + color(c)] += 1;
         }
         g[18] = int(&cost.generic);
-        for (&c, q) in &pool.unrestricted {
-            g[19 + color(c)] = int(q);
+        for (c, q) in pool.available() {
+            g[19 + color(c)] = int(&q);
         }
     } else if let Some(p) = v.players.iter().find(|p| p.player == v.viewer) {
         for (&c, q) in &p.mana {
@@ -356,6 +356,18 @@ pub fn encode(
             Candidate::Trigger { .. } => (2, -1, -1, 0, 0),
             Candidate::DamageEffect { .. } => (3, -1, -1, 0, 0),
             Candidate::Color { color: c } => (4, -1, -1, color(*c) as i32, 0),
+            Candidate::ManaBundle { symbols } => {
+                let mut counts = [0i32; 6];
+                for symbol in symbols {
+                    counts[color(*symbol)] += 1;
+                }
+                let packed = counts
+                    .iter()
+                    .enumerate()
+                    .map(|(index, count)| count << (3 * index))
+                    .sum();
+                (16, -1, -1, packed, 0)
+            }
             Candidate::ManaAbility { ability } => match ability {
                 ManaAbilityIdentity::Printed { index } => (5, -1, -1, 1, *index as i32),
                 ManaAbilityIdentity::Granted { index } => (5, -1, -1, 2, *index as i32),

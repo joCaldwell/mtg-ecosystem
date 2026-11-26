@@ -57,6 +57,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         d.mana_abilities.push(ManaAbility {
             costs,
             production: ManaProduction::AnyColor,
+            spend_restriction: None,
             riders: vec![],
             source_block: 0,
             restriction: None,

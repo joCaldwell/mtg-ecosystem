@@ -106,6 +106,7 @@ impl RulesTxn {
                     self.mana_due(entry, cast)?,
                     None,
                     matches!(self.state.rules.frame, Frame::Mana { .. }),
+                    self.announced_mana_use(entry)?,
                 )?
             }
             Frame::ManaSourceChoice {

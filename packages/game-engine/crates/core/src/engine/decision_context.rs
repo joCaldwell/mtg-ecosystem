@@ -287,6 +287,10 @@ impl RulesTxn {
                 .and_then(|row| row.label)
                 .unwrap_or_else(|| effect.0.clone()),
             Candidate::Color { color } => format!("{color:?}"),
+            Candidate::ManaBundle { symbols } => symbols
+                .iter()
+                .map(|color| format!("{{{color:?}}}"))
+                .collect(),
             Candidate::ManaAbility { ability } => match ability {
                 ManaAbilityIdentity::Intrinsic { color } => format!("Add {{{color:?}}}"),
                 ManaAbilityIdentity::Printed { index } => format!("Mana ability {}", index + 1),
