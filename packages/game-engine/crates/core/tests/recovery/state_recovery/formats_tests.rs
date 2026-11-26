@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    73,
-    "daaa59d533711414422abed0fad1179d2dc13dc13314edbe68db253caf2ddec9",
+    74,
+    "8db0041f48a67f2941918f488ea8748302fc3fcdce4d4b7ed0f30939d74fc2e7",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    107,
-    "c1121198eb09b61e98579d4ee2ad469e9b22331b13e7948ef6de161a2bb49cff",
+    108,
+    "adc9a9853f6e03259e48c2632bf88b1c15107182ef948ca008ddd90b43180d36",
 );
 const WORK_PIN: (u32, &str) = (
     58,
@@ -405,7 +405,8 @@ fn suspended_land_play_rejects_rehashed_tampering() {
 }
 
 /// Wire shapes no fixture board suspends in: a battlefield search's entry
-/// choice with a chosen Aura host and a payment (CR 303.4f, 614.1c), and a
+/// choice with a chosen Aura host, a payment and reveals (CR 303.4f,
+/// 614.1c, 701.20a), and a
 /// forced tapped entry that still offers its payment, and a private
 /// top-order choice and outcome. Only their JSON shape is fingerprinted.
 fn library_entry_shapes() -> Vec<String> {
@@ -418,6 +419,7 @@ fn library_entry_shapes() -> Vec<String> {
             found: vec![object],
             hosts: vec![(object, object)],
             paid: vec![(object, true)],
+            revealed: vec![(object, Some(object)), (object, None)],
             source_block: 0,
         })
         .unwrap();

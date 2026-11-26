@@ -126,6 +126,12 @@ pub(super) fn audit_target_predicate(filter: &Pred, graveyard: bool) -> Result<(
     Walk::library_card_filter(filter)
 }
 
+/// CR 205, 208, 202.3: a hidden card's printed characteristics, as the
+/// core evaluates them for a card in a library or hand.
+pub(in crate::kir) fn hidden_card_filter(filter: &Pred) -> bool {
+    Walk::library_card_filter(filter).is_ok()
+}
+
 /// The target occurrences a node names, without judging the node. Program
 /// validation uses this to prove every announced target is read (CR 601.2c);
 /// [`check`] remains the admission decision.
@@ -792,6 +798,7 @@ impl Walk<'_, '_> {
                         Ok(())
                     }
                     Change::Controller { player } => self.player(player),
+                    Change::AllCreatureTypes => kind("resolving creature-type change"),
                     // CR 113.10: resolving ability grants are not admitted.
                     Change::AddManaAbilities { .. } => kind("resolving mana ability grant"),
                 }

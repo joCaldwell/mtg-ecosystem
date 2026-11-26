@@ -46,6 +46,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "typecycling"
                 | "flashback"
                 | "protection"
+                | "changeling"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {

@@ -47,6 +47,11 @@ pub enum StaticEffect {
     PayLifeOrEnterTapped {
         amount: Quantity,
     },
+    /// CR 614.12, 701.20a: the entering controller may reveal one card
+    /// matching `filter` from their hand; otherwise it enters tapped.
+    RevealOrEnterTapped {
+        filter: Pred,
+    },
     EntersTappedIf {
         condition: EntryCondition,
     },
@@ -172,6 +177,7 @@ impl StaticEffect {
         match self {
             Self::EntersTappedIf { .. } => Capability::ConditionalEntryTappedV1,
             Self::PayLifeOrEnterTapped { .. } => Capability::EntryLifePaymentV1,
+            Self::RevealOrEnterTapped { .. } => Capability::EntryRevealV1,
             Self::EntersTapped => Capability::EntersTappedV1,
             Self::EntersWithPlusOneCounters { .. } => Capability::EntryPlusOneCountersV1,
             Self::Rule {
@@ -400,6 +406,17 @@ impl crate::StaticAbility {
                     invalid("entry-life-payment")
                 }
             }
+            StaticEffect::RevealOrEnterTapped { filter } => {
+                if on_battlefield
+                    && kind == CardKind::Land
+                    && !filter.0.is_empty()
+                    && super::check::hidden_card_filter(filter)
+                {
+                    Ok(())
+                } else {
+                    invalid("entry-reveal")
+                }
+            }
             StaticEffect::EntersTappedIf { condition } => {
                 let supported = match condition {
                     EntryCondition::UnlessControlled { filter, count, .. } => {
@@ -477,6 +494,19 @@ impl crate::StaticAbility {
                                 && kinds.iter().all(|k| {
                                     matches!(k, CardKind::Artifact | CardKind::Enchantment)
                                 })
+                        }
+                        // CR 205.3d, 205.3m: every creature type counts only
+                        // while the recipient is a creature, so the change
+                        // needs no type filter and its scope reads nothing a
+                        // layer-4 effect changes (CR 613.8a). Scopes reaching
+                        // other zones are not admitted.
+                        Change::AllCreatureTypes => {
+                            changes.len() == 1
+                                && match affects {
+                                    Scope::Source => kind == CardKind::Creature,
+                                    Scope::Attachment { filter, .. } => filter.0.is_empty(),
+                                    Scope::Matching { .. } => false,
+                                }
                         }
                     };
                     if !supported {

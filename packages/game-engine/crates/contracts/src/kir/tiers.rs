@@ -507,6 +507,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::EntryPlusOneCountersV1
         | C::ConditionalEntryTappedV1
         | C::EntryLifePaymentV1
+        | C::EntryRevealV1
         | C::EntersTappedV1
         | C::TypedNonbasicIntrinsicManaV1
         | C::FlashV1

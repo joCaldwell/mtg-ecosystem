@@ -281,7 +281,11 @@ enum FactKey {
 #[derive(Clone, Copy)]
 pub(super) enum EntryOverride {
     ForceTapped,
-    LifePayment { paid: bool },
+    /// CR 614.12: the entry choice was made (life paid or card revealed)
+    /// or declined.
+    Choice {
+        accepted: bool,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -1891,7 +1895,7 @@ impl RulesTxn {
         intended: Option<(PlayerId, CardFace)>,
         entry_state: Option<&Self>,
         force_tapped: bool,
-        entry_payment: Option<bool>,
+        entry_accepted: Option<bool>,
     ) -> Result<EventOutcome, String> {
         let object = &object;
         let destination = &destination;
@@ -2014,10 +2018,10 @@ impl RulesTxn {
             true
         } else {
             let prior = entry_state.unwrap_or(self);
-            let unpaid = if let Some(amount) = prior.entry_life_cost(face_id)? {
-                match entry_payment {
-                    Some(paid) => !paid,
-                    None if !prior.can_pay_entry_life(controller, &amount) => true,
+            let unpaid = if let Some(choice) = prior.entry_choice(face_id)? {
+                match entry_accepted {
+                    Some(accepted) => !accepted,
+                    None if !prior.entry_choice_open(controller, *object, &choice) => true,
                     None => {
                         return Err(
                             "payable entry requires a battlefield entry continuation".into()
@@ -3163,7 +3167,7 @@ impl RulesTxn {
                 };
                 let (force_tapped, payment) = match entry {
                     Some(EntryOverride::ForceTapped) => (true, None),
-                    Some(EntryOverride::LifePayment { paid }) => (false, Some(paid)),
+                    Some(EntryOverride::Choice { accepted }) => (false, Some(accepted)),
                     None => (false, None),
                 };
                 self.apply_move(

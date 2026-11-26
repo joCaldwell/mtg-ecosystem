@@ -1098,11 +1098,17 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     }
     if d.static_abilities
         .iter()
-        .filter(|a| matches!(a.effect, kir::StaticEffect::PayLifeOrEnterTapped { .. }))
+        .filter(|a| {
+            matches!(
+                a.effect,
+                kir::StaticEffect::PayLifeOrEnterTapped { .. }
+                    | kir::StaticEffect::RevealOrEnterTapped { .. }
+            )
+        })
         .count()
         > 1
     {
-        return cell("static", "multiple_entry_life_payments");
+        return cell("static", "multiple_entry_choices");
     }
     for a in &d.static_abilities {
         a.validate_static(d)?;
