@@ -42,6 +42,25 @@ impl Walk<'_, '_> {
                 {
                     Ok(Cell::MoveOwnGraveyardCardToBattlefield)
                 }
+                (
+                    Destination::Battlefield { controller, .. },
+                    TargetDomain::GraveyardCard { .. },
+                ) if controller == &PlayerExpr::you(self.env.context)
+                    && self.env.targets[*slot as usize]
+                        .filter
+                        .as_ref()
+                        .is_some_and(|filter| {
+                            filter.types == [CardKind::Creature] && filter.predicate.is_none()
+                        }) =>
+                {
+                    Ok(Cell::MoveGraveyardCreatureToBattlefield)
+                }
+                (
+                    Destination::OwnerLibraryTop,
+                    TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+                    | TargetDomain::GraveyardCard { .. },
+                ) => Ok(Cell::MoveGraveyardTargetToOwnerLibraryTop),
                 (Destination::OwnerHand, TargetDomain::GraveyardCard { .. }) => {
                     Ok(Cell::MoveGraveyardTargetToOwnerHand)
                 }

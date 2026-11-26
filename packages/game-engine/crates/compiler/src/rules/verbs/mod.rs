@@ -299,7 +299,16 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             order,
             tapped,
             who,
-        } => move_zone::lower(cx, what, to, order.as_deref(), *tapped, who.as_ref()),
+            controller,
+        } => move_zone::lower(
+            cx,
+            what,
+            to,
+            order.as_deref(),
+            *tapped,
+            who.as_ref(),
+            controller.as_deref(),
+        ),
         Step::Sacrifice {
             who,
             what,

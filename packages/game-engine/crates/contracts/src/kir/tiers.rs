@@ -109,6 +109,7 @@ pub enum Cell {
     LifeTargetPlayerX,
     LifeTargetController,
     LifeTargetControllerPower,
+    LifeGraveyardCreatureManaValue,
     LifeCounted,
     /// CR 119.3, 608.2c: the each-opponent drain pair.
     Drain,
@@ -150,7 +151,9 @@ pub enum Cell {
     ExileGraveyardTarget,
     GraveyardTargetWasCreature,
     MoveGraveyardTargetToOwnerHand,
+    MoveGraveyardTargetToOwnerLibraryTop,
     MoveOwnGraveyardCreatureToBattlefield,
+    MoveGraveyardCreatureToBattlefield,
     MoveOwnGraveyardCardToBattlefield,
     ExileTargetGraveyard,
     ExileGraveyards,
@@ -349,6 +352,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeEachOpponent
         | C::LifeTargetPlayerX
         | C::LifeTargetController
+        | C::LifeGraveyardCreatureManaValue
         | C::LifeTargetControllerPower
         | C::LifeCounted
         | C::Drain
@@ -370,9 +374,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ChooseObjectOwnerHand
         | C::GraveyardTargetWasCreature
         | C::ExileGraveyardTarget
+        | C::MoveGraveyardTargetToOwnerLibraryTop
         | C::MoveGraveyardTargetToOwnerHand
         | C::MoveOwnGraveyardTargetToHand
         | C::MoveOwnGraveyardCardToBattlefield
+        | C::MoveGraveyardCreatureToBattlefield
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
