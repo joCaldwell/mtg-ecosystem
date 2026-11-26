@@ -1241,12 +1241,22 @@ impl RulesTxn {
         let mut matched = vec![];
         // Filled once per actual entry, only for observers that need its characteristics.
         let mut entry_facts = None;
+        // CR 702.29c: the discarded card observes its own discard from the
+        // graveyard it was put into.
+        let discarded = match &witness {
+            TriggerEventWitness::Discarded { movement, .. }
+                if matches!(movement.destination, Zone::Graveyard { .. }) =>
+            {
+                Some(movement.successor)
+            }
+            _ => None,
+        };
         for object in observers
             .state
             .rules
             .objects
             .values()
-            .filter(|o| o.present_on_battlefield())
+            .filter(|o| o.present_on_battlefield() || Some(o.id) == discarded)
             .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
         {
             let you = object.controller;
@@ -1444,7 +1454,7 @@ impl RulesTxn {
                 if matches
                     && (pattern.nth().is_none() || nth.is_some())
                     && use_key.is_none_or(|key| !self.state.rules.trigger_uses.contains(&key))
-                    && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
+                    && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack) | (FunctioningZone::Graveyard, Zone::Graveyard { .. }))
                     && observers.is_live(object.controller)
                 {
                     let mut matched_witness = entry_witness.unwrap_or_else(|| witness.clone());
@@ -2172,8 +2182,20 @@ impl RulesTxn {
             || fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || intrinsic.is_some_and(|definition| {
-                definition.functioning_zone != FunctioningZone::Battlefield
-                    || fact.zone != Zone::Battlefield
+                // CR 702.29c: a discard of this card triggers from the
+                // graveyard it was put into, under its owner's control.
+                let graveyard = definition.condition.pattern().discards_source();
+                let expected = if graveyard {
+                    FunctioningZone::Graveyard
+                } else {
+                    FunctioningZone::Battlefield
+                };
+                definition.functioning_zone != expected
+                    || (graveyard
+                        && (fact.zone != (Zone::Graveyard { owner: fact.owner })
+                            || fact.controller != fact.owner
+                            || controller != fact.owner))
+                    || (!graveyard && fact.zone != Zone::Battlefield)
                     || (*definition.condition.pattern() == EventPattern::self_enters()
                         && !binds_observed_object(&definition)
                         && fact.controller != controller)

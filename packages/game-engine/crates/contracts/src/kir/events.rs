@@ -147,6 +147,13 @@ pub enum EventPattern {
 }
 
 impl EventPattern {
+    /// CR 702.29c: "when you discard (or cycle) this card", which triggers
+    /// from the graveyard the card was put into.
+    pub fn discards_source(&self) -> bool {
+        matches!(self, Self::Discards { player, card, .. }
+            if *card == Pred::source() && player.is_you())
+    }
+
     /// The turn ordinal this event is counted against, if any.
     pub fn nth(&self) -> Option<TurnOrdinal> {
         match self {
@@ -505,9 +512,11 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         }
         // CR 701.9a, 109.1: a discarded card in a graveyard or exile has
         // printed characteristics only: no controller, status or token
-        // facts, and it is never this permanent, so only "another" names
-        // the source.
+        // facts. It is this object only for "when you discard this card",
+        // which functions from the graveyard (CR 702.29c); otherwise only
+        // "another" names the source.
         if matches!(pattern, EventPattern::Discards { .. })
+            && *object != Pred::source()
             && any_atom(object, &|a| {
                 !matches!(
                     a,

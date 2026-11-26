@@ -552,6 +552,15 @@ fn discard_event(trigger: &serde_json::Value) -> Result<Option<EventPattern>, Fa
     };
     let card = match fields.get("what") {
         None if !cycled => Pred::default(),
+        // CR 702.29c: "when you discard (or cycle) this card" functions from
+        // the graveyard the card was put into.
+        Some(what)
+            if (*what == serde_json::json!({"ref": "this", "noun": "card"})
+                || *what == serde_json::json!({"ref": "self"}))
+                && player.is_you() =>
+        {
+            Pred::source()
+        }
         Some(what) if what["ref"] == "this" || what["ref"] == "self" => return reject("source-card"),
         Some(what)
             if what["ref"] == "filter"

@@ -7,6 +7,8 @@ const STOIC_CHAMPION: &str = record!("1203a80f-11ac-46ed-aa2a-5a6782b6303d");
 const FLOURISHING_FOX: &str = record!("44add927-4e6b-408e-907f-6a665add8b16");
 const HORROR: &str = record!("6de20c2c-b8a8-4f12-897b-a2f55d7eed87");
 const GREEN_GOBLIN: &str = record!("d1f1e48f-f1f4-497f-9112-79159d2f443b");
+const VIZIER: &str = record!("699fc7cf-1ad3-4c32-b3e4-49f9a2da4b26");
+const TITANBONES: &str = record!("510bccb1-61cd-49f1-a54a-80352653d1e3");
 
 fn collected(g: &Game, source: ObjectId) -> usize {
     g.events()
@@ -118,5 +120,98 @@ fn discard_events_filtered_discard_reads_the_discarded_card() {
         })
         .count();
     assert_eq!(treasures, 1);
+    assert_recoverable((&g).into());
+}
+
+/// Vizier of Tumbling Sands: "Cycling {1}{U}" and "When you cycle this card,
+/// untap target permanent." The ability triggers from the graveyard the
+/// cycled card was put into, under its owner's control, and untaps an
+/// Island tapped for the cost before the cycling draw (CR 702.29c).
+#[test]
+fn discard_events_cycled_card_triggers_from_its_graveyard() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[VIZIER], TurnStep::PrecombatMain)
+                .permanent_or_hand("Vizier of Tumbling Sands", 0, 0, true)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (vizier, island) = (Driver::object(&g, 0), Driver::object(&g, 1));
+    let definition = g.definition(CardId(0)).unwrap();
+    let trigger = definition.triggered.last().unwrap();
+    assert_eq!(trigger.functioning_zone, FunctioningZone::Graveyard);
+    assert!(trigger.condition.pattern().discards_source());
+    let ability = u32::try_from(
+        definition
+            .activated
+            .iter()
+            .position(|a| a.functioning_zone == FunctioningZone::Hand)
+            .unwrap(),
+    )
+    .unwrap();
+    let before = hand(&g, 0);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: vizier,
+            ability,
+        },
+    );
+    Driver::pay(&mut g, &[1, 2]);
+    assert!(g.current(island).unwrap().tapped);
+    // The pending trigger's source is the card in its owner's graveyard.
+    checked(&g);
+    Driver::pick_object(&mut g, island);
+    assert_eq!(g.state.rules.stack.len(), 2);
+    checked(&g);
+    settle(&mut g);
+    assert!(!g.current(island).unwrap().tapped);
+    assert_eq!(hand(&g, 0), before);
+    assert_eq!(
+        g.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.id.card == CardId(0))
+            .map(|o| o.zone)
+            .collect::<Vec<_>>(),
+        [Zone::Graveyard { owner: PlayerId(0) }]
+    );
+    assert_recoverable((&g).into());
+}
+
+/// Titanbones, Towering Heart: "When you discard this card, you gain 3
+/// life." Discarding it and a Vizier of Tumbling Sands to hand size
+/// triggers Titanbones from the graveyard; the Vizier was discarded but not
+/// cycled, so its cycle trigger does not (CR 702.29a, 702.29c).
+#[test]
+fn discard_events_discarded_card_triggers_and_a_plain_discard_is_no_cycle() {
+    let mut setup = board(&[VIZIER, TITANBONES], TurnStep::End)
+        .permanent_or_hand("Titanbones, Towering Heart", 0, 0, true)
+        .permanent_or_hand("Vizier of Tumbling Sands", 0, 0, true);
+    for _ in 0..7 {
+        setup = setup.permanent_or_hand("Island", 0, 0, true);
+    }
+    let mut g = Game::with_trace(prepare(setup), TraceMode::Detailed);
+    let cards = [Driver::object(&g, 0), Driver::object(&g, 1)];
+    let before = life(&g, 0);
+    for _ in g.live_players() {
+        Driver::pass(&mut g);
+    }
+    let discard = Driver::request(&mut g, u64::MAX);
+    assert_eq!(discard.reason, Reason::Discard);
+    let picks = cards
+        .iter()
+        .map(|object| discard.index(&Candidate::Object { object: *object }).unwrap())
+        .collect();
+    g.respond(discard.player, discard.id, Answer::Pick { picks: vec![picks] })
+        .unwrap();
+    drive(&mut g, &[], triggered);
+    assert_eq!(g.state.rules.stack.len(), 1);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(life(&g, 0), plus(&before, 3));
     assert_recoverable((&g).into());
 }

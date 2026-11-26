@@ -650,9 +650,15 @@ fn trigger_event(
             trigger_player_binding(&condition),
         )?;
     }
+    // CR 702.29c: a discard of this card triggers from the graveyard.
+    let functioning_zone = if condition.pattern().discards_source() {
+        FunctioningZone::Graveyard
+    } else {
+        FunctioningZone::Battlefield
+    };
     Ok(TriggeredAbility {
         modal: None,
-        functioning_zone: FunctioningZone::Battlefield,
+        functioning_zone,
         condition,
         program,
     })
