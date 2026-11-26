@@ -347,6 +347,8 @@ control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
 A creature target can name alternatives by subtype, with each alternative
 requiring a creature in the admitted card types (CR 205.3d).
 An ability with one target occurrence can exclude its source with “another.”
+Library-top placement can target a permanent by alternative card types
+(CR 400.3, 401.4).
 Graveyard targets check the announced incarnation, its owner's graveyard and
 its printed criteria, including secondary card types and fixed mana-value bounds
 (CR 400.7). Exile, return to the owner's hand and placement on top of the
