@@ -260,7 +260,11 @@ impl RulesTxn {
             Some(cost) => cost,
             None => self.casting_cost(source, player, cast_from, None)?,
         };
-        let revealed_hand_consumed = self.known_hand_count(original_object.card) < known_before;
+        // CR 400.2, 708.4: a face-down departure could have been any hand
+        // card, so it consumed one copy of every known identity; a reversal
+        // restores none of them rather than naming this card.
+        let revealed_hand_consumed =
+            !face_down && self.known_hand_count(original_object.card) < known_before;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         let source_facts = self.object_before(source)?;
         let entry = StackInstance {
@@ -539,6 +543,8 @@ impl RulesTxn {
                 .ok_or("missing reversal object")?;
             o.id = cast.original_object;
             o.zone = stack.cast_from;
+            // CR 733.1: the card returns as it was, face up and unrevealed.
+            o.face_down = false;
             o.controller = owner;
             o.default_controller = owner;
             o.tapped = false;

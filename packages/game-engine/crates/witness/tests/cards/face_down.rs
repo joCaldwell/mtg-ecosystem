@@ -640,3 +640,29 @@ fn a_land_turned_face_up_while_attacking_is_removed_from_combat() {
     assert!(turned);
     assert_eq!(game.state.rules.players[1].life, life);
 }
+
+#[test]
+fn a_reversed_face_down_cast_returns_the_card_unrevealed() {
+    let mut game = Game::new(
+        lands(
+            board().permanent_or_hand("Thelonite Hermit", 0, 0, true),
+            "Forest",
+            2,
+        )
+        .prepare(),
+    );
+    let before = view(&game, 1);
+    let card = Driver::object(&game, 0);
+    Driver::action(&mut game, Action::CastFaceDown { card });
+    // Two Forests cannot pay {3}: the attempt is reversed (CR 733.1).
+    Driver::pay(&mut game, &[1, 2]);
+    assert!(game.state.rules.stack.is_empty());
+    let object = game.current(Driver::object(&game, 0)).unwrap();
+    assert_eq!(object.zone, Zone::Hand { owner: PlayerId(0) });
+    assert!(!object.face_down);
+    let after = view(&game, 1);
+    assert!(after.view.known_searched_hand.is_empty());
+    assert_eq!(after.view.objects, before.view.objects);
+    game.validate_state().unwrap();
+    assert_recoverable((&game).into());
+}
