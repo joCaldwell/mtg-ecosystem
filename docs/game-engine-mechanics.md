@@ -244,6 +244,11 @@ Each surface here is its own `Executes`-only cell in `kir::cell_tiers`.
   single-color Phyrexian, payable with 2 life unless below 2 life (CR 107.4e–f,
   119.4). Several X, monocolored hybrid, colorless or hybrid Phyrexian symbols
   reject, as do hybrid, Phyrexian, X and special symbols in activation costs.
+- **Affinity** counts the caster's matching phased-in permanents at CR 601.2f
+  and reduces generic mana by that count (CR 702.41). Each instance uses the
+  stack-static cost lock. Admitted parameters cover artifact, creature,
+  artifact creature, enchantment, token, supported subtypes, historic
+  permanents and outlaws.
 - **Cycling**: a hand activation on any card type paying fixed mana and
   discarding the card, then drawing one (CR 702.29a). **Typecycling** pays the
   same, then searches for one card of its type (basic land, or an allowlisted

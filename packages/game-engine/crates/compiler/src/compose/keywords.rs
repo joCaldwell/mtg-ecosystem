@@ -2,10 +2,139 @@
 //!
 //! CR 702.2-702.21 (pinned 2026-09-25). Cycling, kicker and flashback with
 //! their reviewed cost shapes lower to their own rows below; other
-//! parameterized or linked keywords (cascade, bestow, affinity) reject;
+//! parameterized or linked keywords (cascade, bestow) reject;
 //! adding one here means adding one row and its runtime.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+
+/// CR 702.41, 601.2f: each printed instance contributes its own generic
+/// reduction using the existing stack-static cost lock.
+pub(super) fn affinity(keyword: &SourceKeyword, text: &str) -> Result<StaticAbility, Failure> {
+    use kir::{
+        Amount, Atom, PlayerExpr, Pred, Scope, SetExpr, SpellCostChange, StaticRule, ZoneExpr,
+    };
+    use serde_json::json;
+
+    let reject = || unsupported("keyword", "keyword:affinity:parameter");
+    let quality = text.strip_prefix("Affinity for ").ok_or_else(reject)?;
+    let filter = keyword.filter.as_ref().ok_or_else(reject)?;
+    let atoms = match quality {
+        "artifacts" if *filter == json!({"types":["artifact"]}) => {
+            vec![Atom::Type {
+                kind: CardKind::Artifact,
+            }]
+        }
+        "creatures" if *filter == json!({"types":["creature"]}) => {
+            vec![Atom::Type {
+                kind: CardKind::Creature,
+            }]
+        }
+        "artifact creatures" if *filter == json!({"types":["artifact","creature"]}) => {
+            vec![
+                Atom::Type {
+                    kind: CardKind::Artifact,
+                },
+                Atom::Type {
+                    kind: CardKind::Creature,
+                },
+            ]
+        }
+        "enchantments" if *filter == json!({"types":["enchantment"]}) => {
+            vec![Atom::Type {
+                kind: CardKind::Enchantment,
+            }]
+        }
+        "tokens" if *filter == json!({"cls":"token"}) => vec![Atom::Token],
+        "historic permanents"
+            if *filter
+                == json!({"cls":"permanent","allOf":[{"anyOf":[
+                    {"supertypes":["legendary"]},{"types":["artifact"]},{"subtypes":["Saga"]}
+                ]}]}) =>
+        {
+            vec![Atom::AnyOf {
+                alternatives: vec![
+                    Pred(vec![Atom::Legendary]),
+                    Pred(vec![Atom::Type {
+                        kind: CardKind::Artifact,
+                    }]),
+                    Pred(vec![Atom::Subtype {
+                        subtype: "Saga".into(),
+                    }]),
+                ],
+            }]
+        }
+        "outlaws"
+            if *filter
+                == json!({"cls":"permanent","allOf":[{"anyOf":[
+                    {"subtypes":["Assassin"]},{"subtypes":["Mercenary"]},{"subtypes":["Pirate"]},
+                    {"subtypes":["Rogue"]},{"subtypes":["Warlock"]}
+                ]}]}) =>
+        {
+            vec![Atom::AnyOf {
+                alternatives: ["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"]
+                    .into_iter()
+                    .map(|subtype| {
+                        Pred(vec![Atom::Subtype {
+                            subtype: subtype.into(),
+                        }])
+                    })
+                    .collect(),
+            }]
+        }
+        _ => {
+            let subtype = match quality {
+                "Equipment" => quality,
+                "Allies" => "Ally",
+                "Elves" => "Elf",
+                "Swamps" => "Swamp",
+                "Forests" => "Forest",
+                "Mountains" => "Mountain",
+                "Islands" => "Island",
+                "Plains" => "Plains",
+                "Gates" => "Gate",
+                "Towns" => "Town",
+                "Foods" => "Food",
+                _ => quality
+                    .strip_suffix('s')
+                    .filter(|s| kir::is_creature_subtype(s))
+                    .ok_or_else(reject)?,
+            };
+            if *filter != json!({"subtypes":[subtype]}) {
+                return Err(reject());
+            }
+            vec![Atom::Subtype {
+                subtype: subtype.into(),
+            }]
+        }
+    };
+    let caster = PlayerExpr::static_controller();
+    let mut filter = Pred(atoms);
+    filter.0.push(Atom::ControlledBy {
+        player: caster.clone(),
+    });
+    Ok(StaticAbility {
+        functioning_zone: FunctioningZone::Stack,
+        effect: kir::StaticEffect::Rule {
+            rule: StaticRule::SpellCost {
+                affects: Scope::Source,
+                caster,
+                change: SpellCostChange::Reduce {
+                    mana: ManaCost {
+                        generic: 1.into(),
+                        colored: vec![],
+                    },
+                },
+                multiplier: Some(Amount::Count {
+                    set: SetExpr::Matching {
+                        zone: ZoneExpr::Battlefield,
+                        filter,
+                    },
+                }),
+            },
+            condition: None,
+        },
+    })
+}
 
 const TABLE: &[(&str, KeywordAbility)] = &[
     ("flash", KeywordAbility::Flash),

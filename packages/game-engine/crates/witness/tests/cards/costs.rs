@@ -1477,3 +1477,47 @@ fn whispers_of_the_muse_buyback_changes_successful_departure() {
         );
     }
 }
+
+/// CR 702.41 and 601.2f: affinity counts only the caster's matching
+/// permanents and floors the generic cost without removing colored symbols.
+#[test]
+fn affinity_locks_generic_reduction_before_payment() {
+    const SPIRE_GOLEM: &str = record!("bfdc6bbc-7402-40ae-91be-658afca2f145");
+    const THOUGHTCAST: &str = record!("cce9bbff-82dc-4b2f-addd-d6715588de20");
+    let mut board = board(&[(SPIRE_GOLEM, &[]), (THOUGHTCAST, &[])])
+        .permanent_or_hand("Thoughtcast", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 1, 1, false)
+        .permanent_or_hand("Spire Golem", 1, 1, false);
+    for _ in 0..5 {
+        board = board.permanent_or_hand("Spire Golem", 0, 0, false);
+    }
+    let mut g = Game::with_trace(board.libraries("Island", 4).prepare(), TraceMode::Detailed);
+
+    Driver::cast(&mut g, CardId(0));
+    Driver::request(&mut g, u64::MAX);
+    let cost = &g.state.rules.stack.last().unwrap().total_cost;
+    assert_eq!(cost.generic, 0.into());
+    assert_eq!(cost.colored, [Color::U]);
+    checked(&g);
+    Driver::pay(&mut g, &[1]);
+    settle(&mut g);
+
+    let mut g = Game::with_trace(
+        self::board(&[(SPIRE_GOLEM, &[])])
+            .permanent_or_hand("Spire Golem", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 1, 1, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .libraries("Island", 4)
+            .prepare(),
+        TraceMode::Detailed,
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::request(&mut g, u64::MAX);
+    assert_eq!(
+        g.state.rules.stack.last().unwrap().total_cost.generic,
+        5.into()
+    );
+    checked(&g);
+}
