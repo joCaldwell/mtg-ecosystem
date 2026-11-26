@@ -1968,21 +1968,11 @@ impl RulesTxn {
             } => {
                 if !self.top_has_target_domain()? {
                     self.rules_mut().pending = None;
-                    let top = self
-                        .rules_mut()
-                        .stack
-                        .pop()
-                        .ok_or("missing impossible targeted trigger")?;
-                    let StackKind::Triggered { trigger_id, .. } = top.kind else {
-                        return Err("impossible trigger kind".into());
-                    };
-                    self.record_event(Event::TriggeredAbilityNotPlaced {
-                        trigger_id,
+                    return self.reject_trigger_placement(
+                        placement,
                         stack_id,
-                        reason: TriggerPlacementFailure::NoLegalTargets,
-                    })?;
-                    self.rules_mut().frame = Frame::TriggerOrder { placement };
-                    return Ok(());
+                        TriggerPlacementFailure::NoLegalTargets,
+                    );
                 }
                 if self.unbound_modes(self.top()?)? {
                     return self.bind_trigger_modes(placement, stack_id);
@@ -3050,6 +3040,29 @@ impl RulesTxn {
         self.rules_mut().frame = Frame::TriggerOrder { placement };
         Ok(())
     }
+    pub(super) fn reject_trigger_placement(
+        &mut self,
+        placement: TriggerPlacement,
+        stack_id: StackId,
+        reason: TriggerPlacementFailure,
+    ) -> Result<(), String> {
+        let top = self.top()?;
+        let StackKind::Triggered { trigger_id, .. } = top.kind else {
+            return Err("rejected placement is not a trigger".into());
+        };
+        if top.id != stack_id {
+            return Err("rejected placement is not the top trigger".into());
+        }
+        self.rules_mut().stack.pop();
+        self.record_event(Event::TriggeredAbilityNotPlaced {
+            trigger_id,
+            stack_id,
+            reason,
+        })?;
+        self.rules_mut().frame = Frame::TriggerOrder { placement };
+        Ok(())
+    }
+
     pub(super) fn bind_trigger_object_targets(
         &mut self,
         placement: TriggerPlacement,

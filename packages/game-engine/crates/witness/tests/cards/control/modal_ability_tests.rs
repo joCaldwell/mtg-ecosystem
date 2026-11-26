@@ -20,6 +20,7 @@ macro_rules! record {
     };
 }
 
+const DAWNBRINGER_CLERIC: &str = record!("0146f430-da82-48d3-a576-c2b05101797f");
 const TRUFFLESNOUT: &str = record!("8a15841a-dcb6-454a-b865-43a067f42b4e");
 const COLISEUM_BEHEMOTH: &str = record!("076cf4f1-b3d4-4175-b976-938ad851cc0e");
 const DECEIVER_EXARCH: &str = record!("3c939ea6-68b7-4965-b1d3-af1d3dc79778");
@@ -440,6 +441,7 @@ fn every_offered_entry_mode_resolves() {
 fn further_modal_triggers_lower_one_selection_per_mode() {
     for (raw, modes) in [
         (ETHERWROUGHT_PAGE, 3),
+        (DAWNBRINGER_CLERIC, 3),
         (BLACK_PANTHER, 2),
         (ELVEN_RAFT_STEERER, 2),
     ] {
@@ -554,4 +556,54 @@ fn a_modal_activation_chooses_modes_before_its_target_and_mana() {
         })
         .is_none()
     );
+}
+
+/// CR 700.2b: choosing zero modes removes the trigger whether or not
+/// one of its printed modes could have been chosen.
+#[test]
+fn sawblade_slinger_removes_an_empty_selection() {
+    const SLINGER: &str = record!("df7397b6-9a37-4012-8677-ae8e3b7c4bc3");
+    for artifact_available in [false, true] {
+        let mut b = board(&[SLINGER], TurnStep::PrecombatMain)
+            .permanent_or_hand("Sawblade Slinger", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false);
+        for _ in 0..3 {
+            b = b.permanent_or_hand("Plains", 0, 0, false);
+        }
+        if artifact_available {
+            b = b.permanent_or_hand("Sol Ring", 1, 1, false);
+        }
+        let mut g = Game::with_trace(b.libraries("Island", 2).prepare(), TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2, 3, 4]);
+        let d = until_modes(&mut g, 0);
+        assert_eq!(
+            offered(&d),
+            if artifact_available {
+                &[0, 1][..]
+            } else {
+                &[0]
+            }
+        );
+        assert!(
+            matches!(&d.candidates[0], Candidate::Modes { mask: 0, labels } if labels == &["No modes"])
+        );
+        choose(&mut g, &d, 0);
+        let next = Driver::request(&mut g, u64::MAX);
+        assert_eq!(next.reason, Reason::Priority);
+        assert!(g.state.rules.stack.is_empty());
+        assert!(g.events().iter().any(|e| matches!(
+            e,
+            Event::TriggeredAbilityNotPlaced {
+                reason: TriggerPlacementFailure::NoModesChosen,
+                ..
+            }
+        )));
+        assert!(
+            !g.events()
+                .iter()
+                .any(|e| matches!(e, Event::TriggerPlaced { .. }))
+        );
+        settle(&mut g);
+    }
 }
