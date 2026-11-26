@@ -359,7 +359,10 @@ impl EventSink for AnalyticsSink<'_> {
                                     DrawKind::Acquisition
                                 } else {
                                     match batch.cause {
-                                        BatchCause::DrawStep { player } if player == owner => {
+                                        BatchCause::DrawStep { player }
+                                        | BatchCause::InstructionDraw { player, .. }
+                                            if player == owner =>
+                                        {
                                             DrawKind::Draw
                                         }
                                         BatchCause::Instruction {

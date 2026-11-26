@@ -509,7 +509,11 @@ impl RulesTxn {
                 .is_some_and(|active| self.static_player(player, source.controller, active)),
             Cond::Not { condition } => !self.static_condition(source, condition),
             Cond::All { conditions } => conditions.iter().all(|c| self.static_condition(source, c)),
-            Cond::CostPaid { .. } | Cond::Satisfies { .. } | Cond::CastBy { .. } => false,
+            Cond::CostPaid { .. }
+            | Cond::Satisfies { .. }
+            | Cond::CastBy { .. }
+            | Cond::ControlsOwnCommander { .. }
+            | Cond::OpponentControlsMore { .. } => false,
         }
     }
 
@@ -1187,7 +1191,13 @@ impl RulesTxn {
             cursor: frame.cursor,
             source_block: block,
         };
-        let handles = match &self.entry(frame.stack_id)?.kind {
+        let entry = self.entry(frame.stack_id)?;
+        let handles = match &entry.kind {
+            StackKind::Triggered { witness, .. } if damage.source.object != entry.source => witness
+                .observed_object()
+                .ok_or("missing damage object handles")?
+                .handles
+                .clone(),
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
             StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
@@ -3185,60 +3195,49 @@ impl RulesTxn {
                 } else if instruction.set_damage().is_some() {
                     self.validate_wipe_damage_transaction(tx, frame)?;
                 } else {
-                    let (target_slot, amount, source_block, recipient) = match instruction {
-                        kernel!(Damage {
-                            to: mtg_contracts::kir::DamageTo::Ref {
-                                who: mtg_contracts::kir::Ref::Target { slot: _ }
-                            },
-                            amount: fixed!(_),
-                            ..
-                        })
-                        | kernel!(Damage {
-                            to: mtg_contracts::kir::DamageTo::Ref {
-                                who: mtg_contracts::kir::Ref::Target { slot: _ }
-                            },
-                            amount: announced_x!(),
-                            ..
-                        }) => {
-                            let (slot, amount, block, target) = self.directed_damage_operands(
-                                self.entry(frame.stack_id)?,
-                                instruction,
-                            )?;
-                            (Some(slot), amount, block, target)
-                        }
-
-                        kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) => {
-                            (
-                                None,
-                                amount,
-                                *source_block,
-                                TargetEntity::Player {
-                                    player: self.entry(frame.stack_id)?.controller,
-                                },
-                            )
-                        }
-                        _ => return Err("damage continuation not damage instruction".into()),
+                    use mtg_contracts::kir::{DamageTo, Ref};
+                    let kernel!(Damage { source, to: DamageTo::Ref { who }, amount } @ source_block) =
+                        instruction
+                    else {
+                        return Err("damage continuation not damage instruction".into());
                     };
+                    let entry = self.entry(frame.stack_id)?;
+                    let (target_slot, recipient) = match who {
+                        Ref::Target { slot } => {
+                            (Some(*slot), self.directed_damage_target(entry, *slot)?)
+                        }
+                        Ref::Controller { .. } => (
+                            None,
+                            TargetEntity::Player {
+                                player: entry.controller,
+                            },
+                        ),
+                        _ => return Err("unexpected directed damage recipient".into()),
+                    };
+                    let (current_source, _) = self.damage_source(entry, *source)?;
                     let expected = BatchCause::Instruction {
                         stack_id: frame.stack_id,
                         player: self.entry(frame.stack_id)?.controller,
                         source: self.entry(frame.stack_id)?.source,
                         cursor: frame.cursor,
-                        source_block,
+                        source_block: *source_block,
                     };
                     let d = tx.entries.first().ok_or("empty noncombat damage")?;
+                    let controller = if matches!(source, Ref::EventObject { .. }) {
+                        d.source.controller
+                    } else {
+                        entry.controller
+                    };
+                    let amount = Self::directed_damage_amount(entry, amount, &d.source)?;
                     if tx.entries.len() != 1
                         || tx.cause != expected
-                        || d.original_amount != *amount
+                        || d.original_amount != amount
                         || recipient != d.recipient.entity()
                         || target_slot.is_some_and(|slot| {
                             frame.legal_targets.get(slot as usize) != Some(&true)
                         })
-                        || d.controller != self.entry(frame.stack_id)?.controller
-                        || !self.prepared_damage_source_matches(
-                            d,
-                            self.source_facts(self.entry(frame.stack_id)?)?,
-                        )
+                        || d.controller != controller
+                        || !self.prepared_damage_source_matches(d, current_source)
                     {
                         return Err("unbound noncombat damage transaction".into());
                     }

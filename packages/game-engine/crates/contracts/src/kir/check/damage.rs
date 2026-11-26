@@ -9,6 +9,39 @@ impl Walk<'_, '_> {
         to: &DamageTo,
         amount: &Amount,
     ) -> Result<Cell, KirError> {
+        if matches!(source, Ref::EventObject { .. }) {
+            let DamageTo::Ref {
+                who: Ref::Target { slot },
+            } = to
+            else {
+                return unaudited("event object damage recipient");
+            };
+            if self.plain_leaf
+                || !(self.domain(*slot)? == TargetDomain::AnyDamageTarget
+                    || self.creature_target(*slot)?)
+            {
+                return unaudited("event object damage target domain");
+            }
+            match amount {
+                Amount::StatOf {
+                    object,
+                    stat: Stat::Power,
+                } if object == source => {
+                    // An entry can name a noncreature. Only a creature
+                    // predicate (or a declared attacker) proves a power read.
+                    let event = self.env.event.ok_or_else(|| {
+                        KirError::Scope("event object damage without event".into())
+                    })?;
+                    if matches!(event.pattern(), EventPattern::Enters { object }
+                        if !object.0.contains(&Atom::Type { kind: CardKind::Creature }))
+                    {
+                        return unaudited("entered creature's power");
+                    }
+                }
+                _ => Self::fixed_at_least(amount, 1, "event object damage amount")?,
+            }
+            return Ok(Cell::DamageEventObject);
+        }
         if *source != Ref::Source {
             return unaudited("damage source");
         }

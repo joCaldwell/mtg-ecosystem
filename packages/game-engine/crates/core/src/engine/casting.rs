@@ -161,6 +161,7 @@ impl RulesTxn {
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         let source_facts = self.object_before(source)?;
         let entry = StackInstance {
+            target_triggers: vec![],
             mode_mask: None,
             hybrid_colors: vec![],
             cost_lock: None,

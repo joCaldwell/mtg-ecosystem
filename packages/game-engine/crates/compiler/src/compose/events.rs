@@ -88,6 +88,134 @@ pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<EventPat
     }
 }
 
+/// CR 120.2b, 122.6, 608.2h: a standalone instruction refers to the
+/// permanent named by its entry or attack event.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(super) fn object_effect(
+    card: &Card<'_>,
+    trigger: &serde_json::Value,
+    condition: Option<&serde_json::Value>,
+    sentence: &Sentence,
+    block: usize,
+) -> Result<Option<TriggeredAbility>, Failure> {
+    if !matches!(trigger["trigger"].as_str(), Some("enters" | "attacks"))
+        || !sentence.bindings.is_empty()
+        || sentence.condition.is_some()
+        || sentence.condition_kind.is_some()
+    {
+        return Ok(None);
+    }
+    let [step] = sentence.steps.as_slice() else {
+        return Ok(None);
+    };
+    let pronoun = serde_json::json!({"ref": "it"});
+    if !matches!(
+        step,
+        Step::Damage {
+            source: DamageSource::It {},
+            optional: None,
+            ..
+        }
+    ) && !matches!(step, Step::PutCounters { on, .. } if *on == pronoun)
+        && !matches!(step, Step::Pump { what, .. } if *what == pronoun)
+    {
+        return Ok(None);
+    }
+    let reviewed = serde_json::from_value::<SourceTrigger>(trigger.clone())
+        .ok()
+        .and_then(|t| lower(card, &t));
+    let pattern = match reviewed {
+        Some(pattern) => pattern,
+        None => match general(card, trigger)? {
+            Some(pattern) => pattern,
+            None => return Ok(None),
+        },
+    };
+    let Some(role) = pattern.object_role() else {
+        return Ok(None);
+    };
+    let source = Ref::EventObject { role };
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
+    let source_block = source_block(block)?;
+    let scope = kir::SetExpr::One { object: source };
+    let instruction = match step {
+        Step::Damage { amount, to, .. } => {
+            let mut slots = BTreeMap::new();
+            let slot = match to {
+                DamageDestination::AnyTarget { selection_id } => bind_target(
+                    &mut program,
+                    &mut slots,
+                    selection_id,
+                    TargetDomain::AnyDamageTarget,
+                )?,
+                DamageDestination::Object { reference } if reference["ref"] == "target" => {
+                    bind_creature_target(&mut program, &mut slots, &object(reference)?)?
+                }
+                _ => return Ok(None),
+            };
+            let amount = if *amount
+                == serde_json::json!({
+                    "amount": "attribute", "of": pronoun, "attribute": "power"
+                }) {
+                kir::Amount::StatOf {
+                    object: source,
+                    stat: kir::Stat::Power,
+                }
+            } else {
+                kir::Amount::fixed(fixed_positive_amount(&typed(amount, "amount")?)?)
+            };
+            Instruction::act(
+                Verb::Damage {
+                    source,
+                    to: kir::DamageTo::Ref {
+                        who: Ref::Target { slot },
+                    },
+                    amount,
+                },
+                source_block,
+            )
+        }
+        Step::PutCounters { counter, count, .. } if counter.r#type == "+1/+1" => {
+            Instruction::plus_one_counters(
+                scope,
+                fixed_positive_amount(&typed(count, "amount")?)?,
+                source_block,
+            )
+        }
+        // This identity is already the invocation's exact source (CR 400.7).
+        // A general attacking-object continuous effect needs its own cell.
+        Step::Pump {
+            power,
+            toughness,
+            duration,
+            ..
+        } if pattern.object() == Some(&Pred::source()) => {
+            until_end_of_turn(duration)?;
+            Instruction::pump(
+                kir::SetExpr::source(),
+                signed_fixed(power)?,
+                signed_fixed(toughness)?,
+                source_block,
+            )
+        }
+        _ => return Ok(None),
+    };
+    let condition = TriggerCondition::Event {
+        intervening_if: condition
+            .map(|raw| intervening(raw, &pattern))
+            .transpose()?
+            .map(|i| i.condition()),
+        pattern,
+    };
+    program.instructions.push(instruction);
+    Ok(Some(TriggeredAbility {
+        modal: None,
+        functioning_zone: FunctioningZone::Battlefield,
+        condition,
+        program,
+    }))
+}
+
 /// The general event table: an enters, dies, put-into-a-graveyard-from-the-
 /// battlefield or attacks event whose object is this permanent, its named
 /// self, or one filtered object, and the same-kind alternatives of such
@@ -157,6 +285,72 @@ pub(super) fn general(
         };
         let what: ast::ObjectRef = typed(what, "trigger.what")?;
         Ok(Some((kind, subject(card, &what)?)))
+    }
+    if trigger["trigger"] == "becomes-target"
+        && trigger.as_object().is_some_and(|fields| fields.len() == 3)
+    {
+        use kir::TargetingKind;
+        let mut of = trigger["of"].clone();
+        let Some(fields) = of.as_object_mut() else {
+            return Ok(None);
+        };
+        let by = match fields.remove("control") {
+            None => PlayerExpr::EachPlayer,
+            Some(control) if control == "you" => PlayerExpr::you(Context::Triggered),
+            Some(control) if control == "opponent" => PlayerExpr::EachOpponent,
+            _ => return Ok(None),
+        };
+        let kind = if of == serde_json::json!({"cls":"spell"}) {
+            TargetingKind::Spell
+        } else if of == serde_json::json!({"cls":"ability"}) {
+            TargetingKind::Ability
+        } else if of == serde_json::json!({"allOf":[{"anyOf":[{"cls":"spell"},{"cls":"ability"}]}]})
+        {
+            TargetingKind::SpellOrAbility
+        } else {
+            return Ok(None);
+        };
+        let object = subject(card, &typed(&trigger["what"], "trigger.what")?)?;
+        return Ok(Some(EventPattern::BecomesTarget { object, by, kind }));
+    }
+    // CR 603.2c: one ability with two disjoint events, a cast and an
+    // entry. Neither branch shares an invocation operand with the other.
+    if trigger["trigger"] == "any-of"
+        && trigger.as_object().is_some_and(|fields| fields.len() == 2)
+        && let Some([a, b]) = trigger["events"].as_array().map(Vec::as_slice)
+    {
+        let (entry, cast) = if a["trigger"] == "cast" {
+            (b, a)
+        } else {
+            (a, b)
+        };
+        if let (
+            Some((Kind::Enters, object)),
+            Ok(SourceTrigger::Cast {
+                who,
+                what,
+                not_from,
+            }),
+        ) = (event(card, entry)?, serde_json::from_value(cast.clone()))
+        {
+            return Ok(Some(EventPattern::AnyOf {
+                first: Box::new(EventPattern::Enters { object }),
+                second: Box::new(cast_event(&who, &what, not_from.as_ref())?),
+            }));
+        }
+    }
+    if trigger["trigger"] == "deals-damage"
+        && trigger["combat"] == true
+        && trigger["to"] == "any"
+        && trigger.as_object().is_some_and(|fields| fields.len() == 4)
+        && trigger["what"]["ref"] == "filter"
+    {
+        let source = subject(card, &typed(&trigger["what"], "trigger.what")?)?;
+        return Ok(Some(EventPattern::DealsDamage {
+            source,
+            combat: true,
+            recipient: PlayerExpr::EachPlayer,
+        }));
     }
     let mut parts = match trigger.get("trigger").and_then(|t| t.as_str()) {
         Some("any-of") => {
@@ -245,6 +439,26 @@ pub(super) fn intervening(
     let shape = condition["condition"].as_str();
     let fields = condition.as_object().map(|o| o.len());
     let you = serde_json::json!({"player": "you"});
+    if *condition
+        == serde_json::json!({
+            "condition": "control", "who": you,
+            "what": {"ref": "commander", "owner": you, "count": {"amount": "fixed", "value": 1}}
+        })
+    {
+        return Ok(kir::Intervening::ControlsOwnCommander);
+    }
+    for (printed, kind) in [("land", CardKind::Land), ("creature", CardKind::Creature)] {
+        if *condition
+            == serde_json::json!({
+                "condition": "control-count", "who": {"player": "an-opponent"},
+                "of": {"types": [printed]}, "comparison": {
+                    "op": "gt", "value": {"amount": "count", "of": {"types": [printed], "control": "you"}}
+                }
+            })
+        {
+            return Ok(kir::Intervening::OpponentControlsMore { kind });
+        }
+    }
     let measure = match shape {
         Some("life-total" | "cards-in-hand") if fields == Some(3) && condition["who"] == you => {
             if shape == Some("life-total") {

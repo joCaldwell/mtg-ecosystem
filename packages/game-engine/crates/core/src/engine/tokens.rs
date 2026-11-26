@@ -354,6 +354,28 @@ impl RulesTxn {
                         .collect();
                     return self.begin_counter_placements(frame, allocations, cause);
                 }
+                if let mtg_contracts::kir::SetExpr::One {
+                    object: mtg_contracts::kir::Ref::EventObject { .. },
+                } = on
+                {
+                    let object = self
+                        .entry(frame.stack_id)?
+                        .kind
+                        .observed_object()?
+                        .last_known
+                        .object;
+                    if !self
+                        .current(object)
+                        .is_ok_and(Object::present_on_battlefield)
+                    {
+                        return self.finish_instruction(
+                            frame,
+                            InstructionOutcome::Effect { actual: None },
+                        );
+                    }
+                    let cause = self.instruction_cause(&frame, source_block)?;
+                    return self.begin_counter_placements(frame, vec![(object, amount)], cause);
+                }
                 let target = match on {
                     source_object!() => self.entry(frame.stack_id)?.source,
                     target_object!(target_slot) => {

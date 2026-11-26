@@ -45,6 +45,7 @@ impl Walk<'_, '_> {
         };
         match object {
             Ref::Source => Ok(Cell::PlusOneCountersSource),
+            Ref::EventObject { .. } if !self.plain_leaf => Ok(Cell::PlusOneCountersEventObject),
             Ref::Target { slot } => match self.domain(*slot)? {
                 TargetDomain::ControlledBattlefieldCreature => Ok(Cell::PlusOneCountersTarget),
                 _ if self.creature_target(*slot)? => Ok(Cell::PlusOneCountersTarget),

@@ -22,6 +22,7 @@ pub(crate) fn lower_damage_subject(what: &SourceDamageObject) -> Result<Pred, Fa
                     colors: None,
                     cls: None,
                     types: Some(filter.types.clone()),
+                    subtypes: None,
                     non_types: filter.non_types.clone(),
                     all_of: filter.all_of.clone(),
                     any_of: filter.any_of.clone(),
@@ -50,6 +51,7 @@ enum TypeTerm {
     Any,
     Color(Color),
     Type(CardKind),
+    Subtype(String),
     NotType(CardKind),
     All(Vec<TypeTerm>),
     AnyOf(Vec<TypeTerm>),
@@ -78,6 +80,7 @@ impl TypeTerm {
         match self {
             Self::Any => {}
             Self::Color(color) => out.push(Atom::Color { color }),
+            Self::Subtype(subtype) => out.push(Atom::Subtype { subtype }),
             Self::Type(kind) => out.push(Atom::Type { kind }),
             Self::NotType(kind) => out.push(Atom::NotType { kind }),
             Self::All(terms) => terms.into_iter().for_each(|t| t.atoms(out)),
@@ -133,6 +136,7 @@ fn type_term(
         if !root
             || class != Some("spell")
             || colors.len() != 1
+            || f.subtypes.is_some()
             || f.types.is_some()
             || f.non_types.is_some()
             || f.all_of.is_some()
@@ -163,6 +167,15 @@ fn type_term(
         _ => Err(unsupported("trigger.what.types", "unsupported spell type")),
     };
     let mut terms = vec![];
+    if let Some(subtypes) = &f.subtypes {
+        if class != Some("spell") || subtypes.is_empty() {
+            return Err(unsupported(
+                "trigger.what.subtypes",
+                "unsupported spell subtype",
+            ));
+        }
+        terms.extend(subtypes.iter().cloned().map(TypeTerm::Subtype));
+    }
     for (values, negative) in [(&f.types, false), (&f.non_types, true)] {
         if let Some(values) = values {
             if values.is_empty() {
@@ -223,6 +236,7 @@ pub(crate) fn lower_attack_subject(what: &SourceAttacker) -> Result<Pred, Failur
                     colors: None,
                     cls: None,
                     types: filter.types.clone(),
+                    subtypes: None,
                     non_types: filter.non_types.clone(),
                     all_of: filter.all_of.clone(),
                     any_of: filter.any_of.clone(),
@@ -1553,6 +1567,9 @@ pub(crate) fn lower_player_ref(
 ) -> Result<PlayerExpr, Failure> {
     match who {
         ast::PlayerRef::You(_) => Ok(PlayerExpr::you(context)),
+        ast::PlayerRef::They(_) if event_player == Some(kir::EventPlayerRole::DrawingPlayer) => {
+            Ok(PlayerExpr::event(kir::EventPlayerRole::DrawingPlayer))
+        }
         ast::PlayerRef::ThatPlayer(_) => event_player
             .map(PlayerExpr::event)
             .ok_or_else(|| operand("player", "that_player:unbound")),

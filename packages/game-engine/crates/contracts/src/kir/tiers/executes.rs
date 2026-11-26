@@ -111,7 +111,9 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
             | kir::Cond::Exists { .. }
             | kir::Cond::ActivePlayer { .. }
             | kir::Cond::Satisfies { .. }
-            | kir::Cond::CastBy { .. } => {}
+            | kir::Cond::CastBy { .. }
+            | kir::Cond::ControlsOwnCommander { .. }
+            | kir::Cond::OpponentControlsMore { .. } => {}
         }
     }
     match node {

@@ -216,6 +216,17 @@ impl RulesTxn {
                                 .zip(members)
                                 .all(|(id, m)| *id == m.object && &m.amount == amount)
                     }
+                    mtg_contracts::kir::SetExpr::One {
+                        object: mtg_contracts::kir::Ref::EventObject { .. },
+                    } => {
+                        let object = self
+                            .entry(frame.stack_id)?
+                            .kind
+                            .observed_object()?
+                            .last_known
+                            .object;
+                        matches!(members.as_slice(), [m] if m.object == object && &m.amount == amount)
+                    }
                     source_object!() => {
                         matches!(members.as_slice(), [m] if m.object == self.entry(frame.stack_id)?.source && &m.amount == amount)
                     }
@@ -276,9 +287,16 @@ impl RulesTxn {
         &self,
         tx: &CounterPlacementTransaction,
     ) -> Result<Option<EventGroup>, String> {
-        let proliferating = matches!(
-            self.counter_instruction(&tx.frame)?,
-            kernel!(Proliferate { .. })
+        let instruction = self.counter_instruction(&tx.frame)?;
+        let proliferating = matches!(instruction, kernel!(Proliferate { .. }));
+        let event_object = matches!(
+            instruction,
+            kernel!(PutCounters {
+                on: mtg_contracts::kir::SetExpr::One {
+                    object: mtg_contracts::kir::Ref::EventObject { .. }
+                },
+                ..
+            })
         );
         let mut leaves: Vec<_> = tx
             .members
@@ -286,6 +304,9 @@ impl RulesTxn {
             .filter(|m| {
                 if proliferating {
                     self.can_proliferate_permanent(m.object)
+                } else if event_object {
+                    self.current(m.object)
+                        .is_ok_and(Object::present_on_battlefield)
                 } else {
                     self.is_battlefield_creature(m.object)
                 }

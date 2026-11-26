@@ -277,7 +277,10 @@ impl RulesTxn {
             Cond::ActivePlayer { .. } => {
                 return Err("active-player condition outside statics".into());
             }
-            Cond::Satisfies { .. } | Cond::CastBy { .. } => {
+            Cond::Satisfies { .. }
+            | Cond::CastBy { .. }
+            | Cond::ControlsOwnCommander { .. }
+            | Cond::OpponentControlsMore { .. } => {
                 return Err("intervening condition in a resolving node".into());
             }
             Cond::CostPaid { identity } => self

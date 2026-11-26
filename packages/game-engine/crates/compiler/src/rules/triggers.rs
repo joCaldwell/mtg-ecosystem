@@ -113,6 +113,44 @@ fn creature_death(what: &TriggerObject) -> Option<(Pred, bool)> {
     }
 }
 
+pub(crate) fn cast_event(
+    who: &PlayerSelector,
+    what: &SourceTypeFilter,
+    not_from: Option<&serde_json::Value>,
+) -> Result<EventPattern, Failure> {
+    if who.selection_id.is_some() || who.of.is_some() {
+        return Err(unsupported("trigger.who", "unsupported caster qualifier"));
+    }
+    let caster = match who.player.as_str() {
+        "you" => PlayerExpr::you(Context::Triggered),
+        "a-player" => PlayerExpr::EachPlayer,
+        "an-opponent" => PlayerExpr::EachOpponent,
+        _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
+    };
+    if not_from.is_some() {
+        return Err(unsupported(
+            "trigger.cast.origin",
+            "unsupported cast-origin predicate",
+        ));
+    }
+    Ok(EventPattern::Cast {
+        caster,
+        spell: lower_type_predicate(what, Some("spell"), true, 0)?,
+    })
+}
+
+pub(crate) fn trigger_player_binding(condition: &TriggerCondition) -> PlayerBinding {
+    if let Some(role) = kir::event_player_role(condition) {
+        PlayerBinding::EventPlayer(role)
+    } else if matches!(condition.pattern(), EventPattern::DealsDamage { .. }) {
+        PlayerBinding::DamageRecipient
+    } else if *condition.pattern() == EventPattern::opponent_creature_dies() {
+        PlayerBinding::DeathController
+    } else {
+        PlayerBinding::Unbound
+    }
+}
+
 pub(crate) fn lower_trigger(
     trigger: &SourceTrigger,
     effects: &[Sentence],
@@ -201,19 +239,18 @@ pub(crate) fn lower_trigger(
         SourceTrigger::Attacks { what } => {
             EventPattern::Attacks { attacker: lower_attack_subject(what)? }
         },
-        SourceTrigger::Cast { who, what, not_from } => {
-            if who.selection_id.is_some() || who.of.is_some() { return Err(unsupported("trigger.who", "unsupported caster qualifier")); }
-            let caster = match who.player.as_str() {
-                "you" => you(),
-                "a-player" => PlayerExpr::EachPlayer,
-                "an-opponent" => PlayerExpr::EachOpponent,
-                _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
+        SourceTrigger::Cast { who, what, not_from } => cast_event(who, what, not_from.as_ref())?,
+        SourceTrigger::AttacksAndIsntBlocked { what } => {
+            EventPattern::AttacksUnblocked { attacker: lower_attack_subject(what)? }
+        },
+        SourceTrigger::Draws { who } => {
+            let player = match (who.player.as_str(), &who.selection_id, &who.of) {
+                ("you", None, None) => you(),
+                ("an-opponent", None, None) => PlayerExpr::EachOpponent,
+                ("a-player", None, None) => PlayerExpr::EachPlayer,
+                _ => return Err(unsupported("trigger.who", "unsupported drawing player")),
             };
-            let spell = lower_type_predicate(what, Some("spell"), true, 0)?;
-            if not_from.is_some() {
-                return Err(unsupported("trigger.cast.origin", "unsupported cast-origin predicate"));
-            }
-            EventPattern::Cast { caster, spell }
+            EventPattern::Draws { player }
         },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
@@ -303,15 +340,7 @@ pub(crate) fn lower_trigger(
             effects,
             block,
             &mut BTreeMap::new(),
-            if let Some(role) = kir::event_player_role(&condition) {
-                PlayerBinding::EventPlayer(role)
-            } else if matches!(pattern, EventPattern::DealsDamage { .. }) {
-                PlayerBinding::DamageRecipient
-            } else if pattern == EventPattern::opponent_creature_dies() {
-                PlayerBinding::DeathController
-            } else {
-                PlayerBinding::Unbound
-            },
+            trigger_player_binding(&condition),
             Context::Triggered,
         )?;
     }

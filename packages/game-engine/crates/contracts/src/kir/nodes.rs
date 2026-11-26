@@ -37,6 +37,14 @@ pub enum Cond {
         object: Ref,
         caster: PlayerExpr,
     },
+    /// CR 903.3, 603.4: the ability controller controls a commander
+    /// designated for their own deck.
+    ControlsOwnCommander {},
+    /// CR 603.4, 102.3: some individual opponent controls more matching
+    /// permanents than the ability controller.
+    OpponentControlsMore {
+        kind: CardKind,
+    },
     Not {
         condition: Box<Cond>,
     },

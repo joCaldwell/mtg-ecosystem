@@ -534,30 +534,30 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 | `Enters` | the resulting battlefield; a characteristic read retains the entrant as `Entered` evidence (CR 603.6a) |
 | `Dies` | the battlefield just before the move, for any permanent, including "put into a graveyard from the battlefield" (CR 700.4, 603.10a) |
 | `Attacks` | the attacker's facts before the declaration (CR 508.3a) |
-| `Cast` | the spell's frozen stack characteristics, with the caster in a player set (CR 601.2i) |
+| `AttacksUnblocked` | an attacker left unblocked at its defender's declaration (CR 509.3g, 802.4) |
+| `Draws` | one successful draw and its player (CR 121.2, 603.2g) |
+| `BecomesTarget` | the targeted permanent and announcing spell or ability, captured at choice and committed after costs. Trigger-generated matches wait for the next APNAP wave (CR 601.2c/i, 602.2b, 603.3d, 733.1) |
+| `Cast` | the spell's frozen stack characteristics, with the caster in a player set and type or subtype predicates (CR 601.2i) |
 | `DealsDamage` | the source's battlefield appearance as positive damage is dealt to a player (CR 120.3, 510.2) |
 | `StepBegins` | upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503-513) |
 | `BecomesTapped` | only the source itself (CR 701.26a) |
 
-Same-kind alternatives ("this creature or another Elf you control") form one
-`AnyOf` predicate, triggering once (CR 603.2). Mixed alternatives can pair only
-the source's own entry with its own death or attack; they share one ability
-index and bind no event object or player operand (CR 603.2c). Player operands
-are "you", each opponent or each player. `kir::check_event` admits only atoms
-evaluable on event facts: cast and attack patterns read no tapped status (CR
-508.1f) and none excludes the host. Recovery reads frozen event facts,
-including a departed controller. An opponent's creature dying freezes that
-creature's controller. Event-object pronouns ("it", "that creature") reject.
+Same-kind alternatives use one predicate. Mixed entry/death, entry/attack
+and entry/cast pairs use one ability index without common event operands
+(CR 603.2c). Recovery rejects duplicate occurrence members and repeated
+entry or death of one incarnation. Event filters read frozen facts. Cast and
+attack filters omit tapped status (CR 508.1f). Host exclusions reject. A bound
+entrant or attacker can take fixed counters or deal directed damage. Entrant
+damage can use its power, measured when the effect resolves or from its last
+battlefield appearance (CR 400.7, 608.2h).
 
-`kir::Intervening::of` admits one audited intervening `kir::Cond`: "if you cast
-it", an empty hand, the source's tapped status, a creature with power N or
-greater, or a count of permanents you control matching a filter (optionally
-excluding the source). Entry, attack and beginning-of-step triggers can also
-compare a fixed amount with the controller's life, hand size or own graveyard
-card count (all cards, one card type or permanent card types, excluding
-tokens). Core checks the clause at the event and on resolution, recording
-`InterveningCheck` evidence (CR 603.4). These earn `Executes` (`InterveningIfV1`,
-`EventTriggerV1`).
+`kir::Intervening::of` admits cast provenance, empty hand, source tapped
+status, own commander control, a creature power threshold and filtered
+battlefield counts. Relative counts compare lands or creatures against each
+opponent separately. Entry, attack and step triggers can compare the
+controller's life, hand or own graveyard card count. Both stages record
+`InterveningCheck` evidence (CR 603.4). These rows earn `Executes`
+(`InterveningIfV1`, `EventTriggerV1`).
 
 A source-relative combat-damage trigger can put fixed +1/+1 counters on the
 incarnation that dealt the damage (CR 400.7). Cascade has no executable R4 form.

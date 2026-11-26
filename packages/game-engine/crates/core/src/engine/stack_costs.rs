@@ -251,7 +251,8 @@ impl RulesTxn {
             source,
             player,
             ability,
-        })
+        })?;
+        self.finish_target_triggers(stack_id)
     }
 
     /// CR 602.2a, 113.6j: a graveyard card's activated ability is
@@ -444,6 +445,7 @@ impl RulesTxn {
         let modal = activated.modal.is_some();
         let targeted = !activated.program.targets.is_empty() || modal;
         let entry = StackInstance {
+            target_triggers: vec![],
             mode_mask: None,
             hybrid_colors: vec![],
             cost_lock: None,
@@ -816,6 +818,7 @@ impl RulesTxn {
         self.validate_modes(entry)?;
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
+        self.validate_target_triggers(entry)?;
         self.validate_additional_cost_entry(entry)?;
 
         if entry.kind.is_spell()

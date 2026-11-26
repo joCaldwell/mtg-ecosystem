@@ -61,6 +61,10 @@ pub enum EventPlayerRole {
     /// CR 602.2, 605.1: the player who activated the triggering ability.
     ActivatingPlayer,
     DamagedPlayer,
+    /// CR 121.1: the player who drew one card.
+    DrawingPlayer,
+    /// CR 509.3g: the player the unblocked creature is attacking.
+    DefendingPlayer,
     ControllerOfEventObject,
     /// CR 102.1, 500: the player whose beginning step triggered the ability.
     ActivePlayer,
