@@ -460,3 +460,75 @@ fn simulator_plans_evoke_only_from_the_engine_quote() {
         );
     }
 }
+
+/// A synthetic combination on the archived evoke witness verifies both the
+/// simulator's alternative quote and the engine's payment against that lock.
+#[test]
+fn evoke_combines_with_locked_keyword_payments() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    for (delve, convoke, improvise, resource) in [
+        (true, false, false, "Forest"),
+        (false, true, false, "Grizzly Bears"),
+        (false, false, true, "Darksteel Relic"),
+    ] {
+        let mtg_compiler::CompileResult::Lowered { mut definition } =
+            mtg_witness::compile(mtg_witness::R5_MANIFEST, MULLDRIFTER)
+        else {
+            panic!("invalid archived Mulldrifter");
+        };
+        definition.delve = delve;
+        definition.convoke = convoke;
+        definition.improvise = improvise;
+        let mut catalog = FixtureCatalog::Witness.get().clone();
+        catalog.definitions.push(*definition);
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        let zone = if delve {
+            Zone::Graveyard { owner: PlayerId(0) }
+        } else {
+            Zone::Battlefield
+        };
+        let mut game = Game::new(
+            Board::new(catalog, "evoke-keyword-payment")
+                .step(TurnStep::PrecombatMain)
+                .permanent_or_hand("Mulldrifter", 0, 0, true)
+                .permanent_or_hand("Island", 0, 0, false)
+                .card(resource, 0, 0, zone)
+                .card(resource, 0, 0, zone)
+                .libraries("Island", 4)
+                .prepare(),
+        );
+        let catalog = game.prepared.catalog.clone();
+        let mut strategy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
+        for _ in 0..8 {
+            let decision = Driver::request(&mut game, u64::MAX);
+            if decision.reason == Reason::Priority && !game.state.rules.stack.is_empty() {
+                break;
+            }
+            let answer = strategy
+                .choose_with_game(&observation(&game, 0), &game)
+                .unwrap();
+            game.respond(decision.player, decision.id, answer).unwrap();
+        }
+        let spell = game
+            .state
+            .rules
+            .stack
+            .last()
+            .expect("simulator cast Mulldrifter");
+        assert_eq!(spell.total_cost.generic, 2.into());
+        assert_eq!(spell.total_cost.colored, [Color::U]);
+        assert_eq!(spell.paid.as_ref(), Some(&spell.total_cost));
+        for id in [2, 3] {
+            let object = &game.state.rules.objects[&CardId(id)];
+            if delve {
+                assert_eq!(object.zone, Zone::Exile);
+            } else {
+                assert!(object.tapped);
+            }
+        }
+        checked(&game);
+    }
+}

@@ -1032,6 +1032,34 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
+                        [one]
+                            if matches!(
+                                one.keyword.as_str(),
+                                "delve" | "convoke" | "improvise"
+                            ) =>
+                        {
+                            let expected = match one.keyword.as_str() {
+                                "delve" => "Delve",
+                                "convoke" => "Convoke",
+                                _ => "Improvise",
+                            };
+                            if text != expected
+                                || one.cost.is_some()
+                                || one.filter.is_some()
+                                || one.protection_from.is_some()
+                                || one.amount.is_some()
+                            {
+                                return Err(unsupported(
+                                    "keyword",
+                                    format!("keyword:{}:parameters", one.keyword),
+                                ));
+                            }
+                            match expected {
+                                "Delve" => definition.delve = true,
+                                "Convoke" => definition.convoke = true,
+                                _ => definition.improvise = true,
+                            }
+                        }
                         [one] if one.keyword == "affinity" => {
                             definition
                                 .static_abilities

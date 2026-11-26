@@ -16,3 +16,5 @@ pub use effects::*;
 mod intent;
 #[cfg(feature = "test-intents")]
 pub use intent::TestRulesSpace;
+mod payment_choices;
+pub use payment_choices::{distinct_payment_choices, payment_choice_minimum};
