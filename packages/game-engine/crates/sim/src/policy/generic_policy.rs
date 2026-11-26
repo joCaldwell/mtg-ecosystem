@@ -1470,6 +1470,22 @@ impl Strategy<'_> {
             return true;
         }
 
+        if s.controller == v.viewer
+            && p.instructions.iter().any(|instruction| {
+                let I::Kernel { node, source_block } = instruction;
+                block == Some(*source_block)
+                    && matches!(node, kir::Node::Optional { node, .. } if matches!(
+                        node.as_ref(),
+                        kir::Node::Do(kir::Verb::CreateTokens { .. } | kir::Verb::PutCounters {
+                            on: kir::SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, .. },
+                            ..
+                        })
+                    ))
+            })
+        {
+            return true;
+        }
+
         let optional_slots = p
             .instructions
             .iter()

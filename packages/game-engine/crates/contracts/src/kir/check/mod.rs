@@ -1079,6 +1079,24 @@ impl Walk<'_, '_> {
                     }
                     return Ok(());
                 }
+                // CR 111.2, 608.2d: a controller may create a fixed recipe.
+                // Token recovery recognizes recipes at a direct optional
+                // instruction's child address.
+                if let Node::Do(Verb::CreateTokens {
+                    controller, count, ..
+                }) = child.as_ref()
+                {
+                    if in_control
+                        || controller != chooser
+                        || !controller.is_you()
+                        || count.as_fixed().is_none()
+                    {
+                        return unaudited(
+                            "optional token creation needs a fixed controller recipe",
+                        );
+                    }
+                    return self.nested(child, false);
+                }
                 self.nested(child, true)
             }
             Node::ForEach { var, over, body } => {
