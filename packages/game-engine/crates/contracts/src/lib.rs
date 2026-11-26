@@ -103,6 +103,34 @@ pub enum CardKind {
     Enchantment,
     Artifact,
 }
+impl CardKind {
+    /// CR 205.2a: every card type the engine represents, in declaration
+    /// order. Kindred, battle and planeswalker cards are rejected at
+    /// admission, so a counted set of card types (Tarmogoyf's) is complete
+    /// over these. Representing another type adds a variant, which
+    /// [`CardKind::card_type_index`] then fails to compile without.
+    pub const CARD_TYPES: [CardKind; 6] = [
+        Self::Land,
+        Self::Creature,
+        Self::Instant,
+        Self::Sorcery,
+        Self::Enchantment,
+        Self::Artifact,
+    ];
+
+    /// This card type's position in [`CardKind::CARD_TYPES`]. Exhaustive,
+    /// with no wildcard, so a newly represented card type must be counted.
+    pub const fn card_type_index(self) -> usize {
+        match self {
+            Self::Land => 0,
+            Self::Creature => 1,
+            Self::Instant => 2,
+            Self::Sorcery => 3,
+            Self::Enchantment => 4,
+            Self::Artifact => 5,
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Characteristics {
@@ -263,6 +291,9 @@ pub enum Capability {
     StaticDamageReplacementV1,
     /// CR 615.12: damage that can't be prevented.
     UnpreventableDamageV1,
+    /// CR 604.3, 613.4a: a characteristic-defining ability that defines the
+    /// source's power and/or toughness in every zone.
+    CharacteristicPowerToughnessV1,
 
     NormalLayoutV1,
     ModalDoubleFacedV1,
@@ -425,7 +456,8 @@ pub enum FunctioningZone {
     Graveyard,
     Battlefield,
     Stack,
-    /// Reserved for the source card's own graveyard-move replacement.
+    /// Reserved for the source card's own graveyard-move replacement and
+    /// characteristic-defining abilities (CR 604.3).
     Any,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2540,6 +2572,20 @@ mod schema_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// CR 205.2a: the counted card types are exactly the represented ones,
+    /// each at its own index.
+    #[test]
+    fn card_types_are_exhaustive_and_indexed() {
+        for (index, kind) in CardKind::CARD_TYPES.iter().enumerate() {
+            assert_eq!(kind.card_type_index(), index);
+        }
+        let all = schemars::schema_for!(CardKind);
+        let listed = serde_json::to_value(&all).unwrap()["enum"]
+            .as_array()
+            .unwrap()
+            .len();
+        assert_eq!(listed, CardKind::CARD_TYPES.len());
+    }
     #[test]
     fn current_ir_authority_matches_schema_and_validation() {
         for schema in [

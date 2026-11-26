@@ -221,7 +221,13 @@ impl RulesTxn {
                         .ok_or("missing LKI stack target")?;
                     Ok(Some(TargetFacts {
                         controller: e.controller,
-                        power: self.targeting_characteristics(e)?.power.clone(),
+                        // CR 604.3, 613.4a: a creature spell's CDA defines
+                        // its power on the stack too.
+                        power: {
+                            let mut c = self.targeting_characteristics(e)?.into_owned();
+                            self.characteristic_power_toughness(e.source, &mut c)?;
+                            c.power
+                        },
                         mana_value: self.stack_mana_value(e)?,
                     }))
                 } else {

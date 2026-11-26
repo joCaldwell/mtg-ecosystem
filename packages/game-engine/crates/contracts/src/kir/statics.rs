@@ -69,6 +69,16 @@ pub enum StaticEffect {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         condition: Option<Cond>,
     },
+    /// CR 604.3, 613.4a, 208.2a: a characteristic-defining ability that
+    /// sets the source's power and/or toughness in layer 7a. It functions
+    /// in every zone (`FunctioningZone::Any`) and is read whenever the value
+    /// is looked at, never locked in. An absent stat keeps its printed value.
+    DefinePowerToughness {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        power: Option<Amount>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        toughness: Option<Amount>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -424,6 +434,7 @@ impl StaticEffect {
                 ..
             } => Capability::UnpreventableDamageV1,
             Self::Rule { .. } => Capability::RuleStaticsV1,
+            Self::DefinePowerToughness { .. } => Capability::CharacteristicPowerToughnessV1,
         }
     }
 }
@@ -499,6 +510,85 @@ fn condition_amount(amount: &Amount) -> bool {
                 && colors.iter().all(|c| *c != Color::C)
         }
         _ => false,
+    }
+}
+
+/// CR 604.3, 613.4a: a characteristic-defining count reads layers 1-6 of
+/// public objects: their types, subtypes, supertypes, colors, control,
+/// ownership and status, never power, toughness or abilities (which would
+/// make one CDA depend on another's layer-7 result, CR 613.8).
+fn cda_pred(filter: &Pred, battlefield: bool) -> bool {
+    filter.0.iter().all(|atom| match atom {
+        Atom::Type { .. }
+        | Atom::NotType { .. }
+        | Atom::Legendary
+        | Atom::NotLegendary
+        | Atom::Basic
+        | Atom::NotBasic
+        | Atom::Color { .. }
+        | Atom::NotColor { .. } => true,
+        Atom::AnyType { kinds } => !kinds.is_empty(),
+        Atom::Subtype { subtype } | Atom::NotSubtype { subtype } => !subtype.is_empty(),
+        Atom::ControlledBy { player } => battlefield && player_is_bound(player),
+        Atom::OwnedBy { player } => player_is_bound(player),
+        Atom::Tapped | Atom::Untapped | Atom::Token | Atom::NotToken => battlefield,
+        Atom::ManaValue { value, .. } => value.as_fixed().is_some(),
+        Atom::IsNot { object } => *object == Ref::Source,
+        Atom::AnyOf { alternatives } => {
+            !alternatives.is_empty() && alternatives.iter().all(|p| cda_pred(p, battlefield))
+        }
+        Atom::Attacking
+        | Atom::Blocking
+        | Atom::Power { .. }
+        | Atom::Toughness { .. }
+        | Atom::Keyword { .. }
+        | Atom::NotKeyword { .. }
+        | Atom::Is { .. } => false,
+    })
+}
+
+/// CR 400.2, 404.2: battlefield permanents, graveyard cards and (unfiltered,
+/// since a hand's size is public but its cards are not) hand sizes.
+fn cda_set(set: &SetExpr) -> bool {
+    let SetExpr::Matching { zone, filter } = set else {
+        return false;
+    };
+    match zone {
+        ZoneExpr::Battlefield => cda_pred(filter, true),
+        ZoneExpr::Graveyards => cda_pred(filter, false),
+        ZoneExpr::Graveyard { of } => player_is_bound(of) && cda_pred(filter, false),
+        ZoneExpr::Hand { of } => player_is_bound(of) && filter.0.is_empty(),
+        ZoneExpr::Library { .. } | ZoneExpr::Exile | ZoneExpr::Stack => false,
+    }
+}
+
+/// The CR 208.2a values a characteristic-defining ability can define:
+/// nonnegative fixed terms, counts, multiples and sums of those, the
+/// greatest mana value among permanents or graveyard cards, devotion (CR 700.5) and the number
+/// of distinct card types, basic land types or colors among a set.
+fn cda_amount(amount: &Amount) -> bool {
+    match amount {
+        Amount::Fixed { value } => !value.is_negative(),
+        Amount::Count { set } => cda_set(set),
+        Amount::Times { factor, of } => *factor > Quantity::zero() && cda_amount(of),
+        Amount::Sum { terms } => terms.len() >= 2 && terms.iter().all(cda_amount),
+        Amount::Greatest {
+            set: set @ SetExpr::Matching { zone, .. },
+            stat: Stat::ManaValue,
+        } => !zone.hidden() && cda_set(set),
+        Amount::Devotion { player, colors } => {
+            *player == PlayerExpr::static_controller()
+                && !colors.is_empty()
+                && colors.iter().all(|c| *c != Color::C)
+        }
+        Amount::Distinct { set, .. } => {
+            matches!(set, SetExpr::Matching { zone, .. } if !zone.hidden()) && cda_set(set)
+        }
+        Amount::Var { .. }
+        | Amount::StatOf { .. }
+        | Amount::Greatest { .. }
+        | Amount::LifeOf { .. }
+        | Amount::OtherCastsManaValue { .. } => false,
     }
 }
 
@@ -795,6 +885,40 @@ impl crate::StaticAbility {
                     }
                 }
                 Ok(())
+            }
+            StaticEffect::DefinePowerToughness { power, toughness } => {
+                let c = &definition.characteristics;
+                let defines = |amount: &Option<Amount>, printed: &Option<Quantity>| {
+                    amount
+                        .as_ref()
+                        .is_none_or(|amount| printed.is_some() && cda_amount(amount))
+                };
+                // Each stat has at most one definition, possibly printed on
+                // separate lines.
+                let definitions = |power_stat: bool| {
+                    definition
+                        .static_abilities
+                        .iter()
+                        .filter(|a| match &a.effect {
+                            StaticEffect::DefinePowerToughness { power, toughness } => {
+                                if power_stat { power } else { toughness }.is_some()
+                            }
+                            _ => false,
+                        })
+                        .count()
+                };
+                if self.functioning_zone == crate::FunctioningZone::Any
+                    && c.has_type(CardKind::Creature)
+                    && (power.is_some() || toughness.is_some())
+                    && defines(power, &c.power)
+                    && defines(toughness, &c.toughness)
+                    && definitions(true) <= 1
+                    && definitions(false) <= 1
+                {
+                    Ok(())
+                } else {
+                    invalid("characteristic-power-toughness")
+                }
             }
             StaticEffect::Rule { rule, condition } => {
                 if condition.as_ref().is_some_and(|c| !condition_supported(c)) {
