@@ -1653,6 +1653,47 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
             ("keyword", expected)
         );
     }
+    // Parser-accepted `and` / `, and` / trailing `.` forms must lower intact
+    // and reject with `keyword:triggered:printed_instances` if prowess is dropped.
+    let reword_line = |line: &str| {
+        changed(THOR_ODINSON, |row| {
+            row["source"]["oracle_text"] = json!(line);
+            row["faces"][0]["result"]["lines"][0]["text"] = json!(line);
+            row["faces"][0]["result"]["abilities"][0]["keywords"]
+                .as_array_mut()
+                .unwrap()
+                .truncate(3);
+            let bytes = line.len();
+            let cert = &mut row["resolution"]["faces"][0]["blocks"][0]["spans"]["certificate"];
+            cert["bytes"] = json!(bytes);
+            cert["segments"][0]["end"] = json!(bytes);
+        })
+    };
+    for line in [
+        "Flying, vigilance and prowess",
+        "Flying, vigilance, and prowess",
+        "Flying, vigilance, prowess.",
+    ] {
+        let intact = reword_line(line);
+        let lowered_line = lowers(&intact).unwrap();
+        assert_eq!(
+            lowered_line.keywords,
+            [KeywordAbility::Flying, KeywordAbility::Vigilance]
+        );
+        assert_eq!(lowered_line.triggered.len(), 1);
+        let dropped = changed(&intact, |row| {
+            row["faces"][0]["result"]["abilities"][0]["keywords"]
+                .as_array_mut()
+                .unwrap()
+                .truncate(2);
+        });
+        let failure = lowers(&dropped).unwrap_err();
+        assert_eq!(
+            (failure.path.as_str(), failure.reason.as_str()),
+            ("keyword", "keyword:triggered:printed_instances")
+        );
+    }
+    assert!(lowers(&reword_line("Flying, vigilance, and, prowess")).is_err());
 
     // "This creature" keywords need a creature card; "this permanent"
     // keywords any permanent card.

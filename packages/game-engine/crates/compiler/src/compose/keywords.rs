@@ -459,18 +459,54 @@ fn spelling(keyword: &SourceKeyword) -> Option<String> {
     }
 }
 
-/// The keyword line prints each listed keyword in order, separated by commas
-/// or semicolons, and every triggered instance exactly as its rule spells it
-/// with its N. Scryfall's keyword list names each of them (CR 702.1).
+/// Trim a normalized keyword line and strip one optional terminal period,
+/// matching `parseKeywordLine` in `packages/oracle-parser/src/parser/keywords.ts`.
+fn trim_keyword_line(line: &str) -> String {
+    let trimmed = line.trim();
+    trimmed
+        .strip_suffix('.')
+        .map_or(trimmed, str::trim)
+        .to_ascii_lowercase()
+}
+
+/// Split one keyword line on commas, semicolons and standalone `and`
+/// (including Oxford `, and` / `; and`) using the same item grammar as
+/// `parseKeywordLine` (`packages/oracle-parser/src/parser/keywords.ts:524-535`).
+fn keyword_line_items(line: &str) -> Vec<String> {
+    let stripped = trim_keyword_line(line);
+    if stripped.is_empty() {
+        return Vec::new();
+    }
+    let mut items = Vec::new();
+    for (chunk_idx, chunk) in stripped.split([',', ';']).enumerate() {
+        let mut words = chunk.split_whitespace().peekable();
+        if chunk_idx > 0 && words.peek().copied() == Some("and") {
+            words.next();
+        }
+        let mut current = Vec::new();
+        for word in words {
+            if word == "and" {
+                items.push(current.join(" "));
+                current.clear();
+            } else {
+                current.push(word);
+            }
+        }
+        items.push(current.join(" "));
+    }
+    items
+}
+
+/// The keyword line prints each listed keyword in order, separated by commas,
+/// semicolons or `and` (with optional terminal period), and every triggered
+/// instance exactly as its rule spells it with its N. Scryfall's keyword list
+/// names each of them (CR 702.1).
 pub(super) fn triggered_printed(
     keywords: &[SourceKeyword],
     text: &str,
     source: &serde_json::Value,
 ) -> Result<(), Failure> {
-    let items: Vec<String> = text
-        .split([',', ';'])
-        .map(|item| item.trim().to_lowercase())
-        .collect();
+    let items = keyword_line_items(text);
     if items.len() != keywords.len() {
         return Err(unsupported("keyword", "keyword:triggered:printed"));
     }
@@ -515,22 +551,27 @@ pub(super) fn triggered_instances_printed(
     abilities: &serde_json::Value,
 ) -> Result<(), Failure> {
     let mismatch = || unsupported("keyword", "keyword:triggered:printed_instances");
+    let abilities = abilities.as_array().ok_or_else(mismatch)?;
+    if abilities.len() != lines.len() {
+        return Err(mismatch());
+    }
     let mut printed = Vec::new();
-    for (block, line) in lines.iter().enumerate() {
-        for item in line.split([',', ';']) {
-            let item = item.trim().to_lowercase();
-            if printed_instance(&item).is_some() {
-                printed.push((block, item));
+    for (block, (line, ability)) in lines.iter().zip(abilities).enumerate() {
+        if ability["kind"] == "keywords" {
+            for item in keyword_line_items(line) {
+                if !item.is_empty() && printed_instance(&item).is_some() {
+                    printed.push((block, item));
+                }
+            }
+        } else {
+            let whole = trim_keyword_line(line);
+            if printed_instance(&whole).is_some() {
+                printed.push((block, whole));
             }
         }
     }
     let mut parsed = Vec::new();
-    for (block, ability) in abilities
-        .as_array()
-        .ok_or_else(mismatch)?
-        .iter()
-        .enumerate()
-    {
+    for (block, ability) in abilities.iter().enumerate() {
         if ability["kind"] != "keywords" {
             continue;
         }
