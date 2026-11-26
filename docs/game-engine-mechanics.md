@@ -318,6 +318,19 @@ skipped only when none attacked. First and double strike have distinct
 participant sets; trample and deathtouch assignment, dealt damage and
 prevention stay distinct.
 
+Declarations offer exactly the legal set and validate the whole declaration
+(CR 508.1c–d, 509.1b). Flying, reach, menace, printed basic landwalk,
+horsemanship, shadow, fear, intimidate and skulk restrict blocks per pair
+(CR 702.13b, 702.14c, 702.28b, 702.31b, 702.36b, 702.118b); other landwalk
+qualities reject. Static block restrictions ("can't be blocked by/except by",
+"can't block", "can block only") and blocker counts ("by more than N", "except
+by N or more", with menace) read keywords, colors, types and fixed power of
+both creatures at the declaration; counts are joint pick rules. "Can't attack
+you" removes that defender; with no attackable planeswalker or battle kinds,
+"or planeswalkers you control" adds nothing. A creature that attacks each
+combat if able must attack only while a defender remains (CR 508.1d). Relative
+powers and ambiguous "X and/or Y with Z" filters reject.
+
 Simultaneous damage is validated before life/history writes. Combat source
 validation reads the captured creature type and keywords from resolved and
 static grants (CR 510.2); current or latest-departure source facts govern

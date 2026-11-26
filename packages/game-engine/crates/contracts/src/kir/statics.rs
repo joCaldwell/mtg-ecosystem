@@ -100,6 +100,38 @@ pub enum StaticRule {
         affects: Scope,
         caster: PlayerExpr,
     },
+    /// CR 509.1b, 613.11: a block restriction on the affected creatures,
+    /// read from current characteristics (including keywords and power) of
+    /// the affected creature and its counterpart at each declaration.
+    Block {
+        affects: Scope,
+        restriction: BlockRestriction,
+    },
+    /// CR 508.1b-c: the affected creatures can't attack `defender`. The
+    /// engine's only attackable objects are players (no planeswalker or
+    /// battle kinds exist), so "or planeswalkers you control" adds nothing.
+    AttackRestriction {
+        affects: Scope,
+        defender: PlayerExpr,
+    },
+}
+
+/// CR 509.1b: per-pair and per-attacker block restrictions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "restriction", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BlockRestriction {
+    /// The affected attacker can't be blocked by creatures matching
+    /// `filter` or, with `only`, except by them.
+    Blockers { only: bool, filter: Pred },
+    /// The affected creature can't block attackers matching `filter` or,
+    /// with `only`, can block only them.
+    Attackers { only: bool, filter: Pred },
+    /// A nonempty block of the affected attacker uses at most `count`
+    /// creatures ("can't be blocked by more than one creature").
+    AtMost { count: u32 },
+    /// A nonempty block of the affected attacker uses at least `count`
+    /// creatures ("can't be blocked except by three or more creatures").
+    AtLeast { count: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -322,6 +354,55 @@ fn condition_supported(condition: &Cond) -> bool {
         | Cond::ControlsOwnCommander { .. }
         | Cond::OpponentControlsMore { .. } => false,
     }
+}
+
+/// CR 509.1b, 613.11: combat restrictions read the current object at the
+/// declaration, so their filters may test keywords and fixed power,
+/// toughness or mana value. They bind no other object than the source.
+fn declaration_pred_valid(filter: &Pred) -> bool {
+    filter.0.iter().all(|atom| match atom {
+        Atom::Type { .. }
+        | Atom::NotType { .. }
+        | Atom::Legendary
+        | Atom::NotLegendary
+        | Atom::Basic
+        | Atom::NotBasic
+        | Atom::Color { .. }
+        | Atom::NotColor { .. }
+        | Atom::Tapped
+        | Atom::Untapped
+        | Atom::Attacking
+        | Atom::Blocking
+        | Atom::Token
+        | Atom::NotToken
+        | Atom::Keyword { .. }
+        | Atom::NotKeyword { .. } => true,
+        Atom::AnyType { kinds } => !kinds.is_empty(),
+        Atom::Subtype { subtype } | Atom::NotSubtype { subtype } => !subtype.is_empty(),
+        Atom::ControlledBy { player } | Atom::OwnedBy { player } => player_is_bound(player),
+        Atom::Power { value, .. }
+        | Atom::Toughness { value, .. }
+        | Atom::ManaValue { value, .. } => value.as_fixed().is_some(),
+        Atom::IsNot { object } => *object == Ref::Source,
+        Atom::AnyOf { alternatives } => {
+            !alternatives.is_empty() && alternatives.iter().all(declaration_pred_valid)
+        }
+        Atom::Is { .. } => false,
+    })
+}
+
+fn declaration_scope_valid(scope: &Scope, d: &crate::Definition, kind: CardKind) -> bool {
+    let bound = match scope {
+        Scope::Source => true,
+        Scope::Matching { .. } => true,
+        Scope::Attachment { kind, .. } => d.characteristics.subtypes.iter().any(|s| {
+            s == match kind {
+                AttachmentKind::Equipped => "Equipment",
+                AttachmentKind::Enchanted => "Aura",
+            }
+        }),
+    };
+    bound && scope.filter().is_none_or(declaration_pred_valid) && creature_scope(scope, kind)
 }
 
 fn scope_valid(scope: &Scope, d: &crate::Definition, layer: Layer) -> bool {
@@ -573,6 +654,26 @@ impl crate::StaticAbility {
                             && matches!(affects, Scope::Matching { .. })
                             && spell_scope(affects)
                             && player_is_bound(caster)
+                    }
+                    StaticRule::Block {
+                        affects,
+                        restriction,
+                    } => {
+                        on_battlefield
+                            && declaration_scope_valid(affects, definition, kind)
+                            && match restriction {
+                                BlockRestriction::Blockers { filter, .. }
+                                | BlockRestriction::Attackers { filter, .. } => {
+                                    declaration_pred_valid(filter)
+                                }
+                                BlockRestriction::AtMost { count } => *count >= 1,
+                                BlockRestriction::AtLeast { count } => *count >= 2,
+                            }
+                    }
+                    StaticRule::AttackRestriction { affects, defender } => {
+                        on_battlefield
+                            && declaration_scope_valid(affects, definition, kind)
+                            && *defender == PlayerExpr::static_controller()
                     }
                 };
                 if supported {

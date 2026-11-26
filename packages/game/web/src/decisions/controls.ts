@@ -425,9 +425,13 @@ export function draftError(control: LocalControl, draft: LocalDraft): string | n
           })
         )
           return `Choose each marked candidate at least ${rule.count} times or leave it unused.`;
-      } else {
+      } else if (rule.rule === 'total') {
         const n = answer.picks.flat().length;
         if (n < rule.min || n > rule.max) return 'Selection is outside the supplied total.';
+      } else {
+        // A rule this client does not know (e.g. picked_at_most before the
+        // SDK refresh) fails closed instead of admitting an illegal draft.
+        return 'This decision uses a rule this client cannot check.';
       }
     }
   }

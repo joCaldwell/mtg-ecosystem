@@ -241,6 +241,10 @@ fn permits(rules: &[JointRule], slot: &Slot, picks: &[Vec<u32>], i: usize, id: u
             JointRule::Total { max, .. } => {
                 picks.iter().map(Vec::len).sum::<usize>() < *max as usize
             }
+            JointRule::PickedAtMost { candidates, count } => {
+                !candidates.contains(&id)
+                    || picks.iter().flatten().filter(|x| **x == id).count() < *count as usize
+            }
             _ => true,
         })
 }

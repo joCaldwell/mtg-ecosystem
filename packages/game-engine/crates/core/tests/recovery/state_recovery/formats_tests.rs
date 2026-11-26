@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     74,
-    "b997214b321e94d4150da9e8a3f58b8b96a7d156f572e849fab2e13d7076c098",
+    "bf0455919e9299f14c051ec82580c11864f09de6abe3c6c1a50a5c88a21198d5",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     108,

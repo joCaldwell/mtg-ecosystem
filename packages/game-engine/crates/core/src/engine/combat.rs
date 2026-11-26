@@ -1,5 +1,5 @@
 use super::*;
-use mtg_contracts::kir::{CombatProhibitionScope, CombatRequirement};
+use mtg_contracts::kir::{BlockRestriction, CombatProhibitionScope, CombatRequirement, StaticRule};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -116,6 +116,68 @@ impl RulesTxn {
         });
         self.combat_statics(object, sources).chain(resolved)
     }
+    /// CR 509.1b: static per-pair block restrictions, read at the declaration.
+    pub(super) fn block_rules_permit(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
+        self.static_declaration_rules()
+            .all(|(source, rule)| match rule {
+                StaticRule::Block {
+                    affects,
+                    restriction: BlockRestriction::Blockers { only, filter },
+                } => {
+                    !self.declaration_scope(affects, source, attacker)
+                        || self.declaration_matches(filter, source, blocker) == *only
+                }
+                StaticRule::Block {
+                    affects,
+                    restriction: BlockRestriction::Attackers { only, filter },
+                } => {
+                    !self.declaration_scope(affects, source, blocker)
+                        || self.declaration_matches(filter, source, attacker) == *only
+                }
+                _ => true,
+            })
+    }
+    /// CR 509.1b, 702.111b: the least and greatest number of creatures a
+    /// nonempty block of `attacker` may use.
+    pub(super) fn blocker_count_bounds(&self, attacker: ObjectId) -> (u32, Option<u32>) {
+        let mut least = if self.has_keyword(attacker, KeywordAbility::Menace) {
+            2
+        } else {
+            1
+        };
+        let mut most: Option<u32> = None;
+        for (source, rule) in self.static_declaration_rules() {
+            if let StaticRule::Block {
+                affects,
+                restriction,
+            } = rule
+                && self.declaration_scope(affects, source, attacker)
+            {
+                match restriction {
+                    BlockRestriction::AtLeast { count } => least = least.max(*count),
+                    BlockRestriction::AtMost { count } => {
+                        most = Some(most.map_or(*count, |m| m.min(*count)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (least, most)
+    }
+    /// CR 508.1b-c: whether a static restriction forbids attacking `defender`.
+    pub(super) fn attack_permitted(&self, attacker: ObjectId, defender: PlayerId) -> bool {
+        self.static_declaration_rules()
+            .all(|(source, rule)| match rule {
+                StaticRule::AttackRestriction {
+                    affects,
+                    defender: who,
+                } => {
+                    !self.declaration_scope(affects, source, attacker)
+                        || !self.static_player(who, source.controller, defender)
+                }
+                _ => true,
+            })
+    }
     fn must_attack(&self, object: ObjectId) -> bool {
         self.combat_statics(object, None)
             .any(|rule| rule == CombatRequirement::AttackEachCombat)
@@ -165,7 +227,7 @@ impl RulesTxn {
                     let allowed: Vec<_> = if attacking {
                         self.live_players()
                             .into_iter()
-                            .filter(|p| *p != player)
+                            .filter(|p| *p != player && self.attack_permitted(subject, *p))
                             .map(|p| {
                                 candidate_index(&mut candidates, Candidate::Player { player: p })
                             })
@@ -200,28 +262,46 @@ impl RulesTxn {
                     });
                 }
                 if !attacking {
-                    let menace = self
+                    // CR 509.1b, 702.111b: nonempty blocks of an attacker
+                    // use between its least and greatest blocker counts.
+                    let mut least = BTreeMap::<u32, Vec<u32>>::new();
+                    let mut most = BTreeMap::<u32, Vec<u32>>::new();
+                    for a in self
                         .state
                         .rules
                         .combat
                         .iter()
-                        .filter(|a| {
-                            a.defender == player
-                                && self.has_keyword(a.attacker, KeywordAbility::Menace)
-                        })
-                        .filter_map(|a| {
-                            candidates
-                                .iter()
-                                .position(|c| c == &Candidate::Object { object: a.attacker })
-                        })
-                        .map(|i| i as u32)
-                        .collect::<Vec<_>>();
-                    if !menace.is_empty() {
-                        rules.push(JointRule::PickedAtLeast {
-                            candidates: menace,
-                            count: 2,
-                        });
+                        .filter(|a| a.defender == player)
+                    {
+                        let Some(index) = candidates
+                            .iter()
+                            .position(|c| c == &Candidate::Object { object: a.attacker })
+                        else {
+                            continue;
+                        };
+                        let (min, max) = self.blocker_count_bounds(a.attacker);
+                        if min > 1 {
+                            least.entry(min).or_default().push(index as u32);
+                        }
+                        if let Some(max) = max {
+                            most.entry(max).or_default().push(index as u32);
+                        }
                     }
+                    rules.extend(
+                        least
+                            .into_iter()
+                            .map(|(count, candidates)| JointRule::PickedAtLeast {
+                                candidates,
+                                count,
+                            }),
+                    );
+                    rules.extend(
+                        most.into_iter()
+                            .map(|(count, candidates)| JointRule::PickedAtMost {
+                                candidates,
+                                count,
+                            }),
+                    );
                 }
                 self.decision(
                     player,
@@ -296,17 +376,24 @@ impl RulesTxn {
         let eligible = self.creatures(player, true);
         let mut seen = BTreeSet::new();
         if attacks.iter().any(|(o, p)| {
-            !seen.insert(*o) || !eligible.contains(o) || *p == player || !self.is_live(*p)
+            !seen.insert(*o)
+                || !eligible.contains(o)
+                || *p == player
+                || !self.is_live(*p)
+                || !self.attack_permitted(*o, *p)
         }) {
             return Err("invalid complete attack declaration".into());
         }
         // CR 508.1d: each eligible required attacker can independently
-        // attack one of the living defenders in the admitted combat model.
-        if (0..4).map(PlayerId).any(|p| p != player && self.is_live(p))
-            && eligible
-                .iter()
-                .any(|&object| !seen.contains(&object) && self.must_attack(object))
-        {
+        // attack one of the living defenders it may attack in the admitted
+        // combat model, which has no restriction across creatures.
+        if eligible.iter().any(|&object| {
+            !seen.contains(&object)
+                && self.must_attack(object)
+                && (0..4)
+                    .map(PlayerId)
+                    .any(|p| p != player && self.is_live(p) && self.attack_permitted(object, p))
+        }) {
             return Err("attack declaration omits a creature that must attack".into());
         }
         Ok(())
@@ -345,10 +432,10 @@ impl RulesTxn {
             .iter()
             .filter(|a| a.defender == player)
         {
-            if self.has_keyword(a.attacker, KeywordAbility::Menace)
-                && blocks.iter().filter(|(_, x)| *x == a.attacker).count() == 1
-            {
-                return Err("menace requires zero or at least two blockers".into());
+            let (least, most) = self.blocker_count_bounds(a.attacker);
+            let count = blocks.iter().filter(|(_, x)| *x == a.attacker).count();
+            if count > 0 && (count < least as usize || most.is_some_and(|m| count > m as usize)) {
+                return Err("blocker count outside the attacker's restriction".into());
             }
         }
         Ok(())

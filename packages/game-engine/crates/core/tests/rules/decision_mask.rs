@@ -47,6 +47,9 @@ fn sample(shape: &Shape, seed: &mut u64) -> Answer {
                     let n = picks.iter().flatten().filter(|i| *i == c).count();
                     n == 0 || n >= *count as usize
                 }),
+                JointRule::PickedAtMost { candidates, count } => candidates
+                    .iter()
+                    .all(|c| picks.iter().flatten().filter(|i| *i == c).count() <= *count as usize),
             });
             if legal {
                 break Answer::Pick { picks };

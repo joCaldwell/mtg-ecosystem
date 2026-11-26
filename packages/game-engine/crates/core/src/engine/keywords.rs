@@ -107,6 +107,7 @@ impl RulesTxn {
                 || self.has_keyword(blocker, KeywordAbility::Reach))
             && !self.landwalk_prevents_block(attacker, &keywords)
             && !self.evasion_prevents_block(blocker, attacker, &keywords)
+            && self.block_rules_permit(blocker, attacker)
     }
 
     // CR 702.13b, 702.28b, 702.31b, 702.36b, 702.118b: checked against the

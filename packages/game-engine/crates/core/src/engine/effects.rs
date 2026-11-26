@@ -296,7 +296,12 @@ impl RulesTxn {
             })
     }
 
-    fn static_player(&self, expr: &PlayerExpr, controller: PlayerId, player: PlayerId) -> bool {
+    pub(super) fn static_player(
+        &self,
+        expr: &PlayerExpr,
+        controller: PlayerId,
+        player: PlayerId,
+    ) -> bool {
         match expr {
             PlayerExpr::EachPlayer => self.is_live(player),
             PlayerExpr::EachOpponent => player != controller && self.is_live(player),
@@ -312,7 +317,21 @@ impl RulesTxn {
         characteristics: &Characteristics,
         controller: PlayerId,
     ) -> bool {
-        filter.0.iter().all(|atom| match atom {
+        filter
+            .0
+            .iter()
+            .all(|atom| self.static_atom(atom, source, target, characteristics, controller))
+    }
+
+    fn static_atom(
+        &self,
+        atom: &Atom,
+        source: &Object,
+        target: &Object,
+        characteristics: &Characteristics,
+        controller: PlayerId,
+    ) -> bool {
+        match atom {
             Atom::Type { kind } => characteristics.has_type(*kind),
             Atom::NotType { kind } => !characteristics.has_type(*kind),
             Atom::AnyType { kinds } => kinds.iter().any(|k| characteristics.has_type(*k)),
@@ -356,7 +375,83 @@ impl RulesTxn {
             | Atom::Keyword { .. }
             | Atom::NotKeyword { .. }
             | Atom::Is { .. } => false,
+        }
+    }
+
+    /// CR 509.1b, 613.11: a combat restriction's filter against the current
+    /// object at a declaration, after every layer, including its keywords
+    /// and power. "You" is the restriction source's controller.
+    pub(super) fn declaration_matches(
+        &self,
+        filter: &Pred,
+        source: &Object,
+        target: ObjectId,
+    ) -> bool {
+        let Ok(object) = self.current(target) else {
+            return false;
+        };
+        let Ok(characteristics) = self.characteristics(target) else {
+            return false;
+        };
+        let keywords = self.current_keywords(target);
+        object.present_on_battlefield()
+            && self.declaration_predicate(filter, source, object, &characteristics, &keywords)
+    }
+
+    fn declaration_predicate(
+        &self,
+        filter: &Pred,
+        source: &Object,
+        target: &Object,
+        characteristics: &Characteristics,
+        keywords: &[KeywordAbility],
+    ) -> bool {
+        let stat = |value: &Option<Quantity>, cmp: &Cmp, bound: &Amount| {
+            value
+                .as_ref()
+                .zip(bound.as_fixed())
+                .is_some_and(|(value, bound)| static_compare(value, *cmp, bound))
+        };
+        filter.0.iter().all(|atom| match atom {
+            Atom::Power { cmp, value } => stat(&characteristics.power, cmp, value),
+            Atom::Toughness { cmp, value } => stat(&characteristics.toughness, cmp, value),
+            Atom::Keyword { keyword } => keywords.contains(keyword),
+            Atom::NotKeyword { keyword } => !keywords.contains(keyword),
+            Atom::AnyOf { alternatives } => alternatives
+                .iter()
+                .any(|p| self.declaration_predicate(p, source, target, characteristics, keywords)),
+            other => self.static_atom(other, source, target, characteristics, target.controller),
         })
+    }
+
+    /// The objects a combat restriction affects, read like its filters.
+    pub(super) fn declaration_scope(
+        &self,
+        scope: &Scope,
+        source: &Object,
+        target: ObjectId,
+    ) -> bool {
+        match scope {
+            Scope::Source => source.id == target && self.current(target).is_ok(),
+            Scope::Matching { filter } => self.declaration_matches(filter, source, target),
+            Scope::Attachment { filter, .. } => {
+                source.attached_to == Some(target)
+                    && self.declaration_matches(filter, source, target)
+            }
+        }
+    }
+
+    /// CR 509.1b, 508.1c: the live block and attack restrictions.
+    pub(super) fn static_declaration_rules(&self) -> impl Iterator<Item = (&Object, &StaticRule)> {
+        self.battlefield_statics(None)
+            .filter_map(|(source, effect)| {
+                let rule = self.unpack_static_rule(source, effect)?;
+                matches!(
+                    rule,
+                    StaticRule::Block { .. } | StaticRule::AttackRestriction { .. }
+                )
+                .then_some((source, rule))
+            })
     }
 
     fn static_matches(
