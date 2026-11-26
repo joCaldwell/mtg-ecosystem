@@ -725,8 +725,12 @@ impl Strategy<'_> {
                                 .iter()
                                 .copied()
                                 .filter(|i| {
+                                    // The permitted id is "<stack handle>/cost/<identity>".
                                     matches!(&d.candidates[*i as usize],
-                                        Candidate::AdditionalCost { id, .. } if Some(id) == planned.as_ref())
+                                        Candidate::AdditionalCost { id, .. }
+                                            if planned.as_ref().is_some_and(|p| {
+                                                id.rsplit_once("/cost/").map(|(_, cost)| cost) == Some(p.as_str())
+                                            }))
                                 })
                                 .take(1)
                                 .collect()

@@ -19,6 +19,8 @@ macro_rules! record {
 const MULLDRIFTER: &str = record!("24d0f5e7-0d9e-4b76-900e-a7274e80312d");
 const SHRIEKMAW: &str = record!("717bbb9d-0a5b-4979-a24b-9d54aac7657a");
 const DREGSCAPE_ZOMBIE: &str = record!("be9d1346-4416-4ade-ae84-7a4121e0bd12");
+const GRIPTIDE: &str = record!("5a6bbc45-6cb8-40ff-9f7c-7b2c5713dd78");
+const GOD_PHARAOHS_STATUE: &str = record!("183954d2-7b40-4c7e-adfa-d80191ab5ad6");
 
 fn evoke_candidate(d: &Decision<Rules>) -> bool {
     matches!(
@@ -322,5 +324,139 @@ fn dregscape_zombie_unearths_with_haste_and_is_exiled() {
         if !bolted {
             assert_eq!(life(&g, 1), plus(&Quantity::from(40), -2), "it attacked");
         }
+    }
+}
+
+/// Griptide: "Put target creature on top of its owner's library." An
+/// opponent's Griptide on an unearthed creature is replaced by unearth's
+/// exile (CR 614.1a, 702.84a): the card ends only in exile, never also on
+/// top of the library, and the state restores exactly.
+#[test]
+fn unearthed_creature_put_on_top_of_its_library_is_exiled_instead() {
+    let mut g = Game::with_trace(
+        board(&[(DREGSCAPE_ZOMBIE, &[Cell::Unearth]), (GRIPTIDE, &[])])
+            .card(
+                "Dregscape Zombie",
+                0,
+                0,
+                Zone::Graveyard { owner: PlayerId(0) },
+            )
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Griptide", 1, 1, true)
+            .permanent_or_hand("Island", 1, 1, false)
+            .permanent_or_hand("Island", 1, 1, false)
+            .permanent_or_hand("Island", 1, 1, false)
+            .permanent_or_hand("Island", 1, 1, false)
+            .libraries("Island", 4)
+            .prepare(),
+        TraceMode::Detailed,
+    );
+    let unearth = Action::ActivateAbility {
+        object: Driver::object(&g, 0),
+        ability: 0,
+    };
+    Driver::action(&mut g, unearth);
+    Driver::pay(&mut g, &[1]);
+    resolve_all(&mut g);
+    let zombie = Driver::object(&g, 0);
+    assert_eq!(g.zone(zombie), Some(Zone::Battlefield));
+    let library_before = g.state.rules.libraries[&PlayerId(0)].clone();
+    // Seat 0 passes; seat 1 casts Griptide at the unearthed Zombie.
+    let d = expect(&mut g, 0, Reason::Priority);
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Action {
+            action: Action::Pass,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    Driver::cast(&mut g, CardId(2));
+    Driver::pick_object(&mut g, zombie);
+    Driver::pay(&mut g, &[3, 4, 5, 6]);
+    resolve_all(&mut g);
+    assert_eq!(zone(&g, 0), Some(Zone::Exile));
+    assert_eq!(
+        g.state.rules.libraries[&PlayerId(0)],
+        library_before,
+        "the exiled card is not also on top of the library"
+    );
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// God-Pharaoh's Statue: "Spells your opponents cast cost {2} more to
+/// cast." The engine quote of Mulldrifter's evoke includes the increase
+/// (CR 601.2f), so with three Islands the simulator evokes without the
+/// Statue and does not cast with it; an observation alone plans no evoke.
+#[test]
+fn simulator_plans_evoke_only_from_the_engine_quote() {
+    use mtg_sim::policy::{Policy, Strategy};
+    for statue in [false, true] {
+        let mut fixture = board(&[(MULLDRIFTER, &[]), (GOD_PHARAOHS_STATUE, &[])])
+            .permanent_or_hand("Mulldrifter", 0, 0, true);
+        for _ in 0..3 {
+            fixture = fixture.permanent_or_hand("Island", 0, 0, false);
+        }
+        if statue {
+            fixture = fixture.permanent_or_hand("God-Pharaoh's Statue", 1, 1, false);
+        }
+        let mut g = Game::new(fixture.libraries("Island", 4).prepare());
+        Driver::request(&mut g, u64::MAX);
+        let o = observation(&g, 0);
+        let d = o.decision.clone().unwrap();
+        let cast = d
+            .candidates
+            .iter()
+            .find(|c| {
+                matches!(
+                    c,
+                    Candidate::Action {
+                        action: Action::Cast { .. }
+                    }
+                )
+            })
+            .unwrap()
+            .clone();
+        let Candidate::Action {
+            action: Action::Cast { card },
+        } = &cast
+        else {
+            unreachable!()
+        };
+        let (identity, quote) = g
+            .quote_alternative_cast_cost(o.view.viewer, card)
+            .unwrap()
+            .unwrap();
+        assert_eq!(identity, mtg_contracts::EVOKE_COST);
+        assert_eq!(quote.generic, Quantity::from(if statue { 4 } else { 2 }));
+        assert_eq!(quote.colored, [Color::U]);
+        let pass = Candidate::Action {
+            action: Action::Pass,
+        };
+        let catalog = g.prepared.catalog.clone();
+        // Without the engine there is no quote, so no evoke is planned.
+        let mut blind = Strategy::new(&catalog, Policy::Develop, [0; 4]);
+        assert_eq!(blind.choose(&o).unwrap(), d.pick_one(&pass).unwrap());
+        let mut strategy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
+        let answer = strategy.choose_with_game(&o, &g).unwrap();
+        if statue {
+            assert_eq!(answer, d.pick_one(&pass).unwrap());
+            continue;
+        }
+        assert_eq!(answer, d.pick_one(&cast).unwrap());
+        Driver::cast(&mut g, CardId(0));
+        Driver::request(&mut g, u64::MAX);
+        let o = observation(&g, 0);
+        let d = o.decision.clone().unwrap();
+        assert_eq!(d.reason, Reason::AdditionalCosts);
+        assert_eq!(
+            strategy.choose_with_game(&o, &g).unwrap(),
+            Answer::Pick {
+                picks: vec![vec![0]]
+            },
+            "the planned cast announces evoke"
+        );
     }
 }

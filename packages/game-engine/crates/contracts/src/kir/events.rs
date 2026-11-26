@@ -200,7 +200,6 @@ impl EventPattern {
         }
     }
 
-    /// "When this permanent enters" (CR 603.6a, 201.5).
     /// "At the beginning of your upkeep" (CR 503.1a).
     pub fn your_upkeep() -> Self {
         Self::StepBegins {
@@ -208,6 +207,7 @@ impl EventPattern {
             active: PlayerExpr::you(Context::Triggered),
         }
     }
+    /// "When this permanent enters" (CR 603.6a, 201.5).
     pub fn self_enters() -> Self {
         Self::Enters {
             object: Pred::source(),

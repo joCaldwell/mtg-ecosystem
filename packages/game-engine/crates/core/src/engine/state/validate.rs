@@ -174,9 +174,13 @@ impl RulesTxn {
             .iter()
             .any(|p| p.upkeeps > s.rules.turn.number)
             || s.rules.objects.values().any(|o| match o.control_upkeeps {
+                // A forged controller outside the seats is a snapshot error.
                 Some(n) => {
                     o.zone != Zone::Battlefield
-                        || n > s.rules.players[o.controller.0 as usize].upkeeps
+                        || s.rules
+                            .players
+                            .get(o.controller.0 as usize)
+                            .is_none_or(|p| n > p.upkeeps)
                 }
                 None => o.zone == Zone::Battlefield,
             })

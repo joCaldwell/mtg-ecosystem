@@ -106,3 +106,28 @@ fn mogg_war_marshal_echo_is_paid_once_or_sacrificed() {
         assert_eq!(g.zone(marshal), Some(Zone::Battlefield));
     }
 }
+
+/// A snapshot whose battlefield permanent names a controller outside the
+/// four seats is rejected as a snapshot error, never a panic, while the
+/// control-history check reads that controller's upkeep count.
+#[test]
+fn forged_controller_outside_the_seats_rejects_the_snapshot() {
+    let g = Game::new(prepare(
+        board(&[MOGG_WAR_MARSHAL], TurnStep::PrecombatMain).permanent_or_hand(
+            "Mogg War Marshal",
+            0,
+            0,
+            false,
+        ),
+    ));
+    let mut forged = g.fork();
+    forged
+        .state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .controller = PlayerId(7);
+    let snapshot = forged.snapshot().unwrap();
+    assert!(Game::restore(forged.prepared.as_ref().clone(), &snapshot).is_err());
+}

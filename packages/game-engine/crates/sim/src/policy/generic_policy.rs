@@ -1288,23 +1288,15 @@ impl Strategy<'_> {
                         && d.characteristics.hybrid_mana.is_empty()
                         && x.is_none()
                 })?;
-                // The engine quotes the alternative with its tax, increases
-                // and reductions (CR 601.2f); without one, replace the base.
-                let (identity, alt) = match quote {
-                    Some((game, card)) => game
-                        .quote_alternative_cast_cost(v.viewer, card)
-                        .ok()
-                        .flatten()?,
-                    None => {
-                        let mut alt = printed.mana.clone();
-                        alt.generic.add(&cost.generic);
-                        alt.generic.subtract(&d.characteristics.mana_cost.generic);
-                        if alt.generic.is_negative() {
-                            return None;
-                        }
-                        (printed.identity.clone(), alt)
-                    }
-                };
+                // Only the engine quote includes the tax, increases and
+                // reductions that lock with the alternative (CR 601.2f); an
+                // observation alone never plans one.
+                let (game, card) = quote?;
+                let (identity, alt) = game
+                    .quote_alternative_cast_cost(v.viewer, card)
+                    .ok()
+                    .flatten()
+                    .filter(|(identity, _)| *identity == printed.identity)?;
                 let plan = mana_policy::hybrid_plan(self.catalog, v, alt.clone(), &[])?;
                 alternative = Some(identity);
                 cost = alt;

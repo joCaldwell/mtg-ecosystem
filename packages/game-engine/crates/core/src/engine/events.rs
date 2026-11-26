@@ -2701,13 +2701,17 @@ impl RulesTxn {
                 else {
                     return Err("top-library movement invariant".into());
                 };
-                let cards = self
-                    .rules_mut()
-                    .libraries
-                    .get_mut(&owner)
-                    .ok_or("missing owner library")?;
-                cards.retain(|card| *card != object.card);
-                cards.insert(0, object.card);
+                // CR 614.1a: a replacement (unearth's exile) can divert the
+                // move; only a card that reached the library goes on top.
+                if movement.destination == (Zone::Library { owner }) {
+                    let cards = self
+                        .rules_mut()
+                        .libraries
+                        .get_mut(&owner)
+                        .ok_or("missing owner library")?;
+                    cards.retain(|card| *card != object.card);
+                    cards.insert(0, object.card);
+                }
                 EventOutcome::LibraryTopMoved {
                     movement,
                     previous_top,
