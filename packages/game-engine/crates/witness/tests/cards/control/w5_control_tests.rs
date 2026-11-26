@@ -452,21 +452,25 @@ fn dega_sanctuary_replaces_the_original_life_gain() {
         )
         .seats(2)
         .life(PlayerId(0), LIFE.into())
-        .step(TurnStep::Upkeep)
+        .step(TurnStep::Untap)
         .permanent_or_hand("Dega Sanctuary", 0, 0, false)
         .permanent_or_hand("Royal Assassin", 0, 0, false);
         if both_colors {
             board = board.permanent_or_hand("Kamahl, Pit Fighter", 0, 0, false);
         }
         let mut g = Game::new(board.libraries("Forest", 4).prepare());
-        g.enter_turn_step().unwrap();
-        for _ in 0..4 {
-            assert_eq!(Driver::request(&mut g, u64::MAX).reason, Reason::Priority);
-            if life(&g, 0) != LIFE.into() {
+        for _ in 0..=g.live_players().len() {
+            let decision = Driver::request(&mut g, u64::MAX);
+            assert_eq!(decision.reason, Reason::Priority);
+            if g.state.rules.turn.step == TurnStep::Upkeep {
                 break;
             }
+            assert_eq!(g.state.rules.turn.step, TurnStep::Untap);
             Driver::pass(&mut g);
         }
+        assert_eq!(g.state.rules.turn.step, TurnStep::Upkeep);
+        assert_eq!(g.state.rules.stack.len(), 1);
+        settle(&mut g);
         assert_eq!(life(&g, 0), (LIFE + if both_colors { 4 } else { 2 }).into());
         checked(&g);
     }
