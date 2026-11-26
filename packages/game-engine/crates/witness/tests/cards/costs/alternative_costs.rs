@@ -1070,7 +1070,11 @@ fn encore_rejects_entry_replacements_by_name() {
     else {
         panic!("frozen encore witness failed");
     };
-    assert!(definition_cells(&definition).unwrap().contains(&Cell::Encore));
+    assert!(
+        definition_cells(&definition)
+            .unwrap()
+            .contains(&Cell::Encore)
+    );
     for effect in [
         StaticEffect::EntersTapped,
         StaticEffect::EntersWithPlusOneCounters {
