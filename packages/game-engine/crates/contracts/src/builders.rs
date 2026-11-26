@@ -136,6 +136,118 @@ impl SpellProgram {
     }
 }
 
+impl TriggeredAbility {
+    /// CR 702.74a: "When this permanent enters, if its evoke cost was paid,
+    /// its controller sacrifices it." The keyword line `block` prints it.
+    pub fn evoke_sacrifice(block: u32) -> Self {
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::Sacrifice {
+                player: kir::PlayerExpr::ControllerOf {
+                    object: kir::Ref::Source,
+                },
+                count: kir::Amount::fixed(1),
+                filter: kir::Pred::source(),
+            }),
+        });
+        Self {
+            modal: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::Event {
+                pattern: kir::EventPattern::self_enters(),
+                intervening_if: Some(kir::Cond::CostPaid {
+                    identity: EVOKE_COST.into(),
+                }),
+                once_each_turn: false,
+            },
+            program,
+        }
+    }
+}
+
+impl TriggeredAbility {
+    /// CR 702.30a: "At the beginning of your upkeep, if this permanent came
+    /// under your control since the beginning of your last upkeep, sacrifice
+    /// it unless you pay [cost]." The keyword line `block` prints it.
+    pub fn echo(block: u32, cost: ManaCost) -> Self {
+        let you = kir::PlayerExpr::you(Context::Triggered);
+        let payment = if cost.colored.is_empty() {
+            kir::Payment::Generic {
+                amount: kir::Amount::Fixed {
+                    value: cost.generic,
+                },
+            }
+        } else {
+            kir::Payment::Mana { mana: cost }
+        };
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::UnlessPays {
+                payer: you.clone(),
+                payment,
+                node: Box::new(kir::Node::Do(kir::Verb::Sacrifice {
+                    player: you,
+                    count: kir::Amount::fixed(1),
+                    filter: kir::Pred::source(),
+                })),
+            },
+        });
+        Self {
+            modal: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::Event {
+                pattern: kir::EventPattern::your_upkeep(),
+                intervening_if: Some(kir::Cond::ControlledSinceLastUpkeep {}),
+                once_each_turn: false,
+            },
+            program,
+        }
+    }
+}
+
+impl ActivatedAbility {
+    /// CR 702.84a: "Unearth [cost]" means "[Cost]: Return this card from
+    /// your graveyard to the battlefield. It gains haste. Exile it at the
+    /// beginning of the next end step. If it would leave the battlefield,
+    /// exile it instead of putting it anywhere else. Activate only as a
+    /// sorcery." The keyword line `block` prints it.
+    pub fn unearth(block: u32, cost: ManaCost) -> Self {
+        let mut body = SpellProgram::instructions(SpellTiming::Instant);
+        body.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::ExileCapturedReturn {}),
+        });
+        let mut program = SpellProgram::instructions(SpellTiming::MainPhase);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Delayed {
+                event: kir::DelayedEvent::NextEndStepAfterUnearth,
+                program: Box::new(body),
+            },
+        });
+        Self {
+            functioning_zone: FunctioningZone::Graveyard,
+            restriction: None,
+            cost: ActivationCost::Mana { cost },
+            program,
+            modal: None,
+        }
+    }
+
+    /// CR 702.84a: this is exactly an unearth ability.
+    pub fn is_unearth(&self) -> bool {
+        let ActivationCost::Mana { cost } = &self.cost else {
+            return false;
+        };
+        let block = self.program.instructions.first().map(|i| match i {
+            Instruction::Kernel { source_block, .. } => *source_block,
+        });
+        block.is_some_and(|block| *self == Self::unearth(block, cost.clone()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,117 +377,5 @@ mod tests {
                 ..literal
             },
         );
-    }
-}
-
-impl TriggeredAbility {
-    /// CR 702.74a: "When this permanent enters, if its evoke cost was paid,
-    /// its controller sacrifices it." The keyword line `block` prints it.
-    pub fn evoke_sacrifice(block: u32) -> Self {
-        let mut program = SpellProgram::instructions(SpellTiming::Instant);
-        program.instructions.push(Instruction::Kernel {
-            source_block: block,
-            node: kir::Node::Do(kir::Verb::Sacrifice {
-                player: kir::PlayerExpr::ControllerOf {
-                    object: kir::Ref::Source,
-                },
-                count: kir::Amount::fixed(1),
-                filter: kir::Pred::source(),
-            }),
-        });
-        Self {
-            modal: None,
-            functioning_zone: FunctioningZone::Battlefield,
-            condition: TriggerCondition::Event {
-                pattern: kir::EventPattern::self_enters(),
-                intervening_if: Some(kir::Cond::CostPaid {
-                    identity: EVOKE_COST.into(),
-                }),
-                once_each_turn: false,
-            },
-            program,
-        }
-    }
-}
-
-impl TriggeredAbility {
-    /// CR 702.30a: "At the beginning of your upkeep, if this permanent came
-    /// under your control since the beginning of your last upkeep, sacrifice
-    /// it unless you pay [cost]." The keyword line `block` prints it.
-    pub fn echo(block: u32, cost: ManaCost) -> Self {
-        let you = kir::PlayerExpr::you(Context::Triggered);
-        let payment = if cost.colored.is_empty() {
-            kir::Payment::Generic {
-                amount: kir::Amount::Fixed {
-                    value: cost.generic,
-                },
-            }
-        } else {
-            kir::Payment::Mana { mana: cost }
-        };
-        let mut program = SpellProgram::instructions(SpellTiming::Instant);
-        program.instructions.push(Instruction::Kernel {
-            source_block: block,
-            node: kir::Node::UnlessPays {
-                payer: you.clone(),
-                payment,
-                node: Box::new(kir::Node::Do(kir::Verb::Sacrifice {
-                    player: you,
-                    count: kir::Amount::fixed(1),
-                    filter: kir::Pred::source(),
-                })),
-            },
-        });
-        Self {
-            modal: None,
-            functioning_zone: FunctioningZone::Battlefield,
-            condition: TriggerCondition::Event {
-                pattern: kir::EventPattern::your_upkeep(),
-                intervening_if: Some(kir::Cond::ControlledSinceLastUpkeep {}),
-                once_each_turn: false,
-            },
-            program,
-        }
-    }
-}
-
-impl ActivatedAbility {
-    /// CR 702.84a: "Unearth [cost]" means "[Cost]: Return this card from
-    /// your graveyard to the battlefield. It gains haste. Exile it at the
-    /// beginning of the next end step. If it would leave the battlefield,
-    /// exile it instead of putting it anywhere else. Activate only as a
-    /// sorcery." The keyword line `block` prints it.
-    pub fn unearth(block: u32, cost: ManaCost) -> Self {
-        let mut body = SpellProgram::instructions(SpellTiming::Instant);
-        body.instructions.push(Instruction::Kernel {
-            source_block: block,
-            node: kir::Node::Do(kir::Verb::ExileCapturedReturn {}),
-        });
-        let mut program = SpellProgram::instructions(SpellTiming::MainPhase);
-        program.instructions.push(Instruction::Kernel {
-            source_block: block,
-            node: kir::Node::Delayed {
-                event: kir::DelayedEvent::NextEndStepAfterUnearth,
-                program: Box::new(body),
-            },
-        });
-        Self {
-            functioning_zone: FunctioningZone::Graveyard,
-            restriction: None,
-            cost: ActivationCost::Mana { cost },
-            program,
-            modal: None,
-        }
-    }
-
-    /// CR 702.84a: this is exactly an unearth ability.
-    pub fn is_unearth(&self) -> bool {
-        let ActivationCost::Mana { cost } = &self.cost else {
-            return false;
-        };
-        let block = self.program.instructions.first().map(|i| match i {
-            Instruction::Kernel { source_block, .. } => *source_block,
-        });
-        block.is_some_and(|block| *self == Self::unearth(block, cost.clone()))
     }
 }
