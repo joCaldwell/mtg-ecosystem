@@ -79,8 +79,8 @@ impl RulesTxn {
         }
         let m = |i: &u32| map.get(*i as usize).copied().unwrap_or(*i);
         let shape = match shape {
-            Shape::Pick { slots, rules } => Shape::Pick {
-                slots: slots
+            Shape::Pick { slots, rules } => {
+                let slots: Vec<Slot> = slots
                     .into_iter()
                     .map(|slot| {
                         let mut allowed: Vec<u32> = slot.allowed.iter().map(m).collect();
@@ -91,24 +91,50 @@ impl RulesTxn {
                             ..slot
                         }
                     })
-                    .collect(),
-                rules: rules
-                    .into_iter()
-                    .map(|rule| match rule {
-                        JointRule::PickedAtLeast { candidates, count } => {
-                            let mut candidates: Vec<u32> = candidates.iter().map(m).collect();
-                            candidates.sort_unstable();
-                            JointRule::PickedAtLeast { candidates, count }
-                        }
-                        JointRule::PickedAtMost { candidates, count } => {
-                            let mut candidates: Vec<u32> = candidates.iter().map(m).collect();
-                            candidates.sort_unstable();
-                            JointRule::PickedAtMost { candidates, count }
-                        }
-                        rule @ (JointRule::Distinct { .. } | JointRule::Total { .. }) => rule,
-                    })
-                    .collect(),
-            },
+                    .collect();
+                // Slots about one object each (attackers, blockers) follow
+                // their subjects' public order among the subject slots;
+                // other slots keep their places. Joint rules name slots by
+                // ordinal and are remapped with them.
+                let subjects: Vec<usize> = (0..slots.len())
+                    .filter(|i| slots[*i].subject.is_some())
+                    .collect();
+                let mut by_subject = subjects.clone();
+                by_subject.sort_by_key(|i| slots[*i].subject);
+                let mut slot_map: Vec<u32> = (0..slots.len() as u32).collect();
+                for (place, old) in subjects.iter().zip(&by_subject) {
+                    slot_map[*old] = *place as u32;
+                }
+                let mut ordered = slots.clone();
+                for (old, slot) in slots.into_iter().enumerate() {
+                    ordered[slot_map[old] as usize] = slot;
+                }
+                let s = |i: &u32| slot_map.get(*i as usize).copied().unwrap_or(*i);
+                Shape::Pick {
+                    slots: ordered,
+                    rules: rules
+                        .into_iter()
+                        .map(|rule| match rule {
+                            JointRule::PickedAtLeast { candidates, count } => {
+                                let mut candidates: Vec<u32> = candidates.iter().map(m).collect();
+                                candidates.sort_unstable();
+                                JointRule::PickedAtLeast { candidates, count }
+                            }
+                            JointRule::PickedAtMost { candidates, count } => {
+                                let mut candidates: Vec<u32> = candidates.iter().map(m).collect();
+                                candidates.sort_unstable();
+                                JointRule::PickedAtMost { candidates, count }
+                            }
+                            JointRule::Distinct { slots } => {
+                                let mut slots: Vec<u32> = slots.iter().map(s).collect();
+                                slots.sort_unstable();
+                                JointRule::Distinct { slots }
+                            }
+                            rule @ JointRule::Total { .. } => rule,
+                        })
+                        .collect(),
+                }
+            }
             Shape::Order { items, min, max } => {
                 let mut items: Vec<u32> = items.iter().map(m).collect();
                 items.sort_unstable();
@@ -141,11 +167,15 @@ impl RulesTxn {
                         .into_iter()
                         .map(|gate| Gate {
                             bucket: o(&gate.bucket),
-                            requires: gate
-                                .requires
-                                .iter()
-                                .map(|(b, q)| (o(b), q.clone()))
-                                .collect(),
+                            requires: {
+                                let mut requires: Vec<_> = gate
+                                    .requires
+                                    .iter()
+                                    .map(|(b, q)| (o(b), q.clone()))
+                                    .collect();
+                                requires.sort_by_key(|(b, _)| *b);
+                                requires
+                            },
                         })
                         .collect(),
                 }

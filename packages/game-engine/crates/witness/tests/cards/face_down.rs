@@ -749,29 +749,57 @@ fn an_opponents_target_decision_does_not_order_face_down_cards_by_identity() {
 }
 
 /// CR 708.9: a player leaving the game reveals the face-down spells and
-/// permanents they own to the remaining players.
+/// permanents they own to the remaining players, each named by that
+/// viewer's own handle for it, so a viewer knows which card each was.
 #[test]
 fn a_departing_player_reveals_their_face_down_cards() {
     let hermit = lower(HERMIT);
+    let ainok = lower(AINOK);
     let mut game = Game::new(
         lands(
             board()
                 .seats(3)
-                .permanent_or_hand("Thelonite Hermit", 0, 0, true),
+                .permanent_or_hand("Thelonite Hermit", 0, 0, true)
+                .permanent_or_hand("Ainok Survivalist", 0, 0, true),
             "Forest",
-            4,
+            6,
         )
         .prepare(),
     );
-    cast_face_down(&mut game);
+    for (card, lands) in [(0, [2, 3, 4]), (1, [5, 6, 7])] {
+        let card = Driver::object(&game, card);
+        Driver::action(&mut game, Action::CastFaceDown { card });
+        Driver::pay(&mut game, &lands);
+        settle_stack(&mut game);
+    }
+    let objects = [0, 1].map(|card| Driver::object(&game, card));
+    let handles = [1, 2].map(|seat| objects.map(|o| game.handle_for(PlayerId(seat), o).unwrap()));
     assert!(view(&game, 1).view.revealed_face_down.is_empty());
     game.concede(PlayerId(0)).unwrap();
     Driver::settle(&mut game, u64::MAX);
-    for seat in [1, 2] {
-        assert_eq!(
-            view(&game, seat).view.revealed_face_down,
-            [(PlayerId(0), hermit.oracle_id.clone())]
-        );
+    for (seat, [h, a]) in [1, 2].into_iter().zip(handles) {
+        let mut expected = vec![
+            RevealedFaceDown {
+                handle: Some(h),
+                owner: PlayerId(0),
+                oracle_id: hermit.oracle_id.clone(),
+            },
+            RevealedFaceDown {
+                handle: Some(a),
+                owner: PlayerId(0),
+                oracle_id: ainok.oracle_id.clone(),
+            },
+        ];
+        expected.sort_by_key(|r| {
+            let handle = r.handle.as_ref().unwrap().0.clone();
+            (handle.len(), handle)
+        });
+        let mut seen = view(&game, seat).view.revealed_face_down;
+        seen.sort_by_key(|r| {
+            let handle = r.handle.as_ref().unwrap().0.clone();
+            (handle.len(), handle)
+        });
+        assert_eq!(seen, expected);
     }
     game.validate_state().unwrap();
     assert_recoverable((&game).into());
@@ -843,4 +871,63 @@ fn the_simulator_casts_face_down_only_at_the_quoted_cost() {
             d.pick_one(&Candidate::Action { action: expected }).unwrap()
         );
     }
+}
+
+/// CR 708.5-708.6: attack and block declarations offering two face-down
+/// creatures, cast in the same public order from swapped physical cards,
+/// are the same decision for the attacker and the same observation for the
+/// blocking opponent: slots and candidates follow public order alone.
+#[test]
+fn combat_declarations_do_not_order_face_down_cards_by_identity() {
+    let runs = [[0, 1], [1, 0]].map(|order| {
+        let mut game = Game::new(
+            lands(
+                board()
+                    .permanent_or_hand("Thelonite Hermit", 0, 0, true)
+                    .permanent_or_hand("Ainok Survivalist", 0, 0, true),
+                "Forest",
+                6,
+            )
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .libraries("Island", 4)
+            .prepare(),
+        );
+        for (card, lands) in order.into_iter().zip([[2, 3, 4], [5, 6, 7]]) {
+            let card = Driver::object(&game, card);
+            Driver::action(&mut game, Action::CastFaceDown { card });
+            Driver::pay(&mut game, &lands);
+            settle_stack(&mut game);
+        }
+        let attackers: Vec<_> = [0, 1].map(|card| Driver::object(&game, card)).to_vec();
+        let (mut attack, mut block) = (None, None);
+        for _ in 0..256 {
+            let r = Driver::request(&mut game, u64::MAX);
+            let answer = match &r.reason {
+                Reason::Attackers
+                    if r.player == PlayerId(0) && game.state.rules.turn.number > 1 =>
+                {
+                    attack = view(&game, 0).decision;
+                    r.attack(attackers.iter().map(|a| (*a, PlayerId(1))).collect())
+                }
+                Reason::Attackers => r.attack(vec![]),
+                Reason::Blockers => {
+                    block = Some(view(&game, 1));
+                    r.block(vec![])
+                }
+                Reason::Priority => mtg_witness::temporary::pass(&r),
+                other => panic!("unexpected decision {other:?}"),
+            };
+            game.respond(r.player, r.id, answer).unwrap();
+            if block.is_some() {
+                break;
+            }
+        }
+        (
+            attack.expect("attack declaration"),
+            block.expect("block declaration"),
+        )
+    });
+    let [(attack_a, block_a), (attack_b, block_b)] = runs;
+    assert_eq!(attack_a, attack_b);
+    assert_eq!(block_a, block_b);
 }

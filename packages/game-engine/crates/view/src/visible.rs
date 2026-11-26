@@ -379,6 +379,16 @@ impl<O> VisibleAttacker<O> {
         }
     }
 }
+/// CR 708.9: a face-down card revealed as its owner left the game, named by
+/// the viewer's handle for that spell or permanent just before it left.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RevealedFaceDown {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<ObjectHandle>,
+    pub owner: PlayerId,
+    pub oracle_id: String,
+}
 /// A remembered public tuck. Position is one-based; memory gives no object
 /// handle or authority to inspect or target a card in a hidden library.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -404,7 +414,7 @@ pub struct PermittedView<O = ObjectHandle> {
     /// CR 708.9: the face-down cards each departed owner revealed as they
     /// left the game, by owner and Oracle identity.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub revealed_face_down: Vec<(PlayerId, String)>,
+    pub revealed_face_down: Vec<RevealedFaceDown>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifice_choices: Vec<(PlayerId, O)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

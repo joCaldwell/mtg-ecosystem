@@ -280,17 +280,33 @@ impl RulesTxn {
             .map(|o| o.id)
             .collect::<Vec<_>>();
         // CR 708.9: a departing player's face-down spells and permanents are
-        // revealed to all players as they leave.
-        let revealed: Vec<_> = removed
+        // revealed to all players as they leave, each named by every viewer's
+        // own handle for it, in that viewer's handle order.
+        let revealed: Vec<ObjectId> = removed
             .iter()
-            .filter(|o| self.is_face_down(**o))
-            .map(|o| (player, self.state.rules.cards[&o.card].oracle_id.clone()))
+            .copied()
+            .filter(|o| self.is_face_down(*o))
             .collect();
         if !revealed.is_empty() {
-            for knowledge in &mut self.state.knowledge.visibility {
-                knowledge
+            for viewer in 0..self.state.knowledge.visibility.len() {
+                let viewer = PlayerId(viewer as u8);
+                let mut rows = revealed
+                    .iter()
+                    .map(|o| {
+                        (
+                            self.object_handle_id(viewer, *o).ok().cloned(),
+                            RevealedFaceDown {
+                                handle: self.handle_for(viewer, *o).ok(),
+                                owner: player,
+                                oracle_id: self.state.rules.cards[&o.card].oracle_id.clone(),
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                rows.sort_by(|a, b| a.0.cmp(&b.0));
+                self.state.knowledge.visibility[viewer.0 as usize]
                     .revealed_face_down
-                    .extend(revealed.iter().cloned());
+                    .extend(rows.into_iter().map(|(_, row)| row));
             }
         }
         if !removed.is_empty() {

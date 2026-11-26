@@ -243,7 +243,7 @@ pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     revealed_library_cards: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    revealed_face_down: Vec<(PlayerId, String)>,
+    revealed_face_down: Vec<RevealedFaceDown>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sacrifice_choices: Vec<(PlayerId, super::StoredObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

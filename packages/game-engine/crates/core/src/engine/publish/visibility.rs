@@ -102,7 +102,7 @@ pub struct Knowledge {
     pub public_tucked_cards: BTreeSet<ObjectId>,
     /// CR 708.9: face-down cards revealed as their owner left the game.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub revealed_face_down: Vec<(PlayerId, String)>,
+    pub revealed_face_down: Vec<RevealedFaceDown>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own_knowledge: Vec<OwnKnowledgeAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
