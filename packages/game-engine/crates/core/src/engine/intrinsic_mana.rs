@@ -70,6 +70,9 @@ impl RulesTxn {
             Frame::ResolutionPayment { payment, .. } => {
                 payment.stage == ResolutionPaymentStage::Mana && payment.payer == player
             }
+            Frame::TurnFaceUp { payment } => {
+                payment.stage == face_down::FaceUpStage::Mana && payment.player == player
+            }
             Frame::Mana { .. } => self.top().is_ok_and(|s| s.controller == player),
             Frame::ManaAbility { activation } => {
                 activation.player == player

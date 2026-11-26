@@ -10,6 +10,8 @@ struct SpellAnnouncement {
     original_object: ObjectId,
     cast_from: Zone,
     face: CardFace,
+    /// CR 702.37c: cast face down using its morph ability.
+    face_down: bool,
 }
 
 impl RulesTxn {
@@ -23,6 +25,7 @@ impl RulesTxn {
         player: PlayerId,
         card: CardId,
         face: CardFace,
+        face_down: bool,
     ) -> Result<SpellAnnouncement, String> {
         if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player
         {
@@ -30,6 +33,9 @@ impl RulesTxn {
         }
         self.validate_cast_permission(player)?;
         let object = self.state.rules.objects.get(&card).ok_or("invalid cast")?;
+        if face_down {
+            return self.face_down_announcement(player, object);
+        }
         let definition = self.face_definition(card, face)?;
         // CR 702.34a: flashback permits casting from its owner's graveyard.
         // CR 715.3d: an exiled Adventure's controller may cast its card, but
@@ -55,7 +61,7 @@ impl RulesTxn {
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         if program.timing == SpellTiming::MainPhase
             && !self.main_phase_action(player)
-            && !self.has_flash_permission(object, face, player)?
+            && !self.has_flash_permission(object, face, false, player)?
         {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
@@ -105,9 +111,63 @@ impl RulesTxn {
             original_object: object.id,
             cast_from: object.zone,
             face,
+            face_down: false,
         })
     }
 
+    /// CR 702.37a-d, 708.4: a card with morph may be cast face down from any
+    /// zone it could normally be cast from (here its owner's hand, or the
+    /// command zone for a commander). Timing, prohibitions and targets are
+    /// those of the face-down 2/2 creature spell, not the printed card.
+    fn face_down_announcement(
+        &self,
+        player: PlayerId,
+        object: &Object,
+    ) -> Result<SpellAnnouncement, String> {
+        let card = object.id.card;
+        let printed = self.face_definition(card, CardFace::Front)?;
+        if printed.face_down.is_none()
+            || self.state.rules.tokens.contains_key(&card)
+            || self.state.rules.cards[&card].owner != player
+            || !(object.zone == (Zone::Hand { owner: player })
+                || (object.zone == (Zone::Command { owner: player })
+                    && self.state.rules.commanders.history(card).is_some()))
+        {
+            return Err("invalid or unsupported face-down cast".into());
+        }
+        // CR 708.5, 903.10a: commander combat damage is tracked publicly by
+        // physical card, so a commander cast face down from a hand would be
+        // identified by its tally. From the command zone it is already
+        // public which card left.
+        if object.zone == (Zone::Hand { owner: player })
+            && self.state.rules.commanders.history(card).is_some()
+        {
+            return Err("unsupported face-down cast of a commander from a hand".into());
+        }
+        let face_down = face_down::face_down_definition();
+        let program = face_down
+            .spell
+            .as_ref()
+            .ok_or("missing face-down program")?;
+        if program.timing == SpellTiming::MainPhase
+            && !self.main_phase_action(player)
+            && !self.has_flash_permission(object, CardFace::Front, true, player)?
+        {
+            return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
+        }
+        if let Some(reason) =
+            self.spell_proposal_obstacle(program, player, &face_down.characteristics)
+        {
+            return Err(reason.into());
+        }
+        Ok(SpellAnnouncement {
+            player,
+            original_object: object.id,
+            cast_from: object.zone,
+            face: CardFace::Front,
+            face_down: true,
+        })
+    }
     // Priority and resolution permissions differ on timing and origin. Once
     // those are established, target and mandatory sacrifice availability are
     // properties of the same proposed spell.
@@ -143,7 +203,8 @@ impl RulesTxn {
         x: Option<&Quantity>,
     ) -> Result<ManaCost, String> {
         let object = self.resolve_handle(viewer, card)?;
-        let proposal = self.priority_spell_announcement(viewer, object.card, CardFace::Front)?;
+        let proposal =
+            self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
         let source = ObjectId {
             face: proposal.face,
             ..proposal.original_object
@@ -162,7 +223,8 @@ impl RulesTxn {
         card: &ObjectHandle,
     ) -> Result<Option<(String, ManaCost)>, String> {
         let object = self.resolve_handle(viewer, card)?;
-        let proposal = self.priority_spell_announcement(viewer, object.card, CardFace::Front)?;
+        let proposal =
+            self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
         if !matches!(proposal.cast_from, Zone::Hand { .. } | Zone::Command { .. }) {
             return Ok(None);
         }
@@ -185,14 +247,54 @@ impl RulesTxn {
         Ok(Some((alternative.identity.clone(), cost)))
     }
 
+    /// CR 702.37c, 708.4, 601.2f: quote a face-down cast of `card`: {3} as
+    /// the alternative cost of the face-down creature spell, with the
+    /// commander tax, increases and reductions that would lock with it.
+    pub fn quote_face_down_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+    ) -> Result<ManaCost, String> {
+        let object = self.resolve_handle(viewer, card)?;
+        let proposal =
+            self.priority_spell_announcement(viewer, object.card, CardFace::Front, true)?;
+        // Price the face-down characteristics the spell will have, on a fork.
+        let mut fork = self.fork();
+        fork.rules_mut()
+            .objects
+            .get_mut(&object.card)
+            .ok_or("missing face-down quote card")?
+            .face_down = true;
+        fork.casting_cost(proposal.original_object, viewer, proposal.cast_from, None)
+    }
+
     pub(super) fn validate_priority_spell_cast(
         &self,
         player: PlayerId,
         card: CardId,
         face: CardFace,
     ) -> Result<(), String> {
-        self.priority_spell_announcement(player, card, face)
+        self.priority_spell_announcement(player, card, face, false)
             .map(|_| ())
+    }
+
+    /// CR 702.37a: whether `player` may cast `card` face down now.
+    pub(super) fn validate_face_down_cast(
+        &self,
+        player: PlayerId,
+        card: CardId,
+    ) -> Result<(), String> {
+        self.priority_spell_announcement(player, card, CardFace::Front, true)
+            .map(|_| ())
+    }
+
+    pub(crate) fn announce_face_down_spell(
+        &mut self,
+        player: PlayerId,
+        card: CardId,
+    ) -> Result<(), String> {
+        let announcement = self.priority_spell_announcement(player, card, CardFace::Front, true)?;
+        self.begin_spell_announcement(announcement)
     }
 
     pub(crate) fn announce_priority_spell(
@@ -201,7 +303,7 @@ impl RulesTxn {
         card: CardId,
         face: CardFace,
     ) -> Result<(), String> {
-        let announcement = self.priority_spell_announcement(player, card, face)?;
+        let announcement = self.priority_spell_announcement(player, card, face, false)?;
         self.begin_spell_announcement(announcement)
     }
 
@@ -213,18 +315,25 @@ impl RulesTxn {
             original_object,
             cast_from,
             face,
+            face_down,
         } = announcement;
         let card = original_object.card;
         self.check_stack_capacity(1)?;
-        let total_cost = self.casting_cost(
-            ObjectId {
-                face,
-                ..original_object
-            },
-            player,
-            cast_from,
-            None,
-        )?;
+        // CR 702.37c, 708.4: a face-down spell's cost is priced from its
+        // face-down characteristics once it is on the stack.
+        let printed_cost = if face_down {
+            None
+        } else {
+            Some(self.casting_cost(
+                ObjectId {
+                    face,
+                    ..original_object
+                },
+                player,
+                cast_from,
+                None,
+            )?)
+        };
         let id = StackId(self.state.rules.next_stack_id);
         self.rules_mut().next_stack_id = self
             .state
@@ -243,10 +352,19 @@ impl RulesTxn {
                     player,
                     source: original_object,
                     face,
+                    face_down,
                 },
             )?
             .successor;
-        let revealed_hand_consumed = self.known_hand_count(original_object.card) < known_before;
+        let total_cost = match printed_cost {
+            Some(cost) => cost,
+            None => self.casting_cost(source, player, cast_from, None)?,
+        };
+        // CR 400.2, 708.4: a face-down departure could have been any hand
+        // card, so it consumed one copy of every known identity; a reversal
+        // restores none of them rather than naming this card.
+        let revealed_hand_consumed =
+            !face_down && self.known_hand_count(original_object.card) < known_before;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         let source_facts = self.object_before(source)?;
         let entry = StackInstance {
@@ -529,6 +647,8 @@ impl RulesTxn {
                 .ok_or("missing reversal object")?;
             o.id = cast.original_object;
             o.zone = stack.cast_from;
+            // CR 733.1: the card returns as it was, face up and unrevealed.
+            o.face_down = false;
             o.controller = owner;
             o.default_controller = owner;
             o.tapped = false;

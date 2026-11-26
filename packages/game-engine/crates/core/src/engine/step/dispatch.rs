@@ -38,6 +38,7 @@ impl RulesTxn {
             Frame::ResolutionPayment { frame, payment } => {
                 self.resolution_payment_step(frame, payment)?
             }
+            Frame::TurnFaceUp { payment } => self.face_up_step(payment)?,
             frame @ Frame::LegendRule { .. } => self.legend_step(frame)?,
             frame @ (Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }) => {
                 self.sacrifice_step(frame)?
@@ -99,6 +100,12 @@ impl RulesTxn {
                     }
                     Action::CastBackFace { card } => {
                         self.announce_priority_spell(input.player, card.card, CardFace::Back)?;
+                    }
+                    Action::CastFaceDown { card } => {
+                        self.announce_face_down_spell(input.player, card.card)?;
+                    }
+                    Action::TurnFaceUp { object } => {
+                        self.begin_turn_face_up(input.player, object)?;
                     }
                     Action::Pass => {
                         self.record_event(Event::PriorityPassed {

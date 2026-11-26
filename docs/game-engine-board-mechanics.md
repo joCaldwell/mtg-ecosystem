@@ -319,6 +319,23 @@ nonlethal deathtouch damage cannot kill after protection loss; fresh deathtouch
 reopens a window. Simultaneous destruction consumes common-prior keyword facts,
 so departing Equipment cannot remove protection mid-event.
 
+### Face-down permanents
+
+`TurnFaceUp` is a special action at priority (CR 116.2b, 702.37e). It pays the
+morph cost as a resolution payment does and turns the same object face up
+without entering; megamorph adds a +1/+1 counter (CR 702.37b, 708.8). Its
+`TurnedFaceUp` source trigger fires; a noncreature leaves combat (CR 506.4).
+An unpaid cost reverses its mana (CR 733.1). Counters may outlast face-down
+creature status (CR 122.2).
+
+Only the controller sees the identity (CR 708.5). In a decision offering a
+face-down object, object candidates and subject slots follow zone, entry
+timestamp and stack position, never card. A face-down hand departure consumes
+known copies as a hidden one. Other zone changes and game end reveal the card
+(CR 708.9); a departing owner's cards are revealed under each viewer's handle
+(`PermittedView::revealed_face_down`). Snapshots reject face-down objects off
+the stack and battlefield or without morph.
+
 ### Temporary keyword and set families
 
 A temporary effect needs a checked KIR operation and runtime support for its
@@ -379,6 +396,7 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 | `DealsDamage` | the source's battlefield appearance as positive damage is dealt to a player (CR 120.3, 510.2) |
 | `StepBegins` | upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503-513) |
 | `BecomesTapped` | only the source itself (CR 701.26a) |
+| `TurnedFaceUp` | only the source itself, as it is turned face up (CR 702.37e, 708.8) |
 | `GainsLife`, `Discards` | the gaining or discarding player; each source's positive gain is one event (CR 119.9, 701.9a) |
 | `Sacrifices` | the sacrificing player and the permanent on the battlefield just before the move (CR 701.21a, 603.10a) |
 | `LeavesBattlefield` | a move off the battlefield or a phased-in permanent leaving the game with its owner, read as for `Dies` (CR 603.6c, 603.10a) |

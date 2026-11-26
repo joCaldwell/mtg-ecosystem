@@ -107,10 +107,11 @@ impl RulesTxn {
                         keyword_timestamp: None,
                         // CR 613.7m: setup permanents share one timestamp,
                         // ordered by APNAP from the first active player.
-                        keyword_rank: c.controller.0 % 4,
+                        keyword_rank: c.controller.0,
                         plus_one_counters: Quantity::zero(),
                         transforms: 0,
                         adventure_player: None,
+                        face_down: false,
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         unearthed: false,

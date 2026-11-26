@@ -90,8 +90,8 @@ impl RulesTxn {
         }
         let mut timestamps = BTreeSet::new();
         for o in self.state.rules.objects.values() {
-            // CR 613.7m: an APNAP position among at most four seats.
-            if o.keyword_rank >= 4 {
+            // CR 613.7m: an APNAP position among the game's seats.
+            if usize::from(o.keyword_rank) >= self.state.rules.players.len() {
                 return Err("snapshot timestamp rank invariant".into());
             }
             if o.attached_to.is_some() != o.attachment_timestamp.is_some()

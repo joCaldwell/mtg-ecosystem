@@ -135,7 +135,8 @@ fn apply_type_change(
                 }
             }
         }
-        Change::AddCreatureSubtypes { subtypes } => {
+        // CR 205.3d: only a creature can gain a creature type.
+        Change::AddCreatureSubtypes { subtypes } if facts.has_type(CardKind::Creature) => {
             for subtype in subtypes {
                 if !facts.subtypes.contains(subtype) {
                     facts.subtypes.push(subtype.clone());
@@ -184,7 +185,9 @@ fn members(application: &Application) -> Vec<ObjectId> {
 /// creature or a land can have that kind of subtype).
 fn change_takes_effect(change: &Change, facts: &Characteristics) -> bool {
     match change {
-        Change::SetCreatureSubtypes { .. } => facts.has_type(CardKind::Creature),
+        Change::SetCreatureSubtypes { .. } | Change::AddCreatureSubtypes { .. } => {
+            facts.has_type(CardKind::Creature)
+        }
         Change::SetLandSubtypes { .. } => facts.has_type(CardKind::Land),
         Change::RemoveCardTypes { kinds } => kinds.iter().any(|k| facts.has_type(*k)),
         _ => true,
@@ -194,7 +197,8 @@ fn change_takes_effect(change: &Change, facts: &Characteristics) -> bool {
 /// One layer-4 effect: a resolved animation with its captured
 /// incarnations, or a static ability.
 struct Eff<'a> {
-    /// (timestamp, resolved before static, APNAP rank, creation).
+    /// (timestamp, static before resolved (as in layer 6), APNAP rank,
+    /// creation).
     order: (u64, u8, u8, usize),
     kind: EffKind<'a>,
 }
@@ -382,8 +386,9 @@ impl RulesTxn {
     /// CR 613.7m: the active player's objects first, then turn order, as of
     /// the moment the timestamp is assigned (`Object::keyword_rank`).
     pub(super) fn apnap_rank(&self, player: PlayerId) -> u8 {
-        let active = self.state.rules.active.map_or(0, |p| p.0);
-        (player.0 + 4 - active) % 4
+        let seats = u8::try_from(self.state.rules.players.len().max(1)).unwrap_or(u8::MAX);
+        let active = self.state.rules.active.map_or(0, |p| p.0) % seats;
+        (player.0 % seats + seats - active) % seats
     }
 
     fn compute_global_types(&self) -> Result<GlobalTypes, String> {
@@ -405,7 +410,7 @@ impl RulesTxn {
                     })
                     .collect();
                 effects.push(Eff {
-                    order: (*timestamp, 0, 0, effects.len()),
+                    order: (*timestamp, 1, 0, effects.len()),
                     kind: EffKind::Resolved { targets, animation },
                 });
             }
@@ -430,7 +435,7 @@ impl RulesTxn {
             effects.push(Eff {
                 order: (
                     source.keyword_timestamp.unwrap_or(0),
-                    1,
+                    0,
                     source.keyword_rank,
                     effects.len(),
                 ),

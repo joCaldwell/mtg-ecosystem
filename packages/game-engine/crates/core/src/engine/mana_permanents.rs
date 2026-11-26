@@ -1279,6 +1279,10 @@ impl RulesTxn {
             self.rules_mut().frame = frame.clone();
             return self.revalidate_resolution_payment_departure();
         }
+        if let frame @ Frame::TurnFaceUp { .. } = self.saved_frame(a.resume)? {
+            self.rules_mut().frame = frame.clone();
+            return self.revalidate_face_up_departure();
+        }
         self.rules_mut().passes.clear();
         self.rules_mut().frame = Frame::Priority;
         Ok(self.stabilize()?)
@@ -1291,6 +1295,9 @@ impl RulesTxn {
                 Frame::Priority => self.state.rules.priority == a.player,
                 Frame::ResolutionPayment { payment, .. } => {
                     payment.payer == a.player && payment.stage == ResolutionPaymentStage::Mana
+                }
+                Frame::TurnFaceUp { payment } => {
+                    payment.player == a.player && payment.stage == face_down::FaceUpStage::Mana
                 }
                 Frame::Mana { cast } => self
                     .top()
@@ -1357,6 +1364,9 @@ impl RulesTxn {
             {
                 payment.receipts.extend(receipts)
             }
+            Frame::TurnFaceUp { payment } if payment.stage == face_down::FaceUpStage::Mana => {
+                payment.receipts.extend(receipts)
+            }
             Frame::Priority => {
                 if retained {
                     self.rules_mut().passes.clear();
@@ -1368,6 +1378,7 @@ impl RulesTxn {
         if matches!(self.state.rules.frame, Frame::Priority) {
             return Ok(self.stabilize()?);
         }
+        self.revalidate_face_up_departure()?;
         self.revalidate_resolution_payment_departure()
     }
     /// CR 733.1: reverse every receipt, newest first, and report true; or,
@@ -1477,6 +1488,7 @@ impl RulesTxn {
                         plus_one_counters: r.counters.clone(),
                         transforms: 0,
                         adventure_player: None,
+                        face_down: false,
                     },
                 );
                 // CR 733.1/800.4c: restore only the recorded object, then
