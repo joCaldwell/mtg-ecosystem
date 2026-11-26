@@ -49,6 +49,8 @@ pub struct PolicyMemory {
     mana_ability: Option<mtg_core::ManaAbilityIdentity>,
     payment: PaymentAttempt,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
+    /// CR 118.9: the alternative cost the planned cast announces.
+    alternative_cost: Option<String>,
     /// The activations the pending priority decision offers, when one is
     /// published; Develop never selects an activation outside them.
     offered_activations: Option<Vec<Action<Viewer>>>,
@@ -106,6 +108,7 @@ impl PolicyMemory {
         self.mana_color = None;
         self.mana_ability = None;
         self.hybrid_choices.clear();
+        self.alternative_cost = None;
     }
 
     pub fn choose(
@@ -654,10 +657,27 @@ impl Strategy<'_> {
                     .collect(),
             },
             // CR 601.2b: the baseline policy conserves mana by declining
-            // optional kicker and buyback costs before target selection.
-            (Reason::AdditionalCosts, Shape::Pick { slots, .. }) => Answer::Pick {
-                picks: vec![vec![]; slots.len()],
-            },
+            // optional kicker and buyback costs before target selection, and
+            // announces an alternative cost only when its cast planned one.
+            (Reason::AdditionalCosts, Shape::Pick { slots, .. }) => {
+                let planned = self.memory.alternative_cost.take();
+                Answer::Pick {
+                    picks: slots
+                        .iter()
+                        .map(|s| {
+                            s.allowed
+                                .iter()
+                                .copied()
+                                .filter(|i| {
+                                    matches!(&d.candidates[*i as usize],
+                                        Candidate::AdditionalCost { id, .. } if Some(id) == planned.as_ref())
+                                })
+                                .take(1)
+                                .collect()
+                        })
+                        .collect(),
+                }
+            }
             // CR 701.22a, 701.25a: keep every looked-at card on top.
             (
                 Reason::Discard

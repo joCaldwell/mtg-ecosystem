@@ -1077,6 +1077,21 @@ fn compose_face(
                                 .optional_additional_costs
                                 .push(keywords::buyback(one, label, text)?);
                         }
+                        // CR 702.74a: evoke is an alternative cost of a
+                        // permanent spell plus the entering sacrifice trigger.
+                        [one] if one.keyword == mtg_contracts::EVOKE_COST => {
+                            if spell_kind
+                                || definition.spell.is_none()
+                                || definition.alternative_cost.is_some()
+                            {
+                                return Err(unsupported("keyword", "keyword:evoke:source"));
+                            }
+                            definition.alternative_cost = Some(keywords::evoke(one, label, text)?);
+                            definition
+                                .triggered
+                                .push(TriggeredAbility::evoke_sacrifice(label));
+                            labels.triggered.push(label);
+                        }
                         // CR 702.34a: flashback is an instant's or sorcery's
                         // alternative cost from its owner's graveyard.
                         [one] if one.keyword == "flashback" => {

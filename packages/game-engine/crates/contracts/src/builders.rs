@@ -267,3 +267,33 @@ mod tests {
         );
     }
 }
+
+impl TriggeredAbility {
+    /// CR 702.74a: "When this permanent enters, if its evoke cost was paid,
+    /// its controller sacrifices it." The keyword line `block` prints it.
+    pub fn evoke_sacrifice(block: u32) -> Self {
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::Sacrifice {
+                player: kir::PlayerExpr::ControllerOf {
+                    object: kir::Ref::Source,
+                },
+                count: kir::Amount::fixed(1),
+                filter: kir::Pred::source(),
+            }),
+        });
+        Self {
+            modal: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::Event {
+                pattern: kir::EventPattern::self_enters(),
+                intervening_if: Some(kir::Cond::CostPaid {
+                    identity: EVOKE_COST.into(),
+                }),
+                once_each_turn: false,
+            },
+            program,
+        }
+    }
+}

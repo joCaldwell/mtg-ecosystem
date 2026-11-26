@@ -826,6 +826,13 @@ impl Walk<'_, '_> {
             } => {
                 self.player(player)?;
                 self.amount(count)?;
+                // CR 701.21a: "sacrifice it" names the source itself, which
+                // must be a permanent's own ability (not a spell).
+                if *filter == Pred::source() {
+                    return self
+                        .expect(&Ref::Source, &[RefKind::Object], "sacrificed source")
+                        .map(|_| ());
+                }
                 self.pred(filter)
             }
             Verb::AddMana { player, mana } => {
@@ -1729,7 +1736,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::PreventDamage { prevention, .. } => modify::prevention_capabilities(prevention, out),
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
-        Verb::Sacrifice { player, .. } => sacrifice::capabilities(player, out),
+        Verb::Sacrifice { player, filter, .. } => sacrifice::capabilities(player, filter, out),
         Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
             out.insert(Capability::SearchLibraryTopV1);
         }

@@ -188,6 +188,9 @@ pub enum Cell {
     SacrificeDamagedPlayer,
     SacrificeEachPlayer,
     SacrificeEachOpponent,
+    /// CR 701.21a: the source's current controller, or the ability's
+    /// controller, sacrifices that exact permanent if they control it.
+    SacrificeSource,
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
@@ -295,6 +298,9 @@ pub enum Cell {
     /// CR 702.34a: casting from the graveyard for the flashback cost, and
     /// exile as the spell leaves the stack.
     Flashback,
+    /// CR 702.74a, 118.9: the evoke alternative cost and the entering
+    /// permanent's sacrifice trigger reading it.
+    Evoke,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -439,7 +445,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SpellAdditionalSacrifice
         | C::Kicker
         | C::Buyback
-        | C::Flashback => Tiers::EXECUTES,
+        | C::Flashback
+        | C::Evoke
+        | C::SacrificeSource => Tiers::EXECUTES,
     }
 }
 
@@ -616,7 +624,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::InterveningIfV1
         | C::ResolutionTriggerV1
         | C::EventTriggerV1
-        | C::TriggerTurnHistoryV1 => Tiers::EXECUTES,
+        | C::TriggerTurnHistoryV1
+        | C::SacrificeSourceV1 => Tiers::EXECUTES,
     }
 }
 
@@ -689,6 +698,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if d.flashback.is_some() {
         cells.insert(Cell::Flashback);
+    }
+    if d.alternative_cost.is_some() {
+        cells.insert(Cell::Evoke);
     }
     if let Some(p) = &d.spell {
         if p.additional_sacrifice.is_some() {

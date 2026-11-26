@@ -1254,6 +1254,35 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     {
         return cell("keyword", "flashback");
     }
+    // CR 702.74a, 118.9: evoke is a fixed mana alternative cost of a
+    // permanent card whose own cost announces no X or hybrid choice, and the
+    // definition carries exactly the one sacrifice trigger that reads it.
+    let evoke_triggers = d
+        .triggered
+        .iter()
+        .filter(|t| {
+            matches!(
+                t.condition.intervening_if(),
+                Some(kir::Cond::CostPaid { .. })
+            )
+        })
+        .collect::<Vec<_>>();
+    match &d.alternative_cost {
+        None if evoke_triggers.is_empty() => {}
+        Some(cost)
+            if cost.identity == crate::EVOKE_COST
+                && matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                )
+                && !d.x_mana_cost
+                && c.hybrid_mana.is_empty()
+                && !cost.mana.generic.is_negative()
+                && !cost.mana.colored.contains(&Color::C)
+                && matches!(evoke_triggers.as_slice(), [t]
+                    if **t == TriggeredAbility::evoke_sacrifice(cost.source_block)) => {}
+        _ => return cell("keyword", "evoke"),
+    }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         if let Some(modal) = &d.modal_spell {
             modal_shape(

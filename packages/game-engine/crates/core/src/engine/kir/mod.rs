@@ -254,6 +254,12 @@ impl RulesTxn {
                 self.execute_effect_instruction(frame, instruction)
             };
         }
+        // CR 701.21a: "sacrifice it" names one exact permanent, never a choice.
+        if let Node::Do(Verb::Sacrifice { player, filter, .. }) = &node
+            && *filter == mtg_contracts::kir::Pred::source()
+        {
+            return self.kernel_sacrifice_source(frame, player, source_block);
+        }
         // CR 701.17a, 701.9a-b, 701.21a: mill, discard and sacrifice keep
         // their executors, choices and recovery checks.
         if matches!(

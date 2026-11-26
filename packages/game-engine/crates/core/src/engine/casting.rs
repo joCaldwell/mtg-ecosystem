@@ -220,12 +220,8 @@ impl RulesTxn {
         if definition.modal_spell.is_some() && stack.mode_mask.is_none() {
             return Ok(Frame::ChooseModes { cast });
         }
-        if !definition
-            .spell
-            .as_ref()
-            .ok_or("missing spell")?
-            .optional_additional_costs
-            .is_empty()
+        definition.spell.as_ref().ok_or("missing spell")?;
+        if !self.optional_cost_declarations(stack)?.is_empty()
             && stack.selected_additional_costs.is_none()
         {
             return Ok(Frame::AdditionalCosts { cast });

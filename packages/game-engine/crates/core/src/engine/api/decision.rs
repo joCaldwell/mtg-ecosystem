@@ -69,9 +69,8 @@ impl RulesTxn {
             Frame::ChooseModes { .. } => return self.mode_decision(),
             Frame::AdditionalCosts { .. } => {
                 let candidates: Vec<_> = self
-                    .program()?
-                    .optional_additional_costs
-                    .iter()
+                    .optional_cost_declarations(self.top()?)?
+                    .into_iter()
                     .map(|c| Candidate::AdditionalCost {
                         id: c.identity.clone(),
                         mana: c.mana.clone(),

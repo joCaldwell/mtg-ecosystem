@@ -60,6 +60,7 @@ pub(crate) fn shell(
         composed: true,
         x_mana_cost: printed_cost.x,
         flashback: None,
+        alternative_cost: None,
         oracle_id: r.oracle_identity.clone(),
         name: source.name,
         characteristics: Characteristics {

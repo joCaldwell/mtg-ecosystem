@@ -1249,14 +1249,36 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let (choices, plan) = mana_policy::hybrid_plan(
+        let mut alternative = None;
+        let (choices, plan) = match mana_policy::hybrid_plan(
             self.catalog,
             v,
             cost.clone(),
             &d.characteristics.hybrid_mana,
-        )?;
+        ) {
+            Some(plan) => plan,
+            // CR 118.9, 702.74a: announce the printed alternative cost from
+            // hand or the command zone when only it can be funded.
+            None => {
+                let printed = d.alternative_cost.as_ref().filter(|_| {
+                    matches!(o.zone, Zone::Hand { .. } | Zone::Command { .. })
+                        && d.characteristics.hybrid_mana.is_empty()
+                })?;
+                let mut alt = printed.mana.clone();
+                alt.generic.add(&cost.generic);
+                alt.generic.subtract(&d.characteristics.mana_cost.generic);
+                if alt.generic.is_negative() {
+                    return None;
+                }
+                let plan = mana_policy::hybrid_plan(self.catalog, v, alt.clone(), &[])?;
+                alternative = Some(printed.identity.clone());
+                cost = alt;
+                plan
+            }
+        };
         self.memory.payment.announced_cost = unchanged_cost.then_some(cost);
         self.memory.hybrid_choices = choices;
+        self.memory.alternative_cost = alternative;
         self.memory.mana_plan = plan;
         self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
         Some(Action::Cast {
@@ -1529,6 +1551,7 @@ impl Strategy<'_> {
         self.memory.mana_ability = None;
         self.memory.mana_color = None;
         self.memory.hybrid_choices.clear();
+        self.memory.alternative_cost = None;
         if let Some(r) = self.reactive_spells(v)? {
             return Ok(r);
         }

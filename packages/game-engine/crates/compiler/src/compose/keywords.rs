@@ -385,6 +385,20 @@ pub(super) fn typecycling(
     })
 }
 
+/// CR 702.74a: "Evoke [cost]" is an alternative cost of this permanent
+/// spell; its sacrifice trigger is [`TriggeredAbility::evoke_sacrifice`].
+pub(super) fn evoke(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<OptionalAdditionalManaCost, Failure> {
+    Ok(OptionalAdditionalManaCost {
+        identity: mtg_contracts::EVOKE_COST.into(),
+        source_block: block,
+        mana: keyword_mana(keyword, "Evoke", text)?,
+    })
+}
+
 /// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
 pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost, Failure> {
     keyword_mana(keyword, "Flashback", text)

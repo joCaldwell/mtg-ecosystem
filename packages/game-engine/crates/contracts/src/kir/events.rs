@@ -501,6 +501,12 @@ pub enum Intervening {
     /// "if you cast it": the entering source came from a spell its
     /// controller cast (CR 603.4, 400.7).
     SourceCastByController,
+    /// "if its evoke cost was paid": the entering source came from a spell
+    /// whose caster announced and paid this alternative cost (CR 702.74a,
+    /// 603.4, 400.7).
+    SourceCostPaid {
+        identity: String,
+    },
     /// "if you have no cards in hand" (CR 402).
     ControllerHandEmpty,
     /// CR 603.4, 109.5: a fixed comparison of information about "you".
@@ -611,6 +617,9 @@ impl Intervening {
                 object: Ref::Source,
                 caster: you,
             },
+            Self::SourceCostPaid { identity } => Cond::CostPaid {
+                identity: identity.clone(),
+            },
             Self::ControllerHandEmpty => Cond::Compare {
                 left: Amount::Count {
                     set: SetExpr::Matching {
@@ -676,6 +685,10 @@ impl Intervening {
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
             Cond::CastBy { .. } => Self::SourceCastByController,
+            // CR 702.74a: the one reviewed entry cost an intervening clause reads.
+            Cond::CostPaid { identity } if identity == crate::EVOKE_COST => Self::SourceCostPaid {
+                identity: identity.clone(),
+            },
             Cond::ControlsOwnCommander {} => Self::ControlsOwnCommander,
             Cond::OpponentControlsMore {
                 kind: kind @ (CardKind::Land | CardKind::Creature),
@@ -776,7 +789,9 @@ impl Intervening {
     /// it" needs the source's own entry; the others read only the board.
     pub fn admits(&self, pattern: &EventPattern) -> bool {
         match self {
-            Self::SourceCastByController => *pattern == EventPattern::self_enters(),
+            Self::SourceCastByController | Self::SourceCostPaid { .. } => {
+                *pattern == EventPattern::self_enters()
+            }
             _ if matches!(pattern, EventPattern::BecomesTarget { .. }) => false,
             Self::ControllerComparison { .. } => match pattern {
                 EventPattern::Enters { .. }

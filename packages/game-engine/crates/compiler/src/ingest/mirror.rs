@@ -44,6 +44,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "cascade"
                 | "kicker"
                 | "buyback"
+                | "evoke"
                 | "affinity"
                 | "cycling"
                 | "typecycling"
@@ -61,7 +62,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "bestow" | "equip" | "kicker" | "buyback" | "cycling" | "flashback" => {
+            "bestow" | "equip" | "kicker" | "buyback" | "evoke" | "cycling" | "flashback" => {
                 ["keyword", "cost"].as_slice()
             }
             "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),

@@ -28,6 +28,10 @@ pub struct EntryCast {
     pub stack_id: StackId,
     pub spell: ObjectId,
     pub caster: PlayerId,
+    /// CR 118.9, 702.74a: the caster announced and paid the spell's printed
+    /// alternative cost.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub alternative_cost_paid: bool,
 }
 
 /// The actual value read for an intervening comparison (CR 603.4).
@@ -67,6 +71,12 @@ impl ControllerMeasurement {
 #[serde(tag = "condition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCheck {
     SourceCastByController {
+        entrant: ObjectId,
+        controller: PlayerId,
+        cast: Option<EntryCast>,
+    },
+    /// CR 702.74a: whether the entry's spell paid its alternative cost.
+    SourceCostPaid {
         entrant: ObjectId,
         controller: PlayerId,
         cast: Option<EntryCast>,
@@ -126,6 +136,7 @@ impl InterveningCheck {
             Self::SourceCastByController {
                 controller, cast, ..
             } => cast.is_some_and(|c| c.caster == *controller),
+            Self::SourceCostPaid { cast, .. } => cast.is_some_and(|c| c.alternative_cost_paid),
         }
     }
     fn validates(
@@ -139,6 +150,14 @@ impl InterveningCheck {
             (
                 Intervening::SourceCastByController,
                 Self::SourceCastByController {
+                    entrant,
+                    controller: checked,
+                    cast,
+                },
+            )
+            | (
+                Intervening::SourceCostPaid { .. },
+                Self::SourceCostPaid {
                     entrant,
                     controller: checked,
                     cast,
@@ -326,6 +345,16 @@ impl RulesTxn {
             return None;
         };
         let spell = self.state.rules.stack.last()?;
+        let alternative_cost_paid = self
+            .offered_alternative_cost(spell)
+            .ok()
+            .flatten()
+            .is_some_and(|cost| {
+                spell
+                    .selected_additional_costs
+                    .as_ref()
+                    .is_some_and(|selected| selected.contains(&cost.identity))
+            });
         (movement.from == Zone::Stack
             && movement.destination == Zone::Battlefield
             && movement.previous == *source
@@ -341,6 +370,7 @@ impl RulesTxn {
             stack_id: *stack_id,
             spell: *source,
             caster: *player,
+            alternative_cost_paid,
         })
     }
     // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone
@@ -362,6 +392,11 @@ impl RulesTxn {
         }
         Ok(match condition {
             Intervening::SourceCastByController => InterveningCheck::SourceCastByController {
+                entrant: source,
+                controller,
+                cast,
+            },
+            Intervening::SourceCostPaid { .. } => InterveningCheck::SourceCostPaid {
                 entrant: source,
                 controller,
                 cast,
@@ -572,7 +607,10 @@ impl RulesTxn {
                 .as_ref()
                 .ok_or("missing trigger source facts")?,
             match match_condition {
-                Some(InterveningCheck::SourceCastByController { cast, .. }) => *cast,
+                Some(
+                    InterveningCheck::SourceCastByController { cast, .. }
+                    | InterveningCheck::SourceCostPaid { cast, .. },
+                ) => *cast,
                 _ => None,
             },
         )?;
@@ -606,8 +644,10 @@ impl RulesTxn {
             Some(definition) => intervening(definition)?,
             _ => None,
         };
-        if expected == Some(Intervening::SourceCastByController)
-            && !matches!(&entry.kind, StackKind::Triggered { match_condition, .. }
+        if matches!(
+            expected,
+            Some(Intervening::SourceCastByController | Intervening::SourceCostPaid { .. })
+        ) && !matches!(&entry.kind, StackKind::Triggered { match_condition, .. }
                 if match_condition == &frame.condition_check)
         {
             return Err("cast-entry resolution lost its match evidence".into());
@@ -700,11 +740,18 @@ impl RulesTxn {
                 Err("resolution trigger has an intervening condition".into())
             };
         }
-        if let Some(InterveningCheck::SourceCastByController {
-            entrant,
-            cast: Some(cast),
-            ..
-        }) = check
+        if let Some(
+            InterveningCheck::SourceCastByController {
+                entrant,
+                cast: Some(cast),
+                ..
+            }
+            | InterveningCheck::SourceCostPaid {
+                entrant,
+                cast: Some(cast),
+                ..
+            },
+        ) = check
             && (cast.stack_id.0 >= self.state.rules.next_stack_id
                 || self.state.rules.tokens.contains_key(&cast.spell.card)
                 || !matches!(witness, TriggerEventWitness::Moved { movement } if movement.from == Zone::Stack
