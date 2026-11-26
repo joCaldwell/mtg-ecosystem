@@ -580,6 +580,9 @@ fn decided(node: &Node) -> bool {
                 on,
                 SetExpr::One {
                     object: kir::Ref::Source | kir::Ref::Target { .. }
+                } | SetExpr::Matching {
+                    zone: kir::ZoneExpr::Battlefield,
+                    ..
                 }
             )
         }

@@ -511,3 +511,78 @@ fn highborn_announces_a_player_then_offers_its_controller_black_mana_payment() {
         assert_eq!(life(&g, 1), (LIFE + if pay { 2 } else { 0 }).into());
     }
 }
+
+/// CR 608.2d, 122.6: landfall offers the ability controller a single
+/// choice to place counters on the current matching creature set.
+#[test]
+fn avenger_landfall_optional_counter_set() {
+    const AVENGER: &str = include_str!(concat!(
+        "../../../../../tests/fixtures/phase1-r5/",
+        "4ba5b3f6-503b-43e6-b66e-4f8c55cffed7.json"
+    ));
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, AVENGER);
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("Avenger of Zendikar did not lower: {result:?}");
+    };
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let board = |in_hand| {
+        let mut board = Board::new(catalog.clone(), "avenger-landfall")
+            .step(TurnStep::PrecombatMain)
+            .seats(2)
+            .permanent_or_hand("Avenger of Zendikar", 0, 0, in_hand)
+            .permanent_or_hand("Forest", 0, 0, true);
+        for _ in 0..7 {
+            board = board.permanent_or_hand("Forest", 0, 0, false);
+        }
+        Game::new(board.libraries("Forest", 4).prepare())
+    };
+    let finish = |g: &mut Game| {
+        loop {
+            let decision = Driver::request(g, u64::MAX);
+            assert_eq!(decision.reason, Reason::Priority);
+            if g.state.rules.stack.is_empty() {
+                break;
+            }
+            Driver::pass(g);
+        }
+        checked(g);
+    };
+    let play_land = |g: &mut Game| {
+        let object = Driver::object(g, 1);
+        Driver::action(g, Action::PlayLand { object });
+    };
+
+    let mut empty = board(false);
+    play_land(&mut empty);
+    finish(&mut empty);
+
+    for accept in [false, true] {
+        let mut game = board(true);
+        Driver::cast(&mut game, CardId(0));
+        Driver::pay(&mut game, &[2, 3, 4, 5, 6, 7, 8]);
+        finish(&mut game);
+        play_land(&mut game);
+        choose(&mut game, 0, accept);
+        finish(&mut game);
+        let plants: Vec<_> = game
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| {
+                object.zone == Zone::Battlefield
+                    && game.state.rules.tokens.contains_key(&object.id.card)
+            })
+            .collect();
+        assert_eq!(plants.len(), 7);
+        assert!(
+            plants
+                .iter()
+                .all(|object| { object.plus_one_counters == Quantity::from(i64::from(accept)) })
+        );
+    }
+}
