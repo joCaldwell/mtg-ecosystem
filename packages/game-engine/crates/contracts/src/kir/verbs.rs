@@ -417,6 +417,9 @@ pub enum Verb {
         controller: PlayerExpr,
         count: Amount,
         token: TokenSpec,
+        /// CR 111.1, 614.1c: the tokens enter tapped.
+        #[serde(default, skip_serializing_if = "is_false")]
+        tapped: bool,
     },
     /// CR 701.17.
     Mill {

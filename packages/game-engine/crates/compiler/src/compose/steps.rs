@@ -21,6 +21,7 @@ fn predefined_tokens(step: &Value) -> Option<(u32, PredefinedToken)> {
     let count = u32::try_from(step["count"]["value"].as_u64()?).ok()?;
     let kind = match step["token"]["predefined"].as_str()? {
         "Treasure" => PredefinedToken::Treasure,
+        "Gold" => PredefinedToken::Gold,
         "Food" => PredefinedToken::Food,
         "Clue" => PredefinedToken::Clue,
         _ => return None,

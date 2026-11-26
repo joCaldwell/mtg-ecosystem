@@ -102,12 +102,17 @@ pub enum ProposedEvent {
         source: ObjectId,
         count: u32,
         kind: mtg_contracts::PredefinedToken,
+        /// CR 614.1c: the tokens enter tapped.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        tapped: bool,
     },
     CreateCreatureTokens {
         controller: PlayerId,
         source: ObjectId,
         count: u32,
         token: Box<mtg_contracts::CreatureToken>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        tapped: bool,
     },
     GivePlayerCounters {
         player: PlayerId,

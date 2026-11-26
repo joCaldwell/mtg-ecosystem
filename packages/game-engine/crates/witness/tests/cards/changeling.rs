@@ -288,3 +288,30 @@ fn added_creature_subtype_feeds_anthem_across_layers() {
     assert_eq!(pt(&g, 3), (q(2), q(2)));
     checked(&g);
 }
+
+/// CR 509.1b, 702.14c: granted islandwalk checks the defending player's
+/// land subtype, including on a nonbasic land.
+#[test]
+fn granted_islandwalk_prevents_a_block_against_nonbasic_island() {
+    use super::evasion::{accepts, attack, game, offered, refuses};
+    const UNDERGROUND_SEA: &str = record!("4b22be3a-8ce1-47d1-b82e-6c3ccfb0548b");
+    for (land, can_block) in [("Forest", true), ("Underground Sea", false)] {
+        let mut g = game(
+            &[LORD_OF_ATLANTIS, WOODLAND_CHANGELING, UNDERGROUND_SEA],
+            &[
+                ("Lord of Atlantis", 0, Zone::Battlefield),
+                ("Woodland Changeling", 0, Zone::Battlefield),
+                ("Grizzly Bears", 1, Zone::Battlefield),
+                (land, 1, Zone::Battlefield),
+            ],
+        );
+        let decision = attack(&mut g, &[1]);
+        if can_block {
+            assert_eq!(offered(&g, &decision)[&2], vec![1]);
+            accepts(&mut g, &decision, &[(2, 1)]);
+        } else {
+            assert!(offered(&g, &decision)[&2].is_empty());
+            refuses(&mut g, &decision, &[(2, 1)]);
+        }
+    }
+}

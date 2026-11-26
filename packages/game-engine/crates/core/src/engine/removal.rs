@@ -3,7 +3,6 @@
 //! 903.9a and 903.10a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::PermanentFilter;
 use mtg_contracts::kir::{Ref, SetExpr};
 
 // See docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
@@ -128,20 +127,14 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(crate) fn matches_permanent_filter(
-        &self,
-        object: ObjectId,
-        controller: PlayerId,
-        f: &PermanentFilter,
-    ) -> bool {
-        self.current(object).is_ok_and(|o| {
-            crate::query::matches_permanent_filter(&self.object_facts(o), controller, f).is_yes()
-        })
-    }
+    /// CR 109.2, 201.5, 601.2c, 608.2b: a battlefield target's criteria for
+    /// `controller`. "Another" (`IsNot` the source) excludes `source`, the
+    /// targeting object's own identity.
     pub(crate) fn permanent_target_legal(
         &self,
         object: ObjectId,
         controller: PlayerId,
+        source: Option<ObjectId>,
         spec: &TargetSpec,
     ) -> bool {
         self.targetable_by(object, controller)
@@ -149,11 +142,19 @@ impl RulesTxn {
                 || self
                     .current(object)
                     .is_ok_and(|o| o.controller == controller))
-            && spec
-                .filter
-                .as_ref()
-                .is_some_and(|f| self.matches_permanent_filter(object, controller, f))
+            && spec.filter.as_ref().is_some_and(|filter| {
+                self.current(object).is_ok_and(|current| {
+                    crate::query::matches_permanent_filter_with_source(
+                        &self.object_facts(current),
+                        controller,
+                        filter,
+                        Some(source == Some(object)),
+                    )
+                    .is_yes()
+                })
+            })
     }
+
     pub(crate) fn eligible_stack_targets_for(
         &self,
         spec: &TargetSpec,
