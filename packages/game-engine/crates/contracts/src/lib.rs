@@ -112,6 +112,12 @@ pub struct Characteristics {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_types: Vec<CardKind>,
     pub subtypes: Vec<String>,
+    /// CR 205.3m, 702.73a: this object is every creature type. Printed
+    /// changeling and "is every creature type" characteristic-defining
+    /// abilities set it in every zone (CR 604.3); layer 4 effects set or
+    /// clear it (CR 613.1d). Omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub all_creature_types: bool,
     pub basic: bool,
     pub legendary: bool,
     /// CR 205.4g; omitted for nonsnow characteristics.
@@ -153,6 +159,16 @@ impl Characteristics {
 
     pub fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
+    }
+
+    /// Whether `subtype` is one of this object's subtypes. An object that
+    /// is every creature type has each CR 205.3m creature type while it is a
+    /// creature (CR 205.3d: kindred is not an admitted card type).
+    pub fn has_subtype(&self, subtype: &str) -> bool {
+        self.subtypes.iter().any(|s| s == subtype)
+            || (self.all_creature_types
+                && self.has_type(CardKind::Creature)
+                && kir::is_creature_subtype(subtype))
     }
 }
 
@@ -649,6 +665,9 @@ pub struct CreatureToken {
     pub additional_types: Vec<CardKind>,
     pub colors: Vec<Color>,
     pub subtypes: Vec<String>,
+    /// CR 702.73a: the token has changeling.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub all_creature_types: bool,
     pub power: Quantity,
     pub toughness: Quantity,
     pub keywords: Vec<KeywordAbility>,
@@ -660,6 +679,7 @@ impl CreatureToken {
             hybrid_mana: vec![],
             additional_types: self.additional_types.clone(),
             subtypes: self.subtypes.clone(),
+            all_creature_types: self.all_creature_types,
             basic: false,
             legendary: false,
             snow: false,
@@ -1263,7 +1283,7 @@ impl ChosenCostFilter {
         match self {
             Self::Any => true,
             Self::Type(kind) => characteristics.has_type(*kind),
-            Self::Subtype(name) => characteristics.subtypes.contains(name),
+            Self::Subtype(name) => characteristics.has_subtype(name),
             Self::ArtifactOrCreature => {
                 characteristics.has_type(CardKind::Artifact)
                     || characteristics.has_type(CardKind::Creature)

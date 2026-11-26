@@ -33,6 +33,42 @@ pub(crate) fn lower_static(
     lower(&effect, value, site)
 }
 
+/// CR 205.3m: "is every creature type" (archived as setting or adding all
+/// creature subtypes) and nothing else.
+fn every_creature_type(change: &ast::TypeChange) -> bool {
+    use ast::TypeChangeCardTypesOperation::{Add, Set};
+    matches!(change, ast::TypeChange {
+        card_types: None,
+        subtypes: Some(items),
+        chosen_subtype: None,
+        supertypes: None,
+    } if matches!(items.as_slice(), [item] if item.family == ast::SubtypeFamily::Creature
+        && matches!(item.operation, Set | Add)
+        && matches!(&*item.types, ast::TypeChangeSubtypesItemTypes::All(all) if all.basic.is_none())))
+}
+
+/// CR 604.3, 702.73a: "This object is every creature type" as a
+/// characteristic-defining ability of the object itself. It functions in
+/// every zone, so it is a printed characteristic rather than a static
+/// ability. `None` means the block is some other static.
+pub(crate) fn every_creature_type_cda(value: &serde_json::Value) -> Option<Result<(), Failure>> {
+    if value.get("static")?.as_str()? != "cda-types" {
+        return None;
+    }
+    let ast::StaticEffect::CdaTypes(x) = typed::<ast::StaticEffect>(value, "static").ok()? else {
+        return None;
+    };
+    Some(
+        if matches!(&*x.what, ast::ObjectRef::This(this) if this.noun == "creature")
+            && every_creature_type(&x.change)
+        {
+            Ok(())
+        } else {
+            Err(gap("cda-types"))
+        },
+    )
+}
+
 fn ability(functioning_zone: FunctioningZone, effect: StaticEffect) -> StaticAbility {
     StaticAbility {
         functioning_zone,
@@ -83,6 +119,13 @@ fn lower(
             let mut abilities = lower(&x.effect, &raw["effect"], site)?;
             for a in &mut abilities {
                 let condition = match &mut a.effect {
+                    // CR 613.8: a condition on a layer-4 creature-type change
+                    // would need dependency ordering.
+                    StaticEffect::Continuous { changes, .. }
+                        if changes.contains(&Change::AllCreatureTypes) =>
+                    {
+                        return Err(gap("modifier:all-creature-types:condition"));
+                    }
                     StaticEffect::Continuous { condition, .. }
                     | StaticEffect::Rule { condition, .. } => condition,
                     StaticEffect::EntersTappedIf { .. } => {
@@ -894,6 +937,7 @@ fn modify(
     let affects = scope(&x.what, false)?;
     let mut changes = Vec::new();
     let mut rules = Vec::new();
+    let mut every_type = Vec::new();
     // A modifier's value or condition may refer to each recipient rather
     // than the source. Those forms need their own binding and admission.
     macro_rules! plain {
@@ -971,6 +1015,39 @@ fn modify(
                     colors: colors.iter().map(color).collect(),
                 }
             }
+            M::Types(m) if every_creature_type(&m.change) => {
+                plain!(m);
+                // CR 205.3d: the change matters only while the recipient is
+                // a creature, so it needs no type filter; it is its own
+                // layer-4 effect beside the printed sentence's other changes.
+                let affects = match &affects {
+                    Scope::Source => Scope::Source,
+                    Scope::Attachment { kind, filter }
+                        if *filter
+                            == Pred(vec![kir::Atom::Type {
+                                kind: CardKind::Creature,
+                            }]) =>
+                    {
+                        Scope::Attachment {
+                            kind: *kind,
+                            filter: Pred(vec![]),
+                        }
+                    }
+                    _ => return Err(gap("modifier:all-creature-types:scope")),
+                };
+                if condition.is_some() {
+                    return Err(gap("modifier:all-creature-types:condition"));
+                }
+                every_type.push(ability(
+                    FunctioningZone::Battlefield,
+                    StaticEffect::Continuous {
+                        affects,
+                        changes: vec![Change::AllCreatureTypes],
+                        condition: None,
+                    },
+                ));
+                continue;
+            }
             M::Types(m) => {
                 plain!(m);
                 let ast::TypeChange {
@@ -1037,5 +1114,6 @@ fn modify(
             ),
         );
     }
+    rules.extend(every_type);
     Ok(rules)
 }

@@ -426,6 +426,15 @@ layer 5 (CR 613.8). Ordered setters apply by source or creation timestamp (CR
 613.7); simultaneous competing setters need a timestamp choice and reject (CR
 613.7m).
 
+Changeling and a self "is every creature type" CDA are a printed characteristic
+in every zone (CR 702.73a, 604.3), as is changeling on a token. Every subtype
+check counts it only while the object is a creature (CR 205.3d, 205.3m). An
+Equipment, Aura or source static can make its recipient every creature type, as
+an unfiltered layer-4 change. It applies in timestamp order with resolved
+animations, whose creature-subtype replacement removes it (CR 613.3, 613.7).
+Scopes that reach other zones, conditional grants and resolving grants or
+removals reject.
+
 Static guards can read the active player, public battlefield or graveyard
 counts, and devotion (CR 700.5). Rule statics apply combat prohibitions and
 attack requirements (CR 508.1c–d), countering prohibitions and flash timing.

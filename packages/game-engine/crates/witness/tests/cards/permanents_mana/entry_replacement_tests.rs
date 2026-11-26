@@ -31,6 +31,10 @@ fn catalog() -> Catalog {
         include_str!(
             "../../../../../tests/fixtures/phase1-r5/85573a3d-2993-491a-8f8d-bbdb844fa84e.json"
         ),
+        // Woodland Changeling: every creature type in every zone (CR 702.73a).
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/338f0ab6-f744-4e5a-a358-05e71b93758d.json"
+        ),
     ] {
         let compiled = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
@@ -38,7 +42,9 @@ fn catalog() -> Catalog {
         };
         definition.validate().unwrap();
         definition_cells(&definition).unwrap();
-        assert_eq!(definition_tiers(&definition).unwrap(), Tiers::EXECUTES);
+        // The changeling hand card also earns higher tiers.
+        let tiers = definition_tiers(&definition).unwrap();
+        assert!(tiers == Tiers::EXECUTES || definition.name == "Woodland Changeling");
         catalog.definitions.push(*definition);
     }
     catalog
@@ -227,7 +233,7 @@ fn departing_entrant_controller_cancels_a_suspended_land_play() {
 
 /// "As this land enters, you may reveal a Plains or Island card from your
 /// hand. If you don't, this land enters tapped." (Port Town); the same for an
-/// Elf card (Gilt-Leaf Palace). CR 614.12, 701.20a: only matching hand cards
+/// Elf card (Gilt-Leaf Palace), which a changeling card in hand is. CR 614.12, 701.20a: only matching hand cards
 /// other than the entrant are offered (none: Decline alone); a reveal enters
 /// untapped and makes the revealed card's identity public in that hand.
 #[test]
@@ -266,6 +272,12 @@ fn entry_reveal_offers_matching_hand_cards_and_publishes_the_reveal() {
             false,
         ),
         ("Gilt-Leaf Palace", &["Island"][..], &[][..], false),
+        (
+            "Gilt-Leaf Palace",
+            &["Woodland Changeling"][..],
+            &["Woodland Changeling"][..],
+            true,
+        ),
     ] {
         let catalog = catalog();
         let definition = catalog.definitions.iter().find(|d| d.name == land).unwrap();
