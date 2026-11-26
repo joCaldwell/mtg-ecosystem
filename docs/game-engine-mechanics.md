@@ -382,16 +382,18 @@ after the mana window. Random and whole-hand discard, variable counts,
 other graveyards, self-exile from hand and chosen-object mana abilities remain
 outside these cells.
 
-Printed restrictions are permission gates. "As a sorcery" is the program's
-main-phase timing. "During your turn", "during your upkeep" and "during your
-turn, before attackers are declared" (upkeep through beginning of combat) are
-typed windows. "Only once each turn" records a use for the source incarnation
-and ability when the activation completes; a reversed announcement uses
-nothing. The record survives control changes and clears on a zone change or a
-new turn (CR 400.7, 602.5b-d). Validation rejects a use outside the
-battlefield, on an unlimited ability, or that disagrees with whether its stack
-entry is paid. A printed restriction the compiler cannot read rejects; mana
-abilities admit only once each turn. Each of these surfaces is its own
+Printed restrictions are permission gates. "As a sorcery" is main-phase
+timing; your turn, your upkeep, your turn before attackers, combat, end of
+combat and not your turn are typed windows. "Only once each turn" records a
+use per source incarnation and ability when the activation completes; a
+reversal uses nothing. It survives control changes, clearing on a zone change
+or new turn (CR 400.7, 602.5b-d). Validation rejects a use off the
+battlefield, on an unlimited ability, or disagreeing with whether its stack
+entry is paid. "Activate only if" is read once, as activation begins (CR
+602.5, 605.3a): an audited `kir::ActivationCondition` counts permanents you
+control, your graveyard or hand, or the source's facts. Offer and start share
+it; stack entries and mana receipts keep its counts, which restore checks.
+Simulator mana plans need public proof. Others reject. Each of these surfaces is its own
 `Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Typecycling`,
 `Kicker`, `Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
 `ActivationRemoveCounters`, `SacrificeCostChoice`, `SacrificeCostTap`,

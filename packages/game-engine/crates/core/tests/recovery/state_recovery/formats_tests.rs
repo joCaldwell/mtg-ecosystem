@@ -23,8 +23,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "6f3c99f1cffb0c62216551ce4985e87b56b4fa6f2c1dbfa25dc7083bca6dd101",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    101,
-    "a2ca5fafcb3f74dbbc3958bbb304e77c46c1ba50cc01c36903913ad505037e94",
+    103,
+    "c734a2efd6a7688f1bae62dd40d38982814d22df92c34a82f0e4c12c81d2db8e",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -448,6 +448,90 @@ fn chosen_cost_shapes() -> Vec<Game> {
     samples
 }
 
+/// CR 602.5: a conditioned mana ability's receipt in an open mana window,
+/// then the conditioned stack activation it paid for, each with the counts
+/// read as the activation began.
+fn activation_condition_shapes() -> Vec<Game> {
+    let you = PlayerExpr::you(Context::Activated);
+    let controls = |kind| mtg_contracts::kir::Cond::Compare {
+        left: Amount::Count {
+            set: SetExpr::battlefield(mtg_contracts::kir::Pred(vec![
+                mtg_contracts::kir::Atom::Type { kind },
+                mtg_contracts::kir::Atom::ControlledBy {
+                    player: you.clone(),
+                },
+            ])),
+        },
+        cmp: mtg_contracts::kir::Cmp::AtLeast,
+        right: Amount::fixed(1),
+    };
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for d in &mut catalog.definitions {
+        if d.name == "Forest" {
+            d.activated.push(ActivatedAbility {
+                cost: ActivationCost::Mana {
+                    cost: ManaCost {
+                        generic: 2.into(),
+                        colored: vec![],
+                    },
+                },
+                functioning_zone: FunctioningZone::Battlefield,
+                restriction: Some(ActivationRestriction {
+                    window: None,
+                    once_each_turn: false,
+                    condition: Some(controls(CardKind::Land)),
+                }),
+                modal: None,
+                program: SpellProgram::instructions(SpellTiming::Instant)
+                    .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
+            });
+        } else if d.name == "Sol Ring" {
+            d.mana_abilities[0].condition = Some(controls(CardKind::Artifact));
+        } else {
+            continue;
+        }
+        d.source_labels = None;
+        d.capabilities = d.requirements();
+    }
+    let prepared = Board::new(catalog, "snapshot-activation-condition")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 0, 0, false)
+        .libraries("Forest", 2)
+        .prepare();
+    let mut game = Game::new(prepared);
+    let forest = Driver::object(&game, 0);
+    let ring = Driver::object(&game, 1);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: forest,
+            ability: 0,
+        },
+    );
+    let d = Driver::request(&mut game, u64::MAX);
+    let source = d
+        .index(&Candidate::Action {
+            action: Action::ActivateMana { object: ring },
+        })
+        .unwrap();
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source },
+        },
+    );
+    Driver::request(&mut game, u64::MAX);
+    let window = game.fork();
+    Driver::pay(&mut game, &[]);
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Priority
+    );
+    vec![window, game]
+}
+
 /// Intervening comparisons carry one of three measured values in the saved
 /// resolution check. Substitute each variant to fingerprint its wire shape.
 fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
@@ -527,6 +611,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         ])
         .chain(mana_riders())
         .chain(chosen_cost_shapes())
+        .chain(activation_condition_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())

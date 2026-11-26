@@ -17,6 +17,10 @@ pub enum StackKind {
     Activated {
         ability: u32,
         source_handles: Vec<publish::StoredObjectHandle>,
+        /// CR 602.5: what an "Activate only if" condition read as this
+        /// activation began.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        condition: Option<stack_costs::ActivationConditionCheck>,
     },
 }
 impl StackKind {
@@ -353,6 +357,7 @@ impl RulesTxn {
         }
         if ability
             .restriction
+            .as_ref()
             .is_some_and(|r| !self.activation_restriction_allows(player, object, index, r))
         {
             return Err("activation restriction is not met".into());
@@ -1307,11 +1312,17 @@ impl RulesTxn {
             let StackKind::Activated {
                 ability,
                 source_handles,
+                condition,
             } = &entry.kind
             else {
                 continue;
             };
             self.validate_activated_entry(entry, *ability, source_handles)?;
+            self.validate_activation_condition_check(
+                entry.controller,
+                self.activated_condition(entry.source, *ability)?.as_ref(),
+                condition.as_ref(),
+            )?;
         }
         if let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame {
             let instruction = self
