@@ -65,7 +65,7 @@ pub(super) fn lower(
                         value: fixed_positive_amount(&amount)?,
                     },
                 };
-                let slot = bind_creature_target(cx.program, cx.slots, &what)?;
+                let slot = bind_damage_object_target(cx.program, cx.slots, &what)?;
                 return Ok(Instruction::damage_target(slot, amount, cx.source_block));
             }
             std::slice::from_ref(reference)

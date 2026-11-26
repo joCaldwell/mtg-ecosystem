@@ -123,8 +123,8 @@ resolving stack object's instruction. Under `contracts/src/kir/`, `refs.rs`
 defines the closed reference vocabulary, `PlayerExpr`/`SetExpr`/`Amount` build
 operands from references and `pred.rs` atoms, `verbs.rs` defines one game action
 per `Verb`, and `nodes.rs` composes them (`Do`, `Seq`, `If`, `Optional`,
-`ForEach`, `Choose`, `ChooseObject`, `TapTargets`, `UnlessPays`, `IfPays`,
-`Delayed`, `Reflexive`).
+`ForEach`, `Choose`, `ChooseObject`, `TapTargets`, `RemoveTargets`,
+`UnlessPays`, `IfPays`, `Delayed`, `Reflexive`).
 
 `kir::check(node, env)` is the one admission decision. It proves each reference
 is in scope and of the right kind for the context, targets and event; rejects a
@@ -151,9 +151,9 @@ Control semantics:
   or the set's size. `ChooseObject` offers one mandatory public object choice from
   a current controller-relative battlefield set; the saved frame derives
   candidates from current state and requires a matching offer when consuming an
-  answer (CR 608.2d, 800.4a). `TapTargets` consumes one grouped optional
-  announcement and changes its legal surviving targets simultaneously (CR 115.3,
-  608.2b, 701.26).
+  answer (CR 608.2d, 800.4a). `TapTargets` and `RemoveTargets` consume one
+  counted battlefield target group and tap/untap, destroy, exile or bounce its
+  legal surviving members in one simultaneous event (CR 115.3, 608.2b, 701.26).
 - `Delayed` and `Reflexive` carry separately checked single-instruction programs;
   the parent can register a one-shot [resolution-created trigger](game-engine-mechanics.md#delayed-and-reflexive-triggers)
   at the end of its program.

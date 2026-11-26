@@ -25,6 +25,7 @@ mod regenerate;
 mod return_to_hand;
 mod sacrifice;
 mod tap;
+mod target_group;
 mod tokens;
 mod transform;
 
@@ -159,6 +160,16 @@ pub(crate) fn append_spell_effects(
                 }
                 program.instructions.push(instruction);
                 at += 2;
+                continue;
+            }
+            // A group step that reads a bound X stays on the single-target
+            // path, which rejects the counted occurrence: one printed count
+            // is never re-evaluated per member (CR 608.2h).
+            if !reads(at..at + 1)
+                && let Some(instructions) = target_group::lower(&mut cx, s)?
+            {
+                program.instructions.extend(instructions);
+                at += 1;
                 continue;
             }
             if reads(at..at + 1) {

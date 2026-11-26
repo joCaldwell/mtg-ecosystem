@@ -14,6 +14,9 @@ impl RulesTxn {
             return count <= program.targets.len()
                 && entry.targets.iter().collect::<BTreeSet<_>>().len() == count;
         }
+        // CR 115.3: one counted occurrence never names an object twice.
         count == program.targets.len()
+            && (program.target_group().is_none()
+                || entry.targets.iter().collect::<BTreeSet<_>>().len() == count)
     }
 }

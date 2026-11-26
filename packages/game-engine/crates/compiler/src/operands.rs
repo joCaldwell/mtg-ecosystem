@@ -1285,6 +1285,30 @@ pub(crate) fn bind_creature_target(
     )
 }
 
+/// A damage recipient named by one target occurrence: "target creature" or,
+/// CR 115.1, 120.3, "target player or planeswalker". The closed scenario
+/// admits no planeswalker, so that domain's inhabitants are players; an
+/// "up to" player occurrence rejects.
+pub(crate) fn bind_damage_object_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &ast::ObjectRef,
+) -> Result<u32, Failure> {
+    if let Ok((filter, selection, false)) = target_occurrence(what)
+        && filter.or_player == Some(true)
+        && present_fields(filter) == ["types", "or_player"]
+        && matches!(filter.types.as_deref(), Some([kind]) if kind == "planeswalker")
+    {
+        return bind_target(
+            program,
+            slots,
+            selection,
+            TargetDomain::PlayerOrPlaneswalker,
+        );
+    }
+    bind_creature_target(program, slots, what)
+}
+
 pub(crate) fn bind_permanent_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,

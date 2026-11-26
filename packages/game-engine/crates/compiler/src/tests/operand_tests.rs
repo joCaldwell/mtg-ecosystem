@@ -274,6 +274,59 @@ fn null_array_elements_name_their_array() {
     );
 }
 
+/// CR 115.3, 608.2b: a counted occurrence lowers each step once per member,
+/// in slot order, so every member reads the same actions. A repeated step on
+/// the same occurrence rebinds the same slots (Windborne Charge, frozen R5
+/// source), and a non-spell damage group rejects by name.
+#[test]
+fn counted_target_groups_lower_one_leaf_per_member_and_step() {
+    let target = json!({"ref":"target","filter":{"types":["creature"],"control":"you"},
+        "count":{"amount":"fixed","value":2},"selectionId":"line:0:1"});
+    let sentence: Sentence = serde_json::from_value(json!({"steps":[
+        {"effect":"pump","what":target,
+         "power":{"sign":1,"amount":{"amount":"fixed","value":2}},
+         "toughness":{"sign":1,"amount":{"amount":"fixed","value":2}},
+         "duration":{"duration":"end-of-turn"}},
+        {"effect":"gain-abilities","what":target,
+         "abilities":[{"gained":"keyword","keyword":{"keyword":"flying"}}],
+         "duration":{"duration":"end-of-turn"}}]}))
+    .unwrap();
+    let mut p = program();
+    append_spell_effects(
+        &mut p,
+        &[sentence],
+        0,
+        &mut BTreeMap::new(),
+        PlayerBinding::Unbound,
+        Context::Spell,
+    )
+    .unwrap();
+    assert_eq!(p.target_group(), Some(2));
+    assert!(!p.optional_target);
+    let slots: Vec<_> = p
+        .instructions
+        .iter()
+        .map(|Instruction::Kernel { node, .. }| node.group_leaf_slot())
+        .collect();
+    assert_eq!(slots, [Some(0), Some(1), Some(0), Some(1)]);
+    let damage: Sentence = serde_json::from_value(json!({"steps":[
+        {"effect":"damage","source":{"ref":"this","noun":"creature"},
+         "amount":{"amount":"fixed","value":3},
+         "to":{"to":"object","ref":{"ref":"target","filter":{"types":["creature"]},
+            "count":{"amount":"fixed","value":2},"selectionId":"line:0:8"}}}]}))
+    .unwrap();
+    let failure = append_spell_effects(
+        &mut program(),
+        &[damage],
+        0,
+        &mut BTreeMap::new(),
+        PlayerBinding::Unbound,
+        Context::Triggered,
+    )
+    .unwrap_err();
+    assert_eq!(code(failure), "operand:target:count:damage_source");
+}
+
 #[test]
 fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
     // CR 107.3, 608.2h: "where X is [a number]" is read as each step that
