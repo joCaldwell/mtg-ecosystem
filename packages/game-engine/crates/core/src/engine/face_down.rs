@@ -152,7 +152,10 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn face_up_request(&self, payment: &FaceUpPayment) -> Result<Decision<Rules>, String> {
+    pub(super) fn face_up_request(
+        &self,
+        payment: &FaceUpPayment,
+    ) -> Result<Decision<Rules>, String> {
         self.payment_decision(
             payment.player,
             payment.cost.clone(),

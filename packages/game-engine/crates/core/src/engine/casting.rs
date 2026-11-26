@@ -103,7 +103,10 @@ impl RulesTxn {
             return Err("invalid or unsupported face-down cast".into());
         }
         let face_down = face_down::face_down_definition();
-        let program = face_down.spell.as_ref().ok_or("missing face-down program")?;
+        let program = face_down
+            .spell
+            .as_ref()
+            .ok_or("missing face-down program")?;
         if program.timing == SpellTiming::MainPhase
             && !self.main_phase_action(player)
             && !self.has_flash_permission(object, CardFace::Front, true, player)?
@@ -156,7 +159,8 @@ impl RulesTxn {
         x: Option<&Quantity>,
     ) -> Result<ManaCost, String> {
         let object = self.resolve_handle(viewer, card)?;
-        let proposal = self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
+        let proposal =
+            self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
         let source = ObjectId {
             face: proposal.face,
             ..proposal.original_object
@@ -189,8 +193,7 @@ impl RulesTxn {
         player: PlayerId,
         card: CardId,
     ) -> Result<(), String> {
-        let announcement =
-            self.priority_spell_announcement(player, card, CardFace::Front, true)?;
+        let announcement = self.priority_spell_announcement(player, card, CardFace::Front, true)?;
         self.begin_spell_announcement(announcement)
     }
 

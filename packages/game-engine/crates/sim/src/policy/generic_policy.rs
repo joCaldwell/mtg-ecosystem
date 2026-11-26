@@ -1290,9 +1290,9 @@ impl Strategy<'_> {
     /// The face-down actions the pending priority decision offers.
     fn offered(observation: &Observation, action: &Action<Viewer>) -> bool {
         observation.decision.as_ref().is_some_and(|d| {
-            d.candidates.iter().any(
-                |c| matches!(c, Candidate::Action { action: offered } if offered == action),
-            )
+            d.candidates
+                .iter()
+                .any(|c| matches!(c, Candidate::Action { action: offered } if offered == action))
         })
     }
 
@@ -1301,9 +1301,11 @@ impl Strategy<'_> {
     /// card it controls (CR 708.5).
     fn turn_face_up(&mut self, observation: &Observation) -> Option<Action<Viewer>> {
         let v = &observation.view;
-        for o in v.objects.iter().filter(|o| {
-            o.zone == Zone::Battlefield && o.controller == v.viewer && o.face_down
-        }) {
+        for o in v
+            .objects
+            .iter()
+            .filter(|o| o.zone == Zone::Battlefield && o.controller == v.viewer && o.face_down)
+        {
             let action = Action::TurnFaceUp {
                 object: o.handle.clone(),
             };

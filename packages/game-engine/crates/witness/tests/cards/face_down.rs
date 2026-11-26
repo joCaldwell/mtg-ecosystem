@@ -310,11 +310,10 @@ fn turning_face_up_is_a_special_action_that_triggers_and_keeps_the_object() {
     assert_eq!(game.state.rules.stack[0].source, hermit);
     assert_eq!(game.state.rules.priority, PlayerId(0));
     // Everyone sees it now.
-    assert_eq!(
-        seen(&view(&game, 1), Zone::Battlefield)
+    assert!(
+        !seen(&view(&game, 1), Zone::Battlefield)
             .oracle_id
-            .is_empty(),
-        false
+            .is_empty()
     );
     settle_stack(&mut game);
     let saprolings: Vec<_> = game
@@ -447,7 +446,9 @@ fn a_face_down_permanent_is_revealed_as_it_leaves_the_battlefield() {
         .view
         .objects
         .into_iter()
-        .find(|o| o.zone == Zone::Graveyard { owner: PlayerId(0) } && o.oracle_id == ainok.oracle_id)
+        .find(|o| {
+            o.zone == Zone::Graveyard { owner: PlayerId(0) } && o.oracle_id == ainok.oracle_id
+        })
         .unwrap();
     assert!(!row.face_down);
     game.validate_state().unwrap();
@@ -588,7 +589,12 @@ fn a_land_turned_face_up_while_attacking_is_removed_from_combat() {
     // A face-down Cavern that has been under its controller's control since
     // the turn began (CR 302.6).
     let cavern = Driver::object(&game, 0);
-    game.state.rules.objects.get_mut(&cavern.card).unwrap().face_down = true;
+    game.state
+        .rules
+        .objects
+        .get_mut(&cavern.card)
+        .unwrap()
+        .face_down = true;
     game.validate_state().unwrap();
     let life = game.state.rules.players[1].life.clone();
     let mut turned = false;
@@ -614,7 +620,12 @@ fn a_land_turned_face_up_while_attacking_is_removed_from_combat() {
                 Driver::pay(&mut game, &[1, 2]);
                 // CR 506.4: a land is not a creature; it leaves combat.
                 assert!(game.state.rules.combat.is_empty());
-                assert!(!game.characteristics(cavern).unwrap().has_type(CardKind::Creature));
+                assert!(
+                    !game
+                        .characteristics(cavern)
+                        .unwrap()
+                        .has_type(CardKind::Creature)
+                );
                 // A private board start is not a replayable journal, so
                 // only the state invariants are checked here.
                 game.validate_state().unwrap();

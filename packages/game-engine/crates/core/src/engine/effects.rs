@@ -3664,11 +3664,8 @@ impl RulesTxn {
             }
             // CR 712.18: the face the damage source had when its facts were
             // captured.
-            let source_definition = self.fact_definition(
-                d.source.object,
-                d.source.transforms,
-                d.source.face_down,
-            )?;
+            let source_definition =
+                self.fact_definition(d.source.object, d.source.transforms, d.source.face_down)?;
             let expected_keywords = source_definition.keywords.as_slice();
             let battlefield_creature = d.source.zone == Zone::Battlefield
                 && d.source.characteristics.has_type(CardKind::Creature);

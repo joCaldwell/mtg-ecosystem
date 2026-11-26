@@ -130,10 +130,9 @@ pub enum Action<S: Space> {
     PlayLandBackFace { object: S::Object },
     Cast { card: S::Object },
     CastBackFace { card: S::Object },
-    /// CR 702.37a-c: cast this card face down as a 2/2 creature for {3}.
+    // CR 702.37a-c: cast face down as a 2/2 creature for {3}; CR 702.37e,
+    // 116.2b: the special action turning a face-down permanent face up.
     CastFaceDown { card: S::Object },
-    /// CR 702.37e, 116.2b: the special action turning a face-down permanent
-    /// face up for its morph cost.
     TurnFaceUp { object: S::Object },
     ActivateMana { object: S::Object },
     ActivateAbility { object: S::Object, ability: u32 },
