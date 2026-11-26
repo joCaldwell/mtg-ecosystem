@@ -493,6 +493,8 @@ partitions and ordering several cards after shuffling remain unsupported.
 **Library placement and shuffle** can put a single announced permanent on the
 bottom of its owner's library, retain the existing single-creature top
 placement, or shuffle a single announced permanent into its owner's library.
+A spell may declare that mandatory permanent target in a separate sentence.
+The shuffle and its owner both use that occurrence (CR 115.1, 601.2c, 608.2b).
 The shuffle still happens if the owner's commander goes to the command zone
 instead. An audited follow-up lets the target's owner draw two cards. A spell
 can shuffle itself into its owner's library as its final instruction. It

@@ -944,6 +944,57 @@ fn oblation_draws_two_actual_cards_when_its_target_is_a_token() {
     }
 }
 
+/// CR 601.2c, 608.2b, 701.24c: the declared target is chosen at
+/// announcement, and its owner shuffles only if it remains legal.
+#[test]
+fn declared_permanent_shuffles_into_owners_library() {
+    for (name, raw) in [
+        ("Deglamer", record!("049d2e18-8fa9-44d9-8618-f675592cb624")),
+        (
+            "Unravel the Aether",
+            record!("128e0bd1-ed1d-4f53-8dae-83ee95f6fa2a"),
+        ),
+    ] {
+        for removed in [false, true] {
+            let prepared = board(&[
+                (raw, &[Cell::ShuffleTargetOwnerLibrary]),
+                (
+                    NATURAL_OBSOLESCENCE,
+                    &[Cell::MoveTargetOwnerLibraryPosition],
+                ),
+            ])
+            .permanent_or_hand(name, 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Sol Ring", 1, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Natural Obsolescence", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .library_card("Island", 1)
+            .prepare();
+            let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+            Driver::cast(&mut g, CardId(0));
+            let target = Driver::object(&g, 3);
+            let d = Driver::request(&mut g, u64::MAX);
+            assert_eq!(d.candidates, [Candidate::Object { object: target }]);
+            checked(&g);
+            Driver::pick_object(&mut g, target);
+            Driver::pay(&mut g, &[1, 2]);
+            if removed {
+                Driver::cast(&mut g, CardId(5));
+                Driver::pick_object(&mut g, target);
+                Driver::pay(&mut g, &[6, 7]);
+            }
+            settle(&mut g);
+            assert!(library(&g, 1).contains(&CardId(3)));
+            assert_eq!(shuffles(&g, 0), 0);
+            assert_eq!(shuffles(&g, 1), u64::from(!removed));
+            assert_recoverable((&g).into());
+        }
+    }
+}
+
 /// CR 400.3, 401.4: bottom placement keeps the rest of the owner's
 /// library in its existing order and consumes no shuffle stream.
 #[test]
