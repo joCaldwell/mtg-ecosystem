@@ -87,6 +87,55 @@ impl Walk<'_, '_> {
         }
     }
 
+    /// CR 615.1, 615.7, 611.2a: "prevent all [combat] damage that would be
+    /// dealt this turn", optionally only by announced or matching sources,
+    /// and "prevent the next N damage that would be dealt to [an announced
+    /// recipient] this turn". Matching sources are read when the damage
+    /// would be dealt (CR 609.7a); an announced source or recipient is bound
+    /// to the incarnation it named.
+    pub(super) fn audit_resolved_prevention(
+        &self,
+        prevention: &ResolvedPrevention,
+        until: Until,
+    ) -> Result<Cell, KirError> {
+        if until != Until::EndOfTurn {
+            return unaudited("prevention duration");
+        }
+        let any_kind = matches!(
+            prevention.kind,
+            DamageKindFilter::All | DamageKindFilter::Combat
+        );
+        match (&prevention.shield, &prevention.to, &prevention.by) {
+            (PreventionShield::All, None, None) if any_kind => Ok(Cell::PreventDamageThisTurn),
+            (PreventionShield::All, None, Some(PreventionSources::Matching { filter }))
+                if any_kind
+                    && !filter.0.is_empty()
+                    && damage_source_pred_valid(filter)
+                    && !names_object(filter) =>
+            {
+                Ok(Cell::PreventDamageThisTurn)
+            }
+            (
+                PreventionShield::All,
+                None,
+                Some(PreventionSources::One {
+                    object: Ref::Target { slot },
+                }),
+            ) if any_kind && self.creature_target(*slot)? => Ok(Cell::PreventDamageThisTurn),
+            (PreventionShield::Next { amount }, Some(Ref::Target { slot }), None)
+                if prevention.kind == DamageKindFilter::All
+                    && *amount > Quantity::zero()
+                    && matches!(
+                        self.domain(*slot)?,
+                        TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature
+                    ) =>
+            {
+                Ok(Cell::PreventionShield)
+            }
+            _ => unaudited("prevention shape"),
+        }
+    }
+
     pub(super) fn audit_combat_prohibition(
         &self,
         affects: &CombatProhibitionScope<Ref>,
@@ -294,4 +343,26 @@ pub(super) fn capabilities(what: &SetExpr, change: &Change, out: &mut BTreeSet<C
         }
         _ => {}
     }
+}
+
+/// CR 615.1, 615.7: an all-damage prevention or a damage-budget shield.
+pub(super) fn prevention_capabilities(
+    prevention: &ResolvedPrevention,
+    out: &mut BTreeSet<Capability>,
+) {
+    out.insert(match prevention.shield {
+        PreventionShield::All => Capability::DamagePreventionV1,
+        PreventionShield::Next { .. } => Capability::DamageBudgetPreventionV1,
+    });
+}
+
+/// A resolved prevention outlives its stack object, so its damage-time
+/// source filter has no source identity to compare: an `Is`/`IsNot`
+/// reference at any depth is unaudited.
+fn names_object(filter: &Pred) -> bool {
+    filter.0.iter().any(|atom| match atom {
+        Atom::Is { .. } | Atom::IsNot { .. } => true,
+        Atom::AnyOf { alternatives } => alternatives.iter().any(names_object),
+        _ => false,
+    })
 }

@@ -255,9 +255,14 @@ pub enum Capability {
     ResolvedControlV1,
     ResolvedCharacteristicsV1,
 
-    CombatDamagePreventionV1,
+    /// CR 615.1, 615.10: static and resolved damage prevention.
+    DamagePreventionV1,
+    /// CR 615.7: resolved "prevent the next N damage" shields.
     DamageBudgetPreventionV1,
+    /// CR 614.1a: static damage-amount replacement.
     StaticDamageReplacementV1,
+    /// CR 615.12: damage that can't be prevented.
+    UnpreventableDamageV1,
 
     NormalLayoutV1,
     ModalDoubleFacedV1,

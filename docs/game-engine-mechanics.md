@@ -368,8 +368,18 @@ colors for targeting, attachment, blocking and prevention. Commander combat
 history uses actual damage; drains credit simultaneous losses before SBAs.
 
 Replacement/prevention applies once per effect and member under
-affected-recipient choices and APNAP order; the consumed prefix survives later
-source departure. General replacement/layer interactions reject.
+affected-recipient choices and APNAP order (CR 616.1); the consumed prefix
+survives later source departure. Static abilities prevent all, N or half
+(rounded as printed) of each matching event (CR 615.10), or double, triple or
+add to it (CR 614.1a); sources match on damage-time facts (CR 609.7a),
+recipients on the current battlefield, and "to and dealt by" on either.
+Resolved preventions last this turn: all or combat damage from any, an
+announced or a filtered source, or "the next N damage" to an announced
+recipient, a shield spent across events whose simultaneous members its
+recipient orders (CR 615.7). Damage that can't be prevented takes no prevention,
+protection included, and spends no shield (CR 615.12). Source choices, "next time" shields,
+redirection, non-damage replacements and other replacement/layer interactions
+reject.
 
 ## Movement, sacrifice and board-wide effects
 

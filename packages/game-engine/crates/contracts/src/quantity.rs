@@ -48,6 +48,32 @@ impl Quantity {
         self.apply(other, i64::checked_sub, |left, right| *left -= right);
     }
 
+    /// Exact half, rounded toward positive infinity when `round_up` and
+    /// toward negative infinity otherwise (CR 107.1a).
+    pub fn halved(&self, round_up: bool) -> Self {
+        match &self.0 {
+            Small(value) => {
+                let value = i128::from(*value);
+                let half = if round_up {
+                    -((-value).div_euclid(2))
+                } else {
+                    value.div_euclid(2)
+                };
+                Self::from_big(BigInt::from(half))
+            }
+            Big(value) => {
+                let two = BigInt::from(2);
+                let (mut half, rest) = (value.as_ref() / &two, value.as_ref() % &two);
+                if round_up && rest.sign() == Sign::Plus {
+                    half += 1;
+                } else if !round_up && rest.sign() == Sign::Minus {
+                    half -= 1;
+                }
+                Self::from_big(half)
+            }
+        }
+    }
+
     fn from_big(value: BigInt) -> Self {
         match value.to_i64() {
             Some(value) => Self(Small(value)),
@@ -181,6 +207,45 @@ impl JsonSchema for Quantity {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn halving_is_exact_in_both_directions_and_representations() {
+        let q = |s: &str| s.parse::<super::Quantity>().unwrap();
+        for (value, down, up) in [
+            ("0", "0", "0"),
+            ("7", "3", "4"),
+            ("-7", "-4", "-3"),
+            ("4294967297", "2147483648", "2147483649"),
+            (
+                "9223372036854775807",
+                "4611686018427387903",
+                "4611686018427387904",
+            ),
+            (
+                "-9223372036854775808",
+                "-4611686018427387904",
+                "-4611686018427387904",
+            ),
+            (
+                "18446744073709551617",
+                "9223372036854775808",
+                "9223372036854775809",
+            ),
+            (
+                "-18446744073709551617",
+                "-9223372036854775809",
+                "-9223372036854775808",
+            ),
+            (
+                "36893488147419103232",
+                "18446744073709551616",
+                "18446744073709551616",
+            ),
+        ] {
+            assert_eq!(q(value).halved(false), q(down), "{value} down");
+            assert_eq!(q(value).halved(true), q(up), "{value} up");
+        }
+    }
+
     use super::*;
     use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 

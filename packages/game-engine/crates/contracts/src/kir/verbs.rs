@@ -492,6 +492,11 @@ pub enum Verb {
         restriction: CombatRequirement,
         until: Until,
     },
+    /// CR 615.1, 615.7, 611.2a: a resolving prevention effect.
+    PreventDamage {
+        prevention: ResolvedPrevention,
+        until: Until,
+    },
     /// CR 603.7.
     ReturnCapturedExile {},
     CreateDelayedTrigger {

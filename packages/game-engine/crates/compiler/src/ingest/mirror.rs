@@ -603,7 +603,7 @@ pub(crate) enum Step {
         what: serde_json::Value,
     },
     PreventDamage {
-        prevention: SourcePrevention,
+        prevention: Box<ast::DamagePrevention>,
         duration: SourceDuration,
     },
     Counter {
@@ -871,49 +871,6 @@ pub(crate) enum DrawAmount {
 #[serde(deny_unknown_fields)]
 pub(crate) struct SourceDuration {
     pub(crate) duration: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct SourcePrevention {
-    pub(crate) event_scope: SourceEventScope,
-    pub(crate) shield: SourceShield,
-    pub(crate) kind: String,
-    pub(crate) to: Option<Vec<AnyTargetReference>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SourceEventScope {
-    pub(crate) sources: String,
-    pub(crate) recipients: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "shield", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum SourceShield {
-    Events {
-        occurrence: String,
-        prevent: SourcePrevent,
-    },
-    DamageBudget {
-        amount: Count,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "prevent", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum SourcePrevent {
-    All {},
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum AnyTargetReference {
-    AnyTarget {
-        #[serde(rename = "selectionId")]
-        selection_id: String,
-    },
 }
 
 // Unlike diagnostic binding.references, these are executable typed operands.
