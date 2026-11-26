@@ -623,7 +623,6 @@ mod tests {
                 pay_life: None,
             },
             production: ManaProduction::AnyColor,
-            choose_bundle: false,
             riders: vec![],
             source_block: 0,
         }];
