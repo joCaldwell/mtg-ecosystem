@@ -1315,8 +1315,8 @@ mod tests {
             assert!(d.validate().is_err());
         }
 
-        // Cost row: an entity-routed target cannot be paid with pure mana,
-        // and a stack target cannot be paid by tapping.
+        // Cost row: the entity route admits pure tap, and the stack route
+        // admits mana. Pure tap on the stack route remains unaudited.
         let mana = ActivationCost::Mana {
             cost: ManaCost {
                 generic: 1.into(),
@@ -1349,7 +1349,7 @@ mod tests {
                 ))
             })
         };
-        assert!(counter(mana).validate().is_err());
+        counter(mana).validate().unwrap();
         assert!(counter(ActivationCost::TapSource).validate().is_err());
 
         // Target row: a triggered ability cannot announce a stack target.
