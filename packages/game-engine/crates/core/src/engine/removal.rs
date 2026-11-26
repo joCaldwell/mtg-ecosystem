@@ -5,7 +5,7 @@
 use super::*;
 use mtg_contracts::kir::{Ref, SetExpr};
 
-// See docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
+// See docs/game-engine-board-mechanics.md#movement-sacrifice-and-board-wide-effects.
 // Historical derivations remain linked from docs/game-engine-evidence.md.
 
 /// Current facts refresh while the exact target remains in its expected public
