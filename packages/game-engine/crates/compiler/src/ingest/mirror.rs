@@ -515,11 +515,16 @@ pub(crate) enum Step {
         #[serde(default, deserialize_with = "present_bool_field")]
         optional: Option<bool>,
     },
+    /// CR 111.1-111.4, 111.10: the token recipe stays raw here; the token
+    /// lowerer decodes predefined and specified recipes and rejects every
+    /// other recipe (copies) or modifier by name.
     CreateToken {
         #[serde(default, deserialize_with = "present_json_operand")]
         who: Option<serde_json::Value>,
-        count: Count,
-        token: SourceToken,
+        count: serde_json::Value,
+        token: serde_json::Value,
+        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
+        for_each: Option<serde_json::Value>,
     },
     KeywordAction {
         action: String,
@@ -648,8 +653,25 @@ pub(crate) struct SourceToken {
     pub(crate) types: Vec<String>,
     pub(crate) subtypes: Vec<String>,
     pub(crate) keywords: Vec<serde_json::Value>,
-    pub(crate) power: Count,
-    pub(crate) toughness: Count,
+    pub(crate) power: serde_json::Value,
+    pub(crate) toughness: serde_json::Value,
+    /// Printed modifiers the token lowerer reads or rejects by name.
+    #[serde(default, deserialize_with = "present_json_operand")]
+    pub(crate) name: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "present_json_operand")]
+    pub(crate) abilities: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "present_bool_field")]
+    pub(crate) tapped: Option<bool>,
+    #[serde(default, deserialize_with = "present_bool_field")]
+    pub(crate) attacking: Option<bool>,
+    #[serde(
+        default,
+        rename = "attackingDefender",
+        deserialize_with = "present_json_operand"
+    )]
+    pub(crate) attacking_defender: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "present_json_operand")]
+    pub(crate) blocking: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

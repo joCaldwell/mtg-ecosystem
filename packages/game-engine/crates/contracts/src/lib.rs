@@ -848,6 +848,7 @@ impl Instruction {
                 controller: kir::PlayerExpr::you(context),
                 count: kir::Amount::fixed(i64::from(count)),
                 token,
+                tapped: false,
             },
             source_block,
         )

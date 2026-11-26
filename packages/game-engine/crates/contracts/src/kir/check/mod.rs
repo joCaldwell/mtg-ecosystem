@@ -695,6 +695,7 @@ impl Walk<'_, '_> {
                 controller,
                 count,
                 token,
+                ..
             } => {
                 if let TokenSpec::Creature { spec } = token {
                     spec.validate().map_err(KirError::Type)?;
@@ -1354,6 +1355,7 @@ impl Walk<'_, '_> {
                 controller,
                 count,
                 token,
+                ..
             } => self.audit_tokens(controller, count, token),
             Verb::PutCounters {
                 on,

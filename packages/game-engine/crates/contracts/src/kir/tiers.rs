@@ -186,6 +186,9 @@ pub enum Cell {
     CreatureTokens,
     MultiTypeCreatureTokens,
     TokensForTargetController,
+    /// CR 608.2h: the controller creates the announced X or a resolution
+    /// count of tokens, read once.
+    CountedTokens,
     // CR 122: counters.
     PlusOneCountersSource,
     PlusOneCountersEventObject,
@@ -357,6 +360,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Proliferate
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
+        | C::CountedTokens
         | C::PlusOneCountersSet
         | C::PlusOneCountersEventObject
         | C::PumpSet

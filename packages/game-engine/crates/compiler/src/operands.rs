@@ -959,10 +959,27 @@ pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
 }
 
 pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
-    if !token.supertypes.is_empty()
-        || token.power.amount != "fixed"
-        || token.toughness.amount != "fixed"
-    {
+    // CR 111.3-111.4: every printed characteristic is lowered or the
+    // recipe rejects under the modifier's name.
+    for (field, present) in [
+        ("name", token.name.is_some()),
+        ("abilities", token.abilities.is_some()),
+        ("attacking", token.attacking.is_some()),
+        ("attacking_defender", token.attacking_defender.is_some()),
+        ("blocking", token.blocking.is_some()),
+    ] {
+        if present {
+            return Err(operand("token", field));
+        }
+    }
+    let stat = |value: &serde_json::Value| match typed::<ast::Amount>(value, "token")? {
+        ast::Amount::Fixed(n) => u32::try_from(n.value)
+            .map(i64::from)
+            .map_err(|_| operand("token_stat", "fixed:range")),
+        other => Err(operand("token_stat", variant(&other))),
+    };
+    let (power, toughness) = (stat(&token.power)?, stat(&token.toughness)?);
+    if !token.supertypes.is_empty() {
         return Err(unsupported(
             "effects.token",
             "unsupported token characteristic shape",
@@ -1034,8 +1051,8 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
         colors,
         subtypes: token.subtypes.clone(),
         all_creature_types,
-        power: i64::from(token.power.value).into(),
-        toughness: i64::from(token.toughness.value).into(),
+        power: power.into(),
+        toughness: toughness.into(),
         keywords,
     };
     token

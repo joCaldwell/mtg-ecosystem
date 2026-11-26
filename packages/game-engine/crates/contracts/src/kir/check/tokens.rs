@@ -3,13 +3,29 @@ use super::*;
 
 impl Walk<'_, '_> {
     /// CR 111.1-111.4, 111.10: "you" create a positive fixed number of
-    /// tokens of one exact recipe.
+    /// tokens of one exact recipe. CR 107.3, 608.2h: the controller's count
+    /// may instead be the announced X or a resolution count, read once as
+    /// the step is performed; zero creates nothing.
     pub(super) fn audit_tokens(
         &self,
         controller: &PlayerExpr,
         count: &Amount,
         token: &TokenSpec,
     ) -> Result<Cell, KirError> {
+        if count.is_announced_x() || count.is_resolution_count() {
+            if !matches!(
+                controller,
+                PlayerExpr::Is {
+                    who: Ref::Controller { .. },
+                }
+            ) {
+                return unaudited("counted token controller");
+            }
+            if !count.is_announced_x() {
+                Self::audit_verb_amount(count)?;
+            }
+            return Ok(Cell::CountedTokens);
+        }
         Self::fixed_at_least(count, 1, "token count")?;
         if count.as_fixed().and_then(Quantity::to_u32).is_none() {
             return kind("token count above the supported range");
