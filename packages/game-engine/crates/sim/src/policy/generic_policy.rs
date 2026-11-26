@@ -1278,8 +1278,11 @@ impl Strategy<'_> {
         Ok(None)
     }
     /// Whether a land played from the viewer's hand now would enter tapped
-    /// under this policy: printed tapped entry, a declined life payment, or
-    /// an entry reveal with no other matching hand card (CR 614.12).
+    /// under this policy (CR 614.12): printed tapped entry; an entry life
+    /// payment, which this policy always declines (no stack, so
+    /// `optional_effect` is false), so a shockland counts as tapped; or an
+    /// entry reveal with no other matching hand card. Conditional entry
+    /// (`EntersTappedIf`) is not predicted and counts as untapped.
     fn land_enters_tapped(&self, v: &PermittedView, land: &VisibleObject) -> bool {
         use mtg_core::query::{in_view, matches_pred};
         let Ok(d) = definition(self.catalog, &land.oracle_id) else {
@@ -1570,8 +1573,8 @@ impl Strategy<'_> {
                 }
                 allowance
             });
-        // CR 614.12: play a land that enters untapped before one that
-        // enters tapped, keeping hand order otherwise.
+        // CR 614.12: play a land that enters untapped under this policy
+        // before one that enters tapped, keeping hand order otherwise.
         if Quantity::from(i64::from(v.turn.lands_played)) < land_allowance
             && let Some(o) = v
                 .objects

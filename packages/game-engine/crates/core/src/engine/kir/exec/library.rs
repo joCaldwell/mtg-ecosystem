@@ -512,7 +512,7 @@ impl RulesTxn {
     /// is never asked and stays in the library, CR 303.4g), then each
     /// entrant whose entry life cost its controller can still pay after
     /// the payments already chosen (CR 119.4, 614.1c), then each entrant
-    /// whose entry reveal a card of the searcher's hand could make (CR
+    /// with an entry reveal, whether or not a hand card matches (CR
     /// 701.20a). `hosts`, `paid` and `revealed` must be exactly the answers
     /// given so far, in that order.
     pub(in crate::engine) fn next_entry_question(
@@ -603,10 +603,9 @@ impl RulesTxn {
             let Some(EntryChoice::Reveal(filter)) = self.entry_choice(object)? else {
                 continue;
             };
+            // Asked even with no matching card, so the hidden hand stays
+            // hidden (CR 400.2).
             let cards = self.entry_reveal_candidates(player, object, &filter);
-            if cards.is_empty() {
-                continue;
-            }
             match answered.next() {
                 Some((asked, card)) if *asked == object => {
                     if card.is_some_and(|card| !cards.contains(&card)) {

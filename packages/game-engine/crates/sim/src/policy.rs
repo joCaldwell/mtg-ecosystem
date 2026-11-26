@@ -200,6 +200,12 @@ impl Strategy<'_> {
                     .ok_or("missing entry reveal card")?;
                 d.pick_one(d.candidate(index)?)?
             }
+            // A reveal with no matching hand card offers Decline alone.
+            (Reason::OptionalEffect, _)
+                if d.index(&Candidate::Flag { flag: Flag::Accept }).is_none() =>
+            {
+                flag(d, Flag::Decline)?
+            }
             (Reason::OptionalEffect, _) => flag(
                 d,
                 if self.optional_effect(

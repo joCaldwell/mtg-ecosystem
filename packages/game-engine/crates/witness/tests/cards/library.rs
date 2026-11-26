@@ -1603,14 +1603,15 @@ fn skyshroud_claim_collects_each_shockland_payment_before_one_entry() {
 /// Gilt-Leaf Palace's entry reveal of an Elf card in place of its payment
 /// (no frozen Forest land prints a reveal): CR 614.12, 701.20a. The
 /// payment is asked first, then the reveal, which offers only the matching
-/// hand card; both enter in one batch, and a reveal publishes the card.
+/// hand card (Decline alone when none matches); both enter in one batch, and a reveal publishes the card.
 #[test]
 fn skyshroud_claim_asks_each_entry_reveal_after_the_payments() {
     use mtg_contracts::kir::{Atom, Pred, StaticEffect};
     for (hand, pay, reveal) in [
         ("Llanowar Elves", true, Some(true)),
         ("Llanowar Elves", false, Some(false)),
-        ("Island", true, None),
+        // Nothing matches: still asked, with Decline alone (CR 400.2).
+        ("Island", true, Some(false)),
     ] {
         let mut catalog = catalog(&[
             (
@@ -1662,16 +1663,16 @@ fn skyshroud_claim_asks_each_entry_reveal_after_the_payments() {
             let d = next_choice(&mut g);
             assert_eq!(d.reason, Reason::OptionalEffect);
             assert_eq!(offered_entrant(&d), pool);
-            assert_eq!(
-                d.candidates,
-                vec![
-                    Candidate::Flag {
-                        flag: Flag::Decline
-                    },
-                    Candidate::Object { object: pool },
-                    Candidate::Object { object: card },
-                ]
-            );
+            let mut expected = vec![
+                Candidate::Flag {
+                    flag: Flag::Decline,
+                },
+                Candidate::Object { object: pool },
+            ];
+            if hand == "Llanowar Elves" {
+                expected.push(Candidate::Object { object: card });
+            }
+            assert_eq!(d.candidates, expected);
             checked(&g);
             assert_recoverable((&g).into());
             // A forged reveal of a found card, or out of order, rejects.

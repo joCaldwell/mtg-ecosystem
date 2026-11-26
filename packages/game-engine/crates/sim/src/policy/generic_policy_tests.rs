@@ -1633,3 +1633,41 @@ fn generic_policy_reveals_for_entry_and_prefers_untapped_land_plays() {
         }
     );
 }
+
+/// CR 400.2: a reveal with no matching hand card offers Decline alone.
+#[test]
+fn generic_policy_declines_a_decline_only_entry_reveal() {
+    let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
+    let mut o = observation(board::view());
+    let viewer = o.view.viewer;
+    o.decision = Some(Decision {
+        id: mtg_core::DecisionToken("policy-fixture".into()),
+        player: viewer,
+        reason: Reason::OptionalEffect,
+        candidates: vec![
+            Candidate::Flag {
+                flag: Flag::Decline,
+            },
+            Candidate::Object {
+                object: ObjectHandle("Plains".into()),
+            },
+        ],
+        shape: Shape::Pick {
+            slots: vec![mtg_core::Slot {
+                role: mtg_core::SlotRole::Choice,
+                subject: Some(1),
+                allowed: vec![0],
+                min: 1,
+                max: 1,
+                repeat: false,
+            }],
+            rules: vec![],
+        },
+    });
+    assert_eq!(
+        strategy(&c).choose(&o).unwrap(),
+        Answer::Pick {
+            picks: vec![vec![0]]
+        }
+    );
+}

@@ -105,18 +105,19 @@ impl RulesTxn {
         cards
     }
 
-    /// Whether the incoming controller can make `entrant`'s entry choice now.
+    /// Whether `entrant`'s entry choice is offered now. A live controller is
+    /// always asked about a reveal, even with no matching card (Decline is
+    /// then the only option), so whether the entry waits never discloses
+    /// the hidden hand (CR 400.2, 701.20a).
     pub(in crate::engine) fn entry_choice_open(
         &self,
         controller: PlayerId,
-        entrant: ObjectId,
+        _entrant: ObjectId,
         choice: &EntryChoice,
     ) -> bool {
         match choice {
             EntryChoice::Life(amount) => self.can_pay_entry_life(controller, amount),
-            EntryChoice::Reveal(filter) => !self
-                .entry_reveal_candidates(controller, entrant, filter)
-                .is_empty(),
+            EntryChoice::Reveal(_) => self.is_live(controller),
         }
     }
 
@@ -157,7 +158,7 @@ impl RulesTxn {
 
     /// CR 701.20a, 614.12: decline, or pick the one hand card to reveal as
     /// `entrant` enters. The entrant is the slot's subject; only the
-    /// controller sees the offered hand cards.
+    /// controller sees the offered hand cards, possibly none.
     pub(in crate::engine) fn entry_reveal_decision(
         &self,
         controller: PlayerId,
@@ -208,7 +209,8 @@ impl RulesTxn {
                 .then(|| self.entry_payment_decision(controller, entrant)),
             EntryChoice::Reveal(filter) => {
                 let cards = self.entry_reveal_candidates(controller, entrant, filter);
-                (!cards.is_empty()).then(|| self.entry_reveal_decision(controller, entrant, &cards))
+                self.is_live(controller)
+                    .then(|| self.entry_reveal_decision(controller, entrant, &cards))
             }
         }
     }
