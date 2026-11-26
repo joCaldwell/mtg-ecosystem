@@ -5011,6 +5011,15 @@
       "ast_sha256": "e11bea399f34bd7f5649a501c21a7848245584410d185b31d6e256fec8dda9ef",
       "archive": "archive-manifest-phase1-r5.json",
       "archive_line": 32227
+    },
+    {
+      "file": "phase1-r5/a044474a-cd72-4e9d-bd8d-a08f2de9cdc0.json",
+      "oracle_id": "a044474a-cd72-4e9d-bd8d-a08f2de9cdc0",
+      "record_sha256": "e3f02d90e3adfc5d9c6bf0a4e0d63bac31a6024980e0af55dea84319d3b21ce3",
+      "source_sha256": "2d12505c18520fff6b2f602984a4cf7ba623f3b13eec0af402fc724f2b7f752a",
+      "ast_sha256": "f4399d5ad429ef8011d981408c1018fd6c6da64b1053e9c43a7a1aa8245e2f53",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 24155
     }
   ]
 }

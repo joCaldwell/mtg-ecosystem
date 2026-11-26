@@ -109,6 +109,7 @@ pub enum Cell {
     LifeTargetPlayerX,
     LifeTargetController,
     LifeTargetControllerPower,
+    LifeGraveyardCreatureManaValue,
     LifeCounted,
     /// CR 119.3, 608.2c: the each-opponent drain pair.
     Drain,
@@ -331,6 +332,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeEachOpponent
         | C::LifeTargetPlayerX
         | C::LifeTargetController
+        | C::LifeGraveyardCreatureManaValue
         | C::LifeTargetControllerPower
         | C::LifeCounted
         | C::Drain

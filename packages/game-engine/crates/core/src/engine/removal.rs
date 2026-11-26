@@ -22,6 +22,10 @@ impl TargetFacts {
         self.controller
     }
 
+    pub(in crate::engine) fn mana_value(&self) -> &Quantity {
+        &self.mana_value
+    }
+
     pub(in crate::engine) fn power(&self) -> Option<&Quantity> {
         self.power.as_ref()
     }

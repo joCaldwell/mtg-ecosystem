@@ -320,7 +320,8 @@ its printed criteria, including secondary card types and fixed mana-value bounds
 owner's library can target a card in any graveyard or an opponent's graveyard. A permanent returned from your graveyard
 uses the battlefield entry procedure for Aura attachment and land entry choices.
 A creature can enter from any or an opponent’s graveyard under the specified
-controller while retaining its owner (CR 110.2, 110.2a).
+controller while retaining its owner (CR 110.2, 110.2a). A following life-loss
+instruction can read that card’s last-known mana value (CR 202.3, 608.2h).
 An exiled target's printed creature type can govern a later “if it was a
 creature card” instruction. A certified "it" or "that" can reuse the block's sole announced incarnation, and
 "this [permanent]" names the current source for tap, untap and owner-zone moves

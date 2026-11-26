@@ -458,3 +458,44 @@ fn mortuary_mire_puts_its_announced_creature_on_top_only_if_accepted() {
         );
     }
 }
+
+const REANIMATE: &str = record!("a044474a-cd72-4e9d-bd8d-a08f2de9cdc0");
+
+#[test]
+fn reanimate_uses_the_selected_graveyard_cards_mana_value() {
+    let prepared = board(&[(
+        REANIMATE,
+        &[
+            Cell::MoveGraveyardCreatureToBattlefield,
+            Cell::LifeGraveyardCreatureManaValue,
+        ],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Reanimate", 0, 0, true)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .card("Grizzly Bears", 0, 0, grave(0))
+    .card("Colossal Dreadmaw", 1, 1, grave(1))
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let d = targets(&mut g);
+    let target = Driver::object(&g, 3);
+    assert_eq!(
+        d.candidates,
+        [
+            Candidate::Object {
+                object: Driver::object(&g, 2)
+            },
+            Candidate::Object { object: target },
+        ]
+    );
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[1]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 3), Zone::Battlefield);
+    assert_eq!(
+        g.current(Driver::object(&g, 3)).unwrap().controller,
+        PlayerId(0)
+    );
+    assert_eq!(g.state.rules.players[0].life, Quantity::from(34));
+}
