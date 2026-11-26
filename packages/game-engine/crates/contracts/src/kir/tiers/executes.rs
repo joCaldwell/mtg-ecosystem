@@ -65,15 +65,14 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => {
             (Route::Object, ANY)
         }
-        TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-            (Route::Stack, SPELL | ACTIVATED)
-        }
+        TargetDomain::StackSpell
+        | TargetDomain::ControlledCreatureSpell
+        | TargetDomain::StackActivatedOrTriggeredAbility => (Route::Stack, SPELL | ACTIVATED),
         TargetDomain::PlayerOrPlaneswalker => (Route::Player, SPELL),
         TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
-        | TargetDomain::BlockingBattlefieldCreature
-        | TargetDomain::ControlledCreatureSpell => return None,
+        | TargetDomain::BlockingBattlefieldCreature => return None,
     })
 }
 
@@ -327,31 +326,40 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                     | TargetDomain::StackSpell
                     | TargetDomain::OwnGraveyardCard
                     | TargetDomain::OwnGraveyardCreatureCard
-            ) || (matches!(
-                t.domain,
-                TargetDomain::StackSpell
-                    | TargetDomain::OwnGraveyardCard
-                    | TargetDomain::OwnGraveyardCreatureCard
-            ) && ((f.types.is_empty() && f.predicate.is_none())
-                || !f.non_types.is_empty()
-                || !f.non_colors.is_empty()
-                || f.opponent
-                || f.power.is_some()
-                || f.tapped))
+            ) || (t.domain == TargetDomain::StackSpell
+                && (f.types.is_empty() && f.non_types.is_empty() && f.predicate.is_none()
+                    || !f.non_colors.is_empty()
+                    || f.opponent
+                    || f.power.is_some()
+                    || f.tapped))
+                || (matches!(
+                    t.domain,
+                    TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+                ) && ((f.types.is_empty() && f.predicate.is_none())
+                    || !f.non_types.is_empty()
+                    || !f.non_colors.is_empty()
+                    || f.opponent
+                    || f.power.is_some()
+                    || f.tapped))
                 || (matches!(t.domain, TargetDomain::OwnGraveyardCreatureCard)
                     && (!f.types.is_empty() || f.predicate.is_none()))
                 || f.predicate.as_ref().is_some_and(|predicate| {
-                    t.domain == TargetDomain::StackSpell
-                        || f.power.is_some()
-                        || kir::audit_target_predicate(
-                            predicate,
-                            matches!(
-                                t.domain,
-                                TargetDomain::OwnGraveyardCard
-                                    | TargetDomain::OwnGraveyardCreatureCard
-                            ),
-                        )
-                        .is_err()
+                    if t.domain == TargetDomain::StackSpell {
+                        !matches!(predicate.0.as_slice(),
+                            [kir::Atom::ManaValue { value: kir::Amount::Fixed { value }, .. }]
+                                if !value.is_negative())
+                    } else {
+                        f.power.is_some()
+                            || kir::audit_target_predicate(
+                                predicate,
+                                matches!(
+                                    t.domain,
+                                    TargetDomain::OwnGraveyardCard
+                                        | TargetDomain::OwnGraveyardCreatureCard
+                                ),
+                            )
+                            .is_err()
+                    }
                 })
                 || f.types
                     .iter()
@@ -1394,8 +1402,8 @@ mod tests {
             assert!(d.validate().is_err());
         }
 
-        // Cost row: an entity-routed target cannot be paid with pure mana,
-        // and a stack target cannot be paid by tapping.
+        // Cost row: the entity route admits pure tap, and the stack route
+        // admits mana. Pure tap on the stack route remains unaudited.
         let mana = ActivationCost::Mana {
             cost: ManaCost {
                 generic: 1.into(),
@@ -1428,7 +1436,7 @@ mod tests {
                 ))
             })
         };
-        assert!(counter(mana).validate().is_err());
+        counter(mana).validate().unwrap();
         assert!(counter(ActivationCost::TapSource).validate().is_err());
 
         // Target row: a triggered ability cannot announce a stack target.

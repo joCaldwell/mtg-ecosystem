@@ -288,6 +288,7 @@ enum BatchAuthority<'a> {
         &'a [regeneration::ShieldMember],
     ),
     CreateRegenerationShield,
+    CounterStackObject,
     PlaceCounters,
     /// CR 614.1c, 614.12: the entry replacements chosen for each entrant
     /// of one entry batch, all read against the same prior state.
@@ -839,8 +840,8 @@ impl RulesTxn {
                 .iter()
                 .filter(|effect| {
                     events.iter().any(|event| {
-                            (matches!(effect.kind, ResolvedEffectKind::RegenerationShield) &&
-                                regeneration::destruction_object(event) == Some(effect.origin.source)) ||
+                            matches!(effect.kind, ResolvedEffectKind::RegenerationShield { target }
+                                if regeneration::destruction_object(event) == Some(target)) ||
                             matches!(event, ProposedEvent::LandPlayed { player }
                                 if effect.additional_land_plays(*player, self.state.rules.turn.number).is_some())
                         })
@@ -1008,7 +1009,8 @@ impl RulesTxn {
                         | ResolvedEffectKind::SetCharacteristics { targets, .. }
                         | ResolvedEffectKind::PumpAnnouncedX { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
-                        ResolvedEffectKind::GrantKeywords { target, .. }
+                        ResolvedEffectKind::RegenerationShield { target }
+                        | ResolvedEffectKind::GrantKeywords { target, .. }
                         | ResolvedEffectKind::ModifyPowerToughness { target, .. }
                         | ResolvedEffectKind::CombatProhibition {
                             affects: mtg_contracts::kir::CombatProhibitionScope::Target { target },
@@ -1584,7 +1586,7 @@ impl RulesTxn {
             .any(|event| regeneration::creates_shield(event))
         {
             let Frame::Resolve { frame } = &self.state.rules.frame else {
-                return Err("regeneration shield requires a resolving activation".into());
+                return Err("regeneration shield requires a resolving instruction".into());
             };
             let EventGroup::Occurrence {
                 proposed: ProposedEvent::CreateEffect { effect },
@@ -1597,6 +1599,12 @@ impl RulesTxn {
                 return Err("regeneration shield creation cause mismatch".into());
             }
             BatchAuthority::CreateRegenerationShield
+        } else if events
+            .iter()
+            .any(|event| matches!(event, ProposedEvent::CounterStackObject { .. }))
+        {
+            self.authorize_counter(&cause, &group)?;
+            BatchAuthority::CounterStackObject
         } else if let Some(proof) = &replacement {
             regeneration_members = match &self.state.rules.frame {
                 Frame::GraveyardGroup { tx } if tx.is_publication(&cause, &group) => {
@@ -1978,6 +1986,7 @@ impl RulesTxn {
             owner
         };
         self.remove_from_combat(*object);
+        self.remove_regeneration_shields(*object);
         for library in self.rules_mut().libraries.values_mut() {
             library.retain(|c| *c != object.card);
         }
@@ -2502,15 +2511,9 @@ impl RulesTxn {
                     }
                 }
             }
-            ProposedEvent::CounterStackObject {
-                target,
-                countering,
-                domain,
-            } => {
-                if countering.0 >= self.state.rules.next_stack_id
-                    || !self.stack_target_legal(*target, *countering, *domain)
-                {
-                    return Err("invalid countered stack object".into());
+            ProposedEvent::CounterStackObject { target, .. } => {
+                if !matches!(authority, BatchAuthority::CounterStackObject) {
+                    return Err("counter requires authenticated resolution".into());
                 }
                 let index = self
                     .state
@@ -2520,6 +2523,9 @@ impl RulesTxn {
                     .position(|entry| entry.id == *target)
                     .ok_or("missing counter target")?;
                 let entry = &self.state.rules.stack[index];
+                if !self.stack_entry_complete(entry) {
+                    return Err("counter target is incomplete".into());
+                }
                 if self.spell_cannot_be_countered(entry)? {
                     return Ok(EventOutcome::CounterPrevented { target: *target });
                 }
@@ -2533,13 +2539,7 @@ impl RulesTxn {
                         .get(&source.card)
                         .ok_or("missing countered spell physical card")?
                         .owner;
-                    let destination = self.stack_departure(
-                        entry,
-                        replacement
-                            .and_then(|proof| proof.get(&source))
-                            .copied()
-                            .unwrap_or(Zone::Graveyard { owner }),
-                    );
+                    let destination = self.stack_departure(entry, Zone::Graveyard { owner });
                     let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                         &ProposedEvent::Move {
                             object: source,
@@ -3116,6 +3116,7 @@ impl RulesTxn {
                     .commander_returns
                     .retain(|id| id.card != object.card);
                 self.remove_from_combat(*object);
+                self.remove_regeneration_shields(*object);
                 for library in self.rules_mut().libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }

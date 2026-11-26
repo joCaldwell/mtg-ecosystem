@@ -205,9 +205,14 @@ recorded mana activations; sacrifice costs use ordinary post-activation SBAs.
 Divided counters bind shares before costs and commit surviving shares together.
 
 Object target slots share one candidate set, so unequal per-slot filters reject.
-Entity, player, opponent and stack targets keep distinct domains; stack targets
-exclude incomplete entries. Countered spells go to their owners' graveyards and
-costs stay spent. Spell copies are counterable nonlegendary token spells.
+Stack targets use public handles and exclude incomplete entries and the
+targeting invocation. Spell filters read types, exclusions and stack mana
+value, including announced X. Uncounterable spells remain legal targets.
+Countered abilities leave the stack. Countered spells go to their owners'
+graveyards, with flashback exile applied on departure. An audited fixed
+generic tax offers the target spell's controller payment (CR 118.12a, 701.6,
+702.34a). Paid costs stay spent. Spell copies are counterable nonlegendary
+token spells.
 
 Target legality is checked at proposal and resolution start. Losing it during
 payment does not reverse casting (CR 601.6). If every target is illegal at
@@ -325,9 +330,11 @@ source departure. General replacement/layer interactions reject.
 
 ## Movement, sacrifice and board-wide effects
 
-**Removal.** Indestructible takes precedence over destruction. A paid
-regeneration shield replaces destruction, tapping its source, clearing damage
-and removing it from combat. The affected controller orders competing exile.
+**Removal.** Indestructible takes precedence over destruction. A regeneration
+shield protects one permanent incarnation until its next permitted destruction,
+zone change or cleanup. It taps the protected permanent, clears damage and
+removes it from combat (CR 701.19, 514.2). The affected controller orders
+competing replacements.
 Exile, bounce, sacrifice, zero toughness, legend moves and departure stay
 distinct. Removal filters use all types (CR 205.2b), controllers and statuses;
 positive type lists are alternatives, exclusions reject any match, and

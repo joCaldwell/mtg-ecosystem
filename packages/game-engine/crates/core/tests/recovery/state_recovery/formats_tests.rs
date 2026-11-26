@@ -19,16 +19,16 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    69,
-    "a0112037c84c1fe58ab1625f26cc81339838d750fb4dc9b5d8d0a6c5b6a6c561",
+    70,
+    "86b7f91b9b7a8e37bceb6d5e9f9af7fdd9eccbe9503045c550df8d2e236a8d8b",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    104,
-    "c734a2efd6a7688f1bae62dd40d38982814d22df92c34a82f0e4c12c81d2db8e",
+    105,
+    "550031783d82e861a9710ce53ee509ffb81b071694adae37e2d4a1e95674f053",
 );
 const WORK_PIN: (u32, &str) = (
-    57,
-    "b33a47e5d01c6830ba59d896dd6b8a6cefaee639ad545e4ca709fe29258e78db",
+    58,
+    "39506ea16df427a3bae68c471c200f940293aaf26a571db3110859e29094e92f",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -599,6 +599,81 @@ fn suspended_proliferate() -> Game {
     game
 }
 
+/// A stack target offer with two public regeneration shields. The first
+/// shield can be projected while the second still keeps work suspended.
+fn stack_target_and_shields() -> Game {
+    use mtg_contracts::kir::{Ref, SetExpr, Verb};
+
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for (name, domain, verb) in [
+        (
+            "Unsummon",
+            TargetDomain::BattlefieldCreature,
+            Verb::Regenerate {
+                what: SetExpr::target(0),
+            },
+        ),
+        (
+            "Giant Growth",
+            TargetDomain::StackSpell,
+            Verb::Counter {
+                what: Ref::Target { slot: 0 },
+            },
+        ),
+    ] {
+        let spell = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == name)
+            .unwrap();
+        spell.source_labels = None;
+        let program = spell.spell.as_mut().unwrap();
+        program.targets[0].domain = domain;
+        program.instructions = vec![Instruction::act(verb, 0)];
+        spell.capabilities = spell.requirements();
+    }
+    let mut board =
+        Board::new(catalog, "formats-stack-target-and-shields").step(TurnStep::PrecombatMain);
+    for _ in 0..3 {
+        board = board.permanent_or_hand("Unsummon", 0, 0, true);
+    }
+    board = board
+        .permanent_or_hand("Giant Growth", 0, 0, true)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false);
+    for _ in 0..3 {
+        board = board.permanent_or_hand("Island", 0, 0, false);
+    }
+    let mut game = Game::new(board.prepare());
+    let bear = Driver::object(&game, 4);
+    for card in 0..3 {
+        Driver::cast(&mut game, CardId(card));
+        Driver::pick_object(&mut game, bear);
+        Driver::pay(&mut game, &[6 + card]);
+        if card < 2 {
+            for _ in game.live_players() {
+                Driver::pass(&mut game);
+            }
+        }
+    }
+    Driver::cast(&mut game, CardId(3));
+    let offer = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(
+        offer.candidates.as_slice(),
+        [Candidate::Stack { .. }]
+    ));
+    assert_eq!(game.state.rules.effects.len(), 2);
+    game
+}
+
+fn pending_stack_target() -> Game {
+    let mut game = stack_target_and_shields();
+    let offer = Driver::request(&mut game, u64::MAX);
+    let answer = offer.pick_one(&offer.candidates[0]).unwrap();
+    game.respond(offer.player, offer.id, answer).unwrap();
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -608,6 +683,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            pending_stack_target(),
         ])
         .chain(mana_riders())
         .chain(chosen_cost_shapes())
@@ -647,6 +723,22 @@ fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
             }
         }
     }
+    let game = stack_target_and_shields();
+    let units = 6 + game.state.rules.objects.len() + game.state.rules.stack.len();
+    let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(0), Budget::new(units as u64))
+    else {
+        panic!("observation should suspend after the first regeneration shield");
+    };
+    let raw = game.save_work(&work).unwrap();
+    let saved: Value = serde_json::from_str(&raw).unwrap();
+    let builder = &saved["data"]["task"]["builder"];
+    assert_eq!(builder["decision"]["candidates"][0]["candidate"], "stack");
+    assert_eq!(
+        builder["view"]["effects"][0]["effect"],
+        "regeneration_shield"
+    );
+    game.restore_work(&raw).unwrap();
+    samples.push(raw);
     assert!(!samples.is_empty(), "no suspended work to fingerprint");
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

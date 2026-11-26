@@ -428,6 +428,7 @@ impl RulesTxn {
             {
                 for outcome in outcomes {
                     self.validate_library_reorder_outcome(self.kernel_root()?, None, outcome)?;
+                    self.validate_counter_outcome(root, outcome)?;
                 }
                 Ok(())
             }

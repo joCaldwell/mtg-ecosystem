@@ -30,10 +30,7 @@ impl RulesTxn {
     /// the ability of the face it was activated or triggered from, even after
     /// its source transforms; a spell has the characteristics of its object.
     pub(crate) fn stack_definition(&self, entry: &StackInstance) -> Result<&Definition, String> {
-        if entry.kind.is_spell() {
-            return self.copiable_definition(entry.source);
-        }
-        self.face_definition(entry.source.card, entry.source_face)
+        self.face_definition(entry.source.card, entry.program_face())
     }
 
     pub(super) fn face_definition(

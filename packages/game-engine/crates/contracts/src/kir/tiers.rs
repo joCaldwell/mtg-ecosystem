@@ -148,6 +148,9 @@ pub enum Cell {
     MoveSet,
     // CR 301.5 and 303.4: the attachment shell and its host.
     Attachment,
+    CounterStackTarget,
+    RegenerateSource,
+    RegenerateTarget,
     // CR 701.26: tap and untap.
     TapTarget,
     TapTargetGroup,
@@ -321,6 +324,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ExileGraveyards
         | C::MoveSet
         | C::Attachment
+        | C::CounterStackTarget
+        | C::RegenerateSource
+        | C::RegenerateTarget
         | C::TapTarget
         | C::TapTargetGroup
         | C::TapStatusSource
@@ -531,6 +537,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::FightV1
         | C::PopulateV1
         | C::PlayerCountersV1
+        | C::RegenerationShieldV1
         | C::ProliferateV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1

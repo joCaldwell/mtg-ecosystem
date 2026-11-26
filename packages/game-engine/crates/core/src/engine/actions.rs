@@ -474,9 +474,7 @@ impl RulesTxn {
     pub(super) fn actions_step(&mut self, frame: Frame) -> Result<(), String> {
         match frame {
             Frame::EntityTargets { cast } => self.bind_entity_targets(cast)?,
-            Frame::StackTargets { .. } => {
-                return Err("stack targets outside admitted decision algebra".into());
-            }
+            Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
             Frame::PlayerTargets { cast } => {
                 let input = self
                     .rules_mut()
@@ -1230,6 +1228,7 @@ impl RulesTxn {
         }
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
             self.validate_library_reorder_outcome(frame, Some(instruction), outcome)?;
+            self.validate_counter_outcome(frame, outcome)?;
         }
         if self
             .state

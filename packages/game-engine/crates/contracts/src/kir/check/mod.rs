@@ -3,6 +3,7 @@
 use super::*;
 use crate::{FunctioningZone, Instruction, SpellProgram, SpellResolution, SpellTiming};
 
+mod counter;
 mod counters;
 mod damage;
 mod destroy;
@@ -982,6 +983,14 @@ impl Walk<'_, '_> {
                 payer,
                 payment,
                 node,
+            } if self.counter_payment(payer, payment, node) => {
+                self.player(payer)?;
+                self.node(node, false)
+            }
+            Node::UnlessPays {
+                payer,
+                payment,
+                node,
             }
             | Node::IfPays {
                 payer,
@@ -1157,6 +1166,8 @@ impl Walk<'_, '_> {
             | Verb::GiveCounters { .. } => {
                 unaudited("keyword action needs a top-level instruction")
             }
+            Verb::Counter { .. } => unaudited("counter requires a direct instruction or payment"),
+            Verb::Regenerate { .. } => unaudited("regeneration needs persistent provenance"),
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
@@ -1257,6 +1268,8 @@ impl Walk<'_, '_> {
                 what,
                 regeneration_forbidden,
             } => self.audit_destroy(what, *regeneration_forbidden),
+            Verb::Counter { what } => self.audit_counter(what),
+            Verb::Regenerate { what } => self.audit_regenerate(what),
             Verb::Move { what, to } => self.audit_move(what, to),
             Verb::Tap { what } => self.audit_tap(what),
             Verb::Untap { what } => self.audit_untap(what),
@@ -1319,9 +1332,7 @@ impl Walk<'_, '_> {
             {
                 Ok(Cell::Attachment)
             }
-            Verb::Regenerate { .. }
-            | Verb::AddMana { .. }
-            | Verb::Counter { .. }
+            Verb::AddMana { .. }
             | Verb::CopyStackObject { .. }
             | Verb::Attach { .. }
             | Verb::ReturnCapturedExile {}
@@ -1419,6 +1430,12 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         Verb::Damage { to, amount, .. } => damage::capabilities(to, amount, out),
         Verb::Destroy { what, .. } => destroy::capabilities(what, out),
+        Verb::Counter { .. } => {
+            out.insert(Capability::CounterStackObjectV1);
+        }
+        Verb::Regenerate { .. } => {
+            out.insert(Capability::RegenerationShieldV1);
+        }
         Verb::Move { what, to } => move_zone::capabilities(what, to, out),
         Verb::Tap { what } => tap::tap_capabilities(what, out),
         Verb::Transform { .. } => {
@@ -1448,10 +1465,8 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         Verb::Scry { .. }
         | Verb::Surveil { .. }
-        | Verb::Regenerate { .. }
         | Verb::AddMana { .. }
         | Verb::Search { .. }
-        | Verb::Counter { .. }
         | Verb::CopyStackObject { .. }
         | Verb::Attach { .. }
         | Verb::ReturnCapturedExile {}

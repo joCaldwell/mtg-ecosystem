@@ -288,6 +288,7 @@ pub enum Capability {
     StackSpellTargetV1,
     StackAbilityTargetV1,
     CounterStackObjectV1,
+    RegenerationShieldV1,
 
     ControlledCreatureSpellCopyV1,
     TapSourceCostV1,

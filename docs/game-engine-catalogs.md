@@ -176,7 +176,9 @@ one. A nested draw draws exactly one fixed card for one player; counted draws
 need a top-level draw instruction for their saved attempts. Token creation and
 temporary effects need persistent leaf provenance, and set damage retains facts
 tied to the top-level cursor. The drain pair and optional target destroy keep
-standalone routes. Control nodes derive capabilities from their leaves;
+standalone routes. Counter targets one announced stack entry and can read its
+spell controller for a fixed generic payment. Regenerate records one source or
+announced permanent. Control nodes derive capabilities from their leaves;
 continuation-based nodes also require `KernelControlV1`, outside the reviewed
 hosting and search sets. A procedure without an audited node and execution path
 rejects during lowering; a new mechanic adds a typed operand, a capability and a
