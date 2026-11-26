@@ -1287,6 +1287,76 @@ impl Strategy<'_> {
             card: o.handle.clone(),
         })
     }
+    /// The face-down actions the pending priority decision offers.
+    fn offered(observation: &Observation, action: &Action<Viewer>) -> bool {
+        observation.decision.as_ref().is_some_and(|d| {
+            d.candidates.iter().any(
+                |c| matches!(c, Candidate::Action { action: offered } if offered == action),
+            )
+        })
+    }
+
+    /// CR 702.37e: turn a face-down permanent this player controls face up
+    /// when the visible mana can pay its morph cost. The controller sees the
+    /// card it controls (CR 708.5).
+    fn turn_face_up(&mut self, observation: &Observation) -> Option<Action<Viewer>> {
+        let v = &observation.view;
+        for o in v.objects.iter().filter(|o| {
+            o.zone == Zone::Battlefield && o.controller == v.viewer && o.face_down
+        }) {
+            let action = Action::TurnFaceUp {
+                object: o.handle.clone(),
+            };
+            let failed = PaymentAction::TurnFaceUp(o.handle.clone());
+            if !Self::offered(observation, &action)
+                || self.memory.payment.failed[usize::from(v.viewer.0)].contains(&failed)
+            {
+                continue;
+            }
+            let Some(cost) = definition(self.catalog, &o.oracle_id)
+                .ok()
+                .and_then(|d| d.face_down.as_ref())
+                .map(|f| f.cost.clone())
+            else {
+                continue;
+            };
+            let Some(plan) = mana_policy::plan_for(self.catalog, v, &cost, None) else {
+                continue;
+            };
+            self.memory.payment.announced_cost = Some(cost);
+            self.memory.mana_plan = plan;
+            self.memory.payment.action = Some(failed);
+            return Some(action);
+        }
+        None
+    }
+
+    /// CR 702.37a: cast a morph card from hand face down for {3} when its
+    /// printed cast was not chosen.
+    fn cast_face_down(&mut self, observation: &Observation) -> Option<Action<Viewer>> {
+        let v = &observation.view;
+        let cost = mtg_contracts::FaceDownCast::cast_cost();
+        for o in v.objects.iter().filter(|o| in_viewers_hand(v, o)) {
+            let action = Action::CastFaceDown {
+                card: o.handle.clone(),
+            };
+            let failed = PaymentAction::CastFaceDown(o.handle.clone());
+            if !Self::offered(observation, &action)
+                || self.memory.payment.failed[usize::from(v.viewer.0)].contains(&failed)
+            {
+                continue;
+            }
+            let Some(plan) = mana_policy::plan_for(self.catalog, v, &cost, None) else {
+                continue;
+            };
+            self.memory.payment.announced_cost = Some(cost);
+            self.memory.mana_plan = plan;
+            self.memory.payment.action = Some(failed);
+            return Some(action);
+        }
+        None
+    }
+
     fn reactive_spells_with_game(
         &mut self,
         v: &PermittedView,
@@ -1652,6 +1722,9 @@ impl Strategy<'_> {
                 object: o.handle.clone(),
             });
         }
+        if let Some(r) = self.turn_face_up(observation) {
+            return Ok(r);
+        }
         // Develop mana and death/sacrifice engines before repeatedly sinking
         // mana into commander tax. This uses IR features, never deck membership.
         let engine_card = |d: &Definition| {
@@ -1703,6 +1776,9 @@ impl Strategy<'_> {
                     return Ok(r);
                 }
             }
+        }
+        if let Some(r) = self.cast_face_down(observation) {
+            return Ok(r);
         }
         for o in v.objects.iter().filter(|o| {
             (o.zone == Zone::Battlefield && o.controller == v.viewer)

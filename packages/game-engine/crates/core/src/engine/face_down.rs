@@ -156,7 +156,7 @@ impl RulesTxn {
         self.payment_decision(
             payment.player,
             payment.cost.clone(),
-            Some(payment.object),
+            None,
             payment.stage == FaceUpStage::Mana,
             FACE_UP_USE,
         )
