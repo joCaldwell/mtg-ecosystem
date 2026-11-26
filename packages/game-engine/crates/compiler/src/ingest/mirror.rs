@@ -498,9 +498,15 @@ pub(crate) enum Step {
         replacement: serde_json::Value,
         duration: SourceDuration,
     },
+    ChooseValue {
+        who: PlayerSelector,
+        category: String,
+    },
     AddMana {
         who: PlayerSelector,
         mana: SourceMana,
+        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
+        for_each: Option<serde_json::Value>,
         #[serde(
             default,
             rename = "restriction",
@@ -898,6 +904,10 @@ pub(crate) struct SourceControlPlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "mana", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum SourceMana {
+    ChosenColor {
+        amount: serde_json::Value,
+        choice: serde_json::Value,
+    },
     Choice {
         options: Vec<SourceMana>,
     },

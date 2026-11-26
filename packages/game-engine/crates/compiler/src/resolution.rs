@@ -538,7 +538,7 @@ impl Resolution {
         }))
     }
 
-    pub(super) fn binds_counter_payer(
+    pub(super) fn binds_target_player_selection(
         &self,
         index: usize,
         who: &str,
@@ -886,6 +886,20 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
         Role::Resolved(r) => Some(r),
         Role::Unbound => None,
     };
+    // CR 608.2c, 700.5: both operands read the same preceding color choice.
+    if at.kind == BlockKind::Activated
+        && at.scope.is_none()
+        && matches!(
+            at.path,
+            "/effects/1/steps/0/mana/choice" | "/effects/1/steps/0/mana/amount/colors"
+        )
+        && at.ability.pointer("/effects/0/steps/0/category") == Some(&Value::from("color"))
+        && at.ability.pointer("/effects/1/steps/0/mana/mana") == Some(&Value::from("chosen-color"))
+    {
+        return matches!(resolved, Some(ResolvedRef::StepResult(result))
+            if result.step == "/effects/0/steps/0" && result.role == crate::ast::StepResultRole::Choice
+                && at.ability.pointer("/effects/0/steps/0/effect") == Some(&Value::from("choose-value")));
+    }
     // Rows every operand word shares: a printed selection is an announced
     // target, a bare "you" the block's controller, and a pronoun an
     // announced target or an earlier step's result (CR 601.2c, 608.2c).
@@ -1180,6 +1194,8 @@ fn collect_operands(value: &Value, path: String, out: &mut Vec<String>) {
         Value::Object(object) => {
             if object.get("ref").is_some_and(Value::is_string)
                 || object.get("player").is_some_and(Value::is_string)
+                || (object.get("choice").and_then(Value::as_str) == Some("chosen-value")
+                    && (path.ends_with("/mana/choice") || path.ends_with("/mana/amount/colors")))
             {
                 out.push(path.clone());
             }

@@ -1622,6 +1622,16 @@ impl Walk<'_, '_> {
             {
                 Ok(Cell::Attachment)
             }
+            Verb::AddMana {
+                player,
+                mana: ManaSpec::Color { amount, .. },
+            } if self.env.context == Context::Spell
+                && *player == PlayerExpr::you(Context::Spell)
+                && amount.is_resolution_count() =>
+            {
+                Self::audit_verb_amount(amount)?;
+                Ok(Cell::SpellManaCounted)
+            }
             Verb::AddMana { .. }
             | Verb::CopyStackObject { .. }
             | Verb::Attach { .. }

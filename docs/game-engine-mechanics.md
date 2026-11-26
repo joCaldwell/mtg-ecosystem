@@ -115,40 +115,32 @@ casting or entering transformed and two-part flashback stay rejected.
 
 ## Face-down spells and permanents
 
-Morph and megamorph with a fixed mana cost lower to `Definition::face_down` on
-a single-face permanent card (CR 702.37a-b). From hand, or the command zone for
-a commander, `CastFaceDown` casts it as a creature spell under that spell's
-timing, cost changes and prohibitions, paying {3} plus any tax (CR 702.37c,
-708.4); it is the spell's one alternative cost (CR 118.9a), so no evoke or
-other optional cost is offered, and `Game::quote_face_down_cast_cost` prices
-it as it would lock. It is a separate action, not an optional-cost choice,
-because the card is turned face down before it is put on the stack.
-`Object::face_down` gives the spell, and the permanent it becomes, the
-CR 708.2a copiable values: a colorless 2/2 creature with no name, subtypes,
-mana cost or abilities. Facts captured while face down keep those values.
+Fixed-mana morph and megamorph lower to `Definition::face_down` on single-face
+permanent cards (CR 702.37a-b). `CastFaceDown` casts from hand or the command
+zone as a face-down creature spell, with that spell's timing, prohibitions and
+cost changes; {3} is its one alternative cost (CR 702.37c, 118.9a, 708.4), and
+`Game::quote_face_down_cast_cost` prices it. It is its own action because the
+card turns face down before it is stacked. `Object::face_down` gives the CR
+708.2a values: a colorless 2/2 creature with no name, subtypes, mana cost or
+abilities; captured facts keep them.
 
-`TurnFaceUp` is the controller's special action at priority (CR 116.2b,
-702.37e). It pays the morph cost through the mana window, spending mana as a
-resolution payment, and turns the same object face up. It never enters, and a
-megamorph gains a +1/+1 counter (CR 702.37b, 708.8). A `TurnedFaceUp` source
-trigger fires; a card that is not a creature face up leaves combat (CR 506.4).
-An unpaid cost reverses its mana activations (CR 733.1).
+`TurnFaceUp` is a special action at priority (CR 116.2b, 702.37e). It pays the
+morph cost as a resolution payment does and turns the same object face up
+without entering; megamorph adds a +1/+1 counter (CR 702.37b, 708.8). Its
+`TurnedFaceUp` source trigger fires; a noncreature leaves combat (CR 506.4).
+An unpaid cost reverses its mana (CR 733.1). Counters may outlast face-down
+creature status (CR 122.2).
 
-Only the controller sees the identity (CR 708.5). Other viewers see no Oracle
-ID, faces or stack mana value. Leaving the hand face down consumes known hand
-copies as a hidden departure. Any other zone change turns the card face up
-and reveals it (CR 708.9): public zones show it, a hand gains a known copy and
-a library a known position. Every face-down card is shown when the game ends.
-A departing owner's face-down cards are revealed to every seat
-(`PermittedView::revealed_face_down`). A decision offering a face-down object
-orders object candidates by zone, entry timestamp and stack position, never
-by card. A card with morph that was a face-down creature may keep counters
-after turning face up (CR 122.2). Snapshots reject face-down objects outside the stack or battlefield, or
-without morph.
+Only the controller sees the identity (CR 708.5). Object candidates of a
+decision offering a face-down object follow zone, entry timestamp and stack
+position, never card. A face-down hand departure consumes known copies as a
+hidden one. Other zone changes, a departing owner
+(`PermittedView::revealed_face_down`) and game end reveal it (CR 708.9).
+Snapshots reject face-down objects off the stack and battlefield or without
+morph.
 
-Support is provisional at `Executes`. Rejected: disguise (ward), nonmana or X
-morph costs, "as turned face up", turned-face-up events for other objects,
-manifest and cloak.
+Provisional at `Executes`. Rejected: disguise (ward), nonmana or X morph
+costs, "as turned face up", others' turned-face-up events, manifest and cloak.
 
 
 ## Commander and hidden information
@@ -216,7 +208,15 @@ through a nested activation or a life payment (CR 119.4), and one production:
 fixed symbols, any color, commander color, N mana of one color chosen from a
 printed list, one of the printed fixed bundles, up to five mana in any
 combination of colors, or one mana of a type the controller's or opponents'
-lands could produce. A bundle is chosen in full as the ability resolves.
+lands could produce. A printed mana bundle of one type may multiply by an
+audited battlefield or public graveyard count after the activation costs
+(CR 605.3b, 608.2h). The planner applies earlier simulated taps and the source's own tap
+before reading the count from the permitted view. When quoting a spell with
+convoke or improvise, a reserved permanent contributes only if it matches
+both before and after its reserved tap. Mana production precedes those costs
+(CR 601.2g–h). A zero count adds no mana.
+A bundle is chosen in full as the ability resolves. A devotion choice offers
+all five colors, then reads devotion to the chosen color (CR 700.5).
 CR 106.7 is the least fixed point over battlefield lands, each read
 relative to its own controller from intrinsic, printed and granted abilities,
 ignoring costs and object order. If a departure leaves no defined type while
@@ -522,6 +522,8 @@ partitions and ordering several cards after shuffling remain unsupported.
 **Library placement and shuffle** can put a single announced permanent on the
 bottom of its owner's library, retain the existing single-creature top
 placement, or shuffle a single announced permanent into its owner's library.
+A spell may declare that mandatory permanent target in a separate sentence.
+The shuffle and its owner both use that occurrence (CR 115.1, 601.2c, 608.2b).
 The shuffle still happens if the owner's commander goes to the command zone
 instead. An audited follow-up lets the target's owner draw two cards. A spell
 can shuffle itself into its owner's library as its final instruction. It

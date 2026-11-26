@@ -1094,6 +1094,21 @@ impl Strategy<'_> {
                             .chain(&o.granted_mana)
                             .map(|a| match &a.production {
                                 mtg_contracts::ManaProduction::Fixed { symbols } => symbols.len(),
+                                mtg_contracts::ManaProduction::ChooseDevotion {} => {
+                                    [Color::W, Color::U, Color::B, Color::R, Color::G]
+                                        .into_iter()
+                                        .filter_map(|color| {
+                                            super::mana_policy::devotion(v, v.viewer, color)
+                                                .to_u32()
+                                        })
+                                        .max()
+                                        .unwrap_or_default()
+                                        as usize
+                                }
+                                mtg_contracts::ManaProduction::Counted { factor, .. } => v
+                                    .objects
+                                    .len()
+                                    .saturating_mul(factor.to_u32().unwrap_or(1) as usize),
                                 mtg_contracts::ManaProduction::Bundles { options } => {
                                     options.iter().map(Vec::len).max().unwrap_or_default()
                                 }
