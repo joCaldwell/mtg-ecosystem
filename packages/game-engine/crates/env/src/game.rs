@@ -231,7 +231,8 @@ impl Lane {
                         )
                         && !o.view.stack.is_empty());
                 let answer = if auto {
-                    self.memory.choose(c, Policy::Develop, &o)?
+                    self.memory
+                        .choose_with_game(c, Policy::Develop, &o, &self.game)?
                 } else {
                     match Composer::compose(
                         d,

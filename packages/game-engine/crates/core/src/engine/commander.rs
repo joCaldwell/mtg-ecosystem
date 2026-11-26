@@ -109,9 +109,10 @@ impl RulesTxn {
         source: ObjectId,
         caster: PlayerId,
         from: Zone,
+        x: Option<&Quantity>,
     ) -> Result<ManaCost, String> {
         let lock = self.cost_lock_inputs(source, caster, from)?;
-        self.construct_spell_cost(source, from, None, &[], None, &lock)
+        self.construct_spell_cost(source, from, x, &[], None, &lock)
     }
 
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next

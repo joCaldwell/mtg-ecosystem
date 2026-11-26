@@ -15,8 +15,10 @@ pub(super) fn affinity(keyword: &SourceKeyword, text: &str) -> Result<StaticAbil
     };
     use serde_json::json;
 
-    let reject = || unsupported("keyword", "keyword:affinity:parameter");
-    let quality = text.strip_prefix("Affinity for ").ok_or_else(reject)?;
+    let quality = text
+        .strip_prefix("Affinity for ")
+        .ok_or_else(|| unsupported("keyword", "keyword:affinity:parameters"))?;
+    let reject = || unsupported("keyword", format!("keyword:affinity:parameters:{quality}"));
     let filter = keyword.filter.as_ref().ok_or_else(reject)?;
     let atoms = match quality {
         "artifacts" if *filter == json!({"types":["artifact"]}) => {
@@ -1153,5 +1155,31 @@ mod tests {
             amount: None,
         };
         assert!(enchant(&constrained, "Enchant creature").is_err());
+    }
+    #[test]
+    fn affinity_rejects_unsupported_parameters_by_name() {
+        use serde_json::json;
+        for (quality, filter) in [
+            (
+                "snow lands",
+                json!({"supertypes":["snow"],"types":["land"]}),
+            ),
+            ("planeswalkers", json!({"types":["planeswalker"]})),
+            ("Affinity", json!({"keyword":"affinity"})),
+        ] {
+            let keyword = SourceKeyword {
+                keyword: "affinity".into(),
+                cost: None,
+                filter: Some(filter),
+                protection_from: None,
+                amount: None,
+            };
+            let error = affinity(&keyword, &format!("Affinity for {quality}")).unwrap_err();
+            assert!(error.unsupported);
+            assert_eq!(
+                error.reason,
+                format!("keyword:affinity:parameters:{quality}")
+            );
+        }
     }
 }
