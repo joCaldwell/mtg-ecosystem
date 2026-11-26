@@ -19,16 +19,16 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    69,
+    70,
     "e6fc691d8e322a10c906e80c8d8bdd3bce43426f7847649059e60acb33255a63",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    104,
-    "a2ca5fafcb3f74dbbc3958bbb304e77c46c1ba50cc01c36903913ad505037e94",
+    105,
+    "550031783d82e861a9710ce53ee509ffb81b071694adae37e2d4a1e95674f053",
 );
 const WORK_PIN: (u32, &str) = (
-    56,
-    "b33a47e5d01c6830ba59d896dd6b8a6cefaee639ad545e4ca709fe29258e78db",
+    58,
+    "39506ea16df427a3bae68c471c200f940293aaf26a571db3110859e29094e92f",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -448,6 +448,90 @@ fn chosen_cost_shapes() -> Vec<Game> {
     samples
 }
 
+/// CR 602.5: a conditioned mana ability's receipt in an open mana window,
+/// then the conditioned stack activation it paid for, each with the counts
+/// read as the activation began.
+fn activation_condition_shapes() -> Vec<Game> {
+    let you = PlayerExpr::you(Context::Activated);
+    let controls = |kind| mtg_contracts::kir::Cond::Compare {
+        left: Amount::Count {
+            set: SetExpr::battlefield(mtg_contracts::kir::Pred(vec![
+                mtg_contracts::kir::Atom::Type { kind },
+                mtg_contracts::kir::Atom::ControlledBy {
+                    player: you.clone(),
+                },
+            ])),
+        },
+        cmp: mtg_contracts::kir::Cmp::AtLeast,
+        right: Amount::fixed(1),
+    };
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for d in &mut catalog.definitions {
+        if d.name == "Forest" {
+            d.activated.push(ActivatedAbility {
+                cost: ActivationCost::Mana {
+                    cost: ManaCost {
+                        generic: 2.into(),
+                        colored: vec![],
+                    },
+                },
+                functioning_zone: FunctioningZone::Battlefield,
+                restriction: Some(ActivationRestriction {
+                    window: None,
+                    once_each_turn: false,
+                    condition: Some(controls(CardKind::Land)),
+                }),
+                modal: None,
+                program: SpellProgram::instructions(SpellTiming::Instant)
+                    .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
+            });
+        } else if d.name == "Sol Ring" {
+            d.mana_abilities[0].condition = Some(controls(CardKind::Artifact));
+        } else {
+            continue;
+        }
+        d.source_labels = None;
+        d.capabilities = d.requirements();
+    }
+    let prepared = Board::new(catalog, "snapshot-activation-condition")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 0, 0, false)
+        .libraries("Forest", 2)
+        .prepare();
+    let mut game = Game::new(prepared);
+    let forest = Driver::object(&game, 0);
+    let ring = Driver::object(&game, 1);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: forest,
+            ability: 0,
+        },
+    );
+    let d = Driver::request(&mut game, u64::MAX);
+    let source = d
+        .index(&Candidate::Action {
+            action: Action::ActivateMana { object: ring },
+        })
+        .unwrap();
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source },
+        },
+    );
+    Driver::request(&mut game, u64::MAX);
+    let window = game.fork();
+    Driver::pay(&mut game, &[]);
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Priority
+    );
+    vec![window, game]
+}
+
 /// Intervening comparisons carry one of three measured values in the saved
 /// resolution check. Substitute each variant to fingerprint its wire shape.
 fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
@@ -515,6 +599,81 @@ fn suspended_proliferate() -> Game {
     game
 }
 
+/// A stack target offer with two public regeneration shields. The first
+/// shield can be projected while the second still keeps work suspended.
+fn stack_target_and_shields() -> Game {
+    use mtg_contracts::kir::{Ref, SetExpr, Verb};
+
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for (name, domain, verb) in [
+        (
+            "Unsummon",
+            TargetDomain::BattlefieldCreature,
+            Verb::Regenerate {
+                what: SetExpr::target(0),
+            },
+        ),
+        (
+            "Giant Growth",
+            TargetDomain::StackSpell,
+            Verb::Counter {
+                what: Ref::Target { slot: 0 },
+            },
+        ),
+    ] {
+        let spell = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == name)
+            .unwrap();
+        spell.source_labels = None;
+        let program = spell.spell.as_mut().unwrap();
+        program.targets[0].domain = domain;
+        program.instructions = vec![Instruction::act(verb, 0)];
+        spell.capabilities = spell.requirements();
+    }
+    let mut board =
+        Board::new(catalog, "formats-stack-target-and-shields").step(TurnStep::PrecombatMain);
+    for _ in 0..3 {
+        board = board.permanent_or_hand("Unsummon", 0, 0, true);
+    }
+    board = board
+        .permanent_or_hand("Giant Growth", 0, 0, true)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false);
+    for _ in 0..3 {
+        board = board.permanent_or_hand("Island", 0, 0, false);
+    }
+    let mut game = Game::new(board.prepare());
+    let bear = Driver::object(&game, 4);
+    for card in 0..3 {
+        Driver::cast(&mut game, CardId(card));
+        Driver::pick_object(&mut game, bear);
+        Driver::pay(&mut game, &[6 + card]);
+        if card < 2 {
+            for _ in game.live_players() {
+                Driver::pass(&mut game);
+            }
+        }
+    }
+    Driver::cast(&mut game, CardId(3));
+    let offer = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(
+        offer.candidates.as_slice(),
+        [Candidate::Stack { .. }]
+    ));
+    assert_eq!(game.state.rules.effects.len(), 2);
+    game
+}
+
+fn pending_stack_target() -> Game {
+    let mut game = stack_target_and_shields();
+    let offer = Driver::request(&mut game, u64::MAX);
+    let answer = offer.pick_one(&offer.candidates[0]).unwrap();
+    game.respond(offer.player, offer.id, answer).unwrap();
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -524,9 +683,11 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            pending_stack_target(),
         ])
         .chain(mana_riders())
         .chain(chosen_cost_shapes())
+        .chain(activation_condition_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())
@@ -562,6 +723,22 @@ fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
             }
         }
     }
+    let game = stack_target_and_shields();
+    let units = 6 + game.state.rules.objects.len() + game.state.rules.stack.len();
+    let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(0), Budget::new(units as u64))
+    else {
+        panic!("observation should suspend after the first regeneration shield");
+    };
+    let raw = game.save_work(&work).unwrap();
+    let saved: Value = serde_json::from_str(&raw).unwrap();
+    let builder = &saved["data"]["task"]["builder"];
+    assert_eq!(builder["decision"]["candidates"][0]["candidate"], "stack");
+    assert_eq!(
+        builder["view"]["effects"][0]["effect"],
+        "regeneration_shield"
+    );
+    game.restore_work(&raw).unwrap();
+    samples.push(raw);
     assert!(!samples.is_empty(), "no suspended work to fingerprint");
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

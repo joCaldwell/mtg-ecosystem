@@ -591,6 +591,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);
+        if a.condition.is_some() {
+            cells.insert(Cell::ActivationRestriction);
+        }
     }
     // A surface with no executor (for example a life payment on a stack
     // activation's composite cost) earns no tier, so no cell qualifies it.

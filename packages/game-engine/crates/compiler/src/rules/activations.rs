@@ -274,6 +274,7 @@ pub(crate) fn lower_mana_ability(
     }
     Ok(Some(ManaAbility {
         restriction: restriction.map(|_| ManaActivationRestriction::OnceEachTurn),
+        condition: None,
         costs,
         production,
         riders,
