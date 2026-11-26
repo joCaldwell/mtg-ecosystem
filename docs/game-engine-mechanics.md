@@ -287,9 +287,13 @@ Each surface here is its own `Executes`-only cell in `kir::cell_tiers`.
 
 ### Targets, selection and tap/untap
 
-Battlefield targets check control, current tapped status and fixed bounds on
-derived power, toughness or mana value at announcement and resolution (CR
-109.5, 601.2c, 608.2b); an absent tapped filter means no restriction. A
+Battlefield targets use one legality check for castability, announcement and
+resolution (CR 601.2c, 608.2b). Criteria can combine card types, subtypes
+(including changeling), supertypes, colors, supported keywords, token status,
+control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
+An ability with one target occurrence can exclude its source with “another.”
+Own-graveyard routes check their zone, owner and printed criteria against the
+announced incarnation (CR 400.7). Other graveyard scopes reject. A
 certified "it" or "that" can reuse the block's sole announced incarnation, and
 "this [permanent]" names the current source for tap, untap and owner-zone moves
 (CR 400.7).

@@ -836,7 +836,7 @@ impl GameTestkit for Game {
         player: PlayerId,
         source: &Characteristics,
     ) -> bool {
-        RulesTxn::has_target_domain(self, program, player, source)
+        RulesTxn::has_target_domain(self, program, player, source, None)
     }
     fn history_charge(&self) -> usize {
         RulesTxn::history_charge(self).expect("valid fixture continuation")
@@ -886,7 +886,10 @@ impl GameTestkit for Game {
         controller: PlayerId,
         f: &PermanentFilter,
     ) -> bool {
-        RulesTxn::matches_permanent_filter(self, object, controller, f)
+        self.current(object).is_ok_and(|current| {
+            crate::query::matches_permanent_filter(&self.object_facts(current), controller, f)
+                .is_yes()
+        })
     }
 
     fn mixed_mana_choices(
@@ -953,7 +956,7 @@ impl GameTestkit for Game {
         controller: PlayerId,
         spec: &TargetSpec,
     ) -> bool {
-        RulesTxn::permanent_target_legal(self, object, controller, spec)
+        RulesTxn::permanent_target_legal(self, object, controller, None, spec)
     }
     fn permitted_decision_context(
         &self,
