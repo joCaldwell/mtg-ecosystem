@@ -207,13 +207,15 @@ pub fn run(
                 let response_result = (|| -> Result<Observation, String> {
                     let observation =
                         observe(&game, r.player, quantum, &mut work, &mut query_calls)?;
-                    let response = strategy.choose(&observation).map_err(|e| {
-                        format!(
-                            "turn{} decision{decisions} {:?}: {e}",
-                            game.turn().number,
-                            observation.decision
-                        )
-                    })?;
+                    let response = strategy
+                        .choose_with_game(&observation, &game)
+                        .map_err(|e| {
+                            format!(
+                                "turn{} decision{decisions} {:?}: {e}",
+                                game.turn().number,
+                                observation.decision
+                            )
+                        })?;
                     let token = observation
                         .decision
                         .as_ref()
