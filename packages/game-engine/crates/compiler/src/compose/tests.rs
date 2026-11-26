@@ -279,30 +279,30 @@ fn keyword_rows_reject_parameters_and_unknown_keywords() {
     );
 }
 
-const R4: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
-const STRIP: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-strip-mine.json");
+const R5: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json");
+const STRIP: &str = include_str!("../../../../tests/fixtures/phase1-r5/compose-strip-mine.json");
 const SEAL: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-seal-of-primordium.json");
-const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-piranha-marsh.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-seal-of-primordium.json");
+const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r5/compose-piranha-marsh.json");
 const DRAGON: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-destructor-dragon.json");
-const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-bake-into-a-pie.json");
-const CREW: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-hire-a-crew.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-destructor-dragon.json");
+const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r5/compose-bake-into-a-pie.json");
+const CREW: &str = include_str!("../../../../tests/fixtures/phase1-r5/compose-hire-a-crew.json");
 const WITNESSES: [&str; 9] = [
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-marble-chalice.json"),
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-rishadan-port.json"),
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-marble-chalice.json"),
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-rishadan-port.json"),
     STRIP,
     SEAL,
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-kamahl-pit-fighter.json"),
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-icatian-priest.json"),
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-kamahl-pit-fighter.json"),
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-icatian-priest.json"),
     MARSH,
     DRAGON,
     PIE,
 ];
 
 fn composed(raw: &str) -> Definition {
-    let CompileResult::Lowered { definition } = compile(R4, raw) else {
-        panic!("composed frozen source must lower: {:?}", compile(R4, raw));
+    let CompileResult::Lowered { definition } = compile(R5, raw) else {
+        panic!("composed frozen source must lower: {:?}", compile(R5, raw));
     };
     assert!(definition.composed);
     assert!(
@@ -351,7 +351,7 @@ fn lowering(found: &Blockers) -> Option<&Failure> {
 
 #[test]
 fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
-    let archive = accepted_manifest(R4).unwrap();
+    let archive = accepted_manifest(R5).unwrap();
     // A card-level residual: the resolution is not complete.
     let unbound = |row: &mut serde_json::Value| {
         row["resolution"]["complete"] = json!(false);
@@ -516,7 +516,7 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
 
 #[test]
 fn printed_text_and_ast_must_agree_on_choices_words_and_numbers() {
-    let rejected = |raw: &str| !matches!(compile(R4, raw), CompileResult::Lowered { .. });
+    let rejected = |raw: &str| !matches!(compile(R5, raw), CompileResult::Lowered { .. });
     let reworded = |raw: &str, from: &str, to: &str| {
         changed(raw, |row| {
             let text = row["source"]["oracle_text"]
@@ -568,10 +568,10 @@ fn printed_text_and_ast_must_agree_on_choices_words_and_numbers() {
 
 #[test]
 fn changed_sources_reject_instead_of_dropping_or_guessing() {
-    let rejected = |raw: &str| !matches!(compile(R4, raw), CompileResult::Lowered { .. });
-    let composition_rejects = |raw: &str| lower(accepted_manifest(R4).unwrap(), raw).is_err();
+    let rejected = |raw: &str| !matches!(compile(R5, raw), CompileResult::Lowered { .. });
+    let composition_rejects = |raw: &str| lower(accepted_manifest(R5).unwrap(), raw).is_err();
     for witness in [DRAGON, MARSH] {
-        assert!(lower(accepted_manifest(R4).unwrap(), witness).is_ok());
+        assert!(lower(accepted_manifest(R5).unwrap(), witness).is_ok());
     }
     // An unconsumed step field.
     assert!(rejected(&changed(STRIP, |row| {
@@ -614,8 +614,8 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
             .unwrap()
             .pop();
     });
-    assert!(lower(accepted_manifest(R4).unwrap(), CREW).is_ok());
-    assert!(lower(accepted_manifest(R4).unwrap(), &shortened).is_err());
+    assert!(lower(accepted_manifest(R5).unwrap(), CREW).is_ok());
+    assert!(lower(accepted_manifest(R5).unwrap(), &shortened).is_err());
     assert!(rejected(&changed(SEAL, |row| {
         row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"]
             .as_array_mut()
@@ -657,7 +657,7 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
     // symbols are announced; several X, monocolored hybrid and colorless
     // Phyrexian symbols have no runtime cost.
     match compile(
-        R4,
+        R5,
         &changed(PIE, |row| {
             row["source"]["mana_cost"] = json!("{X}{B/G}{B/P}")
         }),
@@ -701,7 +701,7 @@ fn timing_table_lowers_printed_sorcery_speed() {
     // The restriction is one more printed sentence; without it the row's
     // text and AST disagree.
     assert!(!matches!(
-        compile(R4, &changed(SEAL, restrict)),
+        compile(R5, &changed(SEAL, restrict)),
         CompileResult::Lowered { .. }
     ));
     let sorcery = changed(SEAL, |row| {
@@ -717,7 +717,7 @@ fn timing_table_lowers_printed_sorcery_speed() {
             json!({"start":printed.len() + 1,"end":text.len(),"fields":["/costs","/restriction"]}),
         );
     });
-    let CompileResult::Lowered { definition } = compile(R4, &sorcery) else {
+    let CompileResult::Lowered { definition } = compile(R5, &sorcery) else {
         panic!("timing row must lower")
     };
     assert!(definition.composed);
@@ -872,16 +872,16 @@ fn timing_table_lowers_printed_sorcery_speed() {
     ));
 }
 
-/// Archive R4 negative mutations: each changes the resolution, the printed
+/// Archive R5 negative mutations: each changes the resolution, the printed
 /// text or a span without the other side agreeing, and each rejects with the
 /// check that caught it rather than lowering something else.
 #[test]
-fn r4_resolution_mutations_reject() {
+fn r5_resolution_mutations_reject() {
     const CHALICE: &str =
-        include_str!("../../../../tests/fixtures/phase1-r4/compose-marble-chalice.json");
+        include_str!("../../../../tests/fixtures/phase1-r5/compose-marble-chalice.json");
     const SAGA: &str =
-        include_str!("../../../../tests/fixtures/phase1-r4/burn-burn-tree-and-fern.json");
-    let archive = accepted_manifest(R4).unwrap();
+        include_str!("../../../../tests/fixtures/phase1-r5/burn-burn-tree-and-fern.json");
+    let archive = accepted_manifest(R5).unwrap();
     let path = |raw: &str| lower(archive, raw).map(|_| ()).unwrap_err().path;
     assert!(lower(archive, CHALICE).is_ok());
     // A swapped controller: "you" in an activated ability is its controller.
@@ -958,23 +958,23 @@ fn r4_resolution_mutations_reject() {
 }
 
 const BONES: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-read-the-bones.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-read-the-bones.json");
 const BAUBLE: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-wayfarers-bauble.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-wayfarers-bauble.json");
 const GALVANIC: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/compose-galvanic-blast.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/compose-galvanic-blast.json");
 
-/// Composition is the only pipeline: a record without an Archive R4
+/// Composition is the only pipeline: a record without an Archive R5
 /// resolution is rejected before any block is read, never lowered by a
 /// diagnostic-graph fallback.
 #[test]
-fn records_without_an_r4_resolution_reject() {
-    let pre_r4 = changed(STRIP, |row| {
+fn records_without_an_r5_resolution_reject() {
+    let without_resolution = changed(STRIP, |row| {
         row.as_object_mut().unwrap().remove("resolution");
         row.as_object_mut().unwrap().remove("resolutionSha256");
     });
     assert!(matches!(
-        compile(R4, &pre_r4),
+        compile(R5, &without_resolution),
         CompileResult::Unsupported { ref path, .. } if path == "resolution"
     ));
 }
@@ -991,7 +991,7 @@ fn library_procedures_lower_to_executes_only_cells() {
             vec![Cell::SearchController, Cell::ShuffleController],
         ),
     ] {
-        let CompileResult::Lowered { definition } = compile(R4, raw) else {
+        let CompileResult::Lowered { definition } = compile(R5, raw) else {
             panic!("library procedure did not lower");
         };
         assert_eq!(definition_tiers(&definition).unwrap(), Tiers::EXECUTES);
@@ -1007,7 +1007,7 @@ fn library_procedures_lower_to_executes_only_cells() {
 #[test]
 fn rider_blocks_reject_without_claiming_unaccounted_text() {
     assert!(matches!(
-        compile(R4, GALVANIC),
+        compile(R5, GALVANIC),
         CompileResult::Unsupported { ref path, .. } if path == "lines"
     ));
     let truncated = changed(GALVANIC, |row| {
@@ -1015,7 +1015,7 @@ fn rider_blocks_reject_without_claiming_unaccounted_text() {
         row["source"]["oracle_text"] = format!("{text}\nDraw a card.").into();
     });
     assert!(matches!(
-        compile(R4, &truncated),
+        compile(R5, &truncated),
         CompileResult::Invalid { ref path, .. } if path == "lines"
     ));
 }
@@ -1025,8 +1025,8 @@ fn rider_blocks_reject_without_claiming_unaccounted_text() {
 /// archived edge that names another producer, role or slot, or a deleted
 /// edge, rejects instead of being read by shape.
 #[test]
-fn contradictory_or_missing_r4_edges_reject() {
-    assert!(matches!(compile(R4, BAUBLE), CompileResult::Lowered { .. }));
+fn contradictory_or_missing_r5_edges_reject() {
+    assert!(matches!(compile(R5, BAUBLE), CompileResult::Lowered { .. }));
     let refs = |row: &mut serde_json::Value| -> serde_json::Value {
         row["resolution"]["faces"][0]["blocks"][0]["refs"].clone()
     };
@@ -1041,7 +1041,7 @@ fn contradictory_or_missing_r4_edges_reject() {
             row["resolution"]["faces"][0]["blocks"][0]["refs"] = entries;
         })
     };
-    let rejected = |raw: &str| matches!(compile(R4, raw), CompileResult::Unsupported { ref path, .. } if path == "resolution");
+    let rejected = |raw: &str| matches!(compile(R5, raw), CompileResult::Unsupported { ref path, .. } if path == "resolution");
     // A later producer, the wrong role and a step that produces nothing.
     assert!(rejected(&edge(
         &|e| e["ref"]["step"] = json!("/effects/0/steps/2/for")
@@ -1080,7 +1080,7 @@ fn contradictory_or_missing_r4_edges_reject() {
         e["evaluated"] = json!("selection");
     })));
     // A printed target the resolution assigns another slot.
-    assert!(matches!(compile(R4, SEAL), CompileResult::Lowered { .. }));
+    assert!(matches!(compile(R5, SEAL), CompileResult::Lowered { .. }));
     let slot = changed(SEAL, |row| {
         row["resolution"]["faces"][0]["blocks"][0]["refs"]
             .as_array_mut()
@@ -1094,16 +1094,16 @@ fn contradictory_or_missing_r4_edges_reject() {
 
 #[test]
 fn explicit_nulls_reject_under_their_field_before_any_decoder() {
-    let code = |raw: &str| match compile(R4, raw) {
+    let code = |raw: &str| match compile(R5, raw) {
         CompileResult::Unsupported { path, reason } => {
             crate::coverage::reason_code(&path, &reason, &serde_json::Value::Null)
         }
         other => panic!("{other:?}"),
     };
-    const UNSUMMON: &str = include_str!("../../../../tests/fixtures/phase1-r4/unsummon.json");
+    const UNSUMMON: &str = include_str!("../../../../tests/fixtures/phase1-r5/unsummon.json");
     for witness in [MARSH, UNSUMMON] {
         assert!(matches!(
-            compile(R4, witness),
+            compile(R5, witness),
             CompileResult::Lowered { .. }
         ));
     }
@@ -1134,23 +1134,23 @@ fn explicit_nulls_reject_under_their_field_before_any_decoder() {
     }
 }
 
-// Wave W5 control (CR 118.12, 608.2c-d): frozen R4 witnesses.
+// Wave W5 control (CR 118.12, 608.2c-d): frozen R5 witnesses.
 const RHYSTIC_STUDY: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/53236dd7-845a-444c-96d5-f41ed7325d8f.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/53236dd7-845a-444c-96d5-f41ed7325d8f.json");
 const WOODEN_SPHERE: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/0bd8917c-bec4-4603-bc3f-8e0c2afae56a.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/0bd8917c-bec4-4603-bc3f-8e0c2afae56a.json");
 const SOULS_ATTENDANT: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/045a9d3d-c20d-427f-a77b-0bffc6f55526.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/045a9d3d-c20d-427f-a77b-0bffc6f55526.json");
 const ROADSIDE_RELIQUARY: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/2fb13687-0518-4ba0-a5ae-dd609464b026.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/2fb13687-0518-4ba0-a5ae-dd609464b026.json");
 const AESI: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/6511f317-bd38-46d0-b800-7125a3f420da.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/6511f317-bd38-46d0-b800-7125a3f420da.json");
 const SCHOLAR_OF_STARS: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/0753aee4-33db-48c5-9854-16a9d91535b2.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/0753aee4-33db-48c5-9854-16a9d91535b2.json");
 const MIRE_KAVU: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/0bc58096-7925-4870-bb95-58cce51ea8e7.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/0bc58096-7925-4870-bb95-58cce51ea8e7.json");
 const TEMPORAL_MACHINATIONS: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/f0adab66-c3fe-4989-b7c8-ab7bdc7f0fd1.json");
+    include_str!("../../../../tests/fixtures/phase1-r5/f0adab66-c3fe-4989-b7c8-ab7bdc7f0fd1.json");
 
 /// A newly opened control surface earns `Executes` and nothing above it.
 fn executes_only(definition: &Definition) {
@@ -1251,7 +1251,7 @@ fn printed_may_unless_and_if_lower_to_kernel_control_nodes() {
 
 #[test]
 fn control_without_its_printed_clause_or_with_an_unread_condition_rejects() {
-    let code = |raw: &str| match compile(R4, raw) {
+    let code = |raw: &str| match compile(R5, raw) {
         CompileResult::Unsupported { path, reason } => {
             crate::coverage::reason_code(&path, &reason, &serde_json::Value::Null)
         }
@@ -1273,7 +1273,7 @@ fn control_without_its_printed_clause_or_with_an_unread_condition_rejects() {
     // A payment no "if you do" reads is no control construct.
     assert!(matches!(
         compile(
-            R4,
+            R5,
             &changed(WOODEN_SPHERE, |row| {
                 ast(row)[0]["steps"][0]
                     .as_object_mut()
@@ -1299,7 +1299,7 @@ fn control_without_its_printed_clause_or_with_an_unread_condition_rejects() {
     );
 }
 
-/// Rewrite one reference entry of block `block` in the R4 resolution.
+/// Rewrite one reference entry of block `block` in the R5 resolution.
 fn reresolved(raw: &str, block: usize, path: &str, resolved: serde_json::Value) -> String {
     changed(raw, |row| {
         let refs = row["resolution"]["faces"][0]["blocks"][block]["refs"]
@@ -1311,7 +1311,7 @@ fn reresolved(raw: &str, block: usize, path: &str, resolved: serde_json::Value) 
 }
 
 fn rejection(raw: &str) -> String {
-    match compile(R4, raw) {
+    match compile(R5, raw) {
         CompileResult::Unsupported { path, reason } => {
             crate::coverage::reason_code(&path, &reason, &serde_json::Value::Null)
         }
@@ -1454,7 +1454,7 @@ fn payers_and_choosers_bind_exactly_the_printed_player() {
     assert_eq!(rejection(&other), "compose.control:optional_chooser");
 }
 
-/// CR 603.4: R4 certifies "When this creature enters, if you control an
+/// CR 603.4: R5 certifies "When this creature enters, if you control an
 /// artifact," as one header span naming `/trigger` and `/condition`. The
 /// printed guards accept it, and the block reaches the trigger lowerer's own
 /// intervening-if decision instead of a resolution-only `If`.
@@ -1496,7 +1496,7 @@ fn a_certified_trigger_header_with_its_condition_reaches_the_trigger_decision() 
         row["faces"][0]["result"]["lines"][0]["ability"] = ability.clone();
     });
     assert!(!matches!(
-        compile(R4, &dropped),
+        compile(R5, &dropped),
         CompileResult::Lowered { .. }
     ));
 }

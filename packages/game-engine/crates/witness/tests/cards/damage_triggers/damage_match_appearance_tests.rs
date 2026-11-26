@@ -5,13 +5,13 @@ use super::*;
 
 fn prepared() -> Prepared {
     let mut c = FixtureCatalog::Witness.get().clone();
-    let header = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    let header = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json");
     for raw in [
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
+            "../../../../../tests/fixtures/phase1-r5/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
         ),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/4caa8e68-e599-416f-b839-3d009569ff29.json"
+            "../../../../../tests/fixtures/phase1-r5/4caa8e68-e599-416f-b839-3d009569ff29.json"
         ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(header, raw)

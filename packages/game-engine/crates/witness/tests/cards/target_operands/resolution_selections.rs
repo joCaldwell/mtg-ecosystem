@@ -7,7 +7,7 @@ macro_rules! frozen {
     ($id:literal) => {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../tests/fixtures/phase1-r4/",
+            "/../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -557,7 +557,7 @@ fn it_reuses_the_certified_target_for_untap_and_keyword_grants() {
 fn growth_spiral_rejects_its_private_hand_choice() {
     let raw = frozen!("34bcc217-dd91-45a0-90d7-a94d02f1f317");
     assert!(matches!(
-        mtg_witness::compile(mtg_witness::R4_MANIFEST, raw),
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, raw),
         mtg_compiler::CompileResult::Unsupported { reason, .. } if reason.contains("ref_filter")
     ));
 }

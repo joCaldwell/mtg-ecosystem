@@ -1,4 +1,4 @@
-//! "[One] for each [filter]" from exact frozen R4 source on private boards:
+//! "[One] for each [filter]" from exact frozen R5 source on private boards:
 //! the count is the number of matching objects as the step is performed,
 //! counted once (CR 608.2h). A counted draw is a sequence of single draws
 //! (CR 121.2) whose count drawing cannot change. Every resolution is
@@ -11,7 +11,7 @@ use mtg_contracts::kir::{Cell, Tiers, definition_tiers};
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../../tests/fixtures/phase1-r4/",
+            "../../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -24,7 +24,7 @@ const GRIM_FLOWERING: &str = record!("65428247-b386-410c-91b7-81dd278c0927");
 const KEEP_WATCH: &str = record!("847b5be5-cb0c-4857-bcd9-c5cfe55fdaeb");
 
 fn lowered(raw: &str) -> Definition {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("frozen for-each witness failed: {result:?}");
     };

@@ -1,11 +1,11 @@
-//! Frozen R4 witnesses for CR 608.2b, 701.6, 701.19, 702.34a and 704.5f–h.
+//! Frozen R5 witnesses for CR 608.2b, 701.6, 701.19, 702.34a and 704.5f–h.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_core::testkit::*;
 
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -29,7 +29,7 @@ fn board() -> Board {
         record!("e4a6c421-bef1-4360-a2dc-ae9c61d86b2f"), // Welding Jar
         record!("b81f041d-98db-4408-9472-c483e4a502bc"), // Terror
     ] {
-        match mtg_witness::compile(mtg_witness::R4_MANIFEST, raw) {
+        match mtg_witness::compile(mtg_witness::R5_MANIFEST, raw) {
             mtg_compiler::CompileResult::Lowered { definition } => {
                 if catalog
                     .definition_by_oracle_id(&definition.oracle_id)

@@ -45,7 +45,7 @@ pub(super) fn changed_source(raw: &str, change: impl FnOnce(&mut serde_json::Val
 
 #[test]
 fn rejects_hash_version_unknown_field_and_incomplete_face() {
-    let raw = include_str!("../../../../tests/fixtures/phase1-r4/unsummon.json");
+    let raw = include_str!("../../../../tests/fixtures/phase1-r5/unsummon.json");
     for bad in [
         raw.replace("\"status\":\"parsed\"", "\"status\":\"unsupported\""),
         raw.replacen(

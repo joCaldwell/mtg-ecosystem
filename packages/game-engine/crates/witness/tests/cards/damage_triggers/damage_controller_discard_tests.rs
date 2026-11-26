@@ -5,9 +5,9 @@ const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 pub(super) fn prepared(empty: bool, commander: bool) -> Prepared {
     let mut c = FixtureCatalog::Witness.get().clone();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-        include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
         include_str!(
-            "../../../../../tests/fixtures/phase1-r4/bdcb7aed-3595-4c7e-b9da-543e92de919a.json"
+            "../../../../../tests/fixtures/phase1-r5/bdcb7aed-3595-4c7e-b9da-543e92de919a.json"
         ),
     ) else {
         panic!("complete Locke Cole source must lower");

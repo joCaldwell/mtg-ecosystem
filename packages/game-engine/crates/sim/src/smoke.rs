@@ -47,7 +47,7 @@ fn short(text: &str) -> String {
 }
 fn smoke_sources() -> impl Iterator<Item = (&'static str, &'static str)> {
     fixtures::FILES.iter().filter_map(|&(path, raw)| {
-        let name = path.strip_prefix("phase1-r4/")?.strip_suffix(".json")?;
+        let name = path.strip_prefix("phase1-r5/")?.strip_suffix(".json")?;
         SOURCE_NAMES.contains(&name).then_some((name, raw))
     })
 }
@@ -58,13 +58,13 @@ fn identity() -> Value {
         "target": BUILD.target,
         "smoke_source_sha256": sha256(include_str!("smoke.rs").as_bytes()),
         "cli_source_sha256": sha256(include_str!("main.rs").as_bytes()),
-        "manifest_sha256": sha256(include_bytes!("../../../tests/fixtures/archive-manifest-phase1-r4.json")),
+        "manifest_sha256": sha256(include_bytes!("../../../tests/fixtures/archive-manifest-phase1-r5.json")),
         "records": smoke_sources().map(|(name, raw)|
             json!({"fixture":name,"sha256":sha256(raw.as_bytes())})).collect::<Vec<_>>()
     })
 }
 fn prepare() -> Result<Prepared, String> {
-    // Compile all five pinned R4 sources before admitting the scenario.
+    // Compile all five pinned R5 sources before admitting the scenario.
     let catalog = mtg_compiler::catalog::embedded_catalog("base")
         .map_err(|e| format!("base catalog: {}", short(&e.to_string())))?;
     let mut sources = smoke_sources()

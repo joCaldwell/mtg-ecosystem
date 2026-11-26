@@ -1,4 +1,4 @@
-//! Changeling and "is every creature type" from exact frozen R4 source.
+//! Changeling and "is every creature type" from exact frozen R5 source.
 //! Pinned CR 205.3d, 205.3m, 604.3, 613.1d, 613.3, 702.73a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{Change, Scope, StaticEffect};
@@ -8,7 +8,7 @@ macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../tests/fixtures/phase1-r4/",
+            "/../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -28,7 +28,7 @@ const CHANGELING_OUTCAST: &str = record!("a61ef0cc-1da9-49f9-b0dc-01cf9f6205be")
 const IRREGULAR_COHORT: &str = record!("c0636d16-671c-4e80-af8c-67d80d2cd979");
 
 fn lowered(raw: &str) -> Definition {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("frozen changeling witness must lower: {result:?}");
     };
@@ -118,7 +118,7 @@ fn changeling_lowers_as_a_characteristic_in_every_zone() {
     assert!(stalactite.static_abilities.iter().any(|a| matches!(&a.effect,
         StaticEffect::Continuous { affects: Scope::Attachment { filter, .. }, changes, condition: None }
             if filter.0.is_empty() && *changes == [Change::AllCreatureTypes])));
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, MASKWOOD_NEXUS);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, MASKWOOD_NEXUS);
     assert!(
         format!("{result:?}").contains("static:modifier:all-creature-types:scope"),
         "{result:?}"

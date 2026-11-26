@@ -55,7 +55,7 @@ fn composed_marker_is_reviewed_but_never_admits_a_mechanic() {
         );
         p.validate_requested_features(&catalog).unwrap();
         let wipes = Catalog::read(include_str!(
-            "../../../../../tests/fixtures/expected-phase1-r4-ir.json"
+            "../../../../../tests/fixtures/expected-phase1-r5-ir.json"
         ))
         .unwrap();
         catalog

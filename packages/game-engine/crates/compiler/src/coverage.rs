@@ -702,7 +702,7 @@ mod tests {
         assert!(!out.exists());
         fs::write(
             &archive,
-            include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!("../../../tests/fixtures/archive-manifest-phase1-r5.json"),
         )
         .unwrap();
         assert!(matches!(

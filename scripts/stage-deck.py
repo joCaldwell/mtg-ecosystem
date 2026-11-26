@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Stage any Commander deck as a self-contained catalog and match profile from Archive R4.
+"""Stage any Commander deck as a self-contained catalog and match profile from Archive R5.
 
-  stage-deck.py MTG_SIM OUTPUT --deck "Jo's Cascade" [--decks phase1-target-decks.json] [--archive R4.jsonl]
-  stage-deck.py MTG_SIM OUTPUT --decklist deck.json [--archive R4.jsonl]
+  stage-deck.py MTG_SIM OUTPUT --deck "Jo's Cascade" [--decks phase1-target-decks.json] [--archive R5.jsonl]
+  stage-deck.py MTG_SIM OUTPUT --decklist deck.json [--archive R5.jsonl]
 
 A decklist is the target-deck shape: {"name", "cards": [{"oracle_id", "name",
 "quantity", "is_commander"}]}: positive integer quantities, exactly 100 cards and
-one commander. Every card comes from its row in the accepted bulk Archive R4
-file: the whole file must match the registered R4 origin
-(tests/fixtures/accepted-archives.json) and its first line the registered R4
+one commander. Every card comes from its row in the accepted bulk Archive R5
+file: the whole file must match the registered R5 origin
+(tests/fixtures/accepted-archives.json) and its first line the registered R5
 header, so each row is bound to its line. No other archive revision is
 accepted; a card the compiler rejects fails the stage.
 
@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "packages" / "game-engine" / "tests" / "fixtures"
 TEMPLATE = FIXTURES / "profiles" / "commander-foundations-v1.json"
-R4_MANIFEST = "archive-manifest-phase1-r4.json"
+R5_MANIFEST = "archive-manifest-phase1-r5.json"
 
 
 def sha(data):
@@ -78,18 +78,18 @@ def select_deck(args):
 
 
 def accepted_origin(archive, fixtures=FIXTURES):
-    """The registered Archive R4 origin, if ARCHIVE is exactly its whole file and header."""
+    """The registered Archive R5 origin, if ARCHIVE is exactly its whole file and header."""
     data = archive.read_bytes()
     header = data.split(b"\n", 1)[0] + b"\n"
     digest = sha(data)
-    origins = [o for o in read(fixtures / "accepted-archives.json") if o["manifest_file"] == R4_MANIFEST]
+    origins = [o for o in read(fixtures / "accepted-archives.json") if o["manifest_file"] == R5_MANIFEST]
     if len(origins) != 1:
-        raise ValueError(f"expected one registered {R4_MANIFEST} origin")
+        raise ValueError(f"expected one registered {R5_MANIFEST} origin")
     origin = origins[0]
-    registered = fixtures / R4_MANIFEST
+    registered = fixtures / R5_MANIFEST
     if (origin["file_sha256"] != digest or origin["manifest_sha256"] != sha(header.rstrip())
             or registered.read_bytes() != header):
-        raise ValueError(f"{archive} is not the registered Archive R4 file (file SHA-256 {digest})")
+        raise ValueError(f"{archive} is not the registered Archive R5 file (file SHA-256 {digest})")
     return origin, header, data
 
 
@@ -233,7 +233,7 @@ def main(argv=None):
     choice.add_argument("--deck", help="deck name, slug or id in --decks")
     choice.add_argument("--decklist", type=Path, help="decklist JSON in the target-deck shape")
     parser.add_argument("--decks", type=Path, default=shared_generated("phase1-target-decks.json"))
-    parser.add_argument("--archive", type=Path, default=shared_generated("oracle-ast-phase1-r4.jsonl"))
+    parser.add_argument("--archive", type=Path, default=shared_generated("oracle-ast-phase1-r5.jsonl"))
     args = parser.parse_args(argv)
     try:
         profile = stage(args.binary.resolve(), args.output, select_deck(args), args.archive.resolve())

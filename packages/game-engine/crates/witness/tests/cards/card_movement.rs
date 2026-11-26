@@ -1,4 +1,4 @@
-//! Frozen R4 card movement, discard and private library procedures.
+//! Frozen R5 card movement, discard and private library procedures.
 //! CR 101.4, 400.2, 400.7, 601.2c, 608.2b-d, 701.9, 701.20, 701.23, 701.24b:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{Cell, definition_cells};
@@ -7,7 +7,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -29,7 +29,7 @@ const WORLDLY_TUTOR: &str = record!("e8863518-0bfa-49c3-8c6e-6c9116a81051");
 fn board(cards: &[(&str, Cell)]) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for &(raw, cell) in cards {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("frozen movement witness failed: {result:?}");
         };
@@ -475,7 +475,7 @@ fn top_search_shuffles_the_remainder_and_reveals_only_when_printed() {
 #[test]
 fn probe_rejects_a_target_whose_announcement_requires_kicker() {
     let probe = record!("f8d227b6-1627-4ea1-b815-887094497abf");
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, probe);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, probe);
     let mtg_compiler::CompileResult::Unsupported { reason, .. } = result else {
         panic!("expected rejection of Probe's conditional target: {result:?}");
     };

@@ -1,4 +1,4 @@
-//! Frozen R4 witnesses for temporary combat prohibitions, printed fixed-color
+//! Frozen R5 witnesses for temporary combat prohibitions, printed fixed-color
 //! protection and static keyword grants. CR 508.1c, 509.1b, 514.2, 611.2a/c,
 //! 611.3a, 613.1f, 613.11, 702.3b, 702.11b, 702.12b, 702.16a/b/g/h.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -8,7 +8,7 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            "../../../../tests/fixtures/phase1-r4/",
+            "../../../../tests/fixtures/phase1-r5/",
             $id,
             ".json"
         ))
@@ -43,7 +43,7 @@ const LOSE_CALM: &str = record!("73d71731-f694-471c-b2ad-a36854bb06a1");
 const RUBBLEBELT_MAVERICK: &str = record!("1ba59349-a162-4444-b3e0-cddfc01ef03b");
 
 fn lowered(raw: &str) -> Definition {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("frozen witness failed: {result:?}");
     };
@@ -184,14 +184,14 @@ fn resolved_continuous_shapes_have_cells_and_reject_ability_removal() {
         assert!(definition_cells(&lowered(raw)).unwrap().contains(&cell));
     }
     let result = mtg_witness::compile(
-        mtg_witness::R4_MANIFEST,
+        mtg_witness::R5_MANIFEST,
         record!("74c4c1e2-c50d-4c8f-889a-0d5674dc6d67"),
     );
     assert!(
         matches!(result, mtg_compiler::CompileResult::Unsupported { reason, .. }
         if reason.contains("lose-abilities"))
     );
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, HARMLESS_OFFERING);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, HARMLESS_OFFERING);
     assert!(
         matches!(result, mtg_compiler::CompileResult::Unsupported { reason, .. }
         if reason.contains("mixed creature/player target domains"))
@@ -801,7 +801,7 @@ fn printed_fixed_color_protection_blocks_bolt_targeting() {
 // Protection from creature types is not a fixed color; reject by name.
 #[test]
 fn protection_from_subtypes_rejects() {
-    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, BANESLAYER);
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, BANESLAYER);
     let mtg_compiler::CompileResult::Unsupported { reason, .. } = result else {
         panic!("{result:?}")
     };
