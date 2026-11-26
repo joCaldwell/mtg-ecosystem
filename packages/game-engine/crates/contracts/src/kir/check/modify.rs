@@ -108,7 +108,10 @@ impl Walk<'_, '_> {
         match (&prevention.shield, &prevention.to, &prevention.by) {
             (PreventionShield::All, None, None) if any_kind => Ok(Cell::PreventDamageThisTurn),
             (PreventionShield::All, None, Some(PreventionSources::Matching { filter }))
-                if any_kind && !filter.0.is_empty() && damage_source_pred_valid(filter) =>
+                if any_kind
+                    && !filter.0.is_empty()
+                    && damage_source_pred_valid(filter)
+                    && !names_object(filter) =>
             {
                 Ok(Cell::PreventDamageThisTurn)
             }
@@ -351,4 +354,15 @@ pub(super) fn prevention_capabilities(
         PreventionShield::All => Capability::DamagePreventionV1,
         PreventionShield::Next { .. } => Capability::DamageBudgetPreventionV1,
     });
+}
+
+/// A resolved prevention outlives its stack object, so its damage-time
+/// source filter has no source identity to compare: an `Is`/`IsNot`
+/// reference at any depth is unaudited.
+fn names_object(filter: &Pred) -> bool {
+    filter.0.iter().any(|atom| match atom {
+        Atom::Is { .. } | Atom::IsNot { .. } => true,
+        Atom::AnyOf { alternatives } => alternatives.iter().any(names_object),
+        _ => false,
+    })
 }

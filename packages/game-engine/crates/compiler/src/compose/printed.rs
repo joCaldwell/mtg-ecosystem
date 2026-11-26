@@ -64,6 +64,8 @@ struct Counts {
     unless: usize,
     limit: usize,
     duration: usize,
+    /// CR 614.1a, 615.10: "if [an event] would [happen]" in one clause.
+    would: usize,
 }
 
 /// The printed words of `text` (already [`rules_text`]).
@@ -86,9 +88,24 @@ fn printed(text: &str, statics: bool) -> Counts {
     } else {
         0
     };
+    // A replacement or per-event prevention prints its event as "if ...
+    // would ..." within one clause; those "if"s are not conditions.
+    let would = text
+        .split(['.', ',', ';', ':', '\u{2014}'])
+        .map(|clause| {
+            let words: Vec<&str> = clause
+                .split(|c: char| !(c.is_alphabetic() || c == '\''))
+                .filter(|w| !w.is_empty())
+                .collect();
+            (0..words.len())
+                .filter(|&i| words[i] == "if" && words[i + 1..].contains(&"would"))
+                .count()
+        })
+        .sum::<usize>();
     Counts {
         may: words("may"),
-        condition: words("if") + static_conditions,
+        condition: (words("if") + static_conditions).saturating_sub(would),
+        would,
         unless: words("unless"),
         limit: phrases(&["up", "to"]),
         duration: if statics {
@@ -111,9 +128,11 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
             | "entry-choice" => {
                 found.may += 1;
             }
-            "create-replacement" | "must-attack" | "must-block" => found.condition += 1,
-            // CR 614.1a: "If [an event] would happen, [another] instead".
-            "replacement" if key == "static" => found.condition += 1,
+            "must-attack" | "must-block" => found.condition += 1,
+            // CR 614.1, 614.1a: "If [an event] would happen, [another]
+            // instead", resolved or static.
+            "create-replacement" => found.would += 1,
+            "replacement" if key == "static" => found.would += 1,
             _ => {}
         },
         // CR 615.10: "If a source would deal damage to [a recipient],
@@ -122,7 +141,7 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
             if scope.get("sources").and_then(Value::as_str) == Some("each")
                 && scope.get("recipients").and_then(Value::as_str) == Some("each") =>
         {
-            found.condition += 1;
+            found.would += 1;
         }
         ("allowRepeat" | "permission", _) => found.may += 1,
         ("conditionalCount", _) => {
@@ -346,6 +365,29 @@ mod tests {
     fn span(line: &str, field: &str, text: &str) -> (Vec<String>, usize, usize) {
         let start = line.find(text).unwrap();
         (vec![field.to_owned()], start, start + text.len())
+    }
+
+    /// CR 615.10, 611.3a: a per-event prevention's "if ... would" is its
+    /// event, never a stand-in for a dropped "during" or "as long as".
+    #[test]
+    fn per_event_prevention_credits_only_its_if_would_clause() {
+        let prevention = json!({"kind": "static", "effect": {"static": "prevent-damage",
+            "prevention": {"eventScope": {"sources": "each", "recipients": "each"}}}});
+        let guarded = json!({"kind": "static", "effect": {"static": "conditional",
+            "condition": {"condition": "turn"},
+            "effect": {"static": "prevent-damage",
+                "prevention": {"eventScope": {"sources": "each", "recipients": "each"}}}}});
+        let whole = |line: &str| [(vec![String::new()], 0, line.len())];
+        let plain = "If a source would deal damage to you, prevent 1 of that damage.";
+        let during =
+            "During your turn, if a source would deal damage to you, prevent 1 of that damage.";
+        let dropped = "During your turn, prevent 1 of the damage a source would deal to you.";
+        assert!(choices_printed(plain, &prevention, &whole(plain)).is_ok());
+        assert!(choices_printed(during, &guarded, &whole(during)).is_ok());
+        // The turn condition is printed but missing from the AST.
+        assert!(choices_printed(during, &prevention, &whole(during)).is_err());
+        // No "if ... would" clause carries the per-event scope.
+        assert!(choices_printed(dropped, &prevention, &whole(dropped)).is_err());
     }
 
     #[test]

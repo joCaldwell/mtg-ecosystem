@@ -1686,6 +1686,11 @@ impl RulesTxn {
                 self.static_damage_application(tx.kind, d, *source, *ability)?
             }
         };
+        // CR 615.12: no prevention effect, protection included, prevents
+        // damage that can't be prevented; replacements still apply.
+        if prevented > Quantity::zero() && self.damage_unpreventable(tx.kind, d)? {
+            return Err("damage can't be prevented".into());
+        }
         Ok(DamageApplication {
             qualification,
             damage: d.id,
@@ -3758,9 +3763,12 @@ impl RulesTxn {
                     if holder.object != *source || holder.zone != Zone::Battlefield {
                         return Err("invalid static damage prefix".into());
                     }
-                    let definition = self
-                        .copiable_definition(*source)
-                        .or_else(|_| self.face_definition(source.card, source.face))?;
+                    // CR 712.18: the face the holder had up when its
+                    // ability applied, even after it departed (CR 800.4a).
+                    let definition = self.face_definition(
+                        source.card,
+                        face_after(holder.object.face, holder.transforms),
+                    )?;
                     let Some(StaticEffect::Rule { rule, .. }) = definition
                         .static_abilities
                         .get(*ability as usize)
@@ -3768,7 +3776,7 @@ impl RulesTxn {
                     else {
                         return Err("static damage prefix names no rule".into());
                     };
-                    self.static_rule_amounts(rule, &a.before, false)?
+                    Self::static_rule_amounts(rule, &a.before)?
                 }
             };
             if a.after != after || a.prevented != prevented {

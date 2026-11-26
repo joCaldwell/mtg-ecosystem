@@ -368,8 +368,8 @@ recipients on the current battlefield, and "to and dealt by" on either.
 Resolved preventions last this turn: all or combat damage from any, an
 announced or a filtered source, or "the next N damage" to an announced
 recipient, a shield spent across events whose simultaneous members its
-recipient orders (CR 615.7). Damage that can't be prevented takes no prevention
-and spends no shield (CR 615.12). Source choices, "next time" shields,
+recipient orders (CR 615.7). Damage that can't be prevented takes no prevention,
+protection included, and spends no shield (CR 615.12). Source choices, "next time" shields,
 redirection, non-damage replacements and other replacement/layer interactions
 reject.
 

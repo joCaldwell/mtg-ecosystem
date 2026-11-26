@@ -1593,3 +1593,53 @@ fn intervening_counts_reject_nested_identity() {
         Ok(Intervening::BattlefieldCount { .. })
     ));
 }
+
+/// CR 615.1, 609.7a: a resolved prevention's damage-time source filter
+/// admits characteristics, not the (departed) stack object's identity, at
+/// any nesting depth.
+#[test]
+fn resolved_prevention_source_filters_reject_object_identity() {
+    let prevent = |filter: Pred| {
+        Node::Do(Verb::PreventDamage {
+            prevention: ResolvedPrevention {
+                kind: DamageKindFilter::Combat,
+                shield: PreventionShield::All,
+                to: None,
+                by: Some(PreventionSources::Matching { filter }),
+            },
+            until: Until::EndOfTurn,
+        })
+    };
+    let creature = Atom::Type {
+        kind: CardKind::Creature,
+    };
+    let other = Atom::IsNot {
+        object: Ref::Source,
+    };
+    let cells = check(&prevent(Pred(vec![creature.clone()])), &spell(&[]))
+        .unwrap()
+        .cells;
+    assert!(cells.contains(&Cell::PreventDamageThisTurn));
+    for filter in [
+        Pred(vec![creature.clone(), other.clone()]),
+        Pred(vec![
+            creature.clone(),
+            Atom::AnyOf {
+                alternatives: vec![
+                    Pred(vec![Atom::Color { color: Color::R }]),
+                    Pred(vec![Atom::AnyOf {
+                        alternatives: vec![Pred(vec![other.clone()])],
+                    }]),
+                ],
+            },
+        ]),
+    ] {
+        assert!(
+            matches!(
+                check(&prevent(filter.clone()), &spell(&[])),
+                Err(KirError::Unaudited(_))
+            ),
+            "{filter:?}"
+        );
+    }
+}

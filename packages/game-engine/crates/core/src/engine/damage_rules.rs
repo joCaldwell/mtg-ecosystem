@@ -55,9 +55,7 @@ pub(super) fn static_prevented(
     Ok(match prevent {
         PreventionAmount::All => before.clone(),
         PreventionAmount::UpTo { amount } => before.clone().min(amount.clone()),
-        PreventionAmount::Half { round_up } => before
-            .halved(*round_up)
-            .ok_or("damage outside the halving range")?,
+        PreventionAmount::Half { round_up } => before.halved(*round_up),
     })
 }
 
@@ -311,33 +309,25 @@ impl RulesTxn {
         let (holder, rule) = self
             .live_damage_rule(source, ability)
             .ok_or("static damage rule no longer applies")?;
-        let (event, prevent) = match rule {
-            StaticRule::PreventDamage { event, prevent } => (event, Some(prevent)),
-            StaticRule::ModifyDamage { event, .. } => (event, None),
+        let event = match rule {
+            StaticRule::PreventDamage { event, .. } | StaticRule::ModifyDamage { event, .. } => {
+                event
+            }
             _ => return Err("not a damage candidate".into()),
         };
         if !self.damage_event_matches(event, holder, kind, d)? {
             return Err("static damage rule does not match".into());
         }
-        self.static_rule_amounts(
-            rule,
-            &d.amount,
-            prevent.is_some() && self.damage_unpreventable(kind, d)?,
-        )
+        Self::static_rule_amounts(rule, &d.amount)
     }
 
     /// The `(after, prevented)` pair a matching static damage rule yields.
     pub(super) fn static_rule_amounts(
-        &self,
         rule: &StaticRule,
         before: &Quantity,
-        unpreventable: bool,
     ) -> Result<(Quantity, Quantity), String> {
         match rule {
             StaticRule::PreventDamage { prevent, .. } => {
-                if unpreventable {
-                    return Err("damage can't be prevented".into());
-                }
                 let prevented = static_prevented(prevent, before)?;
                 if prevented <= Quantity::zero() {
                     return Err("static prevention prevents nothing".into());
@@ -394,7 +384,7 @@ impl RulesTxn {
                 &self.damage_source_appearance(d)?,
             ),
         };
-        if !source || self.damage_unpreventable(tx.kind, d)? {
+        if !source {
             return Err("prevention does not apply".into());
         }
         let prevented = match remaining {
@@ -535,5 +525,25 @@ impl RulesTxn {
                 if *r == Quantity::zero())
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CR 615.1: halving is exact above every machine width.
+    #[test]
+    fn half_prevention_is_exact_for_large_damage() {
+        let q = |s: &str| s.parse::<Quantity>().unwrap();
+        for (before, round_up, prevented) in [
+            ("4294967297", true, "2147483649"),
+            ("4294967297", false, "2147483648"),
+            ("18446744073709551617", true, "9223372036854775809"),
+            ("18446744073709551617", false, "9223372036854775808"),
+        ] {
+            let amount = PreventionAmount::Half { round_up };
+            assert_eq!(static_prevented(&amount, &q(before)).unwrap(), q(prevented));
+        }
     }
 }

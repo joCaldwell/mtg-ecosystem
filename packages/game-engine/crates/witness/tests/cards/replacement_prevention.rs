@@ -24,9 +24,12 @@ const URZAS_ARMOR: &str = record!("e5fa232a-c8f2-4532-88bf-60d1223181b0");
 const SHIELDMATES_BLESSING: &str = record!("4ed55e9c-84ea-42a3-a32f-469da56b3eb5");
 const GUARD_GOMAZOA: &str = record!("7c565975-aebc-4599-ac32-5594c718e2cb");
 const GALADHRIM_AMBUSH: &str = record!("3b22d21f-e19a-40df-840b-a2b7f11f79c2");
+const VODALIAN_ZOMBIE: &str = record!("58e4f299-bb32-4727-8498-a364166adc38");
+const KING_TCHALLA: &str = record!("fe00278d-4385-4e3f-919c-12a794fd86f5");
 
 const P0: PlayerId = PlayerId(0);
 const P1: PlayerId = PlayerId(1);
+const P2: PlayerId = PlayerId(2);
 
 fn lowered(raw: &str) -> Definition {
     let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
@@ -41,6 +44,10 @@ fn lowered(raw: &str) -> Definition {
 /// Two seats at seat 0's first main phase; `cards` are (name, seat, zone)
 /// in board-id order.
 fn game(cards: &[(&str, u8, Zone)]) -> Game {
+    seated(2, cards)
+}
+
+fn seated(seats: u8, cards: &[(&str, u8, Zone)]) -> Game {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         FOG_BANK,
@@ -51,6 +58,8 @@ fn game(cards: &[(&str, u8, Zone)]) -> Game {
         SHIELDMATES_BLESSING,
         GUARD_GOMAZOA,
         GALADHRIM_AMBUSH,
+        VODALIAN_ZOMBIE,
+        KING_TCHALLA,
     ] {
         catalog.definitions.push(lowered(raw));
     }
@@ -60,7 +69,7 @@ fn game(cards: &[(&str, u8, Zone)]) -> Game {
     catalog.validate().unwrap();
     let mut board = Board::new(catalog, "replacement-prevention")
         .step(TurnStep::PrecombatMain)
-        .seats(2);
+        .seats(seats);
     for &(name, seat, zone) in cards {
         board = board.card(name, seat, seat, zone);
     }
@@ -437,4 +446,106 @@ fn replacement_prevention_reoffers_applicable_effects_after_each_choice() {
         g.state.rules.effects.is_empty(),
         "2 + 1 used the whole shield"
     );
+}
+
+/// CR 615.12, 702.16e: protection is a prevention effect, so it prevents
+/// nothing while Frenzied Baloth says combat damage can't be prevented;
+/// without Baloth the green Bears' damage to the Zombie is prevented.
+#[test]
+fn replacement_prevention_unpreventable_damage_ignores_protection() {
+    for baloth in [false, true] {
+        let mut cards = vec![("Grizzly Bears", 0, bf()), ("Vodalian Zombie", 1, bf())];
+        if baloth {
+            cards.push(("Frenzied Baloth", 0, bf()));
+        }
+        let mut g = game(&cards);
+        combat(&mut g, &[0], &[(1, 0)], no_choice);
+        if baloth {
+            assert_eq!(zone(&g, 1), Zone::Graveyard { owner: P1 });
+        } else {
+            assert_eq!(damage(&g, 1), Quantity::zero());
+        }
+        // The Zombie's own lethal damage to the Bears is never prevented.
+        assert_eq!(zone(&g, 0), Zone::Graveyard { owner: P0 });
+    }
+}
+
+/// CR 712.8d, 800.4a: Black Panther (King T'Challa's back face, cast
+/// with flash) prevents the damage dealt to it as it blocks; its owner then
+/// concedes while another recipient's choice in the same simultaneous
+/// damage is pending. The applied prefix still names the ability of the
+/// face its holder had up when it applied (CR 712.18), and recovers.
+#[test]
+fn replacement_prevention_departed_holder_prefix_survives_concession() {
+    let mut g = seated(
+        3,
+        &[
+            ("King T'Challa", 1, hand(P1)),
+            ("Yargle and Multani", 0, bf()),
+            ("Grizzly Bears", 0, bf()),
+            ("Shieldmate's Blessing", 0, hand(P0)),
+            ("Plains", 0, bf()),
+            ("Plains", 1, bf()),
+            ("Island", 1, bf()),
+            ("Forest", 1, bf()),
+            ("Forest", 1, bf()),
+            ("Forest", 1, bf()),
+            ("Forest", 1, bf()),
+            ("Urza's Armor", 2, bf()),
+        ],
+    );
+    cast(&mut g, 3, vec![TargetEntity::Player { player: P2 }]);
+    let (mut flashed, mut conceded, mut after) = (false, false, 0);
+    for _ in 0..120 {
+        let r = Driver::request(&mut g, u64::MAX);
+        let answer = match &r.reason {
+            Reason::Priority if r.player == P1 && !flashed => {
+                flashed = true;
+                let card = object(&g, 0);
+                let answer = r
+                    .pick_one(&Candidate::Action {
+                        action: Action::CastBackFace { card },
+                    })
+                    .unwrap();
+                g.respond(r.player, r.id, answer).unwrap();
+                Driver::pay(&mut g, &[5, 6, 7, 8, 9, 10]);
+                continue;
+            }
+            Reason::Attackers => r.attack(vec![(object(&g, 1), P1), (object(&g, 2), P2)]),
+            Reason::Blockers if r.player == P1 => r.block(vec![(object(&g, 0), object(&g, 1))]),
+            Reason::Blockers => r.block(vec![]),
+            Reason::DamageEffect { .. } if !conceded => {
+                assert_eq!(r.player, P2);
+                let panther = object(&g, 0);
+                let tx = g.damage_transaction().unwrap();
+                assert!(tx.applications.iter().any(|a| matches!(a.effect,
+                    EffectKey::StaticAbility { source, .. } if source == panther)));
+                g.concede(P1).unwrap();
+                conceded = true;
+                continue;
+            }
+            Reason::DamageEffect { .. } => {
+                // The departed holder's applied prefix is still pending.
+                assert!(!g.damage_transaction().unwrap().applications.is_empty());
+                checked(&g);
+                after += 1;
+                r.select(r.candidates[0].clone())
+            }
+            Reason::Priority if g.state.rules.turn.step == TurnStep::PostcombatMain => break,
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            other => panic!("concession {other:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    assert!(flashed && conceded && after == 1 && !g.is_live(P1));
+    // CR 800.4a: the conceding player's Black Panther has left the game.
+    assert!(
+        g.state
+            .rules
+            .objects
+            .get(&CardId(0))
+            .is_none_or(|o| o.zone == Zone::Exile)
+    );
+    assert_eq!(life(&g, P2), 40.into());
+    checked(&g);
 }

@@ -224,14 +224,6 @@ pub enum PreventionSources {
     Matching { filter: Pred },
 }
 
-impl Quantity {
-    /// Half the quantity of a nonnegative value, rounded as stated.
-    pub fn halved(&self, round_up: bool) -> Option<Quantity> {
-        let n = i64::from(self.to_u32()?);
-        Some(Quantity::from(if round_up { (n + 1) / 2 } else { n / 2 }))
-    }
-}
-
 /// CR 609.7a, 120.1: a damage source's damage-time facts carry its
 /// characteristics, keywords, controller, owner, tapped and combat status.
 /// Filters read nothing else.
