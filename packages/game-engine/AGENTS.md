@@ -4,7 +4,7 @@ This package owns the Rust contracts, compiler, core and simulator; server and
 parser have their own manuals. Read [the current map](../../docs/game-engine-current.md),
 [development](../../docs/game-engine-development.md) (environment, checks,
 publication) and the affected [runtime invariants](../../docs/game-engine-mechanics.md#runtime-invariants)
-before edits. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semantics.
+before edits. [Core](../../docs/game-engine-mechanics.md) and [board](../../docs/game-engine-board-mechanics.md) mechanics own supported semantics.
 
 - Lower complete exact archived source or reject. Use frozen fixtures, pinned
   rules and meaningful positive/rejection tests; never bless a changed expected

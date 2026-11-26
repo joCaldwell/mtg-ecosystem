@@ -109,3 +109,62 @@ pub(super) fn sacrifice_return(
     });
     Ok(true)
 }
+
+/// CR 115.1, 601.2c, 608.2b, 701.24c: the declaration contributes a
+/// mandatory target at announcement. The shuffle uses that same target
+/// and its owner at resolution, after the shared target legality check.
+pub(super) fn declared_shuffle(
+    effects: &[Value],
+    site: &control::Site<'_>,
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    source_block: u32,
+) -> Result<bool, Failure> {
+    use serde_json::json;
+    let [declaration, shuffle] = effects else {
+        return Ok(false);
+    };
+    let what = &declaration["steps"][0]["what"];
+    let step = "/effects/1/steps/0";
+    let who = format!("{step}/who");
+    let owner = format!("{step}/library/owner");
+    if !program.targets.is_empty()
+        || *declaration != json!({"steps":[{"effect":"declare-target","what":what}]})
+        || *shuffle
+            != json!({"steps":[{
+                "effect":"shuffle-into-library",
+                "who":{"player":"owner","of":{"ref":"it"}},
+                "what":[{"ref":"it"}],
+                "library":{"zone":"library","owner":"their"}
+            }]})
+        || site
+            .resolution
+            .target_slot_at(site.index, "/effects/0/steps/0/what")?
+            != Some(0)
+        || site
+            .resolution
+            .target_slot_at(site.index, &format!("{step}/what/0"))?
+            != Some(0)
+        || !site
+            .resolution
+            .binds_target_player_selection(site.index, &who, &owner, 0)?
+    {
+        return Ok(false);
+    }
+    let what: ast::ObjectRef = typed(what, "effects.declare-target")?;
+    let slot = bind_permanent_target(program, slots, &what)?;
+    if program.optional_target {
+        return Err(unsupported(
+            "compose.step",
+            "declare-target shuffle requires a mandatory permanent target",
+        ));
+    }
+    program.instructions.push(Instruction::act(
+        kir::Verb::Move {
+            what: kir::SetExpr::target(slot),
+            to: kir::Destination::OwnerLibraryShuffled,
+        },
+        source_block,
+    ));
+    Ok(true)
+}

@@ -25,7 +25,7 @@ wall-clock reporting; library callers can supply their own journal sink to
 
 Archive R5 composition lowers each supported card to `Instruction::Kernel`
 programs or reports an unsupported record; [mechanics](game-engine-mechanics.md)
-owns the supported rules and [Kernel IR](game-engine-catalogs.md#kernel-ir) the
+([board](game-engine-board-mechanics.md)) owns the supported rules and [Kernel IR](game-engine-catalogs.md#kernel-ir) the
 wire contract and admission boundaries. The retained Commander Foundations
 profile uses the R5 match catalog; its decklists, catalog digest and engine build
 bind the host and search inputs. Smoke and rules witnesses use smaller

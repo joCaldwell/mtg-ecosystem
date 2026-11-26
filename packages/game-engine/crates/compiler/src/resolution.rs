@@ -538,7 +538,7 @@ impl Resolution {
         }))
     }
 
-    pub(super) fn binds_counter_payer(
+    pub(super) fn binds_target_player_selection(
         &self,
         index: usize,
         who: &str,

@@ -49,7 +49,7 @@ ask only if it cannot be inferred. Read its manual before editing code.
 [README](README.md) is the documentation map. Engine/server work starts at the
 [current map](docs/game-engine-current.md), then [development](docs/game-engine-development.md)
 (`check:engine`, `check:engine:gate`, `check:engine:tooling`), then
-[mechanics](docs/game-engine-mechanics.md) and [Kernel IR](docs/game-engine-catalogs.md#kernel-ir).
+[mechanics](docs/game-engine-mechanics.md) ([board](docs/game-engine-board-mechanics.md)) and [Kernel IR](docs/game-engine-catalogs.md#kernel-ir).
 
 ## Documentation and handoff
 

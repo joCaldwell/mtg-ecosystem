@@ -424,7 +424,7 @@ impl Site<'_> {
             && condition["who"]["player"] == "controller"
             && self
                 .resolution
-                .binds_counter_payer(self.index, &who, &implicit, *slot)?
+                .binds_target_player_selection(self.index, &who, &implicit, *slot)?
         {
             return Ok(PlayerExpr::ControllerOf { object: *object });
         }

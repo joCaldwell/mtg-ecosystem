@@ -1327,7 +1327,9 @@ fn compose_face(
                         );
                     }
                     let program = definition.spell.as_mut().expect("spell program");
-                    if !steps::sacrifice_return(&effects, &site, program, &mut slots, label)? {
+                    if !steps::sacrifice_return(&effects, &site, program, &mut slots, label)?
+                        && !steps::declared_shuffle(&effects, &site, program, &mut slots, label)?
+                    {
                         let peeled = control::peel(&effects)?;
                         let (before, before_slots) = (program.clone(), slots.clone());
                         let lower =
