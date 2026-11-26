@@ -108,6 +108,7 @@ impl RulesTxn {
                         plus_one_counters: Quantity::zero(),
                         transforms: 0,
                         adventure_player: None,
+                        face_down: false,
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         unearthed: false,

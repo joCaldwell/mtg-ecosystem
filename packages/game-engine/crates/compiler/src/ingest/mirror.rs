@@ -58,6 +58,8 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "cycling"
                 | "typecycling"
                 | "flashback"
+                | "morph"
+                | "megamorph"
                 | "protection"
                 | "changeling"
                 | "landwalk"
@@ -72,7 +74,9 @@ impl<'de> Deserialize<'de> for SourceKeyword {
         }
         let allowed = match keyword.as_str() {
             "bestow" | "equip" | "kicker" | "buyback" | "evoke" | "echo" | "unearth" | "encore"
-            | "dash" | "escape" | "cycling" | "flashback" => ["keyword", "cost"].as_slice(),
+            | "dash" | "escape" | "cycling" | "flashback" | "morph" | "megamorph" => {
+                ["keyword", "cost"].as_slice()
+            }
             "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             "protection" => ["keyword", "from"].as_slice(),
@@ -207,6 +211,9 @@ pub(crate) enum SourceTrigger {
         what: TriggerObject,
     },
     BecomesTapped {
+        what: TriggerObject,
+    },
+    TurnedFaceUp {
         what: TriggerObject,
     },
     Dies {

@@ -83,6 +83,11 @@ pub struct Object {
     /// exiled as a resolving Adventure. Leaving exile ends the permission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adventure_player: Option<PlayerId>,
+    /// CR 708.2a, 702.37c: this spell or permanent is face down, a 2/2
+    /// creature with no text, name, subtypes or mana cost. A zone change
+    /// other than resolving onto the battlefield turns it face up (CR 708.9).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub face_down: bool,
     pub marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deathtouch_damage: bool,
