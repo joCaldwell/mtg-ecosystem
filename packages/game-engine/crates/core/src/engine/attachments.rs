@@ -243,10 +243,11 @@ impl RulesTxn {
         }
         // CR 702.84a, 611.2c: an unearthed incarnation gains haste for as
         // long as it remains that object, from the moment it entered.
+        // CR 702.141a: so does an encore token, and a dashed one.
         if let Ok(o) = self.current(object)
             && o.id == object
-            && o.unearthed
             && o.zone == Zone::Battlefield
+            && (o.unearthed || o.dashed || self.encore_mark(object).is_some())
         {
             const HASTE: &[KeywordAbility] = &[KeywordAbility::Haste];
             rows.push(((o.keyword_timestamp.unwrap_or(0), 1, 0), Row::Grant(HASTE)));

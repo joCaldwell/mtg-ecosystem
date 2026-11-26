@@ -818,7 +818,10 @@ impl RulesTxn {
                                 .is_some()
                     }
                     Zone::Graveyard { owner: from } => {
-                        from == owner && self.stack_definition(entry)?.flashback.is_some()
+                        from == owner && {
+                            let d = self.stack_definition(entry)?;
+                            d.flashback.is_some() || d.retrace || d.escape.is_some()
+                        }
                     }
                     // CR 715.3d: an adventurer exiled by its resolving
                     // Adventure, cast normally. Replay authenticates the

@@ -33,6 +33,35 @@ impl RulesTxn {
         entry: &StackInstance,
     ) -> Result<Option<ChosenObjectCost>, String> {
         let Some(index) = entry.kind.activated_index() else {
+            // CR 702.81a, 601.2h: a retrace cast discards one land card
+            // after its mana window.
+            if entry.kind.is_spell()
+                && !self.is_spell_copy(entry)
+                && matches!(entry.cast_from, Zone::Graveyard { .. })
+            {
+                let definition = self.stack_definition(entry)?;
+                // CR 702.138a: escape exiles other graveyard cards.
+                if let Some(escape) = &definition.escape {
+                    return Ok(Some(ChosenObjectCost {
+                        action: ExileFromGraveyard,
+                        filter: ChosenCostFilter::Any,
+                        count: escape.exile_other,
+                        another: true,
+                        tap_source: false,
+                        mana: Some(escape.mana.clone()),
+                    }));
+                }
+                if definition.retrace {
+                    return Ok(Some(ChosenObjectCost {
+                        action: Discard,
+                        filter: ChosenCostFilter::Type(CardKind::Land),
+                        count: 1,
+                        another: false,
+                        tap_source: false,
+                        mana: Some(definition.characteristics.mana_cost.clone()),
+                    }));
+                }
+            }
             return Ok(None);
         };
         let definition = self.stack_definition(entry)?;

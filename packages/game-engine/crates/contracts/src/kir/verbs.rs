@@ -342,6 +342,16 @@ pub enum DelayedEvent {
     /// the battlefield; the trigger exiles it at the next end step.
     #[serde(deserialize_with = "no_operands")]
     NextEndStepAfterUnearth,
+    /// CR 702.141a: for each opponent, create a token copy of the source
+    /// card that has haste and attacks that opponent this turn if able; the
+    /// trigger sacrifices those tokens at the next end step.
+    #[serde(deserialize_with = "no_operands")]
+    NextEndStepAfterEncore,
+    /// CR 702.109a: created by the engine as a spell whose dash cost was
+    /// paid resolves; it returns that permanent at the next end step. No
+    /// definition prints it.
+    #[serde(deserialize_with = "no_operands")]
+    NextEndStepAfterDash,
     #[serde(deserialize_with = "no_operands")]
     EndOfCombat,
     /// An ordinary event pattern, watched until `until` (CR 603.7c).
@@ -535,6 +545,12 @@ pub enum Verb {
     /// CR 702.84a, 603.7: exile the permanent the creating ability returned,
     /// if it is still that object on the battlefield.
     ExileCapturedReturn {},
+    /// CR 702.141a, 603.7: sacrifice the encore tokens the creating ability
+    /// created that the trigger's controller still controls.
+    SacrificeEncoreTokens {},
+    /// CR 702.109a, 603.7: return the permanent the dashed spell became to
+    /// its owner's hand, if it is still that object on the battlefield.
+    ReturnDashedToHand {},
     CreateDelayedTrigger {
         event: DelayedEvent,
         node: Box<Node>,

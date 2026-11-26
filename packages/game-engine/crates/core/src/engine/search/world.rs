@@ -393,6 +393,7 @@ impl SampleBuildWork {
                     adventure_player: None,
                     deathtouch_damage: false,
                     unearthed: false,
+                    dashed: false,
                     id: object,
                     zone: row.zone,
                     controller,

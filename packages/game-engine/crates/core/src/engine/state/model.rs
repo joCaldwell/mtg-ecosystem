@@ -94,6 +94,10 @@ pub struct Object {
     /// haste and is exiled instead of leaving the battlefield.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(in crate::engine) unearthed: bool,
+    /// CR 702.109a: this incarnation is the permanent a spell whose dash
+    /// cost was paid became; it has haste.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(in crate::engine) dashed: bool,
     pub attack_ready: bool,
     pub id: ObjectId,
     pub controller: PlayerId,

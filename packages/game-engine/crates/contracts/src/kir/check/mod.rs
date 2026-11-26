@@ -757,7 +757,10 @@ impl Walk<'_, '_> {
     /// Scope and type of every operand of a verb. Total over [`Verb`].
     fn operands(&mut self, verb: &Verb) -> Result<(), KirError> {
         match verb {
-            Verb::ReturnCapturedExile {} | Verb::ExileCapturedReturn {} => Ok(()),
+            Verb::ReturnCapturedExile {}
+            | Verb::ExileCapturedReturn {}
+            | Verb::SacrificeEncoreTokens {}
+            | Verb::ReturnDashedToHand {} => Ok(()),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::GiveCounters { player, amount, .. }
@@ -1084,6 +1087,24 @@ impl Walk<'_, '_> {
                     }
                     return Ok(());
                 }
+                // CR 111.2, 608.2d: a controller may create a fixed recipe.
+                // Token recovery recognizes recipes at a direct optional
+                // instruction's child address.
+                if let Node::Do(Verb::CreateTokens {
+                    controller, count, ..
+                }) = child.as_ref()
+                {
+                    if in_control
+                        || controller != chooser
+                        || !controller.is_you()
+                        || count.as_fixed().is_none()
+                    {
+                        return unaudited(
+                            "optional token creation needs a fixed controller recipe",
+                        );
+                    }
+                    return self.nested(child, false);
+                }
                 self.nested(child, true)
             }
             Node::ForEach { var, over, body } => {
@@ -1281,6 +1302,11 @@ impl Walk<'_, '_> {
                     (DelayedEvent::NextEndStepAfterUnearth, Node::Do(Verb::ExileCapturedReturn {}))
                         if self.env.context == Context::Activated && program.targets.is_empty() => {
                         self.out.cells.insert(Cell::Unearth);
+                    }
+                    // CR 702.141a: a graveyard source's own encore ability.
+                    (DelayedEvent::NextEndStepAfterEncore, Node::Do(Verb::SacrificeEncoreTokens {}))
+                        if self.env.context == Context::Activated && program.targets.is_empty() => {
+                        self.out.cells.insert(Cell::Encore);
                     }
                     (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, amount, random: true }))
                         if *of == PlayerExpr::you(self.env.context) && *player == PlayerExpr::you(Context::Triggered)
@@ -1645,6 +1671,8 @@ impl Walk<'_, '_> {
             | Verb::Attach { .. }
             | Verb::ReturnCapturedExile {}
             | Verb::ExileCapturedReturn {}
+            | Verb::SacrificeEncoreTokens {}
+            | Verb::ReturnDashedToHand {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
             | Verb::SetDesignation { .. }
@@ -1787,6 +1815,8 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::Attach { .. }
         | Verb::ReturnCapturedExile {}
         | Verb::ExileCapturedReturn {}
+        | Verb::SacrificeEncoreTokens {}
+        | Verb::ReturnDashedToHand {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::SetDesignation { .. }

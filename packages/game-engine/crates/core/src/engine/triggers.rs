@@ -866,6 +866,7 @@ impl RulesTxn {
                     vec![TriggerEventWitness::TokenEntered { object: *object }]
                 }
                 EventOutcome::TokensCreated { objects, .. }
+                | EventOutcome::EncoreTokensCreated { objects, .. }
                 | EventOutcome::PredefinedTokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })

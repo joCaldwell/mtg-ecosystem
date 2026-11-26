@@ -63,6 +63,7 @@ impl RulesTxn {
             battlefield_entry_turn: o.battlefield_entry_turn,
             control_upkeeps: o.control_upkeeps,
             unearthed: o.unearthed,
+            dashed: o.dashed,
             keyword_timestamp: o.keyword_timestamp,
             keyword_rank: o.keyword_rank,
             keywords: { self.current_keywords(object) },

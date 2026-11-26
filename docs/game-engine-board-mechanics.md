@@ -440,6 +440,16 @@ mana undo restores watchers of reversed sacrifices. Phased-out sources use the
 parent's last-known facts. Step watermarks and retired receipts prevent
 duplicate firings. These one-shot rows earn `Executes` (`ResolutionTriggerV1`).
 
+Two keyword rows extend this. Encore's creates at once one copy of the
+card's copiable values per living opponent; each has haste and, that turn,
+may attack only that opponent and must if able, unless that player left or
+now controls it (CR 508.1d). At the next end step its controller sacrifices
+the copies they still control. A card whose own entry replacement would apply
+rejects (CR 614.1c). A resolved dash spell's permanent (or its copy's) has
+haste, and its row returns that exact permanent to its owner's hand at the
+next end step (CR 603.7, 702.109a, 702.141a). Phased-out permanents are
+skipped (CR 702.26b).
+
 ### Printed choices, payments and conditions
 
 Each printed "may", "if", "unless" and "up to" must match its AST carriers in
@@ -467,7 +477,10 @@ sacrifice of one creature followed by a dependent clause shares the payment
 continuation. The controller selects an eligible object or declines. A private
 discard always offers decline, even with no eligible card (CR 400.2). An optional body is a draw, life change, mill, search,
 shuffle, scry or surveil, or a tap, untap, move or counter verb on a target or
-the source. Impossible choices are not offered and are withdrawn if they become
+the source, or a +1/+1 counter verb on a matching battlefield creature set. A
+direct controller choice can also create a fixed number of tokens under that
+player’s control (CR 111.2). Impossible choices are not offered and are
+withdrawn if they become
 impossible while pending (CR 608.2d): no object can still change or move, no
 live player, a zero amount, or a library smaller than the mill (CR 701.17b).
 `IfPays` acts only after payment. A departed payer pays nothing. A

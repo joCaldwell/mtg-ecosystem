@@ -1280,8 +1280,30 @@ impl Strategy<'_> {
         {
             return None;
         }
-        // CR 702.34a: a graveyard cast pays the flashback cost.
-        let flashback = o.zone == (Zone::Graveyard { owner: v.viewer });
+        // CR 702.34a: a graveyard cast pays the flashback cost; CR 702.81a:
+        // a retrace cast pays the mana cost and discards a land card.
+        let flashback = o.zone == (Zone::Graveyard { owner: v.viewer }) && !d.retrace;
+        // CR 702.138a: an escape cast exiles other graveyard cards.
+        if o.zone == (Zone::Graveyard { owner: v.viewer })
+            && let Some(escape) = &d.escape
+            && v.objects
+                .iter()
+                .filter(|g| g.zone == o.zone && g.handle != o.handle && g.token.is_none())
+                .count()
+                < escape.exile_other as usize
+        {
+            return None;
+        }
+        if o.zone == (Zone::Graveyard { owner: v.viewer })
+            && d.retrace
+            && !v.objects.iter().any(|h| {
+                in_viewers_hand(v, h)
+                    && definition(self.catalog, &h.oracle_id)
+                        .is_ok_and(|hd| hd.characteristics.kind == CardKind::Land)
+            })
+        {
+            return None;
+        }
         let quote = game.map(|game| (game, &o.handle));
         let x = if let Some(p) = &d.spell
             && !flashback
@@ -1293,6 +1315,12 @@ impl Strategy<'_> {
         };
         let mut cost = match quote {
             Some((game, card)) => game.quote_cast_cost(v.viewer, card, x.as_ref()).ok()?,
+            // CR 601.2f, 702.81a, 702.138a: only the engine quote includes
+            // the increases and reductions that lock with a retrace or
+            // escape cast; an observation alone plans neither.
+            None if o.zone == (Zone::Graveyard { owner: v.viewer }) && !flashback => {
+                return None;
+            }
             None => {
                 let mut cost = match (&d.flashback, flashback) {
                     (Some(flashback), true) => flashback.clone(),
@@ -1439,6 +1467,22 @@ impl Strategy<'_> {
             };
             mana_policy::plan_for(self.catalog, v, mana, None).is_some()
         }) {
+            return true;
+        }
+
+        if s.controller == v.viewer
+            && p.instructions.iter().any(|instruction| {
+                let I::Kernel { node, source_block } = instruction;
+                block == Some(*source_block)
+                    && matches!(node, kir::Node::Optional { node, .. } if matches!(
+                        node.as_ref(),
+                        kir::Node::Do(kir::Verb::CreateTokens { .. } | kir::Verb::PutCounters {
+                            on: kir::SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, .. },
+                            ..
+                        })
+                    ))
+            })
+        {
             return true;
         }
 
@@ -1755,7 +1799,7 @@ impl Strategy<'_> {
                     continue;
                 }
                 let d = definition(self.catalog, &o.oracle_id)?;
-                if graveyard && d.flashback.is_none() {
+                if graveyard && d.flashback.is_none() && !d.retrace && d.escape.is_none() {
                     continue;
                 }
                 let Some(p) = &d.spell else { continue };
