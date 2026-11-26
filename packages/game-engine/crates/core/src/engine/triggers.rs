@@ -1920,6 +1920,7 @@ impl RulesTxn {
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::GraveyardCard { .. }
                             | TargetDomain::OwnGraveyardCard
                     )
                 }) {
@@ -2781,6 +2782,7 @@ impl RulesTxn {
                             | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::GraveyardCard { .. }
                             | TargetDomain::OwnGraveyardCard
                     )
                 }))

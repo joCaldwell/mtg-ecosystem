@@ -15,7 +15,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 use crate::engine::battlefield_entry::EntryChoice;
-use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchSpec};
+use mtg_contracts::kir::{self, Destination, Node, PlayerExpr, SearchSpec};
 
 /// The bounds of a search: the cards that may be found, in object order, and
 /// how many must and may be found (CR 701.23b, d).
@@ -363,7 +363,7 @@ impl RulesTxn {
         // CR 303.4f, 614.1c: an entry onto the battlefield first collects
         // each found Aura's host and each entrant's entry life payment.
         if self.search_onto_battlefield(&frame)? {
-            return self.continue_search_entry(
+            return self.continue_card_entry(
                 frame,
                 player,
                 found,
@@ -373,7 +373,7 @@ impl RulesTxn {
                 source_block,
             );
         }
-        self.commit_search(frame, player, found, &choices, &[], &[], &[], source_block)
+        self.commit_card_moves(frame, player, found, &choices, &[], &[], &[], source_block)
     }
 
     /// The admitted search puts its found cards onto the battlefield,
@@ -385,9 +385,9 @@ impl RulesTxn {
         ))
     }
 
-    /// CR 303.4f, 119.4, 614.1c, 614.12: ask the next entry question of a
-    /// battlefield search, or enter every entrant once all were asked.
-    pub(in crate::engine) fn continue_search_entry(
+    /// CR 303.4f, 119.4, 614.1c, 614.12: ask the next entry question for found or
+    /// targeted cards, then move the entrants together.
+    pub(in crate::engine) fn continue_card_entry(
         &mut self,
         frame: Resolving,
         player: PlayerId,
@@ -418,7 +418,7 @@ impl RulesTxn {
             };
             return Ok(());
         }
-        self.commit_search(
+        self.commit_card_moves(
             frame,
             player,
             found,
@@ -431,7 +431,7 @@ impl RulesTxn {
     }
 
     /// CR 304.4, 307.4: an instant or sorcery never enters the battlefield.
-    fn may_enter_battlefield(&self, card: CardId) -> Result<bool, String> {
+    pub(in crate::engine) fn may_enter_battlefield(&self, card: CardId) -> Result<bool, String> {
         let kind = self.definition(card)?.characteristics.kind;
         Ok(!matches!(kind, CardKind::Instant | CardKind::Sorcery))
     }
@@ -440,7 +440,10 @@ impl RulesTxn {
     /// the battlefield already, never chosen as a target (Hexproof and
     /// Shroud do not apply), but never one with protection from it. `None`
     /// for a card that is no Aura.
-    fn entry_hosts(&self, aura: ObjectId) -> Result<Option<Vec<ObjectId>>, String> {
+    pub(in crate::engine) fn entry_hosts(
+        &self,
+        aura: ObjectId,
+    ) -> Result<Option<Vec<ObjectId>>, String> {
         let characteristics = self.structural_characteristics(aura)?;
         if characteristics.kind != CardKind::Enchantment || characteristics.subtypes != ["Aura"] {
             return Ok(None);
@@ -494,7 +497,7 @@ impl RulesTxn {
             match self.entry_hosts(*object)? {
                 None => entrants.push((*object, None)),
                 // CR 303.4g: a chosen host that has since left (its
-                // controller conceded) leaves the Aura in the library.
+                // controller conceded) leaves the Aura in its original zone.
                 Some(legal) => {
                     if let Some((_, host)) = hosts.iter().find(|(aura, _)| aura == object)
                         && legal.contains(host)
@@ -762,7 +765,7 @@ impl RulesTxn {
     /// Aura attached to its chosen host, tapped when printed (a shockland
     /// paid for still enters tapped then). Revealed cards that reach the
     /// hand stay publicly counted there by Oracle identity.
-    fn commit_search(
+    fn commit_card_moves(
         &mut self,
         frame: Resolving,
         player: PlayerId,
@@ -773,9 +776,18 @@ impl RulesTxn {
         revealed: &[(ObjectId, Option<ObjectId>)],
         source_block: u32,
     ) -> Result<(), String> {
-        let (search, to) = self.search_destination(&frame)?;
-        let battlefield = matches!(search.to, Destination::Battlefield { .. });
-        let tapped = matches!(search.to, Destination::Battlefield { tapped: true, .. });
+        let (destination, to, reveal) = match self.library_verb(&frame)?.0 {
+            Verb::Move {
+                to: to @ Destination::Battlefield { tapped, .. },
+                ..
+            } => (to, (!tapped).then_some(Zone::Battlefield), false),
+            _ => {
+                let (search, to) = self.search_destination(&frame)?;
+                (search.to, to, search.reveal)
+            }
+        };
+        let battlefield = matches!(destination, Destination::Battlefield { .. });
+        let tapped = matches!(destination, Destination::Battlefield { tapped: true, .. });
         let entering: Vec<(ObjectId, Option<ObjectId>)> = if battlefield {
             self.search_entrants(&found, hosts)?
         } else {
@@ -878,7 +890,7 @@ impl RulesTxn {
         if movements.len() != entering.len() {
             return Err("search movement invariant".into());
         }
-        if search.reveal {
+        if reveal {
             let revealed: Vec<_> = movements
                 .iter()
                 .filter(|m| m.destination == (Zone::Hand { owner: player }))
@@ -1103,7 +1115,7 @@ impl RulesTxn {
             self.rules_mut().pending = None;
             let (found, hosts, paid, revealed) =
                 (found.clone(), hosts.clone(), paid.clone(), revealed.clone());
-            return self.continue_search_entry(
+            return self.continue_card_entry(
                 frame,
                 player,
                 found,
@@ -1151,7 +1163,7 @@ impl RulesTxn {
                     revealed.push((entrant, Self::entry_reveal_answer(&input, &cards)?));
                 }
             }
-            return self.continue_search_entry(
+            return self.continue_card_entry(
                 frame,
                 player,
                 found,
@@ -1401,6 +1413,50 @@ impl RulesTxn {
             } => (*player, *source_block),
             _ => return Ok(false),
         };
+        // CR 601.2c, 608.2b, 303.4f: an entry choice from a graveyard
+        // move belongs solely to the legal, announced incarnation at this
+        // cursor. The same question/answer and atomic entry code handles
+        // both a found card and a targeted one.
+        if let (
+            ResolutionChoice::SearchEntry {
+                found,
+                hosts,
+                paid,
+                revealed,
+                ..
+            },
+            Verb::Move {
+                what:
+                    kir::SetExpr::One {
+                        object: kir::Ref::Target { slot },
+                    },
+                to: Destination::Battlefield { .. },
+            },
+        ) = (choice, &verb)
+        {
+            let entry = self.entry(frame.stack_id)?;
+            let slot = *slot as usize;
+            let [target] = found.as_slice() else {
+                return Ok(false);
+            };
+            return Ok(source_block == block
+                && entry.controller == player
+                && frame.legal_targets.get(slot) == Some(&true)
+                && self
+                    .program_for(entry)?
+                    .targets
+                    .get(slot)
+                    .is_some_and(|spec| spec.domain == TargetDomain::OwnGraveyardCard)
+                && self.bound_object_target(entry, slot) == Some(target)
+                && self.valid_entry_answers(player, 1, found, hosts, paid, revealed)?
+                && (!self.is_live(player)
+                    || (self
+                        .current(*target)
+                        .is_ok_and(|o| self.player_graveyard_card(o, player))
+                        && self
+                            .next_entry_question(player, found, hosts, paid, revealed)?
+                            .is_some())));
+        }
         let expected = match &verb {
             Verb::Search { player, .. }
             | Verb::ReorderLibraryTop { player, .. }

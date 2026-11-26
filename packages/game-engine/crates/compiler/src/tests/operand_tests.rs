@@ -52,7 +52,7 @@ fn own_graveyard_permanent_target_covers_all_permanent_card_kinds() {
         "selectionId": "line:0:1",
     })).unwrap();
     let mut program = program();
-    bind_own_graveyard_target(&mut program, &mut BTreeMap::new(), &what, false).unwrap();
+    bind_graveyard_target(&mut program, &mut BTreeMap::new(), &what, true).unwrap();
     let predicate = program.targets[0]
         .filter
         .as_ref()

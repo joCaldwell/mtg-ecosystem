@@ -47,3 +47,65 @@ pub(super) fn lower(
         source_block,
     ))
 }
+
+/// CR 601.2c, 608.2b-c, 118.12: the declaration and later reference are
+/// one occurrence; the intervening sacrifice is mandatory at resolution.
+pub(super) fn sacrifice_return(
+    effects: &[serde_json::Value],
+    site: &control::Site<'_>,
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    source_block: u32,
+) -> Result<bool, Failure> {
+    use serde_json::json;
+    let [declaration, sacrifice, movement] = effects else {
+        return Ok(false);
+    };
+    let what = &declaration["steps"][0]["what"];
+    let Some(count) = what["count"]["value"]
+        .as_u64()
+        .and_then(|n| u32::try_from(n).ok())
+    else {
+        return Ok(false);
+    };
+    let Some(selection) = what["selectionId"].as_str() else {
+        return Ok(false);
+    };
+    if !(2..=7).contains(&count)
+        || !program.targets.is_empty()
+        || *declaration
+            != json!({"steps":[{"effect":"declare-target","what":{
+            "ref":"target","filter":{"types":["creature"],"cls":"card","zone":{"zone":"graveyard","owner":"your"}},
+            "count":{"amount":"fixed","value":count},"selectionId":selection}}]})
+        || *sacrifice
+            != json!({"steps":[{"effect":"sacrifice","who":{"player":"you"},"what":{
+            "ref":"filter","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}}}]})
+        || *movement
+            != json!({"steps":[{"effect":"move-zone","what":{"ref":"choice-result","number":"plural",
+            "filter":{"cls":"card"},"which":"chosen","scope":"contextual"},"to":{"zone":"battlefield"},"tapped":true}],
+            "condition":{"condition":"you-do"},"conditionKind":"if"})
+        || site
+            .resolution
+            .target_slot_at(site.index, "/effects/0/steps/0/what")?
+            != Some(0)
+        || site
+            .resolution
+            .target_slot_at(site.index, "/effects/2/steps/0/what")?
+            != Some(0)
+    {
+        return Ok(false);
+    }
+    for index in 0..count {
+        let id = if index == 0 {
+            selection.to_owned()
+        } else {
+            format!("{selection}/{index}")
+        };
+        bind_target(program, slots, &id, TargetDomain::OwnGraveyardCreatureCard)?;
+    }
+    program.instructions.push(Instruction::Kernel {
+        node: kir::Node::SacrificeForTappedReturn { count },
+        source_block,
+    });
+    Ok(true)
+}

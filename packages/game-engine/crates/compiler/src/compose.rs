@@ -387,6 +387,24 @@ fn activation(
         &mut BTreeMap::new(),
         Context::Activated,
         |typed| {
+            // The newly audited activated source form covers choosing objects
+            // to pay a cost (including sacrificing the damage source itself).
+            // Simple tap/mana pingers share previously qualified tier rows.
+            if !matches!(
+                cost,
+                ActivationCost::ChooseObjects(_) | ActivationCost::SacrificePermanent { .. }
+            ) && typed.iter().flat_map(|s| &s.steps).any(|step| {
+                matches!(
+                    step,
+                    Step::Damage {
+                        source: DamageSource::This { .. } | DamageSource::It {},
+                        to: DamageDestination::AnyTarget { .. },
+                        ..
+                    }
+                )
+            }) {
+                return Err(unsupported("effects.steps", "verb:damage:source:directed"));
+            }
             validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self })
         },
         PlayerBinding::Unbound,
@@ -1154,35 +1172,46 @@ fn compose_face(
                             &resolution.segments(block)?,
                         );
                     }
-                    let peeled = control::peel(&effects)?;
                     let program = definition.spell.as_mut().expect("spell program");
-                    let (before, before_slots) = (program.clone(), slots.clone());
-                    let lower = |program: &mut SpellProgram,
-                                 slots: &mut BTreeMap<String, u32>,
-                                 sentences: &[serde_json::Value]| {
-                        append_effects(
-                            program,
-                            parts(sentences)?,
-                            block,
-                            slots,
-                            Context::Spell,
-                            |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
-                            PlayerBinding::Unbound,
-                        )
-                    };
-                    lower(program, &mut slots, &peeled.sentences)?;
-                    let base = before.instructions.len();
-                    control::apply(&peeled, &site, &mut program.instructions, base, |prefix| {
-                        let (mut scratch, mut scratch_slots) =
-                            (before.clone(), before_slots.clone());
-                        lower(&mut scratch, &mut scratch_slots, prefix)?;
-                        Ok(scratch.instructions.len() - base)
-                    })?;
-                    control::admitted(
-                        &peeled,
-                        &program.instructions[base..],
-                        &control_env(Context::Spell, &program.targets, None),
-                    )?;
+                    if !steps::sacrifice_return(&effects, &site, program, &mut slots, label)? {
+                        let peeled = control::peel(&effects)?;
+                        let (before, before_slots) = (program.clone(), slots.clone());
+                        let lower =
+                            |program: &mut SpellProgram,
+                             slots: &mut BTreeMap<String, u32>,
+                             sentences: &[serde_json::Value]| {
+                                append_effects(
+                                    program,
+                                    parts(sentences)?,
+                                    block,
+                                    slots,
+                                    Context::Spell,
+                                    |typed| {
+                                        validate_damage_sources(typed, DamageSourceBinding::Spell)
+                                    },
+                                    PlayerBinding::Unbound,
+                                )
+                            };
+                        lower(program, &mut slots, &peeled.sentences)?;
+                        let base = before.instructions.len();
+                        control::apply(
+                            &peeled,
+                            &site,
+                            &mut program.instructions,
+                            base,
+                            |prefix| {
+                                let (mut scratch, mut scratch_slots) =
+                                    (before.clone(), before_slots.clone());
+                                lower(&mut scratch, &mut scratch_slots, prefix)?;
+                                Ok(scratch.instructions.len() - base)
+                            },
+                        )?;
+                        control::admitted(
+                            &peeled,
+                            &program.instructions[base..],
+                            &control_env(Context::Spell, &program.targets, None),
+                        )?;
+                    }
                 }
                 Block::Activated {
                     ability_word: word,

@@ -361,6 +361,16 @@ pub fn matches_target_domain(
             .map_or(Tri::Unknown, |owner| (owner == you).into())
     };
     match domain {
+        TargetDomain::GraveyardCard { opponents_only } => match object.zone() {
+            Zone::Graveyard { owner }
+                if !object.is_token() && (!opponents_only || owner != you) =>
+            {
+                object
+                    .owner()
+                    .map_or(Tri::Unknown, |actual| (owner == actual).into())
+            }
+            _ => Tri::No,
+        },
         TargetDomain::OwnGraveyardCard => own_graveyard_card(),
         TargetDomain::OwnGraveyardCreatureCard => {
             own_graveyard_card().and(known(object.copiable(), |c| c.kind == CardKind::Creature))

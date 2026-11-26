@@ -144,6 +144,19 @@ impl GroupFinish {
                             None if occurrences.is_empty() => None,
                             _ => return Err("unexpected sacrifice result".into()),
                         };
+                        if movement.is_some() {
+                            let entry = game.entry(frame.stack_id)?;
+                            if let Some(Instruction::Kernel {
+                                node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. },
+                                source_block,
+                            }) = game
+                                .program_for(entry)?
+                                .instructions
+                                .get(frame.cursor as usize)
+                            {
+                                return game.return_announced_creatures(frame, *source_block);
+                            }
+                        }
                         InstructionOutcome::Sacrificed { player, movement }
                     }
                     GroupResult::ActualEffect => InstructionOutcome::Effect {
@@ -371,6 +384,7 @@ impl GraveyardGroup {
                         ability: EffectiveTriggerAbility::Followup { .. }, ..
                     }),
                     GroupResult::Discard {..} => matches!(i, kernel!(Discard { player: you!() | event_player!(), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), random: true, .. })),
+                    GroupResult::Sacrifice {player} if matches!(i, Instruction::Kernel { node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. }, .. }) => *player == entry.controller,
                     GroupResult::Sacrifice {..} => matches!(i, kernel!(Sacrifice { player: event_player!(), .. }) | kernel!(Sacrifice { player: target_player!(_), .. })),
                 };
                 kind && self.cause == game.instruction_cause(frame,i.source_block())? && leaves.iter().all(|e| match (i,e) {
