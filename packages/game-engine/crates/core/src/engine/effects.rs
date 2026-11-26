@@ -934,13 +934,20 @@ impl RulesTxn {
         &self,
         object: &Object,
         face: CardFace,
+        face_down: bool,
         caster: PlayerId,
     ) -> Result<bool, String> {
         let object = Object {
             id: ObjectId { face, ..object.id },
+            face_down,
             ..object.clone()
         };
-        let characteristics = &self.copiable_definition(object.id)?.characteristics;
+        // CR 708.4: a face-down cast reads the face-down spell's values.
+        let characteristics = if face_down {
+            &face_down::face_down_definition().characteristics
+        } else {
+            &self.copiable_definition(object.id)?.characteristics
+        };
         Ok(self.spell_static_rules(&object).any(|(source, rule)| {
             matches!(rule, StaticRule::CastAsThoughFlash { affects, caster: who }
                 if self.static_player(who, source.controller, caster)
@@ -3132,7 +3139,8 @@ impl RulesTxn {
                     announced: handle.clone(),
                     current: Some(handle),
                 },
-                oracle_id: self.definition(object.card)?.oracle_id.clone(),
+                // CR 708.5: a face-down creature's identity stays hidden.
+                oracle_id: self.visible_ability_oracle_id(object)?.to_owned(),
                 controller: self.current(object)?.controller,
             }
         } else {
@@ -3266,7 +3274,12 @@ impl RulesTxn {
     /// `validate_characteristic_identity` for captured facts, whose transform
     /// count names the face they were captured with (CR 712.18).
     pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
-        self.validate_characteristic_identity(fact.object, fact.transforms, &fact.characteristics)
+        self.validate_characteristic_identity(
+            fact.object,
+            fact.transforms,
+            fact.face_down,
+            &fact.characteristics,
+        )
     }
 
     // Copiable identity is immutable within each incarnation except for the
@@ -3277,15 +3290,19 @@ impl RulesTxn {
         &self,
         source: ObjectId,
         transforms: u32,
+        face_down: bool,
         c: &Characteristics,
     ) -> Result<(), String> {
         let definition = self.definition(source.card)?;
         if transforms > 0 && !definition.transforms() {
             return Err("captured facts transformed a card that does not transform".into());
         }
-        let mut base = definition
-            .face(face_after(source.face, transforms))
-            .ok_or("card has no selected face")?
+        // CR 708.2: face-down facts have the face-down copiable values.
+        if face_down && (transforms > 0 || definition.face_down.is_none()) {
+            return Err("captured face-down facts for a card that cannot be face down".into());
+        }
+        let mut base = self
+            .fact_definition(source, transforms, face_down)?
             .characteristics
             .clone();
         if c.has_type(CardKind::Creature) != c.power.is_some()
@@ -3396,6 +3413,7 @@ impl RulesTxn {
     ) -> bool {
         ObjectBefore {
             transforms: frozen.transforms,
+            face_down: frozen.face_down,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
             ..current
@@ -3420,6 +3438,7 @@ impl RulesTxn {
             || (fact.controller != damage.source.controller && fact.zone != Zone::Battlefield)
             || (ObjectBefore {
                 transforms: fact.transforms,
+                face_down: fact.face_down,
                 controller: fact.controller,
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
@@ -3502,9 +3521,10 @@ impl RulesTxn {
             }
             // CR 712.18: the face the damage source had when its facts were
             // captured.
-            let source_definition = self.face_definition(
-                d.source.object.card,
-                face_after(d.source.object.face, d.source.transforms),
+            let source_definition = self.fact_definition(
+                d.source.object,
+                d.source.transforms,
+                d.source.face_down,
             )?;
             let expected_keywords = source_definition.keywords.as_slice();
             let battlefield_creature = d.source.zone == Zone::Battlefield
@@ -3766,9 +3786,13 @@ impl RulesTxn {
                     }
                     // CR 712.18: the face the holder had up when its
                     // ability applied, even after it departed (CR 800.4a).
-                    let definition = self.face_definition(
-                        source.card,
-                        face_after(holder.object.face, holder.transforms),
+                    let definition = self.fact_definition(
+                        ObjectId {
+                            card: source.card,
+                            ..holder.object
+                        },
+                        holder.transforms,
+                        holder.face_down,
                     )?;
                     let Some(StaticEffect::Rule { rule, .. }) = definition
                         .static_abilities

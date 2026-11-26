@@ -33,6 +33,7 @@ pub mod graveyard_replacement;
 pub mod regeneration;
 pub use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
 pub mod group_discard;
+pub mod face_down;
 pub mod hideaway;
 pub use hideaway::HideawayLink;
 mod chosen_cost;

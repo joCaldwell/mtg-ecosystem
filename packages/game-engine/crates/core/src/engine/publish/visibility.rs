@@ -732,9 +732,15 @@ impl RulesTxn {
             }
             None => self.object_core(object, index)?,
         };
+        // CR 708.5: only the controller of a face-down spell or permanent may
+        // look at it; CR 708.9: every face-down card is revealed at the end
+        // of the game. Others see only its face-down characteristics.
+        let identified = !object.face_down
+            || (viewer == object.controller && self.is_live(viewer))
+            || matches!(self.state.rules.frame, Frame::Finished { .. });
         Ok(VisibleObject {
-            faces,
-            face_down: false,
+            faces: faces.filter(|_| identified),
+            face_down: object.face_down,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
             entered_this_turn: object.battlefield_entry_turn == Some(self.state.rules.turn.number),
@@ -752,12 +758,13 @@ impl RulesTxn {
             handle: handle(object.id)?,
             // A copy can show the original printed Oracle ID. An instruction-defined
             // token has only its public handle and visible token template.
-            oracle_id: if self
-                .state
-                .rules
-                .tokens
-                .get(&object.id.card)
-                .is_some_and(|t| !t.is_copy())
+            oracle_id: if !identified
+                || self
+                    .state
+                    .rules
+                    .tokens
+                    .get(&object.id.card)
+                    .is_some_and(|t| !t.is_copy())
             {
                 String::new()
             } else {
@@ -990,6 +997,7 @@ impl RulesTxn {
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
             mana_value: (instance.kind.is_spell()
+                && !self.is_face_down(instance.source)
                 && (instance.x.is_some()
                     || self.definition(instance.source.card)?.back_face.is_some()))
             .then(|| self.stack_mana_value(instance))

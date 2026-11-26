@@ -149,6 +149,14 @@ impl RulesTxn {
                         });
                     }
                 }
+                // CR 702.37a: a card with morph may also be cast face down.
+                if (hand || command) && self.validate_face_down_cast(player, id.card).is_ok() {
+                    actions.push(Action::CastFaceDown { card: id });
+                }
+            }
+            // CR 116.2b, 702.37e: the turn-face-up special action.
+            if priority && controlled && self.validate_turn_face_up(player, id).is_ok() {
+                actions.push(Action::TurnFaceUp { object: id });
             }
             if controlled && self.validate_mana_activation(player, id).is_ok() {
                 actions.push(Action::ActivateMana { object: id });

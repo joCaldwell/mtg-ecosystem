@@ -161,6 +161,14 @@ impl RulesTxn {
                 // CR 702.34a, 118.9: the flashback cost replaces the mana cost
                 // of a spell cast from its owner's graveyard.
                 let mut cost = match from {
+                    // CR 702.37a, c: a face-down spell pays {3} rather than
+                    // its mana cost (an alternative cost, CR 118.9).
+                    _ if self.is_face_down(source) => {
+                        if x.is_some() || hybrid.is_some() {
+                            return Err("a face-down cast announces no X or hybrid".into());
+                        }
+                        FaceDownCast::cast_cost()
+                    }
                     Zone::Graveyard { .. } => {
                         if x.is_some() || hybrid.is_some() {
                             return Err("flashback cost announces no X or hybrid".into());

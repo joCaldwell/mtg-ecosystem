@@ -1085,6 +1085,14 @@ fn compose_face(
                             }
                             definition.flashback = Some(keywords::flashback(one, text)?);
                         }
+                        // CR 702.37a-b: morph and megamorph let this
+                        // permanent card be cast face down (CR 708.2a).
+                        [one] if matches!(one.keyword.as_str(), "morph" | "megamorph") => {
+                            if spell_kind || definition.face_down.is_some() {
+                                return Err(unsupported("keyword", "keyword:morph:source"));
+                            }
+                            definition.face_down = Some(keywords::face_down(one, text)?);
+                        }
                         [one] if one.keyword == "enchant" => {
                             let spell = definition
                                 .spell

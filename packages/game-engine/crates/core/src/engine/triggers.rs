@@ -279,6 +279,11 @@ pub enum TriggerEventWitness {
         object: ObjectId,
         controller: PlayerId,
     },
+    /// CR 702.37e, 708.8: the source was turned face up under `controller`.
+    TurnedFaceUp {
+        object: ObjectId,
+        controller: PlayerId,
+    },
     PermanentLeftGame {
         object: ObjectId,
         owner: PlayerId,
@@ -327,6 +332,7 @@ impl TriggerEventWitness {
             }),
             Self::TokenEntered { object }
             | Self::Tapped { object, .. }
+            | Self::TurnedFaceUp { object, .. }
             | Self::PermanentLeftGame { object, .. } => Some(*object),
             Self::CreatureAttacked { attacker, .. } | Self::AttackerUnblocked { attacker, .. } => {
                 Some(attacker.object)
@@ -664,6 +670,31 @@ impl RulesTxn {
         }))
     }
 
+    // CR 702.37e, 708.8: observe the source after it is turned face up,
+    // with the abilities it now has. Entry abilities do not trigger.
+    fn source_face_up_witness(
+        &self,
+        object: ObjectId,
+    ) -> Result<Option<TriggerEventWitness>, String> {
+        let current = self.current(object)?;
+        Ok((current.present_on_battlefield()
+            && !current.face_down
+            && self
+                .copiable_definition(object)?
+                .triggered
+                .iter()
+                .any(|ability| {
+                    matches!(
+                        ability.condition.pattern(),
+                        EventPattern::TurnedFaceUp { .. }
+                    )
+                }))
+        .then_some(TriggerEventWitness::TurnedFaceUp {
+            object,
+            controller: current.controller,
+        }))
+    }
+
     pub(super) fn record_turn_occurrences(
         &mut self,
         before: &RulesTxn,
@@ -861,6 +892,9 @@ impl RulesTxn {
                     tapped: true,
                     ..
                 } => self.source_tap_witness(*object)?.into_iter().collect(),
+                EventOutcome::TurnedFaceUp { object, .. } => {
+                    self.source_face_up_witness(*object)?.into_iter().collect()
+                }
                 EventOutcome::TokenCopied { object, .. } => {
                     vec![TriggerEventWitness::TokenEntered { object: *object }]
                 }
@@ -1050,6 +1084,7 @@ impl RulesTxn {
                             | TriggerEventWitness::AttackerUnblocked { .. }
                             | TriggerEventWitness::DamageDealt { .. }
                             | TriggerEventWitness::Tapped { .. }
+                            | TriggerEventWitness::TurnedFaceUp { .. }
                             | TriggerEventWitness::LifeGained { .. }
                             | TriggerEventWitness::Discarded { .. }
                             | TriggerEventWitness::Sacrificed { .. }
@@ -1218,7 +1253,8 @@ impl RulesTxn {
             .objects
             .values()
             .filter(|o| o.present_on_battlefield())
-            .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
+            .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. }
+                | TriggerEventWitness::TurnedFaceUp { object, .. } if o.id != *object))
         {
             let you = object.controller;
             let identity = |r: &Ref| match r {
@@ -1266,6 +1302,12 @@ impl RulesTxn {
                         matches!(&witness, TriggerEventWitness::Tapped { object: tapped, .. }
                             if observers.current(*tapped).is_ok_and(|t| {
                                 holds(pred, Some(&observers.object_facts(t)), you, *tapped, &identity)
+                            }))
+                    }
+                    EventPattern::TurnedFaceUp { object: pred } => {
+                        matches!(&witness, TriggerEventWitness::TurnedFaceUp { object: turned, .. }
+                            if observers.current(*turned).is_ok_and(|t| {
+                                holds(pred, Some(&observers.object_facts(t)), you, *turned, &identity)
                             }))
                     }
                     EventPattern::Attacks { attacker: pred } => {
@@ -2143,7 +2185,12 @@ impl RulesTxn {
             return Err("snapshot trigger source invariant".into());
         }
         {
-            self.validate_characteristic_identity(source, fact.transforms, &fact.characteristics)?;
+            self.validate_characteristic_identity(
+                source,
+                fact.transforms,
+                fact.face_down,
+                &fact.characteristics,
+            )?;
         }
         Ok(())
     }
@@ -2642,6 +2689,16 @@ impl RulesTxn {
                     if pred.is_ref(Ref::Source) && identity_holds(pred, *object, &identity(*object)))
                     && *object == source
                     && *at_tap == controller
+                    && death_controller.is_none()
+            }
+            TriggerEventWitness::TurnedFaceUp {
+                object,
+                controller: at_turn,
+            } => {
+                matches!(pattern, EventPattern::TurnedFaceUp { object: pred }
+                    if pred.is_ref(Ref::Source) && identity_holds(pred, *object, &identity(*object)))
+                    && *object == source
+                    && *at_turn == controller
                     && death_controller.is_none()
             }
             TriggerEventWitness::Entered {

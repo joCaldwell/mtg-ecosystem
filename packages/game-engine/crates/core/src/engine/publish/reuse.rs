@@ -74,6 +74,7 @@ impl Frame {
                     frame: _,
                     payment: _,
                 }
+                | Frame::TurnFaceUp { payment: _ }
                 | Frame::ManaAbility { activation: _ }
                 | Frame::Setup
                 | Frame::CounterPlacement { transaction: _ }

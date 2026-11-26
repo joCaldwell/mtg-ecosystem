@@ -71,6 +71,9 @@ pub(super) fn funding(
             let h = match action {
                 Action::Cast { card } | Action::CastBackFace { card } => card,
                 Action::ActivateAbility { object, .. } => object,
+                // The exact rules decision prices a face-down cast and the
+                // turn-face-up special action (CR 702.37a, e).
+                Action::CastFaceDown { .. } | Action::TurnFaceUp { .. } => return 2,
                 _ => return 1,
             };
             let Some(obj) = v.objects.iter().find(|obj| &obj.handle == h) else {

@@ -467,6 +467,7 @@ impl RulesTxn {
         self.validate_characteristic_identity(
             id,
             paid.before.transforms,
+            paid.before.face_down,
             &paid.before.characteristics,
         )?;
         let valid = match (&paid.outcome, action) {

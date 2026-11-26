@@ -243,6 +243,9 @@ pub enum Capability {
 
     TypedNonbasicIntrinsicManaV1,
     FlashV1,
+    /// CR 702.37, 708: cast face down as a 2/2 for {3} and turn face up for
+    /// the morph or megamorph cost as a special action.
+    FaceDownCastV1,
     EnterAsCopyOfPermanentEnteredThisTurnV1,
     CastArtifactV1,
     PermanentManaV1,
@@ -1801,6 +1804,38 @@ impl FaceLayout {
     }
 }
 
+/// The printed keyword that lets a card be cast face down (CR 702.37a-b).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum FaceDownKind {
+    /// CR 702.37a: "Morph [cost]".
+    Morph,
+    /// CR 702.37b: "Megamorph [cost]"; a +1/+1 counter as it is turned face
+    /// up for that cost.
+    Megamorph,
+}
+
+/// CR 702.37a-b, e: "[Morph] [cost]": the card may be cast as a 2/2
+/// face-down creature for {3} (CR 708.2a), and its controller may turn the
+/// face-down permanent face up any time they have priority by paying `cost`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FaceDownCast {
+    pub kind: FaceDownKind,
+    pub cost: ManaCost,
+}
+impl FaceDownCast {
+    /// CR 702.37a: the alternative cost of a face-down cast.
+    pub fn cast_cost() -> ManaCost {
+        ManaCost {
+            generic: Quantity::from(3),
+            colored: vec![],
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
@@ -1822,6 +1857,9 @@ pub struct Definition {
     /// and is exiled whenever it would leave the stack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flashback: Option<ManaCost>,
+    /// CR 702.37a-b: the morph or megamorph ability of this card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face_down: Option<FaceDownCast>,
     pub oracle_id: String,
     pub name: String,
     pub characteristics: Characteristics,
@@ -2004,6 +2042,9 @@ impl Definition {
         }
         for ability in &self.static_abilities {
             set.insert(ability.effect.capability(self.characteristics.kind));
+        }
+        if self.face_down.is_some() {
+            set.insert(Capability::FaceDownCastV1);
         }
         if let Some(back) = &self.back_face {
             set.insert(match self.layout {

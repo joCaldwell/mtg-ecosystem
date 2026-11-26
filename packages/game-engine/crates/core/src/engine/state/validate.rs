@@ -135,6 +135,26 @@ impl RulesTxn {
                 return Err("snapshot has an impossible transformed object".into());
             }
         }
+        // CR 702.37c, 708.4, 708.9: only a physical card with morph is face
+        // down, and only as a spell on the stack or a permanent; it shows its
+        // front face and has neither transformed nor been exiled by hideaway.
+        for object in s.rules.objects.values().filter(|o| o.face_down) {
+            let spell = s
+                .rules
+                .stack
+                .iter()
+                .any(|entry| entry.kind.is_spell() && entry.source == object.id);
+            if !(object.zone == Zone::Battlefield || (object.zone == Zone::Stack && spell))
+                || object.hideaway.is_some()
+                || object.adventure_player.is_some()
+                || object.transforms != 0
+                || object.id.face != CardFace::Front
+                || s.rules.tokens.contains_key(&object.id.card)
+                || self.definition(object.id.card)?.face_down.is_none()
+            {
+                return Err("snapshot has an impossible face-down object".into());
+            }
+        }
         // CR 715.3d: only an adventurer card exiled as a resolving Adventure
         // carries its controller's permission to play it.
         for object in s.rules.objects.values() {
@@ -361,6 +381,9 @@ impl RulesTxn {
             frame::retained_effect_frame(&self.state.rules.frames, &s.rules.frame)
         {
             self.validate_resolution_payment(frame, payment)?;
+        }
+        if let Frame::TurnFaceUp { payment } = self.underlying_mana_frame(&s.rules.frame)? {
+            self.validate_face_up_payment(payment)?;
         }
         match self.underlying_mana_frame(&s.rules.frame)? {
             Frame::ChooseModes { cast }

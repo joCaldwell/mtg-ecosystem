@@ -171,7 +171,8 @@ impl RulesTxn {
             let public = current.is_some_and(|o| {
                 self.replacement_reveals(id)
                     || (!matches!(o.zone, Zone::Hand { .. } | Zone::Library { .. })
-                        && o.hideaway.is_none())
+                        && o.hideaway.is_none()
+                        && !o.face_down)
             });
             departures.push((card.owner, public.then(|| card.oracle_id.clone())));
         }

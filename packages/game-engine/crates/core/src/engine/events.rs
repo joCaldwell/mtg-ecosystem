@@ -46,6 +46,9 @@ pub enum BatchCause {
         source: ObjectId,
         #[serde(default, skip_serializing_if = "CardFace::is_front")]
         face: CardFace,
+        /// CR 702.37c, 708.4: turned face down before it is put on the stack.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        face_down: bool,
     },
     Payment {
         stack_id: StackId,
@@ -69,6 +72,11 @@ pub enum BatchCause {
     },
     Departure {
         player: PlayerId,
+    },
+    /// CR 116.2b, 702.37e: turning a face-down permanent face up.
+    SpecialAction {
+        player: PlayerId,
+        object: ObjectId,
     },
     ControlReconciliation,
     Fixture,
@@ -94,6 +102,7 @@ impl BatchCause {
             Self::Instruction { .. } => &["400.7", "608.2"],
             Self::SpellCompletion { .. } => &["400.7", "608.2", "608.3a"],
             Self::Departure { .. } => &["800.4a"],
+            Self::SpecialAction { .. } => &["116.2b", "702.37e", "708.8"],
             Self::ControlReconciliation => &["110.2", "613.1b", "800.4a", "800.4c"],
             Self::Fixture => &["700.1"],
         };
@@ -113,6 +122,9 @@ pub struct ObjectBefore {
     /// CR 701.27a: the object's transform count (`Object::transforms`).
     #[serde(default, skip_serializing_if = "state::is_zero_count")]
     pub transforms: u32,
+    /// CR 708.2: the object was face down (`Object::face_down`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -294,6 +306,7 @@ enum BatchAuthority<'a> {
     SpellToStack {
         player: PlayerId,
         face: CardFace,
+        face_down: bool,
     },
     Graveyard(
         &'a BTreeMap<ObjectId, Zone>,
@@ -574,7 +587,8 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         }
         ProposedEvent::Untap { object }
         | ProposedEvent::Tap { object }
-        | ProposedEvent::Transform { object } => {
+        | ProposedEvent::Transform { object }
+        | ProposedEvent::TurnFaceUp { object } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
@@ -1229,6 +1243,7 @@ impl RulesTxn {
                 }
                 ProposedEvent::Untap { object }
                 | ProposedEvent::Transform { object }
+                | ProposedEvent::TurnFaceUp { object }
                 | ProposedEvent::Tap { object }
                 | ProposedEvent::EnterTapped { object }
                 | ProposedEvent::Move { object, .. } => {
@@ -1633,6 +1648,7 @@ impl RulesTxn {
                 player,
                 source,
                 face,
+                face_down,
                 ..
             },
             EventGroup::Occurrence {
@@ -1648,6 +1664,7 @@ impl RulesTxn {
             BatchAuthority::SpellToStack {
                 player: *player,
                 face: *face,
+                face_down: *face_down,
             }
         } else {
             BatchAuthority::Ordinary
@@ -1897,7 +1914,7 @@ impl RulesTxn {
         &mut self,
         object: ObjectId,
         destination: Zone,
-        intended: Option<(PlayerId, CardFace)>,
+        (intended, face_down_cast): (Option<(PlayerId, CardFace)>, bool),
         entry_state: Option<&Self>,
         force_tapped: bool,
         entry_accepted: Option<bool>,
@@ -1922,6 +1939,17 @@ impl RulesTxn {
             _ => CardFace::Front,
         };
         let face_id = ObjectId { face, ..*object };
+        // CR 702.37c, 708.3-708.4: a face-down cast is turned face down
+        // before it is put on the stack, and the spell becomes a face-down
+        // permanent. Every other move turns the card face up (CR 708.9).
+        let face_down_entry = match *destination {
+            Zone::Stack => face_down_cast,
+            Zone::Battlefield => o.zone == Zone::Stack && o.face_down,
+            _ => false,
+        };
+        if face_down_cast && (*destination != Zone::Stack || face != CardFace::Front) {
+            return Err("face-down cast outside the stack".into());
+        }
         // CR 304.4, 307.4, 712.14b: an instant or sorcery cannot enter.
         if *destination == Zone::Battlefield
             && matches!(
@@ -2066,6 +2094,9 @@ impl RulesTxn {
                 plus_one_counters,
                 transforms: 0,
                 adventure_player: None,
+                // CR 702.37c, 708.4: a face-down spell becomes a face-down
+                // permanent; any other zone change turns it face up (708.9).
+                face_down: face_down_entry,
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
@@ -2076,6 +2107,16 @@ impl RulesTxn {
                 tapped: enters_tapped,
             },
         );
+        // CR 708.9: a face-down permanent or spell leaving for any zone other
+        // than the battlefield is revealed to all players as it moves. Public
+        // zones show it; a hand or library keeps that public knowledge.
+        if o.face_down && !face_down_entry {
+            match *destination {
+                Zone::Hand { owner } => self.remember_revealed_hand(owner, &[successor])?,
+                Zone::Library { .. } => self.remember_revealed_library_top(successor),
+                _ => {}
+            }
+        }
         Ok(EventOutcome::Moved {
             movement: MoveOutcome {
                 previous: *object,
@@ -2101,7 +2142,12 @@ impl RulesTxn {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        self.validate_characteristic_identity(object, fact.transforms, &fact.characteristics)?;
+        self.validate_characteristic_identity(
+            object,
+            fact.transforms,
+            fact.face_down,
+            &fact.characteristics,
+        )?;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone
@@ -2240,7 +2286,7 @@ impl RulesTxn {
                 self.apply_move(
                     *object,
                     Zone::Battlefield,
-                    Some((owner, CardFace::Front)),
+                    (Some((owner, CardFace::Front)), false),
                     entry_state,
                     true,
                     None,
@@ -2306,7 +2352,7 @@ impl RulesTxn {
                 let EventOutcome::Moved { movement } = self.apply_move(
                     *object,
                     Zone::Battlefield,
-                    None,
+                    (None, false),
                     entry_state,
                     force_tapped,
                     None,
@@ -2985,6 +3031,40 @@ impl RulesTxn {
                     .transforms = next;
                 EventOutcome::Transformed { object: *object }
             }
+            // CR 702.37e, 708.8: the same permanent turns face up; effects
+            // that applied to it still apply, and it does not enter. CR
+            // 702.37b: a megamorph cost paid this way adds a +1/+1 counter as
+            // it turns face up.
+            ProposedEvent::TurnFaceUp { object } => {
+                let o = self.current(*object)?;
+                let face_down = self
+                    .definition(object.card)?
+                    .face_down
+                    .as_ref()
+                    .ok_or("turning face up a card without morph")?;
+                if !o.present_on_battlefield() || !o.face_down || !object.face.is_front() {
+                    return Err("invalid turn face up event".into());
+                }
+                let counter = face_down.kind == FaceDownKind::Megamorph;
+                let o = self
+                    .rules_mut()
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing face-down object")?;
+                o.face_down = false;
+                if counter {
+                    o.plus_one_counters.add(&Quantity::from(1));
+                }
+                // CR 506.4: a permanent that stops being a creature, such as
+                // a land or enchantment card with morph, is removed from combat.
+                if !self.is_battlefield_creature(*object) {
+                    self.remove_from_combat(*object);
+                }
+                EventOutcome::TurnedFaceUp {
+                    object: *object,
+                    counter,
+                }
+            }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;
                 if !o.present_on_battlefield() || o.tapped {
@@ -3153,7 +3233,7 @@ impl RulesTxn {
                 destination,
             } => {
                 let intended = match authority {
-                    BatchAuthority::SpellToStack { player, face } => Some((player, face)),
+                    BatchAuthority::SpellToStack { player, face, .. } => Some((player, face)),
                     BatchAuthority::BattlefieldEntry {
                         land: Some((source, player, face)),
                         ..
@@ -3174,10 +3254,17 @@ impl RulesTxn {
                     Some(EntryOverride::Choice { accepted }) => (false, Some(accepted)),
                     None => (false, None),
                 };
+                let face_down = matches!(
+                    authority,
+                    BatchAuthority::SpellToStack {
+                        face_down: true,
+                        ..
+                    }
+                );
                 self.apply_move(
                     *object,
                     *destination,
-                    intended,
+                    (intended, face_down),
                     entry_state,
                     force_tapped,
                     payment,

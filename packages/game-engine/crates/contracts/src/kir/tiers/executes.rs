@@ -1255,6 +1255,18 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     {
         return cell("keyword", "flashback");
     }
+    // CR 702.37a-b: a permanent card of one face with a fixed mana morph
+    // cost. An instant or sorcery cast face down would be a creature spell
+    // with no permanent to become afterwards.
+    if let Some(face_down) = &d.face_down
+        && (matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+            || d.back_face.is_some()
+            || d.flashback.is_some()
+            || face_down.cost.generic.is_negative()
+            || face_down.cost.colored.contains(&Color::C))
+    {
+        return cell("keyword", "morph");
+    }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         if let Some(modal) = &d.modal_spell {
             modal_shape(

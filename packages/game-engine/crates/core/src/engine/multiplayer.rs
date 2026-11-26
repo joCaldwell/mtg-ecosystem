@@ -491,6 +491,7 @@ impl RulesTxn {
         }
         self.revalidate_sacrifice_departure()?;
         self.revalidate_chosen_cost_departure()?;
+        self.revalidate_face_up_departure()?;
         // A departure can invalidate a pending mode, priority cast or mana
         // activation before its rule step. Keep the input journal, discard
         // only the stale proposal, and leave valid pending actions intact.
@@ -498,6 +499,7 @@ impl RulesTxn {
             self.state.rules.frame,
             Frame::Priority
                 | Frame::ResolutionPayment { .. }
+                | Frame::TurnFaceUp { .. }
                 | Frame::Mana { .. }
                 | Frame::SacrificeCost { .. }
                 | Frame::ChosenObjectCost { .. }

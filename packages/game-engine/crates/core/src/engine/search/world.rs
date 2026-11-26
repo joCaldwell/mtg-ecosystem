@@ -387,6 +387,7 @@ impl SampleBuildWork {
                     plus_one_counters: Quantity::zero(),
                     transforms: 0,
                     adventure_player: None,
+                    face_down: false,
                     deathtouch_damage: false,
                     id: object,
                     zone: row.zone,
@@ -513,6 +514,12 @@ impl RootHandleMap {
                 },
                 Action::CastBackFace { card } => Action::CastBackFace {
                     card: object(card)?,
+                },
+                Action::CastFaceDown { card } => Action::CastFaceDown {
+                    card: object(card)?,
+                },
+                Action::TurnFaceUp { object: id } => Action::TurnFaceUp {
+                    object: object(id)?,
                 },
                 Action::PlayLandBackFace { object: id } => Action::PlayLandBackFace {
                     object: object(id)?,
