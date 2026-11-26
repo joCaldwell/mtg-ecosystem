@@ -1718,8 +1718,7 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
     );
     assert_eq!(protection_lowered.triggered.len(), 1);
     let protection_dropped = changed(&protection_intact, |row| {
-        row["faces"][0]["result"]["abilities"][0]["keywords"] =
-            json!([{"keyword": "protection", "from": [{"scope": "color", "color": "red"}, {"scope": "color", "color": "green"}]}]);
+        row["faces"][0]["result"]["abilities"][0]["keywords"] = json!([{"keyword": "protection", "from": [{"scope": "color", "color": "red"}, {"scope": "color", "color": "green"}]}]);
     });
     let failure = lowers(&protection_dropped).unwrap_err();
     assert_eq!(
