@@ -13,7 +13,7 @@ pub(crate) enum SetMove {
     Exile,
     Hand,
 }
-// Set semantics: docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
+// Set semantics: docs/game-engine-board-mechanics.md#movement-sacrifice-and-board-wide-effects.
 // Shared resource bounds: docs/game-engine-capacity-policy.md.
 
 impl RulesTxn {
