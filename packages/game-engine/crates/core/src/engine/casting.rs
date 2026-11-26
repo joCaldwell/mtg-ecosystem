@@ -132,8 +132,10 @@ impl RulesTxn {
     }
 
     /// Quote an ordinary front-face cast for its priority holder using the
-    /// same cost construction that will lock at CR 601.2f. Optional and
-    /// hybrid costs are left to their respective announcement choices.
+    /// same cost construction that will lock at CR 601.2f, including a
+    /// graveyard cast's flashback or escape cost or retrace's mana cost (CR
+    /// 702.34a, 702.81a, 702.138a). Optional and hybrid costs are left to
+    /// their respective announcement choices.
     pub fn quote_cast_cost(
         &self,
         viewer: PlayerId,
@@ -149,9 +151,11 @@ impl RulesTxn {
         self.casting_cost(source, viewer, proposal.cast_from, x)
     }
 
-    /// CR 118.9, 601.2f: quote the printed alternative cost (evoke) of the
-    /// same front-face proposal from hand or the command zone, with the
-    /// commander tax, increases and reductions that would lock with it.
+    /// CR 118.9, 601.2f: quote the printed alternative cost (evoke, CR
+    /// 702.74a, or dash, CR 702.109a) of the same front-face proposal from
+    /// hand or the command zone, with the commander tax, increases and
+    /// reductions that would lock with it. Graveyard routes (flashback,
+    /// retrace, escape) are the proposal's own cost: see `quote_cast_cost`.
     pub fn quote_alternative_cast_cost(
         &self,
         viewer: PlayerId,

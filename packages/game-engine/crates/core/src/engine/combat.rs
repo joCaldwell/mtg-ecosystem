@@ -190,10 +190,13 @@ impl RulesTxn {
     /// CR 508.1d, 702.141a: an encore token attacks its opponent this turn
     /// if able. Attacking that player obeys every other admitted requirement
     /// too, so the token may attack no other player while it can attack them.
+    /// A player who left, or who now controls the token, is no defender it
+    /// can attack, so no requirement remains (CR 506.2, 800.4a).
     fn required_defender(&self, object: ObjectId) -> Option<PlayerId> {
         let (defender, turn) = self.encore_mark(object)?;
         (turn == self.state.rules.turn.number
             && self.is_live(defender)
+            && self.current(object).is_ok_and(|o| o.controller != defender)
             && self.attack_permitted(object, defender))
         .then_some(defender)
     }

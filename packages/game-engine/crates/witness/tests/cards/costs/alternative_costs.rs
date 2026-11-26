@@ -223,10 +223,21 @@ fn advance(
     attackers: &[ObjectId],
     stop: impl Fn(&Game, &Decision<Rules>) -> bool,
 ) -> Decision<Rules> {
+    let d = advance_unchecked(g, attackers, stop);
+    checked(g);
+    d
+}
+
+/// [`advance`] without the snapshot round trip, for boards changed by a
+/// private fixture action that replay cannot reproduce.
+fn advance_unchecked(
+    g: &mut Game,
+    attackers: &[ObjectId],
+    stop: impl Fn(&Game, &Decision<Rules>) -> bool,
+) -> Decision<Rules> {
     for _ in 0..256 {
         let d = Driver::request(g, u64::MAX);
         if stop(g, &d) {
-            checked(g);
             return d;
         }
         let answer = match &d.reason {
@@ -546,9 +557,10 @@ fn evoke_combines_with_locked_keyword_payments() {
 /// offers no encore. With `bolted`, Lightning Bolt kills one token first;
 /// at the next end step the delayed trigger sacrifices the survivors only,
 /// and every copy's own dies trigger makes a Treasure (CR 603.7, 707.2).
+/// With `phased`, a phased-out copy is not sacrificed (CR 702.26b).
 #[test]
 fn impulsive_pilferer_encore_copies_attack_each_opponent_and_are_sacrificed() {
-    for bolted in [false, true] {
+    for (bolted, phased) in [(false, false), (true, false), (false, true)] {
         let mut fixture = board(&[(IMPULSIVE_PILFERER, &[Cell::Encore])])
             .card(
                 "Impulsive Pilferer",
@@ -628,14 +640,37 @@ fn impulsive_pilferer_encore_copies_attack_each_opponent_and_are_sacrificed() {
         )
         .unwrap();
         checked(&g);
-        advance(&mut g, &[], |g, d| {
+        // Private fixture action: a phased-out copy is treated as though it
+        // does not exist, so the end-step trigger cannot sacrifice it (CR
+        // 702.26b).
+        if phased {
+            advance(&mut g, &[], |g, d| {
+                d.reason == Reason::Priority && g.state.rules.turn.step == TurnStep::PostcombatMain
+            });
+            g.phase_out_permanents(phasing::PhaseSelection::Target(tokens[2]))
+                .unwrap();
+        }
+        let sacrificed = if phased { &tokens[..2] } else { &tokens[..] };
+        let end = |g: &Game, d: &Decision<Rules>| {
             d.reason == Reason::Priority
                 && g.state.rules.turn.step == TurnStep::End
                 && g.state.rules.stack.is_empty()
-                && tokens.iter().all(|t| g.zone(*t).is_none())
-        });
-        checked(&g);
-        assert_recoverable((&g).into());
+                && sacrificed.iter().all(|t| g.zone(*t).is_none())
+        };
+        if phased {
+            advance_unchecked(&mut g, &[], end);
+        } else {
+            advance(&mut g, &[], end);
+        }
+        if phased {
+            // A private phasing action does not replay; validate only.
+            g.validate_state().unwrap();
+            assert_eq!(g.zone(tokens[2]), Some(Zone::Battlefield));
+            assert!(g.current(tokens[2]).unwrap().phased_out.is_some());
+        } else {
+            checked(&g);
+            assert_recoverable((&g).into());
+        }
         for seat in [1, 3] {
             assert_eq!(life(&g, seat), plus(&Quantity::from(40), -1), "seat {seat}");
         }
@@ -657,7 +692,11 @@ fn impulsive_pilferer_encore_copies_attack_each_opponent_and_are_sacrificed() {
                         .is_some_and(|t| t.definition.characteristics.subtypes == ["Treasure"])
             })
             .count();
-        assert_eq!(treasures, 3, "each copy that died made a Treasure");
+        assert_eq!(
+            treasures,
+            if phased { 2 } else { 3 },
+            "each copy that died made a Treasure"
+        );
     }
 }
 
@@ -973,5 +1012,80 @@ fn simulator_plans_graveyard_casts_and_dash_only_from_the_engine_quote() {
             }
             assert_eq!(answer, d.pick_one(&cast).unwrap(), "{name}");
         }
+    }
+}
+
+/// Mardu Scout dashed and then phased out before the next end step: a
+/// phased-out permanent is treated as though it does not exist, so the dash
+/// trigger does not return it, and it stays phased out on the battlefield
+/// (CR 702.26b, 702.109a). Phasing is a private fixture action.
+#[test]
+fn dash_does_not_return_a_phased_out_permanent() {
+    let mut g = Game::with_trace(
+        board(&[(MARDU_SCOUT, &[Cell::Dash])])
+            .permanent_or_hand("Mardu Scout", 0, 0, true)
+            .permanent_or_hand("Mountain", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .libraries("Island", 4)
+            .prepare(),
+        TraceMode::Detailed,
+    );
+    Driver::cast(&mut g, CardId(0));
+    let d = expect(&mut g, 0, Reason::AdditionalCosts);
+    g.respond(
+        d.player,
+        d.id,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
+    )
+    .unwrap();
+    Driver::pay(&mut g, &[1, 2]);
+    resolve_all(&mut g);
+    let scout = Driver::object(&g, 0);
+    g.phase_out_permanents(phasing::PhaseSelection::Target(scout))
+        .unwrap();
+    let triggered = std::cell::Cell::new(false);
+    advance_unchecked(&mut g, &[], |g, d| {
+        if g.state.rules.turn.step == TurnStep::End && !g.state.rules.stack.is_empty() {
+            triggered.set(true);
+        }
+        d.reason == Reason::Priority && triggered.get() && g.state.rules.stack.is_empty()
+    });
+    // A private phasing action does not replay; validate only.
+    g.validate_state().unwrap();
+    assert_eq!(g.zone(scout), Some(Zone::Battlefield), "not returned");
+    assert!(g.current(scout).unwrap().phased_out.is_some());
+}
+
+/// Encore creates its copies in one event with no battlefield-entry stage,
+/// so an encore card whose own entry replacement would modify that entry
+/// (CR 614.1c, 614.12) is rejected by name rather than lowered without it.
+/// The exact Impulsive Pilferer definition, given each admitted entry
+/// replacement in turn, fails the `Executes` surface check.
+#[test]
+fn encore_rejects_entry_replacements_by_name() {
+    let mtg_compiler::CompileResult::Lowered { definition } =
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, IMPULSIVE_PILFERER)
+    else {
+        panic!("frozen encore witness failed");
+    };
+    assert!(definition_cells(&definition).unwrap().contains(&Cell::Encore));
+    for effect in [
+        StaticEffect::EntersTapped,
+        StaticEffect::EntersWithPlusOneCounters {
+            count: Quantity::from(1),
+        },
+    ] {
+        let mut d = definition.as_ref().clone();
+        d.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect,
+        });
+        let error = definition_cells(&d).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("encore:entry-replacement"),
+            "{error:?}"
+        );
     }
 }

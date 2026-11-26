@@ -765,6 +765,22 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         {
             return cell("activated", "encore");
         }
+        // CR 614.1c, 614.12: the copies' own entry replacements would
+        // modify their simultaneous creation, which has no entry stage.
+        if encore
+            && d.static_abilities.iter().any(|s| {
+                matches!(
+                    s.effect,
+                    StaticEffect::EntersTapped
+                        | StaticEffect::PayLifeOrEnterTapped { .. }
+                        | StaticEffect::RevealOrEnterTapped { .. }
+                        | StaticEffect::EntersTappedIf { .. }
+                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                )
+            })
+        {
+            return cell("activated", "encore:entry-replacement");
+        }
         cost(d, a, &a.program)?;
         return program(&a.program, Context::Activated, None, false);
     }

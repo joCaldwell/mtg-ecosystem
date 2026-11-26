@@ -325,9 +325,11 @@ impl RulesTxn {
         let target = row.capture.as_ref().map(|capture| capture.actual.successor);
         let actual = match target {
             Some(target)
-                if self.current(target).is_ok_and(|object| {
-                    object.id == target && object.zone == Zone::Battlefield
-                }) =>
+                // CR 702.26b: a phased-out permanent is treated as though
+                // it does not exist.
+                if self
+                    .current(target)
+                    .is_ok_and(|object| object.id == target && object.present_on_battlefield()) =>
             {
                 let owner = self.state.rules.cards[&target.card].owner;
                 let movement = self.move_object_for(
@@ -796,9 +798,11 @@ impl RulesTxn {
         let target = row.capture.as_ref().map(|capture| capture.actual.successor);
         let actual = match target {
             Some(target)
-                if self.current(target).is_ok_and(|object| {
-                    object.id == target && object.zone == Zone::Battlefield
-                }) =>
+                // CR 702.26b: a phased-out permanent is treated as though
+                // it does not exist.
+                if self
+                    .current(target)
+                    .is_ok_and(|object| object.id == target && object.present_on_battlefield()) =>
             {
                 let movement = self.move_object_for(
                     target,
