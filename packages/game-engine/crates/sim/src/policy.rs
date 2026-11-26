@@ -183,8 +183,8 @@ impl Strategy<'_> {
                 flag(d, if take { Flag::Mulligan } else { Flag::Keep })?
             }
             (Reason::CommanderReturn { .. }, _) => flag(d, Flag::CommandZone)?,
-            // CR 701.20a, 614.12: an entry reveal costs only information, so
-            // reveal the first offered hand card and enter untapped.
+            // Reveal at entry or choose an offered resolution payment object.
+            // A filtered discard can avoid the larger default discard.
             (Reason::OptionalEffect, Shape::Pick { slots, .. })
                 if slots.first().is_some_and(|slot| {
                     slot.allowed
@@ -197,7 +197,7 @@ impl Strategy<'_> {
                     .iter()
                     .copied()
                     .find(|i| matches!(d.candidate(*i), Ok(Candidate::Object { .. })))
-                    .ok_or("missing entry reveal card")?;
+                    .ok_or("missing optional object")?;
                 d.pick_one(d.candidate(index)?)?
             }
             // A reveal with no matching hand card offers Decline alone.

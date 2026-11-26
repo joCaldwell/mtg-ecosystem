@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    79,
-    "5eea43a803f7b4fe90f6c45ba63ee2e115899771eaed30f99539a5dcbec61aa7",
+    80,
+    "16545112d0ebfd4a9f58dd383bf9a5bb54e13f5becc8838c495fbc3be6655ff3",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    110,
-    "b7388a74b62c2c2ca0b79bf4bec7580588474dc70daa7bc4de638aea9ff40401",
+    111,
+    "5a43c25fb14200d481ec045d3c30428f5567baa38414dc2b95420171552ced3f",
 );
 const WORK_PIN: (u32, &str) = (
     59,
@@ -774,6 +774,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            super::kernel_control_tests::suspended_creature_payment(),
             pending_stack_target(),
         ])
         .chain(mana_riders())

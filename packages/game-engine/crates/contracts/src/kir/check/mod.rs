@@ -1148,6 +1148,14 @@ impl Walk<'_, '_> {
                     Payment::Generic { amount } | Payment::Life { amount } => {
                         self.nonnegative_control_amount(amount)?
                     }
+                    Payment::Mana { mana: cost }
+                        if !cost.generic.is_negative() && !cost.colored.is_empty() => {}
+                    Payment::Mana { .. } => return unaudited("invalid fixed mana payment"),
+                    Payment::SacrificeCreature {} | Payment::DiscardArtifact {} => {
+                        if !payer.is_you() {
+                            return unaudited("object payment payer");
+                        }
+                    }
                 }
                 self.nested(node, true)
             }
