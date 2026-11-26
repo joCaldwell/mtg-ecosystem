@@ -50,18 +50,17 @@ ask only if it cannot be inferred. Read its manual before editing code.
 [current map](docs/game-engine-current.md), then [development](docs/game-engine-development.md)
 (`check:engine`, `check:engine:gate`, `check:engine:tooling`), then
 [mechanics](docs/game-engine-mechanics.md) and [Kernel IR](docs/game-engine-catalogs.md#kernel-ir).
-Update owning canonical sections instead of creating
-per-task plans, progress logs or audit reports. Raw receipts belong in ignored or
-external evidence storage, with locations and omissions in the handoff.
 
 ## Documentation and handoff
 
 Each contract has one canonical owner in the [README map](README.md#documentation-map).
 Package manuals state local constraints and link that owner; examples explain use
 without duplicating types, inventories or current status. Update the owner in
-place. Completed plans, task audits and chronological release logs belong in Git
-history. Evidence guides retain exact source/acceptance boundaries and proof
-locations, not a transcript of every check. Preserve their referenced raw evidence.
+place; never create per-task plans, progress logs or audit reports. Completed
+plans, task audits and chronological release logs belong in Git history. Evidence
+guides retain exact source/acceptance boundaries and proof locations, not a
+transcript of every check; raw receipts belong in ignored or external evidence
+storage, with locations and omissions in the handoff. Preserve referenced raw evidence.
 
 `npm run check:docs` (or `python3 scripts/check-docs.py`, no Node required) checks
 all maintained `.md`, `.markdown` and `.mdx` files, including package manuals and
