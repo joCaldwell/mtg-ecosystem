@@ -16,6 +16,10 @@ pub struct Casting {
     pub origin: AnnouncementOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spending: Option<BTreeMap<Color, Quantity>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delve: Option<Vec<ObjectId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tap_payment: Option<Vec<(ObjectId, Option<Color>)>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub spending_restricted: Vec<RestrictedMana>,
     pub stack_id: StackId,

@@ -404,6 +404,17 @@ pub(super) fn plan_for_payment(
     exclude: Option<&ObjectHandle>,
     eligible: &[mtg_contracts::RestrictedMana],
 ) -> Option<std::collections::VecDeque<PlannedMana>> {
+    plan_with_reservations(catalog, view, cost, exclude, eligible, &[])
+}
+
+pub(super) fn plan_with_reservations(
+    catalog: &Catalog,
+    view: &PermittedView,
+    cost: &ManaCost,
+    exclude: Option<&ObjectHandle>,
+    eligible: &[mtg_contracts::RestrictedMana],
+    reserved: &[&ObjectHandle],
+) -> Option<std::collections::VecDeque<PlannedMana>> {
     let pool = spendable_pool(view)?;
     let mut scoped_mana = BTreeMap::<Color, Quantity>::new();
     for unit in eligible {
@@ -411,7 +422,10 @@ pub(super) fn plan_for_payment(
     }
     let mut sources = vec![];
     for (object_index, o) in view.objects.iter().enumerate() {
-        if !controlled_permanent(view, o) || exclude == Some(&o.handle) {
+        if !controlled_permanent(view, o)
+            || exclude == Some(&o.handle)
+            || reserved.contains(&&o.handle)
+        {
             continue;
         }
         // A token plans only the abilities statics grant it (CR 113.10a);
@@ -526,8 +540,21 @@ pub(super) fn plan_for_payment(
 pub(super) fn hybrid_plan(
     catalog: &Catalog,
     view: &mtg_core::PermittedView,
+    cost: ManaCost,
+    symbols: &[mtg_contracts::ColorHybridSymbol],
+) -> Option<(
+    Vec<mtg_contracts::HybridPayment>,
+    std::collections::VecDeque<PlannedMana>,
+)> {
+    hybrid_plan_reserved(catalog, view, cost, symbols, &[])
+}
+
+pub(super) fn hybrid_plan_reserved(
+    catalog: &Catalog,
+    view: &PermittedView,
     mut cost: ManaCost,
     symbols: &[mtg_contracts::ColorHybridSymbol],
+    reserved: &[&ObjectHandle],
 ) -> Option<(
     Vec<mtg_contracts::HybridPayment>,
     std::collections::VecDeque<PlannedMana>,
@@ -543,7 +570,8 @@ pub(super) fn hybrid_plan(
             .filter_map(|choice| choice.color())
             .find(|color| {
                 cost.colored.push(*color);
-                let payable = plan_for(catalog, view, &cost, None).is_some();
+                let payable =
+                    plan_with_reservations(catalog, view, &cost, None, &[], reserved).is_some();
                 cost.colored.pop();
                 payable
             })
@@ -560,7 +588,10 @@ pub(super) fn hybrid_plan(
             return None;
         }
     }
-    Some((choices, plan_for(catalog, view, &cost, None)?))
+    Some((
+        choices,
+        plan_with_reservations(catalog, view, &cost, None, &[], reserved)?,
+    ))
 }
 #[cfg(test)]
 mod tests {

@@ -16,6 +16,10 @@ static FACE_DOWN: LazyLock<Definition> = LazyLock::new(|| Definition {
     flashback: None,
     alternative_cost: None,
     face_down: None,
+    // CR 708.2a: no text, so no delve, convoke or improvise.
+    delve: false,
+    convoke: false,
+    improvise: false,
     oracle_id: String::new(),
     name: String::new(),
     characteristics: Characteristics {

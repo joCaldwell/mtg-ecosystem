@@ -1585,3 +1585,193 @@ fn simulator_quotes_sphere_increase_before_affinity_reduction() {
         );
     }
 }
+
+/// CR 702.66 and 601.2h: delve covers generic payment only and survives
+/// restoring the spend decision after graveyard cards have been chosen.
+#[test]
+fn treasure_cruise_partial_delve_survives_restore() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    const CRUISE: &str = record!("5b6bdf5a-2742-4851-92cd-a857a3852836");
+    let mut setup = board(&[(CRUISE, &[])])
+        .permanent_or_hand("Treasure Cruise", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .card("Island", 1, 1, Zone::Graveyard { owner: PlayerId(1) });
+    for _ in 0..6 {
+        setup = setup.card("Forest", 0, 0, Zone::Graveyard { owner: PlayerId(0) });
+    }
+    let mut game = Game::new(setup.libraries("Island", 4).prepare());
+    let catalog = game.prepared.clone();
+    let mut strategy = Strategy::new(&catalog.catalog, Policy::Develop, [0; 4]);
+    let mut saw_delve = false;
+    for _ in 0..12 {
+        let decision = Driver::request(&mut game, u64::MAX);
+        let view = observation(&game, 0);
+        if saw_delve {
+            assert!(
+                matches!(&decision.shape, Shape::Pay { cost, step: PayStep::Spend, .. }
+                if cost.generic == 1.into() && cost.colored == [Color::U])
+            );
+            game = Game::restore(catalog.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+            let answer = strategy.choose_with_game(&view, &game).unwrap();
+            game.respond(decision.player, decision.id, answer).unwrap();
+            Driver::request(&mut game, u64::MAX);
+            assert_eq!(
+                game.state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|object| object.zone == Zone::Exile)
+                    .count(),
+                6
+            );
+            assert_eq!(
+                game.state.rules.stack.last().unwrap().total_cost.generic,
+                7.into()
+            );
+            checked(&game);
+            return;
+        }
+        if let Reason::ChosenObjectCost {
+            action: mtg_contracts::ChosenCostAction::ExileFromGraveyard,
+        } = decision.reason
+        {
+            assert_eq!(decision.candidates.len(), 6);
+            saw_delve = true;
+        }
+        let answer = strategy.choose_with_game(&view, &game).unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+    panic!("Treasure Cruise did not reach delve payment");
+}
+
+/// CR 702.51: creatures cover only generic mana or their own colors.
+#[test]
+fn hour_of_reckoning_convokes_white_and_generic() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    const HOUR: &str = record!("3bc13640-03f8-4b19-b0a4-7e7cb5271c0c");
+    let mut setup = board(&[(HOUR, &[Cell::Convoke])])
+        .permanent_or_hand("Hour of Reckoning", 0, 0, true)
+        .permanent_or_hand("Leonin Snarecaster", 1, 1, false)
+        .permanent_or_hand("Llanowar Elves", 0, 0, false)
+        .permanent_or_hand("Isamaru, Hound of Konda", 0, 0, true);
+    for _ in 0..2 {
+        setup = setup.permanent_or_hand("Leonin Snarecaster", 0, 0, false);
+    }
+    for _ in 0..3 {
+        setup = setup.permanent_or_hand("Grizzly Bears", 0, 0, false);
+    }
+    let mut game = Game::new(
+        setup
+            .permanent_or_hand("Plains", 0, 0, false)
+            .libraries("Island", 2)
+            .prepare(),
+    );
+    let elf = Driver::object(&game, 2);
+    Driver::action(&mut game, Action::ActivateMana { object: elf });
+    Driver::cast(&mut game, CardId(3));
+    Driver::pay(&mut game, &[9]);
+    settle(&mut game);
+    assert!(!game.state.rules.objects[&CardId(3)].attack_ready);
+    let catalog = game.prepared.clone();
+    let mut strategy = Strategy::new(&catalog.catalog, Policy::Develop, [0; 4]);
+    Driver::cast(&mut game, CardId(0));
+    for _ in 0..3 {
+        let decision = Driver::request(&mut game, u64::MAX);
+        let view = observation(&game, 0);
+        if let Shape::Pick { slots, .. } = &decision.shape {
+            assert_eq!(slots.len(), 2);
+            assert_eq!(slots[0].min, 3);
+            assert_eq!(slots[0].allowed.len(), 3);
+            assert_eq!(slots[1].allowed.len(), 6);
+            let subject = slots[0].subject.unwrap();
+            assert_eq!(
+                decision.candidate(subject).unwrap(),
+                &Candidate::Color { color: Color::W }
+            );
+            checked(&game);
+        }
+        let answer = strategy.choose_with_game(&view, &game).unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Priority
+    );
+    for id in 2..9 {
+        assert!(game.state.rules.objects[&CardId(id)].tapped);
+    }
+    assert!(!game.state.rules.objects[&CardId(1)].tapped);
+    checked(&game);
+}
+
+/// CR 702.126: artifacts can pay only generic mana and must be controlled
+/// by the caster. The two white symbols still require mana.
+#[test]
+fn organic_extinction_improvises_generic_only() {
+    use mtg_sim::policy::{Policy, Strategy};
+
+    const ORGANIC: &str = record!("d9e24d7c-0907-45c1-b5d3-9fb16a929868");
+    let mut setup = board(&[(ORGANIC, &[Cell::Improvise])])
+        .permanent_or_hand("Organic Extinction", 0, 0, true)
+        .permanent_or_hand("Darksteel Relic", 1, 1, false)
+        .permanent_or_hand("Leonin Snarecaster", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false);
+    for _ in 0..8 {
+        setup = setup.permanent_or_hand("Darksteel Relic", 0, 0, false);
+    }
+    let mut game = Game::new(setup.libraries("Island", 2).prepare());
+    let catalog = game.prepared.clone();
+    let mut strategy = Strategy::new(&catalog.catalog, Policy::Develop, [0; 4]);
+    Driver::cast(&mut game, CardId(0));
+    let mut saw_improvise = false;
+    for _ in 0..10 {
+        let decision = Driver::request(&mut game, u64::MAX);
+        if decision.reason == Reason::Priority {
+            assert!(saw_improvise);
+            assert!(!game.state.rules.objects[&CardId(1)].tapped);
+            assert!(!game.state.rules.objects[&CardId(2)].tapped);
+            for id in 3..13 {
+                assert!(game.state.rules.objects[&CardId(id)].tapped);
+            }
+            checked(&game);
+            return;
+        }
+        if let Shape::Pick { slots, .. } = &decision.shape {
+            assert_eq!(slots.len(), 1);
+            assert_eq!(slots[0].subject, None);
+            assert_eq!(slots[0].allowed.len(), 8);
+            saw_improvise = true;
+        }
+        if let Shape::Pay {
+            cost,
+            step: PayStep::Spend,
+            ..
+        } = &decision.shape
+        {
+            assert!(saw_improvise);
+            assert_eq!(cost.generic, 0.into());
+            assert_eq!(cost.colored, [Color::W, Color::W]);
+            checked(&game);
+        }
+        let answer = strategy
+            .choose_with_game(&observation(&game, 0), &game)
+            .unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+    panic!("Organic Extinction did not complete payment");
+}
+
+#[test]
+fn charging_binox_rejects_assist_by_name() {
+    const BINOX: &str = record!("0f10f9d1-f9f9-4356-9208-0f21f44bfb97");
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, BINOX);
+    assert!(
+        matches!(&result, mtg_compiler::CompileResult::Unsupported { reason, .. }
+            if reason.contains("keyword:assist")),
+        "unexpected assist admission: {result:?}",
+    );
+}
