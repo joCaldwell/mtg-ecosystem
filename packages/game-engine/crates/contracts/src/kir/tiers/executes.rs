@@ -1182,6 +1182,19 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                     if *n > Quantity::zero() {
                         return true;
                     }
+                    // CR 604.3, 613.4a: a characteristic-defining ability
+                    // supplies the toughness; zero is a state-based death.
+                    if d.static_abilities.iter().any(|a| {
+                        matches!(
+                            a.effect,
+                            kir::StaticEffect::DefinePowerToughness {
+                                toughness: Some(_),
+                                ..
+                            }
+                        )
+                    }) {
+                        return true;
+                    }
                     // CR 122.6 and 704.5f: entry counters contribute before
                     // the first state-based toughness check.
                     let mut entry_toughness = n.clone();

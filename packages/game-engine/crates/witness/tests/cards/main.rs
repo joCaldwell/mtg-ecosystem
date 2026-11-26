@@ -1,6 +1,7 @@
 mod attachments;
 mod card_movement;
 mod changeling;
+mod characteristic_pt;
 mod continuous;
 mod control;
 mod costs;
