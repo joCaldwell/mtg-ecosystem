@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    69,
-    "3a36c2efa2daf299b68ec2c802ae7ad0acc68efdda4af09cdf0549fd1bae401a",
+    71,
+    "43db0cd018e4c259e0d3f3de336dba4bc16f3844a2dba08a324bb3845283b135",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    102,
-    "c97332e42646e1796c3eb1456c12fe66b7b99dfe7ade5fc34643e6536eccbcc4",
+    106,
+    "bf78062a2e947ccf799f9ca81af5a709d68b6f69617e91252bd23643327d097d",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -381,6 +381,14 @@ fn library_entry_shapes() -> Vec<String> {
         .collect()
 }
 
+/// CR 608.2d: the open object choice carries only the resolving frame and a tag.
+fn object_choice_shape() -> String {
+    let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    sample["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::Object {}).unwrap();
+    serde_json::to_string(&sample).unwrap()
+}
+
 fn chosen_cost_shapes() -> Vec<Game> {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     let forest = catalog
@@ -438,6 +446,90 @@ fn chosen_cost_shapes() -> Vec<Game> {
         samples.push(game);
     }
     samples
+}
+
+/// CR 602.5: a conditioned mana ability's receipt in an open mana window,
+/// then the conditioned stack activation it paid for, each with the counts
+/// read as the activation began.
+fn activation_condition_shapes() -> Vec<Game> {
+    let you = PlayerExpr::you(Context::Activated);
+    let controls = |kind| mtg_contracts::kir::Cond::Compare {
+        left: Amount::Count {
+            set: SetExpr::battlefield(mtg_contracts::kir::Pred(vec![
+                mtg_contracts::kir::Atom::Type { kind },
+                mtg_contracts::kir::Atom::ControlledBy {
+                    player: you.clone(),
+                },
+            ])),
+        },
+        cmp: mtg_contracts::kir::Cmp::AtLeast,
+        right: Amount::fixed(1),
+    };
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for d in &mut catalog.definitions {
+        if d.name == "Forest" {
+            d.activated.push(ActivatedAbility {
+                cost: ActivationCost::Mana {
+                    cost: ManaCost {
+                        generic: 2.into(),
+                        colored: vec![],
+                    },
+                },
+                functioning_zone: FunctioningZone::Battlefield,
+                restriction: Some(ActivationRestriction {
+                    window: None,
+                    once_each_turn: false,
+                    condition: Some(controls(CardKind::Land)),
+                }),
+                modal: None,
+                program: SpellProgram::instructions(SpellTiming::Instant)
+                    .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
+            });
+        } else if d.name == "Sol Ring" {
+            d.mana_abilities[0].condition = Some(controls(CardKind::Artifact));
+        } else {
+            continue;
+        }
+        d.source_labels = None;
+        d.capabilities = d.requirements();
+    }
+    let prepared = Board::new(catalog, "snapshot-activation-condition")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 0, 0, false)
+        .libraries("Forest", 2)
+        .prepare();
+    let mut game = Game::new(prepared);
+    let forest = Driver::object(&game, 0);
+    let ring = Driver::object(&game, 1);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: forest,
+            ability: 0,
+        },
+    );
+    let d = Driver::request(&mut game, u64::MAX);
+    let source = d
+        .index(&Candidate::Action {
+            action: Action::ActivateMana { object: ring },
+        })
+        .unwrap();
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source },
+        },
+    );
+    Driver::request(&mut game, u64::MAX);
+    let window = game.fork();
+    Driver::pay(&mut game, &[]);
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Priority
+    );
+    vec![window, game]
 }
 
 /// Substitute each measured variant in a saved resolution check to
@@ -537,9 +629,11 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         ])
         .chain(mana_riders())
         .chain(chosen_cost_shapes())
+        .chain(activation_condition_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())
+        .chain([object_choice_shape()])
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

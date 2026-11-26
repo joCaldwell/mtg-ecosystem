@@ -17,6 +17,10 @@ pub enum StackKind {
     Activated {
         ability: u32,
         source_handles: Vec<publish::StoredObjectHandle>,
+        /// CR 602.5: what an "Activate only if" condition read as this
+        /// activation began.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        condition: Option<stack_costs::ActivationConditionCheck>,
     },
 }
 impl StackKind {
@@ -46,6 +50,7 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolutionChoice {
+    Object {},
     Populate,
     Proliferate,
     OptionalEffect {
@@ -355,6 +360,7 @@ impl RulesTxn {
         }
         if ability
             .restriction
+            .as_ref()
             .is_some_and(|r| !self.activation_restriction_allows(player, object, index, r))
         {
             return Err("activation restriction is not met".into());
@@ -437,6 +443,7 @@ impl RulesTxn {
             return Ok(None);
         };
         Ok(match choice {
+            ResolutionChoice::Object {} => self.object_choice_request(frame)?,
             ResolutionChoice::Populate | ResolutionChoice::Proliferate => {
                 self.keyword_action_request(frame, choice)?
             }
@@ -493,6 +500,9 @@ impl RulesTxn {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
+                if matches!(choice, ResolutionChoice::Object {}) {
+                    return self.object_choice_step(frame);
+                }
                 if matches!(
                     choice,
                     ResolutionChoice::Populate | ResolutionChoice::Proliferate
@@ -520,7 +530,8 @@ impl RulesTxn {
 
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::Populate
+                        ResolutionChoice::Object {}
+                        | ResolutionChoice::Populate
                         | ResolutionChoice::Proliferate
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
@@ -549,7 +560,8 @@ impl RulesTxn {
                     .take()
                     .ok_or("missing resolution choice")?;
                 let source_block = match choice {
-                    ResolutionChoice::Populate
+                    ResolutionChoice::Object {}
+                    | ResolutionChoice::Populate
                     | ResolutionChoice::Proliferate
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
@@ -1303,11 +1315,17 @@ impl RulesTxn {
             let StackKind::Activated {
                 ability,
                 source_handles,
+                condition,
             } = &entry.kind
             else {
                 continue;
             };
             self.validate_activated_entry(entry, *ability, source_handles)?;
+            self.validate_activation_condition_check(
+                entry.controller,
+                self.activated_condition(entry.source, *ability)?.as_ref(),
+                condition.as_ref(),
+            )?;
         }
         if let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame {
             let instruction = self
@@ -1316,6 +1334,7 @@ impl RulesTxn {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (ResolutionChoice::Object {}, _) => self.object_choice_spec(frame).is_ok(),
                 (
                     ResolutionChoice::Sacrifice {
                         player,

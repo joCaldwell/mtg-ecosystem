@@ -12,9 +12,21 @@ impl RulesTxn {
         source_block: u32,
     ) -> Result<(), String> {
         let (objects, _) = self.kernel_set(&frame, zone, filter)?;
+        self.kernel_tap_objects(frame, objects, tap, source_block)
+    }
+
+    pub(in crate::engine) fn kernel_tap_objects(
+        &mut self,
+        frame: Resolving,
+        objects: Vec<ObjectId>,
+        tap: bool,
+        source_block: u32,
+    ) -> Result<(), String> {
         let mut occurrences = Vec::new();
         for object in objects {
-            let current = self.current(object)?;
+            let Ok(current) = self.current(object) else {
+                continue;
+            };
             if current.present_on_battlefield() && current.tapped != tap {
                 occurrences.push(if tap {
                     ProposedEvent::Tap { object }

@@ -292,6 +292,9 @@ pub enum Capability {
     LifeLossV1,
     OpponentLifeDrainV1,
     KernelControlV1,
+    ResolutionObjectChoiceV1,
+    TargetCharacteristicsV1,
+    OptionalTargetGroupV1,
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
@@ -441,6 +444,9 @@ pub struct PermanentFilter {
     )]
     #[schemars(with = "CreaturePowerFilter")]
     pub power: Option<CreaturePowerFilter>,
+    /// Additional fixed characteristic tests at announcement and resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub predicate: Option<kir::Pred>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "comparison", rename_all = "snake_case", deny_unknown_fields)]
@@ -1357,6 +1363,10 @@ pub enum ManaLandController {
 pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ManaActivationRestriction>,
+    /// CR 602.5, 605.3a: "Activate only if"; one
+    /// [`kir::ActivationCondition`] read as the activation begins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<kir::Cond>,
     pub costs: PermanentActivationCosts,
     pub production: ManaProduction,
     /// CR 605.1a, 605.3b: the ability's other printed instructions, Kernel
@@ -1375,13 +1385,17 @@ pub enum ManaActivationRestriction {
 /// CR 602.5b-d (2026-09-25): restrictions on an individual printed stack
 /// activation. Sorcery timing uses the program's existing timing field.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActivationRestriction {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<ActivationWindow>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub once_each_turn: bool,
+    /// CR 602.1b, 602.5: "Activate only if"; one
+    /// [`kir::ActivationCondition`] read as the activation begins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<kir::Cond>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1389,6 +1403,13 @@ pub enum ActivationWindow {
     YourTurn,
     YourUpkeep,
     YourTurnBeforeAttackers,
+    /// CR 506.1: any turn's combat phase, beginning of combat through end
+    /// of combat.
+    Combat,
+    /// CR 511: any turn's end of combat step.
+    EndOfCombat,
+    /// CR 102.1: a turn whose active player is another player.
+    NotYourTurn,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -2103,6 +2124,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             .is_some_and(|filter| filter.power.is_some())
         {
             set.insert(Capability::PowerFilteredRemovalV1);
+        }
+        if target
+            .filter
+            .as_ref()
+            .is_some_and(|filter| filter.predicate.is_some())
+        {
+            set.insert(Capability::TargetCharacteristicsV1);
         }
         if target.filter.as_ref().is_some_and(|filter| filter.tapped) {
             set.insert(Capability::TappedPermanentTargetV1);

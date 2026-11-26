@@ -1247,6 +1247,7 @@ fn filtered_creature_target() -> Vec<TargetSpec> {
         opponent: false,
         tapped: false,
         power: None,
+        predicate: None,
     });
     vec![target]
 }

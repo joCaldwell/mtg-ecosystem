@@ -18,6 +18,8 @@ pub(super) fn lower(
         lower_board_set(&on, cx.context)?
     } else if is_this_creature(&on) {
         kir::SetExpr::source()
+    } else if let Some(slot) = continuous::followup_target(cx, &on) {
+        SetExpr::target(slot)
     } else {
         kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, &on)?)
     };

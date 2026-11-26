@@ -1,4 +1,6 @@
 use super::*;
+use crate::query::{self, ObjectFacts, Tri};
+use mtg_contracts::kir::{ActivationCondition, Cond as KirCond};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,13 +25,140 @@ pub struct ActivationUse {
     pub ability: u32,
 }
 
+/// CR 602.1b, 602.5, 605.3a: the counts an "Activate only if" condition
+/// read as the activation began, one per
+/// [`ActivationCondition::leaves`] entry in printed order. The
+/// activation keeps them as evidence; the condition is never read again.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActivationConditionCheck {
+    pub counts: Vec<u32>,
+}
+
 impl RulesTxn {
+    /// The one eligibility measurement shared by "is this activation
+    /// offered" and "may this activation begin" for stack and mana
+    /// abilities. An unaudited condition never holds.
+    pub(super) fn activation_condition_check(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        condition: &KirCond,
+    ) -> Result<ActivationConditionCheck, String> {
+        let form = ActivationCondition::of(condition).map_err(|e| e.to_string())?;
+        let counts = form
+            .leaves()
+            .into_iter()
+            .map(|leaf| self.activation_leaf_count(player, source, leaf))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !form.passes(&counts) {
+            return Err("activation condition is not met".into());
+        }
+        Ok(ActivationConditionCheck { counts })
+    }
+
+    fn activation_leaf_count(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        leaf: &ActivationCondition,
+    ) -> Result<u32, String> {
+        use ActivationCondition as C;
+        let objects = self.state.rules.objects.values();
+        let count = match leaf {
+            // CR 109.5, 613: phased-in permanents with their derived facts.
+            C::Controlled { filter, .. } => objects
+                .filter(|o| {
+                    query::matches_battlefield_pred(&self.object_facts(o), player, filter)
+                        == Tri::Yes
+                })
+                .count(),
+            // CR 404.1, 111.8: cards the player owns in their graveyard.
+            C::GraveyardCards { filter, .. } => objects
+                .filter(|o| {
+                    let facts = self.object_facts(o);
+                    o.zone == (Zone::Graveyard { owner: player })
+                        && !facts.is_token()
+                        && query::matches_pred(&facts, player, filter) == Tri::Yes
+                })
+                .count(),
+            C::HandCards { .. } => objects
+                .filter(|o| o.zone == (Zone::Hand { owner: player }))
+                .count(),
+            // CR 506.4, 208.1: the source's own current facts.
+            C::Source { filter } => usize::from(
+                query::matches_pred(&self.object_facts(self.current(source)?), player, filter)
+                    == Tri::Yes,
+            ),
+            C::All(_) | C::Any(_) => return Err("activation condition leaf invariant".into()),
+        };
+        u32::try_from(count).map_err(|_| "activation condition count limit".into())
+    }
+
+    /// Snapshot validation: an activation of an ability with a condition
+    /// carries the counts it read, and those counts satisfy the condition
+    /// within what the game could contain. Any other ability carries none.
+    pub(super) fn validate_activation_condition_check(
+        &self,
+        player: PlayerId,
+        condition: Option<&KirCond>,
+        check: Option<&ActivationConditionCheck>,
+    ) -> Result<(), String> {
+        let invalid = || "snapshot activation condition evidence invariant".to_string();
+        let (condition, check) = match (condition, check) {
+            (None, None) => return Ok(()),
+            (Some(condition), Some(check)) => (condition, check),
+            _ => return Err(invalid()),
+        };
+        let form = ActivationCondition::of(condition).map_err(|_| invalid())?;
+        let leaves = form.leaves();
+        let owned = self
+            .state
+            .rules
+            .cards
+            .values()
+            .filter(|c| c.owner == player)
+            .count();
+        let objects = self.state.rules.objects.len();
+        let bounded = leaves.len() == check.counts.len()
+            && leaves.iter().zip(&check.counts).all(|(leaf, &count)| {
+                let bound = match leaf {
+                    ActivationCondition::Controlled { .. } => objects,
+                    ActivationCondition::Source { .. } => 1,
+                    _ => owned,
+                };
+                count as usize <= bound
+            });
+        if bounded && form.passes(&check.counts) {
+            Ok(())
+        } else {
+            Err(invalid())
+        }
+    }
+
+    /// The condition of printed stack ability `ability` of `source`.
+    pub(super) fn activated_condition(
+        &self,
+        source: ObjectId,
+        ability: u32,
+    ) -> Result<Option<KirCond>, String> {
+        Ok(self
+            .copiable_definition(source)?
+            .activated
+            .get(ability as usize)
+            .ok_or("missing activated ability")?
+            .restriction
+            .as_ref()
+            .and_then(|r| r.condition.clone()))
+    }
+
     pub(super) fn activation_restriction_allows(
         &self,
         player: PlayerId,
         source: ObjectId,
         ability: u32,
-        restriction: ActivationRestriction,
+        restriction: &ActivationRestriction,
     ) -> bool {
         let own_turn = self.state.rules.active == Some(player);
         let step = self.state.rules.turn.step;
@@ -37,6 +166,9 @@ impl RulesTxn {
             None => true,
             Some(ActivationWindow::YourTurn) => own_turn,
             Some(ActivationWindow::YourUpkeep) => own_turn && step == TurnStep::Upkeep,
+            Some(ActivationWindow::Combat) => step.phase() == Phase::Combat,
+            Some(ActivationWindow::EndOfCombat) => step == TurnStep::EndCombat,
+            Some(ActivationWindow::NotYourTurn) => self.state.rules.active.is_some() && !own_turn,
             Some(ActivationWindow::YourTurnBeforeAttackers) => {
                 own_turn
                     && matches!(
@@ -49,6 +181,10 @@ impl RulesTxn {
             }
         };
         in_window
+            && restriction
+                .condition
+                .as_ref()
+                .is_none_or(|c| self.activation_condition_check(player, source, c).is_ok())
             && (!restriction.once_each_turn
                 || !self
                     .state
@@ -75,6 +211,7 @@ impl RulesTxn {
             .get(ability as usize)
             .ok_or("missing limited activation slot")?
             .restriction
+            .as_ref()
             .is_some_and(|r| r.once_each_turn))
     }
 
@@ -240,6 +377,11 @@ impl RulesTxn {
             return Err("ability proposal requires its ordinary priority owner".into());
         }
         self.validate_activation(player, object, ability)?;
+        // CR 602.5: the condition is read once, as the activation begins.
+        let condition = self
+            .activated_condition(object, ability)?
+            .map(|c| self.activation_condition_check(player, object, &c))
+            .transpose()?;
         let cost = self
             .copiable_definition(object)?
             .activated
@@ -308,6 +450,7 @@ impl RulesTxn {
             kind: StackKind::Activated {
                 ability,
                 source_handles,
+                condition,
             },
             stack_targets: vec![],
             announced_stack_targets: vec![],
@@ -481,7 +624,10 @@ impl RulesTxn {
             },
         };
         let program = self.program_for(entry)?;
-        if activated.restriction.is_some_and(|r| r.once_each_turn)
+        if activated
+            .restriction
+            .as_ref()
+            .is_some_and(|r| r.once_each_turn)
             && self.current(entry.source).is_ok()
             && (self.state.rules.activation_uses.contains(&ActivationUse {
                 source: entry.source,

@@ -157,6 +157,7 @@ impl RulesTxn {
         {
             return Err("resolution payment binding invariant".into());
         }
+        self.validate_mana_receipt_conditions(&payment.receipts)?;
         if matches!(self.state.rules.frame, Frame::ResolutionPayment { .. })
             && (!self.is_live(payment.payer)
                 || (payment.stage == ResolutionPaymentStage::Spend

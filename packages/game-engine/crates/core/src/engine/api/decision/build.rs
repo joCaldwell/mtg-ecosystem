@@ -252,7 +252,12 @@ impl RulesTxn {
         let mut candidates = vec![];
         let mut slots = vec![];
         let program = self.program()?;
-        let specs = &program.targets;
+        let grouped = program.optional_target && program.targets.len() > 1;
+        let specs = if grouped {
+            &program.targets[..1]
+        } else {
+            &program.targets
+        };
         for spec in specs {
             let allowed = match spec.domain {
                 TargetDomain::AnyDamageTarget => self
@@ -291,7 +296,11 @@ impl RulesTxn {
                 subject: None,
                 allowed,
                 min: u32::from(!program.optional_target),
-                max: 1,
+                max: if grouped {
+                    program.targets.len() as u32
+                } else {
+                    1
+                },
                 repeat: false,
             });
         }
@@ -312,7 +321,7 @@ impl RulesTxn {
         Ok(self.decision(
             entry.controller,
             Reason::Targets {
-                specs: specs.clone(),
+                specs: specs.to_vec(),
             },
             candidates,
             Shape::Pick { slots, rules },

@@ -382,16 +382,18 @@ after the mana window. Random and whole-hand discard, variable counts,
 other graveyards, self-exile from hand and chosen-object mana abilities remain
 outside these cells.
 
-Printed restrictions are permission gates. "As a sorcery" is the program's
-main-phase timing. "During your turn", "during your upkeep" and "during your
-turn, before attackers are declared" (upkeep through beginning of combat) are
-typed windows. "Only once each turn" records a use for the source incarnation
-and ability when the activation completes; a reversed announcement uses
-nothing. The record survives control changes and clears on a zone change or a
-new turn (CR 400.7, 602.5b-d). Validation rejects a use outside the
-battlefield, on an unlimited ability, or that disagrees with whether its stack
-entry is paid. A printed restriction the compiler cannot read rejects; mana
-abilities admit only once each turn. Each of these surfaces is its own
+Printed restrictions are permission gates. "As a sorcery" is main-phase
+timing; your turn, your upkeep, your turn before attackers, combat, end of
+combat and not your turn are typed windows. "Only once each turn" records a
+use per source incarnation and ability when the activation completes; a
+reversal uses nothing. It survives control changes, clearing on a zone change
+or new turn (CR 400.7, 602.5b-d). Validation rejects a use off the
+battlefield, on an unlimited ability, or disagreeing with whether its stack
+entry is paid. "Activate only if" is read once, as activation begins (CR
+602.5, 605.3a): an audited `kir::ActivationCondition` counts permanents you
+control, your graveyard or hand, or the source's facts. Offer and start share
+it; stack entries and mana receipts keep its counts, which restore checks.
+Simulator mana plans need public proof. Others reject. Each of these surfaces is its own
 `Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Typecycling`,
 `Kicker`, `Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
 `ActivationRemoveCounters`, `SacrificeCostChoice`, `SacrificeCostTap`,
@@ -409,26 +411,28 @@ departure.
 
 ### Target and selection operands
 
-A battlefield target may name its controller: "you control" announces and
-rechecks against the invocation's controller (CR 109.5, 601.2c, 608.2b); "an
-opponent controls" keeps the permanent filter. A creature filter with that
-qualifier counts as a creature target for pump, keyword, damage, counter and
-library-top cells. Damage to "target creature" binds that announced object.
-"Up to one target" lets the sole object occurrence of a program announce zero
-objects (CR 115.1d, `optional_object_target_v1`). Only destroy, tap, untap,
-move, counter and until-end-of-turn leaves may read it; with zero targets they
-do nothing and untargeted instructions still happen. Mixed optional and
-required occurrences, larger counts and permanent spells reject.
+Battlefield targets check control and fixed power, toughness or mana value at
+announcement and resolution (CR 109.5, 601.2c, 608.2b). A certified "it" or
+"that" can reuse the block's sole announced incarnation (CR 400.7, 608.2b–c).
 
-"This [permanent]" in an ability names the source: tap, untap, return to its
-owner's hand or put on top of its owner's library (`Cell::TapStatusSource`,
-`Cell::MoveSourceOwnerZone`). Only its current battlefield incarnation moves
-(CR 400.7); a commander offers the command zone (CR 903.9b). "Put a +1/+1
-counter on each [creature filter]" is one simultaneous placement on the
-members read when it is performed (CR 122.6, 608.2h, `Cell::PlusOneCountersSet`).
-These cells earn `Executes` only. "Return a land you control" and "untap up to
-seven lands" choose during resolution and still reject as
-`operand:target:ref_filter`: they need an interactive resolution choice.
+One optional battlefield or own-graveyard target can bind independent
+destroy, tap, untap, move, counter and end-of-turn leaves. Tap and untap also
+support one `Pick` of up to a fixed two through seven distinct targets.
+They affect legal survivors simultaneously (CR 115.3, 601.2c, 608.2b, 701.26).
+Zero targets skips the targeted instruction. Mixed required and optional
+occurrences and optional permanent spells reject.
+
+`ChooseObject` returns one controlled permanent chosen at resolution
+(CR 109.5, 400.3, 608.2c–d). The public `Pick` includes the eligible source.
+The engine derives current candidates and validates the full saved offer.
+Departures that change the offer invalidate pending answers (CR 800.4a).
+Empty sets skip the move, and commander owners may choose the command zone
+(CR 903.9b). The cell earns `Executes`. Hidden hand choices and non-targeted
+multi-object selections reject.
+
+"This [permanent]" names the current source for tap, untap and owner-zone
+moves (CR 400.7). "Put a +1/+1 counter on each [creature filter]" applies
+simultaneously to the current set (CR 122.6, 608.2h).
 
 <a id="combat-damage-and-state-based-actions"></a>
 
@@ -479,8 +483,9 @@ placement; optional returns choose at resolution; no legal target removes the
 trigger.
 
 A single announced card from the controller's graveyard can return to that
-player's hand. The target may name a card type or type alternatives
-(CR 205.2b, 404.1, 601.2c, 608.2b). A printed "may" offers a separate
+player's hand. The target can use exact printed types, supertypes, subtypes,
+colors, fixed characteristic comparisons, and audited combinations of those
+terms (CR 202.3, 205, 404.1, 601.2c, 608.2b). A printed "may" offers a separate
 acceptance at resolution (CR 603.5, 608.2d). A creature card can enter the
 battlefield under the controller's control, tapped when printed
 (CR 110.2a, 614.1c). These moves use the exact announced incarnation and
@@ -761,8 +766,8 @@ Event filters read only available characteristics and identity, including
 controllers who later depart (CR 800.4a). Cast and attack predicates cannot
 read tapped status (CR 110.5d, 508.1f).
 
-A bound entrant or attacker can deal directed damage, including its entrant's
-power, or receive fixed +1/+1 counters. Damage reads the object's current
+A bound entrant or attacker can deal directed damage or receive fixed +1/+1
+counters. Entrant damage can use its power. Damage reads the object's current
 characteristics or its departure-refreshed last-known information. Counters
 require that incarnation to remain on the battlefield (CR 400.7, 608.2h).
 Recovery ties the binding to the event witness and the observer's controller.
@@ -784,8 +789,9 @@ Equipment and Aura entry use the entering incarnation. Intrinsic landwalk
 and fixed-color protection can compose with reviewed entry effects and
 fixed paid creature activations. A source's combat-damage trigger places
 its counters on that same incarnation (CR 400.7, 608.2h). A one-creature
-sacrifice for each player gathers APNAP choices before the simultaneous move. The completed-cast ledger supplies turn history. Cascade's
-retired reveal-and-cast continuation has no executable R4 form.
+sacrifice for each player gathers APNAP choices before the simultaneous move.
+The completed-cast ledger supplies turn history. R4 rejects cascade's retired
+reveal-and-cast continuation.
 
 [Pinned Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)
 
@@ -861,9 +867,6 @@ Everything else rejects under `compose.control:<detail>`:
 - "if you do" after an action other than a payment
 - another condition, a nested leaf that needs persistent provenance
 - `forEach` amounts (CR 121.2a: a counted draw is one replaceable event)
-
-Modal steps outside the modal spells below (W14) and "up to N" targets for N
-above one also reject.
 
 ### Modal spells and abilities
 

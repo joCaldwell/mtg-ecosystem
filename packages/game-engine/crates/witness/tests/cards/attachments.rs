@@ -374,6 +374,7 @@ fn aura_filter_governs_announcement_and_entry_on_noncreatures() {
                     opponent: false,
                     tapped: false,
                     power: None,
+                    predicate: None,
                 });
                 aura.capabilities = aura.requirements();
             },

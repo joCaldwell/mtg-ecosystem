@@ -216,6 +216,8 @@ pub enum Reason<S: Space> {
     EntryAttachment,
     Populate,
     Proliferate,
+    /// CR 608.2d: choose a public object while applying an instruction.
+    ResolveObjectChoice,
 }
 
 impl<S: Space> Reason<S> {
@@ -257,6 +259,7 @@ impl<S: Space> Reason<S> {
             Self::Populate => 33,
             Self::Proliferate => 34,
             Self::ChosenObjectCost { .. } => 32,
+            Self::ResolveObjectChoice => 35,
         }
     }
 }

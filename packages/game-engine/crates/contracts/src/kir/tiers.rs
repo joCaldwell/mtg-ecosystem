@@ -141,6 +141,7 @@ pub enum Cell {
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
     MoveSourceOwnerZone,
+    ChooseObjectOwnerHand,
     MoveOwnGraveyardTargetToHand,
     MoveOwnGraveyardCreatureToBattlefield,
     ExileTargetGraveyard,
@@ -150,6 +151,7 @@ pub enum Cell {
     Attachment,
     // CR 701.26: tap and untap.
     TapTarget,
+    TapTargetGroup,
     TapStatusSource,
     TapSet,
     UntapTarget,
@@ -313,6 +315,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveTargetExile
         | C::MovePermanentOwnerHand
         | C::MoveSourceOwnerZone
+        | C::ChooseObjectOwnerHand
         | C::MoveOwnGraveyardTargetToHand
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
@@ -320,6 +323,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveSet
         | C::Attachment
         | C::TapTarget
+        | C::TapTargetGroup
         | C::TapStatusSource
         | C::TapSet
         | C::UntapTarget
@@ -513,6 +517,9 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
         | C::KernelControlV1
+        | C::ResolutionObjectChoiceV1
+        | C::TargetCharacteristicsV1
+        | C::OptionalTargetGroupV1
         | C::EntryGraveyardExileV1
         | C::ControlledLandEntryV1
         | C::CreatureOrPlaneswalkerTargetV1
@@ -581,6 +588,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);
+        if a.condition.is_some() {
+            cells.insert(Cell::ActivationRestriction);
+        }
     }
     // A surface with no executor (for example a life payment on a stack
     // activation's composite cost) earns no tier, so no cell qualifies it.

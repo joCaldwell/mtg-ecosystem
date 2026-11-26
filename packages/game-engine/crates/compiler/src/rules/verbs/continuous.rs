@@ -3,9 +3,8 @@
 use super::*;
 use kir::{Animation, CharacteristicSet, Until};
 
-// CR 608.2c: only the certified singular antecedent of an admitted control
-// or untap step in the same printed block. Resolution::targets verifies this
-// slot against the archived reference after lowering.
+// CR 608.2b-c: an admitted singular antecedent in the same printed block.
+// The resolution graph checks the archived target slot after lowering.
 pub(super) fn followup_target(cx: &StepCx<'_>, what: &ast::ObjectRef) -> Option<u32> {
     let [target] = cx.program.targets.as_slice() else {
         return None;
@@ -29,7 +28,9 @@ pub(super) fn followup_target(cx: &StepCx<'_>, what: &ast::ObjectRef) -> Option<
         .take_while(|i| i.source_block() == cx.source_block)
         .any(|i| {
             matches!(i.verb(),
-            Some(Verb::GainControl { what, .. } | Verb::Untap { what })
+            Some(Verb::GainControl { what, .. } | Verb::Untap { what }
+                | Verb::Tap { what } | Verb::ModifyUntil { what, .. }
+                | Verb::PutCounters { on: what, .. })
                 if *what == SetExpr::target(target.slot))
         });
     (singular && reads_target).then_some(target.slot)
