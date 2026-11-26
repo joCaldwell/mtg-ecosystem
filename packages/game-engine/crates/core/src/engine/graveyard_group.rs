@@ -396,8 +396,8 @@ impl GraveyardGroup {
             }
             GroupFinish::Cleanup => {
                 self.cause == BatchCause::Cleanup && leaves.iter().all(|e| {
-                    matches!(e, ProposedEvent::Move { object, destination: Zone::Graveyard {owner} }
-                        if *owner == game.state.rules.turn_owner && game.zone(*object) == Some(Zone::Hand { owner: *owner }))
+                    matches!(e, ProposedEvent::DiscardCard { object, player }
+                        if *player == game.state.rules.turn_owner && game.zone(*object) == Some(Zone::Hand { owner: *player }))
                 })
             }
             GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(game.saved_frame(*resume)?, Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..})),
@@ -594,12 +594,6 @@ impl RulesTxn {
                     .is_ok_and(|o| o.present_on_battlefield()),
                 ProposedEvent::StateBasedGraveyard { object, reason } => {
                     self.creature_sba_reason(*object)? == Some(*reason)
-                }
-                ProposedEvent::Move {
-                    object,
-                    destination: Zone::Graveyard { owner },
-                } if matches!(tx.finish, GroupFinish::Cleanup) => {
-                    self.is_live(*owner) && self.zone(*object) == Some(Zone::Hand { owner: *owner })
                 }
                 ProposedEvent::Move { object, .. } => {
                     aura_sbas.contains(event) || legend_moves.contains(object)

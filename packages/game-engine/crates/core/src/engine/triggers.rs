@@ -106,14 +106,16 @@ pub struct TurnCastHistory {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub spells: Vec<ObjectBefore>,
     /// CR 121.2: cards this player drew this turn.
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub draws: u32,
     /// CR 119.9: life-gain events of this player this turn.
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub life_gains: u32,
 }
-pub fn is_zero_u32(value: &u32) -> bool {
-    *value == 0
+impl TurnCastHistory {
+    fn is_zero(value: &u32) -> bool {
+        *value == 0
+    }
 }
 /// CR 400.7: "This ability triggers only once each turn" was used this turn
 /// by this incarnation's intrinsic ability on this face.
@@ -345,9 +347,10 @@ impl TriggerEventWitness {
     fn looks_back(&self) -> bool {
         self.leaves() || matches!(self, Self::Sacrificed { .. })
     }
-    /// CR 603.6c: a move from the battlefield to another zone.
+    /// CR 603.6c: a zone change or a phased-in permanent leaving the game.
     fn leaves(&self) -> bool {
-        matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && m.destination != Zone::Battlefield)
+        matches!(self, Self::PermanentLeftGame { .. })
+            || matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && m.destination != Zone::Battlefield)
     }
     fn dies(&self) -> bool {
         matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && matches!(m.destination, Zone::Graveyard { .. }))
@@ -947,9 +950,19 @@ impl RulesTxn {
                     });
                 }
             }
-            // CR 701.9a, 701.21a: the discard or sacrifice itself, beside the
-            // zone change it caused.
+            // CR 603.6c, 701.9a, 701.21a: departures and the discard or
+            // sacrifice itself, beside any zone change.
             match &occurrence.actual {
+                EventOutcome::LeftGame { object, owner }
+                    if before
+                        .current(*object)
+                        .is_ok_and(|o| o.present_on_battlefield()) =>
+                {
+                    witnesses.push(TriggerEventWitness::PermanentLeftGame {
+                        object: *object,
+                        owner: *owner,
+                    });
+                }
                 EventOutcome::Sacrificed { player, movement } => {
                     witnesses.push(TriggerEventWitness::Sacrificed {
                         player: *player,
@@ -1494,13 +1507,14 @@ impl RulesTxn {
                 }
             }
         }
-        if self
-            .state
-            .rules
-            .trigger_uses
-            .iter()
-            .any(|key| !self.state.rules.cards.contains_key(&key.source.card))
-        {
+        if self.state.rules.trigger_uses.iter().any(|key| {
+            self.effective_trigger(
+                key.source,
+                key.face,
+                EffectiveTriggerAbility::Intrinsic { index: key.ability },
+            )
+            .map_or(true, |ability| !ability.condition.once_each_turn())
+        }) {
             return Err("snapshot trigger use invariant".into());
         }
         Ok(())
@@ -2219,8 +2233,17 @@ impl RulesTxn {
             return Err("snapshot X/death LKI binding invariant".into());
         }
         let valid = match witness {
-            TriggerEventWitness::ResolutionPaid { .. }
-            | TriggerEventWitness::PermanentLeftGame { .. } => false,
+            TriggerEventWitness::ResolutionPaid { .. } => false,
+            TriggerEventWitness::PermanentLeftGame { object, owner } => {
+                self.state
+                    .rules
+                    .cards
+                    .get(&object.card)
+                    .is_some_and(|card| card.owner == *owner)
+                    && !self.is_live(*owner)
+                    && matches!(pattern, EventPattern::LeavesBattlefield { object: pred }
+                        if identity_holds(pred, *object, &identity(*object)))
+            }
             TriggerEventWitness::DamageDealt {
                 kind,
                 transaction,

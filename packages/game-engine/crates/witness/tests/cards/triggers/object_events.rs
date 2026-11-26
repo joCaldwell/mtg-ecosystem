@@ -157,3 +157,54 @@ fn object_events_heroic_reads_the_cast_spells_targets() {
     }
     assert_recoverable((&g).into());
 }
+
+/// CR 603.6c: a surviving observer triggers for each departing permanent.
+#[test]
+fn object_events_owner_departure_triggers_for_each_permanent() {
+    const SHREDDER: &str = record!("b7ee76bf-d15a-489e-8f05-414788f8f649");
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[SHREDDER], TurnStep::PrecombatMain)
+                .seats(3)
+                .permanent_or_hand("Super Shredder", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 1, 1, false)
+                .permanent_or_hand("Forest", 1, 1, false)
+                .permanent_or_hand("Island", 1, 1, true),
+        ),
+        TraceMode::Detailed,
+    );
+    let shredder = Driver::object(&g, 0);
+    let _ = Driver::request(&mut g, u64::MAX);
+    g.concede(PlayerId(1)).unwrap();
+    drive(&mut g, &[], |g| g.state.rules.stack.len() == 2);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(g.current(shredder).unwrap().plus_one_counters, 2.into());
+    assert_recoverable((&g).into());
+}
+
+/// CR 514.1, 514.3a: a cleanup discard can put a trigger on the stack.
+#[test]
+fn object_events_cleanup_discard_triggers_grimoire() {
+    const GRIMOIRE: &str = record!("ef809e99-34a2-4471-8269-f56bf8037686");
+    let mut setup =
+        board(&[GRIMOIRE], TurnStep::End).permanent_or_hand("Geth's Grimoire", 1, 1, false);
+    for _ in 0..8 {
+        setup = setup.permanent_or_hand("Island", 0, 0, true);
+    }
+    let mut g = Game::with_trace(prepare(setup), TraceMode::Detailed);
+    for _ in g.live_players() {
+        Driver::pass(&mut g);
+    }
+    let discard = Driver::request(&mut g, u64::MAX);
+    assert_eq!(discard.reason, Reason::Discard);
+    assert_eq!(discard.player, PlayerId(0));
+    let card = Driver::object(&g, 1);
+    Driver::pick_object(&mut g, card);
+    drive(&mut g, &[], triggered);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(hand(&g, 0), 7);
+    assert_eq!(hand(&g, 1), 1);
+    assert_recoverable((&g).into());
+}

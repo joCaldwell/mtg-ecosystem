@@ -27,6 +27,17 @@ impl RulesTxn {
                 }
                 Scope::Target { target: object }
             }
+            // CR 611.2c: the ability's own source, while that incarnation
+            // remains a battlefield creature.
+            Scope::Target {
+                target: Ref::Source,
+            } => {
+                let object = self.entry(frame.stack_id)?.source;
+                if !self.is_battlefield_creature(object) {
+                    return Ok(None);
+                }
+                Scope::Target { target: object }
+            }
             Scope::Creatures {} => Scope::Creatures {},
             Scope::CreaturesWithoutFlying {} => Scope::CreaturesWithoutFlying {},
             Scope::Target { .. } => return Err("unaudited combat prohibition target".into()),

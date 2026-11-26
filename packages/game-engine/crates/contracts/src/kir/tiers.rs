@@ -484,6 +484,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ControllerLifeFreezeV1
         | C::ProtectionFromEverythingV1
         | C::BasicLandwalkV1
+        | C::EvasionKeywordsV1
         | C::FixedColorProtectionV1
         | C::SourceCombatRestrictionsV1
         | C::CastHistoryV1

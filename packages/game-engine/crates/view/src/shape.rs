@@ -65,6 +65,11 @@ pub enum JointRule {
         candidates: Vec<u32>,
         count: u32,
     },
+    /// Each named candidate must be picked at most this many times.
+    PickedAtMost {
+        candidates: Vec<u32>,
+        count: u32,
+    },
     Total {
         min: u32,
         max: u32,

@@ -1671,3 +1671,70 @@ fn generic_policy_declines_a_decline_only_entry_reveal() {
         }
     );
 }
+
+/// CR 509.1b, 702.111b: the policy completes a counted block only within
+/// the attacker's least and greatest counts; least above most (menace and
+/// "can't be blocked by more than one creature") leaves it unblocked.
+#[test]
+fn block_policy_respects_least_and_greatest_blocker_counts() {
+    let c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
+    let mut v = board::view();
+    let viewer = v.viewer;
+    let attacker_seat = (viewer.0 + 1) % 4;
+    let object = |name: &str, handle: &str, owner: u8| {
+        let mut o = board::card(&c, name, owner, Zone::Battlefield);
+        o.handle = ObjectHandle(handle.into());
+        o
+    };
+    v.objects = vec![
+        object("Grizzly Bears", "attacker", attacker_seat),
+        object("Colossal Dreadmaw", "first", viewer.0),
+        object("Colossal Dreadmaw", "second", viewer.0),
+    ];
+    let candidates: Vec<_> = ["attacker", "first", "second"]
+        .map(|h| Candidate::Object {
+            object: ObjectHandle(h.into()),
+        })
+        .into();
+    let slot = |subject| mtg_core::Slot {
+        role: mtg_core::SlotRole::BlockWith,
+        allowed: vec![0],
+        subject: Some(subject),
+        min: 0,
+        max: 1,
+        repeat: false,
+    };
+    let at_least = |count| JointRule::PickedAtLeast {
+        candidates: vec![0],
+        count,
+    };
+    let at_most = JointRule::PickedAtMost {
+        candidates: vec![0],
+        count: 1,
+    };
+    for (rules, blocked) in [
+        (vec![at_least(2)], true),
+        (vec![at_least(2), at_most.clone()], false),
+        (vec![at_least(3)], false),
+        (vec![at_most], true),
+    ] {
+        let mut o = observation(v.clone());
+        let d = Decision {
+            id: mtg_core::DecisionToken("blocks".into()),
+            player: viewer,
+            reason: Reason::Blockers,
+            candidates: candidates.clone(),
+            shape: Shape::Pick {
+                slots: vec![slot(1), slot(2)],
+                rules: rules.clone(),
+            },
+        };
+        o.decision = Some(d.clone());
+        let answer = strategy(&c).choose(&o).unwrap();
+        d.shape.check(&answer).unwrap();
+        let Answer::Pick { picks } = answer else {
+            panic!("blocks are picks")
+        };
+        assert_eq!(picks.iter().any(|p| !p.is_empty()), blocked, "{rules:?}");
+    }
+}

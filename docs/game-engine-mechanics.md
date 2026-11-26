@@ -327,6 +327,19 @@ skipped only when none attacked. First and double strike have distinct
 participant sets; trample and deathtouch assignment, dealt damage and
 prevention stay distinct.
 
+Declarations offer exactly the legal set and validate the whole declaration
+(CR 508.1c–d, 509.1b). Flying, reach, menace, printed basic landwalk,
+horsemanship, shadow, fear, intimidate and skulk restrict blocks per pair
+(CR 702.13b, 702.14c, 702.28b, 702.31b, 702.36b, 702.118b); other landwalk
+qualities reject. Static block restrictions ("can't be blocked by/except by",
+"can't block", "can block only") and blocker counts ("by more than N", "except
+by N or more", with menace) read keywords, colors, types and fixed power of
+both creatures at the declaration; counts are joint pick rules. "Can't attack
+you" removes that defender; with no attackable planeswalker or battle kinds,
+"or planeswalkers you control" adds nothing. A creature that attacks each
+combat if able must attack only while a defender remains (CR 508.1d). Relative
+powers and ambiguous "X and/or Y with Z" filters reject.
+
 Simultaneous damage is validated before life/history writes. Combat source
 validation reads the captured creature type and keywords from resolved and
 static grants (CR 510.2); current or latest-departure source facts govern
@@ -538,7 +551,10 @@ order, expire at cleanup and affect only their captured incarnations (CR 400.7,
 - `RestrictCombat` is a rules effect, not a characteristic change (CR 613.11).
   "Can't attack", "can't block", "can't attack or block" and "can't be blocked"
   this turn bind one announced creature; "can't block" can also name all
-  creatures or creatures without flying, read at each declaration.
+  creatures or creatures without flying, read at each declaration. "Attacks
+  this turn if able" and "can attack this turn as though it didn't have
+  defender" bind one announced creature or the ability's source incarnation
+  (CR 508.1d, 609.4); the latter is also a static rule.
 - Printed protection from one or two fixed colors, or each color, lowers to
   separate per-color abilities on creatures matching the keyword line exactly
   (CR 702.16a, g, h); other qualities reject. Static grants of hexproof, shroud
@@ -576,9 +592,9 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 | `BecomesTapped` | only the source itself (CR 701.26a) |
 | `GainsLife`, `Discards` | the gaining or discarding player; each source's positive gain is one event (CR 119.9, 701.9a) |
 | `Sacrifices` | the sacrificing player and the permanent on the battlefield just before the move (CR 701.21a, 603.10a) |
-| `LeavesBattlefield` | any move off the battlefield, read as for `Dies` (CR 603.6c, 603.10a) |
+| `LeavesBattlefield` | a move off the battlefield or a phased-in permanent leaving the game with its owner, read as for `Dies` (CR 603.6c, 603.10a) |
 | `Blocks`, `BecomesBlocked` | each declared blocker once, and each attacker unblocked until that declaration, before it (CR 509.3a, 509.3c) |
-| `IsDealtDamage` | a permanent dealt positive damage, once per simultaneous damage event (CR 120.3, 603.2c) |
+| `IsDealtDamage` | a creature dealt positive damage, once per simultaneous damage event (CR 120.3, 603.2c) |
 
 A per-turn player ledger (spells as frozen stack facts, draws, life-gain
 events) counts from the turn's start, whether or not the source was present,

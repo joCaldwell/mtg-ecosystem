@@ -733,6 +733,79 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                 qualified_condition(x.condition.as_deref(), x.condition_kind)?,
             )
         }
+        C::AsThough(x)
+            if x.defenders.is_none() && x.attackers.is_none() && lacks_defender_to_attack(x) =>
+        {
+            (
+                CombatRequirement::AttackAsThoughNoDefender,
+                qualified_condition(x.condition.as_deref(), x.condition_kind)?,
+            )
+        }
+        C::BlockerFilter(x) => {
+            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, || {
+                Ok(kir::BlockRestriction::Blockers {
+                    only: x.mode == ast::CombatRuleBlockerFilterMode::Only,
+                    filter: declaration_set(&x.blockers)?,
+                })
+            });
+        }
+        C::BlockingFilter(x) => {
+            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, || {
+                Ok(kir::BlockRestriction::Attackers {
+                    only: x.mode == ast::CombatRuleBlockerFilterMode::Only,
+                    filter: declaration_set(&x.attackers)?,
+                })
+            });
+        }
+        C::BlockerCount(x) => {
+            return declaration_rule(what, x.condition.as_deref(), x.condition_kind, || {
+                let ast::Amount::Fixed(n) = &*x.comparison.value else {
+                    return Err(gap("combat-rule:blocker-count:amount"));
+                };
+                let n =
+                    u32::try_from(n.value).map_err(|_| gap("combat-rule:blocker-count:amount"))?;
+                use ast::CombatRuleBlockerFilterMode as M;
+                use ast::ComparisonOp as O;
+                // "can't be blocked by more than N" and "except by N or more".
+                match (x.mode, x.comparison.op) {
+                    (M::Exclude, O::Gt) if n >= 1 => Ok(kir::BlockRestriction::AtMost { count: n }),
+                    (M::Only, O::Ge) if n >= 2 => Ok(kir::BlockRestriction::AtLeast { count: n }),
+                    _ => Err(gap("combat-rule:blocker-count:comparison")),
+                }
+            });
+        }
+        C::AttackRestriction(x) => {
+            // CR 508.1b: the engine's only attackable objects are players,
+            // so "planeswalkers you control" adds no defender.
+            let you = PlayerExpr::static_controller();
+            let mut players = vec![];
+            for defender in &x.defenders {
+                match defender {
+                    ast::CombatDefender::Player(p) => players.push(player(&p.who)?),
+                    ast::CombatDefender::Object(o) => match &*o.what {
+                        ast::ObjectRef::Each(each)
+                            if each.filter.types.as_deref()
+                                == Some(&["planeswalker".to_owned()])
+                                && each.filter.control == Some(ast::ObjectFilterControl::You)
+                                && present_fields(&each.filter).len() == 2 => {}
+                        _ => return Err(gap("combat-rule:attack-restriction:defender")),
+                    },
+                    _ => return Err(gap("combat-rule:attack-restriction:defender")),
+                }
+            }
+            if players != [you.clone()] {
+                return Err(gap("combat-rule:attack-restriction:defender"));
+            }
+            let condition = qualified_condition(x.condition.as_deref(), x.condition_kind)?;
+            return Ok(rule(
+                FunctioningZone::Battlefield,
+                StaticRule::AttackRestriction {
+                    affects: declaration_scope(what)?,
+                    defender: you,
+                },
+                condition,
+            ));
+        }
         other => return Err(gap(&format!("combat-rule:{}", variant(other)))),
     };
     Ok(rule(
@@ -743,6 +816,50 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
         },
         condition,
     ))
+}
+
+/// CR 509.1b, 613.11: block restrictions read the affected creature and its
+/// counterpart at the declaration, after every layer.
+fn declaration_rule(
+    what: &ast::ObjectRef,
+    condition: Option<&ast::Condition>,
+    kind: Option<ast::SentenceConditionKind>,
+    restriction: impl FnOnce() -> Result<kir::BlockRestriction, Failure>,
+) -> Result<StaticAbility, Failure> {
+    let condition = qualified_condition(condition, kind)?;
+    Ok(rule(
+        FunctioningZone::Battlefield,
+        StaticRule::Block {
+            affects: declaration_scope(what)?,
+            restriction: restriction()?,
+        },
+        condition,
+    ))
+}
+
+fn declaration_scope(what: &ast::ObjectRef) -> Result<Scope, Failure> {
+    match what {
+        ast::ObjectRef::Each(x) => Ok(Scope::Matching {
+            filter: declaration_filter(&x.filter)?,
+        }),
+        ast::ObjectRef::All(x) => Ok(Scope::Matching {
+            filter: declaration_filter(&x.filter)?,
+        }),
+        other => scope(other, false),
+    }
+}
+
+/// The creatures a restriction names ("Walls", "creatures with flying").
+fn declaration_set(what: &ast::ObjectRef) -> Result<kir::Pred, Failure> {
+    match what {
+        ast::ObjectRef::Each(x) => declaration_filter(&x.filter),
+        ast::ObjectRef::All(x) => declaration_filter(&x.filter),
+        other => Err(gap(&format!("combat-rule:set:{}", variant(other)))),
+    }
+}
+
+fn declaration_filter(filter: &ast::ObjectFilter) -> Result<kir::Pred, Failure> {
+    lower_declaration_filter(filter).map_err(|e| gap(&format!("scope:{}", e.reason)))
 }
 
 fn hand_size(value: &ast::PlayerRule) -> Result<StaticAbility, Failure> {
@@ -1116,4 +1233,51 @@ fn modify(
     }
     rules.extend(every_type);
     Ok(rules)
+}
+
+/// CR 609.4, 702.3b: "can attack as though it didn't have defender".
+pub(crate) fn lacks_defender_to_attack(x: &ast::CombatRuleAsThough) -> bool {
+    x.action == ast::CombatRuleAsThoughAction::Attack
+        && matches!(&*x.pretense, ast::CombatPretense::Keyword(p)
+            if p.pretend == ast::CombatPretenseKeywordPretend::LacksKeyword
+                && p.of == ast::CombatPretenseKeywordOf::AffectedCreature
+                && bare_keyword(&p.keyword, "defender"))
+}
+
+/// The keyword alone, with no cost, amount, filter or other parameter.
+fn bare_keyword(k: &ast::KeywordInstance, name: &str) -> bool {
+    let ast::KeywordInstance {
+        keyword,
+        cost,
+        cost_modifications,
+        restriction,
+        amount,
+        bindings,
+        variable_constraints,
+        from,
+        filter,
+        materials,
+        companion,
+        paired_with,
+        enchant_player,
+        prototype,
+        additional_costs,
+        gift,
+    } = k;
+    keyword == name
+        && cost.is_none()
+        && cost_modifications.is_none()
+        && restriction.is_none()
+        && amount.is_none()
+        && bindings.is_none()
+        && variable_constraints.is_none()
+        && from.is_none()
+        && filter.is_none()
+        && materials.is_none()
+        && companion.is_none()
+        && paired_with.is_none()
+        && enchant_player.is_none()
+        && prototype.is_none()
+        && additional_costs.is_none()
+        && gift.is_none()
 }

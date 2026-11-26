@@ -47,6 +47,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "flashback"
                 | "protection"
                 | "changeling"
+                | "landwalk"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
@@ -56,7 +57,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "bestow" | "equip" | "kicker" | "cycling" | "flashback" => {
                 ["keyword", "cost"].as_slice()
             }
-            "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
+            "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             "protection" => ["keyword", "from"].as_slice(),
             _ => ["keyword"].as_slice(),
@@ -553,6 +554,11 @@ pub(crate) enum Step {
     Cant {
         what: Box<ast::ObjectRef>,
         action: Box<ast::CantAction>,
+        duration: SourceDuration,
+    },
+    CombatRule {
+        what: Box<ast::ObjectRef>,
+        rule: Box<ast::CombatRule>,
         duration: SourceDuration,
     },
     Pump {

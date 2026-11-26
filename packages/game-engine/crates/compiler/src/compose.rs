@@ -669,14 +669,22 @@ fn grouped_once(
     (event, true)
 }
 
+fn references_trigger_event(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(value) => {
+            matches!(value.as_str(), "event_object" | "event_player")
+        }
+        serde_json::Value::Array(values) => values.iter().any(references_trigger_event),
+        serde_json::Value::Object(fields) => fields.values().any(references_trigger_event),
+        _ => false,
+    }
+}
+
 fn limit_trigger(ability: &mut TriggeredAbility, once: bool, grouped: bool) -> Result<(), Failure> {
     if grouped {
-        let program = serde_json::to_string(&ability.programs().collect::<Vec<_>>())
+        let program = serde_json::to_value(ability.programs().collect::<Vec<_>>())
             .map_err(|e| unsupported("compose.block", e.to_string()))?;
-        if ability.condition.intervening_if().is_some()
-            || program.contains("event_object")
-            || program.contains("event_player")
-        {
+        if ability.condition.intervening_if().is_some() || references_trigger_event(&program) {
             return Err(unsupported(
                 "compose.block",
                 "trigger:grouping:event-reference",
