@@ -317,6 +317,23 @@ impl RulesTxn {
         {
             return Err("invalid restricted mana receipt".into());
         }
+        // CR 122.1, 733.1: reversal restores exactly the counters the source
+        // had as the activation began, which its captured facts also hold.
+        // A ceased token keeps no definition to compare its identity with.
+        Self::validate_fact_counters(&receipt.source)?;
+        if self.current(receipt.source.object).is_ok() {
+            self.validate_fact_identity(&receipt.source)?;
+        }
+        if receipt.counters.is_negative()
+            || receipt.counters != receipt.source.plus_one_counters
+            || receipt.other_counters != receipt.source.counters
+            || receipt
+                .other_counters
+                .iter()
+                .any(|stack| stack.timestamp >= self.state.rules.next_batch_id)
+        {
+            return Err("invalid mana receipt counters".into());
+        }
         // Only a sacrificed source sets turn facts, once per seat, and each
         // fact it set still holds.
         let mut seats = BTreeSet::new();

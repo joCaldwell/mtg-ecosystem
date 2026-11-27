@@ -638,17 +638,20 @@ fn grim_affliction_proliferates_both_kinds_on_one_permanent() {
     answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
     Driver::pay(&mut g, &[5, 6, 7]);
     let d = expect(&mut g, 0, &Reason::Proliferate);
+    let before = g.events().len();
     answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
-    // One atomic placement on the Feeder carries both kinds before SBAs.
+    // Exactly one atomic placement on the Feeder carries both kinds, and it
+    // precedes the state-based annihilation.
     settle(&mut g);
-    let placements: Vec<_> = g
-        .events()
+    let after = &g.events()[before..];
+    let placements: Vec<_> = after
         .iter()
-        .filter_map(|e| match e {
+        .enumerate()
+        .filter_map(|(i, e)| match e {
             Event::Committed {
                 actual: EventOutcome::CountersPlaced { object, placed },
                 ..
-            } if *object == feeder => Some(placed.clone()),
+            } if *object == feeder => Some((i, placed.clone())),
             _ => None,
         })
         .collect();
@@ -658,14 +661,21 @@ fn grim_affliction_proliferates_both_kinds_on_one_permanent() {
         previous: previous.into(),
         current: current.into(),
     };
+    let [(placed_at, placed)] = placements.as_slice() else {
+        panic!("expected one placement on the Feeder: {placements:?}");
+    };
     assert_eq!(
-        placements.last().unwrap(),
+        placed,
         &vec![
             change(CounterKind::PlusOnePlusOne, 1, 2, 3),
             change(CounterKind::MinusOneMinusOne, 1, 1, 2),
-        ],
-        "{placements:?}"
+        ]
     );
+    let annihilated_at = after
+        .iter()
+        .position(|e| format!("{e:?}").contains("CountersAnnihilated"))
+        .expect("state-based annihilation");
+    assert!(placed_at < &annihilated_at);
     let o = g.current(feeder).unwrap();
     assert_eq!(o.plus_one_counters, Quantity::from(1));
     assert!(o.counters.is_empty(), "{:?}", o.counters);
@@ -859,4 +869,116 @@ fn keyword_counter_timestamps_order_against_ability_loss() {
         g.current(bears).unwrap().counter_count(&flying_counter),
         Quantity::from(2)
     );
+}
+
+/// CR 122.1b, 510.2: a creature whose only flying is a flying counter
+/// attacks and deals combat damage; the damage source's last-known keywords
+/// may come from its keyword counters.
+#[test]
+fn flying_counter_creature_deals_combat_damage() {
+    let prepared = board(&[(SPONTANEOUS_FLIGHT, &[Cell::KindCountersTarget])])
+        .permanent_or_hand("Spontaneous Flight", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .libraries("Island", 4)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let bears = Driver::object(&g, 4);
+    Driver::cast(&mut g, CardId(0));
+    let d = targets(&mut g, 0);
+    answer(&mut g, &d, &[Candidate::Object { object: bears }]);
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    assert!(g.current_keywords(bears).contains(&KeywordAbility::Flying));
+    let life = g.state.rules.players[1].life.clone();
+    let turn = g.state.rules.turn.number;
+    for _ in 0..40 {
+        let r = Driver::request(&mut g, u64::MAX);
+        if g.state.rules.turn.step == TurnStep::PostcombatMain || g.state.rules.turn.number != turn
+        {
+            break;
+        }
+        let answer = match r.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::Attackers => {
+                checked(&g);
+                r.attack(vec![(bears, PlayerId(1))])
+            }
+            Reason::Blockers => r.block(vec![]),
+            ref reason => panic!("unexpected combat decision {reason:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    checked(&g);
+    assert_recoverable((&g).into());
+    let mut expected = life;
+    expected.subtract(&Quantity::from(4));
+    assert_eq!(
+        g.state.rules.players[1].life, expected,
+        "2/2 pumped to 4/4 this turn"
+    );
+}
+
+/// CR 122.1, 733.1: a permanent mana ability's undo receipt restores the
+/// source's counters exactly, so its retained counter kinds are admitted
+/// like any other: forged reserved or unexecuted kinds are rejected by
+/// state validation and restore.
+#[test]
+fn mana_undo_receipt_counter_kinds_are_admitted() {
+    let prepared = board(&[])
+        .permanent_or_hand("Grizzly Bears", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 0, 0, false)
+        .libraries("Island", 2)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let ring = Driver::object(&g, 2);
+    Driver::cast(&mut g, CardId(0));
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }), "{d:?}");
+    let slot = d
+        .index(&Candidate::Action {
+            action: Action::ActivateMana { object: ring },
+        })
+        .unwrap();
+    Driver::answer(
+        &mut g,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source: slot },
+        },
+    );
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }), "{d:?}");
+    let receipt = |g: &mut Game| -> Option<usize> {
+        let (Frame::Mana { cast } | Frame::Payment { cast }) = &g.state.rules.frame else {
+            return None;
+        };
+        cast.mana_activations
+            .iter()
+            .position(|a| a.permanent.is_some())
+    };
+    let index = receipt(&mut g).expect("Sol Ring's undo receipt");
+    g.validate_state().unwrap();
+    let snapshot = g.snapshot().unwrap();
+    Game::restore(g.prepared.as_ref().clone(), &snapshot).unwrap();
+    for kind in forged_kinds() {
+        let stack = CounterStack {
+            kind: kind.clone(),
+            count: 1.into(),
+            timestamp: 0,
+        };
+        let mut forged = g.fork();
+        if let Frame::Mana { cast } | Frame::Payment { cast } = &mut forged.state.rules.frame {
+            let p = cast.mana_activations[index].permanent.as_mut().unwrap();
+            p.source.counters = vec![stack.clone()];
+            p.other_counters = vec![stack.clone()];
+        }
+        let err = forged.validate_state().unwrap_err();
+        assert!(err.contains("counter kind admission"), "{kind:?}: {err}");
+        let err = restore_rejection(&forged, |_| {});
+        assert!(err.contains("counter kind admission"), "{kind:?}: {err}");
+    }
 }

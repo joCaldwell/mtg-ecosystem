@@ -2183,13 +2183,7 @@ impl RulesTxn {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        Self::validate_fact_counters(fact)?;
-        self.validate_characteristic_identity(
-            object,
-            fact.transforms,
-            fact.face_down,
-            &fact.characteristics,
-        )?;
+        self.validate_fact_identity(fact)?;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone

@@ -1120,6 +1120,12 @@ fn compose_face(
                                 .push(keywords::affinity(one, text)?);
                             labels.statics.push(label);
                         }
+                        [one] if one.keyword == "crew" => {
+                            definition
+                                .activated
+                                .push(keywords::crew(&card, one, label, text)?);
+                            labels.activated.push(label);
+                        }
                         [one] if one.keyword == "equip" => {
                             definition
                                 .activated

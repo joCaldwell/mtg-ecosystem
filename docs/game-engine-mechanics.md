@@ -369,6 +369,9 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   move (CR 400.2). The menu offers the ability only if enough objects remain
   after funding mana. Random or whole-hand discard, variable counts, other
   graveyards, self-exile from hand and chosen-object mana abilities reject.
+- **Crew** (CR 702.122a) uses priority and the stack. Its cost chooses other
+  untapped creatures the activator controls with enough combined current
+  power. Summoning sickness does not prevent a creature from paying this cost.
 - **Restrictions** are permission gates. "As a sorcery" is main-phase timing;
   your turn, your upkeep, your turn before attackers, combat, end of combat and
   not your turn are typed windows. "Only once each turn" and "no more than
