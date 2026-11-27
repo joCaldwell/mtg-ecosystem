@@ -1,5 +1,6 @@
 [
   {
+    "cut": "r4",
     "manifest_file": "archive-manifest-phase1-r4.json",
     "manifest_sha256": "17c8292cba27fdcfd2f539f08f0390aaaad16e2334d949a836731caec3edcc64",
     "file_sha256": "ff3df37567f0805c6137255641ab337cfbcb3c2d59d55ecf61db2bec0fe36cc1",
@@ -9,6 +10,7 @@
     "record_sha256": []
   },
   {
+    "cut": "r5",
     "manifest_file": "archive-manifest-phase1-r5.json",
     "manifest_sha256": "85e4fddf2337c2943a6eff3d0b45700d136cb4e9392aa5f0b2a5a720b4ed6db3",
     "file_sha256": "7400edf1925081db984d619c56ce17f3f004153f99a57160b5f2f08fd52c5303",
@@ -742,5 +744,28 @@
       "ff812036a38609aa852f5e867d83a31e3fc872cee2666c01e0ef04ff77ab8ad0",
       "ffb2163ce24f5fd8724fda979fc5dd0cc50fe46e6e6c422551992f06cb916826"
     ]
+  },
+  {
+    "cut": "r6",
+    "candidate": true,
+    "manifest_file": "archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json",
+    "manifest_sha256": "8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093",
+    "file_sha256": "68cdd8cecb06e6132801426db9e79a44d9279461bf13ba5cb5a86cea27033571",
+    "parser_revision": "6de8da715a39dffea36b9f9783a9f5cd2595cbb5",
+    "parser_source_sha256": "d83686e769be9e20bfe3cc43760942930cef922ef6030499b75b8e4cd9a58158",
+    "corpus_sha256": "f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738",
+    "r6": {
+      "file_bytes": 656458521,
+      "max_line_bytes": 97920,
+      "input_records": 38721,
+      "canonical_records_sha256": "2acb9b7730fb81a944a393dd99303d86617a2a62b22fe77a3fda1c833cf93582",
+      "printed_schema_sha256": "372726596d541248b2b2caf0bfe2797b8b98ab19d513ec4a251044e0585dcf35",
+      "printed_vocabulary_sha256": "b6e23112217e523e273629d2ac8cf4dd481873c342c1c3421b756c56559c943c",
+      "printed_generator_sha256": "436b1b172a982c79711de3e6479451431e5645a9ee897fbe45af0f216f2dfa9e",
+      "printed_records_sha256": "d6c3eae5df33c36cdd8db09c1cf20180f7b3224f62e8303d30c849edcc7dbd00",
+      "name_catalog_sha256": "101b11ae52b305afab73cca17cd884552f03ad76cbce0c23e54a15195087b193",
+      "name_catalog_names": 40046
+    },
+    "record_sha256": []
   }
 ]

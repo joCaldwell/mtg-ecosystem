@@ -929,7 +929,7 @@ fn compose(
     record: &str,
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
-    let mut card = ingest::read_card(record)?;
+    let mut card = ingest::read_card(archive, record)?;
     let r = &card.record;
     let mut resolution =
         resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;

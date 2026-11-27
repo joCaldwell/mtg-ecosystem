@@ -122,6 +122,7 @@ fn intake(
         .as_deref()
         .ok_or("archive is missing a full-file pin")?;
     let mut hash = Sha256Sink::new();
+    let mut evidence = crate::ingest::ArchiveEvidence::new(archive, bytes.len())?;
     hash.update(&bytes);
     let mut length = bytes.len() as u64;
     let mut definitions = Vec::new();
@@ -141,6 +142,7 @@ fn intake(
         }
         hash.update(&bytes);
         let raw = line_text(&bytes)?;
+        evidence.record(raw, read, archive_line)?;
         let row: Value =
             strict_read(raw).map_err(|e| format!("archive line {archive_line}: {e}"))?;
         let source = &row["source"];
@@ -225,6 +227,7 @@ fn intake(
     if hash.finalize_hex() != file_pin {
         return Err("archive full-file SHA-256 mismatch".into());
     }
+    evidence.finish()?;
     definitions.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     rows.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     outcomes.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
