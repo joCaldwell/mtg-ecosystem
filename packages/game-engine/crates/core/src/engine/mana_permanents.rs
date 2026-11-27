@@ -189,31 +189,19 @@ testkit_fields! {
         pub spent_restricted: Vec<RestrictedMana>,
         pub absent: BTreeSet<Color>,
         pub sacrificed: bool,
-        pub cost_triggers: Vec<TriggerId>,
+        /// CR 733.1: every actual its costs published. A reversal removes
+        /// the triggers and watcher firings of exactly these occurrences.
+        pub cost_events: Vec<EventId>,
         /// CR 733.1: the activation paid life or performed riders, so it is
         /// kept rather than reversed.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub kept: bool,
-        /// CR 733.1: the turn facts this activation's costs set, which a
-        /// reversal clears again.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub turn_history: Vec<TurnHistoryUndo>,
+        /// CR 733.1: the ledger change its costs published, whose exact
+        /// inverse a reversal applies.
+        #[serde(default, skip_serializing_if = "LedgerDelta::is_empty")]
+        pub ledger: LedgerDelta,
     }
 
-}
-
-/// One seat's turn facts a reversible mana activation first set: its
-/// sacrificed source left the battlefield, and died if a creature (CR
-/// 700.4). Nothing else can change between the activation and its
-/// reversal, which reverses later activations first.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TurnHistoryUndo {
-    pub seat: PlayerId,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub permanent_left: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub creature_died: bool,
 }
 
 /// The evidence a conditioned mana ability's receipt keeps.
@@ -395,24 +383,20 @@ impl RulesTxn {
         {
             return Err("invalid mana receipt counters".into());
         }
-        // Only a sacrificed source sets turn facts, once per seat, and each
-        // fact it set still holds.
-        let mut seats = BTreeSet::new();
-        for undo in &receipt.turn_history {
-            let row = self
-                .state
-                .rules
-                .cast_history
-                .get(undo.seat.0 as usize)
-                .ok_or("invalid mana receipt turn history")?;
-            if !receipt.sacrificed
-                || !seats.insert(undo.seat)
-                || !(undo.permanent_left || undo.creature_died)
-                || undo.permanent_left && !row.permanent_left
-                || undo.creature_died && !row.creature_died
-            {
-                return Err("invalid mana receipt turn history".into());
-            }
+        // Only a sacrificed source changes the ledger, and each fact its
+        // delta recorded still holds. Its events name published batches.
+        if !receipt.sacrificed && !receipt.ledger.is_empty()
+            || receipt
+                .ledger
+                .check_holds(&self.state.rules.cast_history)
+                .is_err()
+            || !receipt.cost_events.windows(2).all(|w| w[0] < w[1])
+            || receipt
+                .cost_events
+                .iter()
+                .any(|e| e.occurrence.batch >= self.state.rules.next_batch_id)
+        {
+            return Err("invalid mana receipt turn history".into());
         }
         let Some(evidence) = &receipt.condition else {
             return Ok(());
@@ -1117,9 +1101,9 @@ impl RulesTxn {
                 .filter(|c| !pool.contains_key(c))
                 .collect(),
             sacrificed: a.ability.costs.sacrifice,
-            cost_triggers: vec![],
+            cost_events: vec![],
             kept: !a.reversible(),
-            turn_history: vec![],
+            ledger: LedgerDelta::default(),
         };
         let cause = a.cause();
         if let Some(cost) = a.payment_cost() {
@@ -1140,45 +1124,27 @@ impl RulesTxn {
                 cause.clone(),
             )?;
         }
-        let first_trigger = self.state.rules.next_trigger_id;
         let history = self.state.rules.cast_history.clone();
-        self.pay_permanent_source_costs(a.source, a.player, &a.ability.costs, cause)?;
+        let ((), journal) = self.with_actual_journal(|txn| {
+            txn.pay_permanent_source_costs(a.source, a.player, &a.ability.costs, cause)
+        })?;
         // CR 733.1: `kept` is the rules flag set above from the ability
         // alone, never inferred from what its costs wrote. A reversible
-        // activation records the exact turn facts its costs first set, and
-        // a reversal clears only those; a reversible cost that changed any
-        // other turn fact has no exact inverse and is refused.
-        for (seat, (was, now)) in history
-            .iter()
-            .zip(&self.state.rules.cast_history)
-            .enumerate()
-        {
-            let undo = TurnHistoryUndo {
-                seat: PlayerId(u8::try_from(seat).map_err(|_| "turn history seat")?),
-                permanent_left: now.permanent_left && !was.permanent_left,
-                creature_died: now.creature_died && !was.creature_died,
-            };
-            let mut cleared = now.clone();
-            cleared.permanent_left &= !undo.permanent_left;
-            cleared.creature_died &= !undo.creature_died;
-            if !receipt.kept && cleared != *was {
-                return Err("reversible mana cost changed an unrecorded turn fact".into());
-            }
-            if undo.permanent_left || undo.creature_died {
-                receipt.turn_history.push(undo);
-            }
+        // activation keeps the ledger change its costs published, and a
+        // reversal applies its exact inverse; a reversible cost that changed
+        // any turn fact outside that delta has no exact inverse and is refused.
+        let mut expected = history;
+        journal.ledger.apply(&mut expected)?;
+        if !receipt.kept && expected != self.state.rules.cast_history {
+            return Err("reversible mana cost changed an unrecorded turn fact".into());
         }
+        receipt.ledger = journal.ledger;
+        receipt.cost_events = journal.events;
+        receipt.cost_events.sort();
+        receipt.cost_events.dedup();
         if let Some(k) = receipt.ability_use {
             self.rules_mut().mana_ability_uses.insert(k);
         }
-        receipt.cost_triggers = self
-            .state
-            .rules
-            .pending_triggers
-            .iter()
-            .filter(|t| t.id.0 >= first_trigger)
-            .map(|t| t.id)
-            .collect();
         a.paid = Some(Box::new(receipt));
         match a.ability.production {
             ManaProduction::Fixed { .. } | ManaProduction::Counted { .. } => {
@@ -1662,26 +1628,23 @@ impl RulesTxn {
                 // CR 400.7/733: a departed source is never restored or rebound.
             }
         }
-        for undo in &r.turn_history {
-            let row = &mut self.rules_mut().cast_history[undo.seat.0 as usize];
-            row.permanent_left &= !undo.permanent_left;
-            row.creature_died &= !undo.creature_died;
-        }
+        // Checked before any write, so a stale receipt changes nothing here.
+        r.ledger.revert(&mut self.rules_mut().cast_history)?;
         if let Some(k) = r.ability_use {
             self.rules_mut().mana_ability_uses.remove(&k);
             if r.previously_used {
                 self.rules_mut().mana_ability_uses.insert(k);
             }
         }
-        self.undo_resolution_departure(&r.cost_triggers);
+        self.undo_resolution_departure(&r.cost_events);
         // A reversed cost's triggers never triggered, so their once-each-turn
-        // uses are released with them (CR 733.1).
+        // uses are released with them (CR 733.1). Undo synthesizes nothing.
         let released = self
             .state
             .rules
             .pending_triggers
             .iter()
-            .filter(|t| r.cost_triggers.contains(&t.id))
+            .filter(|t| t.caused_by_any(&r.cost_events))
             .filter_map(Self::trigger_use)
             .collect::<Vec<_>>();
         for key in released {
@@ -1689,7 +1652,7 @@ impl RulesTxn {
         }
         self.rules_mut()
             .pending_triggers
-            .retain(|t| !r.cost_triggers.contains(&t.id));
+            .retain(|t| !t.caused_by_any(&r.cost_events));
         Ok(EventOutcome::PermanentManaReversed {
             player: r.player,
             source: r.source.object,

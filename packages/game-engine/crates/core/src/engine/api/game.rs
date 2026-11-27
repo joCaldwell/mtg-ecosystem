@@ -31,6 +31,8 @@ testkit_fields! {
         pub(in crate::engine) kernel_leaf: Option<Arc<kir::LeafProgram>>,
         // Derived accelerator only, never state: what the last publication read.
         pub(in crate::engine) published: Option<Arc<publish::Published>>,
+        // Open only while a bounded procedure records what it publishes.
+        pub(in crate::engine) actual_journal: Option<Box<ActualJournal>>,
     }
 }
 testkit_fields! {
@@ -244,6 +246,7 @@ impl RulesTxn {
             priority_cache: Default::default(),
             in_rule_step: false,
             kernel_leaf: None,
+            actual_journal: None,
             published: None,
         };
         if let Some(starting) = game
@@ -279,6 +282,7 @@ impl RulesTxn {
             in_rule_step: false,
             kernel_leaf: self.kernel_leaf.clone(),
             published: self.published.clone(),
+            actual_journal: self.actual_journal.clone(),
         }
     }
     /// Trusted host execution boundary; never a player-facing identifier.

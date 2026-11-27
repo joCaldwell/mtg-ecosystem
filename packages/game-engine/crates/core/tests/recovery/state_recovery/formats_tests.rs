@@ -13,7 +13,8 @@
 //! pays a spell with a pain land's colored mana ability, reaching a selected
 //! printed mana ability, its rider's damage transaction and a kept receipt; a
 //! fourth stops a granted mana ability at its color choice; a fifth puts a
-//! loyalty ability and its source's prior-row facts on the stack.
+//! loyalty ability and its source's prior-row facts on the stack; a sixth
+//! fills a held mana receipt's cost event identities and ledger delta.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -25,8 +26,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "a028d099240a5fb214fdc3c86d42b56e7c2eb88991a6c679e5c988c893595834",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    138,
-    "57e0b74669b91923c87ca4e664c746b6f4a5837a2a28149243e448b680ca4a82",
+    139,
+    "87894f71d19ce6b598bf083660a58e00d02c4cddbf6f6b00c7c96d4be3dc8344",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -255,6 +256,65 @@ fn granted_mana() -> Game {
         Reason::ManaColor { .. }
     ));
     game
+}
+
+/// CR 733.1: a held mana receipt whose cost published actuals, as a
+/// sacrificed source's would (cards admit sacrifice mana costs only on
+/// predefined tokens, which no fixture board here creates): its event
+/// identities and every ledger delta field. Only its JSON shape is
+/// fingerprinted.
+fn sacrificed_mana_receipt() -> String {
+    fn fill(value: &mut Value) -> bool {
+        match value {
+            Value::Object(map) if map.contains_key("cost_events") => {
+                map.insert(
+                    "cost_events".into(),
+                    serde_json::to_value([EventId {
+                        occurrence: OccurrenceId {
+                            batch: 1,
+                            path: vec![0],
+                        },
+                        member: 0,
+                    }])
+                    .unwrap(),
+                );
+                map.insert(
+                    "ledger".into(),
+                    serde_json::json!({ "seats": [{
+                        "seat": PlayerId(0),
+                        "permanent_left": true,
+                        "creature_died": true,
+                        "artifacts_entered": 1,
+                        "creatures_entered": 1,
+                        "nonlands_entered": 1,
+                        "tokens_created": 1,
+                    }] }),
+                );
+                true
+            }
+            Value::Object(map) => map.values_mut().any(fill),
+            Value::Array(items) => items.iter_mut().any(fill),
+            _ => false,
+        }
+    }
+    let game = mana_riders().pop().unwrap();
+    let mut sample: Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    assert!(fill(&mut sample["state"]), "a held mana receipt");
+    // The shape must round-trip through the real receipt type.
+    let mut receipt = None;
+    fn find(value: &Value, out: &mut Option<PermanentManaUndo>) {
+        match value {
+            Value::Object(map) if map.contains_key("cost_events") => {
+                *out = Some(serde_json::from_value(value.clone()).unwrap())
+            }
+            Value::Object(map) => map.values().for_each(|v| find(v, out)),
+            Value::Array(items) => items.iter().for_each(|v| find(v, out)),
+            _ => {}
+        }
+    }
+    find(&sample["state"], &mut receipt);
+    assert_eq!(receipt.unwrap().ledger.seats.len(), 1);
+    serde_json::to_string(&sample).unwrap()
 }
 
 /// CR 605.3a-b, 733.1: a cast paid by Yavimaya Coast's second printed mana
@@ -1070,7 +1130,11 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
                 .unwrap();
             serde_json::to_string(&sample).unwrap()
         }])
-        .chain([object_choice_shape(), loyalty_activation()])
+        .chain([
+            object_choice_shape(),
+            loyalty_activation(),
+            sacrificed_mana_receipt(),
+        ])
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

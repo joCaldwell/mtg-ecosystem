@@ -396,22 +396,27 @@ impl RulesTxn {
     ) -> Option<&'a StackId> {
         entry.stack_targets.get(slot)
     }
+    /// CR 601.2, 608.3: the entry of a resolving paid permanent spell, read
+    /// from its movement facet.
     pub(super) fn completed_entry_cast(
         &self,
-        cause: &BatchCause,
+        actuals: &[Actual],
         witness: &TriggerEventWitness,
     ) -> Option<EntryCast> {
-        let BatchCause::SpellCompletion {
-            stack_id,
-            player,
-            source,
-        } = cause
-        else {
-            return None;
-        };
         let TriggerEventWitness::Moved { movement } = witness else {
             return None;
         };
+        let (stack_id, source) =
+            actuals
+                .iter()
+                .find_map(|actual| match actual.facet(FacetKind::Moved)? {
+                    Facet::Moved {
+                        object,
+                        how: MoveKind::Resolved { stack_id },
+                        ..
+                    } if actual.movement().as_ref() == Some(movement) => Some((stack_id, object)),
+                    _ => None,
+                })?;
         let spell = self.state.rules.stack.last()?;
         let alternative_cost_paid = self
             .offered_alternative_cost(spell)
@@ -431,13 +436,12 @@ impl RulesTxn {
             && matches!(&self.state.rules.frame, Frame::Resolve { frame } if frame.stack_id == *stack_id && self.entry(frame.stack_id).is_ok_and(|entry| entry.source == *source))
             && spell.source == *source
             && spell.id == *stack_id
-            && spell.controller == *player
             && spell.kind.is_spell()
             && spell.paid.as_ref() == Some(&spell.total_cost))
         .then_some(EntryCast {
             stack_id: *stack_id,
             spell: *source,
-            caster: *player,
+            caster: spell.controller,
             alternative_cost_paid,
         })
     }

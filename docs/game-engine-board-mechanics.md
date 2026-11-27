@@ -593,10 +593,12 @@ incarnation that dealt the damage (CR 400.7). Cascade has no executable R5 form.
 
 **Canonical event witnesses (E1–E3 contract).** As each family migrates,
 matching reads the actual's facet, never the batch cause. It deduplicates on
-ability instance and event member. Created and entered stay distinct. A
-resolving copy of a permanent spell yields a move and a token entry with no
-creation (CR 111.13). Token-creation replacements and created-token history
-ignore it, while "token enters" triggers see it. A cycled card is one discard
+ability instance and event member. Creation, entry and movement now match their
+`Created`, `Entered` and `Moved` facets, including delayed departure watchers
+and the cast provenance of a resolved permanent spell. Created and entered stay
+distinct. A resolving copy of a permanent spell yields a move and a token entry
+with no creation (CR 111.13). Token-creation replacements and created-token
+history ignore it, while "token enters" triggers see it. A cycled card is one discard
 member carrying both meanings. One "cycles or discards" ability triggers once,
 and distinct abilities may each trigger (CR 702.29d). A tap transition needs an
 untapped battlefield permanent and is recorded with or without a listener.
