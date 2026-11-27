@@ -357,6 +357,7 @@ fn verify_archive_with(
     let count = rows.len();
     let mut hash = Sha256::new();
     hash.update(header);
+    let mut evidence = crate::ingest::ArchiveEvidence::new(accepted, header.len())?;
     let mut line = Vec::new();
     let mut number = 1usize;
     loop {
@@ -370,6 +371,14 @@ fn verify_archive_with(
         }
         number = number.checked_add(1).ok_or("archive line count overflow")?;
         hash.update(&line);
+        if accepted.cut == ArchiveCut::R6 {
+            let raw = std::str::from_utf8(&line).map_err(|e| e.to_string())?;
+            evidence.record(
+                raw.strip_suffix('\n').ok_or("R6 row is missing LF")?,
+                line.len(),
+                number,
+            )?;
+        }
         if let Some(row) = rows.remove(&number) {
             let raw = fs::read(dir.join(&row.file)).map_err(|e| format!("{}: {e}", row.file))?;
             if raw != line {
@@ -401,6 +410,7 @@ fn verify_archive_with(
     if format!("{:x}", hash.finalize()) != *expected_hash {
         return Err("archive file SHA-256 mismatch".into());
     }
+    evidence.finish()?;
     if !rows.is_empty() {
         return Err("archive_line is beyond end of archive".into());
     }
@@ -445,6 +455,7 @@ fn extract_verified(
         .ok_or("extraction requires a retained full archive file SHA-256")?;
     let mut hash = Sha256::new();
     hash.update(&line);
+    let mut evidence = crate::ingest::ArchiveEvidence::new(accepted, line.len())?;
     let dir = provenance_path.parent().ok_or("provenance has no parent")?;
     if read_file(&dir.join(&accepted.manifest_file))? != header {
         return Err("fixture manifest differs from raw archive header".into());
@@ -482,6 +493,14 @@ fn extract_verified(
         }
         number += 1;
         hash.update(&line);
+        if accepted.cut == ArchiveCut::R6 {
+            let raw = std::str::from_utf8(&line).map_err(|e| e.to_string())?;
+            evidence.record(
+                raw.strip_suffix('\n').ok_or("R6 row is missing LF")?,
+                line.len(),
+                number,
+            )?;
+        }
         let identity: Identity =
             serde_json::from_slice(&line).map_err(|e| format!("archive line {number}: {e}"))?;
         let mut matches = false;
@@ -508,6 +527,7 @@ fn extract_verified(
     if format!("{:x}", hash.finalize()) != *expected_hash {
         return Err("archive file SHA-256 mismatch; no fixtures written".into());
     }
+    evidence.finish()?;
     for (selector, count) in selectors.iter().zip(hits) {
         if count != 1 {
             return Err(format!(
@@ -518,7 +538,11 @@ fn extract_verified(
     let mut outputs = vec![];
     let mut report = vec![];
     for (id, (line_number, name, raw)) in selected {
-        let file = format!("{id}.json");
+        let file = if accepted.cut == ArchiveCut::R6 {
+            format!("phase1-r6/{id}.json")
+        } else {
+            format!("{id}.json")
+        };
         if dir.join(&file).exists()
             || provenance.records.iter().any(|r| {
                 r.file == file || (r.oracle_id == id && r.archive == accepted.manifest_file)
@@ -621,6 +645,9 @@ fn extract_verified(
         outputs.push((dir.join(file), raw));
     }
     // All selectors, identities, hashes and collisions are checked before writes.
+    if accepted.cut == ArchiveCut::R6 {
+        fs::create_dir_all(dir.join("phase1-r6")).map_err(|e| e.to_string())?;
+    }
     for (path, bytes) in outputs {
         fs::write(path, bytes).map_err(|e| e.to_string())?;
     }
