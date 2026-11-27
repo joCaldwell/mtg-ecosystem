@@ -453,14 +453,12 @@ impl RulesTxn {
             Some(TargetDomain::PlayerGraveyardCards { .. }) => {
                 return Err("dependent targets need their player".into());
             }
-            Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
-            // CR 115.1, 120.3: planeswalker cards are not admitted, so the domain's
-            // inhabitants are players.
-            Some(
-                TargetDomain::OpponentPlayer
-                | TargetDomain::AnyPlayer
-                | TargetDomain::PlayerOrPlaneswalker,
-            ) => Frame::PlayerTargets { cast },
+            Some(TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker) => {
+                Frame::EntityTargets { cast }
+            }
+            Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer) => {
+                Frame::PlayerTargets { cast }
+            }
             Some(
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::ControlledBattlefieldPermanent

@@ -207,7 +207,7 @@ fn current_rules_allow_nonlethal_split_and_simultaneous_multiplayer_losses() {
     if mode == TraceMode::Detailed {
         assert!(game.events().iter().any(|event| matches!(event,
             Event::Committed { actual: EventOutcome::DamageCommitted { results, .. }, .. }
-            if results.iter().any(|result| matches!(result.recipient, DamageRecipient::Creature { object } if object.card == CardId(0))
+            if results.iter().any(|result| matches!(result.recipient, DamageRecipient::Permanent { object } if object.card == CardId(0))
                 && result.previous == Quantity::zero() && result.current == Quantity::from(4))
         )), "both blockers' simultaneous damage must accumulate against common pre-state");
     }

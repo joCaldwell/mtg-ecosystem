@@ -995,7 +995,7 @@ impl RulesTxn {
                             id: DamageId(0),
                             source: damage.source.clone(),
                             controller: damage.controller,
-                            recipient: damage.recipient.clone(),
+                            recipient: damage.recipient,
                             amount: damage.amount.clone(),
                         }),
                     }]
@@ -1018,7 +1018,7 @@ impl RulesTxn {
                                 ),
                                 source: before.object_before(d.source)?,
                                 controller: d.controller,
-                                recipient: d.recipient.clone(),
+                                recipient: d.recipient,
                                 amount: d.amount.clone(),
                             }),
                         })
@@ -1033,7 +1033,7 @@ impl RulesTxn {
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 EventOutcome::AttackersDeclared { attacks } => {
                     let mut witnesses = Vec::new();
-                    for (attacker, defender) in attacks {
+                    for (attacker, defender, _) in attacks {
                         let prior = before.object_before(*attacker)?;
                         // The declaration leaf applies its taps internally
                         // (508.1f). Vigilance leaves the source untapped.
@@ -1057,7 +1057,11 @@ impl RulesTxn {
                     .rules
                     .combat
                     .iter()
-                    .filter(|attack| attack.defender == *player && !attack.blocked)
+                    .filter(|attack| {
+                        attack.defender == *player
+                            && attack.planeswalker.is_none()
+                            && !attack.blocked
+                    })
                     .map(|attack| {
                         let attacker = self.object_before(attack.attacker)?;
                         Ok(TriggerEventWitness::AttackerUnblocked {
@@ -1204,13 +1208,13 @@ impl RulesTxn {
                         .iter()
                         .filter(|d| d.amount > Quantity::zero())
                         .filter_map(|d| match d.recipient {
-                            DamageRecipient::Creature { object } => Some((kind, object)),
+                            DamageRecipient::Permanent { object } => Some((kind, object)),
                             DamageRecipient::Player { .. } => None,
                         })
                         .collect()
                 }
                 EventOutcome::NoncombatDamageDealt { damage, .. } => match damage.recipient {
-                    DamageRecipient::Creature { object } if damage.amount > Quantity::zero() => {
+                    DamageRecipient::Permanent { object } if damage.amount > Quantity::zero() => {
                         vec![(DamageKind::Noncombat, object)]
                     }
                     _ => vec![],
@@ -1219,7 +1223,7 @@ impl RulesTxn {
                     .iter()
                     .filter(|d| d.amount > Quantity::zero())
                     .filter_map(|d| match d.recipient {
-                        DamageRecipient::Creature { object } => Some((DamageKind::Combat, object)),
+                        DamageRecipient::Permanent { object } => Some((DamageKind::Combat, object)),
                         DamageRecipient::Player { .. } => None,
                     })
                     .collect(),
@@ -2462,12 +2466,12 @@ impl RulesTxn {
                 }) {
                     return self.bind_trigger_object_targets(placement, stack_id);
                 }
-                if self
-                    .program()?
-                    .targets
-                    .first()
-                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
-                {
+                if self.program()?.targets.first().is_some_and(|t| {
+                    matches!(
+                        t.domain,
+                        TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker
+                    )
+                }) {
                     return self.bind_trigger_entity_targets(placement, stack_id);
                 }
                 let input = self

@@ -202,7 +202,7 @@ impl RulesTxn {
         }
         program.targets.iter().all(|spec| match spec.domain {
             TargetDomain::PlayerGraveyardCards { .. } => false,
-            TargetDomain::AnyDamageTarget => {
+            TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => {
                 self.live_players()
                     .into_iter()
                     .any(|p| self.targetable_player(p))
@@ -217,9 +217,9 @@ impl RulesTxn {
                         )
                     })
             }
-            domain @ (TargetDomain::AnyPlayer
-            | TargetDomain::PlayerOrPlaneswalker
-            | TargetDomain::OpponentPlayer) => !self.eligible_players(domain, player).is_empty(),
+            domain @ (TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer) => {
+                !self.eligible_players(domain, player).is_empty()
+            }
             TargetDomain::StackSpell
             | TargetDomain::ControlledCreatureSpell
             | TargetDomain::StackActivatedOrTriggeredAbility => !self
@@ -301,7 +301,7 @@ impl RulesTxn {
                 match witness {
                     TriggerEventWitness::DamageDealt { damage, .. } => match damage.recipient {
                         DamageRecipient::Player { player } => Ok(player),
-                        DamageRecipient::Creature { .. } => {
+                        DamageRecipient::Permanent { .. } => {
                             Err("action event requires a player damage recipient".into())
                         }
                     },
@@ -403,6 +403,9 @@ impl RulesTxn {
             .is_some_and(|r| !self.activation_restriction_allows(player, object, index, r))
         {
             return Err("activation restriction is not met".into());
+        }
+        if let ActivationCost::Loyalty { change } = &ability.cost {
+            self.loyalty_after_cost(player, object, change)?;
         }
         if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {
             self.validate_tap_life_sacrifice_source(player, object, life)?;

@@ -975,10 +975,10 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
             });
         }
         C::AttackRestriction(x) => {
-            // CR 508.1b: the engine's only attackable objects are players,
-            // so "planeswalkers you control" adds no defender.
+            // CR 508.1b: player and planeswalker attack restrictions are distinct.
             let you = PlayerExpr::static_controller();
             let mut players = vec![];
+            let mut planeswalkers = false;
             for defender in &x.defenders {
                 match defender {
                     ast::CombatDefender::Player(p) => players.push(player(&p.who)?),
@@ -987,7 +987,10 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                             if each.filter.types.as_deref()
                                 == Some(&["planeswalker".to_owned()])
                                 && each.filter.control == Some(ast::ObjectFilterControl::You)
-                                && present_fields(&each.filter).len() == 2 => {}
+                                && present_fields(&each.filter).len() == 2 =>
+                        {
+                            planeswalkers = true;
+                        }
                         _ => return Err(gap("combat-rule:attack-restriction:defender")),
                     },
                     _ => return Err(gap("combat-rule:attack-restriction:defender")),
@@ -1002,6 +1005,7 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                 StaticRule::AttackRestriction {
                     affects: declaration_scope(what)?,
                     defender: you,
+                    planeswalkers,
                 },
                 condition,
             ));

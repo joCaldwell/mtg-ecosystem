@@ -78,6 +78,8 @@ pub struct Object {
     pub(in crate::engine) control_upkeeps: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    pub loyalty_counters: Quantity,
+    pub loyalty_used_turn: Option<u64>,
     /// CR 701.27a, 712.18: how many times this permanent has transformed
     /// since it entered; an odd count has its other face up. A zone change
     /// starts a new object at zero (CR 400.7).

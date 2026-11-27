@@ -27,8 +27,7 @@ qualities reject. Static block restrictions ("can't be blocked by/except by",
 "can't block", "can block only") and blocker counts ("by more than N", "except
 by N or more", with menace) read keywords, colors, types and fixed power of
 both creatures at the declaration; counts are joint pick rules. "Can't attack
-you" removes that defender; with no attackable planeswalker or battle kinds,
-"or planeswalkers you control" adds nothing. A creature that attacks each
+you" and "or planeswalkers you control" restrict the corresponding defenders. A creature that attacks each
 combat if able must attack only while a defender remains (CR 508.1d). Relative
 powers and ambiguous "X and/or Y with Z" filters reject.
 
@@ -56,6 +55,18 @@ recipient orders (CR 615.7). Damage that can't be prevented takes no prevention,
 protection included, and spends no shield (CR 615.12). Source choices, "next time" shields,
 redirection, non-damage replacements and other replacement/layer interactions
 reject.
+
+### Planeswalkers
+
+Single-faced planeswalkers with fixed printed loyalty enter with those counters
+(CR 306.5b). A fixed loyalty cost is paid after targets, at sorcery timing, and
+uses that permanent's single loyalty activation for the turn (CR 606.3–4).
+Opponents can attack the planeswalker, and damage removes loyalty counters
+(CR 508.1b, 120.3c). Zero loyalty and the legend rule put the affected
+permanent into its owner's graveyard (CR 704.5i–j). “Any target,” “target
+player or planeswalker,” and “target creature or planeswalker” include eligible
+planeswalkers and enforce printed qualifiers. Emblems and variable
+loyalty costs require separate lowering.
 
 ## Movement, sacrifice and board-wide effects
 

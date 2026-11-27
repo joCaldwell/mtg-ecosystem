@@ -116,7 +116,7 @@ the chosen part after restore. Snapshots reject a face, transform count,
 permission, ability face or baseline the card or zone cannot have.
 
 Support is provisional at `Executes`. Split, flip, meld, prototype, Omen and
-Room layouts, battle and planeswalker faces, daybound, disturb, craft,
+Room layouts, battle faces and two-part planeswalker cards, daybound, disturb, craft,
 casting or entering transformed and two-part flashback stay rejected.
 
 ## Face-down casting
@@ -432,9 +432,8 @@ exactly the announced X, or any number up to the announced X (CR 115.3,
 Zero targets still allows untargeted actions to resolve. Other graveyard group
 entries, derived X counts, mixed required and optional occurrences
 and optional permanent spells reject. "Target player or planeswalker" announces
-players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
-120.3). Already-matching tap status emits no event and combat membership is
-preserved. "Put a +1/+1 counter on each [creature filter]" applies
+either entity (CR 115.1, 120.3). Already-matching tap status emits no event and
+combat membership is preserved. "Put a +1/+1 counter on each [creature filter]" applies
 simultaneously to the current set. “Tap all creatures target player controls”
 reads that player’s creatures at resolution.
 

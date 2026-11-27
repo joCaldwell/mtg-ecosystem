@@ -117,10 +117,11 @@ pub enum StaticRule {
         affects: Scope,
         restriction: BlockRestriction,
     },
-    /// CR 508.1b-c: the affected creatures can't attack `defender`. The
-    /// engine's only attackable objects are players (no planeswalker or
-    /// battle kinds exist), so "or planeswalkers you control" adds nothing.
+    /// CR 508.1b-c: the affected creatures can't attack `defender` or,
+    /// when printed, planeswalkers that player controls.
     AttackRestriction {
+        #[serde(default, skip_serializing_if = "crate::is_false")]
+        planeswalkers: bool,
         affects: Scope,
         defender: PlayerExpr,
     },
@@ -1205,7 +1206,9 @@ impl crate::StaticAbility {
                                 BlockRestriction::AtLeast { count } => *count >= 2,
                             }
                     }
-                    StaticRule::AttackRestriction { affects, defender } => {
+                    StaticRule::AttackRestriction {
+                        affects, defender, ..
+                    } => {
                         on_battlefield
                             && declaration_scope_valid(affects, definition, kind)
                             && *defender == PlayerExpr::static_controller()

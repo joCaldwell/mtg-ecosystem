@@ -137,9 +137,10 @@ pub enum ProposedEvent {
         poison: Quantity,
         energy: Quantity,
     },
-    PutPlusOneCounters {
+    PutPermanentCounters {
         object: ObjectId,
-        amount: Quantity,
+        plus_one: Quantity,
+        loyalty: Quantity,
     },
     CeaseSpellCopy {
         object: ObjectId,
@@ -203,7 +204,7 @@ pub enum ProposedEvent {
         reason: PlayerLossReason,
     },
     DeclareAttackers {
-        attacks: Vec<(ObjectId, PlayerId)>,
+        attacks: Vec<(ObjectId, PlayerId, Option<ObjectId>)>,
     },
     DeclareBlockers {
         player: PlayerId,
@@ -391,11 +392,12 @@ pub enum EventOutcome {
         previous_poison: Quantity,
         previous_energy: Quantity,
     },
-    PlusOneCountersPlaced {
+    PermanentCountersPlaced {
         object: ObjectId,
-        amount: Quantity,
-        previous: Quantity,
-        current: Quantity,
+        plus_one: Quantity,
+        loyalty: Quantity,
+        previous_plus_one: Quantity,
+        previous_loyalty: Quantity,
     },
     SpellCopyCeased {
         object: ObjectId,
@@ -474,7 +476,7 @@ pub enum EventOutcome {
         reason: PlayerLossReason,
     },
     AttackersDeclared {
-        attacks: Vec<(ObjectId, PlayerId)>,
+        attacks: Vec<(ObjectId, PlayerId, Option<ObjectId>)>,
     },
     BlockersDeclared {
         player: PlayerId,

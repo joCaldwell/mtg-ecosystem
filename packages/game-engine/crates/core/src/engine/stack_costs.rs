@@ -523,7 +523,7 @@ impl RulesTxn {
     /// target domain.
     pub(super) fn activation_target_frame(domain: TargetDomain, cast: Casting) -> Frame {
         match domain {
-            TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
+            TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => Frame::PlayerTargets { cast },
             TargetDomain::StackSpell
             | TargetDomain::ControlledCreatureSpell
             | TargetDomain::StackActivatedOrTriggeredAbility => Frame::StackTargets { cast },
@@ -537,6 +537,45 @@ impl RulesTxn {
             _ => Frame::EntityTargets { cast },
         }
     }
+    // CR 606.3–4: track the permanent incarnation, across its abilities
+    // and control changes. This payment never opens a mana window.
+    pub(super) fn loyalty_after_cost(
+        &self,
+        player: PlayerId,
+        object: ObjectId,
+        change: &Quantity,
+    ) -> Result<Quantity, String> {
+        let source = self.current(object)?;
+        let mut remaining = source.loyalty_counters.clone();
+        remaining.add(change);
+        if !source.present_on_battlefield()
+            || source.controller != player
+            || source.loyalty_used_turn == Some(self.state.rules.turn.number)
+            || remaining.is_negative()
+        {
+            return Err("unpayable loyalty activation cost".into());
+        }
+        Ok(remaining)
+    }
+
+    pub(super) fn pay_loyalty(
+        &mut self,
+        player: PlayerId,
+        object: ObjectId,
+        change: &Quantity,
+    ) -> Result<(), String> {
+        let remaining = self.loyalty_after_cost(player, object, change)?;
+        let turn = self.state.rules.turn.number;
+        let source = self
+            .rules_mut()
+            .objects
+            .get_mut(&object.card)
+            .ok_or("missing loyalty source")?;
+        source.loyalty_counters = remaining;
+        source.loyalty_used_turn = Some(turn);
+        Ok(())
+    }
+
     pub(crate) fn announce_ability(
         &mut self,
         player: PlayerId,
@@ -655,6 +694,7 @@ impl RulesTxn {
                         | ActivationCost::SacrificePermanent { .. }
                         | ActivationCost::ChooseObjects(_)
                         | ActivationCost::SacrificeSource
+                        | ActivationCost::Loyalty { .. }
                 )
             {
                 return Err("unsupported targeted activation cost".into());
@@ -736,6 +776,8 @@ impl RulesTxn {
                         ability,
                     },
                 )?;
+            } else if let ActivationCost::Loyalty { change } = &cost {
+                self.pay_loyalty(player, object, change)?;
             } else if let ActivationCost::Composite { costs } = &cost {
                 self.pay_permanent_source_costs(
                     object,
@@ -759,6 +801,7 @@ impl RulesTxn {
                     | ActivationCost::DiscardSource { .. }
                     | ActivationCost::ExileSource { .. }
                     | ActivationCost::ChooseObjects(_)
+                    | ActivationCost::Loyalty { .. }
                     | ActivationCost::SacrificePermanent { .. } => {
                         return Err("activated cost branch invariant".into());
                     }
@@ -862,10 +905,12 @@ impl RulesTxn {
                 Frame::Fault { .. } | Frame::Finished { .. }
             ),
         };
-        let player_target_domain = program
-            .targets
-            .first()
-            .is_some_and(|t| t.domain == TargetDomain::PlayerOrPlaneswalker);
+        let player_target_domain = program.targets.first().is_some_and(|t| {
+            matches!(
+                t.domain,
+                TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer
+            )
+        });
         if source_handles.len() != 4
             || (!entry.targets.is_empty()
                 && program.targets.first().is_none_or(|t| {
@@ -920,6 +965,7 @@ impl RulesTxn {
                                 | ActivationCost::SacrificePermanent { .. }
                                 | ActivationCost::ChooseObjects(_)
                                 | ActivationCost::SacrificeSource
+                                | ActivationCost::Loyalty { .. }
                         ) || (!program.targets.is_empty()))
                 }
             }

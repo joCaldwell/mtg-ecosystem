@@ -41,6 +41,7 @@ static FACE_DOWN: LazyLock<Definition> = LazyLock::new(|| Definition {
         color_identity: vec![],
         power: Some(Quantity::from(2)),
         toughness: Some(Quantity::from(2)),
+        loyalty: None,
         front_face_mana_value: None,
     },
     intrinsic_zone: None,

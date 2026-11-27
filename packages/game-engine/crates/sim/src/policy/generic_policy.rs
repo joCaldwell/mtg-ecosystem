@@ -713,7 +713,10 @@ impl Strategy<'_> {
             for a in &v.combat {
                 let sources: Vec<_> = match target {
                     PlayerTargetEntity::Player { player }
-                        if a.defender == *player && !a.blocked =>
+                        if a.defender == *player
+                            && a.planeswalker.is_none()
+                            && !a.defender_removed
+                            && !a.blocked =>
                     {
                         vec![&a.attacker]
                     }
@@ -1677,6 +1680,14 @@ impl Strategy<'_> {
             return None;
         }
         let (tap, sac, cost) = match &a.cost {
+            ActivationCost::Loyalty { .. } => (
+                false,
+                false,
+                ManaCost {
+                    generic: 0.into(),
+                    colored: vec![],
+                },
+            ),
             ActivationCost::TapPayLifeSacrificeSource { .. } => return None,
             ActivationCost::DiscardSource { mana } => {
                 if self.library_count(v) < 2

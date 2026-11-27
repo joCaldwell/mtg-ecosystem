@@ -346,6 +346,8 @@ mod tests {
     fn object(card: u32, incarnation: u32) -> Object {
         let json = serde_json::json!({
             "marked_damage": Quantity::zero(),
+            "loyalty_counters": Quantity::zero(),
+            "loyalty_used_turn": null,
             "attack_ready": false,
             "id": ObjectId { face: Default::default(), card: CardId(card), incarnation },
             "controller": PlayerId(0),

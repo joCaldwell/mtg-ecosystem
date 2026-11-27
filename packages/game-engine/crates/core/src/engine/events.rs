@@ -407,7 +407,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::PlayerCounters(*player)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutPlusOneCounters { object, .. } => {
+        ProposedEvent::PutPermanentCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -468,7 +468,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let read = BTreeSet::from([FactKey::Object(damage.source.object.card)]);
             let mut write = BTreeSet::from([match damage.recipient {
                 DamageRecipient::Player { player } => FactKey::Life(player),
-                DamageRecipient::Creature { object } => FactKey::Object(object.card),
+                DamageRecipient::Permanent { object } => FactKey::Object(object.card),
             }]);
             if game.has_keyword(&damage.source, KeywordAbility::Lifelink) {
                 write.insert(FactKey::Life(damage.source.controller));
@@ -488,7 +488,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         }
         ProposedEvent::DeclareAttackers { attacks } => {
             let mut keys = BTreeSet::from([FactKey::Turn]);
-            keys.extend(attacks.iter().map(|(o, _)| FactKey::Object(o.card)));
+            keys.extend(attacks.iter().map(|(o, _, _)| FactKey::Object(o.card)));
             (keys.clone(), keys)
         }
         ProposedEvent::DeclareBlockers { blocks, .. } => {
@@ -511,7 +511,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
                         keys.insert(FactKey::Life(player));
                         keys.insert(FactKey::CommanderDamage(player));
                     }
-                    DamageRecipient::Creature { object } => {
+                    DamageRecipient::Permanent { object } => {
                         keys.insert(FactKey::Object(object.card));
                     }
                 }
@@ -957,7 +957,7 @@ impl RulesTxn {
                 ProposedEvent::GivePlayerCounters { player, .. } => {
                     players.insert(*player);
                 }
-                ProposedEvent::PutPlusOneCounters { object, .. } => {
+                ProposedEvent::PutPermanentCounters { object, .. } => {
                     objects.insert(*object);
                 }
                 ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
@@ -1100,7 +1100,7 @@ impl RulesTxn {
                                         commander_damage.insert((d.source.object.card, player));
                                     }
                                 }
-                                DamageRecipient::Creature { object } => {
+                                DamageRecipient::Permanent { object } => {
                                     if self.current(object).is_ok() {
                                         objects.insert(object);
                                     }
@@ -1136,7 +1136,7 @@ impl RulesTxn {
                         DamageRecipient::Player { player } => {
                             players.insert(player);
                         }
-                        DamageRecipient::Creature { object } => {
+                        DamageRecipient::Permanent { object } => {
                             objects.insert(object);
                         }
                     }
@@ -1186,8 +1186,9 @@ impl RulesTxn {
                     );
                 }
                 ProposedEvent::DeclareAttackers { attacks } => {
-                    for (o, p) in attacks {
+                    for (o, p, planeswalker) in attacks {
                         objects.insert(*o);
+                        objects.extend(planeswalker);
                         players.insert(*p);
                     }
                 }
@@ -1212,7 +1213,7 @@ impl RulesTxn {
                                     commander_damage.insert((d.source.card, player));
                                 }
                             }
-                            DamageRecipient::Creature { object } => {
+                            DamageRecipient::Permanent { object } => {
                                 objects.insert(object);
                             }
                         }
@@ -1626,7 +1627,7 @@ impl RulesTxn {
             || events.iter().any(|e| {
                 matches!(
                     e,
-                    ProposedEvent::PutPlusOneCounters { .. }
+                    ProposedEvent::PutPermanentCounters { .. }
                         | ProposedEvent::GivePlayerCounters { .. }
                 )
             })
@@ -2108,6 +2109,17 @@ impl RulesTxn {
                 }
             }
         }
+        // CR 306.5b: loyalty is placed as the permanent enters, even if
+        // continuous effects remove its printed abilities.
+        let loyalty_counters = if *destination == Zone::Battlefield && !face_down_entry {
+            self.copiable_definition(face_id)?
+                .characteristics
+                .loyalty
+                .clone()
+                .unwrap_or_default()
+        } else {
+            Quantity::zero()
+        };
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
         let keyword_rank = self.apnap_rank(controller);
         let control_upkeeps = (*destination == Zone::Battlefield)
@@ -2124,6 +2136,8 @@ impl RulesTxn {
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 keyword_rank,
                 plus_one_counters,
+                loyalty_counters,
+                loyalty_used_turn: None,
                 transforms: 0,
                 adventure_player: None,
                 // CR 702.37c, 708.4: a face-down spell becomes a face-down
@@ -2546,13 +2560,21 @@ impl RulesTxn {
                     previous_energy,
                 }
             }
-            ProposedEvent::PutPlusOneCounters { object, amount } => {
+            ProposedEvent::PutPermanentCounters {
+                object,
+                plus_one,
+                loyalty,
+            } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {
                     return Err("counter placement requires complete batch authority".into());
                 }
                 // The staged allocation checks which permanents this instruction
                 // permits. Proliferate can add to a formerly animated land.
-                if !self.current(*object)?.present_on_battlefield() || *amount <= Quantity::zero() {
+                if !self.current(*object)?.present_on_battlefield()
+                    || plus_one.is_negative()
+                    || loyalty.is_negative()
+                    || (*plus_one == Quantity::zero() && *loyalty == Quantity::zero())
+                {
                     return Err("invalid counter placement".into());
                 }
                 let o = self
@@ -2560,13 +2582,16 @@ impl RulesTxn {
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing counter recipient")?;
-                let previous = o.plus_one_counters.clone();
-                o.plus_one_counters.add(amount);
-                EventOutcome::PlusOneCountersPlaced {
+                let previous_plus_one = o.plus_one_counters.clone();
+                let previous_loyalty = o.loyalty_counters.clone();
+                o.plus_one_counters.add(plus_one);
+                o.loyalty_counters.add(loyalty);
+                EventOutcome::PermanentCountersPlaced {
                     object: *object,
-                    amount: amount.clone(),
-                    previous,
-                    current: o.plus_one_counters.clone(),
+                    plus_one: plus_one.clone(),
+                    loyalty: loyalty.clone(),
+                    previous_plus_one,
+                    previous_loyalty,
                 }
             }
             event @ (ProposedEvent::CreateTokenCopy { .. }
@@ -2827,7 +2852,7 @@ impl RulesTxn {
             ProposedEvent::DeclareAttackers { attacks } => {
                 let player = self.state.rules.active.ok_or("missing attacking player")?;
                 self.validate_attacks(player, attacks)?;
-                for (object, _) in attacks {
+                for (object, _, _) in attacks {
                     if !self.has_keyword(*object, KeywordAbility::Vigilance) {
                         self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
                     }
@@ -2838,7 +2863,9 @@ impl RulesTxn {
                 self.rules_mut().combat_declared = !attacks.is_empty();
                 self.rules_mut().combat = attacks
                     .iter()
-                    .map(|(attacker, defender)| Attacker {
+                    .map(|(attacker, defender, planeswalker)| Attacker {
+                        planeswalker: *planeswalker,
+                        defender_removed: false,
                         attacker: *attacker,
                         defender: *defender,
                         blocked: false,
@@ -3385,9 +3412,9 @@ impl RulesTxn {
                     }
                     (0, u32::from(player.0))
                 }
-                DamageRecipient::Creature { object } => {
-                    if !self.is_battlefield_creature(object) {
-                        return Err("invalid creature damage recipient".into());
+                DamageRecipient::Permanent { object } => {
+                    if !self.is_permanent_damage_recipient(object) {
+                        return Err("invalid permanent damage recipient".into());
                     }
                     if self.protected_from(object, self.color_layer(d.source)?.as_ref()) {
                         return Err("protection requires the damage transaction".into());
@@ -3405,7 +3432,7 @@ impl RulesTxn {
                     id: DamageId(i as u32),
                     source: self.object_before(d.source)?,
                     controller: d.controller,
-                    recipient: d.recipient.clone(),
+                    recipient: d.recipient,
                     amount: d.amount.clone(),
                 })
             })
@@ -3419,17 +3446,14 @@ impl RulesTxn {
                 (DamageRecipient::Player { player }, previous, current)
             } else {
                 let object = self
-                    .rules_mut()
+                    .state
+                    .rules
                     .objects
-                    .get_mut(&CardId(id))
-                    .ok_or("missing damage object")?;
-                let previous = object.marked_damage.clone();
-                object.marked_damage.add(&amount);
-                (
-                    DamageRecipient::Creature { object: object.id },
-                    previous,
-                    object.marked_damage.clone(),
-                )
+                    .get(&CardId(id))
+                    .ok_or("missing damage object")?
+                    .id;
+                let (previous, current) = self.apply_permanent_damage(object, &amount)?;
+                (DamageRecipient::Permanent { object }, previous, current)
             };
             results.push(DamageResult {
                 recipient,

@@ -316,7 +316,7 @@ fn indestructible_typed_nonlethal_deathtouch_lifelink_and_atomic_fault_control()
             damage: vec![DamageOccurrence {
                 source,
                 controller: PlayerId(0),
-                recipient: DamageRecipient::Creature { object: myr },
+                recipient: DamageRecipient::Permanent { object: myr },
                 amount: 1.into(),
             }],
         },

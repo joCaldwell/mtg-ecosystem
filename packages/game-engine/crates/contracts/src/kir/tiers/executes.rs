@@ -59,19 +59,14 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         | TargetDomain::ControlledBattlefieldPermanent
         | TargetDomain::BattlefieldCreature => (Route::Object, ANY),
         TargetDomain::AnyDamageTarget => (Route::Entity, ANY),
-        TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
-            (Route::Player, SPELL | TRIGGERED)
-        }
+        TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => (Route::Player, ANY),
         TargetDomain::GraveyardCard { .. }
         | TargetDomain::OwnGraveyardCreatureCard
         | TargetDomain::OwnGraveyardCard => (Route::Object, ANY),
         TargetDomain::StackSpell
         | TargetDomain::ControlledCreatureSpell
         | TargetDomain::StackActivatedOrTriggeredAbility => (Route::Stack, SPELL | ACTIVATED),
-        // CR 115.1, 120.3: planeswalker faces are not admitted (see mechanics), so
-        // the closed scenario's inhabitants are players, announced as
-        // AnyPlayer is.
-        TargetDomain::PlayerOrPlaneswalker => (Route::Player, SPELL | TRIGGERED),
+        TargetDomain::PlayerOrPlaneswalker => (Route::Entity, ANY),
         TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
@@ -741,6 +736,11 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
         ActivationCost::TapPayLifeSacrificeSource { life } => {
             route.is_none() && !life.is_negative()
         }
+        ActivationCost::Loyalty { .. } => {
+            kind == CardKind::Planeswalker
+                && a.functioning_zone == FunctioningZone::Battlefield
+                && p.timing == SpellTiming::MainPhase
+        }
         ActivationCost::DiscardSource { .. } => false,
     };
     if !payable {
@@ -850,7 +850,11 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     if a.functioning_zone != FunctioningZone::Battlefield
         || !matches!(
             d.characteristics.kind,
-            CardKind::Creature | CardKind::Artifact | CardKind::Enchantment | CardKind::Land
+            CardKind::Creature
+                | CardKind::Artifact
+                | CardKind::Enchantment
+                | CardKind::Land
+                | CardKind::Planeswalker
         )
     {
         return cell("activated", "source");
@@ -1071,7 +1075,7 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
-        CardKind::Instant | CardKind::Sorcery => false,
+        CardKind::Instant | CardKind::Sorcery | CardKind::Planeswalker => false,
     }
 }
 
@@ -1260,6 +1264,8 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     };
     if ((!c.hybrid_mana.is_empty() || d.x_mana_cost) && d.spell.is_none())
         || !c.hybrid_mana.iter().all(hybrid_symbol)
+        || (c.kind == CardKind::Planeswalker) != c.loyalty.is_some()
+        || c.loyalty.as_ref().is_some_and(Quantity::is_negative)
         || c.snow
         || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
@@ -1351,7 +1357,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && d.intrinsic_zone.is_none()
                 && d.spell.as_ref().is_some_and(permanent_spell)
         }
-        CardKind::Artifact | CardKind::Enchantment => {
+        CardKind::Artifact | CardKind::Enchantment | CardKind::Planeswalker => {
             c.power.is_none()
                 && c.toughness.is_none()
                 && d.intrinsic_zone.is_none()

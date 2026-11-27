@@ -356,7 +356,13 @@ impl RulesTxn {
             && match target {
                 TargetEntity::Player { .. } => true,
                 TargetEntity::Object { object } => {
-                    self.targetable_by(object, entry.controller)
+                    (self.program_for(entry).is_ok_and(|program| {
+                        program
+                            .targets
+                            .first()
+                            .is_none_or(|spec| spec.domain != TargetDomain::PlayerOrPlaneswalker)
+                    }) || self.is_battlefield_planeswalker(object))
+                        && self.targetable_by(object, entry.controller)
                         && self
                             .targeting_characteristics(entry)
                             .is_ok_and(|source| !self.protected_from(object, &source))

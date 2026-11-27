@@ -83,8 +83,10 @@ impl RulesTxn {
     }
 
     pub(super) fn can_proliferate_permanent(&self, object: ObjectId) -> bool {
-        self.current(object)
-            .is_ok_and(|o| o.present_on_battlefield() && o.plus_one_counters > Quantity::zero())
+        self.current(object).is_ok_and(|o| {
+            o.present_on_battlefield()
+                && (o.plus_one_counters > Quantity::zero() || o.loyalty_counters > Quantity::zero())
+        })
     }
 
     pub(super) fn can_proliferate_player(&self, player: PlayerId) -> bool {
@@ -311,11 +313,25 @@ impl RulesTxn {
                     self.is_battlefield_creature(m.object)
                 }
             })
-            .map(|m| ProposedEvent::PutPlusOneCounters {
-                object: m.object,
-                amount: m.amount.clone(),
+            .map(|m| {
+                let object = self.current(m.object)?;
+                let plus_one = if !proliferating || object.plus_one_counters > Quantity::zero() {
+                    m.amount.clone()
+                } else {
+                    Quantity::zero()
+                };
+                let loyalty = if proliferating && object.loyalty_counters > Quantity::zero() {
+                    m.amount.clone()
+                } else {
+                    Quantity::zero()
+                };
+                Ok(ProposedEvent::PutPermanentCounters {
+                    object: m.object,
+                    plus_one,
+                    loyalty,
+                })
             })
-            .collect();
+            .collect::<Result<_, String>>()?;
         leaves.extend(
             tx.players
                 .iter()

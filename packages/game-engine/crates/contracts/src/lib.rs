@@ -102,20 +102,22 @@ pub enum CardKind {
     Sorcery,
     Enchantment,
     Artifact,
+    Planeswalker,
 }
 impl CardKind {
     /// CR 205.2a: every card type the engine represents, in declaration
-    /// order. Kindred, battle and planeswalker cards are rejected at
+    /// order. Kindred and battle cards are rejected at
     /// admission, so a counted set of card types (Tarmogoyf's) is complete
     /// over these. Representing another type adds a variant, which
     /// [`CardKind::card_type_index`] then fails to compile without.
-    pub const CARD_TYPES: [CardKind; 6] = [
+    pub const CARD_TYPES: [CardKind; 7] = [
         Self::Land,
         Self::Creature,
         Self::Instant,
         Self::Sorcery,
         Self::Enchantment,
         Self::Artifact,
+        Self::Planeswalker,
     ];
 
     /// This card type's position in [`CardKind::CARD_TYPES`]. Exhaustive,
@@ -128,6 +130,7 @@ impl CardKind {
             Self::Sorcery => 3,
             Self::Enchantment => 4,
             Self::Artifact => 5,
+            Self::Planeswalker => 6,
         }
     }
 }
@@ -158,6 +161,8 @@ pub struct Characteristics {
     pub color_identity: Vec<Color>,
     pub power: Option<Quantity>,
     pub toughness: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loyalty: Option<Quantity>,
     /// CR 202.3b, 712.8e: the back face of a nonmodal double-faced card has
     /// no mana cost, but its mana value is calculated from its front face's
     /// mana cost. Present only on such a back face.
@@ -302,6 +307,7 @@ pub enum Capability {
 
     CompositeActivationCostV1,
     CastEnchantmentV1,
+    PlaneswalkerV1,
 
     TemporaryPowerToughnessV1,
     TemporaryCombatProhibitionV1,
@@ -522,7 +528,7 @@ pub enum TargetDomain {
     ControlledCreatureSpell,
     StackActivatedOrTriggeredAbility,
     /// CR 115.4: creatures, players, planeswalkers and battles. The closed
-    /// scenario admits only creature/player inhabitants, not a narrower domain.
+    /// scenario admits creature, player and planeswalker inhabitants.
     AnyDamageTarget,
     PlayerOrPlaneswalker,
     AnyPlayer,
@@ -772,6 +778,7 @@ impl CreatureToken {
             color_identity: self.colors.clone(),
             power: Some(self.power.clone()),
             toughness: Some(self.toughness.clone()),
+            loyalty: None,
             front_face_mana_value: None,
         }
     }
@@ -1438,6 +1445,9 @@ pub enum ActivationCost {
     },
     SacrificeSource,
     TapSource,
+    Loyalty {
+        change: Quantity,
+    },
     /// One complete nonmana cost; life payment is loss of life, never damage.
     TapPayLifeSacrificeSource {
         life: Quantity,
@@ -2072,6 +2082,9 @@ impl Definition {
             CardKind::Artifact => {
                 set.insert(Capability::CastArtifactV1);
             }
+            CardKind::Planeswalker => {
+                set.insert(Capability::PlaneswalkerV1);
+            }
             CardKind::Enchantment => {
                 set.insert(Capability::CastEnchantmentV1);
             }
@@ -2145,6 +2158,7 @@ impl Definition {
                 ActivationCost::TapPayLifeSacrificeSource { .. } => Capability::PayLifeCostV1,
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
                 ActivationCost::Composite { .. } => Capability::CompositeActivationCostV1,
+                ActivationCost::Loyalty { .. } => Capability::PlaneswalkerV1,
             });
             if matches!(
                 ability.cost,

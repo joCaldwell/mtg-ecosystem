@@ -15,6 +15,7 @@ mod keywords;
 mod library;
 mod modal_double_faced;
 mod permanents_mana;
+mod planeswalker;
 mod removal_wipes;
 mod replacement_prevention;
 mod resolution_moves;

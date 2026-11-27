@@ -1548,6 +1548,8 @@ impl RulesTxn {
                         marked_damage: r.source.marked_damage.clone(),
                         deathtouch_damage: r.source.deathtouch_damage,
                         plus_one_counters: r.counters.clone(),
+                        loyalty_counters: Quantity::zero(),
+                        loyalty_used_turn: None,
                         transforms: 0,
                         adventure_player: None,
                         face_down: false,

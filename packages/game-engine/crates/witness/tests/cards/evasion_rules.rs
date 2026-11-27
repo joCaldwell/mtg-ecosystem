@@ -115,6 +115,7 @@ fn block_restrictions_lower_from_printed_source() {
     assert!(matches!(
         rule(&lowered(VOW_OF_DUTY)),
         StaticRule::AttackRestriction {
+            planeswalkers: _,
             affects: Scope::Attachment { .. },
             ..
         }

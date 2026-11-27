@@ -297,6 +297,8 @@ impl RulesTxn {
                 keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
                 keyword_rank,
                 plus_one_counters: Quantity::zero(),
+                loyalty_counters: Quantity::zero(),
+                loyalty_used_turn: None,
                 transforms: 0,
                 adventure_player: None,
                 face_down: false,
@@ -449,9 +451,10 @@ impl RulesTxn {
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 (
-                    ProposedEvent::PutPlusOneCounters {
+                    ProposedEvent::PutPermanentCounters {
                         object: target,
-                        amount,
+                        plus_one: amount,
+                        loyalty: Quantity::zero(),
                     },
                     source_block,
                 )
@@ -465,8 +468,11 @@ impl RulesTxn {
             cursor: frame.cursor,
             source_block: block,
         };
-        if let ProposedEvent::PutPlusOneCounters { object, amount } = event {
-            return self.begin_counter_placement(frame, object, amount, cause);
+        if let ProposedEvent::PutPermanentCounters {
+            object, plus_one, ..
+        } = event
+        {
+            return self.begin_counter_placement(frame, object, plus_one, cause);
         }
         let actual = self.commit(event, cause)?;
         self.finish_instruction(

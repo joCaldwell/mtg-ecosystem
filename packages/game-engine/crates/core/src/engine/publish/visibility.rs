@@ -685,6 +685,7 @@ impl RulesTxn {
                 attached_to: None,
                 marked_damage: Quantity::zero(),
                 plus_one_counters: Quantity::zero(),
+                loyalty_counters: Quantity::zero(),
                 attack_ready: false,
                 tapped: false,
                 phased_out: false,
@@ -755,6 +756,7 @@ impl RulesTxn {
             token,
             mana_ability_used,
             plus_one_counters: object.plus_one_counters.clone(),
+            loyalty_counters: object.loyalty_counters.clone(),
             characteristics: Some(characteristics),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
@@ -1062,6 +1064,16 @@ impl RulesTxn {
                     Ok(VisibleAttacker {
                         attacker: self.object_handle_id(viewer, a.attacker).map(O::from)?,
                         defender: a.defender,
+                        defender_removed: a.defender_removed
+                            || a.planeswalker
+                                .is_some_and(|target| !self.is_battlefield_planeswalker(target)),
+                        planeswalker: a
+                            .planeswalker
+                            .filter(|target| {
+                                !a.defender_removed && self.is_battlefield_planeswalker(*target)
+                            })
+                            .map(|target| self.object_handle_id(viewer, target).map(O::from))
+                            .transpose()?,
                         blocked: a.blocked,
                         blockers: a
                             .blockers

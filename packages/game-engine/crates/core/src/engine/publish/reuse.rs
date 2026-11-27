@@ -147,7 +147,7 @@ impl Published {
             combat,
             combat_declared,
             damage_choices,
-            player_damage_choices,
+            defender_damage_choices,
             first_strike_participants,
             blocking_creatures,
             cleanup_repeat,
@@ -209,7 +209,7 @@ impl Published {
             && *match_state == was.match_state
             && *mana_ability_uses == was.mana_ability_uses
             && *damage_choices == was.damage_choices
-            && *player_damage_choices == was.player_damage_choices
+            && *defender_damage_choices == was.defender_damage_choices
             && *first_strike_participants == was.first_strike_participants
             && *blocking_creatures == was.blocking_creatures
             && *cleanup_repeat == was.cleanup_repeat
