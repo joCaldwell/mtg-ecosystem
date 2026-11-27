@@ -220,13 +220,13 @@ mod tests {
     }
 
     #[test]
-    fn the_registered_r6_candidate_accepts_its_exact_header_but_no_record_pins() {
+    fn the_promoted_r6_accepts_its_exact_header_and_record_pins() {
         let r6 = accepted_archives()
             .unwrap()
             .iter()
             .find(|entry| entry.cut == ArchiveCut::R6)
             .unwrap();
-        assert!(r6.candidate && !r6.pending && r6.record_sha256.is_empty());
+        assert!(!r6.candidate && !r6.pending && !r6.record_sha256.is_empty());
         let header = include_str!(
             "../../../tests/fixtures/archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json"
         );
@@ -251,11 +251,13 @@ mod tests {
             );
             validate_registry(registry)
         };
+        assert!(edit(&|a| a.candidate = true).is_err());
         assert!(
             edit(&|a| {
-                a.record_sha256.insert("a".repeat(64));
+                a.candidate = true;
+                a.record_sha256.clear();
             })
-            .is_err()
+            .is_ok()
         );
         assert!(edit(&|a| a.parser_revision.clear()).is_err());
         assert!(edit(&|a| a.parser_revision = "A".repeat(40)).is_err());

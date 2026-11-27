@@ -6,7 +6,7 @@ owns the pinned environment and per-worktree Cargo lock.
 
 ## Catalog source and commands
 
-The executable source is Archive R5. The full archive stays outside Git;
+Default consumers use Archive R5. The full archives stay outside Git;
 `tests/fixtures/phase1-r5/` holds only the extracted records a manifest, witness
 or compiler test uses. `accepted-archives.json` pins the whole file, header,
 parser and corpus, and each `provenance.json` row pins its exact card line.
@@ -22,7 +22,7 @@ fails closed only through those absent pins and default paths that name R5; a
 consumer explicitly pointed at a candidate file can load it. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
-Schema-5 R6 candidates carry printed evidence and retain the R5 row bytes
+Schema-5 R6 carries printed evidence and retains the R5 row bytes
 projected by the [D0 archive check](oracle_parser.md#ast-archive). The writer
 reports a draft registry entry outside `accepted-archives.json`. Promotion
 requires the Rust evidence and parity checks, measured bulk catalog and index
@@ -78,13 +78,13 @@ manifests, provenance, accepted headers/pins and records, excluding expected IR,
 policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
 
-At R6 promotion, extract the R5 origin's pinned identities with the R6 archive.
-Extraction stores its exact rows under `phase1-r6/` and appends a separate
-origin's record pins to the registry and provenance. Run `verify` on both
-archives before changing fixture manifests. The R5 rows stay available as
+The promoted R6 cut has an origin under `phase1-r6/`. At promotion, both
+archives verified for all 738 R5-origin fixture identities. Each R6 fixture
+kept the same archive line and added only `printed` and `printedSha256` to the
+R5 row. The R5 origin and the fixture manifests continue to supply the default
 controls. `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM
---archives R5 R6` rehearses this in a scratch copy: it requires one R6 row per
-R5 identity, the same archive line, and the exact R5 bytes plus evidence.
+--archives R5 R6` performs this check in a scratch copy of a pre-promotion
+registry and its fixtures.
 
 `scripts/compare-archive-cut.py d1 BEFORE AFTER` compares bulk payload bytes,
 coverage, blockers, four tier decisions from the compiler's
