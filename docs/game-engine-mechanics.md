@@ -72,8 +72,9 @@ accepted-input replay with exact identity.
     previous, current, timestamp, entry link). E3 adds tap, untap, life, draw
     attempt, mill and damage. Procedural leaves (setup, shuffle, mana, cleanup,
     turn transition) return typed receipts that never feed history or triggers.
-    `ObjectBefore` grows to the complete reversible row; a consumer outliving its
-    batch retains its prior facts, charged in every trace mode.
+    `ObjectBefore` already captures the complete reversible row (loyalty and its
+    use, attachment, phasing, hideaway, Adventure permission); a consumer
+    outliving its batch retains its prior facts, charged in every trace mode.
   - *Single writer.* `publish_actuals(before, cause, actuals)` replaces the
     paired `record_turn_occurrences` and `collect_triggers` calls. Its order is
     fixed: commit state and retain last-known facts, then reduce history through
@@ -302,17 +303,21 @@ abilities drive activation, views, planning and saves. Grants admit only tap and
 life costs, without riders, restrictions, conditions or tapped-status filters.
 
 Reversal (CR 733.1) restores receipt-recorded unrestricted and restricted
-mana, taps and counters. An activation that paid life or performed riders is
-kept with every activation of that attempt. Today `kept` is inferred from a
-ledger difference, so a new cost fact in the ledger would keep every tapping
-ability. Before E1 records any cost fact it becomes an explicit rules flag.
-Under E1 the receipt stores its `EventId`s and `LedgerDelta`; reversal applies
-the inverse in reverse order, removes pending triggers and watchers by
-`EventId`, restores each prior row exactly and keeps existing history and
-triggers, creating no untap, gain or placement trigger. A loyalty cost is a
-`Counters` facet with a loyalty-cost root (CR 606.4). `pay_loyalty` today
-writes the balance and the use stamp together. They will separate before E1,
-so a zero-loyalty cost stamps the use and emits no facet.
+mana and taps, and puts a sacrificed source back as the complete prior row it
+captured, not only its counters. An activation that paid life or performed
+riders is kept with every activation of that attempt. `kept` is the explicit
+rules flag `!reversible()`, set from the ability alone, never inferred from a
+ledger difference. A reversible activation records the turn facts its costs
+first set and reversal clears only those; a reversible cost that changes any
+other turn fact is refused. Under E1 the receipt stores its `EventId`s and
+`LedgerDelta`; reversal applies the inverse in reverse order, removes pending
+triggers and watchers by `EventId`, restores each prior row exactly and keeps
+existing history and triggers, creating no untap, gain or placement trigger. A
+loyalty cost is a `Counters` facet with a loyalty-cost root (CR 606.4).
+`pay_loyalty` composes two writes: `pay_loyalty_counters` changes the balance
+(exactly, or the cost is refused) and reports the change, and
+`stamp_loyalty_use` records the turn's activation (CR 606.3). A `[0]` cost
+reports no change, so under E1 it stamps the use and emits no facet.
 
 CR 106.6 spending predicates distinguish spells, activated abilities and
 resolution payments. The spend decision offers only eligible buckets and

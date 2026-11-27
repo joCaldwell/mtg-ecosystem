@@ -403,9 +403,22 @@ fn planeswalker_loyalty_use_is_public_and_resets_on_reentry() {
     assert!(loyalty_is_used(&g));
     checked(&g);
     let snapshot: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-    for marker in [
-        None,
-        Some(g.state.rules.turn.number.checked_sub(1).unwrap()),
+    // On turn 1 the only earlier marker is turn 0, which no turn has had, so
+    // the general loyalty invariant rejects it before the paid-cost check.
+    let earlier = g.state.rules.turn.number.checked_sub(1).unwrap();
+    for (marker, expected) in [
+        (
+            None,
+            "snapshot paid loyalty activation lacks its turn marker",
+        ),
+        (
+            Some(earlier),
+            if earlier == 0 {
+                "snapshot loyalty invariant"
+            } else {
+                "snapshot paid loyalty activation lacks its turn marker"
+            },
+        ),
     ] {
         let mut forged = snapshot.clone();
         let object = forged["state"]["objects"]["0"].as_object_mut().unwrap();
@@ -418,10 +431,7 @@ fn planeswalker_loyalty_use_is_public_and_resets_on_reentry() {
         let error = Game::restore(g.prepared.as_ref().clone(), &forged.to_string())
             .err()
             .expect("restored paid loyalty activation without its current turn marker");
-        assert!(
-            error.contains("snapshot paid loyalty activation lacks its turn marker"),
-            "{error}"
-        );
+        assert!(error.contains(expected), "{error}");
     }
 
     resolve(&mut g);
@@ -501,4 +511,87 @@ fn planeswalker_defender_does_not_trigger_dethrone() {
         0.into()
     );
     checked(&g);
+}
+
+/// CR 606.3–4: a loyalty cost of zero puts on and removes no loyalty
+/// counter, yet it is still the permanent's loyalty activation this turn.
+/// Jace Beleren's "+2" is given a synthetic `[0]` cost on this private
+/// board: activating it leaves three counters, stamps the use, and the
+/// other loyalty abilities are no longer offered; an unpayable "−10"
+/// is rejected without any change.
+#[test]
+fn zero_loyalty_cost_stamps_the_use_without_a_counter_change() {
+    let mut definition = super::evasion::lowered(JACE);
+    let mtg_contracts::ActivationCost::Loyalty { change } = &mut definition.activated[0].cost
+    else {
+        panic!("Jace Beleren's first ability is a loyalty ability");
+    };
+    assert_eq!(*change, 2.into());
+    *change = Quantity::zero();
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog.definitions.push(definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let mut g = Game::with_trace(
+        Board::new(catalog, "r5-zero-loyalty-witness")
+            .step(TurnStep::PrecombatMain)
+            .seats(2)
+            .permanent_or_hand("Jace Beleren", 0, 0, false)
+            .libraries("Island", 3)
+            .prepare(),
+        TraceMode::Detailed,
+    );
+    let jace = Driver::object(&g, 0);
+    assert_eq!(jace_loyalty(&g, 0), 3.into());
+    let unpayable = g.fork();
+    assert!(g.validate_activation(PlayerId(0), jace, 2).is_err());
+    assert_eq!(g.state, unpayable.state);
+    let d = Driver::request(&mut g, u64::MAX);
+    let action = |ability| Candidate::Action {
+        action: Action::ActivateAbility {
+            object: jace,
+            ability,
+        },
+    };
+    assert!(d.index(&action(0)).is_some() && d.index(&action(2)).is_none());
+    let hands = |g: &Game| {
+        g.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| matches!(o.zone, Zone::Hand { .. }))
+            .count()
+    };
+    let drawn = hands(&g);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: jace,
+            ability: 0,
+        },
+    );
+    Driver::request(&mut g, u64::MAX);
+    assert_eq!(g.state.rules.stack.len(), 1);
+    let row = g.current(jace).unwrap();
+    assert_eq!(row.loyalty_counters, 3.into());
+    assert_eq!(row.loyalty_used_turn, Some(g.state.rules.turn.number));
+    assert!(g.state.rules.pending_triggers.is_empty());
+    checked(&g);
+    assert_recoverable((&g).into());
+    let d = resolve(&mut g);
+    // The ability still resolved: each player drew a card.
+    assert_eq!(hands(&g), drawn + 2);
+    assert_eq!(jace_loyalty(&g, 0), 3.into());
+    assert!(
+        view(&g, 1)
+            .objects
+            .iter()
+            .any(|o| o.zone == Zone::Battlefield && o.loyalty_used_this_turn)
+    );
+    for ability in 0..3 {
+        assert!(d.index(&action(ability)).is_none());
+    }
+    checked(&g);
+    assert_recoverable((&g).into());
 }

@@ -152,6 +152,27 @@ pub struct ObjectBefore {
     pub plus_one_counters: Quantity,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<CounterStack>,
+    /// CR 122.1, 606.4: `Object::loyalty_counters` as last known.
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub loyalty_counters: Quantity,
+    /// CR 606.3: `Object::loyalty_used_turn` as last known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loyalty_used_turn: Option<u64>,
+    /// CR 301.5, 303.4: `Object::attached_to` and its attachment timestamp
+    /// (CR 613.7e) as last known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attached_to: Option<ObjectId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment_timestamp: Option<u64>,
+    /// CR 702.26: `Object::phased_out` as last known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phased_out: Option<PhaseReturn>,
+    /// CR 702.75: `Object::hideaway` as last known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hideaway: Option<Box<HideawayLink>>,
+    /// CR 715.3d: `Object::adventure_player` as last known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adventure_player: Option<PlayerId>,
     pub object: ObjectId,
     pub owner: PlayerId,
     pub controller: PlayerId,
@@ -161,6 +182,73 @@ pub struct ObjectBefore {
     pub marked_damage: Quantity,
     pub attack_ready: bool,
     pub characteristics: Characteristics,
+}
+impl ObjectBefore {
+    /// CR 733.1: the exact object row these facts were captured from, for a
+    /// reversal that puts it back. Both rows are destructured in full, so a
+    /// new `Object` or `ObjectBefore` field fails to compile until it is
+    /// captured and restored here.
+    pub(in crate::engine) fn restored_object(&self) -> Object {
+        let ObjectBefore {
+            transforms,
+            face_down,
+            keyword_timestamp,
+            keyword_rank,
+            battlefield_entry_turn,
+            control_upkeeps,
+            unearthed,
+            dashed,
+            // Derived from the definition and layers, not stored on `Object`.
+            keywords: _,
+            deathtouch_damage,
+            plus_one_counters,
+            counters,
+            loyalty_counters,
+            loyalty_used_turn,
+            attached_to,
+            attachment_timestamp,
+            phased_out,
+            hideaway,
+            adventure_player,
+            object,
+            // The physical card's owner, stored on `Card`.
+            owner: _,
+            controller,
+            default_controller,
+            zone,
+            tapped,
+            marked_damage,
+            attack_ready,
+            characteristics: _,
+        } = self.clone();
+        Object {
+            hideaway,
+            phased_out,
+            attached_to,
+            attachment_timestamp,
+            keyword_timestamp,
+            keyword_rank,
+            battlefield_entry_turn,
+            control_upkeeps,
+            plus_one_counters,
+            loyalty_counters,
+            loyalty_used_turn,
+            counters,
+            transforms,
+            adventure_player,
+            face_down,
+            marked_damage,
+            deathtouch_damage,
+            unearthed,
+            dashed,
+            attack_ready,
+            id: object,
+            controller,
+            default_controller,
+            zone,
+            tapped,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
