@@ -344,6 +344,9 @@ pub(super) fn general(
             }
         }));
     }
+    if let Some(pattern) = blocking_pair(card, trigger)? {
+        return Ok(Some(pattern));
+    }
     // CR 603.6c, 509.3a, 509.3c, 120.3: an object event whose only other
     // printed field is a combat-damage restriction or "or becomes blocked".
     if let Some(kind @ ("leaves" | "blocks" | "becomes-blocked" | "is-dealt-damage")) =
@@ -517,6 +520,89 @@ pub(super) fn general(
         }])
     };
     Ok(Some(kind.pattern(object)))
+}
+
+/// CR 509.3b, 509.3d: "[this] blocks a [filtered] creature", "[this]
+/// becomes blocked by a [filtered] creature", or both as alternatives:
+/// once per blocking pair, each creature read as it was declared (CR
+/// 509.3f). A "one or more" grouping counts the pairs together and is not
+/// lowered here.
+fn blocking_pair(
+    card: &Card<'_>,
+    trigger: &serde_json::Value,
+) -> Result<Option<EventPattern>, Failure> {
+    fn creature(other: &serde_json::Value) -> Result<Option<Pred>, Failure> {
+        if other["ref"] != "filter"
+            || other.as_object().map(serde_json::Map::len) != Some(3)
+            || other["count"] != serde_json::json!({"amount": "fixed", "value": 1})
+        {
+            return Ok(None);
+        }
+        let mut pred = lower_event_filter(&typed(&other["filter"], "trigger.blocking")?)?;
+        // CR 509.1a: only creatures block or attack.
+        let kind = Atom::Type {
+            kind: CardKind::Creature,
+        };
+        if !pred.0.contains(&kind) {
+            pred.0.push(kind);
+        }
+        Ok(Some(pred))
+    }
+    let one = |event: &serde_json::Value| -> Result<Option<EventPattern>, Failure> {
+        let (field, blocks) = match event["trigger"].as_str() {
+            Some("blocks") => ("blocking", true),
+            Some("becomes-blocked") => ("by", false),
+            _ => return Ok(None),
+        };
+        let Some(fields) = event.as_object() else {
+            return Ok(None);
+        };
+        if fields.len() != 3 || !fields.contains_key(field) || !fields.contains_key("what") {
+            return Ok(None);
+        }
+        // CR 301.5, 303.4: the creature this Equipment or Aura is attached to.
+        let host = [
+            ("equipped", kir::AttachmentKind::Equipped),
+            ("enchanted", kir::AttachmentKind::Enchanted),
+        ]
+        .into_iter()
+        .find(|(name, _)| event["what"] == serde_json::json!({"ref": name, "noun": "creature"}));
+        let source = match host {
+            Some((_, attachment)) if card.attaches_as(attachment) => Pred::attached_creature(),
+            Some(_) => return Ok(None),
+            None => subject(card, &typed(&event["what"], "trigger.what")?)?,
+        };
+        let Some(other) = creature(&event[field])? else {
+            return Ok(None);
+        };
+        Ok(Some(if blocks {
+            EventPattern::BlocksCreature {
+                blocker: source,
+                attacker: other,
+            }
+        } else {
+            EventPattern::BlockedByCreature {
+                attacker: source,
+                blocker: other,
+            }
+        }))
+    };
+    if trigger["trigger"] == "any-of"
+        && trigger.as_object().map(serde_json::Map::len) == Some(2)
+        && let Some([a, b]) = trigger["events"].as_array().map(Vec::as_slice)
+    {
+        return Ok(match (one(a)?, one(b)?) {
+            (
+                Some(first @ EventPattern::BlocksCreature { .. }),
+                Some(second @ EventPattern::BlockedByCreature { .. }),
+            ) => Some(EventPattern::AnyOf {
+                first: Box::new(first),
+                second: Box::new(second),
+            }),
+            _ => None,
+        });
+    }
+    one(trigger)
 }
 
 /// The event player "you", "an opponent" or "a player" (CR 109.5, 102.3).

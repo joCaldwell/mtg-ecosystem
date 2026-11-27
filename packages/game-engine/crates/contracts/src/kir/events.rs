@@ -120,6 +120,14 @@ pub enum EventPattern {
     /// CR 509.3c: an unblocked attacking creature becomes blocked by the
     /// declared blockers, matched as it was before the declaration.
     BecomesBlocked { attacker: Pred },
+    /// CR 509.3b, 509.3f: a creature is declared as a blocker of an
+    /// attacking creature, once per attacker it blocks; both are matched as
+    /// they were before the declaration.
+    BlocksCreature { blocker: Pred, attacker: Pred },
+    /// CR 509.3d, 509.3f: an attacking creature becomes blocked by a
+    /// declared blocker, once per blocker; both matched as for
+    /// [`EventPattern::BlocksCreature`].
+    BlockedByCreature { attacker: Pred, blocker: Pred },
     /// CR 120.3, 603.2c: a permanent is dealt positive damage, once per
     /// simultaneous damage event however many sources dealt it. `combat`
     /// restricts it to combat damage.
@@ -179,6 +187,8 @@ impl EventPattern {
             Self::LeavesBattlefield { .. } => "leaves_battlefield",
             Self::Blocks { .. } => "blocks",
             Self::BecomesBlocked { .. } => "becomes_blocked",
+            Self::BlocksCreature { .. } => "blocks_creature",
+            Self::BlockedByCreature { .. } => "blocked_by_creature",
             Self::IsDealtDamage { .. } => "is_dealt_damage",
             Self::StepBegins { .. } => "step_begins",
             Self::DealsDamage { .. } => "deals_damage",
@@ -205,8 +215,10 @@ impl EventPattern {
             | Self::Discards { card: object, .. }
             | Self::LeavesBattlefield { object }
             | Self::IsDealtDamage { object, .. } => Some(object),
-            Self::Blocks { blocker } => Some(blocker),
-            Self::BecomesBlocked { attacker } => Some(attacker),
+            Self::Blocks { blocker } | Self::BlocksCreature { blocker, .. } => Some(blocker),
+            Self::BecomesBlocked { attacker } | Self::BlockedByCreature { attacker, .. } => {
+                Some(attacker)
+            }
             Self::Attacks { attacker } | Self::AttacksUnblocked { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
@@ -436,6 +448,15 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             {
                 Ok(())
             }
+            // CR 509.1a: in one blocking pair the source is either the
+            // blocker or the attacker, never both.
+            (
+                EventPattern::BlocksCreature { blocker, .. },
+                EventPattern::BlockedByCreature { attacker, .. },
+            ) if *blocker == Pred::source() && *attacker == Pred::source() => {
+                check_event(first, attachment)?;
+                check_event(second, attachment)
+            }
             (EventPattern::Enters { .. }, EventPattern::Cast { .. }) => {
                 check_event(first, attachment)?;
                 check_event(second, attachment)
@@ -472,6 +493,19 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
     {
         return Err(KirError::Unaudited("event turn ordinal".into()));
     }
+    // CR 509.3f: the other creature of a blocking pair is read as it was
+    // declared; it is never the source or its host, and has no status here.
+    if let EventPattern::BlocksCreature { attacker: other, .. }
+    | EventPattern::BlockedByCreature { blocker: other, .. } = pattern
+    {
+        event_pred(other, 0)?;
+        if mentions(other, Ref::Source)
+            || mentions(other, Ref::AttachedTo)
+            || any_atom(other, &|a| matches!(a, Atom::Tapped | Atom::Untapped))
+        {
+            return Err(KirError::Unaudited("blocking pair creature".into()));
+        }
+    }
     if let Some(object) = pattern.object() {
         event_pred(object, 0)?;
         if !attachment && mentions(object, Ref::AttachedTo) {
@@ -494,6 +528,8 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
                 | EventPattern::Attacks { .. }
                 | EventPattern::Blocks { .. }
                 | EventPattern::BecomesBlocked { .. }
+                | EventPattern::BlocksCreature { .. }
+                | EventPattern::BlockedByCreature { .. }
         ) && any_atom(object, &|a| matches!(a, Atom::Tapped | Atom::Untapped))
         {
             return Err(KirError::Unaudited("event status atom".into()));

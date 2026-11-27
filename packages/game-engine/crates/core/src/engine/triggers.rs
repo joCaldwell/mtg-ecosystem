@@ -260,6 +260,19 @@ pub enum TriggerEventWitness {
         attacker: Box<ObjectBefore>,
         controller_at_match: PlayerId,
     },
+    /// CR 509.3b, 509.3f: one declared blocking pair, both as they were
+    /// before the declaration, observed from the blocker's side.
+    BlockedCreature {
+        blocker: Box<ObjectBefore>,
+        attacker: Box<ObjectBefore>,
+        controller_at_match: PlayerId,
+    },
+    /// CR 509.3d, 509.3f: the same pair observed from the attacker's side.
+    BlockedByCreature {
+        attacker: Box<ObjectBefore>,
+        blocker: Box<ObjectBefore>,
+        controller_at_match: PlayerId,
+    },
     /// CR 120.3, 603.2c: a permanent dealt positive damage by one
     /// simultaneous damage event, as it was when the damage was dealt.
     PermanentDamaged {
@@ -341,8 +354,12 @@ impl TriggerEventWitness {
             }
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::Sacrificed { object, .. } => Some(object.object),
+            // CR 509.3b, 509.3d: a pair's subject is the other creature,
+            // so each pair is a distinct occurrence member for the source.
             Self::Blocked { blocker: o, .. }
             | Self::BecameBlocked { attacker: o, .. }
+            | Self::BlockedCreature { attacker: o, .. }
+            | Self::BlockedByCreature { blocker: o, .. }
             | Self::PermanentDamaged { recipient: o, .. } => Some(o.object),
             Self::Discarded { movement, .. } => Some(movement.previous),
             Self::LifeGained { .. }
@@ -397,7 +414,13 @@ impl TriggerEventWitness {
             | (EventPattern::Cast { .. }, Self::SpellCast { .. })
             | (EventPattern::Blocks { .. }, Self::Blocked { .. })
             | (EventPattern::GainsLife { .. }, Self::LifeGained { .. })
-            | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. }) => Some(second),
+            | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. })
+            | (EventPattern::BlockedByCreature { .. }, Self::BlockedByCreature { .. }) => Some(second),
+            (_, Self::BlockedCreature { .. })
+                if matches!(**first, EventPattern::BlocksCreature { .. }) =>
+            {
+                Some(first)
+            }
             (_, Self::Blocked { .. }) if matches!(**first, EventPattern::Blocks { .. }) => {
                 Some(first)
             }
@@ -956,6 +979,21 @@ impl RulesTxn {
             if let EventOutcome::BlockersDeclared { blocks, .. } = &occurrence.actual {
                 let (mut blockers, mut attackers) = (BTreeSet::new(), BTreeSet::new());
                 for (blocker, attacker) in blocks {
+                    // CR 509.3b, 509.3d: every pair, from each side.
+                    let (b, a) = (
+                        Box::new(before.object_before(*blocker)?),
+                        Box::new(before.object_before(*attacker)?),
+                    );
+                    witnesses.push(TriggerEventWitness::BlockedCreature {
+                        controller_at_match: b.controller,
+                        blocker: b.clone(),
+                        attacker: a.clone(),
+                    });
+                    witnesses.push(TriggerEventWitness::BlockedByCreature {
+                        controller_at_match: a.controller,
+                        attacker: a,
+                        blocker: b,
+                    });
                     if blockers.insert(*blocker) {
                         let facts = before.object_before(*blocker)?;
                         witnesses.push(TriggerEventWitness::Blocked {
@@ -1083,6 +1121,8 @@ impl RulesTxn {
                             | TriggerEventWitness::Discarded { .. }
                             | TriggerEventWitness::Sacrificed { .. }
                             | TriggerEventWitness::Blocked { .. }
+                            | TriggerEventWitness::BlockedCreature { .. }
+                            | TriggerEventWitness::BlockedByCreature { .. }
                             | TriggerEventWitness::BecameBlocked { .. }
                             | TriggerEventWitness::PermanentDamaged { .. }
                     )
@@ -1417,6 +1457,34 @@ impl RulesTxn {
                                 live: observers.is_live(facts.controller),
                             }), you, facts.object, &identity))
                     }
+                    // CR 509.3b, 509.3d, 509.3f: one pair, both creatures as
+                    // they were declared.
+                    EventPattern::BlocksCreature { blocker: pred, attacker: other } => {
+                        matches!(&witness, TriggerEventWitness::BlockedCreature { blocker, attacker, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts: blocker,
+                                token: token(blocker.object),
+                                live: observers.is_live(blocker.controller),
+                            }), you, blocker.object, &identity)
+                                && holds(other, Some(&Frozen {
+                                    facts: attacker,
+                                    token: token(attacker.object),
+                                    live: observers.is_live(attacker.controller),
+                                }), you, attacker.object, &identity))
+                    }
+                    EventPattern::BlockedByCreature { attacker: pred, blocker: other } => {
+                        matches!(&witness, TriggerEventWitness::BlockedByCreature { blocker, attacker, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts: attacker,
+                                token: token(attacker.object),
+                                live: observers.is_live(attacker.controller),
+                            }), you, attacker.object, &identity)
+                                && holds(other, Some(&Frozen {
+                                    facts: blocker,
+                                    token: token(blocker.object),
+                                    live: observers.is_live(blocker.controller),
+                                }), you, blocker.object, &identity))
+                    }
                     EventPattern::BecomesBlocked { attacker: pred } => {
                         matches!(&witness, TriggerEventWitness::BecameBlocked { attacker: facts, .. }
                             if holds(pred, Some(&Frozen {
@@ -1464,6 +1532,8 @@ impl RulesTxn {
                         | TriggerEventWitness::Discarded { controller_at_match, .. }
                         | TriggerEventWitness::Sacrificed { controller_at_match, .. }
                         | TriggerEventWitness::Blocked { controller_at_match, .. }
+                        | TriggerEventWitness::BlockedCreature { controller_at_match, .. }
+                        | TriggerEventWitness::BlockedByCreature { controller_at_match, .. }
                         | TriggerEventWitness::BecameBlocked { controller_at_match, .. }
                         | TriggerEventWitness::PermanentDamaged { controller_at_match, .. } = &mut matched_witness
                     {
@@ -2587,6 +2657,58 @@ impl RulesTxn {
                                     && identity_holds(pred, movement.successor,
                                         &identity(movement.successor)),
                             })
+                    && death_controller.is_none()
+            }
+            TriggerEventWitness::BlockedCreature {
+                blocker,
+                attacker,
+                controller_at_match,
+            }
+            | TriggerEventWitness::BlockedByCreature {
+                blocker,
+                attacker,
+                controller_at_match,
+            } => {
+                self.validate_fact_identity(blocker)?;
+                self.validate_fact_identity(attacker)?;
+                let blocker_side = matches!(witness, TriggerEventWitness::BlockedCreature { .. });
+                let (source_facts, other_facts, pred, other) = match pattern {
+                    EventPattern::BlocksCreature {
+                        blocker: pred,
+                        attacker: other,
+                    } if blocker_side => (blocker, attacker, pred, other),
+                    EventPattern::BlockedByCreature {
+                        attacker: pred,
+                        blocker: other,
+                    } if !blocker_side => (attacker, blocker, pred, other),
+                    _ => return Err("snapshot blocking pair witness mismatch".into()),
+                };
+                let seated = |facts: &ObjectBefore| {
+                    facts.zone == Zone::Battlefield
+                        && facts.characteristics.has_type(CardKind::Creature)
+                        && self.state.rules.original_seating.contains(&facts.controller)
+                        && self
+                            .state
+                            .rules
+                            .original_seating
+                            .contains(&facts.default_controller)
+                        && self
+                            .state
+                            .rules
+                            .cards
+                            .get(&facts.object.card)
+                            .is_some_and(|card| card.owner == facts.owner)
+                };
+                // Accepted-input replay proves the declaration itself.
+                *controller_at_match == controller
+                    && seated(blocker)
+                    && seated(attacker)
+                    && blocker.object != attacker.object
+                    && blocker.controller != attacker.controller
+                    && holds(pred, Some(&frozen(source_facts)), controller,
+                        source_facts.object, &identity(source_facts.object))
+                    && holds(other, Some(&frozen(other_facts)), controller,
+                        other_facts.object, &identity(other_facts.object))
                     && death_controller.is_none()
             }
             TriggerEventWitness::Blocked {

@@ -224,3 +224,87 @@ fn event_alternatives_entry_or_life_gain_once_each_turn() {
     assert_eq!(g.state.rules.trigger_uses.len(), 1);
     assert_recoverable((&g).into());
 }
+
+const HIGH_RISE_SAWJACK: &str = record!("0049438b-e37e-4c57-820e-f2ddf3322170");
+const CAVE_TIGER: &str = record!("d3bac8b8-0b2a-4c67-b087-7a0bf1359468");
+
+/// Declare `attackers` against seat 1 and `blocks`, then stop with every
+/// trigger of the declaration on the stack.
+fn declare(g: &mut Game, attackers: &[ObjectId], blocks: &[(ObjectId, ObjectId)], stack: usize) {
+    for _ in 0..64 {
+        let d = Driver::request(g, u64::MAX);
+        if g.state.rules.stack.len() == stack {
+            return;
+        }
+        let answer = match &d.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&d),
+            Reason::Attackers => d.attack(attackers.iter().map(|a| (*a, PlayerId(1))).collect()),
+            Reason::Blockers => d.block(blocks.to_vec()),
+            Reason::OrderTriggers => Answer::Order {
+                order: (0..u32::try_from(d.candidates.len()).unwrap()).collect(),
+            },
+            other => panic!("unexpected decision {other:?}"),
+        };
+        g.respond(d.player, d.id, answer).unwrap();
+    }
+    panic!("the declaration never triggered");
+}
+
+/// Cave Tiger: "Whenever this creature becomes blocked by a creature, this
+/// creature gets +1/+1 until end of turn." Two blockers trigger it twice,
+/// once per blocking creature (CR 509.3d).
+#[test]
+fn event_alternatives_becomes_blocked_by_a_creature_triggers_per_blocker() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[CAVE_TIGER], TurnStep::BeginningCombat)
+                .permanent_or_hand("Cave Tiger", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 1, 1, false)
+                .permanent_or_hand("Grizzly Bears", 1, 1, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (tiger, a, b) = (
+        Driver::object(&g, 0),
+        Driver::object(&g, 1),
+        Driver::object(&g, 2),
+    );
+    assert!(matches!(
+        g.definition(CardId(0)).unwrap().triggered[0].condition.pattern(),
+        EventPattern::BlockedByCreature { .. }
+    ));
+    declare(&mut g, &[tiger], &[(a, tiger), (b, tiger)], 2);
+    checked(&g);
+    assert_eq!(collected(&g, tiger), 2);
+    settle(&mut g);
+    assert_recoverable((&g).into());
+}
+
+/// High-Rise Sawjack: "Whenever this creature blocks a creature with
+/// flying, this creature gets +2/+0 until end of turn." The Sawjack blocking
+/// Storm Crow triggers; the one blocking Grizzly Bears does not. Each
+/// attacker is read as it was declared (CR 509.3b, 509.3f).
+#[test]
+fn event_alternatives_blocks_a_filtered_creature_reads_the_attacker() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[HIGH_RISE_SAWJACK], TurnStep::BeginningCombat)
+                .permanent_or_hand("Storm Crow", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, false)
+                .permanent_or_hand("High-Rise Sawjack", 1, 1, false)
+                .permanent_or_hand("High-Rise Sawjack", 1, 1, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (crow, bears, high, low) = (
+        Driver::object(&g, 0),
+        Driver::object(&g, 1),
+        Driver::object(&g, 2),
+        Driver::object(&g, 3),
+    );
+    declare(&mut g, &[crow, bears], &[(high, crow), (low, bears)], 1);
+    checked(&g);
+    assert_eq!((collected(&g, high), collected(&g, low)), (1, 0));
+    settle(&mut g);
+    assert_recoverable((&g).into());
+}
