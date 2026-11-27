@@ -10,7 +10,8 @@
 //!
 //! When the eligible effects do not commute (an addition and a
 //! multiplication), the affected object's controller chooses which applies
-//! next (CR 616.1, 616.1e). The rule step that reached the choice is
+//! next (CR 616.1, 616.1e). Simultaneous choosers act in APNAP order (CR
+//! 101.4, 616.1). The rule step that reached the choice is
 //! discarded unwritten; a `Frame::ReplacementOrder` asks the question and,
 //! once answered, replays that same step with every answer given so far.
 //! Effects of one kind commute and leave the same effects eligible afterward,
@@ -68,12 +69,21 @@ pub struct OrderAnswer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PendingOrder {
-    pub request: OrderRequest,
+    /// Absent after a departure until replay derives the next live offer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<OrderRequest>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<OrderAnswer>,
     pub resume: FrameLink,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deferred: Option<Box<PendingInput>>,
+    pub deferred: Option<Box<DeferredOrderInput>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeferredOrderInput {
+    journal_index: usize,
+    input: PendingInput,
 }
 
 /// The lineage of one replaced member: its original and committed counts
@@ -301,10 +311,9 @@ impl RulesTxn {
         &self,
         order: &PendingOrder,
     ) -> Result<Option<Decision<Rules>>, String> {
-        let request = &order.request;
-        if !self.is_live(request.chooser) {
+        let Some(request) = &order.request else {
             return Ok(None);
-        }
+        };
         let mut candidates: Vec<Candidate<Rules>> = self
             .distinct_sources(request)?
             .into_iter()
@@ -335,53 +344,100 @@ impl RulesTxn {
         )))
     }
 
-    fn order_answer(
-        &self,
-        order: &PendingOrder,
-        input: &PendingInput,
-    ) -> Result<OrderAnswer, String> {
-        if input.player != order.request.chooser {
+    fn order_answer(request: &OrderRequest, input: &PendingInput) -> Result<OrderAnswer, String> {
+        if input.player != request.chooser {
             return Err("wrong replacement order chooser".into());
         }
         let Candidate::Object { object } = input.one()? else {
             return Err("invalid replacement order answer".into());
         };
-        let chosen = *order
-            .request
+        let chosen = *request
             .offered
             .iter()
             .find(|key| key.source == *object)
             .ok_or("replacement order answer outside its offer")?;
         Ok(OrderAnswer {
-            request: order.request.clone(),
+            request: request.clone(),
             chosen,
         })
     }
 
-    /// Replay the suspended step with every answer so far, the newest
-    /// included, and its original input.
-    pub(super) fn replacement_order_step(&mut self, order: PendingOrder) -> Result<(), RuleError> {
-        let input = self
-            .rules_mut()
-            .pending
-            .take()
-            .ok_or("missing replacement order answer")?;
-        let mut answers = order.answers.clone();
-        answers.push(self.order_answer(&order, &input)?);
-        // The suspended step's frame is the top saved frame; replay from the
-        // exact stack the step first saw.
-        if order.resume.0 + 1 != self.state.rules.frames.len() {
+    fn replacement_resume(&mut self, link: FrameLink) -> Result<Frame, RuleError> {
+        if link.0.checked_add(1) != Some(self.state.rules.frames.len()) {
             return Err("replacement order resume is not the top frame".into());
         }
-        let resume = self
-            .rules_mut()
+        self.rules_mut()
             .frames
             .pop()
-            .ok_or("missing replacement order resume")?;
+            .ok_or_else(|| "missing replacement order resume".into())
+    }
+
+    /// Replay the suspended step with the answers and input it still owns.
+    pub(super) fn replacement_order_step(
+        &mut self,
+        mut order: PendingOrder,
+    ) -> Result<(), RuleError> {
+        if let Some(request) = &order.request {
+            let input = self
+                .rules_mut()
+                .pending
+                .take()
+                .ok_or("missing replacement order answer")?;
+            order.answers.push(Self::order_answer(request, &input)?);
+        }
+        let resume = self.replacement_resume(order.resume)?;
         self.rules_mut().frame = resume.clone();
-        self.rules_mut().pending = order.deferred.map(|input| *input);
-        self.replacement_answers = answers.into();
+        // A departure can invalidate an accepted proposal from the original
+        // frame. Reissue that choice if one still exists. Proliferate's
+        // already-selected group replays for just its surviving members.
+        if order.request.is_none()
+            && let Some(input) = &order.deferred
+            && !matches!(
+                resume,
+                Frame::ResolutionChoice {
+                    choice: ResolutionChoice::Proliferate,
+                    ..
+                }
+            )
+            && self.frame_decision()?.is_some()
+            && self.validate_pending(&input.input).is_err()
+        {
+            return Ok(());
+        }
+        self.rules_mut().pending = order.deferred.map(|deferred| deferred.input);
+        self.replacement_answers = order.answers.into();
         self.step_frame(resume)
+    }
+
+    /// CR 800.4a, 616.1: leaving removes objects and can end control effects.
+    /// Replay the unwritten step against that battlefield before offering any
+    /// further choices. Preserve answers whose remaining offer still matches.
+    pub(super) fn revalidate_replacement_departure(&mut self) -> Result<(), String> {
+        let Frame::ReplacementOrder { order } = &self.state.rules.frame else {
+            return Ok(());
+        };
+        let mut order = (**order).clone();
+        if let Some(request) = order.request.take()
+            && let Some(input) = self.rules_mut().pending.take()
+        {
+            order.answers.push(Self::order_answer(&request, &input)?);
+        }
+        let rules = self.live_quantity_rules()?;
+        let live = |key: &ReplacementKey| rules.iter().any(|rule| rule.key == *key);
+        order.answers.retain_mut(|answer| {
+            let request = &mut answer.request;
+            request.offered.retain(live);
+            self.is_live(request.chooser)
+                && request
+                    .shown
+                    .is_none_or(|object| self.current(object).is_ok())
+                && request.applied.iter().all(live)
+                && request.offered.contains(&answer.chosen)
+        });
+        self.rules_mut().frame = Frame::ReplacementOrder {
+            order: Box::new(order),
+        };
+        Ok(())
     }
 
     /// The installing half of a suspension: on the committed state, keep the
@@ -393,41 +449,48 @@ impl RulesTxn {
         if !self.state.rules.pending_concessions.is_empty() {
             return Err("replacement order during a departure".into());
         }
-        let order = match &self.state.rules.frame {
+        let mut order = match &self.state.rules.frame {
             Frame::ReplacementOrder { order } => {
-                let order = (**order).clone();
-                let input = self
-                    .rules_mut()
-                    .pending
-                    .take()
-                    .ok_or("missing replacement order answer")?;
-                let mut answers = order.answers.clone();
-                answers.push(self.order_answer(&order, &input)?);
-                PendingOrder {
-                    request,
-                    answers,
-                    resume: order.resume,
-                    deferred: order.deferred,
+                let mut order = (**order).clone();
+                if let Some(previous) = order.request.take() {
+                    let input = self
+                        .rules_mut()
+                        .pending
+                        .take()
+                        .ok_or("missing replacement order answer")?;
+                    order.answers.push(Self::order_answer(&previous, &input)?);
                 }
+                order
             }
             frame => {
                 let frame = frame.clone();
-                let deferred = self.rules_mut().pending.take().map(Box::new);
+                let deferred = match self.rules_mut().pending.take() {
+                    Some(input) => {
+                        let journal = &self.state.audit.journal;
+                        let journal_index = journal
+                            .len()
+                            .checked_sub(1)
+                            .filter(|&index| journal[index] == input.input)
+                            .ok_or("replacement order input outside the journal")?;
+                        Some(Box::new(DeferredOrderInput {
+                            journal_index,
+                            input,
+                        }))
+                    }
+                    None => None,
+                };
                 PendingOrder {
-                    request,
+                    request: None,
                     answers: vec![],
                     resume: self.save_frame(frame),
                     deferred,
                 }
             }
         };
-        if order
-            .answers
-            .iter()
-            .any(|answer| answer.request == order.request)
-        {
+        if order.answers.iter().any(|answer| answer.request == request) {
             return Err("replacement order asked twice".into());
         }
+        order.request = Some(request);
         self.rules_mut().frame = Frame::ReplacementOrder {
             order: Box::new(order),
         };
@@ -445,7 +508,7 @@ impl RulesTxn {
         let Frame::ReplacementOrder { order } = &self.state.rules.frame else {
             return Ok(());
         };
-        if order.resume.0 + 1 != self.state.rules.frames.len()
+        if order.resume.0.checked_add(1) != Some(self.state.rules.frames.len())
             || matches!(
                 self.saved_frame(order.resume)?,
                 Frame::ReplacementOrder { .. }
@@ -453,35 +516,40 @@ impl RulesTxn {
         {
             return Err("replacement order resume is not the top frame".into());
         }
-        let rules = self.live_quantity_rules()?;
-        let request = &order.request;
-        self.distinct_sources(request)?;
-        if request.amount <= Quantity::zero()
-            || request
-                .offered
-                .iter()
-                .chain(&request.applied)
-                .any(|key| !rules.iter().any(|rule| rule.key == *key))
-            || request
-                .offered
-                .iter()
-                .any(|key| request.applied.contains(key))
-            || order
-                .answers
-                .iter()
-                .any(|a| !a.request.offered.contains(&a.chosen))
+        if let Some(request) = &order.request {
+            let rules = self.live_quantity_rules()?;
+            self.distinct_sources(request)?;
+            if !self.is_live(request.chooser)
+                || request.amount <= Quantity::zero()
+                || request
+                    .offered
+                    .iter()
+                    .chain(&request.applied)
+                    .any(|key| !rules.iter().any(|rule| rule.key == *key))
+                || request
+                    .offered
+                    .iter()
+                    .any(|key| request.applied.contains(key))
+            {
+                return Err("invalid replacement order".into());
+            }
+        } else if self.state.rules.pending.is_some() {
+            return Err("replacement replay has an unexpected answer".into());
+        }
+        if order
+            .answers
+            .iter()
+            .any(|a| !a.request.offered.contains(&a.chosen))
         {
             return Err("invalid replacement order".into());
         }
         if let Some(deferred) = &order.deferred {
+            // Recomputed offers can discard answers, but their journal
+            // entries remain. The deferred input keeps its original ordinal.
             let journal = &self.state.audit.journal;
-            let answered = order.answers.len() + usize::from(self.state.rules.pending.is_some());
-            let at = journal
-                .len()
-                .checked_sub(1 + answered)
-                .ok_or("replacement order input outside the journal")?;
-            if journal.as_slice().get(at) != Some(&deferred.input) {
-                return Err("replacement order input outside the journal".into());
+            let index = deferred.journal_index;
+            if index >= journal.len() || journal[index] != deferred.input.input {
+                return Err("replacement order input disagrees with the journal".into());
             }
         }
         Ok(())

@@ -1962,6 +1962,34 @@ mod tests {
         )
     }
 
+    #[test]
+    fn conditional_counter_quantity_replacements_do_not_execute() {
+        let definition = |condition| {
+            with(|d| {
+                d.static_abilities.push(crate::StaticAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    effect: kir::StaticEffect::Rule {
+                        rule: kir::StaticRule::ModifyQuantity {
+                            event: kir::QuantityEvent::PutCounters {
+                                counter: None,
+                                recipients: kir::CounterRecipients::Permanents,
+                                origin: kir::ReplacementOrigin::Effect,
+                            },
+                            change: crate::QuantityModification::Multiply { factor: 2.into() },
+                        },
+                        condition,
+                    },
+                });
+            })
+        };
+        assert!(kir::definition_tiers(&definition(None)).is_ok());
+        let on_your_turn = kir::Cond::ActivePlayer {
+            player: kir::PlayerExpr::static_controller(),
+        };
+        let error = kir::definition_tiers(&definition(Some(on_your_turn))).unwrap_err();
+        assert!(error.to_string().contains("rule-scope"), "{error}");
+    }
+
     /// CR 118.3, 119.4: a life payment is a mana-ability cost only. A
     /// deserialized stack activation whose composite cost pays life is not
     /// admitted at any tier, so it can never keep the reviewed composite

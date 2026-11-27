@@ -881,6 +881,104 @@ fn a_target_group_asks_per_member_and_commits_once() {
     assert_recoverable((&g).into());
 }
 
+fn gird_at_two_players(active_replacements: bool, reverse: bool) -> (Game, [ObjectId; 2]) {
+    let mut board = board(&[GIRD_FOR_BATTLE, HARDENED_SCALES, DOUBLING_SEASON], 4)
+        .permanent_or_hand("Gird for Battle", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 2, 2, false)
+        .permanent_or_hand("Hardened Scales", 2, 2, false)
+        .permanent_or_hand("Doubling Season", 2, 2, false);
+    if active_replacements {
+        board = board
+            .permanent_or_hand("Hardened Scales", 0, 0, false)
+            .permanent_or_hand("Doubling Season", 0, 0, false);
+    }
+    let mut game = Game::new(board.libraries("Island", 6).prepare());
+    let bears = [Driver::object(&game, 2), Driver::object(&game, 3)];
+    let mut targets = bears;
+    if reverse {
+        targets.reverse();
+    }
+    Driver::cast(&mut game, CardId(0));
+    let d = Driver::request(&mut game, u64::MAX);
+    pick(&mut game, &d, &targets);
+    Driver::pay(&mut game, &[1]);
+    (game, bears)
+}
+
+#[test]
+fn simultaneous_replacement_choices_follow_apnap_in_either_target_order() {
+    // CR 616.1, 101.4: both orders ask the active player first. The
+    // target order only determines the members' positions in the batch.
+    for reverse in [false, true] {
+        let (mut game, [ours, theirs]) = gird_at_two_players(true, reverse);
+        let first = until_choice(&mut game);
+        assert_eq!(first.player, P0);
+        assert_eq!(
+            first.reason,
+            Reason::ReplacementOrder {
+                subject: Some(ours)
+            }
+        );
+        let scales = Driver::object(&game, 6);
+        pick(&mut game, &first, &[scales]);
+        let second = until_choice(&mut game);
+        assert_eq!(second.player, PlayerId(2));
+        assert_eq!(
+            second.reason,
+            Reason::ReplacementOrder {
+                subject: Some(theirs)
+            }
+        );
+        assert_eq!(plus(&game, 2), Quantity::zero());
+        assert_eq!(plus(&game, 3), Quantity::zero());
+        let season = Driver::object(&game, 5);
+        pick(&mut game, &second, &[season]);
+        // An unrelated departure leaves both accepted answers applicable.
+        game.concede(PlayerId(1)).unwrap();
+        assert_eq!(until_choice(&mut game).reason, Reason::Priority);
+        assert_eq!(plus(&game, 2), Quantity::from(4));
+        assert_eq!(plus(&game, 3), Quantity::from(3));
+        assert_recoverable((&game).into());
+    }
+}
+
+#[test]
+fn a_concession_rebuilds_a_suspended_order_and_restores() {
+    // CR 800.4a: the opponent's Bear and both replacement sources leave
+    // immediately. The survivor still gets the original single counter.
+    let (mut game, [_, theirs]) = gird_at_two_players(false, true);
+    let opponent = PlayerId(2);
+    let request = until_choice(&mut game);
+    assert_eq!(request.player, opponent);
+    assert_eq!(
+        request.reason,
+        Reason::ReplacementOrder {
+            subject: Some(theirs)
+        }
+    );
+    assert_eq!(plus(&game, 2), Quantity::zero());
+    game.concede(opponent).unwrap();
+    assert_recoverable((&game).into());
+    assert!(matches!(
+        game.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
+    assert_eq!(game.live_players(), vec![P0, PlayerId(1), PlayerId(3)]);
+    assert!(game.current(theirs).is_err());
+    assert_eq!(plus(&game, 2), Quantity::zero());
+    assert_recoverable((&game).into());
+    let snapshot = game.snapshot().unwrap();
+    let mut restored = Game::restore(game.prepared.as_ref().clone(), &snapshot).unwrap();
+    for replay in [&mut game, &mut restored] {
+        assert_eq!(until_choice(replay).reason, Reason::Priority);
+        assert_eq!(plus(replay, 2), Quantity::from(1));
+    }
+    assert_eq!(restored.snapshot().unwrap(), game.snapshot().unwrap());
+    assert_recoverable((&game).into());
+}
+
 /// Fixed entry counters on a token (CR 111.1, 122.6): populating a token
 /// copy of Faithful Watchdog under Hardened Scales and Parallel Lives makes
 /// two copies, each entering with 3 + 1 counters.

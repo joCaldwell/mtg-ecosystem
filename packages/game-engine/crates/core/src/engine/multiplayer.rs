@@ -558,6 +558,7 @@ impl RulesTxn {
         }
         self.revalidate_commander_departure()?;
         self.revalidate_actions_departure()?;
+        self.revalidate_replacement_departure()?;
 
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;

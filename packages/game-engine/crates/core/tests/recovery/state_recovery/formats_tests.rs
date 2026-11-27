@@ -16,7 +16,8 @@
 //! loyalty ability and its source's prior-row facts on the stack; a sixth
 //! fills a held mana receipt's cost event identities and ledger delta; a
 //! seventh suspends a counted draw between attempts; an eighth suspends a
-//! proliferate on a replacement order and then commits its lineage.
+//! proliferate on a replacement order, crosses a departure and commits
+//! its lineage.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -24,12 +25,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    112,
+    113,
     "2610282d9e6fd991ca9f1171fffde4564ad3c0004f2e18d7943a29a96e7daaf3",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    145,
-    "5f1ac88fa302aaecd034ac54e78d8197f5939b4b3fd5fe95c16efab5f6e07247",
+    146,
+    "91310cdbf94614686eeca19e91a699529d49e7b4783c4eeb331cb9f6ac94b8b5",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -836,7 +837,7 @@ fn suspended_proliferate() -> Game {
 /// multiplication suspends on the creature controller's order, keeping the
 /// consumed proliferate input; answering it commits the placement with its
 /// recorded lineage (traced in detail).
-fn suspended_replacement_order() -> [Game; 2] {
+fn suspended_replacement_order() -> [Game; 3] {
     use mtg_contracts::QuantityModification;
     use mtg_contracts::kir::{
         Context, CounterKind, CounterRecipients, PlayerExpr, QuantityEvent, ReplacementOrigin,
@@ -891,6 +892,7 @@ fn suspended_replacement_order() -> [Game; 2] {
     let mut game = Game::with_trace(
         Board::new(catalog, "snapshot-replacement-order")
             .step(TurnStep::PrecombatMain)
+            .seats(4)
             .permanent_or_hand("Unsummon", 0, 0, true)
             .permanent_or_hand("Island", 0, 0, false)
             .permanent_or_hand("Grizzly Bears", 0, 0, false)
@@ -923,13 +925,19 @@ fn suspended_replacement_order() -> [Game; 2] {
         }
     );
     let pending = game.fork();
+    let mut rebuilding = pending.fork();
+    rebuilding.concede(PlayerId(2)).unwrap();
+    assert!(matches!(
+        rebuilding.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
     let relic = Driver::object(&game, 3);
     let answer = d.pick_one(&Candidate::Object { object: relic }).unwrap();
     game.respond(d.player, d.id, answer).unwrap();
     Driver::request(&mut game, u64::MAX);
     // 1 + (1 + 1) × 2.
     assert_eq!(game.current(bears).unwrap().plus_one_counters, 5.into());
-    [pending, game]
+    [pending, rebuilding, game]
 }
 
 /// A stack target offer with two public regeneration shields. The first

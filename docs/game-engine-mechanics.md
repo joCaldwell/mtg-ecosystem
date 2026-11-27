@@ -134,8 +134,10 @@ accepted-input replay with exact identity.
      The rule step that reached the question is discarded unwritten.
      `Frame::ReplacementOrder` keeps that step's frame, any input it had
      consumed (already journaled) and earlier answers, asks, then replays the
-     step with every answer; another member's question accumulates the same
-     way. Only the chooser sees the offer.
+     step with those answers. Players choose in APNAP order for simultaneous members
+     (CR 101.4, 616.1). If a player leaves, replay derives a fresh offer from
+     the surviving objects and effects (CR 800.4a). Only the chooser sees
+     the offer. Conditional quantity replacements reject at validation.
   4. **Transform** the count.
   5. **Record** the original count and the applied instances in the
      occurrence (`OccurrenceResult::quantities`), published as the actual's

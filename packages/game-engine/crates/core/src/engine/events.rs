@@ -1909,12 +1909,19 @@ impl RulesTxn {
                 let common = self.fork();
                 let offset = out.len();
                 let mut facts = vec![];
+                let mut orders = BTreeMap::new();
                 for event in occurrences {
                     let before = common.facts(&[event])?;
                     let mut validation = common.fork();
                     if let Err(error) =
                         validation.apply_prepared_occurrence(event, Some(&before), authority)
                     {
+                        if let Some(request) = replacement::requested_order(&error) {
+                            // CR 616.1, 101.4: pick the next chooser in APNAP
+                            // order, keeping the first member for each player.
+                            orders.entry(request.chooser).or_insert(error);
+                            continue;
+                        }
                         // The validation branch is discarded, but its typed
                         // resource failure must reach the enclosing atomic
                         // transaction just as an application failure does.
@@ -1922,6 +1929,12 @@ impl RulesTxn {
                         return Err(error);
                     }
                     facts.push(before);
+                }
+                if !orders.is_empty() {
+                    return Err(common
+                        .apnap_seats()
+                        .find_map(|player| orders.remove(&player))
+                        .ok_or("replacement order chooser outside turn order")?);
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);

@@ -1296,6 +1296,7 @@ impl crate::StaticAbility {
                     // counter kinds are object counters (CR 122.1).
                     StaticRule::ModifyQuantity { event, change } => {
                         on_battlefield
+                            && condition.is_none()
                             && change.validate().is_ok()
                             && match event {
                                 QuantityEvent::CreateTokens { .. } => {

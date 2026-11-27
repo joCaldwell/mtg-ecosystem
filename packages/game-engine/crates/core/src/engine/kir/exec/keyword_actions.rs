@@ -119,7 +119,19 @@ impl RulesTxn {
                     },
                 )
             }
-            ResolutionChoice::Proliferate => self.proliferate(frame, input.entities()?, cause),
+            ResolutionChoice::Proliferate => {
+                // CR 800.4a: a departure during replacement ordering can
+                // remove a member of this already-selected placement.
+                let entities = input
+                    .entities()?
+                    .into_iter()
+                    .filter(|entity| match entity {
+                        TargetEntity::Object { object } => self.can_proliferate_permanent(*object),
+                        TargetEntity::Player { player } => self.can_proliferate_player(*player),
+                    })
+                    .collect();
+                self.proliferate(frame, entities, cause)
+            }
             _ => Err("not a keyword action choice".into()),
         }
     }
