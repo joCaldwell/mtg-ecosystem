@@ -728,7 +728,7 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
 /// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b, 702.116b, 702.105b,
-/// 702.149b, 702.130b, 702.23c, 702.121b). The `bool` states
+/// 702.149b, 702.130b, 702.23c, 702.121b, 702.91b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
@@ -742,6 +742,7 @@ const TRIGGERED: &[(&str, bool)] = &[
     ("afflict", true),
     ("rampage", true),
     ("melee", false),
+    ("battle cry", false),
 ];
 
 pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
@@ -928,7 +929,8 @@ fn consume_keyword<'a>(
             return None;
         }
         let (name, parameterized) = TRIGGERED.iter().find(|(n, _)| *n == keyword.keyword)?;
-        let rest = consume_word(tokens, name)?;
+        let words: Vec<&str> = name.split(' ').collect();
+        let rest = consume_words(tokens, &words)?;
         return match (parameterized, keyword.amount) {
             (false, None) => Some(rest),
             (true, Some(n)) => match rest {
@@ -1050,25 +1052,36 @@ pub(super) fn triggered_instances_printed(
         let tokens = lex_line(line);
         let mut i = 0;
         while i < tokens.len() {
-            if let LineToken::Word { value: word, .. } = &tokens[i]
-                && let Some((name, parameterized)) =
-                    TRIGGERED.iter().find(|(n, _)| *n == word.as_str())
-            {
+            // A name of several words ("battle cry") matches them in order.
+            let found = TRIGGERED.iter().find_map(|(name, parameterized)| {
+                let words: Vec<&str> = name.split(' ').collect();
+                words
+                    .iter()
+                    .enumerate()
+                    .all(|(k, w)| {
+                        matches!(tokens.get(i + k), Some(LineToken::Word { value, .. }) if value == w)
+                    })
+                    .then_some((name, parameterized, words.len()))
+            });
+            if let Some((name, parameterized, width)) = found {
+                let next = i + width;
                 if *parameterized {
-                    if let Some(LineToken::Number(n)) = tokens.get(i + 1) {
+                    if let Some(LineToken::Number(n)) = tokens.get(next) {
                         printed.push((block, format!("{name} {n}")));
-                        i += 2;
+                        i = next + 1;
                         continue;
                     }
-                    if let Some(LineToken::Word { value: w, .. }) = tokens.get(i + 1)
+                    if let Some(LineToken::Word { value: w, .. }) = tokens.get(next)
                         && w == "x"
                     {
                         printed.push((block, format!("{name} x")));
-                        i += 2;
+                        i = next + 1;
                         continue;
                     }
                 }
                 printed.push((block, (*name).to_owned()));
+                i = next;
+                continue;
             }
             i += 1;
         }
@@ -1331,6 +1344,34 @@ pub(super) fn triggered(
                 .instructions
                 .push(kernel(counted_pump(this, times(n, beyond)), block));
             EventPattern::BecomesBlocked {
+                attacker: Pred::source(),
+            }
+        }
+        // CR 702.91a: "Whenever this creature attacks, each other attacking
+        // creature gets +1/+0 until end of turn"; the set is read as the
+        // ability resolves (CR 608.2h, 611.2c).
+        "battle cry" if creature => {
+            program.instructions.push(kernel(
+                Node::Do(Verb::ModifyUntil {
+                    what: SetExpr::battlefield(Pred(vec![
+                        Atom::Type {
+                            kind: CardKind::Creature,
+                        },
+                        Atom::Attacking,
+                        Atom::IsNot {
+                            object: Ref::Source,
+                        },
+                    ])),
+                    layer: kir::Layer::PowerToughnessModify,
+                    change: kir::Change::PowerToughness {
+                        power: kir::Amount::fixed(1),
+                        toughness: kir::Amount::fixed(0),
+                    },
+                    until: kir::Until::EndOfTurn,
+                }),
+                block,
+            ));
+            EventPattern::Attacks {
                 attacker: Pred::source(),
             }
         }

@@ -386,14 +386,36 @@ impl RulesTxn {
             ZoneExpr::Graveyards => true,
             _ => return Err("kernel set zone has no audited evaluation".into()),
         };
-        let you = self.entry(frame.stack_id)?.controller;
+        let entry = self.entry(frame.stack_id)?;
+        let you = entry.controller;
+        // CR 109.1: a top-level "other" excludes the exact source; the rest
+        // of the filter is read as performed.
+        let other = mtg_contracts::kir::Atom::IsNot {
+            object: Ref::Source,
+        };
+        let excluded = filter.0.contains(&other).then_some(entry.source);
+        let rest;
+        let filter = if excluded.is_some() {
+            rest = mtg_contracts::kir::Pred(
+                filter.0.iter().filter(|a| **a != other).cloned().collect(),
+            );
+            &rest
+        } else {
+            filter
+        };
         let objects = self
             .state
             .rules
             .objects
             .values()
             .filter(|object| {
-                crate::query::matches_zone_pred(&self.object_facts(object), you, zone, filter)
+                Some(object.id) != excluded
+                    && crate::query::matches_zone_pred(
+                        &self.object_facts(object),
+                        you,
+                        zone,
+                        filter,
+                    )
                     .is_yes()
             })
             .map(|object| object.id)

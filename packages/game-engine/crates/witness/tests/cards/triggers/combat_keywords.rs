@@ -1,7 +1,7 @@
 //! Combat-triggered keywords lowered to their defining triggers, from exact
 //! frozen R5 source on private boards: CR 702.83 (exalted), 702.116
 //! (myriad), 702.105 (dethrone), 702.149 (training), 702.130 (afflict),
-//! 702.23 (rampage) and 702.121 (melee).
+//! 702.23 (rampage), 702.121 (melee) and 702.91 (battle cry).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -17,6 +17,7 @@ const GRYFF_RIDER: &str = record!("e1ca5c24-bbd8-4eed-bb2b-17163f90e72b");
 const KHENRA_ETERNAL: &str = record!("91b46b22-8062-434b-8432-5ed1062ccaf9");
 const AERATHI_BERSERKER: &str = record!("5cb495a2-c683-4066-b6ee-d0b7d8843cb9");
 const DEPUTIZED_PROTESTER: &str = record!("09947592-1730-4c1c-bfa5-be53a68d6919");
+const ACCORDER_PALADIN: &str = record!("6891c8b7-7112-40dc-8b94-b84ad1885e5e");
 
 fn power_toughness(g: &Game, object: ObjectId) -> (Option<Quantity>, Option<Quantity>) {
     let c = g.characteristics(object).unwrap();
@@ -523,4 +524,39 @@ fn melee_counts_each_opponent_attacked_this_combat() {
         assert_eq!(power_toughness(&g, protester), expected);
         assert_recoverable((&g).into());
     }
+}
+
+/// Two Accorder Paladins (3/1, battle cry) attack with Grizzly Bears while a
+/// second Bears stays home. Each battle cry gives each other attacking
+/// creature +1/+0 (CR 702.91a-b): the Bears get +2/+0, each Paladin +1/+0
+/// from the other and none from itself, the home Bears nothing.
+#[test]
+fn battle_cry_pumps_each_other_attacking_creature() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[ACCORDER_PALADIN], TurnStep::BeginningCombat)
+                .permanent_or_hand("Accorder Paladin", 0, 0, false)
+                .permanent_or_hand("Accorder Paladin", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let [first, second, bears, home] = [0, 1, 2, 3].map(|i| Driver::object(&g, i));
+    declare(
+        &mut g,
+        &[
+            (first, PlayerId(1)),
+            (second, PlayerId(1)),
+            (bears, PlayerId(1)),
+        ],
+    );
+    assert_eq!(g.state.rules.stack.len(), 2);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(power_toughness(&g, first), pt(4, 1));
+    assert_eq!(power_toughness(&g, second), pt(4, 1));
+    assert_eq!(power_toughness(&g, bears), pt(4, 2));
+    assert_eq!(power_toughness(&g, home), pt(2, 2));
+    assert_recoverable((&g).into());
 }

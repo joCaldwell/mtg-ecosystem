@@ -74,6 +74,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "afflict"
                 | "rampage"
                 | "melee"
+                | "battle cry"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
