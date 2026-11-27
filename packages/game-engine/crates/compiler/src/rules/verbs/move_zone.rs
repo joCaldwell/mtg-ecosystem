@@ -95,7 +95,14 @@ pub(super) fn chosen(
     what: &ast::ObjectRef,
     to: Destination,
 ) -> Result<Option<Instruction>, Failure> {
-    let Some((from, filter, count, up_to, random)) = chosen_cards(what)? else {
+    let Some(ChosenCards {
+        from,
+        filter,
+        count,
+        up_to,
+        random,
+    }) = chosen_cards(what)?
+    else {
         return Ok(None);
     };
     if from == kir::SelectionZone::Hand && !matches!(to, Destination::Battlefield { .. }) {
@@ -159,21 +166,23 @@ mod tests {
         ] {
             assert_eq!(chosen_cards(&what).unwrap_err().reason, code);
         }
-        let (from, filter, count, up_to, random) = chosen_cards(&card(
+        let chosen = chosen_cards(&card(
             json!({"zone": "hand", "owner": "your"}),
             json!({"upTo": true, "count": {"amount": "fixed", "value": 2}}),
         ))
         .unwrap()
         .unwrap();
         assert_eq!(
-            (from, count, up_to, random),
-            (kir::SelectionZone::Hand, 2, true, false)
-        );
-        assert_eq!(
-            filter.0,
-            [kir::Atom::Type {
-                kind: CardKind::Creature
-            }]
+            chosen,
+            ChosenCards {
+                from: kir::SelectionZone::Hand,
+                filter: kir::Pred(vec![kir::Atom::Type {
+                    kind: CardKind::Creature
+                }]),
+                count: 2,
+                up_to: true,
+                random: false,
+            }
         );
     }
 

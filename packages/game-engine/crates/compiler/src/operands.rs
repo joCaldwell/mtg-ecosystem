@@ -1650,14 +1650,23 @@ fn bind_object_target(
     Ok(slot)
 }
 
+/// Cards of one of your zones chosen or selected at resolution.
+#[derive(Debug, PartialEq)]
+pub(crate) struct ChosenCards {
+    pub from: kir::SelectionZone,
+    /// The printed characteristics.
+    pub filter: Pred,
+    pub count: u32,
+    /// "Up to": fewer may be chosen.
+    pub up_to: bool,
+    /// "At random": nobody chooses.
+    pub random: bool,
+}
+
 /// CR 608.2c-d, 400.1: "[up to] N <cards> from your hand" or "... from your
 /// graveyard": cards chosen as the instruction resolves, never targeted
 /// (CR 115.10). `None` when `what` names no filtered card of either zone.
-/// Returns the zone, the printed characteristics, the count, whether fewer
-/// may be chosen ("up to") and whether the cards are selected at random.
-pub(crate) fn chosen_cards(
-    what: &ast::ObjectRef,
-) -> Result<Option<(kir::SelectionZone, Pred, u32, bool, bool)>, Failure> {
+pub(crate) fn chosen_cards(what: &ast::ObjectRef) -> Result<Option<ChosenCards>, Failure> {
     use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
     let ast::ObjectRef::Filter(chosen) = what else {
         return Ok(None);
@@ -1712,7 +1721,13 @@ pub(crate) fn chosen_cards(
             ],
         });
     }
-    Ok(Some((from, predicate, count, up_to, random)))
+    Ok(Some(ChosenCards {
+        from,
+        filter: predicate,
+        count,
+        up_to,
+        random,
+    }))
 }
 
 /// CR 601.2c, 608.2b. Bind a graveyard card with the printed ownership
