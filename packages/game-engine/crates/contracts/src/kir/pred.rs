@@ -105,6 +105,13 @@ pub enum Atom {
 #[serde(transparent)]
 pub struct Pred(pub Vec<Atom>);
 
+impl Pred {
+    /// True when the predicate has no atoms and admits every object.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "zone", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ZoneExpr {

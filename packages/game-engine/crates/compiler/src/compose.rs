@@ -429,6 +429,21 @@ fn trigger(
     condition: Option<&serde_json::Value>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
+    // CR 102.1, 500.1: "[event] during your turn" lowers the event without
+    // the window, then requires the controller to be the active player.
+    if let Some(during) = raw.get("during") {
+        if during != "your" {
+            return Err(unsupported("compose.block", "trigger:window:during"));
+        }
+        let mut stripped = raw.clone();
+        if let Some(fields) = stripped.as_object_mut() {
+            fields.remove("during");
+        }
+        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let TriggerCondition::Event { your_turn, .. } = &mut ability.condition;
+        *your_turn = true;
+        return Ok(ability);
+    }
     // CR 115.1, 601.2c: "a spell that targets this [permanent]" lowers the
     // cast event without the target clause, then names the source.
     if raw["trigger"] == "cast"
@@ -450,6 +465,29 @@ fn trigger(
             return Err(unsupported("compose.block", "trigger:targets:event"));
         };
         *targets_source = true;
+        return Ok(ability);
+    }
+    // CR 115.1, 601.2c: "a spell that targets a [filtered permanent]"
+    // lowers the cast event without the target clause, then reads some
+    // permanent the spell targets as it became cast.
+    if raw["trigger"] == "cast"
+        && let Some(targets) = raw["what"].get("targets")
+        && targets["ref"] == "filter"
+        && targets.as_object().map(serde_json::Map::len) == Some(3)
+        && targets["count"] == serde_json::json!({"amount": "fixed", "value": 1})
+    {
+        let filter: ast::ObjectFilter = events::typed_filter(&targets["filter"])?;
+        let target = lower_event_filter(&filter)?;
+        let mut stripped = raw.clone();
+        if let Some(what) = stripped["what"].as_object_mut() {
+            what.remove("targets");
+        }
+        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
+        let EventPattern::Cast { target: slot, .. } = pattern else {
+            return Err(unsupported("compose.block", "trigger:targets:event"));
+        };
+        *slot = target;
         return Ok(ability);
     }
     let Some(occurrence) = raw.get("occurrence") else {
@@ -501,6 +539,15 @@ fn trigger(
         } => *slot = Some(ordinal(caster, true)?),
         EventPattern::Draws { player, nth: slot }
         | EventPattern::GainsLife { player, nth: slot } => *slot = Some(ordinal(player, false)?),
+        // CR 702.29a: the turn's cycles, any card ("another" excludes none).
+        EventPattern::Discards {
+            player,
+            nth: slot,
+            cycled: true,
+            card,
+        } if !card.reads_characteristics() && !card.is_ref(kir::Ref::Source) => {
+            *slot = Some(ordinal(player, false)?)
+        }
         other => return Err(reject(other.reporting_key())),
     }
     Ok(ability)
@@ -627,6 +674,7 @@ fn trigger_event(
         pattern: event,
         intervening_if: intervening.map(|i| i.condition()),
         once_each_turn: false,
+        your_turn: false,
     };
     if let [Part::Departure(parent)] = parts.as_slice() {
         program = parent.clone();
@@ -650,9 +698,15 @@ fn trigger_event(
             trigger_player_binding(&condition),
         )?;
     }
+    // CR 702.29c: a discard of this card triggers from the graveyard.
+    let functioning_zone = if condition.pattern().discards_source() {
+        FunctioningZone::Graveyard
+    } else {
+        FunctioningZone::Battlefield
+    };
     Ok(TriggeredAbility {
         modal: None,
-        functioning_zone: FunctioningZone::Battlefield,
+        functioning_zone,
         condition,
         program,
     })
