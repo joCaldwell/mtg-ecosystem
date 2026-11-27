@@ -573,6 +573,7 @@ impl RulesTxn {
             status: p.status,
             life: p.life.clone(),
             mana: p.mana.clone(),
+            restricted_mana: p.restricted_mana.clone(),
             hand_count: checked_count(hand_count)?,
             library_count: checked_count(library_count)?,
         })

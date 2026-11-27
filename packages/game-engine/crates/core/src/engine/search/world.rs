@@ -196,12 +196,13 @@ impl SampleBuildWork {
             p.life_frozen_until_next_turn = row.life_frozen_until_next_turn;
             p.life = row.life.clone();
             p.mana = row.mana.clone();
-            p.restricted_mana.clear();
+            // CR 106.4a-b, 106.6: the public pool, restricted buckets included.
+            p.restricted_mana = row.restricted_mana.clone();
             p.status = row.status;
             p.last_known = (row.status == PlayerStatus::Left).then(|| PlayerLastKnown {
                 life: row.life.clone(),
                 mana: row.mana.clone(),
-                restricted_mana: Vec::new(),
+                restricted_mana: row.restricted_mana.clone(),
             });
         }
         for row in &view.commanders {

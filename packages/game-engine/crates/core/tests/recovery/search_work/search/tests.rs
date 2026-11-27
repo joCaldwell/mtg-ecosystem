@@ -592,3 +592,100 @@ fn search_admission_uses_flags_and_retains_the_catalog_pin() {
         }
     }
 }
+
+fn observe(game: &Game, viewer: PlayerId, quantum: Budget) -> Observation {
+    let mut result = game.observe(viewer, quantum);
+    for _ in 0..100_000 {
+        match result {
+            QueryResult::Complete(QueryValue::Observation(o)) => return o,
+            QueryResult::Incomplete { work, .. } => result = game.resume_work(work, Budget::new(1)),
+            _ => panic!("observation"),
+        }
+    }
+    panic!("observation work bound")
+}
+fn stepped_capture(game: &Game) -> SearchCapture {
+    let mut result = game.capture_search(PlayerId(0), Budget::new(1));
+    for _ in 0..1_000_000 {
+        match result {
+            CaptureOutcome::Complete(c) => return c,
+            CaptureOutcome::Incomplete {
+                work,
+                required_minimum,
+            } => result = game.resume_search_capture(work, Budget::new(required_minimum.max(1))),
+            CaptureOutcome::Rejected(e) => panic!("capture rejected {e:?}"),
+        }
+    }
+    panic!("capture work bound")
+}
+
+/// CR 106.4a-b, 106.6: restricted pool buckets are public. Their projection is
+/// invariant under query and capture budgets, older observations without the
+/// field still read, and a sampled world rebuilds the buckets from the
+/// permitted capture instead of silently dropping them. (Exact restore and
+/// replay of really produced buckets: the Omen Hawker card witnesses.)
+#[test]
+fn restricted_pool_buckets_are_budget_invariant_and_rebuilt_in_sampled_worlds() {
+    let mut game = root(0);
+    let legacy = observe(&game, PlayerId(1), Budget::unlimited());
+    let bucket = |restriction, color, amount: i64| RestrictedMana {
+        restriction,
+        color,
+        amount: Quantity::from(amount),
+    };
+    let own = vec![bucket(ManaSpendRestriction::ActivatedAbility, Color::C, 2)];
+    let other = vec![
+        bucket(ManaSpendRestriction::ColorlessSpell, Color::C, 1),
+        bucket(
+            ManaSpendRestriction::SpellType {
+                kind: CardKind::Artifact,
+            },
+            Color::W,
+            3,
+        ),
+    ];
+    game.state.rules.players[0].restricted_mana = own.clone();
+    game.state.rules.players[2].restricted_mana = other.clone();
+    game.validate_state().unwrap();
+    for viewer in game.live_players() {
+        let seen = observe(&game, viewer, Budget::unlimited());
+        assert_eq!(seen.view.players[0].restricted_mana, own);
+        assert_eq!(seen.view.players[2].restricted_mana, other);
+        assert!(seen.view.players[1].restricted_mana.is_empty());
+        assert_eq!(observe(&game, viewer, Budget::new(1)), seen);
+        let wire = serde_json::to_string(&seen).unwrap();
+        assert_eq!(serde_json::from_str::<Observation>(&wire).unwrap(), seen);
+    }
+    // Additive: a row serialized without restricted buckets omits the key,
+    // and such a row still reads with no restricted mana.
+    let wire = serde_json::to_value(&legacy).unwrap();
+    assert!(
+        wire["view"]["players"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row.get("restricted_mana").is_none())
+    );
+    assert_eq!(serde_json::from_value::<Observation>(wire).unwrap(), legacy);
+    let whole = capture(&game);
+    let stepped = stepped_capture(&game);
+    assert_eq!(whole.context_id(), stepped.context_id());
+    assert_eq!(
+        whole.data().context.observation.view.players[2].restricted_mana,
+        other
+    );
+    for c in [&whole, &stepped] {
+        let (sample, map) = build(c, proposal(c));
+        let QueryResult::Complete(QueryValue::Observation(root)) =
+            sample.observe(PlayerId(0), Budget::unlimited())
+        else {
+            panic!("sample observation")
+        };
+        assert_eq!(root.view.players[0].restricted_mana, own);
+        assert_eq!(root.view.players[2].restricted_mana, other);
+        assert_eq!(
+            map.mapped_observation(&root).unwrap(),
+            c.data().context.observation
+        );
+    }
+}
