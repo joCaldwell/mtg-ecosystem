@@ -21,6 +21,7 @@ const EXCLUSION_MAGE: &str = record!("fd28fe55-36cd-4242-8dd4-edb58fbb9895");
 const RUN_AGROUND: &str = record!("6ef9bf18-6b09-4398-a502-6867d999ab0c");
 const NATURAL_OBSOLESCENCE: &str = record!("fbafbe3a-3980-4457-a77b-3f72df7b3329");
 const OBLATION: &str = record!("860e744d-899c-43c7-84bb-d52c69d2f45a");
+const MALANTHROPE: &str = record!("0f99e921-61e7-4fc8-8115-4162712b4737");
 
 const MOVED: Cell = Cell::Evaluated(EvaluatedVerb::Move);
 
@@ -313,4 +314,44 @@ fn four_seat_moves_reveal_nothing_about_other_hidden_cards() {
         );
     }
     assert_ne!(observation(&island, 2), observation(&swamp, 2));
+}
+
+/// CR 608.2c, 608.2h, 406.2: "for each creature card exiled this way" reads
+/// the cards the earlier step actually exiled, by their characteristics in
+/// exile, once the whole graveyard has moved. A token or land does not count.
+#[test]
+fn malanthrope_counts_the_creature_cards_exiled_this_way() {
+    let graveyard = Zone::Graveyard { owner: PlayerId(1) };
+    let mut g = Game::new(
+        board(&[MALANTHROPE], 2)
+            .permanent_or_hand("Malanthrope", 0, 0, true)
+            .card("Grizzly Bears", 1, 1, graveyard)
+            .card("Grizzly Bears", 1, 1, graveyard)
+            .card("Forest", 1, 1, graveyard)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[4, 5, 6]);
+    let target = next_choice(&mut g);
+    assert_eq!(target.player, PlayerId(0));
+    let opponent = target
+        .candidates
+        .iter()
+        .find(|c| matches!(c, Candidate::Player { player } if *player == PlayerId(1)))
+        .cloned()
+        .expect("opponent target");
+    let answer = target.pick_one(&opponent).unwrap();
+    g.respond(target.player, target.id, answer).unwrap();
+    settle(&mut g);
+    for card in 1..4 {
+        assert_eq!(g.zone(Driver::object(&g, card)), Some(Zone::Exile));
+    }
+    let malanthrope = Driver::object(&g, 0);
+    assert_eq!(
+        g.state.rules.objects[&malanthrope.card].plus_one_counters,
+        Quantity::from(2)
+    );
 }
