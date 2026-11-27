@@ -289,7 +289,9 @@ fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Am
         return Err(original);
     }
     let target_count = cx.program.targets.len();
-    let amount = pilot_amount(cx, &binding.value)?;
+    let Ok(amount) = pilot_amount(cx, &binding.value) else {
+        return Err(original);
+    };
     if contains_x(&amount) || cx.program.targets.len() != target_count {
         return Err(original);
     }
