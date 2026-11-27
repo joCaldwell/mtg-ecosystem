@@ -64,7 +64,9 @@ pub enum Destination {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(tag = "counter", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CounterKind {
     /// CR 122.1a.
@@ -72,9 +74,90 @@ pub enum CounterKind {
     PlusOnePlusOne,
     #[serde(deserialize_with = "no_operands")]
     MinusOneMinusOne,
+    /// CR 122.1b: the permanent has this keyword.
+    Keyword {
+        keyword: crate::KeywordAbility,
+    },
+    /// CR 122.1d: untapping removes one instead.
+    #[serde(deserialize_with = "no_operands")]
+    Stun,
     Named {
         name: String,
     },
+}
+
+/// Counter names the pinned rules give meaning on objects or players: CR
+/// 107.17 ticket, 122.1b keywords, 122.1c shield, 122.1d stun, 122.1e
+/// loyalty, 122.1f poison, 122.1g defense, 122.1h finality, 122.1i rad,
+/// 122.1j hone, 702.24 age, 702.32 fade, 702.62/702.63 time, 711 level,
+/// 714 lore, 107.14 energy, and experience. A [`CounterKind::Named`] is a
+/// counter with none of these meanings (CR 122.1).
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+const RULES_COUNTER_NAMES: &[&str] = &[
+    "age",
+    "decayed",
+    "deathtouch",
+    "defense",
+    "double strike",
+    "energy",
+    "exalted",
+    "experience",
+    "fade",
+    "finality",
+    "first strike",
+    "flying",
+    "haste",
+    "hexproof",
+    "hone",
+    "indestructible",
+    "level",
+    "lifelink",
+    "lore",
+    "loyalty",
+    "menace",
+    "poison",
+    "rad",
+    "reach",
+    "shadow",
+    "shield",
+    "stun",
+    "ticket",
+    "time",
+    "trample",
+    "vigilance",
+];
+
+/// CR 122.1: a lowercase counter name with no rules meaning.
+pub fn plain_counter_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b' ' || b == b'-')
+        && !name.starts_with(' ')
+        && !name.ends_with(' ')
+        && !RULES_COUNTER_NAMES.contains(&name)
+}
+
+impl CounterKind {
+    /// CR 122.1: a kind whose complete rules the engine executes. The
+    /// kernel check and every validated state admit exactly these.
+    pub fn admitted(&self) -> bool {
+        match self {
+            Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Stun => true,
+            Self::Keyword { keyword } => {
+                crate::supported_temporary_keywords(std::slice::from_ref(keyword))
+            }
+            Self::Named { name } => plain_counter_name(name),
+        }
+    }
+    /// CR 122.1a-b: power/toughness and keyword counters act only on
+    /// creatures here; other kinds may sit on any permanent.
+    pub fn needs_creature(&self) -> bool {
+        matches!(
+            self,
+            Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Keyword { .. }
+        )
+    }
 }
 
 /// Player counters for poison and energy (CR 107.14, 122.1f, 704.5c).
@@ -588,6 +671,16 @@ pub enum Verb {
     /// CR 702.109a, 603.7: return the permanent the dashed spell became to
     /// its owner's hand, if it is still that object on the battlefield.
     ReturnDashedToHand {},
+    /// CR 702.116a, 508.4: create one token copy of the source, tapped and
+    /// attacking `defender`. It is performed only for a live opponent other
+    /// than the defending player of the source's attack; planeswalkers are
+    /// never admitted, so the token attacks that player.
+    CreateMyriadToken {
+        defender: PlayerExpr,
+    },
+    /// CR 702.116a, 603.7: exile the tokens the creating myriad ability made
+    /// that are still on the battlefield.
+    ExileMyriadTokens {},
     CreateDelayedTrigger {
         event: DelayedEvent,
         node: Box<Node>,

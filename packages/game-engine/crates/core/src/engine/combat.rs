@@ -670,6 +670,7 @@ impl RulesTxn {
         self.rules_mut().first_strike_participants.clear();
         self.rules_mut().damage_choices.clear();
         self.rules_mut().player_damage_choices.clear();
+        self.rules_mut().combat_defenders.clear();
     }
     pub(super) fn grant_turn_priority(&mut self) -> Result<(), String> {
         if matches!(self.state.rules.frame, Frame::Finished { .. } | Frame::Draw) {
@@ -1093,6 +1094,24 @@ impl RulesTxn {
         // CR 613.7m: before anything reads a continuous result, reject one
         // controller's simultaneous timestamps whose order would decide it.
         self.reject_simultaneous_timestamp_order()?;
+        // CR 704.3, 704.5q: annihilation is part of the same wave; a
+        // permanent leaving in it loses its counters anyway (CR 122.2).
+        let leaving: BTreeSet<_> = occurrences
+            .iter()
+            .filter_map(|e| match e {
+                ProposedEvent::StateBasedGraveyard { object, .. }
+                | ProposedEvent::Move { object, .. } => Some(*object),
+                _ => None,
+            })
+            .collect();
+        occurrences.extend(
+            self.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| !leaving.contains(&o.id))
+                .filter_map(Self::annihilation),
+        );
         // CR 704.5j: put the unchosen legends into their owners' graveyards.
         // This is neither destruction nor sacrifice (CR 701.8/701.21).
         for group in &groups {
@@ -1340,6 +1359,20 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
+        // CR 508.1: declared defenders exist only after a declaration this
+        // combat, in seat order, never the attacking player.
+        let defenders = &self.state.rules.combat_defenders;
+        if (!defenders.is_empty()
+            && (!self.state.rules.combat_declared
+                || self.state.rules.turn.step.phase() != Phase::Combat))
+            || defenders.windows(2).any(|pair| pair[0] >= pair[1])
+            || defenders.iter().any(|p| {
+                !self.state.rules.original_seating.contains(p)
+                    || Some(*p) == self.state.rules.active
+            })
+        {
+            return Err("declared combat defender invariant".into());
+        }
         // CR509.1g/506.4: an orphan blocker may have no damage link, but every
         // retained member is the exact creature still in combat. Declaration
         // provenance (including coherent extra members) is proved by replay.

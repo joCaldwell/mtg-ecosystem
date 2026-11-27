@@ -1252,11 +1252,14 @@ impl RulesTxn {
         }
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
+            let minus = o.counter_count(&mtg_contracts::kir::CounterKind::MinusOneMinusOne);
             if let Some(p) = c.power.as_mut() {
                 p.add(&o.plus_one_counters);
+                p.subtract(&minus);
             }
             if let Some(t) = c.toughness.as_mut() {
                 t.add(&o.plus_one_counters);
+                t.subtract(&minus);
             }
         }
         for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources) {
@@ -1376,10 +1379,38 @@ impl RulesTxn {
                     source_block,
                 )
             }
+            // CR 603.10, 611.2c: the exact creature the event named, while it
+            // is still that creature on the battlefield (CR 400.7).
+            kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
+            {
+                let target = self.event_object_target(&frame)?;
+                if !self.is_battlefield_creature(target) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::ModifyPowerToughness {
+                        target,
+                        power,
+                        toughness,
+                    },
+                    source_block,
+                )
+            }
 
             _ => return Err("unexpected effect instruction".into()),
         };
         self.commit_resolved_effect(frame, kind, block)
+    }
+
+    /// CR 603.10: the exact incarnation the resolving trigger's event bound.
+    pub(super) fn event_object_target(&self, frame: &Resolving) -> Result<ObjectId, String> {
+        Ok(self
+            .entry(frame.stack_id)?
+            .kind
+            .observed_object()?
+            .last_known
+            .object)
     }
 
     pub(super) fn commit_resolved_effect(
@@ -2161,6 +2192,20 @@ impl RulesTxn {
                             && toughness == t
                             && *source_block == effect.origin.source_block
                     }
+                    (
+                        kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
+                        ResolvedEffectKind::ModifyPowerToughness {
+                            target,
+                            power: p,
+                            toughness: t,
+                        },
+                    ) => {
+                        self.event_object_target(frame).ok() == Some(*target)
+                            && self.is_battlefield_creature(*target)
+                            && power == p
+                            && toughness == t
+                            && *source_block == effect.origin.source_block
+                    }
 
                     _ => false,
                 };
@@ -2741,7 +2786,7 @@ impl RulesTxn {
                     }
 
                     (
-                        kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
+                        kernel!(ModifyUntil { what: target_object!(_) | event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -3434,7 +3479,20 @@ impl RulesTxn {
 
     /// `validate_characteristic_identity` for captured facts, whose transform
     /// count names the face they were captured with (CR 712.18).
+    /// CR 122.1, 608.2h: retained counters feed last-known reads, so they
+    /// hold only admitted kinds, exactly as a permanent's own counters do.
+    pub(crate) fn validate_fact_counters(fact: &ObjectBefore) -> Result<(), String> {
+        if !tokens::counter_kinds_admitted(&fact.counters) {
+            return Err("captured counter kind admission".into());
+        }
+        if fact.plus_one_counters.is_negative() || !tokens::counter_stacks_valid(&fact.counters) {
+            return Err("captured counter facts".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
+        Self::validate_fact_counters(fact)?;
         self.validate_characteristic_identity(
             fact.object,
             fact.transforms,
@@ -3635,6 +3693,8 @@ impl RulesTxn {
             face_down: frozen.face_down,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
+            plus_one_counters: frozen.plus_one_counters.clone(),
+            counters: frozen.counters.clone(),
             ..current
         } == *frozen
     }
@@ -3664,6 +3724,8 @@ impl RulesTxn {
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
                 keywords: fact.keywords.clone(),
+                plus_one_counters: fact.plus_one_counters.clone(),
+                counters: fact.counters.clone(),
                 ..damage.source.clone()
             }) != *fact
         {
@@ -3771,6 +3833,13 @@ impl RulesTxn {
                             && (expected_keywords.contains(keyword)
                                 || (d.source.zone == Zone::Battlefield
                                     && (self.historical_granted_keyword(*keyword)
+                                        // CR 122.1b: a keyword counter it had.
+                                        || d.source.counters.iter().any(|stack| {
+                                            stack.kind
+                                                == mtg_contracts::kir::CounterKind::Keyword {
+                                                    keyword: *keyword,
+                                                }
+                                        })
                                         // CR 702.84a: unearth grants haste.
                                         || (*keyword == KeywordAbility::Haste
                                             && (d.source.unearthed

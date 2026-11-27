@@ -43,7 +43,7 @@ impl ObjectFacts for DerivedObject<'_> {
         self.game.copiable_characteristics(self.object).ok()
     }
     fn structural(&self) -> Option<Cow<'_, Characteristics>> {
-        // Type and color layer changes apply only to battlefield objects.
+        // The engine currently supports type and color layer effects only on the battlefield.
         // Keep this incarnation's zone when a split spell has departed.
         if self.object.zone != Zone::Battlefield {
             return self.copiable();

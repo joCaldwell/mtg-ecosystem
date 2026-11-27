@@ -454,15 +454,17 @@ impl RulesTxn {
                     return Err("snapshot casting frame invariant".into());
                 }
                 let sources: BTreeSet<_> = cast.mana_activations.iter().map(|a| a.object).collect();
+                // Each kept receipt's own invariant names what it rejected.
+                for a in &cast.mana_activations {
+                    if let Some(p) = &a.permanent {
+                        self.validate_mana_condition_receipt(a.player, a.object, p)?;
+                    }
+                }
                 if sources.len() != cast.mana_activations.len()
                     || cast.mana_activations.len() > s.rules.cards.len()
                     || cast.mana_activations.iter().any(|a| {
                         a.player != top.controller
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
-                            || a.permanent.as_ref().is_some_and(|p| {
-                                self.validate_mana_condition_receipt(a.player, a.object, p)
-                                    .is_err()
-                            })
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame)?,

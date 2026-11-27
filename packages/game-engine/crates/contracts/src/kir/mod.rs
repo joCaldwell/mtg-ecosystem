@@ -166,6 +166,16 @@ macro_rules! source_object {
     };
 }
 
+/// Pattern for the single object a trigger event names (CR 603.10).
+#[macro_export]
+macro_rules! event_object {
+    () => {
+        $crate::kir::SetExpr::One {
+            object: $crate::kir::Ref::EventObject { .. },
+        }
+    };
+}
+
 /// Pattern for the announced X (CR 107.3).
 #[macro_export]
 macro_rules! announced_x {

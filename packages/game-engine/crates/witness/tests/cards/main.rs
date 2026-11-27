@@ -7,6 +7,7 @@ mod continuous;
 mod control;
 mod costs;
 mod counter_regeneration;
+mod counters;
 mod damage_triggers;
 mod evasion;
 mod evasion_rules;

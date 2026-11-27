@@ -45,6 +45,8 @@ pub enum EventObjectRole {
     CastSpell,
     TappedForMana,
     Attacked,
+    /// CR 509.3d: the blocking creature of a declared blocking pair.
+    Blocker,
     Blocked,
     Sacrificed,
     LeftBattlefield,

@@ -419,7 +419,7 @@ impl GraveyardGroup {
                         if *player == game.state.rules.turn_owner && game.zone(*object) == Some(Zone::Hand { owner: *player }))
                 })
             }
-            GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(game.saved_frame(*resume)?, Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..})),
+            GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(game.saved_frame(*resume)?, Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..} | ProposedEvent::AnnihilateCounters {..})),
         };
         if !producing {
             return Err("graveyard wave producer mismatch".into());
@@ -623,6 +623,9 @@ impl RulesTxn {
                         .is_ok_and(|o| self.cessation(o).as_ref() == Some(event))
                 }
                 ProposedEvent::Lose { player, .. } => self.is_live(*player),
+                ProposedEvent::AnnihilateCounters { object, .. } => self
+                    .current(*object)
+                    .is_ok_and(|o| Self::annihilation(o).as_ref() == Some(event)),
                 _ => return Err("unsupported retained graveyard wave leaf".into()),
             };
             if keep {

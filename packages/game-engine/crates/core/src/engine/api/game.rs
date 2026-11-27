@@ -109,6 +109,7 @@ impl RulesTxn {
                         // ordered by APNAP from the first active player.
                         keyword_rank: c.controller.0,
                         plus_one_counters: Quantity::zero(),
+                        counters: vec![],
                         transforms: 0,
                         adventure_player: None,
                         face_down: false,
@@ -159,6 +160,7 @@ impl RulesTxn {
                 libraries: prepared.config.initial_libraries().into(),
                 combat: vec![],
                 combat_declared: false,
+                combat_defenders: vec![],
                 damage_choices: BTreeMap::new(),
                 player_damage_choices: BTreeMap::new(),
                 first_strike_participants: BTreeSet::new(),

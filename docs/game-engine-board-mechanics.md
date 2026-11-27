@@ -273,10 +273,25 @@ upkeep, if this came under your control since your last upkeep began,
 sacrifice it unless you pay": each player counts upkeeps begun and each
 permanent records that count when it came under its controller's control,
 also in last-known information (CR 603.4, 702.30a). Other echo costs reject.
+Combat keywords (CR 702.83, 702.91, 702.23, 702.25, 702.105, 702.116, 702.121,
+702.130, 702.149) read the declaration: the attack witness records whether its
+creature attacked alone, attacked with a greater-power creature and attacked the
+player with the most life (powers and life read once the attackers have tapped,
+CR 508.1m), and the combat records its declared defenders.
+Exalted, on any permanent, pumps the lone attacker +1/+1. Battle cry pumps each
+other attacking creature +1/+0. Rampage N pumps +N/+N per creature still blocking
+beyond the first; melee pumps +1/+1 per opponent declared attacked; both count
+on resolution. Flanking shrinks each blocker without the flanking marker by
+-1/-1; marker and trigger are admitted only together. Dethrone and training add a
++1/+1 counter. Afflict N makes the blocked attacker's defending player lose N.
+Myriad (a single-faced creature card without entry replacements) offers its
+controller a copy for each other live opponent; the accepted copies enter
+together, tapped and attacking those players (CR 508.4, 608.2f). They never
+attacked, and that invocation's delayed trigger exiles them at end of combat.
 The keyword line must print each N, and the source keyword list must
 name each keyword. X amounts reject. So do the remaining triggered keywords, such as
-battle cry (an "other" set filter), exalted (attacks alone), undying/persist
-(counter memory and entry counters) and extort (hybrid resolution payment).
+mentor (a relative-power target), undying/persist (counter memory and entry
+counters) and extort (hybrid resolution payment).
 
 Static guards can read the active player, public battlefield or graveyard
 counts, and devotion (CR 700.5). Rule statics apply combat prohibitions and
@@ -320,8 +335,23 @@ event-result counts and token-creation replacement abilities reject.
 - Populate copies a controlled creature token's copiable values; animation can
   qualify the original (CR 701.36, 707.2).
 - Proliferate adds one counter of each existing kind to chosen permanents and
-  players simultaneously: permanent +1/+1 and player poison and energy; ten
-  poison counters lose (CR 701.34a, 704.5c).
+  players simultaneously: every permanent kind below and player poison and
+  energy; ten poison counters lose (CR 701.34a, 704.5c).
+- Permanent counters besides +1/+1 go on the same recipients (source, target
+  creature, matching creature set) as one placement event, one atomic change
+  per permanent carrying every kind it receives. -1/-1 counters take
+  fixed or announced X amounts and modify P/T in layer 7c; matching +1/+1 and
+  -1/-1 counters annihilate in the state-based wave, skipping permanents that
+  leave in it (CR 122.1a, 122.3, 704.5q). Keyword counters for the reviewed
+  temporary-grant keywords apply in layer 6 at their kind's timestamp (the
+  latest placement's batch), ordered with other grants and removals (CR 122.1b,
+  613.7c). Stun counters and counters
+  whose names the pinned rules give no meaning may also go on any targeted
+  permanent; every untap event removes one stun counter instead (CR 122.1, 122.1d, 614.1a).
+  "[N for each] / X is the number of [kind] counters on this" reads the source's
+  current or last-known counters. Shield, loyalty, lore, level, time, fade, hone,
+  other ±X/±Y and every other rules-bearing name reject as
+  `verb:put-counters:counter_kind`.
 - Fight deals current power as simultaneous noncombat damage between two legal
   battlefield creatures; self-fight deals double power (CR 701.14).
 

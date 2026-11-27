@@ -859,6 +859,16 @@ impl RulesTxn {
                 }
                 self.return_kernel(task.resume)?;
             }
+            // CR 702.116a, 608.2d: record the accepted opponent; the
+            // delayed trigger's instruction creates every accepted copy at
+            // once (CR 608.2f).
+            Node::Do(Verb::CreateMyriadToken { defender }) => {
+                if let Some(defender) = self.myriad_defender(&task, defender)? {
+                    self.kernel_results()?
+                        .push(InstructionOutcome::MyriadAccepted { defender });
+                }
+                self.return_kernel(task.resume)?;
+            }
             Node::Do(_) => self.begin_kernel_leaf(task)?,
             Node::Reflexive { payment, .. } => {
                 let player = self.entry(self.kernel_root()?.stack_id)?.controller;
@@ -918,6 +928,9 @@ impl RulesTxn {
                         .into_iter()
                         .any(|p| self.is_live(p))
             }
+            Node::Do(Verb::CreateMyriadToken { defender }) => {
+                self.myriad_defender(task, defender)?.is_some()
+            }
             // CR 701.27c-f: the source can still turn over.
             Node::Do(Verb::Transform { what: Ref::Source }) => {
                 self.source_transformable(self.entry(self.kernel_root()?.stack_id)?)?
@@ -970,6 +983,35 @@ impl RulesTxn {
             // choices when it runs.
             _ => true,
         })
+    }
+
+    /// CR 702.116a: the bound player, if they are a live opponent of the
+    /// ability's controller other than the defending player its source
+    /// attacked. Myriad offers no choice for anyone else (CR 608.2d).
+    fn myriad_defender(
+        &self,
+        task: &Task,
+        defender: &PlayerExpr,
+    ) -> Result<Option<PlayerId>, String> {
+        let [player] = self.control_players(task, defender)?[..] else {
+            return Err("myriad requires one bound player".into());
+        };
+        let entry = self.entry(self.kernel_root()?.stack_id)?;
+        let StackKind::Triggered {
+            witness:
+                TriggerEventWitness::CreatureAttacked {
+                    defender_player_id, ..
+                },
+            ..
+        } = &entry.kind
+        else {
+            return Err("myriad requires an attack trigger".into());
+        };
+        Ok((self.is_live(player)
+            && self.is_live(entry.controller)
+            && player != entry.controller
+            && player != *defender_player_id)
+            .then_some(player))
     }
 
     pub(in crate::engine) fn kernel_payment_terms(

@@ -360,11 +360,19 @@ impl Strategy<'_> {
             return !self.harmful_attachment(d);
         }
         p.instructions.iter().any(|i| match i {
+            // CR 122.1a: a -1/-1 counter shrinks its recipient.
             kernel!(PutCounters {
                 on: target_object!(target_slot),
+                counter,
                 ..
-            })
-            | kernel!(Regenerate {
+            }) if !matches!(
+                counter,
+                kir::CounterKind::MinusOneMinusOne | kir::CounterKind::Stun
+            ) =>
+            {
+                *target_slot == slot
+            }
+            kernel!(Regenerate {
                 what: target_object!(target_slot)
             }) => *target_slot == slot,
             kernel!(ModifyUntil {
@@ -1642,13 +1650,21 @@ impl Strategy<'_> {
         if s.controller == v.viewer
             && p.instructions.iter().any(|instruction| {
                 let I::Kernel { node, source_block } = instruction;
+                // CR 702.116a: myriad's optional copy sits under its
+                // per-opponent iteration.
+                let node = match node {
+                    kir::Node::ForEach { body, .. } => body.as_ref(),
+                    node => node,
+                };
                 block == Some(*source_block)
                     && matches!(node, kir::Node::Optional { node, .. } if matches!(
                         node.as_ref(),
-                        kir::Node::Do(kir::Verb::CreateTokens { .. } | kir::Verb::PutCounters {
-                            on: kir::SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, .. },
-                            ..
-                        })
+                        kir::Node::Do(kir::Verb::CreateTokens { .. }
+                            | kir::Verb::CreateMyriadToken { .. }
+                            | kir::Verb::PutCounters {
+                                on: kir::SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, .. },
+                                ..
+                            })
                     ))
             })
         {
