@@ -1,6 +1,6 @@
 //! Combat-triggered keywords lowered to their defining triggers, from exact
-//! frozen R5 source on private boards: CR 702.83 (exalted) and 702.116
-//! (myriad).
+//! frozen R5 source on private boards: CR 702.83 (exalted), 702.116
+//! (myriad), 702.105 (dethrone) and 702.149 (training).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -10,6 +10,9 @@ const CATHEDRAL_OF_WAR: &str = record!("5ff647e4-730a-498f-8f2c-5bd64d5a9780");
 const BANSHEE_OF_THE_DREAD_CHOIR: &str = record!("282b4dbf-ec00-48ba-8010-73bee489fa7a");
 const SCURRY_OF_SQUIRRELS: &str = record!("3beed054-a099-4887-b1bd-39cf9e514e94");
 const CALLER_OF_THE_PACK: &str = record!("3b6cbd2a-02ba-4afb-a081-0f25d830a8ee");
+const GRENZOS_CUTTHROAT: &str = record!("9a133991-8a7a-4bfd-b0ae-d76433450c03");
+const APPRENTICE_SHARPSHOOTER: &str = record!("40d6e1ff-995b-42fc-8146-8d5e5f1adcd9");
+const GRYFF_RIDER: &str = record!("e1ca5c24-bbd8-4eed-bb2b-17163f90e72b");
 
 fn power_toughness(g: &Game, object: ObjectId) -> (Option<Quantity>, Option<Quantity>) {
     let c = g.characteristics(object).unwrap();
@@ -328,4 +331,72 @@ fn myriad_rejects_entry_replacements_by_name() {
         let error = definition_cells(&d).unwrap_err();
         assert!(format!("{error:?}").contains("myriad"), "{error:?}");
     }
+}
+
+fn plus_one(g: &Game, object: ObjectId) -> Quantity {
+    g.current(object).unwrap().plus_one_counters.clone()
+}
+
+/// Four seats at 40, 40, 30 and 40 life. Grenzo's Cutthroat attacking seat
+/// 1, tied with seats 0 and 3 for the most life, gets a +1/+1 counter;
+/// attacking seat 2 it gets none (CR 702.105a, read at the declaration).
+#[test]
+fn dethrone_counts_only_an_attack_on_the_player_with_the_most_life() {
+    for (defender, counters) in [(1, 1), (2, 0)] {
+        let mut g = Game::with_trace(
+            prepare(
+                board(&[GRENZOS_CUTTHROAT], TurnStep::BeginningCombat)
+                    .seats(4)
+                    .life(PlayerId(2), Quantity::from(30))
+                    .permanent_or_hand("Grenzo's Cutthroat", 0, 0, false),
+            ),
+            TraceMode::Detailed,
+        );
+        let cutthroat = Driver::object(&g, 0);
+        declare(&mut g, &[(cutthroat, PlayerId(defender))]);
+        assert_eq!(triggers_of(&g, cutthroat), counters);
+        settle(&mut g);
+        assert_eq!(plus_one(&g, cutthroat), Quantity::from(counters as i64));
+        assert_recoverable((&g).into());
+    }
+}
+
+/// Apprentice Sharpshooter (1/4) and Gryff Rider (2/1) attack with Grizzly
+/// Bears (2/2): only the Sharpshooter attacks with a creature of greater
+/// power, so only it trains (CR 702.149a); Gryff Rider's equal-power
+/// companion does not count.
+#[test]
+fn training_needs_another_attacker_with_greater_power() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(
+                &[APPRENTICE_SHARPSHOOTER, GRYFF_RIDER],
+                TurnStep::BeginningCombat,
+            )
+            .permanent_or_hand("Apprentice Sharpshooter", 0, 0, false)
+            .permanent_or_hand("Gryff Rider", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (sharpshooter, rider, bears) = (
+        Driver::object(&g, 0),
+        Driver::object(&g, 1),
+        Driver::object(&g, 2),
+    );
+    declare(
+        &mut g,
+        &[
+            (sharpshooter, PlayerId(1)),
+            (rider, PlayerId(1)),
+            (bears, PlayerId(1)),
+        ],
+    );
+    assert_eq!(triggers_of(&g, sharpshooter), 1);
+    assert_eq!(triggers_of(&g, rider), 0);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(plus_one(&g, sharpshooter), Quantity::from(1));
+    assert_eq!(plus_one(&g, rider), Quantity::zero());
+    assert_recoverable((&g).into());
 }

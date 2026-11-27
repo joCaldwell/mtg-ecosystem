@@ -2277,7 +2277,10 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
         E::BecomesTapped { .. } if *pattern == E::self_becomes_tapped() => {
             Capability::SourceTapTriggerV1
         }
-        E::Attacks { .. } | E::AttacksAlone { .. } => Capability::AttackTriggerV1,
+        E::Attacks { .. }
+        | E::AttacksAlone { .. }
+        | E::AttacksWithGreaterPower { .. }
+        | E::AttacksPlayerWithMostLife { .. } => Capability::AttackTriggerV1,
         E::Cast { spell, .. } => {
             if matches!(spell.0.as_slice(), [Atom::Color { .. }]) {
                 caps.push(Capability::CastColorPredicateV1);

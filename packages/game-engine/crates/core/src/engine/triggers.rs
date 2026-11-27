@@ -261,6 +261,13 @@ pub enum TriggerEventWitness {
         /// CR 506.5: the only creature declared as an attacker.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         alone: bool,
+        /// CR 702.149a: another creature of greater power was declared too.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        outpowered: bool,
+        /// CR 702.105a: the defender had the most life or tied for most
+        /// life among the players in the game.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        most_life: bool,
     },
     AttackerUnblocked {
         attacker: Box<ObjectBefore>,
@@ -983,8 +990,23 @@ impl RulesTxn {
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 EventOutcome::AttackersDeclared { attacks } => {
                     let mut witnesses = Vec::new();
+                    let power = |object: ObjectId| -> Result<Option<Quantity>, String> {
+                        Ok(before.object_before(object)?.characteristics.power)
+                    };
+                    let life = |p: PlayerId| &before.state.rules.players[p.0 as usize].life;
+                    let most = before.apnap_players().into_iter().map(life).max().cloned();
                     for (attacker, defender) in attacks {
                         let prior = before.object_before(*attacker)?;
+                        let mut outpowered = false;
+                        if let Some(own) = &prior.characteristics.power {
+                            for (other, _) in attacks {
+                                if other != attacker && power(*other)?.is_some_and(|p| p > *own) {
+                                    outpowered = true;
+                                }
+                            }
+                        }
+                        let most_life =
+                            before.is_live(*defender) && most.as_ref() == Some(life(*defender));
                         // The declaration leaf applies its taps internally
                         // (508.1f). Vigilance leaves the source untapped.
                         if !prior.tapped
@@ -998,6 +1020,8 @@ impl RulesTxn {
                             defender_player_id: *defender,
                             // CR 506.5: only the declaration's sole attacker.
                             alone: attacks.len() == 1,
+                            outpowered,
+                            most_life,
                         });
                     }
                     witnesses
@@ -1536,10 +1560,18 @@ impl RulesTxn {
                                 live: observers.is_live(attacker.controller),
                             }), you, attacker.object, &identity))
                     }
-                    // CR 506.5, 702.83a: "attacks alone".
-                    EventPattern::AttacksAlone { attacker: pred } => {
-                        matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, alone: true, .. }
-                            if holds(pred, Some(&Frozen {
+                    // CR 506.5, 702.83a: "attacks alone"; CR 702.149a: with a
+                    // greater-power attacker; CR 702.105a: the player with
+                    // the most life.
+                    EventPattern::AttacksAlone { attacker: pred }
+                    | EventPattern::AttacksWithGreaterPower { attacker: pred }
+                    | EventPattern::AttacksPlayerWithMostLife { attacker: pred } => {
+                        matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, alone, outpowered, most_life, .. }
+                            if match pattern {
+                                EventPattern::AttacksAlone { .. } => *alone,
+                                EventPattern::AttacksWithGreaterPower { .. } => *outpowered,
+                                _ => *most_life,
+                            } && holds(pred, Some(&Frozen {
                                 facts: attacker,
                                 token: token(attacker.object),
                                 live: observers.is_live(attacker.controller),
@@ -2828,6 +2860,8 @@ impl RulesTxn {
                 attacker,
                 defender_player_id,
                 alone,
+                outpowered,
+                most_life,
                 ..
             } => {
                 // CR 603.3a: the controller of the attacking source at the
@@ -2859,15 +2893,20 @@ impl RulesTxn {
                             attacker.object,
                             &identity(attacker.object),
                         ),
-                        EventPattern::AttacksAlone { attacker: pred } => {
-                            *alone
-                                && holds(
-                                    pred,
-                                    Some(&frozen(attacker)),
-                                    controller,
-                                    attacker.object,
-                                    &identity(attacker.object),
-                                )
+                        EventPattern::AttacksAlone { attacker: pred }
+                        | EventPattern::AttacksWithGreaterPower { attacker: pred }
+                        | EventPattern::AttacksPlayerWithMostLife { attacker: pred } => {
+                            (match pattern {
+                                EventPattern::AttacksAlone { .. } => *alone,
+                                EventPattern::AttacksWithGreaterPower { .. } => *outpowered,
+                                _ => *most_life,
+                            }) && holds(
+                                pred,
+                                Some(&frozen(attacker)),
+                                controller,
+                                attacker.object,
+                                &identity(attacker.object),
+                            )
                         }
                         _ => false,
                     }

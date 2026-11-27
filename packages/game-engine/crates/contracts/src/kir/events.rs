@@ -68,6 +68,14 @@ pub enum EventPattern {
     /// CR 506.5, 508.3a: a creature is the only creature declared as an
     /// attacker in its declaration. Matched like [`Self::Attacks`].
     AttacksAlone { attacker: Pred },
+    /// CR 702.149a: a creature is declared as an attacker together with at
+    /// least one other creature of greater power, both read as they were
+    /// before the declaration.
+    AttacksWithGreaterPower { attacker: Pred },
+    /// CR 702.105a: a creature is declared attacking the player with the
+    /// most life or tied for most life among the players in the game, read
+    /// at the declaration.
+    AttacksPlayerWithMostLife { attacker: Pred },
     /// CR 509.1h, 509.3g: no blockers were declared for this attacker.
     AttacksUnblocked { attacker: Pred },
     /// CR 601.2i: a player casts a spell. The spell is matched on its frozen
@@ -202,6 +210,8 @@ impl EventPattern {
             Self::TurnedFaceUp { .. } => "turned_face_up",
             Self::Attacks { .. } => "attacks",
             Self::AttacksAlone { .. } => "attacks_alone",
+            Self::AttacksWithGreaterPower { .. } => "attacks_with_greater_power",
+            Self::AttacksPlayerWithMostLife { .. } => "attacks_player_with_most_life",
             Self::AttacksUnblocked { .. } => "attacks_unblocked",
             Self::Cast { .. } => "cast",
             Self::BecomesTarget { .. } => "becomes_target",
@@ -224,7 +234,10 @@ impl EventPattern {
     pub fn object_role(&self) -> Option<EventObjectRole> {
         match self {
             Self::Enters { .. } => Some(EventObjectRole::Entered),
-            Self::Attacks { .. } | Self::AttacksAlone { .. } => Some(EventObjectRole::Attacked),
+            Self::Attacks { .. }
+            | Self::AttacksAlone { .. }
+            | Self::AttacksWithGreaterPower { .. }
+            | Self::AttacksPlayerWithMostLife { .. } => Some(EventObjectRole::Attacked),
             _ => None,
         }
     }
@@ -247,6 +260,8 @@ impl EventPattern {
             }
             Self::Attacks { attacker }
             | Self::AttacksAlone { attacker }
+            | Self::AttacksWithGreaterPower { attacker }
+            | Self::AttacksPlayerWithMostLife { attacker }
             | Self::AttacksUnblocked { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
@@ -584,6 +599,8 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             EventPattern::Cast { .. }
                 | EventPattern::Attacks { .. }
                 | EventPattern::AttacksAlone { .. }
+                | EventPattern::AttacksWithGreaterPower { .. }
+                | EventPattern::AttacksPlayerWithMostLife { .. }
                 | EventPattern::Blocks { .. }
                 | EventPattern::BecomesBlocked { .. }
                 | EventPattern::BlocksCreature { .. }

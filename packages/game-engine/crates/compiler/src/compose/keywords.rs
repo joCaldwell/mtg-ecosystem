@@ -727,7 +727,8 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
-/// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b, 702.116b). The `bool` states
+/// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b, 702.116b, 702.105b,
+/// 702.149b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
@@ -736,6 +737,8 @@ const TRIGGERED: &[(&str, bool)] = &[
     ("soulshift", true),
     ("exalted", false),
     ("myriad", false),
+    ("dethrone", false),
+    ("training", false),
 ];
 
 pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
@@ -1261,6 +1264,27 @@ pub(super) fn triggered(
                         player: PlayerExpr::you(Context::Triggered),
                     },
                 ]),
+            }
+        }
+        // CR 702.105a: "Whenever this creature attacks the player with the
+        // most life or tied for most life, put a +1/+1 counter on this
+        // creature." CR 702.149a: "Whenever this creature and at least one
+        // other creature with power greater than this creature's power
+        // attack, put a +1/+1 counter on this creature."
+        "dethrone" | "training" if creature => {
+            program.instructions.push(kernel(
+                Node::Do(Verb::PutCounters {
+                    on: this,
+                    counter: kir::CounterKind::PlusOnePlusOne,
+                    amount: kir::Amount::fixed(1),
+                }),
+                block,
+            ));
+            let attacker = Pred::source();
+            if keyword.keyword == "dethrone" {
+                EventPattern::AttacksPlayerWithMostLife { attacker }
+            } else {
+                EventPattern::AttacksWithGreaterPower { attacker }
             }
         }
         // CR 702.116a: the reviewed whole ability (tokens copy the card).
