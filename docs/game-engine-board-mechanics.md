@@ -355,6 +355,26 @@ event-result counts and token-creation replacement abilities reject.
 - Fight deals current power as simultaneous noncombat damage between two legal
   battlefield creatures; self-fight deals double power (CR 701.14).
 
+### Saga enchantments
+
+Single-faced Saga enchantments earn `Executes` (`SagaV1`). Entry includes
+one lore counter as a replacement (CR 122.6, 614.12, 714.3a). Before priority
+in the precombat main phase, the active player simultaneously adds one lore
+counter to each Saga they control with chapter abilities (CR 505.4, 714.3c).
+Lore is a visible permanent counter kind and participates in counter
+placements, counts and proliferate. Removing one lore counter from an
+announced permanent can let that chapter trigger again on a later placement.
+
+Each printed numeral supplies a separate triggered ability. A placement
+triggers every crossed chapter, using its prior and resulting lore totals
+(CR 714.2b–c). Chapters use ordinary APNAP placement, target choices and
+last-known source facts. A Saga at or past its highest current chapter
+number is sacrificed as an SBA once every triggered chapter from that
+incarnation has left the stack, including chapters waiting for placement.
+A Saga with no current chapter abilities stays on the battlefield
+(CR 704.5s, 714.2d, 714.4). Read Ahead, printed Saga creatures, multiface
+Sagas, final-chapter trigger events and unlowered chapter effects reject.
+
 ### Continuous permanent control
 
 `GainControl` captures one battlefield target, the exact source or a matching

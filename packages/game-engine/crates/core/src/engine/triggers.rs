@@ -254,6 +254,12 @@ pub struct ObservedObject {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerEventWitness {
+    /// CR 122.6, 714.2b: actual count change on the same incarnation.
+    LorePlaced {
+        object: ObjectId,
+        previous: Quantity,
+        current: Quantity,
+    },
     /// CR 603.6a, 603.10: an entry whose pattern read the entering
     /// permanent's characteristics, with the facts it was matched on.
     Entered {
@@ -444,6 +450,7 @@ impl TriggerEventWitness {
                 m.previous
             }),
             Self::TokenEntered { object }
+            | Self::LorePlaced { object, .. }
             | Self::Tapped { object, .. }
             | Self::TurnedFaceUp { object, .. }
             | Self::PermanentLeftGame { object, .. } => Some(*object),
@@ -1130,6 +1137,15 @@ impl RulesTxn {
                 EventOutcome::TurnedFaceUp { object, .. } => {
                     self.source_face_up_witness(*object)?.into_iter().collect()
                 }
+                EventOutcome::CountersPlaced { object, placed } => placed
+                    .iter()
+                    .filter(|c| c.counter == kir::CounterKind::Lore)
+                    .map(|c| TriggerEventWitness::LorePlaced {
+                        object: *object,
+                        previous: c.previous.clone(),
+                        current: c.current.clone(),
+                    })
+                    .collect(),
                 EventOutcome::TokenCopied { object, .. } => {
                     vec![TriggerEventWitness::TokenEntered { object: *object }]
                 }
@@ -1341,6 +1357,23 @@ impl RulesTxn {
                 }
                 _ => {}
             }
+            let entry_lore = witnesses
+                .iter()
+                .filter(|w| w.enters())
+                .filter_map(|w| w.subject())
+                .filter_map(|object| {
+                    let current = self
+                        .current(object)
+                        .ok()?
+                        .counter_count(&kir::CounterKind::Lore);
+                    (current > Quantity::zero()).then_some(TriggerEventWitness::LorePlaced {
+                        object,
+                        previous: Quantity::zero(),
+                        current,
+                    })
+                })
+                .collect::<Vec<_>>();
+            witnesses.extend(entry_lore);
             for witness in witnesses {
                 self.collect_resolution_step(&occurrence.id, &witness)?;
                 if witness.dies()
@@ -1362,6 +1395,7 @@ impl RulesTxn {
                             | TriggerEventWitness::BlockedByCreature { .. }
                             | TriggerEventWitness::BecameBlocked { .. }
                             | TriggerEventWitness::PermanentDamaged { .. }
+                            | TriggerEventWitness::LorePlaced { .. }
                     )
                     || witness.leaves()
                 {
@@ -1561,7 +1595,8 @@ impl RulesTxn {
             .filter(|o| o.present_on_battlefield() || Some(o.id) == discarded)
             .filter(|o| {
                 !matches!(&witness, TriggerEventWitness::Tapped { object, .. }
-                | TriggerEventWitness::TurnedFaceUp { object, .. } if o.id != *object)
+                | TriggerEventWitness::TurnedFaceUp { object, .. }
+                | TriggerEventWitness::LorePlaced { object, .. } if o.id != *object)
             })
             // CR 113.10, 603.10: an object without its abilities, read when
             // the observers are, has no triggered ability to trigger.
@@ -1584,6 +1619,11 @@ impl RulesTxn {
                     continue;
                 };
                 let matches = match pattern {
+                    EventPattern::SagaChapter { number } => matches!(
+                        &witness,
+                        TriggerEventWitness::LorePlaced { object: recipient, previous, current }
+                            if *recipient == object.id && sagas::crosses_chapter(previous, current, *number)
+                    ),
                     EventPattern::Enters { object: pred } => {
                         enters && {
                             let subject = subject.ok_or("missing entrant identity")?;
@@ -2861,6 +2901,15 @@ impl RulesTxn {
             return Err("snapshot X/death LKI binding invariant".into());
         }
         let valid = match witness {
+            TriggerEventWitness::LorePlaced {
+                object,
+                previous,
+                current,
+            } => {
+                *object == source
+                    && matches!(pattern, EventPattern::SagaChapter { number }
+                        if sagas::crosses_chapter(previous, current, *number))
+            }
             TriggerEventWitness::ResolutionPaid { .. } => false,
             TriggerEventWitness::PermanentLeftGame { object, owner } => {
                 self.state

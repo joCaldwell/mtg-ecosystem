@@ -827,6 +827,9 @@ impl Walk<'_, '_> {
                 self.set(what)?;
                 self.destination(to)
             }
+            Verb::RemoveLoreCounter { from } => self
+                .expect(from, &[RefKind::Object], "lore removal target")
+                .map(|_| ()),
             Verb::PutCounters {
                 on,
                 counter,
@@ -1511,6 +1514,7 @@ impl Walk<'_, '_> {
             }
             Verb::Counter { .. } => unaudited("counter requires a direct instruction or payment"),
             Verb::Regenerate { .. } => unaudited("regeneration needs persistent provenance"),
+            Verb::RemoveLoreCounter { .. } => unaudited("lore removal needs a direct instruction"),
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
@@ -1687,6 +1691,18 @@ impl Walk<'_, '_> {
                 counter,
                 amount,
             } => self.audit_counters(on, counter, amount),
+            Verb::RemoveLoreCounter { from } => match from {
+                Ref::Target { slot }
+                    if matches!(
+                        self.domain(*slot)?,
+                        TargetDomain::BattlefieldPermanent
+                            | TargetDomain::ControlledBattlefieldPermanent
+                    ) =>
+                {
+                    Ok(Cell::RemoveLoreCounter)
+                }
+                _ => unaudited("lore counter removal recipient"),
+            },
             Verb::ModifyUntil {
                 what,
                 layer,
@@ -1860,6 +1876,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::PutCounters {
             counter, amount, ..
         } => counters::capabilities(counter, amount, out),
+        Verb::RemoveLoreCounter { .. } => {
+            out.insert(Capability::SagaV1);
+        }
         Verb::ModifyUntil { what, change, .. } => modify::capabilities(what, change, out),
         Verb::GainControl { .. } => {
             out.insert(Capability::ResolvedControlV1);

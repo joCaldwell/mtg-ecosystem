@@ -961,6 +961,14 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     let key = a.condition.reporting_key();
     kir::check_event(pattern, d.characteristics.is_attachment())
         .map_err(|e| format!("cell:trigger:{key}:{e}"))?;
+    if matches!(pattern, kir::EventPattern::SagaChapter { .. })
+        && (d.characteristics.subtypes != ["Saga"]
+            || a.condition.once_each_turn()
+            || a.condition.your_turn()
+            || a.condition.intervening_if().is_some())
+    {
+        return cell("trigger", "saga_chapter:source_or_restriction");
+    }
     if let Some(condition) = a.condition.intervening_if()
         && !kir::Intervening::of(condition).is_ok_and(|i| i.admits(pattern))
     {
@@ -1309,8 +1317,22 @@ fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), Strin
 /// earns no tier, however its capabilities and cells are reviewed.
 pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     let c = &d.characteristics;
-    // Whole-card characteristics the composition tables do not describe
-    // reject, including snow and Sagas. A spell's X and hybrid or
+    // CR 714.2, 714.3: admit printed single-faced Saga enchantments
+    // with chapter abilities. Other layouts and Saga creatures reject.
+    let saga = c.has_subtype("Saga");
+    if saga
+        && (c.kind != CardKind::Enchantment
+            || c.subtypes != ["Saga"]
+            || d.layout != FaceLayout::Single
+            || d.back_face.is_some()
+            || !d
+                .triggered
+                .iter()
+                .any(|a| matches!(a.condition.pattern(), kir::EventPattern::SagaChapter { .. })))
+    {
+        return cell("shell", "saga");
+    }
+    // A spell's X and hybrid or
     // Phyrexian symbols are announced while casting (CR 107.3, 107.4e-f,
     // 601.2b/f); a land has no mana cost to announce (CR 305.1).
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
@@ -1332,6 +1354,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
             // CR 715.2: only an instant or sorcery Adventure; `validate`
             // admits it only as an adventurer's back part.
             (unsupported_rules_subtype(s)
+                && s != "Saga"
                 && !(s == "Adventure"
                     && matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
                     && c.subtypes == ["Adventure"]))
@@ -1731,7 +1754,11 @@ fn modal_shape(base: &SpellProgram, modal: &ModalSpell, ability: bool) -> Result
                 && variant.instructions.iter().any(|instruction| {
                     let Instruction::Kernel { node, .. } = instruction;
                     let slots = kir::target_slots(node);
-                    !slots.is_empty() && !matches!(node, kir::Node::Do(_) if slots.len() == 1)
+                    // A fight reads both independent targets and does nothing
+                    // if either is illegal (CR 608.2b, 701.14b).
+                    !slots.is_empty()
+                        && !matches!(node, kir::Node::Do(_) if slots.len() == 1)
+                        && !matches!(node, kir::Node::Do(kir::Verb::Fight { .. }) if slots.len() == 2)
                 }))
             || (ability && variant.optional_target)
         {

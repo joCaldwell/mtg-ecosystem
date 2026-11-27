@@ -152,6 +152,9 @@ pub enum ProposedEvent {
         object: ObjectId,
         counters: Vec<CounterAmount>,
     },
+    RemoveLoreCounter {
+        object: ObjectId,
+    },
     /// CR 122.3, 704.5q: remove `amount` +1/+1 and `amount` -1/-1 counters.
     AnnihilateCounters {
         object: ObjectId,
@@ -423,6 +426,10 @@ pub enum EventOutcome {
     CountersPlaced {
         object: ObjectId,
         placed: Vec<CounterChange>,
+    },
+    LoreCounterRemoved {
+        object: ObjectId,
+        previous: Quantity,
     },
     CountersAnnihilated {
         object: ObjectId,

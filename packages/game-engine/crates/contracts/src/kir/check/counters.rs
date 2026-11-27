@@ -95,6 +95,9 @@ pub(super) fn capabilities(counter: &CounterKind, amount: &Amount, out: &mut BTr
         CounterKind::Stun => {
             out.insert(Capability::StunCountersV1);
         }
+        CounterKind::Lore => {
+            out.insert(Capability::SagaV1);
+        }
         CounterKind::Named { .. } => {
             out.insert(Capability::NamedCountersV1);
         }

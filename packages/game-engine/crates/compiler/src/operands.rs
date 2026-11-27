@@ -425,7 +425,23 @@ pub(crate) fn lower_reviewed_set(
         ObjectSet::FlyingCreatures,
         ObjectSet::NonflyingCreatures,
     ];
-    let set = lower_board_set(what, context)?;
+    let mut set = lower_board_set(what, context)?;
+    // CR 205.3m, 308.2: a positive creature subtype also identifies a
+    // creature here, because no admitted card or effect adds the Kindred
+    // type. This is the controlled-subtype form of a fixed pump.
+    if let SetExpr::Matching { filter, .. } = &mut set
+        && let [Atom::Subtype { subtype }, Atom::ControlledBy { player }] = filter.0.as_slice()
+        && kir::is_creature_subtype(subtype)
+        && *player == PlayerExpr::you(context)
+    {
+        filter.0.insert(
+            0,
+            Atom::Type {
+                kind: CardKind::Creature,
+            },
+        );
+        return Ok(set);
+    }
     if !REVIEWED
         .iter()
         .any(|reviewed| reviewed.kernel(context) == set)
@@ -1504,7 +1520,9 @@ fn target_characteristic_atoms(
         (&filter.non_subtypes, "non_subtypes", false),
     ] {
         for subtype in listed(list, field)? {
-            if subtype.is_empty() || mtg_contracts::unsupported_rules_subtype(subtype) {
+            if subtype.is_empty()
+                || (mtg_contracts::unsupported_rules_subtype(subtype) && subtype != "Saga")
+            {
                 return Err(operand("target_filter", format!("{field}:{subtype}")));
             }
             let subtype = subtype.clone();
@@ -2310,6 +2328,7 @@ pub(crate) fn object_counter_kind(name: &str) -> Result<kir::CounterKind, Failur
                 .map_err(|_| unsupported("effects.steps", "verb:put-counters:counter_kind"))?,
         }),
         "stun" => Ok(kir::CounterKind::Stun),
+        "lore" => Ok(kir::CounterKind::Lore),
         name if kir::plain_counter_name(name) => Ok(kir::CounterKind::Named { name: name.into() }),
         _ => Err(unsupported(
             "effects.steps",

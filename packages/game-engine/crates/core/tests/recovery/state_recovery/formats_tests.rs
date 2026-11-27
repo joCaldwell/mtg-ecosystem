@@ -20,16 +20,16 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    102,
-    "ba718027f48a3a43195d9b7be3f74e8e8429314527f4d265fbfcec8bf09b8a7c",
+    103,
+    "b6deaffcbc76abe4690fb966553af4cc9c7f6ee53a48744a2e3fddbbbecb8c03",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    132,
-    "f26ccc3e861131390e5ab28526e2505dfeedfa7587626a778414d3908f2295e3",
+    133,
+    "f75c55a4213f6b3f0a186377c4b156235d4626cfa060c5de14e980d8bf571c8d",
 );
 const WORK_PIN: (u32, &str) = (
-    64,
-    "457d166e0eb8fafe7caadb513d8df47defbd2fb78904b44cf008fef8d55e6e45",
+    65,
+    "21374626abe37f1e047337eb6d879071e541e3f2bc269de746ff056b0969164a",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -884,6 +884,42 @@ fn suspended_convoke() -> Game {
     game
 }
 
+/// A frozen Saga cast that entered with a lore counter and put its first
+/// chapter on the stack (CR 714.2b, 714.3a).
+fn saga_chapter() -> Game {
+    let mut game = Game::new(
+        Board::new(
+            FixtureCatalog::Witness.get().clone(),
+            "formats-saga-chapter",
+        )
+        .seats(2)
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("The Birth of Meletis", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1, 2]);
+    for _ in 0..8 {
+        let d = Driver::request(&mut game, u64::MAX);
+        assert_eq!(d.reason, Reason::Priority);
+        if game.state.rules.stack.last().is_some_and(|entry| {
+            matches!(
+                &entry.kind,
+                StackKind::Triggered {
+                    witness: TriggerEventWitness::LorePlaced { .. },
+                    ..
+                }
+            )
+        }) {
+            return game;
+        }
+        Driver::pass(&mut game);
+    }
+    panic!("Saga chapter did not reach the stack");
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -897,6 +933,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             pending_stack_target(),
             suspended_delve(),
             suspended_convoke(),
+            saga_chapter(),
         ])
         .chain(mana_riders())
         .chain([granted_mana()])
@@ -1080,6 +1117,16 @@ fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
     game.restore_work(&raw).unwrap();
     samples.push(raw);
     samples.push(search_with_blocker_limit());
+    let saga = saga_chapter();
+    let viewer = PlayerId(0);
+    let units = saga.observation_work_units(viewer).unwrap();
+    let QueryResult::Incomplete { work, .. } = saga.observe(viewer, Budget::new(units - 1)) else {
+        panic!("Saga observation should suspend");
+    };
+    let raw = saga.save_work(&work).unwrap();
+    assert!(raw.contains(r#""counter":"lore""#));
+    saga.restore_work(&raw).unwrap();
+    samples.push(raw);
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();
         assert_eq!(value["work_version"], WORK_VERSION);

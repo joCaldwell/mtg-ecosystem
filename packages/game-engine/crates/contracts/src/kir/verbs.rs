@@ -81,6 +81,9 @@ pub enum CounterKind {
     /// CR 122.1d: untapping removes one instead.
     #[serde(deserialize_with = "no_operands")]
     Stun,
+    /// CR 714.2b and 714.4.
+    #[serde(deserialize_with = "no_operands")]
+    Lore,
     Named {
         name: String,
     },
@@ -143,7 +146,7 @@ impl CounterKind {
     /// kernel check and every validated state admit exactly these.
     pub fn admitted(&self) -> bool {
         match self {
-            Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Stun => true,
+            Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Stun | Self::Lore => true,
             Self::Keyword { keyword } => {
                 crate::supported_temporary_keywords(std::slice::from_ref(keyword))
             }
@@ -578,6 +581,10 @@ pub enum Verb {
         on: SetExpr,
         counter: CounterKind,
         amount: Amount,
+    },
+    /// CR 122.1, 609.3: remove one lore counter from a legal target.
+    RemoveLoreCounter {
+        from: Ref,
     },
     /// CR 111.
     CreateTokens {

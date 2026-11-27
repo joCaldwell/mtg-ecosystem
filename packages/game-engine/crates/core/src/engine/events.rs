@@ -25,6 +25,7 @@ pub enum BatchCause {
     },
     TurnProgression,
     UntapStep,
+    PrecombatMainLore,
     DrawStep {
         player: PlayerId,
     },
@@ -94,6 +95,7 @@ impl BatchCause {
             Self::LandPlay { .. } => &["305.1", "305.2", "305.3", "400.7"],
             Self::TurnProgression => &["106.4", "500.5", "800.4j"],
             Self::UntapStep => &["502.3", "502.4"],
+            Self::PrecombatMainLore => &["505.4", "714.3c"],
             Self::DrawStep { .. } => &["504.1", "400.7"],
             Self::InstructionDraw { .. } => &["121.1", "121.2", "400.7", "608.2"],
             Self::ManaActivation { .. } => &["106.3", "305.6", "605.3b"],
@@ -336,6 +338,8 @@ enum BatchAuthority<'a> {
     CreateRegenerationShield,
     CounterStackObject,
     PlaceCounters,
+    PlaceMainPhaseLore,
+    RemoveLoreCounter,
     /// CR 614.1c, 614.12: the entry replacements chosen for each entrant
     /// of one entry batch, all read against the same prior state.
     BattlefieldEntry {
@@ -417,6 +421,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             (keys.clone(), keys)
         }
         ProposedEvent::PutCounters { object, .. }
+        | ProposedEvent::RemoveLoreCounter { object }
         | ProposedEvent::AnnihilateCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
@@ -706,6 +711,7 @@ fn collect<'a>(
     limit: usize,
     out: &mut Vec<&'a ProposedEvent>,
     library_append: bool,
+    cause: &BatchCause,
 ) -> Result<(), String> {
     if depth > capacities::EVENT_GROUP_DEPTH {
         return Err("event group depth resource limit".into());
@@ -717,7 +723,7 @@ fn collect<'a>(
                 return Err("empty or oversized ordered group".into());
             }
             for child in children {
-                collect(child, game, depth + 1, limit, out, false)?;
+                collect(child, game, depth + 1, limit, out, false, cause)?;
             }
         }
         EventGroup::Simultaneous { occurrences } => {
@@ -768,6 +774,13 @@ fn collect<'a>(
             out.extend(occurrences);
             if !independent_footprints(occurrences.iter().map(|event| {
                 let (mut reads, mut writes) = access(event, game);
+                // CR 704.3: Saga sacrifice and player loss share the SBA
+                // sweep. Sacrifice reads liveness from the common prior state.
+                if *cause == BatchCause::StateBased
+                    && let ProposedEvent::Sacrifice { player, .. } = event
+                {
+                    reads.remove(&FactKey::Life(*player));
+                }
                 if library_append {
                     // CR 701.24a,c–d, 903.9b: the authorized paid shuffle
                     // appends distinct cards from one graveyard before randomizing
@@ -970,6 +983,7 @@ impl RulesTxn {
                     players.insert(*player);
                 }
                 ProposedEvent::PutCounters { object, .. }
+                | ProposedEvent::RemoveLoreCounter { object }
                 | ProposedEvent::AnnihilateCounters { object, .. } => {
                     objects.insert(*object);
                 }
@@ -1557,7 +1571,17 @@ impl RulesTxn {
             self.event_group_limit(),
             &mut events,
             library_append,
+            &cause,
         )?;
+        if cause == BatchCause::StateBased {
+            for event in &events {
+                if let ProposedEvent::Sacrifice { object, .. } = event
+                    && self.saga_sacrifice(self.current(*object)?, None)?.as_ref() != Some(*event)
+                {
+                    return Err("state-based sacrifice requires a finished Saga".into());
+                }
+            }
+        }
         if events.iter().any(|e| {
             matches!(
                 e,
@@ -1635,6 +1659,11 @@ impl RulesTxn {
                 entries: entry_override,
                 land,
             }
+        } else if cause == BatchCause::PrecombatMainLore {
+            if self.main_phase_lore_group()?.as_ref() != Some(&group) {
+                return Err("unauthorized precombat main lore placement".into());
+            }
+            BatchAuthority::PlaceMainPhaseLore
         } else if placing
             || events.iter().any(|e| {
                 matches!(
@@ -1645,6 +1674,12 @@ impl RulesTxn {
         {
             self.authorize_counter_batch(&cause, &group)?;
             BatchAuthority::PlaceCounters
+        } else if events
+            .iter()
+            .any(|event| matches!(event, ProposedEvent::RemoveLoreCounter { .. }))
+        {
+            self.authorize_lore_removal(&cause, &group)?;
+            BatchAuthority::RemoveLoreCounter
         } else if events
             .iter()
             .any(|event| regeneration::creates_shield(event))
@@ -2121,6 +2156,15 @@ impl RulesTxn {
             }
         }
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
+        let counters = if *destination == Zone::Battlefield && !face_down_entry {
+            let prior = entry_state.unwrap_or(self);
+            prior.entry_lore_counters(
+                face_id,
+                batch.checked_sub(1).ok_or("missing lore entry batch")?,
+            )?
+        } else {
+            vec![]
+        };
         let keyword_rank = self.apnap_rank(controller);
         let control_upkeeps = (*destination == Zone::Battlefield)
             .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
@@ -2136,7 +2180,7 @@ impl RulesTxn {
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 keyword_rank,
                 plus_one_counters,
-                counters: vec![],
+                counters,
                 transforms: 0,
                 adventure_player: None,
                 // CR 702.37c, 708.4: a face-down spell becomes a face-down
@@ -2555,7 +2599,10 @@ impl RulesTxn {
                 }
             }
             ProposedEvent::PutCounters { object, counters } => {
-                if !matches!(authority, BatchAuthority::PlaceCounters) {
+                if !matches!(
+                    authority,
+                    BatchAuthority::PlaceCounters | BatchAuthority::PlaceMainPhaseLore
+                ) {
                     return Err("counter placement requires complete batch authority".into());
                 }
                 // The staged allocation checks which permanents this instruction
@@ -2596,6 +2643,22 @@ impl RulesTxn {
                 EventOutcome::CountersPlaced {
                     object: *object,
                     placed,
+                }
+            }
+            ProposedEvent::RemoveLoreCounter { object } => {
+                if !matches!(authority, BatchAuthority::RemoveLoreCounter) {
+                    return Err("lore removal requires direct resolution authority".into());
+                }
+                let recipient = self
+                    .rules_mut()
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing lore recipient")?;
+                let previous = recipient
+                    .remove_counters(&mtg_contracts::kir::CounterKind::Lore, &Quantity::from(1));
+                EventOutcome::LoreCounterRemoved {
+                    object: *object,
+                    previous,
                 }
             }
             ProposedEvent::AnnihilateCounters { object, amount } => {
@@ -2753,7 +2816,7 @@ impl RulesTxn {
                 }
             }
             ProposedEvent::Sacrifice { object, player } => {
-                if !self.is_live(*player)
+                if !entry_state.unwrap_or(self).is_live(*player)
                     || !self.current(*object)?.present_on_battlefield()
                     || self.current(*object)?.controller != *player
                 {

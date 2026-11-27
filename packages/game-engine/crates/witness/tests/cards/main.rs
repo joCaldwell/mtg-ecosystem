@@ -19,6 +19,7 @@ mod permanents_mana;
 mod removal_wipes;
 mod replacement_prevention;
 mod resolution_moves;
+mod sagas;
 mod target_operands;
 mod token_creation;
 mod transform_adventure;

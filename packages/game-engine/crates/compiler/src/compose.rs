@@ -22,6 +22,7 @@ pub(crate) mod keywords;
 mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
+mod sagas;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -111,6 +112,12 @@ enum Block {
         effects: Vec<serde_json::Value>,
         /// "This ability triggers only once each turn."
         limit: Option<serde_json::Value>,
+    },
+    Chapter {
+        chapters: Vec<i64>,
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
+        effects: Vec<serde_json::Value>,
     },
     Spell {
         #[serde(rename = "abilityWord")]
@@ -429,6 +436,12 @@ fn trigger(
     condition: Option<&serde_json::Value>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
+    if raw["trigger"] == "final-chapter-ability" {
+        return Err(unsupported(
+            "compose.block",
+            "trigger:final-chapter-ability",
+        ));
+    }
     // CR 102.1, 500.1: "[event] during your turn" lowers the event without
     // the window, then requires the controller to be the active player.
     if let Some(during) = raw.get("during") {
@@ -887,6 +900,18 @@ fn compose(
     }
     for (index, (_, face)) in card.faces.iter().enumerate() {
         resolution.cover_spend_riders(index, face.abilities.get())?;
+        if face.abilities.get().contains("\"final-chapter-ability\"") {
+            let abilities: Vec<serde_json::Value> = decode(face.abilities.get(), "abilities")?;
+            if abilities
+                .iter()
+                .any(|a| a["trigger"]["trigger"] == "final-chapter-ability")
+            {
+                return Err(unsupported(
+                    "compose.block",
+                    "trigger:final-chapter-ability",
+                ));
+            }
+        }
     }
     binding_gate(resolution.complete(), &mut deferred)?;
     let mut lowered = Vec::new();
@@ -1612,6 +1637,30 @@ fn compose_face(
                         .as_mut()
                         .ok_or_else(|| unsupported("additional-cost", "source"))?;
                     costs::spell_additional(&costs, &result.lines[block].text, spell)?;
+                }
+                Block::Chapter {
+                    chapters,
+                    ability_word,
+                    effects,
+                } => {
+                    let site = control::Site {
+                        resolution,
+                        index: block,
+                        printed: &printed[block],
+                        context: Context::Triggered,
+                    };
+                    let abilities = sagas::chapters(
+                        &card,
+                        chapters,
+                        &ability_word,
+                        &effects,
+                        &result.lines[block].text,
+                        &site,
+                    )?;
+                    labels
+                        .triggered
+                        .extend(std::iter::repeat_n(label, abilities.len()));
+                    definition.triggered.extend(abilities);
                 }
                 Block::Triggered {
                     ability_word: word,

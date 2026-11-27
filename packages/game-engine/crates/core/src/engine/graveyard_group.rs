@@ -348,6 +348,12 @@ impl GraveyardGroup {
         }
         let mut seen = BTreeSet::new();
         for event in leaves {
+            if matches!(self.finish, GroupFinish::StateBased { .. })
+                && let ProposedEvent::Sacrifice { object, .. } = event
+                && game.saga_sacrifice(game.current(*object)?, None)?.as_ref() != Some(event)
+            {
+                return Err("retained state-based sacrifice requires a finished Saga".into());
+            }
             if let Some(object) = Self::object(event)
                 && !seen.insert(object)
             {
@@ -419,7 +425,7 @@ impl GraveyardGroup {
                         if *player == game.state.rules.turn_owner && game.zone(*object) == Some(Zone::Hand { owner: *player }))
                 })
             }
-            GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(game.saved_frame(*resume)?, Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..} | ProposedEvent::AnnihilateCounters {..})),
+            GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(game.saved_frame(*resume)?, Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..} | ProposedEvent::AnnihilateCounters {..} | ProposedEvent::Sacrifice {..})),
         };
         if !producing {
             return Err("graveyard wave producer mismatch".into());
@@ -596,6 +602,15 @@ impl RulesTxn {
         let mut leaves = vec![];
         for event in GraveyardGroup::leaves(&tx.group)? {
             let keep = match event {
+                ProposedEvent::Sacrifice { object, .. }
+                    if matches!(tx.finish, GroupFinish::StateBased { .. }) =>
+                {
+                    if let Ok(o) = self.current(*object) {
+                        self.saga_sacrifice(o, None)?.as_ref() == Some(event)
+                    } else {
+                        false
+                    }
+                }
                 ProposedEvent::Sacrifice { object, player } => {
                     self.current(*object).is_ok_and(|o| {
                         o.present_on_battlefield()

@@ -301,6 +301,9 @@ impl RulesTxn {
                 counter,
                 amount,
             } => self.give_counters(frame, &player, counter, &amount, source_block),
+            Verb::RemoveLoreCounter {
+                from: Ref::Target { slot },
+            } => self.remove_lore_counter(frame, slot, source_block),
             Verb::Populate { .. } => self.begin_keyword_choice(frame, ResolutionChoice::Populate),
             Verb::Proliferate { .. } => {
                 self.begin_keyword_choice(frame, ResolutionChoice::Proliferate)

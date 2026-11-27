@@ -536,6 +536,18 @@ impl RulesTxn {
                         definition,
                     },
                 );
+                let batch = self
+                    .state
+                    .rules
+                    .next_batch_id
+                    .checked_sub(1)
+                    .ok_or("missing token entry batch")?;
+                let counters = self.entry_lore_counters(object, batch)?;
+                self.rules_mut()
+                    .objects
+                    .get_mut(&card)
+                    .ok_or("missing copied token")?
+                    .counters = counters;
                 Ok(EventOutcome::TokenCopied {
                     object,
                     controller: *controller,
