@@ -190,6 +190,16 @@ fn finish(g: &mut Game) {
     let _ = settle(g);
     assert!(g.state.rules.stack.is_empty());
 }
+fn finish_discard_instruction(g: &mut Game) {
+    for _ in 0..8 {
+        let _ = g.advance(Budget::new(1));
+        if matches!(g.state.rules.frame, Frame::Resolve { ref frame } if frame.cursor == 2) {
+            return;
+        }
+    }
+    panic!("discard did not reach its instruction boundary");
+}
+
 fn hand(g: &Game, p: u8) -> usize {
     g.state
         .rules
@@ -211,7 +221,7 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
     assert_eq!(hand(&g, 0), 2);
     assert_eq!(hand(&g, 1), 1);
     assert!(
-        matches!(g.state.rules.frame,Frame::ResolutionChoice {ref frame,..} if frame.cursor==1 && matches!(frame.outcomes.as_slice(),[InstructionOutcome::Drawn {player:PlayerId(0),failed:false,movement:Some(_)}]))
+        matches!(g.state.rules.frames.first(),Some(Frame::Resolve {frame}) if frame.cursor==1 && matches!(frame.outcomes.as_slice(),[InstructionOutcome::Drawn {player:PlayerId(0),failed:false,movement:Some(_)}]))
     );
 
     let own = view(&g, 0).decision.unwrap();
@@ -278,7 +288,7 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
     };
     g.submit(receipt).unwrap();
 
-    let _ = g.advance(Budget::new(1));
+    finish_discard_instruction(&mut g);
     assert_eq!(
         g.state.rules.objects[&CardId(1)].zone,
         Zone::Graveyard { owner: PlayerId(0) }
@@ -297,7 +307,7 @@ fn damage_controller_discard_empty_library_still_discards_before_failed_draw_sba
     assert!(g.is_live(PlayerId(0)));
     assert_eq!(hand(&g, 0), 1);
     assert!(
-        matches!(g.state.rules.frame,Frame::ResolutionChoice {ref frame,..} if matches!(frame.outcomes.as_slice(),[InstructionOutcome::Drawn {player:PlayerId(0),failed:true,movement:None}]))
+        matches!(g.state.rules.frames.first(),Some(Frame::Resolve {frame}) if matches!(frame.outcomes.as_slice(),[InstructionOutcome::Drawn {player:PlayerId(0),failed:true,movement:None}]))
     );
 
     let object = g.object_id(CardId(1)).unwrap();
@@ -305,7 +315,7 @@ fn damage_controller_discard_empty_library_still_discards_before_failed_draw_sba
         let selected_answer = g.next_test_decision().pick_objects(vec![object]);
         answer(&mut g, selected_answer)
     };
-    let _ = g.advance(Budget::new(1));
+    finish_discard_instruction(&mut g);
     assert!(g.is_live(PlayerId(0)));
     assert_eq!(
         g.state.rules.objects[&CardId(1)].zone,
@@ -373,7 +383,7 @@ fn damage_controller_discard_hidden_commander_draw_replacement_resumes_at_discar
             }
         ));
         assert!(
-            matches!(g.state.rules.frame,Frame::ResolutionChoice {ref frame,..} if frame.cursor==1)
+            matches!(g.state.rules.frames.first(),Some(Frame::Resolve {frame}) if frame.cursor==1)
         );
         assert_eq!(g.state.rules.libraries[&PlayerId(0)].first(), Some(&next));
         assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 3);
