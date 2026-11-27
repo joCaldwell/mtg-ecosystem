@@ -145,20 +145,29 @@ impl RulesTxn {
                 }
             }
             InstructionOutcome::CounterPlacements { events } => {
-                // One batch per placement step and one counter kind per
-                // occurrence. Simultaneous recipients get consecutive paths.
-                if let Some(first) = events.first()
-                    && (first.occurrence.batch >= self.state.rules.next_batch_id
-                        || events.len() > self.event_group_limit()
-                        || events.iter().enumerate().any(|(index, event)| {
-                            event.member != 0
-                                || event.occurrence.batch != first.occurrence.batch
-                                || if events.len() == 1 {
-                                    !event.occurrence.path.is_empty()
-                                } else {
-                                    event.occurrence.path != [index as u32]
-                                }
-                        }))
+                let Some((first, last)) = events.first().zip(events.last()) else {
+                    return Ok(());
+                };
+                let batch = first.occurrence.batch;
+                let simultaneous = first.occurrence != last.occurrence;
+                // Proliferate may put multiple counter kinds on one recipient.
+                // Each recipient has one occurrence and consecutive members.
+                let occurrences = events.chunk_by(|a, b| a.occurrence == b.occurrence);
+                if batch >= self.state.rules.next_batch_id
+                    || occurrences.enumerate().any(|(index, members)| {
+                        let occurrence = &members[0].occurrence;
+                        index >= self.event_group_limit()
+                            || occurrence.batch != batch
+                            || if simultaneous {
+                                occurrence.path != [index as u32]
+                            } else {
+                                !occurrence.path.is_empty()
+                            }
+                            || members
+                                .iter()
+                                .enumerate()
+                                .any(|(member, event)| usize::try_from(event.member) != Ok(member))
+                    })
                 {
                     return Err("snapshot counter placement event invariant".into());
                 }
