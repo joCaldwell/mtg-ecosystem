@@ -70,6 +70,20 @@ export function carryPrintedOrigin<T>(from: object, to: T): T {
   return to;
 }
 
+/** A duration is applied to a copy of the effects. Its quoted abilities
+ * still come from the same productions and carry their own evidence. */
+export function carryClonedGrants<T extends object>(from: T, to: T): T {
+  function visit(source: unknown, copy: unknown, insideGrant: boolean): void {
+    if (!source || typeof source !== "object" || !copy || typeof copy !== "object") return;
+    const quoted = insideGrant || ("gained" in source && source.gained === "quoted");
+    if (quoted) carryPrintedOrigin(source, copy);
+    for (const [key, child] of Object.entries(source))
+      visit(child, (copy as Record<string, unknown>)[key], quoted);
+  }
+  if (capturing) visit(from, to, false);
+  return to;
+}
+
 /** One journal per face. Sliced cursors share it through original token identity. */
 export class PrintedCapture {
   private readonly journal: Entry[] = [];

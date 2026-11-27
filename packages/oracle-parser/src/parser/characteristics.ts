@@ -210,6 +210,7 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
     // stated card type replaces the others, which is what setting means; it
     // contradicts a retained type (205.1b). "…and abilities" additionally
     // removes every ability this effect doesn't itself grant (613.1f).
+    const removalAt = c.pos;
     const othersLost = c.attempt(c => {
       c.punct(',');
       if (c.word('and') === null) return null;
@@ -219,6 +220,7 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
         && c.words('and', 'creature', 'types') ? { abilities: true, creatureTypes: true } : null)
         ?? (c.words('card', 'types') ? { abilities: c.words('and', 'abilities'), creatureTypes: false } : null);
     });
+    const removalEnd = c.pos;
     if (retainedTypes(c, verb === 'are' || verb === "aren't")) addTypes = true;
     if (othersLost && (!cardTypes.length || addTypes || also || negative || noLonger
       || cardTypes.includes('artifact') && cardTypes.includes('creature') && !othersLost.creatureTypes
@@ -250,7 +252,9 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
     if (stats) modifiers.push({ modifier: 'base-pt', ...stats,
       ...(stats.power.amount !== 'fixed' || stats.toughness.amount !== 'fixed' ? { valueScope: 'each-affected-object' as const } : {}) });
     if (abilities) modifiers.push({ modifier: 'abilities', abilities });
-    if (othersLost?.abilities) modifiers.push({ modifier: 'lose-abilities', removal: { removal: 'all-other', than: 'abilities-granted-by-this-effect' } });
+    if (othersLost?.abilities) modifiers.push(c.mark({
+      modifier: 'lose-abilities', removal: { removal: 'all-other', than: 'abilities-granted-by-this-effect' },
+    }, removalAt, removalEnd));
     if (modifiers.length === 1) c.mark(modifiers[0], start);
     return modifiers.length ? modifiers : null;
   });
