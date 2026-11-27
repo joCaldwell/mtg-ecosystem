@@ -228,7 +228,7 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
 
 /// Resolving discard and mill use the generated effect schema. Keep the legacy
 /// sentence envelope for the other families until their source contract moves.
-fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
+pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
     fn migrated(raw: &serde_json::Value) -> bool {
         matches!(raw["effect"].as_str(), Some("discard" | "mill"))
     }
