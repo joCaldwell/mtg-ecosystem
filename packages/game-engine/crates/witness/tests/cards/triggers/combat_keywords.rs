@@ -1,6 +1,6 @@
 //! Combat-triggered keywords lowered to their defining triggers, from exact
 //! frozen R5 source on private boards: CR 702.83 (exalted), 702.116
-//! (myriad), 702.105 (dethrone) and 702.149 (training).
+//! (myriad), 702.105 (dethrone), 702.149 (training) and 702.130 (afflict).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -13,6 +13,7 @@ const CALLER_OF_THE_PACK: &str = record!("3b6cbd2a-02ba-4afb-a081-0f25d830a8ee")
 const GRENZOS_CUTTHROAT: &str = record!("9a133991-8a7a-4bfd-b0ae-d76433450c03");
 const APPRENTICE_SHARPSHOOTER: &str = record!("40d6e1ff-995b-42fc-8146-8d5e5f1adcd9");
 const GRYFF_RIDER: &str = record!("e1ca5c24-bbd8-4eed-bb2b-17163f90e72b");
+const KHENRA_ETERNAL: &str = record!("91b46b22-8062-434b-8432-5ed1062ccaf9");
 
 fn power_toughness(g: &Game, object: ObjectId) -> (Option<Quantity>, Option<Quantity>) {
     let c = g.characteristics(object).unwrap();
@@ -398,5 +399,70 @@ fn training_needs_another_attacker_with_greater_power() {
     settle(&mut g);
     assert_eq!(plus_one(&g, sharpshooter), Quantity::from(1));
     assert_eq!(plus_one(&g, rider), Quantity::zero());
+    assert_recoverable((&g).into());
+}
+
+/// Drive a combat with explicit blocks by `blocks`, stopping at the first
+/// priority in the declare blockers step with an empty stack.
+fn blocked_combat(g: &mut Game, attacks: &[(ObjectId, PlayerId)], blocks: &[(ObjectId, ObjectId)]) {
+    for _ in 0..512 {
+        let d = Driver::request(g, u64::MAX);
+        if g.state.rules.turn.step == TurnStep::DeclareBlockers
+            && d.reason == Reason::Priority
+            && g.state.rules.stack.is_empty()
+        {
+            return;
+        }
+        let answer = match &d.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&d),
+            Reason::Attackers => d.attack(attacks.to_vec()),
+            Reason::Blockers => d.block(
+                blocks
+                    .iter()
+                    .copied()
+                    .filter(|(b, _)| g.current(*b).unwrap().controller == d.player)
+                    .collect(),
+            ),
+            Reason::OrderTriggers => Answer::Order {
+                order: (0..u32::try_from(d.candidates.len()).unwrap()).collect(),
+            },
+            other => panic!("unexpected decision {other:?}"),
+        };
+        g.respond(d.player, d.id, answer).unwrap();
+    }
+    panic!("the blocks were never declared");
+}
+
+/// Four seats. Two Khenra Eternals ("Afflict 1") attack seats 1 and 2; seat
+/// 2 blocks its attacker. Only that Eternal's defending player, seat 2,
+/// loses 1 life (CR 702.130a, 506.2); seat 1, not blocking, loses none.
+#[test]
+fn afflict_makes_the_blocking_defender_lose_life() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[KHENRA_ETERNAL], TurnStep::BeginningCombat)
+                .seats(4)
+                .permanent_or_hand("Khenra Eternal", 0, 0, false)
+                .permanent_or_hand("Khenra Eternal", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 2, 2, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (first, second, bears) = (
+        Driver::object(&g, 0),
+        Driver::object(&g, 1),
+        Driver::object(&g, 2),
+    );
+    let life = |g: &Game, p: usize| g.state.rules.players[p].life.clone();
+    let before = [life(&g, 1), life(&g, 2)];
+    blocked_combat(
+        &mut g,
+        &[(first, PlayerId(1)), (second, PlayerId(2))],
+        &[(bears, second)],
+    );
+    let mut lost = before[1].clone();
+    lost.subtract(&Quantity::from(1));
+    assert_eq!([life(&g, 1), life(&g, 2)], [before[0].clone(), lost]);
+    checked(&g);
     assert_recoverable((&g).into());
 }

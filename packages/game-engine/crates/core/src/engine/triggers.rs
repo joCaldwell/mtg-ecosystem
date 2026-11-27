@@ -322,6 +322,8 @@ pub enum TriggerEventWitness {
     BecameBlocked {
         attacker: Box<ObjectBefore>,
         controller_at_match: PlayerId,
+        /// CR 506.2, 702.130a: the player it was attacking.
+        defender: PlayerId,
     },
     /// CR 509.3b, 509.3f: one declared blocking pair, both as they were
     /// before the declaration, observed from the blocker's side.
@@ -445,7 +447,9 @@ impl TriggerEventWitness {
             | Self::LifeGained { player, .. }
             | Self::Discarded { player, .. }
             | Self::Sacrificed { player, .. } => Some(*player),
-            Self::AttackerUnblocked { defender, .. } => Some(*defender),
+            Self::AttackerUnblocked { defender, .. } | Self::BecameBlocked { defender, .. } => {
+                Some(*defender)
+            }
             Self::SpellCast { cast } => Some(cast.caster),
             _ => None,
         }
@@ -1157,17 +1161,18 @@ impl RulesTxn {
                         });
                     }
                     if attackers.insert(*attacker)
-                        && before
+                        && let Some(attack) = before
                             .state
                             .rules
                             .combat
                             .iter()
-                            .any(|a| a.attacker == *attacker && !a.blocked)
+                            .find(|a| a.attacker == *attacker && !a.blocked)
                     {
                         let facts = before.object_before(*attacker)?;
                         witnesses.push(TriggerEventWitness::BecameBlocked {
                             controller_at_match: facts.controller,
                             attacker: Box::new(facts),
+                            defender: attack.defender,
                         });
                     }
                 }
@@ -3099,6 +3104,7 @@ impl RulesTxn {
             | TriggerEventWitness::BecameBlocked {
                 attacker: facts,
                 controller_at_match,
+                ..
             }
             | TriggerEventWitness::PermanentDamaged {
                 recipient: facts,
@@ -3106,6 +3112,12 @@ impl RulesTxn {
                 ..
             } => {
                 self.validate_fact_identity(facts)?;
+                if let TriggerEventWitness::BecameBlocked { defender, .. } = witness
+                    && (!self.state.rules.original_seating.contains(defender)
+                        || *defender == facts.controller)
+                {
+                    return Err("snapshot blocked attacker defender invariant".into());
+                }
                 let matched = match (witness, pattern) {
                     (
                         TriggerEventWitness::Blocked { .. },

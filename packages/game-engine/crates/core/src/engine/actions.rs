@@ -37,7 +37,8 @@ impl StackKind {
                     witness @ (TriggerEventWitness::StepBegan { .. }
                     | TriggerEventWitness::SpellCast { .. }
                     | TriggerEventWitness::CardDrawn { .. }
-                    | TriggerEventWitness::AttackerUnblocked { .. }),
+                    | TriggerEventWitness::AttackerUnblocked { .. }
+                    | TriggerEventWitness::BecameBlocked { .. }),
                 ..
             } => Ok(witness.event_player()),
             _ => Err("unbound event-player recipient".into()),

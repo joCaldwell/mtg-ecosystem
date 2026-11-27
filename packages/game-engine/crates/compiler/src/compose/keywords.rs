@@ -728,7 +728,7 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
 /// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b, 702.116b, 702.105b,
-/// 702.149b). The `bool` states
+/// 702.149b, 702.130b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
@@ -739,6 +739,7 @@ const TRIGGERED: &[(&str, bool)] = &[
     ("myriad", false),
     ("dethrone", false),
     ("training", false),
+    ("afflict", true),
 ];
 
 pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
@@ -1285,6 +1286,20 @@ pub(super) fn triggered(
                 EventPattern::AttacksPlayerWithMostLife { attacker }
             } else {
                 EventPattern::AttacksWithGreaterPower { attacker }
+            }
+        }
+        // CR 702.130a: "Whenever this creature becomes blocked, defending
+        // player loses N life."
+        "afflict" if creature => {
+            program.instructions.push(kernel(
+                Node::Do(Verb::LoseLife {
+                    player: PlayerExpr::event(kir::EventPlayerRole::DefendingPlayer),
+                    amount: kir::Amount::fixed(i64::from(n)),
+                }),
+                block,
+            ));
+            EventPattern::BecomesBlocked {
+                attacker: Pred::source(),
             }
         }
         // CR 702.116a: the reviewed whole ability (tokens copy the card).

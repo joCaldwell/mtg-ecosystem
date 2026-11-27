@@ -1542,6 +1542,7 @@ impl Walk<'_, '_> {
             EventPlayerRole::Caster
                 | EventPlayerRole::ActivePlayer
                 | EventPlayerRole::DrawingPlayer
+                | EventPlayerRole::DefendingPlayer
         )
     }
 
@@ -1997,7 +1998,10 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
         // CR 601.2: the caster of the triggering spell.
         EventPattern::Cast { .. } => &[EventPlayerRole::Caster],
         EventPattern::Draws { .. } => &[EventPlayerRole::DrawingPlayer],
-        EventPattern::AttacksUnblocked { .. } => &[EventPlayerRole::DefendingPlayer],
+        // CR 506.2: the player the attacking creature was attacking.
+        EventPattern::AttacksUnblocked { .. } | EventPattern::BecomesBlocked { .. } => {
+            &[EventPlayerRole::DefendingPlayer]
+        }
         // CR 500: the player whose step began.
         EventPattern::StepBegins { .. } => &[EventPlayerRole::ActivePlayer],
         _ => &[],
