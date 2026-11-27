@@ -464,6 +464,89 @@ mod tests {
     }
 
     #[test]
+    fn hull_clause_runs_are_ordered_and_disjoint_from_children() {
+        // Root hull: child `/effects/0` owns tokens 1..3; clauses own 0 and 3.
+        let mut baseline = print_row("Example target three now", "~ target three now");
+        let nodes = "/printed/faces/0/blocks/0/nodes";
+        *baseline.pointer_mut(&format!("{nodes}/0")).unwrap() =
+            json!({"path":"","basis":"hull","span":[[0,0,4]],"clauses":[[0,0,1],[0,3,4]]});
+        *baseline.pointer_mut(&format!("{nodes}/1/span")).unwrap() = json!([[0, 1, 3]]);
+        rehash(&mut baseline);
+        verify_row(&baseline.to_string(), &mut printed::NameClaims::default()).unwrap();
+        let mutations = [
+            (
+                "overlap with a child",
+                json!([[0, 0, 2], [0, 3, 4]]),
+                "clause run overlaps a child extent",
+            ),
+            (
+                "duplicate",
+                json!([[0, 0, 1], [0, 0, 1], [0, 3, 4]]),
+                "clauses: duplicate token run",
+            ),
+            (
+                "out of order",
+                json!([[0, 3, 4], [0, 0, 1]]),
+                "clauses: token runs out of order",
+            ),
+            (
+                "overlapping",
+                json!([[0, 0, 2], [0, 1, 2]]),
+                "clauses: overlapping token runs",
+            ),
+            (
+                "mergeable",
+                json!([[0, 0, 1], [0, 1, 2]]),
+                "clauses: mergeable adjacent token runs",
+            ),
+            (
+                "out of bounds",
+                json!([[0, 0, 1], [0, 3, 5]]),
+                "clauses: token run out of bounds",
+            ),
+            (
+                "empty",
+                json!([[0, 0, 0], [0, 3, 4]]),
+                "clauses: empty token run",
+            ),
+        ];
+        for (name, clauses, reason) in mutations {
+            let mut row = baseline.clone();
+            *row.pointer_mut(&format!("{nodes}/0/clauses")).unwrap() = clauses;
+            rehash(&mut row);
+            let err = verify_row(&row.to_string(), &mut printed::NameClaims::default())
+                .err()
+                .unwrap();
+            assert!(
+                err.path.ends_with("P6") && err.reason.contains(reason),
+                "{name}: {err:?}"
+            );
+        }
+        // A clause outside the hull span fails before the union comparison.
+        let mut row = baseline.clone();
+        *row.pointer_mut(&format!("{nodes}/0/span")).unwrap() = json!([[0, 0, 3]]);
+        rehash(&mut row);
+        let err = verify_row(&row.to_string(), &mut printed::NameClaims::default())
+            .err()
+            .unwrap();
+        assert!(
+            err.path.ends_with("P6") && err.reason.contains("clause run outside the hull span"),
+            "{err:?}"
+        );
+        // A clause run that misses a hull token fails the union comparison.
+        let mut row = baseline;
+        *row.pointer_mut(&format!("{nodes}/0/clauses")).unwrap() = json!([[0, 0, 1]]);
+        rehash(&mut row);
+        let err = verify_row(&row.to_string(), &mut printed::NameClaims::default())
+            .err()
+            .unwrap();
+        assert!(
+            err.path.ends_with("P6") && err.reason.contains("hull differs"),
+            "{err:?}"
+        );
+    }
+
+    #[test]
     fn envelopes_are_cut_specific_and_exclusion_has_no_sidecar() {
         let mut row = print_row("Example target three", "~ target three");
         rehash(&mut row);
@@ -485,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "opt-in unregistered sidecar diagnostic"]
+    #[ignore = "opt-in full-archive row diagnostic"]
     fn verify_candidate_rows() {
         use std::collections::BTreeMap;
         use std::io::BufRead;
@@ -493,6 +576,10 @@ mod tests {
         let reader = std::io::BufReader::new(std::fs::File::open(path).unwrap());
         let mut claims = printed::NameClaims::default();
         let mut failures = BTreeMap::<String, usize>::new();
+        // Inventory each check covered on passing rows (see the check owners).
+        let mut covered = BTreeMap::<String, usize>::new();
+        let mut add = |key: String, n: usize| *covered.entry(key).or_default() += n;
+        let started = std::time::Instant::now();
         let mut count = 0;
         for (index, line) in reader.lines().enumerate() {
             let line = line.unwrap();
@@ -513,8 +600,52 @@ mod tests {
                         failure(err)
                     );
                 }
+                continue;
+            }
+            let record: Value = serde_json::from_str(&line).unwrap();
+            add(format!("P1 rows {}", record["status"].as_str().unwrap()), 1);
+            for face in record["printed"]["faces"].as_array().into_iter().flatten() {
+                add(format!("P2 faces {}", face["status"].as_str().unwrap()), 1);
+                for edit in face["edits"].as_array().into_iter().flatten() {
+                    add(format!("P3 edits {}", edit["edit"].as_str().unwrap()), 1);
+                }
+                for line in face["lines"].as_array().into_iter().flatten() {
+                    add(format!("P5 lines {}", line["status"].as_str().unwrap()), 1);
+                    add(
+                        "P4 tokens".into(),
+                        line["tokens"].as_array().map_or(0, Vec::len),
+                    );
+                }
+                for block in face["blocks"].as_array().into_iter().flatten() {
+                    add(
+                        format!("P6 blocks {}", block["status"].as_str().unwrap()),
+                        1,
+                    );
+                    for node in block["nodes"].as_array().into_iter().flatten() {
+                        add(format!("P6 nodes {}", node["basis"].as_str().unwrap()), 1);
+                        let clauses = node["clauses"].as_array().map_or(0, Vec::len);
+                        add("P6 hull clause runs".into(), clauses);
+                    }
+                    for fact in block["facts"].as_array().into_iter().flatten() {
+                        add(format!("P7 facts {}", fact["fact"].as_str().unwrap()), 1);
+                        if fact.get("field").is_some() {
+                            add("P10 linked fields".into(), 1);
+                        }
+                        if fact.get("value").is_some() || fact.get("form").is_some() {
+                            add("P8 valued facts".into(), 1);
+                        }
+                        if fact.get("targetIndex").is_some() {
+                            add("P9 target introductions".into(), 1);
+                        }
+                    }
+                }
             }
         }
+        eprintln!(
+            "{}",
+            serde_json::json!({"rows": count, "failures": failures, "covered": covered,
+                "elapsed_seconds": started.elapsed().as_secs_f64()})
+        );
         assert!(
             count != 0 && failures.is_empty(),
             "rows={count}, failures={failures:?}"

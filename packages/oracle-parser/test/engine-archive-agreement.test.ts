@@ -23,7 +23,13 @@ test('retained archive hashes agree with JavaScript and source parser', () => {
     const raw = read(archive.manifest_file);
     const header = JSON.parse(raw);
     assert.equal(sha(raw.trimEnd()), archive.manifest_sha256);
+    if (archive.candidate) {
+      // A candidate cut is measured but authorizes no tracked fixture rows.
+      assert.equal(archive.cut, 'r6');
+      assert.deepEqual(archive.record_sha256, []);
+    }
     if (archive.cut === 'r6') {
+      assert.match(archive.parser_revision, /^[0-9a-f]{40}$/);
       assert.equal(header.schemaVersion, 5);
       assert.equal(header.cut, 'r6');
       assert.deepEqual(Object.keys(header.parser), ['sourceSha256']);

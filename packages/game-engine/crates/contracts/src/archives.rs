@@ -32,6 +32,11 @@ pub struct AcceptedArchive {
     pub cut: ArchiveCut,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pending: bool,
+    /// A measured cut whose producer is still under review. It authorizes
+    /// archive intake and comparison but no tracked fixture rows, so no
+    /// default consumer can select it before promotion clears the flag.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub candidate: bool,
     pub manifest_file: String,
     pub manifest_sha256: String,
     /// Historical full archive bytes were not retained; its committed records
@@ -48,16 +53,28 @@ pub struct AcceptedArchive {
     pub record_sha256: std::collections::BTreeSet<String>,
 }
 static ARCHIVES: LazyLock<Result<Vec<AcceptedArchive>, String>> = LazyLock::new(|| {
-    let archives: Vec<AcceptedArchive> = strict_read(include_str!(
+    validate_registry(strict_read(include_str!(
         "../../../tests/fixtures/accepted-archives.json"
-    ))?;
+    ))?)
+});
+
+fn validate_registry(archives: Vec<AcceptedArchive>) -> Result<Vec<AcceptedArchive>, String> {
     let mut identities = std::collections::BTreeSet::new();
     for a in &archives {
+        if a.candidate && (a.cut != ArchiveCut::R6 || a.pending || !a.record_sha256.is_empty()) {
+            return Err("a candidate cut must be a measured R6 cut without record pins".into());
+        }
         match (a.cut, a.pending, &a.r6) {
             (ArchiveCut::R6, true, None)
                 if a.file_sha256.is_none() && a.record_sha256.is_empty() => {}
+            // Bulk v2 carries the registered reviewed producer commit, never
+            // the compiling checkout's revision.
             (ArchiveCut::R6, false, Some(pins))
                 if a.file_sha256.is_some()
+                    && a.parser_revision.len() == 40
+                    && a.parser_revision
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
                     && (1..=crate::bulk_catalog::ARCHIVE_MAX_BYTES).contains(&pins.file_bytes)
                     && (1..=crate::bulk_catalog::ARCHIVE_MAX_LINE_BYTES)
                         .contains(&pins.max_line_bytes)
@@ -99,7 +116,7 @@ static ARCHIVES: LazyLock<Result<Vec<AcceptedArchive>, String>> = LazyLock::new(
         }
     }
     Ok(archives)
-});
+}
 pub fn accepted_archives() -> Result<&'static [AcceptedArchive], String> {
     ARCHIVES.as_ref().map(Vec::as_slice).map_err(Clone::clone)
 }
@@ -200,6 +217,54 @@ mod tests {
             m["parser"]["revision"] = "unaccepted".into();
             assert!(accepted_manifest(&m.to_string()).is_err());
         }
+    }
+
+    #[test]
+    fn the_registered_r6_candidate_accepts_its_exact_header_but_no_record_pins() {
+        let r6 = accepted_archives()
+            .unwrap()
+            .iter()
+            .find(|entry| entry.cut == ArchiveCut::R6)
+            .unwrap();
+        assert!(r6.candidate && !r6.pending && r6.record_sha256.is_empty());
+        let header = include_str!(
+            "../../../tests/fixtures/archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json"
+        );
+        assert_eq!(accepted_manifest(header).unwrap(), r6);
+        assert!(accepted_provenance(
+            &r6.manifest_sha256,
+            &r6.parser_source_sha256
+        ));
+        let mut extra_lf = header.to_owned();
+        extra_lf.push('\n');
+        assert!(accepted_manifest(&extra_lf).is_err());
+
+        let registry = accepted_archives().unwrap().to_vec();
+        assert!(validate_registry(registry.clone()).is_ok());
+        let edit = |change: &dyn Fn(&mut AcceptedArchive)| {
+            let mut registry = registry.clone();
+            change(
+                registry
+                    .iter_mut()
+                    .find(|a| a.cut == ArchiveCut::R6)
+                    .unwrap(),
+            );
+            validate_registry(registry)
+        };
+        assert!(
+            edit(&|a| {
+                a.record_sha256.insert("a".repeat(64));
+            })
+            .is_err()
+        );
+        assert!(edit(&|a| a.parser_revision.clear()).is_err());
+        assert!(edit(&|a| a.parser_revision = "A".repeat(40)).is_err());
+        let mut r5 = registry.clone();
+        r5.iter_mut()
+            .find(|a| a.cut == ArchiveCut::R5)
+            .unwrap()
+            .candidate = true;
+        assert!(validate_registry(r5).is_err());
     }
 
     #[test]

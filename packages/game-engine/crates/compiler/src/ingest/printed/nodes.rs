@@ -109,22 +109,40 @@ fn visit<'a>(
     }
 }
 
-fn extent(runs: &[TokenRun], block: Range<usize>, lines: &[Line<'_>]) -> Option<Extent> {
+/// Token runs must be in the block and in bounds, nonempty, strictly
+/// ordered, non-overlapping and non-mergeable (adjacent runs on one line).
+fn extent(
+    runs: &[TokenRun],
+    block: Range<usize>,
+    lines: &[Line<'_>],
+) -> Result<Extent, &'static str> {
     let mut extent = Extent::new();
-    let mut previous = None;
+    let mut previous: Option<[usize; 3]> = None;
     for &TokenRun(run) in runs {
         let [line, start, end] = run.map(|v| v as usize);
-        if !block.contains(&line)
-            || !lines.get(line).is_some_and(|line| end <= line.tokens.len())
-            || start >= end
-            || previous.is_some_and(|(l, to)| (l, to) >= (line, start))
-        {
-            return None;
+        if !block.contains(&line) || !lines.get(line).is_some_and(|line| end <= line.tokens.len()) {
+            return Err("token run out of bounds");
+        }
+        if start >= end {
+            return Err("empty token run");
+        }
+        if let Some(prev) = previous {
+            match (prev[0], prev[1], prev[2]).cmp(&(line, start, end)) {
+                std::cmp::Ordering::Equal => return Err("duplicate token run"),
+                std::cmp::Ordering::Greater => return Err("token runs out of order"),
+                std::cmp::Ordering::Less if prev[0] == line && prev[2] > start => {
+                    return Err("overlapping token runs");
+                }
+                std::cmp::Ordering::Less if prev[0] == line && prev[2] == start => {
+                    return Err("mergeable adjacent token runs");
+                }
+                std::cmp::Ordering::Less => {}
+            }
         }
         extent.extend((start..end).map(|index| (line, index)));
-        previous = Some((line, end));
+        previous = Some([line, start, end]);
     }
-    Some(extent)
+    Ok(extent)
 }
 
 fn implicit(value: &Value, reason: &ImplicitReason) -> bool {
@@ -175,16 +193,16 @@ impl<'a> BlockNodes<'a> {
         let mut ordered: Vec<_> = nodes.keys().cloned().collect();
         ordered.sort_by_key(|path| std::cmp::Reverse(nodes[path].depth));
         for path in ordered {
-            let fail = |reason| invalid("P6", format!("node {path:?}: {reason}"));
-            let get_extent = |runs: &[TokenRun]| {
-                extent(runs, block.clone(), lines).ok_or_else(|| fail("invalid token runs"))
+            let fail = |reason: &str| invalid("P6", format!("node {path:?}: {reason}"));
+            let get_extent = |runs: &[TokenRun], field: &str| {
+                extent(runs, block.clone(), lines).map_err(|why| fail(&format!("{field}: {why}")))
             };
             let child = children.remove(&path).unwrap_or_default();
             let node = &nodes[&path];
             let value = match printed[path.as_str()] {
                 PrintedNode::Recorded(entry) => {
-                    let mut span = get_extent(&entry.span)?;
-                    let folds = get_extent(entry.folds.as_deref().unwrap_or_default())?;
+                    let mut span = get_extent(&entry.span, "span")?;
+                    let folds = get_extent(entry.folds.as_deref().unwrap_or_default(), "folds")?;
                     if !span.is_disjoint(&folds) {
                         return Err(fail("fold overlaps recorded tokens"));
                     }
@@ -195,9 +213,17 @@ impl<'a> BlockNodes<'a> {
                     span
                 }
                 PrintedNode::Hull(entry) => {
-                    let span = get_extent(&entry.span)?;
+                    let span = get_extent(&entry.span, "span")?;
+                    let clauses =
+                        get_extent(entry.clauses.as_deref().unwrap_or_default(), "clauses")?;
+                    if !clauses.is_subset(&span) {
+                        return Err(fail("hull clause run outside the hull span"));
+                    }
+                    if !clauses.is_disjoint(&child) {
+                        return Err(fail("hull clause run overlaps a child extent"));
+                    }
                     let mut expected = child;
-                    expected.extend(get_extent(entry.clauses.as_deref().unwrap_or_default())?);
+                    expected.extend(clauses);
                     if span.is_empty() || span != expected {
                         return Err(fail(
                             "hull differs from child extents and attributed clauses",
