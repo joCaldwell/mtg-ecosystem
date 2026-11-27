@@ -472,6 +472,9 @@ impl Strategy<'_> {
                     self.memory.mana_color = next.color;
                     self.memory.mana_bundle = next.bundle;
                     self.memory.mana_ability = next.ability;
+                    if !next.hybrid.is_empty() {
+                        self.memory.hybrid_choices = next.hybrid;
+                    }
                     payment_source(d, next.source)?
                 } else {
                     if outer {

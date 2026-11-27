@@ -410,6 +410,8 @@ fn activation(
         PlayerBinding::Unbound,
     )?;
     Ok(ActivatedAbility {
+        x_mana_cost: false,
+        hybrid_mana: vec![],
         modal: None,
         functioning_zone,
         restriction: None,

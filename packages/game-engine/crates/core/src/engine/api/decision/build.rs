@@ -401,15 +401,30 @@ impl RulesTxn {
 
     pub(in crate::engine) fn hybrid_decision(&self) -> Result<Decision<Rules>, String> {
         let entry = self.top()?;
+        let definition = self.stack_definition(entry)?;
+        let symbols = match &entry.kind {
+            StackKind::Activated { ability, .. } => {
+                &definition
+                    .activated
+                    .get(*ability as usize)
+                    .ok_or("missing hybrid activated ability")?
+                    .hybrid_mana
+            }
+            _ => &definition.characteristics.hybrid_mana,
+        };
+        Ok(self.hybrid_pick(entry.controller, symbols))
+    }
+
+    /// CR 107.4e-f, 601.2b, 602.2b: one slot per printed hybrid symbol, in
+    /// printed order, each offering that symbol's alternatives.
+    pub(in crate::engine) fn hybrid_pick(
+        &self,
+        player: PlayerId,
+        symbols: &[ColorHybridSymbol],
+    ) -> Decision<Rules> {
         let mut candidates = vec![];
         let mut slots = vec![];
-        for (index, symbol) in self
-            .stack_definition(entry)?
-            .characteristics
-            .hybrid_mana
-            .iter()
-            .enumerate()
-        {
+        for (index, symbol) in symbols.iter().enumerate() {
             let allowed = symbol
                 .colors
                 .iter()
@@ -428,15 +443,15 @@ impl RulesTxn {
                 repeat: false,
             });
         }
-        Ok(self.decision(
-            entry.controller,
+        self.decision(
+            player,
             Reason::HybridCost,
             candidates,
             Shape::Pick {
                 slots,
                 rules: vec![],
             },
-        ))
+        )
     }
 
     pub(in crate::engine) fn target_decision(&self) -> Result<Decision<Rules>, String> {

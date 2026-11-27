@@ -1016,15 +1016,31 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
     {
         return cell("mana", name(&a.production));
     }
+    // CR 107.4e, 605.3a: each hybrid symbol names two distinct colors and is
+    // announced before the nested payment; a Phyrexian life alternative is
+    // not admitted on a mana ability.
+    if !a.hybrid_mana.iter().all(|symbol| {
+        matches!(symbol.colors, [HybridPayment::Mana(x), HybridPayment::Mana(y)]
+            if x != y && x != Color::C && y != Color::C)
+    }) || a.costs.mana.as_ref().is_some_and(|m| {
+        *m == ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![],
+        }
+    }) && !a.hybrid_mana.is_empty()
+    {
+        return cell("mana", "hybrid");
+    }
     if let Some(error) = a.riders.iter().find_map(|r| kir::mana_rider(r).err()) {
         return cell("mana", format!("rider:{error}"));
     }
     // A mana cost would pay nested mana after the condition was read; no
     // admitted conditioned mana ability needs that order.
-    if a.condition
-        .as_ref()
-        .is_some_and(|c| kir::ActivationCondition::of(c).is_err() || a.costs.mana.is_some())
-    {
+    if a.condition.as_ref().is_some_and(|c| {
+        kir::ActivationCondition::of(c).is_err()
+            || a.costs.mana.is_some()
+            || !a.hybrid_mana.is_empty()
+    }) {
         return cell("mana", "condition");
     }
     Ok(())
@@ -1690,6 +1706,8 @@ mod tests {
     }
     fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
         ActivatedAbility {
+            x_mana_cost: false,
+            hybrid_mana: vec![],
             modal: None,
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
@@ -1785,6 +1803,7 @@ mod tests {
                             sacrifice: false,
                             pay_life,
                         },
+                        hybrid_mana: vec![],
                         production,
                         spend_restriction: None,
                         riders,

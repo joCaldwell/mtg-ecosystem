@@ -1520,6 +1520,11 @@ pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<kir::Cond>,
     pub costs: PermanentActivationCosts,
+    /// CR 107.4e, 602.2b, 605.3a: two-color hybrid symbols of the mana
+    /// cost, in printed order, each announced as one of its colors before
+    /// the nested payment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     pub production: ManaProduction,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_restriction: Option<ManaSpendRestriction>,
@@ -1573,6 +1578,15 @@ pub enum ActivationWindow {
 #[serde(deny_unknown_fields)]
 pub struct ActivatedAbility {
     pub functioning_zone: FunctioningZone,
+    /// CR 107.3a, 602.2b: the mana cost begins with one `{X}`, announced as
+    /// the ability is activated and added to its generic mana.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub x_mana_cost: bool,
+    /// CR 107.4e-f, 602.2b: two-color hybrid and single-color Phyrexian
+    /// symbols of the mana cost, in printed order, each announced as one of
+    /// its alternatives before targets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ActivationRestriction>,
     pub cost: ActivationCost,

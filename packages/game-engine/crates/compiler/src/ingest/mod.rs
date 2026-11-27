@@ -116,6 +116,45 @@ pub(crate) fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     Ok(cost)
 }
 
+/// The mana symbols of one printed activation cost (CR 107.3, 107.4e-f,
+/// 602.1a): its fixed symbols, its ordered two-color hybrid and
+/// single-color Phyrexian symbols, and whether it begins with one `{X}`.
+pub(crate) struct ActivationMana {
+    pub(crate) base: ManaCost,
+    pub(crate) hybrid: Vec<ColorHybridSymbol>,
+    pub(crate) x: bool,
+}
+
+/// CR 107.3, 107.4e-f, 602.2b: each parser symbol is one complete mana
+/// symbol. One leading X and two-color hybrid or single-color Phyrexian
+/// symbols are announced; any other special symbol rejects.
+pub(crate) fn activation_mana(symbols: &[String], field: &str) -> Result<ActivationMana, Failure> {
+    if symbols.is_empty()
+        || symbols
+            .iter()
+            .any(|s| s.is_empty() || s.contains(['{', '}']))
+    {
+        return Err(unsupported(field, "invalid mana-cost symbol"));
+    }
+    let x = symbols[0] == "X";
+    let rest = &symbols[usize::from(x)..];
+    if rest.iter().any(|s| s == "X") {
+        return Err(unsupported("source.mana_cost", "repeated or trailing X"));
+    }
+    let text: String = rest.iter().map(|s| format!("{{{s}}}")).collect();
+    let (base, hybrid) = if text.contains('/') {
+        color_hybrid_cost(&text).ok_or_else(|| {
+            unsupported(
+                "source.mana_cost",
+                "variable/hybrid/Phyrexian/special mana is not supported",
+            )
+        })?
+    } else {
+        (mana_cost(&text)?, vec![])
+    };
+    Ok(ActivationMana { base, hybrid, x })
+}
+
 pub(crate) struct CardSource {
     pub(crate) layout: FaceLayout,
     pub(crate) record: Record,

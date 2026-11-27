@@ -13,6 +13,9 @@ pub(super) struct PlannedMana {
     pub color: Option<Color>,
     pub bundle: Option<Vec<Color>>,
     pub ability: Option<ManaAbilityIdentity>,
+    /// CR 107.4e, 605.3a: the announced alternative of each hybrid symbol
+    /// of the ability's cost, in printed order.
+    pub hybrid: Vec<mtg_contracts::HybridPayment>,
 }
 struct Source<'a> {
     object_index: usize,
@@ -25,6 +28,8 @@ struct Source<'a> {
     choose_bundle: bool,
     colors: Vec<Color>,
     cost: Option<ManaCost>,
+    /// The hybrid announcement this source's `cost` assumes.
+    hybrid: Vec<mtg_contracts::HybridPayment>,
     /// Pays life or performs a rider (damage, life gain): used last.
     harm: bool,
 }
@@ -202,6 +207,7 @@ impl Planner<'_> {
                 ability: Some(source.ability),
                 color,
                 bundle: source.choose_bundle.then(|| symbols.to_vec()),
+                hybrid: source.hybrid.clone(),
             });
         }
         false
@@ -219,6 +225,34 @@ impl Planner<'_> {
         }
         Some(index)
     }
+}
+
+/// CR 107.4e, 601.2f, 602.2b: every announcement of the ability's hybrid
+/// symbols with the mana cost it fixes, in candidate order; an ability
+/// without hybrid symbols has its one printed cost.
+fn hybrid_costs(
+    ability: &ManaAbility,
+) -> Vec<(Option<ManaCost>, Vec<mtg_contracts::HybridPayment>)> {
+    let mut costs = vec![(ability.costs.mana.clone(), vec![])];
+    for symbol in &ability.hybrid_mana {
+        costs = costs
+            .into_iter()
+            .flat_map(|(cost, chosen)| {
+                symbol.colors.iter().filter_map(move |payment| {
+                    let color = payment.color()?;
+                    let mut cost = cost.clone().unwrap_or(ManaCost {
+                        generic: Quantity::zero(),
+                        colored: vec![],
+                    });
+                    cost.colored.push(color);
+                    let mut chosen = chosen.clone();
+                    chosen.push(*payment);
+                    Some((Some(cost), chosen))
+                })
+            })
+            .collect();
+    }
+    costs
 }
 
 /// CR 903.4: the combined color identity of `player`'s commanders, as the
@@ -605,22 +639,27 @@ pub(super) fn plan_with_reservations(
                 if colors.is_empty() {
                     continue;
                 }
-                sources.push(Source {
-                    object_index,
-                    ability: identity,
-                    handle: &o.handle,
-                    amount: match &production {
-                        ManaProduction::Choose { amount, .. } => amount.clone(),
-                        _ => 1.into(),
-                    },
-                    land,
-                    taps: ability.costs.tap,
-                    production,
-                    choose_bundle,
-                    colors,
-                    cost: ability.costs.mana.clone(),
-                    harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
-                });
+                // CR 107.4e, 602.2b: each announcement fixes one cost; the
+                // object is still used at most once.
+                for (cost, hybrid) in hybrid_costs(ability) {
+                    sources.push(Source {
+                        object_index,
+                        ability: identity,
+                        handle: &o.handle,
+                        amount: match &production {
+                            ManaProduction::Choose { amount, .. } => amount.clone(),
+                            _ => 1.into(),
+                        },
+                        land,
+                        taps: ability.costs.tap,
+                        production: production.clone(),
+                        choose_bundle,
+                        colors: colors.clone(),
+                        cost,
+                        hybrid,
+                        harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
+                    });
+                }
             }
         }
         if land && d.is_some() && available_tap(o) {
@@ -642,6 +681,7 @@ pub(super) fn plan_with_reservations(
                     choose_bundle: false,
                     colors: vec![color],
                     cost: None,
+                    hybrid: vec![],
                     harm: false,
                 });
             }
@@ -792,6 +832,7 @@ mod tests {
                 sacrifice: false,
                 pay_life: None,
             },
+            hybrid_mana: vec![],
             production: ManaProduction::AnyColor,
             spend_restriction: None,
             riders: vec![],
@@ -1094,6 +1135,7 @@ mod tests {
                 choose_bundle: false,
                 colors: vec![Color::W, Color::U, Color::B, Color::R, Color::G],
                 cost: None,
+                hybrid: vec![],
                 harm: false,
             }],
             used: vec![false],

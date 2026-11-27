@@ -20,11 +20,11 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    98,
-    "e5a7ad7adba9eb00ceda5601be50504e7439c47ea857e5fb50c131729c23007e",
+    99,
+    "2173f9607ceaba39e88e0725bc6c4c92241c23165ba2fc9172379fa9d4f08358",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    128,
+    129,
     "f26ccc3e861131390e5ab28526e2505dfeedfa7587626a778414d3908f2295e3",
 );
 const WORK_PIN: (u32, &str) = (
@@ -221,6 +221,7 @@ fn granted_mana() -> Game {
                         sacrifice: false,
                         pay_life: None,
                     },
+                    hybrid_mana: vec![],
                     production: mtg_contracts::ManaProduction::AnyColor,
                     riders: vec![],
                     source_block: 0,
@@ -525,6 +526,8 @@ fn chosen_cost_shapes() -> Vec<Game> {
     forest.source_labels = None;
     for action in [ChosenCostAction::Discard, ChosenCostAction::Tap] {
         forest.activated.push(ActivatedAbility {
+            x_mana_cost: false,
+            hybrid_mana: vec![],
             modal: None,
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
                 action,
@@ -595,6 +598,8 @@ fn activation_condition_shapes() -> Vec<Game> {
     for d in &mut catalog.definitions {
         if d.name == "Forest" {
             d.activated.push(ActivatedAbility {
+                x_mana_cost: false,
+                hybrid_mana: vec![],
                 cost: ActivationCost::Mana {
                     cost: ManaCost {
                         generic: 2.into(),
