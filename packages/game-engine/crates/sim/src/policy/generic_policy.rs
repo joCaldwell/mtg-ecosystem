@@ -1062,6 +1062,7 @@ impl Strategy<'_> {
         &self,
         view: &PermittedView,
         definition: &Definition,
+        card: Option<&ObjectHandle>,
         cost: ManaCost,
         quote: Option<(&mtg_core::Game, &ObjectHandle, Option<&Quantity>)>,
     ) -> Option<(
@@ -1082,16 +1083,9 @@ impl Strategy<'_> {
         // improvise may pay part of that total.
         mana_policy::first_announcement(view, symbols, |choices| {
             let total = match quote {
-                Some((game, card, x)) => {
-                    let total = game
-                        .quote_hybrid_cast_cost(view.viewer, card, x, choices)
-                        .ok()?;
-                    if definition.delve {
-                        super::delve_mana_due(total, view, Some(card))
-                    } else {
-                        total
-                    }
-                }
+                Some((game, quoted_card, x)) => game
+                    .quote_hybrid_cast_cost(view.viewer, quoted_card, x, choices)
+                    .ok()?,
                 None => {
                     let mut total = cost.clone();
                     for choice in choices {
@@ -1099,6 +1093,11 @@ impl Strategy<'_> {
                     }
                     total
                 }
+            };
+            let total = if definition.delve {
+                super::delve_mana_due(total, view, card)
+            } else {
+                total
             };
             if let Some(kind) = tap_kind {
                 let (due, reserved) = super::tap_payment_plan(view, &total, kind);
@@ -1222,13 +1221,14 @@ impl Strategy<'_> {
                     cost
                 }
             };
-            let cost = if d.delve {
-                super::delve_mana_due(cost, v, quote.map(|(_, card)| card))
-            } else {
-                cost
-            };
             if self
-                .casting_mana_plan(v, d, cost, quote.map(|(game, card)| (game, card, Some(&x))))
+                .casting_mana_plan(
+                    v,
+                    d,
+                    quote.map(|(_, card)| card),
+                    cost,
+                    quote.map(|(game, card)| (game, card, Some(&x))),
+                )
                 .is_none()
             {
                 break;
@@ -1453,16 +1453,12 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let due = if d.delve {
-            super::delve_mana_due(cost.clone(), v, Some(&o.handle))
-        } else {
-            cost.clone()
-        };
         let mut alternative = None;
         let (choices, plan) = match self.casting_mana_plan(
             v,
             d,
-            due,
+            Some(&o.handle),
+            cost.clone(),
             quote.map(|(game, card)| (game, card, x.as_ref())),
         ) {
             Some(plan) => plan,
@@ -1483,12 +1479,7 @@ impl Strategy<'_> {
                     .ok()
                     .flatten()
                     .filter(|(identity, _)| *identity == printed.identity)?;
-                let due = if d.delve {
-                    super::delve_mana_due(alt.clone(), v, Some(&o.handle))
-                } else {
-                    alt.clone()
-                };
-                let plan = self.casting_mana_plan(v, d, due, None)?;
+                let plan = self.casting_mana_plan(v, d, Some(&o.handle), alt.clone(), None)?;
                 alternative = Some(identity);
                 cost = alt;
                 plan
