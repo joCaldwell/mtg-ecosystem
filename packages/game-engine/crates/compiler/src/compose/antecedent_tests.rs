@@ -431,7 +431,10 @@ fn discarded_this_way_reads_only_its_own_mode() {
         },
     ] = selection.instructions.as_slice()
     else {
-        panic!("the later mode links its own discard: {:?}", selection.instructions);
+        panic!(
+            "the later mode links its own discard: {:?}",
+            selection.instructions
+        );
     };
     assert!(opponents.evaluated().is_some());
     assert_eq!(linked.len(), 2);
