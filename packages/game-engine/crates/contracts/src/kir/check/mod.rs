@@ -845,6 +845,7 @@ impl Walk<'_, '_> {
                 player,
                 count,
                 filter,
+                ..
             } => {
                 self.player(player)?;
                 self.amount(count)?;
@@ -1617,7 +1618,8 @@ impl Walk<'_, '_> {
                 player,
                 count,
                 filter,
-            } => self.audit_sacrifice(player, count, filter),
+                greatest_power,
+            } => self.audit_sacrifice(player, count, filter, *greatest_power),
             Verb::CreateTokens {
                 controller,
                 count,

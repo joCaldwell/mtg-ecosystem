@@ -926,6 +926,7 @@ mod tests {
             player: you.clone(),
             count: kir::Amount::fixed(1),
             filter: kir::Pred(vec![]),
+            greatest_power: false,
         });
         assert!(!decided(&sacrifice));
         assert!(!decided(&Node::Optional {

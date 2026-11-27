@@ -192,6 +192,7 @@ pub enum Cell {
     SacrificeDamagedPlayer,
     SacrificeEachPlayer,
     SacrificeEachOpponent,
+    SacrificeEachOpponentGreatestPower,
     /// CR 701.21a: the source's current controller, or the ability's
     /// controller, sacrifices that exact permanent if they control it.
     SacrificeSource,
@@ -425,6 +426,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeDamagedPlayer
         | C::SacrificeEachPlayer
         | C::SacrificeEachOpponent
+        | C::SacrificeEachOpponentGreatestPower
         | C::PredefinedTokens
         | C::Fight
         | C::Populate

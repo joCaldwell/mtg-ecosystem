@@ -191,7 +191,13 @@ impl RulesTxn {
             .instructions
             .get(frame.cursor as usize);
         match instruction {
-            Some(kernel!(Sacrifice { filter, .. })) => {
+            Some(
+                kernel!(Sacrifice {
+                    filter,
+                    greatest_power,
+                    ..
+                }),
+            ) => {
                 use mtg_contracts::kir::{Atom, Ref};
                 let mut filter = filter.clone();
                 let exclude_source = filter.0.iter().any(|atom| {
@@ -210,7 +216,7 @@ impl RulesTxn {
                         }
                     )
                 });
-                Ok(self
+                let options = self
                     .state
                     .rules
                     .objects
@@ -226,6 +232,26 @@ impl RulesTxn {
                             .is_yes()
                     })
                     .map(|object| object.id)
+                    .collect::<Vec<_>>();
+                if !greatest_power {
+                    return Ok(options);
+                }
+                let powers = options
+                    .into_iter()
+                    .map(|object| {
+                        let power = self
+                            .characteristics(object)?
+                            .power
+                            .ok_or("missing creature power")?;
+                        Ok((object, power))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                // The comparison can rank negative power (CR 107.1b).
+                let greatest = powers.iter().map(|(_, power)| power).max();
+                Ok(powers
+                    .iter()
+                    .filter(|(_, power)| Some(power) == greatest)
+                    .map(|(object, _)| *object)
                     .collect())
             }
             Some(Instruction::Kernel {

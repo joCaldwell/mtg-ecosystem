@@ -9,7 +9,19 @@ impl Walk<'_, '_> {
         player: &PlayerExpr,
         count: &Amount,
         filter: &Pred,
+        greatest_power: bool,
     ) -> Result<Cell, KirError> {
+        if greatest_power {
+            return if self.env.context == Context::Spell
+                && *player == PlayerExpr::EachOpponent
+                && count.as_fixed() == Some(&Quantity::from(1))
+                && *filter == Pred::creatures()
+            {
+                Ok(Cell::SacrificeEachOpponentGreatestPower)
+            } else {
+                unaudited("sacrifice greatest power")
+            };
+        }
         // CR 701.21a, 702.74a, 702.30a: "its controller sacrifices it" or
         // "sacrifice it": one exact source permanent, by its current
         // controller or by the ability's controller.

@@ -189,6 +189,7 @@ impl TriggeredAbility {
                 },
                 count: kir::Amount::fixed(1),
                 filter: kir::Pred::source(),
+                greatest_power: false,
             }),
         });
         Self {
@@ -231,6 +232,7 @@ impl TriggeredAbility {
                     player: you,
                     count: kir::Amount::fixed(1),
                     filter: kir::Pred::source(),
+                    greatest_power: false,
                 })),
             },
         });

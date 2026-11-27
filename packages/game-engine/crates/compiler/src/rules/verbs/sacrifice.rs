@@ -66,6 +66,7 @@ pub(super) fn lower(
     };
     let mut source_filter = what.filter.clone();
     let other = source_filter.other.take();
+    let greatest_power = greatest_power_filter(&mut source_filter)?;
     let mut filter = lower_sacrifice_filter(&source_filter, cx.context)?;
     match other {
         Some(true) => filter.0.push(Atom::IsNot {
@@ -78,6 +79,7 @@ pub(super) fn lower(
         player,
         count: Amount::fixed(i64::from(what.count.value)),
         filter,
+        greatest_power,
     }))
 }
 
@@ -107,4 +109,32 @@ fn lower_sacrifice_filter(filter: &ast::ObjectFilter, context: Context) -> Resul
         return Ok(predicate);
     }
     lower_filter(filter, context)
+}
+
+// CR 608.2h: the archive repeats the population in the extremum and in
+// allOf. Both must name the same creatures controlled by the chooser.
+fn greatest_power_filter(filter: &mut ast::ObjectFilter) -> Result<bool, Failure> {
+    let Some([property]) = filter.properties.as_deref() else {
+        return Ok(false);
+    };
+    let ast::Amount::AttributeExtremum(extremum) = property.comparison.value.as_ref() else {
+        return Ok(false);
+    };
+    if property.property != ast::PropertyConstraintProperty::Power
+        || property.comparison.op != ast::ComparisonOp::Eq
+        || extremum.attribute != ast::ObjectFilterImplicitComparisonAttribute::Power
+        || extremum.extremum != ast::AmountAttributeExtremumExtremum::Maximum
+        || filter.all_of.as_deref() != Some(std::slice::from_ref(extremum.among.as_ref()))
+    {
+        return Err(operand("sacrifice_filter", "greatest_power_population"));
+    }
+    let mut population = extremum.among.as_ref().clone();
+    filter.all_of = None;
+    filter.properties = None;
+    if population.control.take() != Some(ast::ObjectFilterControl::ThatPlayer)
+        || population != *filter
+    {
+        return Err(operand("sacrifice_filter", "greatest_power_population"));
+    }
+    Ok(true)
 }

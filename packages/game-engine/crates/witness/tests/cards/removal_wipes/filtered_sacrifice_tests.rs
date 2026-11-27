@@ -215,9 +215,16 @@ fn controller_sacrifices_two_lands_before_searching() {
 }
 
 fn cast_and_pass(game: &mut Game, lands: &[u32], color: Color) {
+    let mana_sources = lands.iter().map(|&land| (land, color)).collect::<Vec<_>>();
+    cast_and_pass_with_mana(game, &mana_sources);
+}
+
+fn cast_and_pass_with_mana(game: &mut Game, mana_sources: &[(u32, Color)]) {
     let cast = Driver::request(game, u64::MAX).cast(CardId(0));
     Driver::answer(game, u64::MAX, cast);
-    for &land in lands {
+    let mut mana = BTreeMap::<Color, Quantity>::new();
+    for &(land, color) in mana_sources {
+        mana.entry(color).or_default().add(&1.into());
         let object = Driver::object(game, land);
         let activate = Driver::request(game, u64::MAX).activate_mana(object);
         Driver::answer(game, u64::MAX, activate);
@@ -235,9 +242,7 @@ fn cast_and_pass(game: &mut Game, lands: &[u32], color: Color) {
         game,
         u64::MAX,
         Answer::Pay {
-            pay: PayAnswer::Spend {
-                unrestricted: BTreeMap::from([(color, (lands.len() as i64).into())]),
-            },
+            pay: PayAnswer::Spend { unrestricted: mana },
         },
     );
     for _ in 0..4 {
@@ -314,4 +319,57 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
         );
     }
     assert_eq!(restored.current(offers[2]).unwrap().zone, Zone::Battlefield);
+}
+
+#[test]
+fn greatest_power_is_per_opponent_and_offers_every_tie() {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    add(
+        &mut catalog,
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/ee81f37b-2a81-46d7-8d2f-9091123846c4.json"
+        ),
+    );
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let prepared = Board::new(catalog, "greatest-power-sacrifice")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Crackling Doom", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .permanent_or_hand("Llanowar Elves", 1, 1, false)
+        .permanent_or_hand("Kamahl, Pit Fighter", 2, 2, false)
+        .permanent_or_hand("Grizzly Bears", 2, 2, false)
+        .libraries("Forest", 4)
+        .prepare();
+    let mut game = Game::new(prepared);
+    cast_and_pass_with_mana(&mut game, &[(1, Color::W), (2, Color::B), (3, Color::R)]);
+    let first = Driver::request(&mut game, u64::MAX);
+    assert_eq!(first.player, PlayerId(1));
+    assert_eq!(game.state.rules.players[1].life, 38.into());
+    assert_eq!(game.state.rules.players[2].life, 38.into());
+    let ties = [4, 5].map(|card| Driver::object(&game, card));
+    assert_eq!(first.objects_offered(), ties);
+    Driver::answer(&mut game, u64::MAX, first.pick_object(ties[1]));
+    let second = Driver::request(&mut game, u64::MAX);
+    assert_eq!(second.player, PlayerId(2));
+    let greatest = Driver::object(&game, 7);
+    assert_eq!(second.objects_offered(), vec![greatest]);
+    assert_eq!(game.current(ties[1]).unwrap().zone, Zone::Battlefield);
+    Driver::answer(&mut game, u64::MAX, second.pick_object(greatest));
+    Driver::request(&mut game, u64::MAX);
+    assert_eq!(game.current(ties[0]).unwrap().zone, Zone::Battlefield);
+    for (object, player) in [(ties[1], 1), (greatest, 2)] {
+        let current = Driver::object(&game, object.card.0);
+        assert_eq!(
+            game.current(current).unwrap().zone,
+            Zone::Graveyard {
+                owner: PlayerId(player)
+            }
+        );
+    }
 }
