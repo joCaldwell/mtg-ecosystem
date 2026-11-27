@@ -17,7 +17,7 @@ const USAGE: &str = "usage: mtg-sim COMMAND
   catalog build-ir ARCHIVE --out NEW_DIR
   catalog reference-trace ARCHIVE --out FILE
   catalog identity --inputs FROZEN_MANIFEST --cache DIR
-  catalog compile --inputs FROZEN_MANIFEST --cache DIR --out NEW_DIR
+  catalog compile --inputs FROZEN_MANIFEST --cache DIR --out NEW_DIR [--fresh-reader ROOT | --reader-if-missing ROOT]
   catalog build MANIFEST [--write]
   catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID...
   catalog verify ARCHIVE PROVENANCE
@@ -48,19 +48,35 @@ fn frozen_compile(args: &[String]) -> ! {
         &["--inputs", "--cache"]
     };
     let mut options = std::collections::BTreeMap::new();
-    let mut rest = args[1..].chunks(2);
-    let parsed = rest.all(|pair| {
-        matches!(pair, [name, value] if names.contains(&name.as_str())
+    let parsed = args[1..].chunks(2).all(|pair| {
+        matches!(pair, [name, value] if (names.contains(&name.as_str())
+            || compile && matches!(name.as_str(), "--fresh-reader" | "--reader-if-missing"))
             && options.insert(name.as_str(), Path::new(value)).is_none())
-    }) && options.len() == names.len();
-    if !parsed {
+    }) && names.iter().all(|name| options.contains_key(name));
+    use mtg_compiler::compile::ReaderMode;
+    let reader = match (
+        options.get("--fresh-reader"),
+        options.get("--reader-if-missing"),
+    ) {
+        (Some(root), None) => Some(ReaderMode::Fresh(root)),
+        (None, Some(root)) => Some(ReaderMode::Auto(root)),
+        (None, None) => Some(ReaderMode::Cached),
+        (Some(_), Some(_)) => None,
+    };
+    let Some(reader) = reader.filter(|_| parsed) else {
         eprintln!("{USAGE}");
         std::process::exit(2);
-    }
+    };
     let (inputs, cache) = (options["--inputs"], options["--cache"]);
     let result = if compile {
-        mtg_compiler::compile::compile(inputs, cache, options["--out"], BUILD.id)
-            .map(|report| canonical(&report))
+        mtg_compiler::compile::compile_with_reader(
+            inputs,
+            cache,
+            options["--out"],
+            BUILD.id,
+            reader,
+        )
+        .map(|report| canonical(&report))
     } else {
         mtg_compiler::compile::identity(inputs, cache, BUILD.id).map(|report| canonical(&report))
     };

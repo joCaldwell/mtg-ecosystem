@@ -8,7 +8,6 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, BufRead, BufReader, BufWriter, Read, Write},
     path::Path,
-    sync::atomic::{AtomicU64, Ordering},
 };
 
 #[derive(Debug, Serialize)]
@@ -280,7 +279,7 @@ pub(crate) fn write_bulk(
     stage: &Path,
     intake: &Intake,
     producer: &str,
-) -> Result<BulkBuildReport, String> {
+) -> Result<BulkBuildReport, PayloadError> {
     let Intake {
         identity,
         catalog,
@@ -289,10 +288,10 @@ pub(crate) fn write_bulk(
         ..
     } = intake;
     let catalog_proof = write_payload(&stage.join("catalog.json"), CATALOG_MAX_BYTES, |w| {
-        write_catalog_canonical(catalog, w)
+        Ok(write_catalog_canonical(catalog, w)?)
     })?;
     let index_proof = write_payload(&stage.join("index.json"), INDEX_MAX_BYTES, |w| {
-        serde_json::to_writer(w, index).map_err(|e| e.to_string())
+        Ok(serde_json::to_writer(w, index)?)
     })?;
     let manifest = BulkManifest {
         format_version: BULK_FORMAT_VERSION,
@@ -303,7 +302,7 @@ pub(crate) fn write_bulk(
         archive_sha256: identity
             .file_sha256
             .clone()
-            .ok_or("archive is missing a full-file pin")?,
+            .ok_or_else(|| "archive is missing a full-file pin".to_owned())?,
         archive_manifest_sha256: identity.manifest_sha256.clone(),
         parser_revision: identity.parser_revision.clone(),
         parser_source_sha256: identity.parser_source_sha256.clone(),
@@ -314,9 +313,9 @@ pub(crate) fn write_bulk(
     };
     manifest.validate(producer)?;
     validate_index(&manifest, catalog, index)?;
+    let manifest_bytes = canonical(&manifest)?;
     let proof = write_payload(&stage.join("manifest.json"), MANIFEST_MAX_BYTES, |w| {
-        w.write_all(canonical(&manifest)?.as_bytes())
-            .map_err(|e| e.to_string())
+        Ok(w.write_all(manifest_bytes.as_bytes())?)
     })?;
     Ok(BulkBuildReport {
         manifest_sha256: proof.sha256,
@@ -347,7 +346,7 @@ pub fn build_ir(archive: &Path, out: &Path, producer: &str) -> Result<BulkBuildR
     }
     let intake = read_archive(archive).map_err(IntakeError::into_message)?;
     publish(out, false, |stage| {
-        let report = write_bulk(stage, &intake, producer)?;
+        let report = write_bulk(stage, &intake, producer).map_err(PayloadError::into_message)?;
         let files = bulk_files(stage, &report)?;
         Ok((report, files))
     })
@@ -374,16 +373,48 @@ impl Write for ProofWriter {
         self.file.flush()
     }
 }
+#[derive(Debug)]
+pub(crate) enum PayloadError {
+    Encode(String),
+    Io(String),
+}
+
+impl PayloadError {
+    fn into_message(self) -> String {
+        match self {
+            Self::Encode(e) | Self::Io(e) => e,
+        }
+    }
+}
+
+impl From<String> for PayloadError {
+    fn from(error: String) -> Self {
+        Self::Encode(error)
+    }
+}
+
+impl From<io::Error> for PayloadError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error.to_string())
+    }
+}
+
+impl From<serde_json::Error> for PayloadError {
+    fn from(error: serde_json::Error) -> Self {
+        if error.is_io() {
+            Self::Io(error.to_string())
+        } else {
+            Self::Encode(error.to_string())
+        }
+    }
+}
+
 pub(crate) fn write_payload(
     path: &Path,
     limit: u64,
-    encode: impl FnOnce(&mut ProofWriter) -> Result<(), String>,
-) -> Result<JsonByteProof, String> {
-    let file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|e| e.to_string())?;
+    encode: impl FnOnce(&mut ProofWriter) -> Result<(), PayloadError>,
+) -> Result<JsonByteProof, PayloadError> {
+    let file = OpenOptions::new().write(true).create_new(true).open(path)?;
     let mut writer = ProofWriter {
         file: BufWriter::with_capacity(BUFFER, file),
         limit,
@@ -391,12 +422,8 @@ pub(crate) fn write_payload(
         hash: Sha256Sink::new(),
     };
     encode(&mut writer)?;
-    writer.flush().map_err(|e| e.to_string())?;
-    writer
-        .file
-        .get_ref()
-        .sync_all()
-        .map_err(|e| e.to_string())?;
+    writer.flush()?;
+    writer.file.get_ref().sync_all()?;
     Ok(JsonByteProof {
         bytes: writer.bytes,
         sha256: writer.hash.finalize_hex(),
@@ -457,37 +484,82 @@ fn sync_dir(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("cannot sync {}: {e}", path.display()))
 }
 
+const BUNDLE_FILES: [&str; 5] = [
+    "catalog.json",
+    "index.json",
+    "manifest.json",
+    "outcomes.jsonl",
+    "compile-manifest.json",
+];
+
+fn remove_stage(stage: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let metadata = match fs::symlink_metadata(stage) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        result => result?,
+    };
+    if !metadata.is_dir() || metadata.permissions().mode() & 0o777 != 0o700 {
+        return Err(io::Error::other("staging path is not a private directory"));
+    }
+    let entries = fs::read_dir(stage)?.collect::<Result<Vec<_>, _>>()?;
+    for entry in &entries {
+        if !entry.file_type()?.is_file()
+            || !BUNDLE_FILES.iter().any(|name| entry.file_name() == *name)
+        {
+            return Err(io::Error::other(
+                "staging directory contains an unexpected entry",
+            ));
+        }
+    }
+    for entry in entries {
+        fs::remove_file(entry.path())?;
+    }
+    fs::remove_dir(stage)
+}
+
 /// Write files into a private 0700 sibling stage, re-verify each against its
 /// proof, sync the stage, rename it onto `out` once and sync the parent.
 /// When the rename fails, success requires `out` to already hold the same
 /// files (exactly those files when `exact`): an identical retry or a
-/// concurrent identical writer. A failure never exposes a partial `out`;
-/// a killed process can leave only private `.bulk-stage-*` debris.
+/// concurrent identical writer. The parent lock lets a retry discard the
+/// private stage for its own destination after an interrupted write.
 pub(crate) fn publish<R, E>(
     out: &Path,
     exact: bool,
     write: impl FnOnce(&Path) -> Result<(R, StagedFiles), E>,
 ) -> Result<R, PublishError<E>> {
     use std::os::unix::fs::DirBuilderExt;
-    static NEXT: AtomicU64 = AtomicU64::new(0);
     let destination = |e: String| PublishError::Destination(e);
     let parent = out
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    fs::create_dir_all(parent).map_err(|e| destination(e.to_string()))?;
-    let stage = loop {
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let path = parent.join(format!(".bulk-stage-{}-{n}", std::process::id()));
-        if path == out {
-            continue;
-        }
-        match fs::DirBuilder::new().mode(0o700).create(&path) {
-            Ok(()) => break path,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(destination(e.to_string())),
-        }
+    let name = out
+        .file_name()
+        .ok_or_else(|| destination("missing destination name".into()))?;
+    if name.as_encoded_bytes().starts_with(b".bulk-stage-") {
+        return Err(destination(
+            "destination name is reserved for bundle staging".into(),
+        ));
+    }
+    let io_error = |e: io::Error| destination(e.to_string());
+    fs::create_dir_all(parent).map_err(io_error)?;
+    let lock = File::open(parent).map_err(io_error)?;
+    lock.lock().map_err(io_error)?;
+    let stage = parent.join(format!(".bulk-stage-{}", sha256(name.as_encoded_bytes())));
+    let cleanup = || {
+        remove_stage(&stage).map_err(|e| {
+            destination(format!(
+                "cannot remove bulk staging directory {}: {e}",
+                stage.display()
+            ))
+        })
     };
+    cleanup()?;
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&stage)
+        .map_err(io_error)?;
     let result = (|| {
         let (report, files) = write(&stage).map_err(PublishError::Write)?;
         if let Some((name, _)) = files
@@ -499,7 +571,15 @@ pub(crate) fn publish<R, E>(
             )));
         }
         sync_dir(&stage).map_err(destination)?;
-        if let Err(error) = fs::rename(&stage, out)
+        let published = match fs::symlink_metadata(out) {
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "destination already exists",
+            )),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => fs::rename(&stage, out),
+            Err(e) => Err(e),
+        };
+        if let Err(error) = published
             && !matches_bundle(out, &files, exact)
         {
             return Err(destination(format!(
@@ -510,15 +590,7 @@ pub(crate) fn publish<R, E>(
         sync_dir(parent).map_err(destination)?;
         Ok(report)
     })();
-    match fs::remove_dir_all(&stage) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => {
-            return Err(destination(format!(
-                "cannot remove bulk staging directory: {e}"
-            )));
-        }
-    }
+    cleanup()?;
     result
 }
 
@@ -575,9 +647,9 @@ mod tests {
         let mut files = vec![];
         for name in names {
             let proof = write_payload(&stage.join(name), 64, |w| {
-                w.write_all(format!("{body}{name}").as_bytes())
-                    .map_err(|e| e.to_string())
-            })?;
+                Ok(w.write_all(format!("{body}{name}").as_bytes())?)
+            })
+            .map_err(PayloadError::into_message)?;
             files.push((*name, proof));
         }
         Ok(((), files))
@@ -608,13 +680,7 @@ mod tests {
         fs::remove_dir_all(parent).unwrap();
     }
 
-    const BUNDLE: [&str; 5] = [
-        "catalog.json",
-        "index.json",
-        "manifest.json",
-        "outcomes.jsonl",
-        "compile-manifest.json",
-    ];
+    const BUNDLE: [&str; 5] = BUNDLE_FILES;
 
     #[test]
     fn bundle_retry_requires_all_five_files_and_nothing_else() {
@@ -654,6 +720,7 @@ mod tests {
 
     #[test]
     fn bundle_interrupted_write_exposes_nothing_and_concurrent_writers_agree() {
+        use std::os::unix::fs::DirBuilderExt;
         let parent = scratch("bundle-race");
         let dest = parent.join("bundle");
         // A failure after some files were staged publishes nothing.
@@ -672,6 +739,13 @@ mod tests {
         });
         assert!(matches!(tampered, Err(PublishError::Destination(_))));
         assert!(!dest.exists());
+        // A killed writer leaves its private directory but releases the lock.
+        let abandoned = parent.join(format!(".bulk-stage-{}", sha256(b"bundle")));
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&abandoned)
+            .unwrap();
+        fs::write(abandoned.join("catalog.json"), b"incomplete").unwrap();
         // Identical concurrent writers all succeed with one complete bundle.
         std::thread::scope(|scope| {
             let writers: Vec<_> = (0..4)
@@ -686,6 +760,32 @@ mod tests {
             }
         });
         assert_eq!(fs::read_dir(&dest).unwrap().count(), BUNDLE.len());
+        assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn bundle_retry_preserves_unknown_staging_entries_and_empty_destinations() {
+        use std::os::unix::fs::DirBuilderExt;
+        let parent = scratch("bundle-occupied");
+        let dest = parent.join("bundle");
+        let write = |stage: &Path| stage_files(stage, &BUNDLE, "");
+        let stage = parent.join(format!(".bulk-stage-{}", sha256(b"bundle")));
+        fs::DirBuilder::new().mode(0o700).create(&stage).unwrap();
+        let unrelated = stage.join("keep");
+        fs::write(&unrelated, b"keep").unwrap();
+        assert!(matches!(
+            publish(&dest, true, write),
+            Err(PublishError::Destination(_))
+        ));
+        assert_eq!(fs::read(&unrelated).unwrap(), b"keep");
+        fs::remove_dir_all(stage).unwrap();
+        fs::create_dir(&dest).unwrap();
+        assert!(matches!(
+            publish(&dest, true, write),
+            Err(PublishError::Destination(_))
+        ));
+        assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
         assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
         fs::remove_dir_all(parent).unwrap();
     }

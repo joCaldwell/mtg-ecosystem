@@ -1,0 +1,51 @@
+{
+  "artifactKind": "oracle-compile-inputs",
+  "schemaVersion": 2,
+  "oracle": {
+    "path": "../../../../generated/oracle-source-f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738.json",
+    "bytes": 203323272,
+    "sha256": "f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738",
+    "canonicalRecordsSha256": "2acb9b7730fb81a944a393dd99303d86617a2a62b22fe77a3fda1c833cf93582"
+  },
+  "paperEvidence": {
+    "path": "../../../../generated/paper-printing-evidence-d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699.json",
+    "bytes": 8216961,
+    "sha256": "d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699"
+  },
+  "scope": "paper-printing-evidence-non-silver-non-acorn-v2",
+  "rules": {
+    "edition": "2026-09-25",
+    "sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca"
+  },
+  "reader": {
+    "revision": "6de8da715a39dffea36b9f9783a9f5cd2595cbb5",
+    "sourceSha256": "d83686e769be9e20bfe3cc43760942930cef922ef6030499b75b8e4cd9a58158"
+  },
+  "archive": {
+    "file": "oracle-ast-phase1-r6-candidate.jsonl",
+    "schemaVersion": 5,
+    "bytes": 656458521,
+    "sha256": "68cdd8cecb06e6132801426db9e79a44d9279461bf13ba5cb5a86cea27033571",
+    "headerSha256": "8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093"
+  },
+  "r6": {
+    "archiveManifest": "archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json",
+    "legacyArchive": "../../../../generated/oracle-ast-phase1-r5.jsonl",
+    "rulesPath": "../../../../.scryfall-cache/ComprehensiveRules-20260925.txt",
+    "printed": {
+      "schemaVersion": 1,
+      "schemaSha256": "372726596d541248b2b2caf0bfe2797b8b98ab19d513ec4a251044e0585dcf35",
+      "vocabularySha256": "b6e23112217e523e273629d2ac8cf4dd481873c342c1c3421b756c56559c943c",
+      "generatorSha256": "436b1b172a982c79711de3e6479451431e5645a9ee897fbe45af0f216f2dfa9e",
+      "recordsSha256": "d6c3eae5df33c36cdd8db09c1cf20180f7b3224f62e8303d30c849edcc7dbd00"
+    },
+    "nameCatalog": {
+      "sha256": "101b11ae52b305afab73cca17cd884552f03ad76cbce0c23e54a15195087b193",
+      "names": 40046
+    }
+  },
+  "compiler": {
+    "irVersion": 1,
+    "bulkFormatVersion": 2
+  }
+}

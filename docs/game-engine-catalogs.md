@@ -493,21 +493,32 @@ physical quantities.
 ### Frozen-input compile
 
 `sh scripts/compile-oracle.sh --inputs FROZEN_MANIFEST --out NEW_DIR` is the root
-compile; `identity --inputs FROZEN_MANIFEST` verifies without compiling. Only the
+compile. `identity --inputs FROZEN_MANIFEST` verifies the cached inputs. Only the
 manifest's pinned content affects output bytes. `MTG_COMPILE_CACHE` names the
 reader cache (default this checkout's `generated/`) and `MTG_COMPILE_SIM` a
 prebuilt `mtg-sim` (default a locked release build); neither enters identity. Exit
 1 names an `input`, `registration`, `reader`, `compiler` or `destination` failure;
 exit 2 is usage.
 
-The strict manifest ([R5](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r5.json))
+The strict input manifest
+([R5](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r5.json),
+[R6](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r6.json))
 pins Oracle and paper-evidence bytes, canonical records, scope, rules, reader,
 archive length/full-file/header hashes and IR/bulk versions. Every pin is mandatory
 except `compiler.buildId`, which must equal the binary when present. Unknown keys
 reject as unpinned inputs. Source paths resolve relative to the manifest and must
-be regular files (hard links, never symlinks). The archive header must be
-[registered](#ir-and-build-identity) with these pins. Archive schema 4 (R5) has
-only the cached path: the retained archive is verified, never regenerated.
+be regular files or hard links. Input schema 1 uses the retained schema-4 archive.
+Input schema 2 requires a promoted schema-5 archive, its exact registered header
+file, the printed schema, vocabulary, generator and record digests, and the
+pre-scope name catalog digest and count. The R6 header also binds the R5 control
+archive hashes for fresh generation.
+
+For R6, `--reader auto` (the default) generates only when the cache entry is
+absent. A present cache entry must match its pins. `--reader cached` requires
+that entry, and `--reader fresh` uses the exact Oracle, paper evidence, rules
+and R5 archive paths in the manifest. The pinned TypeScript producer generates
+in a private temporary directory. Both paths use the same Rust intake and
+full-file verification.
 
 One stage writes the three bulk format-2 files byte-identical to `build-ir` from the
 same binary, `outcomes.jsonl` and `compile-manifest.json`. Each outcome row joins
@@ -516,8 +527,9 @@ its index row by `oracle_id`, `source_index` and `archive_line` and adds `phase`
 read failures, the compiler path for lowering). The compile manifest binds the
 path-free logical inputs and their digest, producer, versions, counts and the four
 other files' proofs. Publication re-verifies staged files, renames once and syncs
-the parent; an occupied destination succeeds only when it already holds exactly
-this bundle.
+the parent. A retry under the parent lock clears its interrupted private stage.
+The `.bulk-stage-` prefix is reserved in the destination directory. An occupied
+destination succeeds only when it already holds exactly this bundle.
 
 ## Single matches and policy inputs
 

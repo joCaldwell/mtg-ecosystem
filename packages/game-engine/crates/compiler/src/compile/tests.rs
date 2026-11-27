@@ -1,6 +1,7 @@
 use super::*;
 
 const R5: &str = include_str!("../../../../tests/fixtures/compile-inputs-phase1-r5.json");
+const R6: &str = include_str!("../../../../tests/fixtures/compile-inputs-phase1-r6.json");
 const PRODUCER: &str = "0000000000000000000000000000000000000000000000000000000000000001";
 
 fn r5() -> Value {
@@ -62,6 +63,85 @@ fn r5_manifest_pins_everything_and_logical_identity_drops_locations() {
     );
 }
 const ARCHIVE_R5_SHA256: &str = "7400edf1925081db984d619c56ce17f3f004153f99a57160b5f2f08fd52c5303";
+
+#[test]
+fn r6_requires_its_versioned_pins_and_the_promoted_registration() {
+    let r6: Value = strict_read(R6).unwrap();
+    let inputs = read(&r6).unwrap();
+    let registration = check_registration(&inputs).unwrap();
+    assert_eq!(registration.cut, ArchiveCut::R6);
+    assert!(!registration.candidate);
+    let logical = inputs.logical();
+    assert_eq!(logical["r6"]["printed"], r6["r6"]["printed"]);
+    assert_eq!(logical["r6"]["nameCatalog"], r6["r6"]["nameCatalog"]);
+    for key in ["archiveManifest", "legacyArchive", "rulesPath"] {
+        assert!(logical["r6"].get(key).is_none(), "{key}");
+    }
+
+    let mut downgraded = r6.clone();
+    downgraded["schemaVersion"] = 1.into();
+    assert!(matches!(read(&downgraded), Err(CompileError::Input(e)) if e.contains("/r6")));
+    let mut missing = r6.clone();
+    missing["r6"]["printed"]
+        .as_object_mut()
+        .unwrap()
+        .remove("recordsSha256");
+    assert!(
+        matches!(read(&missing), Err(CompileError::Input(e)) if e.contains("/r6/printed/recordsSha256"))
+    );
+    let mut extra = r6.clone();
+    extra["r6"]["nameCatalog"]["path"] = "unpinned.json".into();
+    assert!(
+        matches!(read(&extra), Err(CompileError::Input(e)) if e.contains("/r6/nameCatalog/path"))
+    );
+    for pointer in [
+        "/r6/printed/schemaSha256",
+        "/r6/printed/vocabularySha256",
+        "/r6/printed/generatorSha256",
+        "/r6/printed/recordsSha256",
+        "/r6/nameCatalog/sha256",
+    ] {
+        let mut changed = r6.clone();
+        *changed.pointer_mut(pointer).unwrap() = PRODUCER.into();
+        assert!(matches!(
+            check_registration(&read(&changed).unwrap()),
+            Err(CompileError::Registration(_))
+        ));
+    }
+}
+
+#[test]
+fn oversized_manifest_rejects_before_decoding() {
+    let dir = scratch("input-limit");
+    let manifest = dir.join("inputs.json");
+    let mut bytes = R5.as_bytes().to_vec();
+    bytes.resize(INPUTS_MAX_BYTES as usize + 1, b' ');
+    fs::write(&manifest, bytes).unwrap();
+    assert_eq!(
+        identity(&manifest, &dir, PRODUCER).unwrap_err(),
+        input("input manifest exceeds 64 KiB"),
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn staged_writer_io_errors_are_destination_failures() {
+    let dir = scratch("staged-io");
+    let path = dir.join("catalog.json");
+    fs::write(&path, b"occupied").unwrap();
+    let error = write_payload(&path, 64, |_| Ok(())).unwrap_err();
+    assert!(matches!(
+        CompileError::from(error),
+        CompileError::Destination(_)
+    ));
+    fs::remove_file(&path).unwrap();
+    let error = write_payload(&path, 1, |writer| Ok(writer.write_all(b"too long")?)).unwrap_err();
+    assert!(matches!(
+        CompileError::from(error),
+        CompileError::Destination(_)
+    ));
+    fs::remove_dir_all(dir).unwrap();
+}
 
 #[test]
 fn every_pin_except_build_id_is_mandatory() {
