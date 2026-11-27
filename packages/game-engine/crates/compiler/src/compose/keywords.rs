@@ -1080,6 +1080,7 @@ fn trigger_on(pattern: EventPattern, program: SpellProgram) -> TriggeredAbility 
             pattern,
             intervening_if: None,
             once_each_turn: false,
+            your_turn: false,
         },
         program,
     }

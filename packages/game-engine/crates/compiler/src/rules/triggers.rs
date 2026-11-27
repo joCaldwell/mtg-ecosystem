@@ -352,6 +352,7 @@ pub(crate) fn lower_trigger(
         pattern,
         intervening_if: intervening_if.map(|i| i.condition()),
         once_each_turn: false,
+            your_turn: false,
     };
     Ok(TriggeredAbility {
         modal: None,

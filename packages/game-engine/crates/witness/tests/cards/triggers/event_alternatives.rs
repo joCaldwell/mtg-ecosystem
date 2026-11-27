@@ -308,3 +308,46 @@ fn event_alternatives_blocks_a_filtered_creature_reads_the_attacker() {
     settle(&mut g);
     assert_recoverable((&g).into());
 }
+
+const CAT_COLLECTOR: &str = record!("52f1b5a4-62ff-44de-80da-503d4e52d312");
+
+/// Cat Collector: "Whenever you gain life for the first time during each of
+/// your turns, create a 1/1 white Cat creature token." Each player's Soul's
+/// Attendant gains life as two Grizzly Bears and the Cat enter on seat 0's
+/// turn: only seat 0's Collector triggers, and only for its first gain
+/// (CR 102.1, 119.9, 603.2).
+#[test]
+fn event_alternatives_first_life_gain_during_your_turn() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[CAT_COLLECTOR], TurnStep::PrecombatMain)
+                .permanent_or_hand("Cat Collector", 0, 0, false)
+                .permanent_or_hand("Soul's Attendant", 0, 0, false)
+                .permanent_or_hand("Cat Collector", 1, 1, false)
+                .permanent_or_hand("Soul's Attendant", 1, 1, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, true)
+                .permanent_or_hand("Grizzly Bears", 0, 0, true)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .permanent_or_hand("Forest", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (mine, theirs) = (Driver::object(&g, 0), Driver::object(&g, 2));
+    let condition = &g.definition(CardId(0)).unwrap().triggered[1].condition;
+    assert!(condition.your_turn() && condition.pattern().nth().is_some());
+    let before = (life(&g, 0), life(&g, 1));
+    for (card, lands) in [(4, [6, 7]), (5, [8, 9])] {
+        Driver::cast(&mut g, CardId(card));
+        Driver::pay(&mut g, &lands);
+        settle(&mut g);
+    }
+    assert_eq!(
+        (life(&g, 0), life(&g, 1)),
+        (plus(&before.0, 3), plus(&before.1, 3))
+    );
+    assert_eq!((collected(&g, mine), collected(&g, theirs)), (1, 0));
+    assert_eq!((tokens(&g, 0), tokens(&g, 1)), (1, 0));
+    assert_recoverable((&g).into());
+}

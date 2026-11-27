@@ -429,6 +429,21 @@ fn trigger(
     condition: Option<&serde_json::Value>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
+    // CR 102.1, 500.1: "[event] during your turn" lowers the event without
+    // the window, then requires the controller to be the active player.
+    if let Some(during) = raw.get("during") {
+        if during != "your" {
+            return Err(unsupported("compose.block", "trigger:window:during"));
+        }
+        let mut stripped = raw.clone();
+        if let Some(fields) = stripped.as_object_mut() {
+            fields.remove("during");
+        }
+        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let TriggerCondition::Event { your_turn, .. } = &mut ability.condition;
+        *your_turn = true;
+        return Ok(ability);
+    }
     // CR 115.1, 601.2c: "a spell that targets this [permanent]" lowers the
     // cast event without the target clause, then names the source.
     if raw["trigger"] == "cast"
@@ -627,6 +642,7 @@ fn trigger_event(
         pattern: event,
         intervening_if: intervening.map(|i| i.condition()),
         once_each_turn: false,
+            your_turn: false,
     };
     if let [Part::Departure(parent)] = parts.as_slice() {
         program = parent.clone();

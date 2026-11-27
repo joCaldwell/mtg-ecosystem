@@ -1522,6 +1522,8 @@ impl RulesTxn {
                 if matches
                     && (pattern.nth().is_none() || nth.is_some())
                     && use_key.is_none_or(|key| !self.state.rules.trigger_uses.contains(&key))
+                    // CR 102.1, 500.1: "during your turn".
+                    && (!definition.condition.your_turn() || self.state.rules.active == Some(you))
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack) | (FunctioningZone::Graveyard, Zone::Graveyard { .. }))
                     && observers.is_live(object.controller)
                 {
@@ -2373,6 +2375,11 @@ impl RulesTxn {
         let pattern = witness
             .branch(definition.condition.pattern())
             .ok_or("snapshot trigger witness has no matching alternative")?;
+        // CR 500.1: no turn ends while the ability waits or is on the stack,
+        // so "during your turn" still names the current active player.
+        if definition.condition.your_turn() && self.state.rules.active != Some(controller) {
+            return Err("snapshot your-turn trigger outside its controller's turn".into());
+        }
         // The accepted-input journal authenticates the historical attachment;
         // an observer can move to another creature before its ability resolves,
         // so a host is any object other than the source itself.

@@ -207,6 +207,7 @@ pub(super) fn object_effect(
             .transpose()?
             .map(|i| i.condition()),
         once_each_turn: false,
+            your_turn: false,
         pattern,
     };
     program.instructions.push(instruction);
