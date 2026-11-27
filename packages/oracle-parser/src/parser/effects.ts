@@ -38,7 +38,7 @@ import { parseValueChoice } from "./choices.ts";
 import { parseSelfReplacement, withSelfReplacement } from "./self-replacement.ts";
 import { foldCounterDestination } from "./counter-destination.ts";
 import { parseModalEffect } from "./modal.ts";
-import { carryPrintedOrigin, carryPrintedToken } from "../printed/capture.ts";
+import { carryClonedGrants, carryPrintedOrigin, carryPrintedToken } from "../printed/capture.ts";
 import { SentenceRecorder, recordWhole } from "./sentence-spans.ts";
 import { parseProhibitionEffect } from "./prohibitions.ts";
 import { parseUntargetable } from "./untargetable.ts";
@@ -1354,13 +1354,13 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
  * https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt */
 function setDuration(effect: Effect, duration: Duration): boolean {
   if (effect.effect === "simultaneous" || effect.effect === "optional-group") {
-    const children = structuredClone(effect.steps);
+    const children = carryClonedGrants(effect.steps, structuredClone(effect.steps));
     if (!children.every(step => setDuration(step, duration))) return false;
     effect.steps = children;
     return true;
   }
   if (effect.effect === "choice") {
-    const options = structuredClone(effect.options);
+    const options = carryClonedGrants(effect.options, structuredClone(effect.options));
     if (!options.every(option => setDuration(option, duration))) return false;
     effect.options = options;
     return true;
@@ -2478,14 +2478,16 @@ export function parsePtModifier(c: Cursor): { power: SignedAmount; toughness: Si
 export function parseGainedAbilities(c: Cursor, options: { allowFreshProtectionChoices: boolean; tokenName?: string } = { allowFreshProtectionChoices: true }): GainedAbility[] | null {
   const parseOne = (c: Cursor): GainedAbility | null => c.attempt(c => {
     if (c.punct('"')) {
-      let inner: Token[] = [];
+      const inner: Token[] = [];
       while (!c.done() && !c.isPunct('"')) inner.push(c.next()!);
       if (!c.punct('"') || !lineParser) return null;
-      if (options.tokenName) inner = ownNameAsThisToken(inner, options.tokenName);
+      const body = options.tokenName ? ownNameAsThisToken(inner, options.tokenName) : inner;
       // An ability quoted inside this one uses single quotation marks; within
       // the quoted ability's own text they are its ordinary quotation marks.
-      const ability = lineParser(inner.map((token): Token => token.kind === "punct" && token.value === "'" ? carryPrintedToken(token, { ...token, value: '"' }) : token), []);
-      return ability ? { gained: "quoted", ability } : null;
+      const ability = lineParser(body.map((token): Token => token.kind === "punct" && token.value === "'" ? carryPrintedToken(token, { ...token, value: '"' }) : token), []);
+      // The successful production attests to the entire printed body even
+      // when the token's self-name was rewritten for the inner parse.
+      return ability ? { gained: "quoted", ability: c.markTokens(ability, inner) } : null;
     }
     const abilitiesOf = parseAbilitiesOf(c);
     if (abilitiesOf) return abilitiesOf;
