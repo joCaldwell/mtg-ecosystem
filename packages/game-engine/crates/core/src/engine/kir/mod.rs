@@ -16,7 +16,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{
-    Amount, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
+    Amount, Atom, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
 };
 
 mod control;
@@ -347,18 +347,40 @@ impl RulesTxn {
         };
         let entry = self.entry(frame.stack_id)?;
         let you = entry.controller;
+        fn bind_bounds(pred: &mut Pred, x: Option<&Quantity>) -> Result<(), String> {
+            for atom in &mut pred.0 {
+                if mtg_contracts::kir::mana_value_at_most_announced_x(atom)
+                    && let Atom::ManaValue { value, .. } = atom
+                {
+                    *value = Amount::fixed(x.ok_or("missing announced set bound")?.clone());
+                }
+                if let Atom::AnyOf { alternatives } = atom {
+                    for alternative in alternatives {
+                        bind_bounds(alternative, x)?;
+                    }
+                }
+            }
+            Ok(())
+        }
         // CR 109.1: a top-level "other" excludes the exact source; the rest
         // of the filter is read as performed.
         let other = mtg_contracts::kir::Atom::IsNot {
             object: Ref::Source,
         };
         let excluded = filter.0.contains(&other).then_some(entry.source);
-        let rest;
-        let filter = if excluded.is_some() {
-            rest = mtg_contracts::kir::Pred(
-                filter.0.iter().filter(|a| **a != other).cloned().collect(),
-            );
-            &rest
+        fn has_bound(pred: &Pred) -> bool {
+            pred.0.iter().any(|atom| {
+                mtg_contracts::kir::mana_value_at_most_announced_x(atom)
+                    || matches!(atom, Atom::AnyOf { alternatives } if alternatives.iter().any(has_bound))
+            })
+        }
+        let bound;
+        let filter = if excluded.is_some() || has_bound(filter) {
+            let mut resolved = filter.clone();
+            resolved.0.retain(|a| *a != other);
+            bind_bounds(&mut resolved, entry.x.as_ref())?;
+            bound = resolved;
+            &bound
         } else {
             filter
         };
@@ -440,6 +462,45 @@ impl RulesTxn {
             .ok_or_else(|| "missing current or last-known target facts".into())
     }
 
+    fn count_graveyard(&self, owner: PlayerId, you: PlayerId, filter: &Pred) -> usize {
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(|object| {
+                object.zone == (Zone::Graveyard { owner })
+                    && crate::query::matches_zone_pred(
+                        &self.object_facts(object),
+                        you,
+                        &ZoneExpr::Graveyards,
+                        filter,
+                    )
+                    .is_yes()
+            })
+            .count()
+    }
+
+    fn greatest_stat(
+        &self,
+        objects: Vec<ObjectId>,
+        stat: mtg_contracts::kir::Stat,
+    ) -> Result<Quantity, String> {
+        let mut greatest: Option<Quantity> = None;
+        for object in objects {
+            let c = self.characteristics(object)?;
+            let value = match stat {
+                mtg_contracts::kir::Stat::Power => c.power.unwrap_or_default(),
+                mtg_contracts::kir::Stat::Toughness => c.toughness.unwrap_or_default(),
+                mtg_contracts::kir::Stat::ManaValue => c.printed_mana_value(),
+            };
+            greatest = Some(match greatest {
+                Some(previous) => previous.max(value),
+                None => value,
+            });
+        }
+        Ok(greatest.unwrap_or_default())
+    }
+
     pub(super) fn kernel_amount(
         &self,
         frame: &Resolving,
@@ -464,11 +525,7 @@ impl RulesTxn {
                     }
                     ZoneExpr::Graveyard { of } if of.is_you() => {
                         let owner = self.entry(frame.stack_id)?.controller;
-                        self.kernel_set(frame, &ZoneExpr::Graveyards, filter)?
-                            .0
-                            .iter()
-                            .filter(|object| self.state.rules.cards[&object.card].owner == owner)
-                            .count()
+                        self.count_graveyard(owner, owner, filter)
                     }
                     ZoneExpr::Hand { of } if of.is_you() && filter.0.is_empty() => self
                         .action_hand(self.entry(frame.stack_id)?.controller)
@@ -489,38 +546,17 @@ impl RulesTxn {
                         filter,
                     },
                 stat,
-            } => {
-                let mut greatest = Quantity::zero();
-                for object in self.kernel_set(frame, zone, filter)?.0 {
-                    let c = self.characteristics(object)?;
-                    let value = match stat {
-                        mtg_contracts::kir::Stat::Power => c.power.unwrap_or_default(),
-                        mtg_contracts::kir::Stat::Toughness => c.toughness.unwrap_or_default(),
-                        mtg_contracts::kir::Stat::ManaValue => c.printed_mana_value(),
-                    };
-                    greatest = greatest.max(value);
-                }
-                Ok(greatest)
-            }
+            } => Ok(self
+                .greatest_stat(self.kernel_set(frame, zone, filter)?.0, *stat)?
+                .max(Quantity::zero())),
             // CR 122.1, 608.2h: the source's counters now, or as it last
             // existed on the battlefield.
             Amount::CountersOn {
                 object: Ref::Source,
                 counter,
-            } => {
-                let facts = self.source_facts(self.entry(frame.stack_id)?)?;
-                Ok(
-                    if *counter == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
-                        facts.plus_one_counters
-                    } else {
-                        facts
-                            .counters
-                            .iter()
-                            .find(|stack| stack.kind == *counter)
-                            .map_or_else(Quantity::zero, |stack| stack.count.clone())
-                    },
-                )
-            }
+            } => Ok(self
+                .source_facts(self.entry(frame.stack_id)?)?
+                .counter_balance(Some(counter))),
             Amount::Times { factor, of } => {
                 let mut value = self.kernel_amount(frame, of)?;
                 value.multiply(factor);

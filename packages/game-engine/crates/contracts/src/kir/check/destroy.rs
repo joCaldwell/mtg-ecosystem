@@ -27,7 +27,7 @@ impl Walk<'_, '_> {
                 zone: ZoneExpr::Battlefield,
                 filter,
             } => {
-                Self::audited_filter(&ZoneExpr::Battlefield, filter)?;
+                Self::audit_set_filter(&ZoneExpr::Battlefield, filter, true)?;
                 if regeneration_forbidden && *filter != Pred::nonland_permanents() {
                     return unaudited("regeneration prohibition for this set");
                 }

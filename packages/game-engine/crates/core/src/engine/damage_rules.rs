@@ -206,7 +206,7 @@ impl RulesTxn {
             Atom::AnyOf { alternatives } => alternatives
                 .iter()
                 .any(|p| self.damage_fact_matches(p, you, holder, fact)),
-            Atom::Is { .. } => false,
+            Atom::Is { .. } | Atom::Counters { .. } => false,
         })
     }
 

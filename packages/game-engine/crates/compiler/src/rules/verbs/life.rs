@@ -35,24 +35,12 @@ pub(super) fn lower(
     let gain = *effect == ast::ReplacementEventVariant4Event::GainLife;
     let player = pilot_player(cx, who)?;
     let amount = match (for_each, amount.as_ref()) {
-        (Some(filter), amount) => pilot_each_filter(cx, filter, amount)?,
+        (Some(filter), amount) => pilot_each_filter(cx, filter, amount, Some(&player))?,
         (None, ast::Amount::Variant(quantity)) => {
             let ast::AmountVariant::LifeChange(change) = quantity.as_ref() else {
                 return Err(operand("amount", variant(quantity)));
             };
             return linked_change(cx, gain, player, change, optional.is_some());
-        }
-        (None, ast::Amount::Attribute(attribute))
-            if attribute.attribute == ast::PropertyConstraintProperty::Power
-                && matches!(who.as_ref(), ast::PlayerRef::Controller(controller) if controller.of == attribute.of) =>
-        {
-            let PlayerExpr::ControllerOf { object } = player else {
-                unreachable!()
-            };
-            Amount::StatOf {
-                object,
-                stat: kir::Stat::Power,
-            }
         }
         (None, amount) => pilot_amount(cx, amount)?,
     };

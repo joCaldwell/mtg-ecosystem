@@ -121,7 +121,9 @@ impl Walk<'_, '_> {
                     filter,
                 },
                 Destination::Exile | Destination::OwnerHand,
-            ) => Self::audited_filter(&ZoneExpr::Battlefield, filter).map(|()| Cell::MoveSet),
+            ) => {
+                Self::audit_set_filter(&ZoneExpr::Battlefield, filter, true).map(|()| Cell::MoveSet)
+            }
             (
                 SetExpr::Matching {
                     zone: ZoneExpr::Graveyards,

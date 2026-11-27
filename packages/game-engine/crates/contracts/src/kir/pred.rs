@@ -84,6 +84,12 @@ pub enum Atom {
         cmp: Cmp,
         value: Amount,
     },
+    /// CR 122.1: compare the current count of one kind, or of all counters.
+    Counters {
+        counter: Option<CounterKind>,
+        cmp: Cmp,
+        value: Quantity,
+    },
     /// CR 201.5: the referenced object itself. Only an event pattern
     /// compares its object with a reference this way.
     Is {

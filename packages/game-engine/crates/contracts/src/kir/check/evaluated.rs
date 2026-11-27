@@ -63,6 +63,22 @@ impl Walk<'_, '_> {
             } => Ok(()),
             Amount::Count { set } if self.audit_control_set(set).is_ok() => Ok(()),
             Amount::Count { set } => self.audit_counted_set(set),
+            Amount::Greatest {
+                set:
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Battlefield,
+                        filter,
+                    },
+                ..
+            } => self.audited_relative_filter(filter),
+            Amount::CountersOn {
+                object:
+                    Ref::Source
+                    | Ref::EventObject { .. }
+                    | Ref::CostResult { .. }
+                    | Ref::BoundVar { .. },
+                counter,
+            } if counter.admitted() => Ok(()),
             Amount::StatOf {
                 object:
                     Ref::Source
@@ -103,14 +119,26 @@ impl Walk<'_, '_> {
     /// CR 608.2h, 109.5: a counted battlefield set relative to one denoted
     /// player, the controller's graveyard or hand size, or an audited set.
     fn audit_counted_set(&self, set: &SetExpr) -> Result<(), KirError> {
-        if let SetExpr::Matching {
-            zone: ZoneExpr::Battlefield,
-            filter,
-        } = set
-        {
-            return self.audited_relative_filter(filter);
+        match set {
+            SetExpr::Matching {
+                zone: ZoneExpr::Battlefield,
+                filter,
+            } => self.audited_relative_filter(filter),
+            SetExpr::Matching {
+                zone: ZoneExpr::Graveyard { of },
+                filter,
+            } if self.evaluated_singleton(of) => {
+                self.audit_evaluated_player(of)?;
+                Self::audited_filter(&ZoneExpr::Graveyards, filter)
+            }
+            SetExpr::Matching {
+                zone: ZoneExpr::Hand { of },
+                filter,
+            } if self.evaluated_singleton(of) && filter.is_empty() => {
+                self.audit_evaluated_player(of)
+            }
+            _ => Self::audit_verb_count(set),
         }
-        Self::audit_verb_count(set)
     }
 
     /// The battlefield atoms the evaluator reads, where a controller may be
@@ -126,7 +154,7 @@ impl Walk<'_, '_> {
                 atom => rest.push(atom.clone()),
             }
         }
-        Self::audited_filter(&ZoneExpr::Battlefield, &Pred(rest))
+        Self::audit_set_filter(&ZoneExpr::Battlefield, &Pred(rest), true)
     }
 
     /// A player expression that denotes at most one player when read.
