@@ -140,7 +140,10 @@ fn toughness(g: &Game, card: u32) -> Quantity {
         .view
         .objects
         .iter()
-        .find(|v| v.oracle_id == g.state.rules.cards[&object.card].oracle_id && v.zone == Zone::Battlefield)
+        .find(|v| {
+            v.oracle_id == g.state.rules.cards[&object.card].oracle_id
+                && v.zone == Zone::Battlefield
+        })
         .unwrap();
     handle
         .characteristics
@@ -193,7 +196,14 @@ fn black_suns_zenith_puts_x_minus_one_counters_on_each_creature() {
     // CR 122.1: a -1/-1 counter row must be positive and on the battlefield.
     let mut forged = g.fork();
     let dreadmaw = Driver::object(&g, 6).card;
-    forged.state.rules.objects.get_mut(&dreadmaw).unwrap().counters[0].count = 0.into();
+    forged
+        .state
+        .rules
+        .objects
+        .get_mut(&dreadmaw)
+        .unwrap()
+        .counters[0]
+        .count = 0.into();
     assert!(
         forged
             .validate_state()
@@ -213,7 +223,10 @@ fn contagion_clasp_proliferates_minus_one_counters() {
     for _ in 0..6 {
         scenario = scenario.permanent_or_hand("Island", 0, 0, false);
     }
-    let mut g = Game::with_trace(scenario.libraries("Island", 2).prepare(), TraceMode::Detailed);
+    let mut g = Game::with_trace(
+        scenario.libraries("Island", 2).prepare(),
+        TraceMode::Detailed,
+    );
     let dreadmaw = Driver::object(&g, 1);
     Driver::cast(&mut g, CardId(0));
     Driver::pay(&mut g, &[2, 3]);
@@ -258,7 +271,10 @@ fn scar_annihilates_with_plus_one_counters_and_bounds_their_removal_cost() {
     Driver::pay(&mut g, &[1, 2, 3]);
     settle(&mut g);
     let feeder = Driver::object(&g, 0);
-    assert_eq!(g.current(feeder).unwrap().plus_one_counters, Quantity::from(2));
+    assert_eq!(
+        g.current(feeder).unwrap().plus_one_counters,
+        Quantity::from(2)
+    );
     // Seat 1 casts Scar at instant speed in response to nothing.
     let d = Driver::request(&mut g, u64::MAX);
     assert_eq!(d.player, PlayerId(0));

@@ -54,9 +54,10 @@ impl Walk<'_, '_> {
         };
         match object {
             Ref::Source => cell(Cell::PlusOneCountersSource, Cell::KindCountersSource),
-            Ref::EventObject { .. } if !self.plain_leaf => {
-                cell(Cell::PlusOneCountersEventObject, Cell::KindCountersEventObject)
-            }
+            Ref::EventObject { .. } if !self.plain_leaf => cell(
+                Cell::PlusOneCountersEventObject,
+                Cell::KindCountersEventObject,
+            ),
             Ref::Target { slot } => match self.domain(*slot)? {
                 TargetDomain::ControlledBattlefieldCreature => {
                     cell(Cell::PlusOneCountersTarget, Cell::KindCountersTarget)

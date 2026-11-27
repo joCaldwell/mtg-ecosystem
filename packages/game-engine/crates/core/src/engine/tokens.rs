@@ -399,7 +399,8 @@ impl RulesTxn {
                 // CR 107.3, 608.2h: the announced X is fixed for the spell.
                 let amount = self.kernel_amount(&frame, &amount)?;
                 if amount == Quantity::zero() {
-                    return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 if let mtg_contracts::kir::SetExpr::Matching { zone, filter } = on {
                     let objects = self.kernel_set(&frame, &zone, &filter)?.0;
@@ -830,11 +831,13 @@ impl RulesTxn {
                         || o.zone != Zone::Battlefield
                         || stack.timestamp > self.state.rules.next_batch_id
                 })
-                || (o.counters.iter().any(|stack| {
-                    stack.kind == mtg_contracts::kir::CounterKind::MinusOneMinusOne
-                }) && !self.historical_creature_possible(
-                    &self.copiable_definition(o.id)?.characteristics,
-                ))
+                || (o
+                    .counters
+                    .iter()
+                    .any(|stack| stack.kind == mtg_contracts::kir::CounterKind::MinusOneMinusOne)
+                    && !self.historical_creature_possible(
+                        &self.copiable_definition(o.id)?.characteristics,
+                    ))
             {
                 return Err("snapshot counter invariant".into());
             }

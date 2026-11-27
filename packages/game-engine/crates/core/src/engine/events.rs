@@ -391,7 +391,8 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::PlayerCounters(*player)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutCounters { object, .. } | ProposedEvent::AnnihilateCounters { object, .. } => {
+        ProposedEvent::PutCounters { object, .. }
+        | ProposedEvent::AnnihilateCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -1609,8 +1610,7 @@ impl RulesTxn {
             || events.iter().any(|e| {
                 matches!(
                     e,
-                    ProposedEvent::PutCounters { .. }
-                        | ProposedEvent::GivePlayerCounters { .. }
+                    ProposedEvent::PutCounters { .. } | ProposedEvent::GivePlayerCounters { .. }
                 )
             })
         {

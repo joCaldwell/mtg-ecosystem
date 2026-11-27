@@ -120,11 +120,12 @@ impl RulesTxn {
             o.plus_one_counters.clone(),
             o.counter_count(&CounterKind::MinusOneMinusOne),
         );
-        (o.present_on_battlefield() && amount > Quantity::zero())
-            .then_some(ProposedEvent::AnnihilateCounters {
+        (o.present_on_battlefield() && amount > Quantity::zero()).then_some(
+            ProposedEvent::AnnihilateCounters {
                 object: o.id,
                 amount,
-            })
+            },
+        )
     }
 
     pub(super) fn can_proliferate_player(&self, player: PlayerId) -> bool {
