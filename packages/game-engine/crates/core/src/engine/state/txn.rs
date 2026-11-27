@@ -88,6 +88,7 @@ impl RulesTxn {
         self.state = staged.state;
         self.trace = staged.trace;
         self.cast_reversals = staged.cast_reversals;
+        self.actual_journal = staged.actual_journal;
         self.stream_buffer.append(&mut staged.stream_buffer);
     }
 
@@ -231,6 +232,7 @@ impl RulesTxn {
             in_rule_step: false,
             kernel_leaf: self.kernel_leaf.clone(),
             published: None,
+            actual_journal: None,
         })
     }
 }

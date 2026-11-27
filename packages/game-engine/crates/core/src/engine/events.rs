@@ -936,8 +936,7 @@ impl RulesTxn {
         // permanent. Collect the actual exile inside the same rule transaction.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let cause = BatchCause::ControlReconciliation;
-        self.record_turn_occurrences(&before_event, &occurrences)?;
-        self.collect_triggers(&cause, &before_event, &occurrences)?;
+        self.publish_actuals(&before_event, &cause, None, &occurrences, false)?;
         self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(CommittedBatch {
                 batch_id,
@@ -1838,11 +1837,13 @@ impl RulesTxn {
                     None => self.facts(&[proposed])?,
                 };
                 self.apply_leaf(proposed, (batch, path), before, out, authority, None)?;
-                self.record_turn_occurrences(&before_event, &out[offset..])?;
-                if changes_control_inputs(proposed) {
-                    self.reconcile_controllers()?;
-                }
-                self.collect_triggers(cause, &before_event, &out[offset..])?;
+                self.publish_actuals(
+                    &before_event,
+                    cause,
+                    None,
+                    &out[offset..],
+                    changes_control_inputs(proposed),
+                )?;
             }
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {
@@ -1876,27 +1877,17 @@ impl RulesTxn {
                     self.apply_leaf(event, (batch, path), before, out, authority, Some(&common))?;
                     path.pop();
                 }
-                // CR 603.10a, 702.15c/702.2e: simultaneous departures use
-                // the common prior layer-6 view, even if a granting source
-                // happened to be applied first by deterministic event order.
-                {
-                    for o in common
-                        .state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| o.zone == Zone::Battlefield)
-                    {
-                        if self.current(o.id).is_err() {
-                            self.retain_source_facts(&common.object_before(o.id)?);
-                        }
-                    }
-                }
-                self.record_turn_occurrences(&common, &out[offset..])?;
-                if occurrences.iter().any(changes_control_inputs) {
-                    self.reconcile_controllers()?;
-                }
-                self.collect_triggers(cause, &common, &out[offset..])?;
+                let group = GroupId {
+                    batch,
+                    path: path.clone(),
+                };
+                self.publish_actuals(
+                    &common,
+                    cause,
+                    Some(group),
+                    &out[offset..],
+                    occurrences.iter().any(changes_control_inputs),
+                )?;
             }
         }
         Ok(())
