@@ -1,5 +1,5 @@
 use super::*;
-use crate::ingest::evidence::{Basis, Check, EvidenceError};
+use crate::ingest::evidence::{Basis, Check, Coverage, EvidenceError};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
@@ -87,42 +87,254 @@ fn expect_check(label: &str, row: &mut Value, expected: &str) {
     println!("{label}\t{expected}\t{}", super::failure(failure));
 }
 
-/// An opt-in fixture family reads the operative field when present. Other
-/// printed material is outside the selected test obligation. Drive the
-/// remaining claims explicitly so P12 has to find the exact unused occurrence.
-fn check_field(
+fn check_field(evidence: &CardEvidence, index: usize, field: &str) -> Result<(), EvidenceError> {
+    evidence.block(0, index, field)?.check_family(|coverage| {
+        coverage.field(field)?;
+        Ok(())
+    })
+}
+
+fn bind_forms(
+    row: &Value,
+    block_index: usize,
+    coverage: &mut Coverage<'_, '_>,
+    bindings: &[(&str, u32, &str)],
+) -> Result<(), EvidenceError> {
+    for (index, fact) in block(row, block_index)["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        let Some([_, start, _]) = fact["tok"]
+            .as_array()
+            .map(|parts| [0, 1, 2].map(|part| parts[part].as_u64().unwrap() as u32))
+        else {
+            continue;
+        };
+        for &(form, token, field) in bindings {
+            if fact["form"] == form && start == token {
+                coverage.bind_fact(index, field)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Controller {
+    BeforeMove,
+    AnnouncedTarget,
+    GraveyardObject,
+}
+
+/// A test resolver for the frozen evidence. Its expected meanings are fixed
+/// by the witness, independent of any fields or facts added by a mutation.
+fn check_terastodon(
     row: &Value,
     evidence: &CardEvidence,
-    index: usize,
-    field: &str,
-    mention: &str,
+    controller: Controller,
 ) -> Result<(), EvidenceError> {
-    let block = evidence.block(0, index, field)?;
-    block.check_family(|coverage| {
-        if ability(row, index).pointer(field).is_some() {
-            coverage.field(field)?;
+    let each = "/effects/1/steps/0";
+    let what = format!("{RETURN}/what");
+    let who = format!("{CREATE}/who");
+    evidence.block(0, 0, RETURN)?.check_family(|coverage| {
+        for (field, start, end, spelling, expected) in [
+            ("/kind".into(), 0, 1, "When", json!("triggered")),
+            ("/trigger/what/ref".into(), 1, 2, "this", json!("this")),
+            (
+                "/trigger/what/noun".into(),
+                2,
+                3,
+                "creature",
+                json!("creature"),
+            ),
+            ("/trigger/trigger".into(), 3, 4, "enters", json!("enters")),
+            (format!("{RETURN}/effect"), 5, 6, "you", json!("destroy")),
+            (
+                format!("{RETURN}/effect"),
+                7,
+                8,
+                "destroy",
+                json!("destroy"),
+            ),
+            (
+                format!("{what}/count/amount"),
+                10,
+                11,
+                "three",
+                json!("fixed"),
+            ),
+            (format!("{what}/ref"), 11, 12, "target", json!("target")),
+            (
+                format!("{FILTER}/cls"),
+                13,
+                14,
+                "permanents",
+                json!("permanent"),
+            ),
+            (
+                format!("{each}/effect"),
+                15,
+                17,
+                "For each",
+                json!("for-each"),
+            ),
+            (
+                format!("{each}/processing"),
+                15,
+                17,
+                "For each",
+                json!("instruction-wise"),
+            ),
+            (format!("{each}/each/ref"), 16, 17, "each", json!("each")),
+            (
+                format!("{each}/each/filter/cls"),
+                17,
+                18,
+                "permanent",
+                json!("permanent"),
+            ),
+            (
+                format!("{ITERATION}/relation"),
+                18,
+                20,
+                "put into",
+                json!("zone-change"),
+            ),
+            (format!("{ITERATION}/to/owner"), 20, 21, "a", json!("any")),
+            (
+                format!("{ITERATION}/to/zone"),
+                21,
+                22,
+                "graveyard",
+                json!("graveyard"),
+            ),
+            (
+                format!("{who}/player"),
+                25,
+                27,
+                "its controller",
+                json!("controller"),
+            ),
+            (
+                format!("{CREATE}/effect"),
+                27,
+                28,
+                "creates",
+                json!("create-token"),
+            ),
+            (
+                format!("{CREATE}/count/amount"),
+                28,
+                29,
+                "a",
+                json!("fixed"),
+            ),
+            (
+                format!("{CREATE}/token/power/amount"),
+                29,
+                30,
+                "3",
+                json!("fixed"),
+            ),
+            (
+                format!("{CREATE}/token/toughness/amount"),
+                31,
+                32,
+                "3",
+                json!("fixed"),
+            ),
+            (
+                format!("{CREATE}/token/colors"),
+                32,
+                33,
+                "green",
+                json!(["green"]),
+            ),
+            (
+                format!("{CREATE}/token/subtypes"),
+                33,
+                34,
+                "Elephant",
+                json!(["Elephant"]),
+            ),
+            (
+                format!("{CREATE}/token/types"),
+                34,
+                35,
+                "creature",
+                json!(["creature"]),
+            ),
+            (
+                format!("{CREATE}/token/supertypes"),
+                32,
+                36,
+                "green Elephant creature token",
+                json!([]),
+            ),
+            (
+                format!("{CREATE}/token/keywords"),
+                32,
+                36,
+                "green Elephant creature token",
+                json!([]),
+            ),
+        ] {
+            coverage.meaning(&field, [0, start, end], |value, text| {
+                value == &expected && text == spelling
+            })?;
         }
-        let wire = self::block(row, index);
-        let mut omitted = None;
-        for (fact_index, fact) in wire["facts"].as_array().unwrap().iter().enumerate() {
-            if fact["form"] == mention {
-                omitted = fact["tok"]
-                    .as_array()
-                    .map(|parts| [0, 1, 2].map(|part| parts[part].as_u64().unwrap() as u32));
-            } else {
-                coverage.fact(fact_index)?;
-            }
+        // CR 400.7 and 608.2h. The possessive is inside the iteration over
+        // actual moves. Read the controller of each permanent before its move.
+        coverage.meaning(&format!("{who}/of/ref"), [0, 25, 26], |value, text| {
+            controller == Controller::BeforeMove && value == "it" && text == "its"
+        })?;
+        for field in [
+            format!("{what}/upTo"),
+            format!("{what}/count/value"),
+            format!("{what}/selectionId"),
+            format!("{FILTER}/nonTypes"),
+            format!("{ITERATION}/scope"),
+            format!("{CREATE}/count/value"),
+            format!("{CREATE}/token/power/value"),
+            format!("{CREATE}/token/toughness/value"),
+        ] {
+            coverage.field(&field)?;
         }
-        let [first, end] = [0, 1].map(|i| wire["lines"][i].as_u64().unwrap() as u32);
-        for line in first..end {
-            let tokens = row["printed"]["faces"][0]["lines"][line as usize]["tokens"]
-                .as_array()
-                .unwrap();
-            for token in 0..tokens.len() as u32 {
-                if !omitted.is_some_and(|[l, s, e]| l == line && (s..e).contains(&token)) {
-                    coverage.token(line, token)?;
-                }
-            }
+        let optional = format!("{RETURN}/optional");
+        if ability(row, 0).pointer(&optional).is_some() {
+            coverage.field(&optional)?;
+        }
+        bind_forms(
+            row,
+            0,
+            coverage,
+            &[
+                ("this", 1, "/trigger/what/ref"),
+                ("you", 5, &format!("{RETURN}/effect")),
+                ("up-to", 8, &format!("{what}/upTo")),
+                ("numeral", 10, &format!("{what}/count/value")),
+                ("target", 11, &format!("{what}/selectionId")),
+                ("each", 16, &format!("{each}/each/ref")),
+                ("article", 20, &format!("{ITERATION}/to/owner")),
+                ("a", 20, &format!("{ITERATION}/to/owner")),
+                ("this", 22, &format!("{ITERATION}/scope")),
+                ("its", 25, &format!("{who}/of/ref")),
+                ("a", 28, &format!("{CREATE}/count/value")),
+                ("numeral", 29, &format!("{CREATE}/token/power/value")),
+                ("numeral", 31, &format!("{CREATE}/token/toughness/value")),
+            ],
+        )?;
+        for (index, expected) in [(4, ","), (14, "."), (24, ","), (30, "/"), (36, ".")] {
+            coverage.punctuation(0, index, expected)?;
+        }
+        // Exploratory reads of all facts and tokens must never close a claim.
+        for index in 0..block(row, 0)["facts"].as_array().unwrap().len() {
+            coverage.fact(index)?;
+        }
+        for index in 0..37 {
+            coverage.token(0, index)?;
         }
         Ok(())
     })
@@ -395,7 +607,31 @@ fn check_mutations(rows: &BTreeMap<usize, String>) {
     let field = format!("{RESTRICTION}/restriction");
     expect_family(
         "omit Halfling restriction",
-        check_field(&row, &card, 1, &field, "only").unwrap_err(),
+        card.block(0, 1, &field)
+            .unwrap()
+            .check_family(|coverage| {
+                coverage.punctuation(1, 1, ":")?;
+                coverage.field(&format!("{RETURN}/mana/amount/value"))?;
+                coverage.meaning(&format!("{RETURN}/mana/mana"), [1, 4, 8], |value, text| {
+                    value == "any-color" && text == "mana of any color"
+                })?;
+                coverage.meaning(&format!("{RETURN}/effect"), [1, 9, 12], |value, text| {
+                    value == "add-mana" && text == "Spend this mana"
+                })?;
+                bind_forms(
+                    &row,
+                    1,
+                    coverage,
+                    &[
+                        ("numeral", 3, &format!("{RETURN}/mana/amount/value")),
+                        ("any", 6, &format!("{RETURN}/mana/mana")),
+                        ("this", 10, &format!("{RETURN}/effect")),
+                    ],
+                )?;
+                coverage.punctuation(1, 8, ".")?;
+                Ok(())
+            })
+            .unwrap_err(),
         Check::P12,
         [62, 66],
     );
@@ -416,7 +652,7 @@ fn check_mutations(rows: &BTreeMap<usize, String>) {
     let card = verified(&rehash(&mut row)).unwrap();
     expect_family(
         "invent Boseiju restriction",
-        check_field(&row, &card, 1, &field, "only").unwrap_err(),
+        check_field(&card, 1, &field).unwrap_err(),
         Check::P11,
         [40, 133],
     );
@@ -473,18 +709,93 @@ fn check_mutations(rows: &BTreeMap<usize, String>) {
         let field = format!("{owner}/{property}");
         expect_family(
             name,
-            check_field(&row, &card, index, &field, form).unwrap_err(),
+            match line {
+                TERA => check_terastodon(&row, &card, Controller::BeforeMove),
+                JUNK if !add => card.block(0, 1, &field).unwrap().check_family(|coverage| {
+                    coverage.meaning("/trigger/what/ref", [1, 1, 2], |value, text| {
+                        value == "this" && text == "this"
+                    })?;
+                    coverage.punctuation(1, 4, ",")?;
+                    bind_forms(&row, 1, coverage, &[("this", 1, "/trigger/what/ref")])?;
+                    Ok(())
+                }),
+                _ => check_field(&card, index, &field),
+            }
+            .unwrap_err(),
             if add { Check::P11 } else { Check::P12 },
             range,
         );
     }
+    let mut row = get(TERA);
+    remove_field(&mut row, 0, RETURN, "optional", "may");
+    block_mut(&mut row, 0)["facts"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|fact| fact["form"] != "may");
+    let card = verified(&rehash(&mut row)).unwrap();
+    expect_family(
+        "omit Terastodon may and delete fact",
+        check_terastodon(&row, &card, Controller::BeforeMove).unwrap_err(),
+        Check::P12,
+        [31, 34],
+    );
+
+    let row = get(TERA);
+    let card = verified(&rows[&TERA]).unwrap();
+    check_terastodon(&row, &card, Controller::BeforeMove).unwrap();
+    for (label, candidate) in [
+        (
+            "use announced target controller",
+            Controller::AnnouncedTarget,
+        ),
+        (
+            "use graveyard object controller",
+            Controller::GraveyardObject,
+        ),
+    ] {
+        expect_family(
+            label,
+            check_terastodon(&row, &card, candidate).unwrap_err(),
+            Check::P11,
+            [136, 139],
+        );
+    }
+
+    let mut row = get(HALFLING);
+    fact_mut(&mut row, 1, "form", "this")["tok"] = json!([0, 3, 4]);
+    expect_check(
+        "cross Halfling mana mention into first activation",
+        &mut row,
+        "P7",
+    );
+    let mut row = get(JUNK);
+    fact_mut(&mut row, 1, "fact", "exception")["at"] = json!("/trigger/what");
+    expect_check("attach another to wrong child", &mut row, "P7");
+    let mut row = get(HALFLING);
+    fact_mut(&mut row, 1, "form", "only")["at"] = json!(format!("{RESTRICTION}/uses/0"));
+    expect_check("attach only to wrong child", &mut row, "P7");
+    let mut row = get(HALFLING);
+    ast_mut(&mut row, 1)
+        .pointer_mut(&format!("{RIDER}/effects/0/steps/0"))
+        .unwrap()["effect"] = json!("counter");
+    expect_check("clear can't polarity", &mut row, "P10");
+
     let mut row = get(JUNK);
     let keyword = ability(&row, 0)["keywords"][0].clone();
     ast_mut(&mut row, 0)["keywords"]
         .as_array_mut()
         .unwrap()
         .push(keyword);
-    expect_check("duplicate Flying", &mut row, "P6");
+    block_mut(&mut row, 0)["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"basis":"alias","path":"/keywords/1","of":"/keywords/0"}));
+    assert_eq!(self::block(&row, 0)["nodes"][1]["span"], json!([[0, 0, 1]]));
+    assert_eq!(
+        row["printed"]["faces"][0]["lines"][0]["tokens"][0]["o"],
+        json!([0, 6])
+    );
+    expect_check("duplicate Flying with same token", &mut row, "P6");
     let mut row = get(HALFLING);
     let rider = ability(&row, 1).pointer(RIDER).unwrap().clone();
     ast_mut(&mut row, 1).pointer_mut(RETURN).unwrap()["riders"]
@@ -560,7 +871,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
     };
     let edits = [
         read(
-            "move target O with reminder",
+            "shift token O",
             JUNK,
             1,
             "Flying\n",
@@ -569,7 +880,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!("line:1:7")),
         ),
         read(
-            "misspell Boseiju",
+            "shrink Boseiju name edit",
             BOSEIJU,
             0,
             "Boseiju enters",
@@ -578,7 +889,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             None,
         ),
         read(
-            "move Junk Diver selection token",
+            "change Junk Diver selectionId",
             JUNK,
             1,
             "another target",
@@ -587,7 +898,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!("line:1:6")),
         ),
         read(
-            "swap modal target heads",
+            "swap target indices",
             SAHEELI,
             0,
             "target artifact.\n• Create a token that's a copy of target creature",
@@ -596,25 +907,25 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!(["creature"])),
         ),
         read(
-            "remove target introduction",
+            "move target to nested scope",
             JUNK,
             1,
-            "another target artifact card",
-            "an artifact card",
-            format!("{RETURN}/what/selectionId"),
-            None,
+            "another target artifact card from your graveyard to your hand.",
+            "another artifact card from your graveyard to your hand if you control target artifact.",
+            "/effects/0/condition/what/selectionId".into(),
+            Some(json!("line:1:18")),
         ),
         read(
-            "remove this way linkage",
+            "reassign this way",
             TERA,
             0,
-            "graveyard this way",
-            "graveyard",
+            "permanents. For each permanent put into a graveyard this way,",
+            "permanents this way. For each permanent put into a graveyard,",
             format!("{ITERATION}/scope"),
             None,
         ),
         read(
-            "print two on Terastodon",
+            "change Terastodon AST three to two",
             TERA,
             0,
             "up to three",
@@ -623,7 +934,16 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!(2)),
         ),
         read(
-            "print three life on Boseiju",
+            "change Terastodon fact three to two",
+            TERA,
+            0,
+            "up to three",
+            "up to two",
+            format!("{COUNT}/value"),
+            Some(json!(2)),
+        ),
+        read(
+            "change Boseiju life to three",
             BOSEIJU,
             1,
             "Pay 2 life",
@@ -632,7 +952,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!(3)),
         ),
         read(
-            "print two on Junk Diver",
+            "invent Junk Diver count two",
             JUNK,
             1,
             "another target artifact card",
@@ -641,7 +961,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!(2)),
         ),
         read(
-            "print creature instead of noncreature",
+            "invert noncreature polarity",
             TERA,
             0,
             "noncreature permanents",
@@ -650,16 +970,16 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!(["creature"])),
         ),
         read(
-            "remove Halfling spend clause",
+            "omit Halfling restriction",
             HALFLING,
             1,
-            " Spend this mana only to cast a legendary spell, and that spell can't be countered.",
-            "",
-            RESTRICTION.into(),
+            "only to cast",
+            "to cast",
+            format!("{RESTRICTION}/restriction"),
             None,
         ),
         read(
-            "print Boseiju spend restriction",
+            "invent Boseiju restriction",
             BOSEIJU,
             1,
             "If that mana is spent on an instant or sorcery spell, that spell can't be countered.",
@@ -668,7 +988,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!("only")),
         ),
         read(
-            "remove printed may",
+            "omit Terastodon may",
             TERA,
             0,
             "you may destroy",
@@ -677,7 +997,16 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             None,
         ),
         read(
-            "print Junk Diver may",
+            "omit Terastodon may and delete fact",
+            TERA,
+            0,
+            "you may destroy",
+            "destroy",
+            format!("{RETURN}/optional"),
+            None,
+        ),
+        read(
+            "invent Junk Diver may",
             JUNK,
             1,
             "dies, return",
@@ -686,7 +1015,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!(true)),
         ),
         read(
-            "remove printed another",
+            "omit Junk Diver another",
             JUNK,
             1,
             "another target",
@@ -695,7 +1024,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             None,
         ),
         read(
-            "print Terastodon other",
+            "invent Terastodon other",
             TERA,
             0,
             "three target",
@@ -704,7 +1033,61 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!(true)),
         ),
         read(
-            "print Flying twice",
+            "cross Halfling mana mention into first activation",
+            HALFLING,
+            0,
+            "Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a legendary spell, and that spell can't be countered.",
+            "Add {C}. Spend this mana only to cast a legendary spell, and that spell can't be countered.\n{T}: Add one mana of any color.",
+            format!("{RESTRICTION}/restriction"),
+            Some(json!("only")),
+        ),
+        read(
+            "attach another to wrong child",
+            JUNK,
+            1,
+            "this creature dies, return another target",
+            "another creature dies, return target",
+            "/trigger/what/filter/other".into(),
+            Some(json!(true)),
+        ),
+        read(
+            "attach only to wrong child",
+            HALFLING,
+            1,
+            "only to cast a legendary spell, and that spell",
+            "to cast a legendary spell, and only that spell",
+            format!("{RESTRICTION}/restriction"),
+            None,
+        ),
+        read(
+            "clear can't polarity",
+            HALFLING,
+            1,
+            "can't be countered",
+            "can be countered",
+            format!("{RIDER}/effects/0/steps/0/effect"),
+            None,
+        ),
+        read(
+            "use announced target controller",
+            TERA,
+            0,
+            "its controller creates",
+            "each target's controller creates",
+            format!("{CREATE}/who/player"),
+            None,
+        ),
+        read(
+            "use graveyard object controller",
+            TERA,
+            0,
+            "its controller creates",
+            "its controller in that graveyard creates",
+            format!("{CREATE}/who/player"),
+            None,
+        ),
+        read(
+            "duplicate Flying with same token",
             JUNK,
             0,
             "Flying\n",
@@ -713,7 +1096,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!("flying")),
         ),
         read(
-            "print Halfling rider twice",
+            "duplicate Halfling rider",
             HALFLING,
             1,
             "and that spell can't be countered.",
@@ -722,7 +1105,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             Some(json!("cant")),
         ),
         read(
-            "change Halfling alias source",
+            "diverge Halfling alias",
             HALFLING,
             1,
             "legendary spell",
@@ -764,6 +1147,17 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
                 println!("{}\treread\t{}", edit.label, super::failure(error.into()));
             }
             Ok(block) => {
+                assert!(
+                    !matches!(
+                        edit.label,
+                        "reassign this way"
+                            | "attach only to wrong child"
+                            | "use announced target controller"
+                            | "use graveyard object controller"
+                    ),
+                    "{}: expected a located read rejection",
+                    edit.label
+                );
                 let actual = ability(&altered, edit.block).pointer(&edit.field);
                 assert_eq!(
                     actual,
@@ -777,7 +1171,7 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
                     assert!(block.node(owner).is_ok(), "{}: {owner}", edit.label);
                 }
                 match edit.label {
-                    "move target O with reminder" => {
+                    "shift token O" => {
                         let proof = block
                             .facts()
                             .find_map(|(index, fact)| {
@@ -787,7 +1181,46 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
                             .unwrap();
                         assert_eq!(proof.range, [64, 70]);
                     }
-                    "swap modal target heads" => {
+                    "move target to nested scope"
+                    | "attach another to wrong child"
+                    | "cross Halfling mana mention into first activation" => {
+                        let (old_block, old_field) = match edit.label {
+                            "move target to nested scope" => {
+                                (1, format!("{RETURN}/what/selectionId"))
+                            }
+                            "attach another to wrong child" => (1, format!("{FILTER}/other")),
+                            _ => (1, format!("{RESTRICTION}/restriction")),
+                        };
+                        assert!(ability(&altered, old_block).pointer(&old_field).is_none());
+                        let error = check_field(&card, old_block, &old_field).unwrap_err();
+                        assert_eq!(error.check, Check::P11);
+                        assert!(error.range.is_some());
+                        match edit.label {
+                            "move target to nested scope" => {
+                                let (_, fact) = block
+                                    .facts()
+                                    .find(|(_, fact)| matches!(fact, PrintedFact::Target(_)))
+                                    .unwrap();
+                                let PrintedFact::Target(target) = fact else {
+                                    unreachable!()
+                                };
+                                assert_eq!(target.field, Nullable::Value(edit.field.clone()));
+                            }
+                            "attach another to wrong child" => {
+                                assert!(
+                                    block.facts().any(
+                                        |(_, fact)| matches!(fact, PrintedFact::Exception(value)
+                                    if value.field == Nullable::Value(edit.field.clone()))
+                                    )
+                                );
+                            }
+                            _ => {
+                                assert!(block.facts().any(|(_, fact)| matches!(fact, PrintedFact::Mention(value)
+                                    if value.form == PrintedFactMentionForm::This && value.tok.0[0] == 0 && value.at == RESTRICTION)));
+                            }
+                        }
+                    }
+                    "swap target indices" => {
                         let indices: Vec<_> = block
                             .facts()
                             .filter_map(|(_, fact)| match fact {
@@ -797,17 +1230,17 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
                             .collect();
                         assert_eq!(indices, [0, 1]);
                     }
-                    "print Flying twice" => {
+                    "duplicate Flying with same token" => {
                         let first = block.node("/keywords/0").unwrap();
                         let second = block.node("/keywords/1").unwrap();
                         assert_eq!([first.range, second.range], [[0, 6], [8, 14]]);
                     }
-                    "print Halfling rider twice" => {
+                    "duplicate Halfling rider" => {
                         let first = block.node(&format!("{RIDER}/effects/0/steps/0")).unwrap();
                         let second = block.node("/effects/1/steps/0").unwrap();
                         assert!(first.range[1] < second.range[0]);
                     }
-                    "change Halfling alias source" => {
+                    "diverge Halfling alias" => {
                         let canonical = format!("{RESTRICTION}/uses/0/filter");
                         let alias = block.node(&format!("{RIDER}/spentOn/0/filter")).unwrap();
                         assert_eq!(alias.owner, canonical);

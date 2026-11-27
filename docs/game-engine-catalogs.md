@@ -112,14 +112,15 @@ locates a container. Facts on its verified tokens can be cited individually.
 An unlocated object, an alias without a usable target or a fact assigned to
 the root for uncovered tokens yields a located `evidence:missing`.
 
-The opt-in check runs the block resolver with one coverage record. P11 requires
-each consumed operand, modifier, instruction or mention to cite usable evidence.
-For a linked field, the citation must name that exact field. For a default, the
-resolver checks the closed reason against the obligation. P12 checks both the
-fact inventory and the original token occurrences after resolution. This catches
-a dropped qualifier even if its fact was also removed. Several checked meanings
-may share one citation. An unconsumed fact or token rejects the card at its
-original range. Mixed blocks need a checked claim for every occurrence.
+The opt-in check derives its obligation inventory from the verified block AST.
+P11 requires the resolver to discharge each field with a verified exact link,
+a production-specific check of the printed phrase and field value, or a closed
+default at its governing node. P12 requires an explicit checked meaning or
+structural role for every printed fact and token. Fact and token lookups leave
+coverage unchanged. This catches an omitted qualifier with either a null field
+link or an absent fact. Several checked fields may cite the same occurrence.
+An undischarged field or unconsumed occurrence rejects the card with an original
+byte range.
 
 Run the frozen witness and mutation harness against the pinned candidate with
 `MTG_R6_VERIFIER_ROWS` set to its path.

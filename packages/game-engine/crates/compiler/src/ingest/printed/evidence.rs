@@ -1,12 +1,18 @@
 //! Evidence for opt-in Rust families. Only R6 intake constructs an R6 view.
 //! The resolver declares its obligations independently of the citations it finds.
-use super::{facts, nodes, text};
+use super::{VerifiedFace, facts, nodes, text};
 use crate::{Failure, unsupported};
 use mtg_oracle_ast::printed::*;
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A view of a validated card. Excluded records have no view.
-pub(crate) struct CardEvidence(Option<PrintedCard>);
+pub(crate) struct CardEvidence(Option<VerifiedCard>);
+
+struct VerifiedCard {
+    printed: PrintedCard,
+    faces: Vec<Option<VerifiedFace>>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Check {
@@ -65,13 +71,18 @@ pub(crate) struct BlockEvidence<'a> {
     face_index: usize,
     block_index: usize,
     face: &'a PrintedFaceRead,
+    normalized: &'a str,
+    ast: &'a Value,
     block: &'a PrintedBlockRead,
     nodes: BTreeMap<&'a str, &'a PrintedNode>,
 }
 
 impl CardEvidence {
-    pub(in crate::ingest) fn verified(printed: PrintedCard) -> Self {
-        Self(Some(printed))
+    pub(in crate::ingest) fn verified(
+        printed: PrintedCard,
+        faces: Vec<Option<VerifiedFace>>,
+    ) -> Self {
+        Self(Some(VerifiedCard { printed, faces }))
     }
 
     pub(in crate::ingest) fn legacy() -> Self {
@@ -92,7 +103,7 @@ impl CardEvidence {
             obligation: obligation.into(),
             range,
         };
-        let printed = self
+        let VerifiedCard { printed, faces } = self
             .0
             .as_ref()
             .ok_or_else(|| missing(Check::RequiresR6, None))?;
@@ -109,10 +120,13 @@ impl CardEvidence {
             }
             None => return Err(missing(Check::P11, Some([0, read.original.bytes]))),
         };
+        let verified = faces[face].as_ref().unwrap();
         Ok(BlockEvidence {
             face_index: face,
             block_index: block,
             face: read,
+            normalized: &verified.normalized,
+            ast: verified.blocks[block].as_ref().unwrap(),
             block: block_data,
             nodes: block_data
                 .nodes
@@ -154,6 +168,47 @@ fn token_range(token: &PrintedToken) -> [u32; 2] {
         PrintedToken::Selfref(v) => v.o.0,
         PrintedToken::Symbol(v) => v.o.0,
         PrintedToken::Word(v) => v.o.0,
+    }
+}
+
+fn normalized_range(token: &PrintedToken) -> [u32; 2] {
+    match token {
+        PrintedToken::CardName(v) => v.n.0,
+        PrintedToken::Number(v) => v.n.0,
+        PrintedToken::Punct(v) => v.n.0,
+        PrintedToken::Selfref(v) => v.n.0,
+        PrintedToken::Symbol(v) => v.n.0,
+        PrintedToken::Word(v) => v.n.0,
+    }
+}
+
+/// Each scalar, scalar list and empty container is an obligation. For
+/// composite values, the descendants carry the obligations independently.
+fn fields(value: &Value, path: &str, owner: &str, out: &mut BTreeMap<String, String>) {
+    match value {
+        Value::Object(object) if !object.is_empty() => {
+            for (key, value) in object {
+                fields(value, &nodes::pointer(path, key), path, out);
+            }
+        }
+        Value::Array(items) if items.iter().any(|item| item.is_object() || item.is_array()) => {
+            for (index, value) in items.iter().enumerate() {
+                fields(value, &nodes::pointer(path, &index.to_string()), owner, out);
+            }
+        }
+        _ => {
+            out.insert(path.to_owned(), owner.to_owned());
+        }
+    }
+}
+
+fn linked_field(fact: &PrintedFact) -> Option<&str> {
+    match fact {
+        PrintedFact::ReminderCitation(cite) => Some(&cite.field),
+        _ => match facts::location(fact).unwrap().2 {
+            Nullable::Value(path) => Some(path),
+            Nullable::Null => None,
+        },
     }
 }
 
@@ -264,7 +319,11 @@ impl<'a> BlockEvidence<'a> {
         })
     }
 
-    fn token(&self, line: u32, index: u32) -> Result<Located<'a, &'a PrintedToken>, EvidenceError> {
+    pub(crate) fn token(
+        &self,
+        line: u32,
+        index: u32,
+    ) -> Result<Located<'a, &'a PrintedToken>, EvidenceError> {
         let ref_name = || format!("lines/{line}/tokens/{index}");
         let [first, end] = self.block.lines.0;
         let token = (first..end)
@@ -293,7 +352,11 @@ impl<'a> BlockEvidence<'a> {
         &self,
         resolve: impl FnOnce(&mut Coverage<'_, 'a>) -> Result<T, EvidenceError>,
     ) -> Result<T, EvidenceError> {
+        let mut obligations = BTreeMap::new();
+        fields(self.ast, "", "", &mut obligations);
         let mut coverage = Coverage {
+            obligations,
+            meanings: BTreeMap::new(),
             block: self,
             facts: BTreeSet::new(),
             tokens: BTreeSet::new(),
@@ -325,57 +388,178 @@ impl<'a> BlockEvidence<'a> {
 #[must_use = "finish coverage before admitting a migrated block"]
 pub(crate) struct Coverage<'block, 'a> {
     block: &'block BlockEvidence<'a>,
+    obligations: BTreeMap<String, String>,
+    meanings: BTreeMap<String, BTreeSet<(u32, u32)>>,
     facts: BTreeSet<usize>,
     tokens: BTreeSet<(u32, u32)>,
 }
 
 impl<'a> Coverage<'_, 'a> {
-    /// Cite a field that P9 or P10 matched to a fact. Inferred fields must
-    /// cite their exact implicit node and check its reason instead.
+    fn missing(&self, field: &str) -> EvidenceError {
+        self.block
+            .error(Check::P11, field, self.block.container(field))
+    }
+
+    fn record(&mut self, field: &str, [line, start, end]: [u32; 3]) {
+        let occurrences = (start..end).map(|index| (line, index));
+        self.meanings
+            .entry(field.to_owned())
+            .or_default()
+            .extend(occurrences.clone());
+        self.tokens.extend(occurrences);
+    }
+
+    /// Discharge a field using the exact linkage checked by P9 or P10.
     pub(crate) fn field(
         &mut self,
         field: &str,
     ) -> Result<Located<'a, &'a PrintedFact>, EvidenceError> {
-        let index = self
+        if !self.obligations.contains_key(field)
+            || self
+                .block
+                .ast
+                .pointer(field)
+                .and_then(Value::as_array)
+                .is_some_and(|items| items.len() != 1)
+        {
+            return Err(self.missing(field));
+        }
+        let mut linked = self
             .block
             .facts()
-            .find_map(|(index, fact)| {
-                let linked = match fact {
-                    PrintedFact::ReminderCitation(cite) => Some(cite.field.as_str()),
-                    _ => match facts::location(fact).unwrap().2 {
-                        Nullable::Value(path) => Some(path.as_str()),
-                        Nullable::Null => None,
-                    },
-                };
-                (linked == Some(field)).then_some(index)
-            })
-            .ok_or_else(|| {
-                self.block
-                    .error(Check::P11, field, self.block.container(field))
-            })?;
-        self.fact(index)
-    }
-
-    pub(crate) fn fact(
-        &mut self,
-        index: usize,
-    ) -> Result<Located<'a, &'a PrintedFact>, EvidenceError> {
+            .filter(|(_, fact)| linked_field(fact) == Some(field));
+        let (index, _) = linked.next().ok_or_else(|| self.missing(field))?;
+        if linked.next().is_some() {
+            return Err(self.missing(field));
+        }
         let proof = self.block.fact(index)?;
         self.facts.insert(index);
-        if let Some((_, [line, start, end], _)) = facts::location(proof.value) {
-            self.tokens.extend((start..end).map(|token| (line, token)));
+        if let Some((_, run, _)) = facts::location(proof.value) {
+            self.record(field, run);
         }
+        self.meanings.entry(field.to_owned()).or_default();
         Ok(proof)
     }
 
-    pub(crate) fn token(
+    /// Check a production-specific field against exact tokens of its recorded
+    /// owner. The family verifies the spelling, role and field value together.
+    pub(crate) fn meaning(
+        &mut self,
+        field: &str,
+        run @ [line, start, end]: [u32; 3],
+        verify: impl FnOnce(&Value, &str) -> bool,
+    ) -> Result<(), EvidenceError> {
+        let owner = self
+            .obligations
+            .get(field)
+            .ok_or_else(|| self.missing(field))?;
+        let proof = self.block.node(owner)?;
+        if start >= end || !contains(proof.value, run) {
+            return Err(self.missing(field));
+        }
+        let tokens = self.block.tokens(line);
+        let start = normalized_range(&tokens[start as usize])[0] as usize;
+        let end = normalized_range(&tokens[end as usize - 1])[1] as usize;
+        if !verify(
+            self.block.ast.pointer(field).unwrap(),
+            &self.block.normalized[start..end],
+        ) {
+            return Err(self.block.error(
+                Check::P11,
+                field,
+                self.block.range(std::iter::once(run)).unwrap(),
+            ));
+        }
+        self.record(field, run);
+        Ok(())
+    }
+
+    /// Attribute a verified fact to an already checked field over its own
+    /// occurrence. An exact wire linkage cannot be reassigned.
+    pub(crate) fn bind_fact(&mut self, index: usize, field: &str) -> Result<(), EvidenceError> {
+        let proof = self.block.fact(index)?;
+        let valid = facts::location(proof.value).is_some_and(|(_, [line, start, end], _)| {
+            linked_field(proof.value).is_none_or(|linked| linked == field)
+                && self
+                    .meanings
+                    .get(field)
+                    .is_some_and(|tokens| (start..end).all(|index| tokens.contains(&(line, index))))
+        });
+        if !valid {
+            return Err(self.block.error(Check::P11, field, proof.range));
+        }
+        self.facts.insert(index);
+        Ok(())
+    }
+
+    /// Check a closed default at the governing object. The family proves its
+    /// production-specific preconditions before claiming the default.
+    pub(crate) fn implicit(
+        &mut self,
+        field: &str,
+        reason: ImplicitReason,
+    ) -> Result<(), EvidenceError> {
+        let owner = self
+            .obligations
+            .get(field)
+            .ok_or_else(|| self.missing(field))?;
+        let property = field.strip_prefix(owner).unwrap();
+        let allows = match reason {
+            ImplicitReason::DefaultZone => property == "/zone",
+            ImplicitReason::ImperativeController => property == "/player",
+            ImplicitReason::ImpliedSingularTarget => matches!(property, "/amount" | "/value"),
+        };
+        let proof = self.block.node(owner)?;
+        let recorded = match proof.basis {
+            Basis::Implicit(reason)
+            | Basis::Alias {
+                default: Some(reason),
+                ..
+            } => Some(reason),
+            _ => None,
+        };
+        if !allows || recorded != Some(&reason) {
+            return Err(self.missing(field));
+        }
+        self.meanings.entry(field.to_owned()).or_default();
+        Ok(())
+    }
+
+    /// Claim a punctuation token in a structural role at its exact occurrence.
+    pub(crate) fn punctuation(
         &mut self,
         line: u32,
         index: u32,
-    ) -> Result<Located<'a, &'a PrintedToken>, EvidenceError> {
+        spelling: &str,
+    ) -> Result<(), EvidenceError> {
         let proof = self.block.token(line, index)?;
+        let [start, end] = normalized_range(proof.value).map(|index| index as usize);
+        if !matches!(proof.value, PrintedToken::Punct(_))
+            || &self.block.normalized[start..end] != spelling
+        {
+            return Err(self.block.error(Check::P11, spelling, proof.range));
+        }
         self.tokens.insert((line, index));
-        Ok(proof)
+        for (fact_index, fact) in self.block.facts() {
+            if let PrintedFact::Punct(punct) = fact
+                && punct.tok.0 == [line, index, index + 1]
+            {
+                self.facts.insert(fact_index);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn fact(&self, index: usize) -> Result<Located<'a, &'a PrintedFact>, EvidenceError> {
+        self.block.fact(index)
+    }
+
+    pub(crate) fn token(
+        &self,
+        line: u32,
+        index: u32,
+    ) -> Result<Located<'a, &'a PrintedToken>, EvidenceError> {
+        self.block.token(line, index)
     }
 
     fn finish(self) -> Result<(), EvidenceError> {
@@ -393,6 +577,11 @@ impl<'a> Coverage<'_, 'a> {
                     _ => format!("fact/{index}"),
                 };
                 return Err(self.block.error(Check::P12, obligation, range));
+            }
+        }
+        for field in self.obligations.keys() {
+            if !self.meanings.contains_key(field) {
+                return Err(self.missing(field));
             }
         }
         let [start, end] = self.block.block.lines.0;

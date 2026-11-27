@@ -23,7 +23,7 @@ struct Node<'a> {
     extent: Extent,
 }
 
-fn pointer(path: &str, key: &str) -> String {
+pub(super) fn pointer(path: &str, key: &str) -> String {
     format!("{path}/{}", key.replace('~', "~0").replace('/', "~1"))
 }
 
@@ -232,6 +232,14 @@ impl<'a> BlockNodes<'a> {
                     span
                 }
                 PrintedNode::Alias(entry) => {
+                    if path.rsplit_once('/').is_some_and(|(array, index)| {
+                        index.parse::<usize>().is_ok()
+                            && entry.of.rsplit_once('/').is_some_and(|(parent, other)| {
+                                parent == array && other.parse::<usize>().is_ok()
+                            })
+                    }) {
+                        return Err(fail("alias duplicates an occurrence in the same list"));
+                    }
                     let target = nodes.get(&entry.of);
                     if !target.is_some_and(|target| target.value == node.value)
                         || !matches!(

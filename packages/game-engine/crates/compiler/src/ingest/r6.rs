@@ -303,7 +303,7 @@ fn verify_row(raw: &str, claims: &mut printed::NameClaims) -> Result<RowIdentity
             }
             let evidence = PrintedCard::decode(r.printed.get())
                 .map_err(|e| invalid("printed.P1", e.to_string()))?;
-            let ast_sha256 = printed::verify(&source, &r.faces, &evidence, claims)?;
+            let (ast_sha256, faces) = printed::verify(&source, &r.faces, &evidence, claims)?;
             if ast_sha256.is_some() != matches!(r.status, Status::Parsed)
                 || ast_sha256 != r.ast_sha256
             {
@@ -319,7 +319,7 @@ fn verify_row(raw: &str, claims: &mut printed::NameClaims) -> Result<RowIdentity
                 r.source,
                 r.source_sha256,
                 r.printed_sha256,
-                Some(CardEvidence::verified(evidence)),
+                Some(CardEvidence::verified(evidence, faces)),
             )
         };
     let decoded: Value = decode(source.get(), "source")?;
@@ -404,6 +404,7 @@ mod tests {
 
         let mut row = print_row("Example target three", "~ target three");
         let block_path = "/printed/faces/0/blocks/0";
+        row.pointer_mut(block_path).unwrap()["nodes"][0]["basis"] = json!("recorded");
         let view = |row: &mut Value| {
             rehash(row);
             verify_row(&row.to_string(), &mut printed::NameClaims::default())
@@ -415,36 +416,55 @@ mod tests {
         let block = card.block(0, 0, "test draw").unwrap();
         let target_field = "/effects/0/target/selectionId";
         let quantity_field = "/effects/0/count/value";
+        let check = |coverage: &mut crate::ingest::evidence::Coverage<'_, '_>| {
+            coverage.meaning("/kind", [0, 0, 1], |value, text| {
+                value == "spell" && text == "~"
+            })?;
+            coverage.meaning("/effects/0/effect", [0, 0, 1], |value, text| {
+                value == "draw" && text == "~"
+            })?;
+            coverage.field(target_field)?;
+            Ok(())
+        };
         block
             .check_family(|coverage| {
-                coverage.token(0, 0)?;
-                coverage.field(target_field)?;
+                check(coverage)?;
+                coverage.meaning("/effects/0/count/amount", [0, 2, 3], |value, text| {
+                    value == "fixed" && text == "three"
+                })?;
                 assert_eq!(coverage.field(quantity_field)?.range, [15, 20]);
-                // One occurrence may justify more than one checked meaning.
                 coverage.field(quantity_field)?;
                 Ok(())
             })
             .unwrap();
         let error = block
             .check_family(|coverage| {
-                coverage.token(0, 0)?;
                 coverage.field("/effects/0/optional")?;
                 Ok(())
             })
             .unwrap_err();
         assert_eq!(error.check, Check::P11);
 
-        // Dropping a quantity fact cannot make its original token disappear.
-        row.pointer_mut(block_path).unwrap()["facts"]
-            .as_array_mut()
+        // Drop both the operand and its fact. The original token still needs
+        // a checked meaning even when the resolver explicitly looks at it.
+        let result = &mut row["faces"][0]["result"];
+        let ability = &mut result["lines"][0]["ability"];
+        ability["effects"][0]
+            .as_object_mut()
             .unwrap()
-            .pop();
+            .remove("count");
+        let ability = ability.clone();
+        result["abilities"] = json!([ability]);
+        row["astSha256"] = sha256(json!([[ability]]).to_string().as_bytes()).into();
+        let wire = row.pointer_mut(block_path).unwrap();
+        wire["nodes"].as_array_mut().unwrap().remove(2);
+        wire["facts"].as_array_mut().unwrap().pop();
         let card = view(&mut row);
         let block = card.block(0, 0, "test draw").unwrap();
         let error = block
             .check_family(|coverage| {
-                coverage.token(0, 0)?;
-                coverage.field(target_field)?;
+                check(coverage)?;
+                assert_eq!(coverage.token(0, 2)?.range, [15, 20]);
                 Ok(())
             })
             .unwrap_err();

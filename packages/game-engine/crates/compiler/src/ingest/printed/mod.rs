@@ -35,12 +35,17 @@ struct LegacyLine {
     error: Option<String>,
 }
 
+pub(super) struct VerifiedFace {
+    normalized: String,
+    blocks: Vec<Option<Value>>,
+}
+
 pub(super) fn verify(
     source: &Value,
     faces: &[FaceR6],
     printed: &PrintedCard,
     claims: &mut NameClaims,
-) -> Result<Option<String>, Failure> {
+) -> Result<(Option<String>, Vec<Option<VerifiedFace>>), Failure> {
     let source_faces = match &source["card_faces"] {
         Value::Null => std::slice::from_ref(source),
         Value::Array(faces) if !faces.is_empty() => faces,
@@ -54,6 +59,7 @@ pub(super) fn verify(
     }
     let mut all_parsed = true;
     let mut raw_abilities = Vec::new();
+    let mut verified = Vec::with_capacity(faces.len());
     for (index, ((source_face, legacy), printed)) in source_faces
         .iter()
         .zip(faces)
@@ -91,6 +97,7 @@ pub(super) fn verify(
                     return Err(reject("P2", "missing-text presence mismatch"));
                 }
                 all_parsed = false;
+                verified.push(None);
                 continue;
             }
             _ => return Err(reject("P2", "source oracle_text and face state disagree")),
@@ -125,32 +132,36 @@ pub(super) fn verify(
             .as_str()
             .or_else(|| source["type_line"].as_str())
             .unwrap_or("");
-        match printed {
-            PrintedFace::Read(value) => {
-                verify_face(original, &legacy.lines, value, name, type_line, claims)
-                    .map_err(|error| invalid(&format!("{path}/{}", error.path), error.reason))?
-            }
+        verified.push(match printed {
+            PrintedFace::Read(value) => Some(
+                verify_face(original, legacy.lines, value, name, type_line, claims)
+                    .map_err(|error| invalid(&format!("{path}/{}", error.path), error.reason))?,
+            ),
             PrintedFace::Unmappable(value)
                 if (original.contains('~')
                     && value.reason == PrintedFaceUnmappableReason::RawTilde)
                     || (!original.contains('~')
                         && original.contains('\0')
-                        && value.reason == PrintedFaceUnmappableReason::RawNul) => {}
+                        && value.reason == PrintedFaceUnmappableReason::RawNul) =>
+            {
+                None
+            }
             PrintedFace::Unmappable(_) => return Err(reject("P2", "unproved unmappable face")),
             PrintedFace::MissingOracleText(_) => unreachable!(),
-        }
+        });
     }
-    Ok(all_parsed.then(|| sha256(format!("[{}]", raw_abilities.join(",")).as_bytes())))
+    let digest = all_parsed.then(|| sha256(format!("[{}]", raw_abilities.join(",")).as_bytes()));
+    Ok((digest, verified))
 }
 
 fn verify_face(
     original: &str,
-    legacy: &[LegacyLine],
+    legacy: Vec<LegacyLine>,
     face: &PrintedFaceRead,
     name: &str,
     type_line: &str,
     claims: &mut NameClaims,
-) -> Result<(), Failure> {
+) -> Result<VerifiedFace, Failure> {
     let normalized = legacy
         .iter()
         .map(|line| line.text.as_str())
@@ -178,7 +189,7 @@ fn verify_face(
     }
     let mut first = 0;
     let mut n_start = 0;
-    for (index, (block, legacy)) in face.blocks.iter().zip(legacy).enumerate() {
+    for (index, (block, legacy)) in face.blocks.iter().zip(&legacy).enumerate() {
         let reject = |check, reason| invalid(check, format!("block {index}: {reason}"));
         let count = if legacy.text.is_empty() {
             0
@@ -240,7 +251,10 @@ fn verify_face(
     if first != lines.len() {
         return Err(invalid("P6", "blocks do not partition normalized lines"));
     }
-    Ok(())
+    Ok(VerifiedFace {
+        normalized,
+        blocks: legacy.into_iter().map(|line| line.ability).collect(),
+    })
 }
 
 #[cfg(test)]
