@@ -565,6 +565,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::CreatureDiesV1
         | C::DefenderV1
         | C::ComposedAbilityV1 => Tiers::ALL,
+        C::PlaneswalkerV1 => Tiers::EXECUTES,
         C::CastEnchantmentV1
         | C::OwnerHandMoveV1
         | C::OwnerLibraryTopMoveV1

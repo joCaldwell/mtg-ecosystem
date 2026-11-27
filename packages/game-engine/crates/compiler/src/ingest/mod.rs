@@ -79,7 +79,7 @@ pub(crate) struct SourceFace {
     pub(crate) colors: Option<Vec<Color>>,
     pub(crate) power: Option<String>,
     pub(crate) toughness: Option<String>,
-    loyalty: Option<Box<RawValue>>,
+    pub(crate) loyalty: Option<String>,
     defense: Option<Box<RawValue>>,
     color_indicator: Option<Vec<Color>>,
 }
@@ -163,7 +163,9 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
         layout => return Err(unsupported("source.layout", format!("layout:{layout}"))),
     };
     let printed: Vec<SourceFace> = match (layout, &source.card_faces) {
-        _ if source.loyalty.is_some() || source.defense.is_some() => {
+        _ if (layout != FaceLayout::Single && source.loyalty.is_some())
+            || source.defense.is_some() =>
+        {
             return Err(unsupported(
                 "source.layout",
                 "unsupported normal or two-part face shell",
@@ -241,7 +243,7 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
             if face.source_face_index as usize != index || face.status != "attempted" {
                 return Err(invalid("faces", "missing or duplicated source face"));
             }
-            if source.loyalty.is_some()
+            if (layout != FaceLayout::Single && source.loyalty.is_some())
                 || source.defense.is_some()
                 || source.color_indicator.as_ref().is_some_and(|colors| {
                     colors.is_empty()

@@ -167,12 +167,7 @@ impl RulesTxn {
         self.live_players()
             .into_iter()
             .filter(|p| self.targetable_player(*p))
-            .filter(|p| {
-                matches!(
-                    domain,
-                    TargetDomain::AnyPlayer | TargetDomain::PlayerOrPlaneswalker
-                ) || *p != controller
-            })
+            .filter(|p| domain == TargetDomain::AnyPlayer || *p != controller)
             .collect()
     }
     pub(super) fn player_target_legal(
@@ -185,19 +180,46 @@ impl RulesTxn {
             p.targets.get(slot).is_some_and(|spec| {
                 matches!(
                     spec.domain,
-                    TargetDomain::AnyPlayer
-                        | TargetDomain::OpponentPlayer
-                        | TargetDomain::PlayerOrPlaneswalker
+                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer
                 ) && self
                     .eligible_players(spec.domain, entry.controller)
                     .contains(&player)
             })
         })
     }
+    // CR 120.3c,e: planeswalkers lose loyalty; creatures mark damage.
+    pub(super) fn apply_permanent_damage(
+        &mut self,
+        object: ObjectId,
+        amount: &Quantity,
+    ) -> Result<(Quantity, Quantity), String> {
+        let planeswalker = self.is_battlefield_planeswalker(object);
+        let permanent = self
+            .rules_mut()
+            .objects
+            .get_mut(&object.card)
+            .ok_or("missing damage object")?;
+        let value = if planeswalker {
+            &mut permanent.loyalty_counters
+        } else {
+            &mut permanent.marked_damage
+        };
+        let previous = value.clone();
+        if planeswalker {
+            value.subtract(amount);
+            if value.is_negative() {
+                *value = Quantity::zero();
+            }
+        } else {
+            value.add(amount);
+        }
+        Ok((previous, value.clone()))
+    }
+
     pub(crate) fn entity_legal(&self, target: TargetEntity) -> bool {
         match target {
             TargetEntity::Player { player } => self.targetable_player(player),
-            TargetEntity::Object { object } => self.is_battlefield_creature(object),
+            TargetEntity::Object { object } => self.is_permanent_damage_recipient(object),
         }
     }
     pub(super) fn eligible_entities(&self) -> Vec<TargetEntity> {
@@ -230,8 +252,10 @@ impl RulesTxn {
         if player != top.controller
             || entities.len() != program.targets.len()
             || entities.iter().enumerate().any(|(slot, target)| {
-                program.targets[slot].domain != TargetDomain::AnyDamageTarget
-                    || !self.entity_target_legal(*target, top)
+                !matches!(
+                    program.targets[slot].domain,
+                    TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker
+                ) || !self.entity_target_legal(*target, top)
             })
         {
             return Err("invalid damage targets".into());
@@ -291,7 +315,27 @@ impl RulesTxn {
             return Err("targeted activation kind".into());
         };
         {
-            match &self.stack_definition(&entry)?.activated[ability as usize].cost {
+            match self.stack_definition(&entry)?.activated[ability as usize]
+                .cost
+                .clone()
+            {
+                ActivationCost::Loyalty { change } => {
+                    self.pay_loyalty(entry.controller, entry.source, &change)?;
+                    self.rules_mut()
+                        .stack
+                        .last_mut()
+                        .ok_or("missing activated invocation")?
+                        .paid = Some(entry.total_cost);
+                    self.record_ability_activated(
+                        entry.id,
+                        entry.source,
+                        entry.controller,
+                        ability,
+                    )?;
+                    self.rules_mut().priority = entry.controller;
+                    self.rules_mut().frame = Frame::Priority;
+                    return Ok(self.stabilize()?);
+                }
                 ActivationCost::ChooseObjects(cost) => {
                     let mut cast = cast;
                     self.rules_mut().frame = if cost.mana.is_some() {
@@ -383,10 +427,12 @@ impl RulesTxn {
             return Err("unexpected spell effect source references".into());
         }
         let program = self.program_for(entry)?;
-        let damage = program
-            .targets
-            .iter()
-            .any(|t| t.domain == TargetDomain::AnyDamageTarget);
+        let damage = program.targets.iter().any(|t| {
+            matches!(
+                t.domain,
+                TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker
+            )
+        });
         {
             let fact = entry
                 .source_facts
@@ -500,19 +546,9 @@ impl RulesTxn {
         let index = slot as usize;
         let spec = self.program_for(spell)?.targets.get(index);
         let target = match spec.map(|spec| spec.domain) {
-            Some(TargetDomain::AnyDamageTarget) => *self
+            Some(TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker) => *self
                 .bound_damage_target(spell, index)
                 .ok_or("missing damage binding")?,
-            Some(TargetDomain::PlayerOrPlaneswalker) => {
-                let player = *spell
-                    .player_targets
-                    .get(index)
-                    .ok_or("missing player-or-planeswalker damage target")?;
-                if player.0 >= 4 {
-                    return Err("unknown target player".into());
-                }
-                TargetEntity::Player { player }
-            }
             Some(TargetDomain::OpponentPlayer) => {
                 let player = *spell
                     .player_targets
@@ -646,7 +682,7 @@ impl RulesTxn {
         };
         let recipient = match target {
             TargetEntity::Player { player } => DamageRecipient::Player { player },
-            TargetEntity::Object { object } => DamageRecipient::Creature { object },
+            TargetEntity::Object { object } => DamageRecipient::Permanent { object },
         };
         self.prepare_noncombat_damage(
             frame,
@@ -723,21 +759,14 @@ impl RulesTxn {
                 }
                 self.rules_mut().players[player.0 as usize].lose_life(&damage.amount)
             }
-            DamageRecipient::Creature { object } => {
-                if !self.is_battlefield_creature(object) {
-                    return Err("invalid creature damage recipient".into());
+            DamageRecipient::Permanent { object } => {
+                if !self.is_permanent_damage_recipient(object) {
+                    return Err("invalid permanent damage recipient".into());
                 }
                 if self.protected_from(object, &damage.source.characteristics) {
                     return Err("protection requires the damage transaction".into());
                 }
-                let o = self
-                    .rules_mut()
-                    .objects
-                    .get_mut(&object.card)
-                    .ok_or("missing damage object")?;
-                let previous = o.marked_damage.clone();
-                o.marked_damage.add(&damage.amount);
-                (previous, o.marked_damage.clone())
+                self.apply_permanent_damage(object, &damage.amount)?
             }
         };
         let life_gains = self.damage_keywords(
@@ -745,7 +774,7 @@ impl RulesTxn {
                 id: DamageId(0),
                 source: damage.source.clone(),
                 controller: damage.controller,
-                recipient: damage.recipient.clone(),
+                recipient: damage.recipient,
                 amount: damage.amount.clone(),
             }],
             None,
@@ -754,7 +783,7 @@ impl RulesTxn {
             life_gains,
             damage: Box::new(damage.clone()),
             result: DamageResult {
-                recipient: damage.recipient.clone(),
+                recipient: damage.recipient,
                 previous,
                 current,
             },

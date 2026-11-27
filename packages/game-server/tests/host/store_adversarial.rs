@@ -93,7 +93,7 @@ fn publication(seat: u8) -> Publication {
             "turn":{"number":1,"step":"precombat_main","lands_played":0},
             "live_turn_order":[0,1,2,3],"commanders":[],"priority":0,
             "players":[],"stack":[],"objects":[{
-                "marked_damage":"0","attack_ready":false,"handle":format!("seat-{seat}-private"),
+                "marked_damage":"0","loyalty_counters":"0","attack_ready":false,"handle":format!("seat-{seat}-private"),
                 "oracle_id":format!("00000000-0000-0000-0000-{seat:012}"),
                 "owner":seat,"controller":seat,"zone":{"zone":"hand","owner":seat},"tapped":false
             }]},"decision":null

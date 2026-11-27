@@ -249,7 +249,8 @@ impl RulesTxn {
                     .add(&d.amount);
             }
             if self.has_keyword(appearance, KeywordAbility::Deathtouch)
-                && let DamageRecipient::Creature { object } = d.recipient
+                && let DamageRecipient::Permanent { object } = d.recipient
+                && self.is_battlefield_creature(object)
             {
                 let o = self
                     .rules_mut()

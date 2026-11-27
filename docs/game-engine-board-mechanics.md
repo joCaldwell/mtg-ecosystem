@@ -27,8 +27,7 @@ qualities reject. Static block restrictions ("can't be blocked by/except by",
 "can't block", "can block only") and blocker counts ("by more than N", "except
 by N or more", with menace) read keywords, colors, types and fixed power of
 both creatures at the declaration; counts are joint pick rules. "Can't attack
-you" removes that defender; with no attackable planeswalker or battle kinds,
-"or planeswalkers you control" adds nothing. A creature that attacks each
+you" and "or planeswalkers you control" restrict the corresponding defenders. A creature that attacks each
 combat if able must attack only while a defender remains (CR 508.1d). Relative
 powers and ambiguous "X and/or Y with Z" filters reject. Static toughness-based
 combat damage assignment uses current toughness for both attackers and blockers
@@ -63,6 +62,20 @@ recipient orders (CR 615.7). Damage that can't be prevented takes no prevention,
 protection included, and spends no shield (CR 615.12). Source choices, "next time" shields,
 redirection, non-damage replacements and other replacement/layer interactions
 reject.
+
+### Planeswalkers
+
+Single-faced planeswalkers with fixed printed loyalty enter with those counters
+(CR 306.5b). A fixed loyalty cost is paid after targets, at sorcery timing, and
+uses that permanent's single loyalty activation for the turn (CR 606.3–4).
+The public object shows current loyalty and whether that incarnation used
+its loyalty activation this turn.
+Opponents can attack the planeswalker, and damage removes loyalty counters
+(CR 508.1b, 120.3c). Zero loyalty and the legend rule put the affected
+permanent into its owner's graveyard (CR 704.5i–j). “Any target,” “target
+player or planeswalker,” and “target creature or planeswalker” include eligible
+planeswalkers and enforce printed qualifiers. Emblems and variable
+loyalty costs require separate lowering.
 
 ## Movement, sacrifice and board-wide effects
 
@@ -285,8 +298,9 @@ on resolution. Flanking shrinks each blocker without the flanking marker by
 -1/-1; marker and trigger are admitted only together. Dethrone and training add a
 +1/+1 counter. Afflict N makes the blocked attacker's defending player lose N.
 Myriad (a single-faced creature card without entry replacements) offers its
-controller a copy for each other live opponent; the accepted copies enter
-together, tapped and attacking those players (CR 508.4, 608.2f). They never
+controller a copy for each other live opponent. For each accepted copy, the
+controller chooses that opponent or a planeswalker they control. The copies
+enter together, tapped and attacking the chosen defenders (CR 508.4, 608.2f). They never
 attacked, and that invocation's delayed trigger exiles them at end of combat.
 The keyword line must print each N, and the source keyword list must
 name each keyword. X amounts reject. So do the remaining triggered keywords, such as
@@ -335,8 +349,8 @@ event-result counts and token-creation replacement abilities reject.
 - Populate copies a controlled creature token's copiable values; animation can
   qualify the original (CR 701.36, 707.2).
 - Proliferate adds one counter of each existing kind to chosen permanents and
-  players simultaneously: every permanent kind below and player poison and
-  energy; ten poison counters lose (CR 701.34a, 704.5c).
+  players simultaneously, including loyalty on permanents and poison and
+  energy on players (CR 701.34a). Ten poison counters lose (CR 704.5c).
 - Permanent counters besides +1/+1 go on the same recipients (source, target
   creature, matching creature set) as one placement event, one atomic change
   per permanent carrying every kind it receives. -1/-1 counters take
@@ -349,8 +363,8 @@ event-result counts and token-creation replacement abilities reject.
   whose names the pinned rules give no meaning may also go on any targeted
   permanent; every untap event removes one stun counter instead (CR 122.1, 122.1d, 614.1a).
   "[N for each] / X is the number of [kind] counters on this" reads the source's
-  current or last-known counters. Shield, loyalty, lore, level, time, fade, hone,
-  other ±X/±Y and every other rules-bearing name reject as
+  current or last-known counters. Printed placement of shield, loyalty, lore,
+  level, time, fade, hone, other ±X/±Y and other rules-bearing kinds rejects as
   `verb:put-counters:counter_kind`.
 - Fight deals current power as simultaneous noncombat damage between two legal
   battlefield creatures; self-fight deals double power (CR 701.14).

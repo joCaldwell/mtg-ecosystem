@@ -61,10 +61,7 @@ impl RulesTxn {
     }
 
     pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
-        self.current(id).is_ok_and(|o| o.present_on_battlefield())
-            && self
-                .characteristics(id)
-                .is_ok_and(|c| c.has_type(CardKind::Creature))
+        self.is_permanent_damage_recipient(id)
     }
     pub(crate) fn object_target_legal(
         &self,
@@ -148,8 +145,11 @@ impl RulesTxn {
             | TargetDomain::OwnGraveyardCard => self
                 .current(object)
                 .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec, x)),
-            TargetDomain::CreatureOrPlaneswalker => {
+            TargetDomain::AnyDamageTarget | TargetDomain::CreatureOrPlaneswalker => {
                 self.creature_or_planeswalker(object) && self.targetable_by(object, controller)
+            }
+            TargetDomain::PlayerOrPlaneswalker => {
+                self.is_battlefield_planeswalker(object) && self.targetable_by(object, controller)
             }
             TargetDomain::ControlledBattlefieldCreature => {
                 self.is_battlefield_creature(object)

@@ -371,6 +371,15 @@ impl Strategy<'_> {
                     Flag::Decline
                 },
             )?,
+            (Reason::MyriadDefender, _) => {
+                let defender = d
+                    .candidates
+                    .iter()
+                    .find(|candidate| matches!(candidate, Candidate::Object { .. }))
+                    .or_else(|| d.candidates.first())
+                    .ok_or("missing myriad defender")?;
+                d.pick_one(defender)?
+            }
             (Reason::GraveyardReplacementOrder { .. }, _) => flag(d, Flag::Accept)?,
             // CR 601.2b-c: the announced X stays within the rules bounds
             // that the spell's targets impose.
@@ -557,12 +566,12 @@ impl Strategy<'_> {
                             })
                             .collect::<Result<_, _>>()?;
                         let chosen = match spec.domain {
-                            mtg_contracts::TargetDomain::AnyDamageTarget => {
+                            mtg_contracts::TargetDomain::AnyDamageTarget
+                            | mtg_contracts::TargetDomain::PlayerOrPlaneswalker => {
                                 self.damage_target(v, program, &entities)
                             }
                             mtg_contracts::TargetDomain::AnyPlayer
-                            | mtg_contracts::TargetDomain::OpponentPlayer
-                            | mtg_contracts::TargetDomain::PlayerOrPlaneswalker => {
+                            | mtg_contracts::TargetDomain::OpponentPlayer => {
                                 let players = entities
                                     .iter()
                                     .filter_map(|e| {
@@ -623,7 +632,8 @@ impl Strategy<'_> {
                         });
                     let defender = slot.allowed.iter().copied().min_by_key(|i| {
                         match &d.candidates[*i as usize] {
-                            Candidate::Player { player } => (player.0 + 4 - v.viewer.0) % 4,
+                            Candidate::Object { .. } => 0,
+                            Candidate::Player { player } => 1 + (player.0 + 4 - v.viewer.0) % 4,
                             _ => u8::MAX,
                         }
                     });

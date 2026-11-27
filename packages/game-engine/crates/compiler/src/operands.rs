@@ -1413,7 +1413,7 @@ fn lower_target_alternatives(
         let mut kinds = vec![];
         for kind in alternatives.iter().filter_map(single_type) {
             match kind {
-                "planeswalker" | "battle" => {}
+                "battle" => {}
                 kind => kinds.push(card_kind(kind, "target_filter")?),
             }
         }
@@ -1606,9 +1606,8 @@ fn requires_creature(predicate: &Pred) -> bool {
 }
 
 /// A damage recipient named by one target occurrence: "target creature" or,
-/// CR 115.1, 120.3, "target player or planeswalker". The closed scenario
-/// admits no planeswalker, so that domain's inhabitants are players; an
-/// "up to" player occurrence rejects.
+/// CR 115.1, 120.3: "target player or planeswalker" is an entity domain.
+/// An "up to" player occurrence rejects.
 pub(crate) fn bind_damage_object_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
@@ -1625,6 +1624,18 @@ pub(crate) fn bind_damage_object_target(
             selection,
             TargetDomain::PlayerOrPlaneswalker,
         );
+    }
+    // CR 120.3c,e: a permanent damage target can be a creature or a
+    // planeswalker. Preserve the full filter, including color qualifiers.
+    if let Ok((filter, selection, optional)) = target_occurrence(what)
+        && let Ok((domain, lowered)) = lower_target_filter(filter)
+        && lowered.types.contains(&CardKind::Planeswalker)
+        && lowered
+            .types
+            .iter()
+            .all(|kind| matches!(kind, CardKind::Creature | CardKind::Planeswalker))
+    {
+        return bind_filtered_object_target(program, slots, selection, domain, optional, lowered);
     }
     bind_creature_target(program, slots, what)
 }
@@ -1742,6 +1753,7 @@ pub(crate) fn chosen_cards(what: &ast::ObjectRef) -> Result<Option<ChosenCards>,
                 CardKind::Creature,
                 CardKind::Enchantment,
                 CardKind::Land,
+                CardKind::Planeswalker,
             ],
         });
     }
@@ -1833,6 +1845,7 @@ pub(crate) fn bind_graveyard_target(
                 CardKind::Creature,
                 CardKind::Enchantment,
                 CardKind::Land,
+                CardKind::Planeswalker,
             ],
         });
     }

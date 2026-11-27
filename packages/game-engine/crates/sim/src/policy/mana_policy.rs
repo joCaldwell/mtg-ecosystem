@@ -761,6 +761,8 @@ mod tests {
             granted_mana: vec![],
             restrictions: vec![],
             token: None,
+            loyalty_counters: 0.into(),
+            loyalty_used_this_turn: false,
             plus_one_counters: 0.into(),
             counters: vec![],
             characteristics: Some(d.characteristics.clone()),

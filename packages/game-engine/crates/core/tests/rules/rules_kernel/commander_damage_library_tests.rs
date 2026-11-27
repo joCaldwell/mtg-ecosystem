@@ -386,7 +386,7 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
             damage: vec![DamageOccurrence {
                 source,
                 controller: PlayerId(0),
-                recipient: DamageRecipient::Creature { object: target },
+                recipient: DamageRecipient::Permanent { object: target },
                 amount: Quantity::from(1),
             }],
         },

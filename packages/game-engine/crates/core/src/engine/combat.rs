@@ -6,14 +6,16 @@ use mtg_contracts::kir::{BlockRestriction, CombatProhibitionScope, CombatRequire
 pub struct Attacker {
     pub attacker: ObjectId,
     pub defender: PlayerId,
+    pub planeswalker: Option<ObjectId>,
+    pub defender_removed: bool,
     pub blocked: bool,
     pub blockers: Vec<ObjectId>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "recipient", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DamageRecipient {
     Player { player: PlayerId },
-    Creature { object: ObjectId },
+    Permanent { object: ObjectId },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -181,18 +183,56 @@ impl RulesTxn {
     }
     /// CR 508.1b-c: whether a static restriction forbids attacking `defender`.
     pub(super) fn attack_permitted(&self, attacker: ObjectId, defender: PlayerId) -> bool {
+        self.attack_defender_permitted(attacker, defender, false)
+    }
+
+    fn attack_defender_permitted(
+        &self,
+        attacker: ObjectId,
+        defender: PlayerId,
+        planeswalker: bool,
+    ) -> bool {
         self.static_declaration_rules()
             .all(|(source, rule)| match rule {
                 StaticRule::AttackRestriction {
                     affects,
                     defender: who,
+                    planeswalkers,
                 } => {
                     !self.declaration_scope(affects, source, attacker)
+                        || (planeswalker && !planeswalkers)
                         || !self.static_player(who, source.controller, defender)
                 }
                 _ => true,
             })
     }
+    pub(super) fn is_battlefield_planeswalker(&self, object: ObjectId) -> bool {
+        self.current(object)
+            .is_ok_and(Object::present_on_battlefield)
+            && self
+                .characteristics(object)
+                .is_ok_and(|c| c.has_type(CardKind::Planeswalker))
+    }
+
+    pub(super) fn is_permanent_damage_recipient(&self, object: ObjectId) -> bool {
+        self.is_battlefield_creature(object) || self.is_battlefield_planeswalker(object)
+    }
+
+    fn attackable_planeswalkers(
+        &self,
+        attacker: ObjectId,
+        player: PlayerId,
+    ) -> impl Iterator<Item = (PlayerId, ObjectId)> + '_ {
+        self.state.rules.objects.values().filter_map(move |o| {
+            let defender = o.controller;
+            (defender != player
+                && self.is_live(defender)
+                && self.is_battlefield_planeswalker(o.id)
+                && self.attack_defender_permitted(attacker, defender, true))
+            .then_some((defender, o.id))
+        })
+    }
+
     // CR 508.1d: static and resolved "attacks each combat/this turn if able".
     fn must_attack(&self, object: ObjectId) -> bool {
         self.combat_requirements(object, None)
@@ -252,7 +292,7 @@ impl RulesTxn {
     }
 
     fn needs_damage_split(&self, source: ObjectId, recipients: usize) -> bool {
-        recipients > 1 || (recipients == 1 && self.trample_player(source).is_some())
+        recipients > 1 || (recipients == 1 && self.trample_defender(source).is_some())
     }
 
     // CR 510.1e, 702.19b: variable damage from separate attackers may
@@ -276,7 +316,7 @@ impl RulesTxn {
         }
         if !variable.iter().any(|(a, _)| a.attacker == source)
             || !variable.iter().any(|(a, _)| {
-                self.trample_player(a.attacker).is_some()
+                self.trample_defender(a.attacker).is_some()
                     && variable.iter().any(|(b, _)| {
                         a.attacker != b.attacker
                             && a.blockers.iter().any(|o| b.blockers.contains(o))
@@ -312,8 +352,12 @@ impl RulesTxn {
                 }
                 bucket += 1;
             }
-            if let Some(player) = self.trample_player(attack.attacker) {
-                recipients.push(candidate_index(candidates, Candidate::Player { player }));
+            if let Some(defender) = self.trample_defender(attack.attacker) {
+                let candidate = match defender {
+                    DamageRecipient::Player { player } => Candidate::Player { player },
+                    DamageRecipient::Permanent { object } => Candidate::Object { object },
+                };
+                recipients.push(candidate_index(candidates, candidate));
                 trample_buckets.push((bucket, attack));
                 bucket += 1;
             }
@@ -349,14 +393,46 @@ impl RulesTxn {
         Ok(Some(match self.state.rules.frame {
             Frame::Attackers | Frame::Blockers { .. } => {
                 let attacking = matches!(self.state.rules.frame, Frame::Attackers);
-                let subjects = self.creatures(player, attacking);
+                let mut subjects = self.creatures(player, attacking);
+                let walkers = if attacking {
+                    let mut walkers = self
+                        .state
+                        .rules
+                        .objects
+                        .values()
+                        .filter(|o| {
+                            o.controller != player && self.is_battlefield_planeswalker(o.id)
+                        })
+                        .map(|o| {
+                            Ok((
+                                self.object_handle_id(player, o.id)?.clone(),
+                                o.id,
+                                o.controller,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    walkers.sort_by(|a, b| a.0.cmp(&b.0));
+                    if !walkers.is_empty() {
+                        let mut keyed = subjects
+                            .iter()
+                            .map(|&object| {
+                                Ok((self.object_handle_id(player, object)?.clone(), object))
+                            })
+                            .collect::<Result<Vec<_>, String>>()?;
+                        keyed.sort_by(|a, b| a.0.cmp(&b.0));
+                        subjects = keyed.into_iter().map(|(_, object)| object).collect();
+                    }
+                    walkers
+                } else {
+                    vec![]
+                };
                 let mut slots = vec![];
                 let mut rules = vec![];
                 for subject in subjects {
                     let subject_index =
                         candidate_index(&mut candidates, Candidate::Object { object: subject });
                     let required = attacking.then(|| self.required_defender(subject)).flatten();
-                    let allowed: Vec<_> = if attacking {
+                    let mut allowed: Vec<_> = if attacking {
                         self.live_players()
                             .into_iter()
                             .filter(|p| {
@@ -382,6 +458,22 @@ impl RulesTxn {
                             })
                             .collect()
                     };
+                    if attacking && required.is_none() {
+                        allowed.extend(
+                            walkers
+                                .iter()
+                                .filter(|(_, _, defender)| {
+                                    self.is_live(*defender)
+                                        && self.attack_defender_permitted(subject, *defender, true)
+                                })
+                                .map(|(_, object, _)| {
+                                    candidate_index(
+                                        &mut candidates,
+                                        Candidate::Object { object: *object },
+                                    )
+                                }),
+                        );
+                    }
                     slots.push(Slot {
                         role: if attacking {
                             SlotRole::AttackWith
@@ -483,7 +575,7 @@ impl RulesTxn {
                         .iter()
                         .map(|object| Candidate::Object { object: *object }),
                 );
-                if let Some(defender) = self.trample_player(source) {
+                if let Some(defender) = self.trample_defender(source) {
                     let requires = recipients
                         .into_iter()
                         .enumerate()
@@ -493,7 +585,10 @@ impl RulesTxn {
                         bucket: candidates.len() as u32,
                         requires,
                     });
-                    candidates.push(Candidate::Player { player: defender });
+                    candidates.push(match defender {
+                        DamageRecipient::Player { player } => Candidate::Player { player },
+                        DamageRecipient::Permanent { object } => Candidate::Object { object },
+                    });
                 }
                 let buckets = (0..candidates.len() as u32)
                     .map(|candidate| Bucket {
@@ -529,7 +624,7 @@ impl RulesTxn {
     pub(super) fn validate_attacks(
         &self,
         player: PlayerId,
-        attacks: &[(ObjectId, PlayerId)],
+        attacks: &[(ObjectId, PlayerId, Option<ObjectId>)],
     ) -> Result<(), String> {
         if !matches!(self.state.rules.frame, Frame::Attackers)
             || self.combat_decision_player() != Some(player)
@@ -539,13 +634,21 @@ impl RulesTxn {
         }
         let eligible = self.creatures(player, true);
         let mut seen = BTreeSet::new();
-        if attacks.iter().any(|(o, p)| {
+        if attacks.iter().any(|(o, p, planeswalker)| {
             !seen.insert(*o)
                 || !eligible.contains(o)
                 || *p == player
                 || !self.is_live(*p)
-                || !self.attack_permitted(*o, *p)
-                || self.required_defender(*o).is_some_and(|d| d != *p)
+                || !self.attack_defender_permitted(*o, *p, planeswalker.is_some())
+                || planeswalker.is_some_and(|target| {
+                    !self.is_battlefield_planeswalker(target)
+                        || self
+                            .current(target)
+                            .is_ok_and(|target| target.controller != *p)
+                })
+                || self
+                    .required_defender(*o)
+                    .is_some_and(|d| d != *p || planeswalker.is_some())
         }) {
             return Err("invalid complete attack declaration".into());
         }
@@ -555,9 +658,13 @@ impl RulesTxn {
         if eligible.iter().any(|&object| {
             !seen.contains(&object)
                 && (self.required_defender(object).is_some() || self.must_attack(object))
-                && (0..4)
+                && ((0..4)
                     .map(PlayerId)
                     .any(|p| p != player && self.is_live(p) && self.attack_permitted(object, p))
+                    || self
+                        .attackable_planeswalkers(object, player)
+                        .next()
+                        .is_some())
         }) {
             return Err("attack declaration omits a creature that must attack".into());
         }
@@ -616,7 +723,7 @@ impl RulesTxn {
         &self,
         source: ObjectId,
         assignments: &[(ObjectId, Quantity)],
-        player: Option<(PlayerId, &Quantity)>,
+        defender: Option<(DamageRecipient, &Quantity)>,
     ) -> Result<(), String> {
         let recipients = self.recipients(source);
         let mut seen = BTreeSet::new();
@@ -627,9 +734,9 @@ impl RulesTxn {
             }
             sum.add(n);
         }
-        if let Some((p, amount)) = player {
-            if self.trample_player(source) != Some(p) || amount.is_negative() {
-                return Err("invalid trample player recipient or quantity".into());
+        if let Some((p, amount)) = defender {
+            if self.trample_defender(source) != Some(p) || amount.is_negative() {
+                return Err("invalid trample defender or quantity".into());
             }
             sum.add(amount);
             // CR702.19b/702.2c: ignore prevention/replacement; account for
@@ -637,7 +744,9 @@ impl RulesTxn {
             if *amount > Quantity::zero() {
                 for (o, n) in assignments {
                     if *n < self.lethal_requirement(source, *o)? {
-                        return Err("trample player damage before lethal to every blocker".into());
+                        return Err(
+                            "trample damage to defender before lethal to every blocker".into()
+                        );
                     }
                 }
             }
@@ -656,9 +765,10 @@ impl RulesTxn {
         self.rules_mut().combat.retain(|a| a.attacker != object);
         for a in &mut self.rules_mut().combat {
             a.blockers.retain(|b| *b != object);
+            a.defender_removed |= a.planeswalker == Some(object);
         }
         self.rules_mut().damage_choices.remove(&object);
-        self.rules_mut().player_damage_choices.remove(&object);
+        self.rules_mut().defender_damage_choices.remove(&object);
     }
     pub(crate) fn is_blocking_creature(&self, object: ObjectId) -> bool {
         self.state.rules.blocking_creatures.contains(&object)
@@ -669,7 +779,7 @@ impl RulesTxn {
         self.rules_mut().blocking_creatures.clear();
         self.rules_mut().first_strike_participants.clear();
         self.rules_mut().damage_choices.clear();
-        self.rules_mut().player_damage_choices.clear();
+        self.rules_mut().defender_damage_choices.clear();
         self.rules_mut().combat_defenders.clear();
     }
     pub(super) fn grant_turn_priority(&mut self) -> Result<(), String> {
@@ -701,8 +811,11 @@ impl RulesTxn {
                     .declarations()?
                     .into_iter()
                     .map(|(subject, target)| match target {
-                        Candidate::Player { player } => Ok((subject, *player)),
-                        _ => Err("invalid combat target"),
+                        Candidate::Player { player } => Ok((subject, *player, None)),
+                        Candidate::Object { object } => {
+                            Ok((subject, self.current(*object)?.controller, Some(*object)))
+                        }
+                        _ => Err("invalid combat target".to_owned()),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 self.commit(
@@ -822,16 +935,32 @@ impl RulesTxn {
                 || self.has_keyword(object, KeywordAbility::DoubleStrike)
         }
     }
-    pub(super) fn trample_player(&self, source: ObjectId) -> Option<PlayerId> {
+    fn combat_defender(&self, attack: &Attacker) -> Option<DamageRecipient> {
+        if attack.defender_removed {
+            return None;
+        }
+        if let Some(object) = attack.planeswalker {
+            (self.is_battlefield_planeswalker(object)
+                && self
+                    .current(object)
+                    .is_ok_and(|target| target.controller == attack.defender))
+            .then_some(DamageRecipient::Permanent { object })
+        } else {
+            self.is_live(attack.defender)
+                .then_some(DamageRecipient::Player {
+                    player: attack.defender,
+                })
+        }
+    }
+
+    fn trample_defender(&self, source: ObjectId) -> Option<DamageRecipient> {
         self.state
             .rules
             .combat
             .iter()
             .find(|a| a.attacker == source)
-            .filter(|a| {
-                self.has_keyword(source, KeywordAbility::Trample) && self.is_live(a.defender)
-            })
-            .map(|a| a.defender)
+            .filter(|_| self.has_keyword(source, KeywordAbility::Trample))
+            .and_then(|a| self.combat_defender(a))
     }
     pub(crate) fn lethal_requirement(
         &self,
@@ -872,7 +1001,7 @@ impl RulesTxn {
                     .find(|(o, _)| *o == blocker)
                     .map(|(_, n)| n.clone())
                     .unwrap_or_default()
-            } else if a.blockers.len() == 1 && self.trample_player(a.attacker).is_none() {
+            } else if a.blockers.len() == 1 && self.trample_defender(a.attacker).is_none() {
                 self.combat_damage_amount(a.attacker)?
             } else {
                 Quantity::zero()
@@ -892,13 +1021,23 @@ impl RulesTxn {
         allocations: Vec<(&Candidate<Rules>, Quantity)>,
     ) -> Result<(), String> {
         let mut assignments = vec![];
-        self.rules_mut().player_damage_choices.remove(&source);
+        self.rules_mut().defender_damage_choices.remove(&source);
         for (candidate, amount) in allocations {
             match candidate {
                 Candidate::Player { player } => {
-                    self.rules_mut()
-                        .player_damage_choices
-                        .insert(source, (*player, amount));
+                    self.rules_mut().defender_damage_choices.insert(
+                        source,
+                        (DamageRecipient::Player { player: *player }, amount),
+                    );
+                }
+                Candidate::Object { object }
+                    if self.trample_defender(source)
+                        == Some(DamageRecipient::Permanent { object: *object }) =>
+                {
+                    self.rules_mut().defender_damage_choices.insert(
+                        source,
+                        (DamageRecipient::Permanent { object: *object }, amount),
+                    );
                 }
                 Candidate::Object { object } => assignments.push((*object, amount)),
                 _ => return Err("invalid damage recipient".into()),
@@ -927,7 +1066,7 @@ impl RulesTxn {
                                 v,
                                 self.state
                                     .rules
-                                    .player_damage_choices
+                                    .defender_damage_choices
                                     .get(&a.attacker)
                                     .map(|(p, n)| (*p, n)),
                             )
@@ -938,14 +1077,14 @@ impl RulesTxn {
                         self.rules_mut().frame = Frame::DamageChoice { source: a.attacker };
                         return Ok(());
                     };
-                    if let Some((player, amount)) =
-                        self.state.rules.player_damage_choices.get(&a.attacker)
+                    if let Some((recipient, amount)) =
+                        self.state.rules.defender_damage_choices.get(&a.attacker)
                         && *amount > Quantity::zero()
                     {
                         damage.push(DamageOccurrence {
                             source: a.attacker,
                             controller,
-                            recipient: DamageRecipient::Player { player: *player },
+                            recipient: *recipient,
                             amount: amount.clone(),
                         });
                     }
@@ -954,7 +1093,7 @@ impl RulesTxn {
                             damage.push(DamageOccurrence {
                                 source: a.attacker,
                                 controller,
-                                recipient: DamageRecipient::Creature { object: *object },
+                                recipient: DamageRecipient::Permanent { object: *object },
                                 amount: amount.clone(),
                             });
                         }
@@ -963,16 +1102,16 @@ impl RulesTxn {
                     damage.push(DamageOccurrence {
                         source: a.attacker,
                         controller,
-                        recipient: DamageRecipient::Creature { object: *object },
+                        recipient: DamageRecipient::Permanent { object: *object },
                         amount,
                     });
-                } else if (!a.blocked || self.trample_player(a.attacker).is_some())
-                    && self.is_live(a.defender)
+                } else if (!a.blocked || self.trample_defender(a.attacker).is_some())
+                    && let Some(recipient) = self.combat_defender(&a)
                 {
                     damage.push(DamageOccurrence {
                         source: a.attacker,
                         controller,
-                        recipient: DamageRecipient::Player { player: a.defender },
+                        recipient,
                         amount,
                     });
                 }
@@ -1025,7 +1164,7 @@ impl RulesTxn {
                     .map(|(object, amount)| DamageOccurrence {
                         source: blocker,
                         controller,
-                        recipient: DamageRecipient::Creature { object },
+                        recipient: DamageRecipient::Permanent { object },
                         amount,
                     }),
             );
@@ -1034,7 +1173,7 @@ impl RulesTxn {
             return self.prepare_combat_damage(damage);
         }
         self.rules_mut().damage_choices.clear();
-        self.rules_mut().player_damage_choices.clear();
+        self.rules_mut().defender_damage_choices.clear();
         self.grant_turn_priority()
     }
     fn stabilization_wave(
@@ -1087,6 +1226,22 @@ impl RulesTxn {
                 occurrences.push(ProposedEvent::StateBasedGraveyard {
                     object: o.id,
                     reason,
+                });
+            }
+        }
+        // CR 704.5i: zero loyalty is a graveyard move, independent of destruction.
+        for o in self.state.rules.objects.values() {
+            if o.present_on_battlefield()
+                && o.loyalty_counters == Quantity::zero()
+                && self
+                    .characteristics_with_sources(o.id, Some(&sources))?
+                    .has_type(CardKind::Planeswalker)
+            {
+                occurrences.push(ProposedEvent::Move {
+                    object: o.id,
+                    destination: Zone::Graveyard {
+                        owner: self.state.rules.cards[&o.id.card].owner,
+                    },
                 });
             }
         }
@@ -1336,7 +1491,7 @@ impl RulesTxn {
                 if self.current(*source).is_err()
                     || (self.recipients(*source).len() < 2
                         && (self.recipients(*source).is_empty()
-                            || self.trample_player(*source).is_none())) =>
+                            || self.trample_defender(*source).is_none())) =>
             {
                 self.rules_mut().pending = None;
                 self.rules_mut().frame = Frame::Damage;
@@ -1359,8 +1514,9 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
-        // CR 508.1: declared defenders exist only after a declaration this
-        // combat, in seat order, never the attacking player.
+        // CR 508.6, 702.121a: this is the historical set of players attacked
+        // directly by declared attackers, in seat order. Neither attackers
+        // removed later nor tokens created attacking change that set.
         let defenders = &self.state.rules.combat_defenders;
         if (!defenders.is_empty()
             && (!self.state.rules.combat_declared

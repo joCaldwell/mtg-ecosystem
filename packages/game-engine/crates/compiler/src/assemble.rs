@@ -57,6 +57,12 @@ pub(crate) fn shell(
         blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
         ..SourceLabels::default()
     };
+    let loyalty = source
+        .loyalty
+        .as_deref()
+        .map(str::parse::<Quantity>)
+        .transpose()
+        .map_err(|_| unsupported("source.loyalty", "nonconstant printed loyalty"))?;
     let definition = Definition {
         layout: FaceLayout::Single,
         back_face: None,
@@ -87,6 +93,7 @@ pub(crate) fn shell(
             color_identity: card.source.color_identity.clone(),
             power,
             toughness,
+            loyalty,
             front_face_mana_value: None,
         },
         intrinsic_zone: (kind == CardKind::Land).then_some(FunctioningZone::Battlefield),

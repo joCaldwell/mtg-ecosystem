@@ -190,6 +190,10 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "quantity_is_zero")]
+    pub loyalty_counters: Quantity,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub loyalty_used_this_turn: bool,
     /// CR 122.1: the other counter kinds on this permanent, public like
     /// +1/+1 counters, in kind order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -222,6 +226,8 @@ impl<H> VisibleObject<H> {
             restrictions: self.restrictions,
             token: self.token,
             plus_one_counters: self.plus_one_counters,
+            loyalty_counters: self.loyalty_counters,
+            loyalty_used_this_turn: self.loyalty_used_this_turn,
             counters: self.counters,
             characteristics: self.characteristics,
             marked_damage: self.marked_damage,
@@ -380,6 +386,10 @@ impl<H, O> VisibleStackEntry<H, O> {
 pub struct VisibleAttacker<O = ObjectHandle> {
     pub attacker: O,
     pub defender: PlayerId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planeswalker: Option<O>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub defender_removed: bool,
     pub blocked: bool,
     pub blockers: Vec<O>,
 }
@@ -388,6 +398,8 @@ impl<O> VisibleAttacker<O> {
         VisibleAttacker {
             attacker: T::from(&self.attacker),
             defender: self.defender,
+            planeswalker: self.planeswalker.as_ref().map(T::from),
+            defender_removed: self.defender_removed,
             blocked: self.blocked,
             blockers: self.blockers.iter().map(T::from).collect(),
         }

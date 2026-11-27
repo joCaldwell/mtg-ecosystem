@@ -57,7 +57,21 @@ impl Walk<'_, '_> {
                 who: Ref::Target { slot },
             } => {
                 let announced = Self::fixed_or_announced_x(amount, 1, "damage amount")?;
-                if self.creature_target(*slot)? {
+                if self.creature_target(*slot)?
+                    || (matches!(
+                        self.domain(*slot)?,
+                        TargetDomain::BattlefieldPermanent
+                            | TargetDomain::ControlledBattlefieldPermanent
+                    ) && self.env.targets[*slot as usize]
+                        .filter
+                        .as_ref()
+                        .is_some_and(|filter| {
+                            filter.types.contains(&CardKind::Planeswalker)
+                                && filter.types.iter().all(|kind| {
+                                    matches!(kind, CardKind::Creature | CardKind::Planeswalker)
+                                })
+                        }))
+                {
                     return Ok(if announced {
                         Cell::DamageTargetX
                     } else {

@@ -92,6 +92,9 @@ pub(super) fn capabilities(counter: &CounterKind, amount: &Amount, out: &mut BTr
             out.insert(Capability::KeywordCountersV1);
             out.extend(crate::intrinsic_keyword_capability(*keyword));
         }
+        CounterKind::Loyalty => {
+            out.insert(Capability::PlaneswalkerV1);
+        }
         CounterKind::Stun => {
             out.insert(Capability::StunCountersV1);
         }
