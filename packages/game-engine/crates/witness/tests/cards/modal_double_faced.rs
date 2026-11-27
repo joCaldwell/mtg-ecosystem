@@ -278,7 +278,6 @@ fn modal_double_faced_front_spell_and_back_land_have_distinct_zone_characteristi
 #[test]
 fn modal_double_faced_rejects_unreviewed_layouts_by_name() {
     let cases = [
-        ("split", record!("03d3fee8-f7de-4152-8c18-6d279cc6c125")),
         ("prototype", record!("02457c7f-eced-4bf3-9b61-309b4ceab2d5")),
         ("flip", record!("0664dcc8-fa68-4802-936f-ecd2979ebf3c")),
         ("meld", record!("022b42a6-ee0f-4080-b973-c1b68938c3be")),

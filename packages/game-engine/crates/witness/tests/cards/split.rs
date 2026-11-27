@@ -233,22 +233,33 @@ fn split_combines_types_in_each_nonstack_zone_and_checks_each_half_before_castin
 
 #[test]
 fn split_rejects_rooms_and_deferred_cast_keywords_by_name() {
-    for (source, expected) in [
+    for (source, field, expected) in [
         (
             record!("4122720b-cad9-4ebb-b458-be71411c21e3"),
+            "source.type_line",
             "subtype:Room",
         ),
         (
             record!("9842734c-1eac-4509-a731-4c22017ae586"),
+            "source.keywords",
             "keyword:fuse",
         ),
         (
             record!("2ab857cc-64b9-4115-8fa5-6dfae9edbdb5"),
+            "source.keywords",
+            "keyword:aftermath",
+        ),
+        (
+            record!("03d3fee8-f7de-4152-8c18-6d279cc6c125"),
+            "source.keywords",
             "keyword:aftermath",
         ),
     ] {
-        assert!(
-            matches!(mtg_witness::compile(mtg_witness::R5_MANIFEST,source), mtg_compiler::CompileResult::Unsupported { reason,.. } if reason==expected)
-        );
+        match mtg_witness::compile(mtg_witness::R5_MANIFEST, source) {
+            mtg_compiler::CompileResult::Unsupported { path, reason } => {
+                assert_eq!((path.as_str(), reason.as_str()), (field, expected))
+            }
+            outcome => panic!("expected {expected}, got {outcome:?}"),
+        }
     }
 }
