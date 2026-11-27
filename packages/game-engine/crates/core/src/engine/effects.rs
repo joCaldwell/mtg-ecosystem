@@ -2329,11 +2329,15 @@ impl RulesTxn {
         // The entire group was validated above, before any recipient/history write.
         let mut results = vec![];
         for ((kind, id), amount) in totals {
-            let (recipient, previous, current) = if kind == 0 {
+            if kind == 0 {
                 let player = PlayerId(id as u8);
-                let (before, after) =
+                let (previous, current) =
                     self.rules_mut().players[player.0 as usize].lose_life(&amount);
-                (DamageRecipient::Player { player }, before, after)
+                results.push(DamageResult {
+                    recipient: DamageRecipient::Player { player },
+                    previous,
+                    current,
+                });
             } else {
                 let object = self
                     .state
@@ -2342,14 +2346,10 @@ impl RulesTxn {
                     .get(&CardId(id))
                     .ok_or("missing final damage object")?
                     .id;
-                let (before, after) = self.apply_permanent_damage(object, &amount)?;
-                (DamageRecipient::Permanent { object }, before, after)
-            };
-            results.push(DamageResult {
-                recipient,
-                previous,
-                current,
-            });
+                if let Some(result) = self.apply_permanent_damage(object, &amount)? {
+                    results.push(result);
+                }
+            }
         }
         let mut commander_damage = vec![];
         for ((commander, recipient), amount) in commanders {

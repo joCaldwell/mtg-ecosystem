@@ -358,6 +358,8 @@ pub struct OccurrenceResult {
     pub before: PreEventFacts,
     pub proposed: ProposedEvent,
     pub actual: EventOutcome,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counter_changes: Vec<CounterChange>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -427,6 +429,7 @@ enum BatchAuthority<'a> {
     CounterStackObject,
     PlaceCounters,
     PlaceMainPhaseLore,
+    PayCounters,
     RemoveLoreCounter,
     /// CR 614.1c, 614.12: the entry replacements chosen for each entrant
     /// of one entry batch, all read against the same prior state.
@@ -509,6 +512,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             (keys.clone(), keys)
         }
         ProposedEvent::PutCounters { object, .. }
+        | ProposedEvent::PayCounterCost { object, .. }
         | ProposedEvent::RemoveLoreCounter { object }
         | ProposedEvent::AnnihilateCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
@@ -923,19 +927,19 @@ impl RulesTxn {
         let batch_id = self.state.rules.next_batch_id;
         self.rules_mut().next_batch_id =
             batch_id.checked_add(1).ok_or("batch ID resource limit")?;
+        let cause = BatchCause::ControlReconciliation;
         let mut occurrences = vec![];
         self.apply_leaf(
             &proposed,
-            (batch_id, &[]),
+            (batch_id, &[], &cause),
             before.clone(),
             &mut occurrences,
             BatchAuthority::Ordinary,
-            None,
+            (&before_event, None),
         )?;
         // CR 603.6c, 800.4a/c: controller reconciliation can move a watched
         // permanent. Collect the actual exile inside the same rule transaction.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        let cause = BatchCause::ControlReconciliation;
         self.publish_actuals(&before_event, &cause, None, &occurrences, false)?;
         self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(CommittedBatch {
@@ -1040,6 +1044,7 @@ impl RulesTxn {
                     players.insert(*player);
                 }
                 ProposedEvent::PutCounters { object, .. }
+                | ProposedEvent::PayCounterCost { object, .. }
                 | ProposedEvent::RemoveLoreCounter { object }
                 | ProposedEvent::AnnihilateCounters { object, .. } => {
                     objects.insert(*object);
@@ -1527,7 +1532,7 @@ impl RulesTxn {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
-        self.commit_batch_inner(cause, group, false, &[])
+        self.commit_batch_inner(cause, group, false, &[], false)
     }
 
     pub(super) fn commit_entry_batch(
@@ -1539,7 +1544,16 @@ impl RulesTxn {
         if entries.is_empty() {
             return Err("an entry batch names its entrants".into());
         }
-        self.commit_batch_inner(cause, group, false, entries)
+        self.commit_batch_inner(cause, group, false, entries, false)
+    }
+
+    /// Only the authenticated payment paths can submit counter cost leaves.
+    pub(super) fn commit_counter_cost_batch(
+        &mut self,
+        cause: BatchCause,
+        group: EventGroup,
+    ) -> Result<CommittedBatch, String> {
+        self.commit_batch_inner(cause, group, false, &[], true)
     }
 
     fn commit_batch_inner(
@@ -1548,6 +1562,7 @@ impl RulesTxn {
         group: EventGroup,
         library_append: bool,
         entry_override: &[(ObjectId, EntryOverride)],
+        counter_cost: bool,
     ) -> Result<CommittedBatch, String> {
         let replacement = self.prepare_graveyard_batch(&cause, &group)?;
         let mut events = vec![];
@@ -1676,7 +1691,24 @@ impl RulesTxn {
             } => Some((*source, *player, *face)),
             _ => None,
         };
-        let authority = if !entry_override.is_empty() || land.is_some() {
+        let authority = if counter_cost {
+            let (BatchCause::AbilityActivation { source, .. }
+            | BatchCause::ManaActivation { source, .. }) = cause
+            else {
+                return Err("counter cost requires activation payment authority".into());
+            };
+            if events
+                .iter()
+                .filter_map(|event| match event {
+                    ProposedEvent::PayCounterCost { object, .. } => Some(*object),
+                    _ => None,
+                })
+                .ne(std::iter::once(source))
+            {
+                return Err("counter cost must pay once from the activating source".into());
+            }
+            BatchAuthority::PayCounters
+        } else if !entry_override.is_empty() || land.is_some() {
             BatchAuthority::BattlefieldEntry {
                 entries: entry_override,
                 land,
@@ -1811,11 +1843,6 @@ impl RulesTxn {
         self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(result.clone()),
         })?;
-        if matches!(authority, BatchAuthority::PlaceCounters) {
-            // Consume the complete placement with the writes. A second batch
-            // with the same recipients and cause has no remaining authority.
-            self.finish_counter_batch(&result)?;
-        }
         self.state_token = Arc::new(());
         Ok(result)
     }
@@ -1836,7 +1863,14 @@ impl RulesTxn {
                     Some(before) => before.clone(),
                     None => self.facts(&[proposed])?,
                 };
-                self.apply_leaf(proposed, (batch, path), before, out, authority, None)?;
+                self.apply_leaf(
+                    proposed,
+                    (batch, path, cause),
+                    before,
+                    out,
+                    authority,
+                    (&before_event, None),
+                )?;
                 self.publish_actuals(
                     &before_event,
                     cause,
@@ -1874,7 +1908,14 @@ impl RulesTxn {
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_leaf(event, (batch, path), before, out, authority, Some(&common))?;
+                    self.apply_leaf(
+                        event,
+                        (batch, path, cause),
+                        before,
+                        out,
+                        authority,
+                        (&common, Some(&common)),
+                    )?;
                     path.pop();
                 }
                 let group = GroupId {
@@ -1895,14 +1936,20 @@ impl RulesTxn {
     fn apply_leaf(
         &mut self,
         proposed: &ProposedEvent,
-        (batch, path): (u64, &[u32]),
+        (batch, path, cause): (u64, &[u32], &BatchCause),
         before: PreEventFacts,
         out: &mut Vec<OccurrenceResult>,
         authority: BatchAuthority<'_>,
-        common: Option<&Self>,
+        (prior, common): (&Self, Option<&Self>),
     ) -> Result<(), String> {
         let actual =
             self.apply_occurrence_with_entry_state(proposed, Some(&before), authority, common)?;
+        let id = OccurrenceId {
+            batch,
+            path: path.to_vec(),
+        };
+        let counter_changes =
+            self.committed_counter_changes(prior, &id, cause, proposed, &actual)?;
         // Keep the pre-existing native flat trace as a compatibility view.
         let event = match &actual {
             EventOutcome::LeftGame { object, owner } => Event::ObjectLeftGame {
@@ -1916,13 +1963,11 @@ impl RulesTxn {
         };
         self.record_event(event)?;
         out.push(OccurrenceResult {
-            id: OccurrenceId {
-                batch,
-                path: path.to_vec(),
-            },
+            id,
             before,
             proposed: proposed.clone(),
             actual,
+            counter_changes,
         });
         Ok(())
     }
@@ -2613,17 +2658,9 @@ impl RulesTxn {
                     return Err("counter placement requires complete batch authority".into());
                 }
                 let recipient = &mut self.rules_mut().players[player.0 as usize];
-                let previous_poison = recipient.poison_counters.clone();
-                let previous_energy = recipient.energy_counters.clone();
                 recipient.poison_counters.add(poison);
                 recipient.energy_counters.add(energy);
-                EventOutcome::PlayerCountersPlaced {
-                    player: *player,
-                    poison: poison.clone(),
-                    energy: energy.clone(),
-                    previous_poison,
-                    previous_energy,
-                }
+                EventOutcome::CounterAction
             }
             ProposedEvent::PutCounters { object, counters } => {
                 if !matches!(
@@ -2655,22 +2692,30 @@ impl RulesTxn {
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing counter recipient")?;
-                let placed = counters
-                    .iter()
-                    .map(|c| {
-                        let previous = o.add_counters(&c.counter, &c.amount, timestamp);
-                        CounterChange {
-                            counter: c.counter.clone(),
-                            amount: c.amount.clone(),
-                            previous,
-                            current: o.counter_count(&c.counter),
-                        }
-                    })
-                    .collect();
-                EventOutcome::CountersPlaced {
-                    object: *object,
-                    placed,
+                for c in counters {
+                    o.add_counters(&c.counter, &c.amount, timestamp);
                 }
+                EventOutcome::CounterAction
+            }
+            ProposedEvent::PayCounterCost { object, cost } => {
+                if !matches!(authority, BatchAuthority::PayCounters) {
+                    return Err("counter cost requires payment authority".into());
+                }
+                self.current(*object)?;
+                match cost {
+                    CounterCost::Remove { counters } => {
+                        self.rules_mut()
+                            .objects
+                            .get_mut(&object.card)
+                            .ok_or("missing source")?
+                            .pay_counters(&counters.counter, &counters.amount)?;
+                    }
+                    CounterCost::Loyalty { change } => {
+                        self.pay_loyalty_counters(*object, change)?;
+                        self.stamp_loyalty_use(*object)?;
+                    }
+                }
+                EventOutcome::CounterAction
             }
             ProposedEvent::RemoveLoreCounter { object } => {
                 if !matches!(authority, BatchAuthority::RemoveLoreCounter) {
@@ -2681,12 +2726,9 @@ impl RulesTxn {
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing lore recipient")?;
-                let previous = recipient
+                recipient
                     .remove_counters(&mtg_contracts::kir::CounterKind::Lore, &Quantity::from(1));
-                EventOutcome::LoreCounterRemoved {
-                    object: *object,
-                    previous,
-                }
+                EventOutcome::CounterAction
             }
             ProposedEvent::AnnihilateCounters { object, amount } => {
                 // CR 122.3, 704.5q: exactly the smaller of the two counts,
@@ -2707,10 +2749,7 @@ impl RulesTxn {
                     .ok_or("missing annihilation object")?;
                 o.remove_counters(&mtg_contracts::kir::CounterKind::PlusOnePlusOne, amount);
                 o.remove_counters(&mtg_contracts::kir::CounterKind::MinusOneMinusOne, amount);
-                EventOutcome::CountersAnnihilated {
-                    object: *object,
-                    amount: amount.clone(),
-                }
+                EventOutcome::CounterAction
             }
             event @ (ProposedEvent::CreateTokenCopy { .. }
             | ProposedEvent::CreateEncoreTokens { .. }
@@ -3135,16 +3174,12 @@ impl RulesTxn {
                 // every untap path (untap step, effects and costs).
                 let stun = mtg_contracts::kir::CounterKind::Stun;
                 if o.counter_count(&stun) > Quantity::zero() {
-                    let previous = self
-                        .rules_mut()
+                    self.rules_mut()
                         .objects
                         .get_mut(&object.card)
                         .ok_or("missing untap object")?
                         .remove_counters(&stun, &Quantity::from(1));
-                    return Ok(EventOutcome::StunCounterRemoved {
-                        object: *object,
-                        previous,
-                    });
+                    return Ok(EventOutcome::CounterAction);
                 }
                 self.rules_mut()
                     .objects
@@ -3293,10 +3328,7 @@ impl RulesTxn {
                 if !self.is_battlefield_creature(*object) {
                     self.remove_from_combat(*object);
                 }
-                EventOutcome::TurnedFaceUp {
-                    object: *object,
-                    counter,
-                }
+                EventOutcome::TurnedFaceUp { object: *object }
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;

@@ -34,14 +34,6 @@ fn is_zero_use(n: &u32) -> bool {
     *n == 0
 }
 
-/// CR 606.4: the loyalty counters a loyalty cost actually put on or removed
-/// from its source. A `[0]` cost has none: it stamps the activation use only.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoyaltyCostChange {
-    pub previous: Quantity,
-    pub current: Quantity,
-}
-
 /// CR 602.1b, 602.5, 605.3a: the counts an "Activate only if" condition
 /// read as the activation began, one per
 /// [`ActivationCondition::leaves`] entry in printed order. The
@@ -571,56 +563,58 @@ impl RulesTxn {
     /// the use and changes no counter.
     pub(super) fn pay_loyalty(
         &mut self,
-        player: PlayerId,
-        object: ObjectId,
+        cause: BatchCause,
         change: &Quantity,
-    ) -> Result<Option<LoyaltyCostChange>, String> {
-        let remaining = self.loyalty_after_cost(player, object, change)?;
-        let before = self.current(object)?.loyalty_counters.clone();
-        let paid = self.pay_loyalty_counters(object, change)?;
-        let after = paid.as_ref().map_or(&before, |c| &c.current);
-        if *after != remaining
-            || paid.as_ref().is_some_and(|c| c.previous != before)
-            || self.current(object)?.loyalty_counters != remaining
-        {
+    ) -> Result<(), String> {
+        let BatchCause::AbilityActivation { player, source, .. } = cause else {
+            return Err("loyalty payment requires an ability activation".into());
+        };
+        let remaining = self.loyalty_after_cost(player, source, change)?;
+        self.commit_counter_cost_batch(
+            cause,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::PayCounterCost {
+                    object: source,
+                    cost: CounterCost::Loyalty {
+                        change: change.clone(),
+                    },
+                },
+            },
+        )?;
+        if self.current(source)?.loyalty_counters != remaining {
             return Err("loyalty cost balance invariant".into());
         }
-        self.stamp_loyalty_use(object)?;
-        Ok(paid)
+        Ok(())
     }
 
-    /// CR 606.4: the counter half of a loyalty cost: put `change` loyalty
-    /// counters on the source, or remove exactly `-change` of them. A zero
-    /// change puts or removes nothing and reports no change.
+    /// CR 606.4: put `change` loyalty counters on the source or remove
+    /// exactly `-change`. Zero changes no balance.
     pub(super) fn pay_loyalty_counters(
         &mut self,
         object: ObjectId,
         change: &Quantity,
-    ) -> Result<Option<LoyaltyCostChange>, String> {
+    ) -> Result<(), String> {
         let zero = Quantity::zero();
         if *change == zero {
-            return Ok(None);
+            return Ok(());
         }
+        self.current(object)?;
         let kind = mtg_contracts::kir::CounterKind::Loyalty;
-        // Loyalty is stored as a balance with no stack timestamp, so
-        // `add_counters` ignores this one for the loyalty kind.
+        // Loyalty is a balance with no stack timestamp.
         let timestamp = self.state.rules.next_batch_id.saturating_sub(1);
         let source = self
             .rules_mut()
             .objects
             .get_mut(&object.card)
             .ok_or("missing loyalty source")?;
-        let previous = if *change > zero {
-            source.add_counters(&kind, change, timestamp)
+        if *change > zero {
+            source.add_counters(&kind, change, timestamp);
         } else {
             let mut removed = zero;
             removed.subtract(change);
-            source.pay_counters(&kind, &removed)?
-        };
-        Ok(Some(LoyaltyCostChange {
-            previous,
-            current: source.loyalty_counters.clone(),
-        }))
+            source.pay_counters(&kind, &removed)?;
+        }
+        Ok(())
     }
 
     /// CR 606.3: the activation-use half of a loyalty cost, paid even when
@@ -839,7 +833,16 @@ impl RulesTxn {
                     },
                 )?;
             } else if let ActivationCost::Loyalty { change } = &cost {
-                self.pay_loyalty(player, object, change)?;
+                self.pay_loyalty(
+                    BatchCause::AbilityActivation {
+                        stack_id: id,
+                        player,
+                        source: object,
+                        decision_id,
+                        ability,
+                    },
+                    change,
+                )?;
             } else if let ActivationCost::Composite { costs } = &cost {
                 self.pay_permanent_source_costs(
                     object,
@@ -1346,42 +1349,18 @@ mod tests {
         (txn, object)
     }
 
-    /// CR 606.4: `[0]` changes no counter and reports no change; `+N` and
-    /// `-N` report the balance before and after. Every payment stamps the
-    /// turn's activation use (CR 606.3), and a cost the balance cannot pay
-    /// is refused.
+    /// CR 606.4: a counter-only change never stamps the separate use.
     #[test]
-    fn loyalty_payment_reports_only_an_actual_counter_change() {
-        let turn = |txn: &RulesTxn| Some(txn.state.rules.turn.number);
-        for (change, paid) in [(0, None), (2, Some((3, 5))), (-3, Some((3, 0)))] {
+    fn loyalty_counter_payment_is_exact() {
+        for (change, current) in [(0, 3), (2, 5), (-3, 0)] {
             let (mut txn, object) = loyal_source();
-            let expected = paid.map(|(previous, current): (i64, i64)| LoyaltyCostChange {
-                previous: previous.into(),
-                current: current.into(),
-            });
-            let mut counters_only = txn.fork();
-            assert_eq!(
-                counters_only.pay_loyalty_counters(object, &change.into()),
-                Ok(expected.clone()),
-                "{change}"
-            );
-            assert_eq!(
-                counters_only.current(object).unwrap().loyalty_used_turn,
-                None
-            );
-            assert_eq!(
-                txn.pay_loyalty(PlayerId(0), object, &change.into()),
-                Ok(expected.clone()),
-                "{change}"
-            );
+            txn.pay_loyalty_counters(object, &change.into()).unwrap();
             let row = txn.current(object).unwrap();
-            let current = expected.map_or(3.into(), |c| c.current);
-            assert_eq!(row.loyalty_counters, current, "{change}");
-            assert_eq!(row.loyalty_used_turn, turn(&txn), "{change}");
+            assert_eq!(row.loyalty_counters, current.into(), "{change}");
+            assert_eq!(row.loyalty_used_turn, None, "{change}");
         }
         let (mut txn, object) = loyal_source();
         let before = txn.state.rules.objects[&object.card].clone();
-        assert!(txn.pay_loyalty(PlayerId(0), object, &(-4).into()).is_err());
         assert!(txn.pay_loyalty_counters(object, &(-4).into()).is_err());
         assert_eq!(txn.state.rules.objects[&object.card], before);
     }

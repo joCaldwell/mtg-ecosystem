@@ -190,33 +190,30 @@ impl RulesTxn {
             })
         })
     }
-    // CR 120.3c,e: planeswalkers lose loyalty; creatures mark damage.
+    // CR 120.3c,e: planeswalkers lose loyalty through the counter facet;
+    // marked damage keeps its damage receipt.
     pub(super) fn apply_permanent_damage(
         &mut self,
         object: ObjectId,
         amount: &Quantity,
-    ) -> Result<(Quantity, Quantity), String> {
+    ) -> Result<Option<DamageResult>, String> {
         let planeswalker = self.is_battlefield_planeswalker(object);
         let permanent = self
             .rules_mut()
             .objects
             .get_mut(&object.card)
             .ok_or("missing damage object")?;
-        let value = if planeswalker {
-            &mut permanent.loyalty_counters
-        } else {
-            &mut permanent.marked_damage
-        };
-        let previous = value.clone();
         if planeswalker {
-            value.subtract(amount);
-            if value.is_negative() {
-                *value = Quantity::zero();
-            }
-        } else {
-            value.add(amount);
+            permanent.remove_counters(&mtg_contracts::kir::CounterKind::Loyalty, amount);
+            return Ok(None);
         }
-        Ok((previous, value.clone()))
+        let previous = permanent.marked_damage.clone();
+        permanent.marked_damage.add(amount);
+        Ok(Some(DamageResult {
+            recipient: DamageRecipient::Permanent { object },
+            previous,
+            current: permanent.marked_damage.clone(),
+        }))
     }
 
     pub(crate) fn entity_legal(&self, target: TargetEntity) -> bool {
@@ -323,7 +320,16 @@ impl RulesTxn {
                 .clone()
             {
                 ActivationCost::Loyalty { change } => {
-                    self.pay_loyalty(entry.controller, entry.source, &change)?;
+                    self.pay_loyalty(
+                        BatchCause::AbilityActivation {
+                            stack_id: entry.id,
+                            player: entry.controller,
+                            source: entry.source,
+                            decision_id,
+                            ability,
+                        },
+                        &change,
+                    )?;
                     self.rules_mut()
                         .stack
                         .last_mut()
