@@ -253,7 +253,7 @@ pub struct LiteralBool<const B: bool>;
 impl<const B: bool> Wire for LiteralBool<B> {
     fn present(value: &Value, at: &Pointer<'_>) -> Result<Self, Reject> {
         if bool::present(value, at)? != B {
-            return Err(at.reject(Fault::Malformed, format!("expected literal {B}")));
+            return Err(at.reject(Fault::Unknown, format!("expected literal {B}")));
         }
         Ok(Self)
     }
