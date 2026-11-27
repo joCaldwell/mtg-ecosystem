@@ -1,5 +1,5 @@
-// Generate the compiler's typed archive AST from the parser's TypeScript
-// source: `ParseCardResult` (ast.ts) and the R4 `CardResolution`
+// Generate the compiler's archive AST and printed evidence from TypeScript.
+// The legacy AST is rooted in `ParseCardResult` (ast.ts) and `CardResolution`
 // (semantic/resolution.ts). Rust never mirrors these shapes by hand.
 //
 //   node scripts/generate-rust-ast.ts          rewrite the committed module
@@ -334,19 +334,342 @@ export function generate(): string {
   return `${header}\n${defs.join("\n\n")}\n`;
 }
 
-function main(): void {
-  const check = process.argv.includes("--check");
-  const output = path.join(ROOT, OUTPUT);
-  const text = generate();
-  if (check) {
-    if (!fs.existsSync(output) || fs.readFileSync(output, "utf8") !== text) {
-      console.error(`${OUTPUT} is stale; run: node scripts/generate-rust-ast.ts`);
-      process.exitCode = 1;
-    }
-    return;
-  }
-  fs.writeFileSync(output, text);
-  console.log(`wrote ${OUTPUT} (${text.split("\n").length} lines)`);
+
+const PRINTED_SOURCE = "packages/oracle-parser/src/printed/schema.ts";
+const VOCAB_SOURCE = "packages/oracle-parser/src/printed/vocabulary.ts";
+const LEXER_SOURCE = "packages/oracle-parser/src/lexer.ts";
+const sha256 = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
+const sourceFile = (file: string) =>
+  ts.createSourceFile(file, fs.readFileSync(path.join(ROOT, file), "utf8"), ts.ScriptTarget.ES2022, true);
+const lexicalOrder = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+
+type PrintedShape =
+  | { kind: "u32" | "string" | "boolean" | "never" }
+  | { kind: "literal"; value: number | boolean }
+  | { kind: "strings"; values: string[] }
+  | { kind: "ref"; name: string }
+  | { kind: "array"; item: PrintedShape }
+  | { kind: "tuple"; arity: number; range: [start: number, end: number] | null }
+  | { kind: "object"; fields: PrintedField[] }
+  | { kind: "tagged"; key: string; cases: { tag: string; fields: PrintedField[] }[] };
+
+interface PrintedField {
+  name: string;
+  optional: boolean;
+  nullable: boolean;
+  shape: PrintedShape;
 }
 
-main();
+// Read the closed subset used by printed/schema.ts. Unsupported forms fail
+// generation, including an object union with no disjoint literal discriminator.
+export function printedSchema(source = sourceFile(PRINTED_SOURCE)) {
+  const unwrap = (node: ts.TypeNode): ts.TypeNode => ts.isParenthesizedTypeNode(node) ? unwrap(node.type) : node;
+  const fail = (node: ts.Node, why: string): never => {
+    const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+    throw new Error(`${source.fileName}:${line + 1}: ${why}`);
+  };
+  const members = (node: ts.TypeNode): ts.TypeNode[] => {
+    const type = unwrap(node);
+    return ts.isUnionTypeNode(type) ? type.types.flatMap(members) : [type];
+  };
+  const fields = (nodes: ts.NodeArray<ts.TypeElement>): PrintedField[] =>
+    nodes.map(node => {
+      if (!ts.isPropertySignature(node) || !node.type ||
+          !(ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)))
+        return fail(node, "expected a typed property");
+      const types = members(node.type);
+      const values = types.filter(type => !(ts.isLiteralTypeNode(type) && type.literal.kind === ts.SyntaxKind.NullKeyword));
+      const optional = !!node.questionToken;
+      const nullable = types.length !== values.length;
+      const shape = readTypes(values, node.type);
+      if (shape.kind === "never" && (!optional || nullable))
+        return fail(node, "never is supported only as an optional forbidden property");
+      return { name: node.name.text, optional, nullable, shape };
+    });
+
+  // Distribute intersections of object fields across a union's branches.
+  // This handles the common wire fields on Edit, PrintedToken, PrintedFact, etc.
+  const branches = (node: ts.TypeNode): PrintedField[][] => {
+    const type = unwrap(node);
+    if (ts.isTypeLiteralNode(type)) return [fields(type.members)];
+    if (ts.isUnionTypeNode(type)) return type.types.flatMap(branches);
+    if (ts.isIntersectionTypeNode(type))
+      return type.types.reduce<PrintedField[][]>(
+        (left, next) => left.flatMap(a => branches(next).map(b => [...a, ...b])), [[]]);
+    return fail(type, "expected a closed object branch");
+  };
+
+  const objectShape = (cases: PrintedField[][], node: ts.Node): PrintedShape => {
+    for (const fields of cases) {
+      fields.sort((a, b) => lexicalOrder(a.name, b.name));
+      if (new Set(fields.map(field => field.name)).size !== fields.length)
+        fail(node, "intersection redeclares a property");
+    }
+    if (cases.length === 1) return { kind: "object", fields: cases[0] };
+    for (const { name } of cases[0]) {
+      const tagged = cases.flatMap(fields => {
+        const field = fields.find(field => field.name === name);
+        if (field?.shape.kind !== "strings" || field.optional || field.nullable) return [];
+        return [field.shape.values.map(tag => ({ tag, fields: fields.filter(field => field.name !== name) }))];
+      });
+      if (tagged.length !== cases.length) continue;
+      const tags = tagged.flat().sort((a, b) => lexicalOrder(a.tag, b.tag));
+      if (new Set(tags.map(({ tag }) => tag)).size === tags.length)
+        return { kind: "tagged", key: name, cases: tags };
+    }
+    return fail(node, "no disjoint required string discriminator");
+  };
+
+  function readTypes(types: ts.TypeNode[], at: ts.TypeNode): PrintedShape {
+    if (!types.length) return fail(at, "a nullable field must have a non-null type");
+    const strings = types.flatMap(type =>
+      ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal) ? [type.literal.text] : []);
+    if (strings.length === types.length)
+      return { kind: "strings", values: [...new Set(strings)].sort(lexicalOrder) };
+    if (types.length !== 1) return objectShape(types.flatMap(branches), at);
+
+    const [type] = types;
+    switch (type.kind) {
+      case ts.SyntaxKind.NumberKeyword: return { kind: "u32" };
+      case ts.SyntaxKind.StringKeyword: return { kind: "string" };
+      case ts.SyntaxKind.BooleanKeyword: return { kind: "boolean" };
+      case ts.SyntaxKind.NeverKeyword: return { kind: "never" };
+    }
+    if (ts.isArrayTypeNode(type)) return { kind: "array", item: readTypes(members(type.elementType), type.elementType) };
+    if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && !type.typeArguments)
+      return { kind: "ref", name: type.typeName.text };
+    if (ts.isLiteralTypeNode(type)) {
+      const { literal } = type;
+      if (literal.kind === ts.SyntaxKind.TrueKeyword || literal.kind === ts.SyntaxKind.FalseKeyword)
+        return { kind: "literal", value: literal.kind === ts.SyntaxKind.TrueKeyword };
+      if (ts.isNumericLiteral(literal)) {
+        const value = Number(literal.text);
+        if (Number.isInteger(value) && value >= 0 && value <= 0xffffffff) return { kind: "literal", value };
+      }
+    }
+    if (ts.isTupleTypeNode(type)) {
+      const labels = type.elements.map(element => {
+        if (ts.isNamedTupleMember(element) && !element.dotDotDotToken && !element.questionToken &&
+            element.type.kind === ts.SyntaxKind.NumberKeyword) return element.name.text;
+        return fail(element, "expected a required named u32 tuple item");
+      });
+      const start = labels.indexOf("start"), end = labels.indexOf("end");
+      if (start >= 0 ? end <= start : end >= 0) return fail(type, "range tuple requires start before end");
+      return { kind: "tuple", arity: labels.length, range: start >= 0 ? [start, end] : null };
+    }
+    if (ts.isTypeLiteralNode(type) || ts.isIntersectionTypeNode(type))
+      return objectShape(branches(type), at);
+    return fail(at, "unsupported printed wire type");
+  }
+
+  const entries = source.statements.map(node => {
+    if (ts.isInterfaceDeclaration(node) && !node.heritageClauses && !node.typeParameters)
+      return [node.name.text, objectShape([fields(node.members)], node)] as const;
+    if (ts.isTypeAliasDeclaration(node) && !node.typeParameters)
+      return [node.name.text, readTypes(members(node.type), node.type)] as const;
+    return fail(node, "expected an interface or type alias");
+  });
+  return new Map(entries.sort(([a], [b]) => lexicalOrder(a, b)));
+}
+
+function printedVocabulary(): [string, string[]][] {
+  const tables = (source: ts.SourceFile, select: (node: ts.VariableDeclaration) => boolean) =>
+    source.statements.flatMap(node => ts.isVariableStatement(node)
+      ? node.declarationList.declarations.filter(select).map((declaration): [string, string[]] => {
+        const name = declaration.name.getText(source);
+        const init = declaration.initializer;
+        const array = init && ts.isAsExpression(init) ? init.expression
+          : init && ts.isNewExpression(init) && init.expression.getText(source) === "Set" && init.arguments?.length === 1
+            ? init.arguments[0] : init;
+        if (!array || !ts.isArrayLiteralExpression(array)) throw new Error(`${name}: expected a vocabulary array`);
+        const values = array.elements.map(element => {
+          if (!ts.isStringLiteral(element)) throw new Error(`${name}: expected a literal vocabulary item`);
+          return element.text;
+        });
+        if (new Set(values).size !== values.length) throw new Error(`${name}: duplicate vocabulary item`);
+        return [name, values.sort(lexicalOrder)];
+      }) : []);
+  const lexerNames = new Set(["PUNCT_CHARS", "CONTRACTIONS"]);
+  const lexer = tables(sourceFile(LEXER_SOURCE), node => lexerNames.has(node.name.getText()));
+  if (lexer.length !== lexerNames.size) throw new Error("missing lexer vocabulary table");
+  return [...tables(sourceFile(VOCAB_SOURCE), () => true), ...lexer].sort(([a], [b]) => lexicalOrder(a, b));
+}
+
+function printedContract() {
+  const schema = printedSchema();
+  const vocabulary = printedVocabulary();
+  const descriptor = JSON.stringify([...schema]);
+  const card = schema.get("PrintedCard");
+  const version = card?.kind === "object" && card.fields.find(field => field.name === "schemaVersion")?.shape;
+  if (!version || version.kind !== "literal" || typeof version.value !== "number")
+    throw new Error("PrintedCard requires an integer schemaVersion literal");
+  const identity = {
+    schemaVersion: version.value,
+    schemaSha256: sha256(descriptor),
+    vocabularySha256: sha256(JSON.stringify(vocabulary)),
+    generatorSha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))),
+  };
+  return { schema, vocabulary, descriptor, identity };
+}
+
+/** The schema-5 header pins for the printed contract. The writer adds recordsSha256. */
+export function printedIdentity() {
+  return printedContract().identity;
+}
+
+type PrintedContract = ReturnType<typeof printedContract>;
+const PRINTED_HEADER = "// @generated by scripts/generate-rust-ast.ts; do not edit.\n";
+const rustString = (value: string) => JSON.stringify(value).replace(
+  /\\(?:\\|u([0-9a-f]{4})|[bf])/g, (escape, hex: string | undefined) =>
+    hex ? `\\u{${hex}}` : escape === "\\b" ? "\\u{8}" : escape === "\\f" ? "\\u{c}" : escape);
+
+export function renderPrinted({ schema, descriptor, identity }: Pick<PrintedContract, "schema" | "descriptor" | "identity">): string {
+  const defs = new Map<string, string>();
+  const header = [
+    PRINTED_HEADER.trimEnd(),
+    `// Schema: ${PRINTED_SOURCE}`,
+    "use super::printed_decode::*;",
+    "pub use super::printed_decode::{Fault, LiteralBool, LiteralU32, Nullable, Presence, Reject};",
+    "use serde::Serialize;",
+    "use serde_json::Value;",
+    "",
+    `pub const PRINTED_SCHEMA_VERSION: u32 = ${identity.schemaVersion};`,
+    `pub const PRINTED_SCHEMA_SHA256: &str = ${rustString(identity.schemaSha256)};`,
+    `pub const PRINTED_GENERATOR_SHA256: &str = ${rustString(identity.generatorSha256)};`,
+    `pub const PRINTED_SCHEMA_DESCRIPTOR: &str = ${rustString(descriptor)};`,
+  ];
+
+  const derive = "#[derive(Debug, Clone, PartialEq, Eq, Serialize)]";
+  const define = (name: string, body: string) => {
+    if (defs.has(name)) throw new Error(`duplicate printed Rust type ${name}`);
+    defs.set(name, body);
+    return name;
+  };
+  const wire = (name: string, lines: string[]) =>
+    `impl Wire for ${name} {\n    fn present(value: &Value, at: &Pointer<'_>) -> Result<Self, Reject> {\n${lines.join("\n")}\n    }\n}`;
+
+  const struct = (name: string, fields: PrintedField[], tag?: string) => {
+    const stored = fields.filter(field => field.shape.kind !== "never");
+    const declarations: string[] = [];
+    const reads: string[] = [];
+    for (const { name: key, optional, nullable, shape } of stored) {
+      const field = snake(key);
+      const type = rustType(shape, name + pascal(key));
+      const [wrapper, read, skip] = optional
+        ? nullable ? ["Presence", "presence", "Presence::is_omitted"] : ["Option", "optional", "Option::is_none"]
+        : nullable ? ["Nullable", "nullable", ""] : ["", "required", ""];
+      if (field.replace(/^r#/, "") !== key) declarations.push(`    #[serde(rename = ${rustString(key)})]`);
+      if (skip) declarations.push(`    #[serde(skip_serializing_if = ${rustString(skip)})]`);
+      declarations.push(`    pub ${field}: ${wrapper ? `${wrapper}<${type}>` : type},`);
+      reads.push(`            ${field}: ${read}(fields, ${rustString(key)}, at)?,`);
+    }
+    const keys = [...(tag === undefined ? [] : [tag]), ...stored.map(field => field.name)];
+    const decodeFields = `impl ${name} {\n    fn read_fields(fields: &Object, at: &Pointer<'_>) -> Result<Self, Reject> {\n        known_fields(fields, &[${keys.map(rustString).join(", ")}], at)?;\n        Ok(Self {\n${reads.join("\n")}\n        })\n    }\n}`;
+    const decodeValue = tag === undefined ? "\n" + wire(name, ["        Self::read_fields(object(value, at)?, at)"]) : "";
+    return define(name, `${derive}\npub struct ${name} {\n${declarations.join("\n")}\n}\n${decodeFields}${decodeValue}`);
+  };
+
+  function rustType(shape: PrintedShape, name: string): string {
+    switch (shape.kind) {
+      case "string": return "String";
+      case "u32": return "u32";
+      case "boolean": return "bool";
+      case "never": throw new Error(`${name}: cannot generate a standalone never type`);
+      case "ref":
+        if (!schema.has(shape.name)) throw new Error(`${name}: unknown printed type ${shape.name}`);
+        return shape.name;
+      case "array": return `Vec<${rustType(shape.item, name + "Item")}>`;
+      case "literal": return `${typeof shape.value === "number" ? "LiteralU32" : "LiteralBool"}<${shape.value}>`;
+      case "object": return struct(name, shape.fields);
+      case "tuple": {
+        const checks = ["        let items = tuple(value, at)?;"];
+        if (shape.range) {
+          const [start, end] = shape.range;
+          checks.push(`        if items[${start}] > items[${end}] {`,
+            `            return Err(Pointer::Index(at, ${end}).reject(Fault::Malformed, "range end precedes start"));`, "        }");
+        }
+        checks.push("        Ok(Self(items))");
+        return define(name, `${derive}\n#[serde(transparent)]\npub struct ${name}(pub [u32; ${shape.arity}]);\n${wire(name, checks)}`);
+      }
+      case "strings": {
+        const used = new Set<string>();
+        const variants = shape.values.map(value => {
+          const base = pascal(value);
+          let variant = base, suffix = 2;
+          while (used.has(variant)) variant = base + suffix++;
+          used.add(variant);
+          return { value: rustString(value), variant };
+        });
+        const declarations = variants.map(({ value, variant }) => `    #[serde(rename = ${value})]\n    ${variant},`);
+        const spelling = variants.map(({ value, variant }) => `            Self::${variant} => ${value},`);
+        const reads = variants.map(({ value, variant }) => `            ${value} => Ok(Self::${variant}),`);
+        const decodeEnum = wire(name, ["        match text(value, at)? {", ...reads,
+          '            _ => Err(at.reject(Fault::Unknown, "unknown enum value")),', "        }"]);
+        return define(name, `${derive}\npub enum ${name} {\n${declarations.join("\n")}\n}\nimpl ${name} {\n    pub fn as_str(&self) -> &'static str {\n        match self {\n${spelling.join("\n")}\n        }\n    }\n}\n${decodeEnum}`);
+      }
+      case "tagged": {
+        const variants = shape.cases.map(({ tag, fields }) => {
+          const variant = pascal(tag);
+          return { tag: rustString(tag), variant, member: struct(name + variant, fields, shape.key) };
+        });
+        const key = rustString(shape.key);
+        const declarations = variants.map(({ tag, variant, member }) => `    #[serde(rename = ${tag})]\n    ${variant}(${member}),`);
+        const dispatch = variants.map(({ tag, member, variant }) => `            ${tag} => ${member}::read_fields(fields, at).map(Self::${variant}),`);
+        const decodeUnion = wire(name, ["        let fields = object(value, at)?;", `        match tag(fields, ${key}, at)? {`,
+          ...dispatch, `            _ => Err(Pointer::Key(at, ${key}).reject(Fault::Unknown, "unknown discriminator")),`, "        }"]);
+        return define(name, `${derive}\n#[serde(tag = ${key})]\npub enum ${name} {\n${declarations.join("\n")}\n}\n${decodeUnion}`);
+      }
+    }
+  }
+
+  for (const [name, shape] of schema) {
+    const type = rustType(shape, name);
+    if (type !== name) define(name, `pub type ${name} = ${type};`);
+  }
+  for (const root of ["PrintedCard", "PrintedFace"].filter(name => schema.has(name))) {
+    defs.set(root, defs.get(root) + `\nimpl ${root} {\n    /// Decode original JSON so duplicate object keys remain observable.\n    pub fn decode(json: &str) -> Result<Self, Reject> {\n        decode(json)\n    }\n}`);
+  }
+  return [header.join("\n"), ...defs.values(), ""].join("\n\n").trimEnd() + "\n";
+}
+
+function renderVocabulary({ identity, vocabulary }: PrintedContract): string {
+  const constants = vocabulary.map(([name, words]) =>
+    `pub const ${name}: &[&str] = &[${words.map(rustString).join(", ")}];`);
+  const table = vocabulary.map(([name]) => `    (${rustString(name)}, ${name}),`);
+  return PRINTED_HEADER + `// Sources: ${VOCAB_SOURCE}, ${LEXER_SOURCE}\n\n` +
+    `pub const PRINTED_VOCABULARY_SHA256: &str = ${rustString(identity.vocabularySha256)};\n\n` +
+    constants.join("\n") + `\n\npub const VOCABULARY_TABLES: &[(&str, &[&str])] = &[\n${table.join("\n")}\n];\n`;
+}
+
+
+function main(): void {
+  const check = process.argv.includes("--check");
+  const legacy = generate();
+  // Freeze the legacy decoder through the R6 bridge. Its source fingerprint
+  // covers this generator, so that one line is allowed to change.
+  const legacyHash = /^\/\/ Source SHA-256: [0-9a-f]{64}\n/m;
+  if (!legacyHash.test(legacy) ||
+      sha256(legacy.replace(legacyHash, "")) !== "e0c6f8aef7e531d685658354178c5f38407bf1833a6808de4d5c63e9b3f0ba0e")
+    throw new Error("R6 bridge changed the legacy generated AST outside its source hash");
+
+  const contract = printedContract();
+  const directory = path.dirname(OUTPUT);
+  for (const [file, text] of [
+    [OUTPUT, legacy],
+    [path.join(directory, "printed.rs"), renderPrinted(contract)],
+    [path.join(directory, "vocab.rs"), renderVocabulary(contract)],
+  ]) {
+    const output = path.join(ROOT, file);
+    if (check) {
+      if (!fs.existsSync(output) || fs.readFileSync(output, "utf8") !== text) {
+        console.error(`${file} is stale; run: node scripts/generate-rust-ast.ts`);
+        process.exitCode = 1;
+      }
+    } else {
+      fs.writeFileSync(output, text);
+      console.log(`wrote ${file} (${text.split("\n").length} lines)`);
+    }
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
