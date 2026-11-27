@@ -29,6 +29,9 @@ impl Shape {
                 },
                 Answer::Distribute { amounts },
             ) => check_allocation(total, buckets, gates, amounts),
+            (Self::CombatDistribute { groups, lethal }, Answer::Distribute { amounts }) => {
+                check_combat_allocation(groups, lethal, amounts)
+            }
             (Self::Number { min, max }, Answer::Number { value })
                 if value >= min && max.as_ref().is_none_or(|upper| value <= upper) =>
             {
@@ -73,6 +76,70 @@ impl Shape {
             _ => Err("answer outside decision shape".into()),
         }
     }
+}
+
+/// Shared deterministic fallback for policies. Every joint group has a
+/// blocker as its first recipient, so this assigns no trample damage.
+pub fn combat_allocation_to_blockers(groups: &[CombatDistribution]) -> Answer {
+    let amounts = groups
+        .iter()
+        .flat_map(|group| {
+            std::iter::once(group.total.clone()).chain(std::iter::repeat_n(
+                Quantity::zero(),
+                group.recipients.len().saturating_sub(1),
+            ))
+        })
+        .collect();
+    Answer::Distribute { amounts }
+}
+
+fn check_combat_allocation(
+    groups: &[CombatDistribution],
+    lethal: &[CombatLethal],
+    amounts: &[Quantity],
+) -> Result<(), String> {
+    if amounts.len() != groups.iter().map(|g| g.recipients.len()).sum::<usize>()
+        || amounts.iter().any(Quantity::is_negative)
+    {
+        return Err("invalid combat allocation buckets".into());
+    }
+    let mut start = 0;
+    for group in groups {
+        let end = start + group.recipients.len();
+        let mut total = Quantity::zero();
+        for amount in &amounts[start..end] {
+            total.add(amount);
+        }
+        if total != group.total {
+            return Err("combat allocation does not assign each source's total".into());
+        }
+        start = end;
+    }
+    let amount_at = |index: u32| {
+        amounts
+            .get(index as usize)
+            .ok_or("unknown combat allocation bucket")
+    };
+    for gate in lethal {
+        if amount_at(gate.player_bucket)? == &Quantity::zero() {
+            continue;
+        }
+        let mut deathtouch = false;
+        for &bucket in &gate.deathtouch_buckets {
+            deathtouch |= amount_at(bucket)? > &Quantity::zero();
+        }
+        if deathtouch {
+            continue;
+        }
+        let mut total = Quantity::zero();
+        for &bucket in &gate.damage_buckets {
+            total.add(amount_at(bucket)?);
+        }
+        if total < gate.remaining {
+            return Err("trample player damage before lethal to every blocker".into());
+        }
+    }
+    Ok(())
 }
 
 pub fn subtract_restricted_mana(

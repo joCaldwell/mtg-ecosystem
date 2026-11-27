@@ -244,7 +244,11 @@ pub struct DamageTransaction {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DamageContinuation {
-    Combat,
+    Combat {
+        // Frozen at assignment, before replacement choices or concessions.
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        toughness_sources: BTreeSet<ObjectId>,
+    },
     Instruction {
         frame: Box<Resolving>,
     },
@@ -1472,6 +1476,13 @@ impl RulesTxn {
         // extra occurrences. First/double strike use separate transactions.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         Self::validate_combat_player_members(damage.iter().map(|d| (d.source, &d.recipient)))?;
+        let toughness_sources = damage
+            .iter()
+            .map(|d| d.source)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|source| self.assigns_with_toughness(*source))
+            .collect();
         let entries = damage
             .into_iter()
             .enumerate()
@@ -1495,7 +1506,7 @@ impl RulesTxn {
             DamageKind::Combat,
             entries,
             BatchCause::Combat,
-            DamageContinuation::Combat,
+            DamageContinuation::Combat { toughness_sources },
         )
     }
     pub(crate) fn prepare_noncombat_damage(
@@ -1952,7 +1963,7 @@ impl RulesTxn {
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match tx.continuation {
-                DamageContinuation::Combat => self.grant_turn_priority()?,
+                DamageContinuation::Combat { .. } => self.grant_turn_priority()?,
                 DamageContinuation::Mana { activation } => self.resume_mana_riders(*activation)?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
                     *frame,
@@ -3693,7 +3704,7 @@ impl RulesTxn {
                 tx.entries.iter().map(|d| (d.source.object, &d.recipient)),
             )?;
         }
-        let mut powers: BTreeMap<ObjectId, Quantity> = BTreeMap::new();
+        let mut assigned_by_source: BTreeMap<ObjectId, Quantity> = BTreeMap::new();
         for (i, d) in tx.entries.iter().enumerate() {
             let physical = self
                 .state
@@ -3772,31 +3783,39 @@ impl RulesTxn {
                 if !battlefield_creature || d.source.controller != d.controller {
                     return Err("invalid assigned combat source".into());
                 }
-                powers
+                assigned_by_source
                     .entry(d.source.object)
                     .or_default()
                     .add(&d.original_amount);
             }
         }
         match (&tx.kind, &tx.continuation) {
-            (DamageKind::Combat, DamageContinuation::Combat) => {
+            (DamageKind::Combat, DamageContinuation::Combat { toughness_sources }) => {
                 if tx.cause != BatchCause::Combat {
                     return Err("wrong combat damage cause".into());
                 }
-                for (source, assigned) in powers {
+                if toughness_sources
+                    .iter()
+                    .any(|source| !assigned_by_source.contains_key(source))
+                {
+                    return Err("unknown toughness assignment source".into());
+                }
+                for (source, assigned) in assigned_by_source {
                     let fact = &tx
                         .entries
                         .iter()
                         .find(|d| d.source.object == source)
                         .ok_or("missing combat source")?
                         .source;
-                    let power = fact
-                        .characteristics
-                        .power
-                        .as_ref()
-                        .ok_or("missing combat power")?;
-                    if &assigned != power {
-                        return Err("combat assigned total differs from frozen power".into());
+                    let characteristic = if toughness_sources.contains(&source) {
+                        &fact.characteristics.toughness
+                    } else {
+                        &fact.characteristics.power
+                    };
+                    if characteristic.as_ref() != Some(&assigned) {
+                        return Err(
+                            "combat assigned total differs from frozen characteristic".into()
+                        );
                     }
                 }
             }
