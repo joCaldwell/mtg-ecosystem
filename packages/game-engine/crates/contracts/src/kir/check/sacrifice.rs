@@ -2,7 +2,7 @@
 use super::*;
 
 impl Walk<'_, '_> {
-    /// CR 701.21a: the damaged player, one announced opponent, each player
+    /// CR 701.21a: the damaged player, one announced player, each player
     /// or each opponent sacrifices one creature.
     pub(super) fn audit_sacrifice(
         &self,
@@ -25,8 +25,12 @@ impl Walk<'_, '_> {
                 _ => unaudited("sacrifice recipient"),
             };
         }
-        if *filter != Pred::creatures() || count.as_fixed() != Some(&Quantity::from(1)) {
+        if count.as_fixed() != Some(&Quantity::from(1)) {
             return unaudited("verb");
+        }
+        for atom in &filter.0 {
+            // These predicates run on public, derived battlefield facts.
+            battlefield_target_atom(atom, false)?;
         }
         match player {
             PlayerExpr::Is {
@@ -39,7 +43,11 @@ impl Walk<'_, '_> {
             PlayerExpr::EachOpponent => Ok(Cell::SacrificeEachOpponent),
             PlayerExpr::Is {
                 who: Ref::Target { .. },
-            } if self.player_target(player)? == Some(TargetDomain::OpponentPlayer) => {
+            } if matches!(
+                self.player_target(player)?,
+                Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer)
+            ) =>
+            {
                 Ok(Cell::SacrificeTargetOpponent)
             }
             _ => unaudited("sacrifice recipient"),

@@ -81,7 +81,12 @@ at resolution. A commander bound for hand still offers the command zone.
 
 **Sacrifice** is not destruction. Fling-like effects use paid LKI power. Forced
 sacrifices choose in APNAP order with earlier choices visible, then move
-simultaneously.
+simultaneously through the replacement and leaves-the-battlefield pipeline
+(CR 101.4, 603.10a, 701.21a). Each player, each opponent, or an announced
+player can choose one permanent they currently control. The choice reads
+the permanent's derived battlefield characteristics and status, including
+type alternatives, nontoken and combat status. Phased-out permanents are
+excluded (CR 702.26b).
 
 **Board-wide sets** include granted keywords at execution. Destruction, exile,
 bounce and all-recipient damage commit atomically; temporary P/T sets capture

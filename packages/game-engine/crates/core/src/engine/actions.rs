@@ -502,7 +502,7 @@ impl RulesTxn {
                 ))
             }
             ResolutionChoice::Sacrifice { player, .. } if self.is_live(*player) => {
-                let choices = self.controlled_creatures(*player);
+                let choices = self.sacrifice_options(frame, *player)?;
                 (!choices.is_empty())
                     .then(|| self.pick_objects(*player, Reason::Sacrifice, choices, 1))
             }
@@ -770,7 +770,7 @@ impl RulesTxn {
             }) => self.execute_sacrifice_instruction(frame, op),
             kernel!(Sacrifice { player: event_player!(), .. } @ source_block) => {
                 let actor = self.resolution_player(&frame, Some(&ActionRecipient::EventPlayer))?;
-                if !self.is_live(actor) || self.controlled_creatures(actor).is_empty() {
+                if !self.is_live(actor) || self.sacrifice_options(&frame, actor)?.is_empty() {
                     self.finish_instruction(
                         frame,
                         InstructionOutcome::Sacrificed {
@@ -801,7 +801,7 @@ impl RulesTxn {
                     .copied()
                     .unwrap_or(false)
                     || !self.is_live(target)
-                    || self.controlled_creatures(target).is_empty()
+                    || self.sacrifice_options(&frame, target)?.is_empty()
                 {
                     self.finish_instruction(
                         frame,

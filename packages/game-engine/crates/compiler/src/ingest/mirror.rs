@@ -673,7 +673,7 @@ pub(crate) enum Step {
     },
     Sacrifice {
         who: PlayerSelector,
-        what: FilterObject,
+        what: FilterObject<Count, ast::ObjectFilter>,
         #[serde(rename = "chosenBy")]
         chosen_by: PlayerSelector,
     },
@@ -817,10 +817,10 @@ pub(crate) struct PlayerSelector {
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct FilterObject<A = Count> {
+pub(crate) struct FilterObject<A = Count, F = ObjectFilter> {
     #[serde(rename = "ref")]
     pub(crate) reference: String,
-    pub(crate) filter: ObjectFilter,
+    pub(crate) filter: F,
     pub(crate) count: A,
 }
 

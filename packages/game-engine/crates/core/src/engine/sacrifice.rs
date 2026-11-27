@@ -178,6 +178,42 @@ impl RulesTxn {
         Ok(())
     }
 
+    // CR 701.21a and 702.26b: only a present permanent controlled by
+    // the chooser qualifies. Read derived characteristics during resolution.
+    pub(super) fn sacrifice_options(
+        &self,
+        frame: &Resolving,
+        player: PlayerId,
+    ) -> Result<Vec<ObjectId>, String> {
+        let entry = self.entry(frame.stack_id)?;
+        let instruction = self
+            .program_for(entry)?
+            .instructions
+            .get(frame.cursor as usize);
+        match instruction {
+            Some(kernel!(Sacrifice { filter, .. })) => Ok(self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|object| {
+                    object.controller == player
+                        && crate::query::matches_battlefield_pred(
+                            &self.object_facts(object),
+                            entry.controller,
+                            filter,
+                        ) == crate::query::Tri::Yes
+                })
+                .map(|object| object.id)
+                .collect()),
+            Some(Instruction::Kernel {
+                node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. },
+                ..
+            }) => Ok(self.controlled_creatures(player)),
+            _ => Err("missing sacrifice instruction".into()),
+        }
+    }
+
     pub(super) fn sacrifice_request(&self) -> Result<Option<Decision<Rules>>, String> {
         Ok(match &self.state.rules.frame {
             Frame::SacrificeCost { cast } => {
@@ -187,20 +223,26 @@ impl RulesTxn {
                     .then(|| self.pick_objects(stack.controller, Reason::SacrificeCost, choices, 1))
             }
             Frame::ForcedSacrifice {
-                remaining, choices, ..
-            } => remaining.first().and_then(|&p| {
-                let creatures = self.controlled_creatures(p);
-                (self.is_live(p) && !creatures.is_empty()).then(|| {
-                    self.pick_objects(
-                        p,
-                        Reason::ForcedSacrifice {
-                            previous: choices.clone(),
-                        },
-                        creatures,
-                        1,
-                    )
-                })
-            }),
+                frame,
+                remaining,
+                choices,
+                ..
+            } => match remaining.first().filter(|&&player| self.is_live(player)) {
+                Some(&player) => {
+                    let options = self.sacrifice_options(frame, player)?;
+                    (!options.is_empty()).then(|| {
+                        self.pick_objects(
+                            player,
+                            Reason::ForcedSacrifice {
+                                previous: choices.clone(),
+                            },
+                            options,
+                            1,
+                        )
+                    })
+                }
+                None => None,
+            },
             _ => None,
         })
     }
@@ -236,7 +278,7 @@ impl RulesTxn {
                 source_block,
             } => {
                 if let Some(player) = remaining.first().copied() {
-                    if self.is_live(player) && !self.controlled_creatures(player).is_empty() {
+                    if self.is_live(player) && !self.sacrifice_options(&frame, player)?.is_empty() {
                         let input = self
                             .rules_mut()
                             .pending
