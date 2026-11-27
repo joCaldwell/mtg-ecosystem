@@ -392,6 +392,8 @@ pub(super) fn crew(
         }),
     });
     Ok(ActivatedAbility {
+        x_mana_cost: false,
+        hybrid_mana: vec![],
         modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,

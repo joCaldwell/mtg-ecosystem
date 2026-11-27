@@ -1513,6 +1513,8 @@ fn compose_face(
                         PlayerBinding::Unbound,
                     )?;
                     definition.activated.push(ActivatedAbility {
+                        x_mana_cost: false,
+                        hybrid_mana: vec![],
                         modal: None,
                         functioning_zone: FunctioningZone::Battlefield,
                         restriction: None,
