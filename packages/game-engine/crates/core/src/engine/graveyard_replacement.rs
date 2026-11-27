@@ -4,21 +4,6 @@
 use super::*;
 
 impl RulesTxn {
-    pub(super) fn complete_library_effect(
-        &mut self,
-        frame: Resolving,
-        proposed: ProposedEvent,
-        source_block: u32,
-    ) -> Result<(), String> {
-        let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            },
-        )
-    }
-
     pub(super) fn replacement_request(&self) -> Option<Decision<Rules>> {
         match &self.state.rules.frame {
             Frame::GraveyardGroup { .. } => self.group_replacement_request(),

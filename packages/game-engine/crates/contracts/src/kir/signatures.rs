@@ -10,6 +10,8 @@ pub enum EvaluatedVerb {
     Damage,
     PutCounters,
     Sacrifice,
+    Discard,
+    Mill,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +79,7 @@ impl OperandClass {
             SetExpr::One { object } => Self::reference(object),
             SetExpr::Matching { .. } => Some(Self::Measure),
             SetExpr::Pool { pool } => Self::reference(pool),
+            SetExpr::Result { .. } => Some(Self::StepResult),
         }
     }
 
@@ -176,6 +179,7 @@ pub struct VerbSignature {
     pub verb: EvaluatedVerb,
     pub slots: &'static [OperandSlot],
     pub distribution: Distribution,
+    pub object_result_read: ObjectUse,
     pub projections: &'static [StepRole],
 }
 
@@ -329,12 +333,14 @@ const DRAW: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::Draw,
     slots: PLAYER_AMOUNT,
     distribution: Distribution::EachSequential,
+    object_result_read: ObjectUse::ActOnLiveIncarnation,
     projections: &[StepRole::Amount, StepRole::Objects, StepRole::Player],
 };
 const GAIN: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::GainLife,
     slots: PLAYER_AMOUNT,
     distribution: Distribution::EachSimultaneous,
+    object_result_read: ObjectUse::ActOnLiveIncarnation,
     projections: &[StepRole::Amount, StepRole::Player],
 };
 const LOSS: VerbSignature = VerbSignature {
@@ -345,18 +351,33 @@ const DAMAGE: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::Damage,
     slots: DAMAGE_SLOTS,
     distribution: Distribution::EachSimultaneous,
+    object_result_read: ObjectUse::ActOnLiveIncarnation,
     projections: &[StepRole::Amount, StepRole::Objects, StepRole::Player],
 };
 const COUNTERS: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::PutCounters,
     slots: COUNTER_SLOTS,
     distribution: Distribution::EachSimultaneous,
+    object_result_read: ObjectUse::ActOnLiveIncarnation,
     projections: &[StepRole::Amount, StepRole::Objects],
+};
+const MILL: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::Mill,
+    slots: PLAYER_AMOUNT,
+    distribution: Distribution::EachSimultaneous,
+    object_result_read: ObjectUse::ReadCurrentOrLastKnown,
+    projections: &[StepRole::Amount, StepRole::Objects, StepRole::Player],
+};
+const DISCARD: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::Discard,
+    distribution: Distribution::CollectThenSimultaneous,
+    ..MILL
 };
 const SACRIFICE: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::Sacrifice,
     slots: SACRIFICE_SLOTS,
     distribution: Distribution::CollectThenSimultaneous,
+    object_result_read: ObjectUse::ActOnLiveIncarnation,
     projections: &[StepRole::Amount, StepRole::Objects, StepRole::Player],
 };
 
@@ -377,6 +398,11 @@ pub enum Evaluated<'a> {
         counter: &'a CounterKind,
         amount: &'a Amount,
     },
+    Discard {
+        player: &'a PlayerExpr,
+        amount: Option<&'a Amount>,
+        random: bool,
+    },
     Sacrifice {
         player: &'a PlayerExpr,
         count: &'a Amount,
@@ -387,12 +413,13 @@ pub enum Evaluated<'a> {
 
 impl<'a> Evaluated<'a> {
     /// The quantity slot every evaluated verb has.
-    pub fn amount(&self) -> &'a Amount {
+    pub fn amount(&self) -> Option<&'a Amount> {
         match *self {
             Self::PlayerAmount { amount, .. }
             | Self::Damage { amount, .. }
             | Self::Counters { amount, .. }
-            | Self::Sacrifice { count: amount, .. } => amount,
+            | Self::Sacrifice { count: amount, .. } => Some(amount),
+            Self::Discard { amount, .. } => amount,
         }
     }
 
@@ -419,6 +446,13 @@ impl<'a> Evaluated<'a> {
                 (slot(0), OperandClass::player(player)),
                 (slot(1), OperandClass::amount(amount)),
             ],
+            Self::Discard { player, amount, .. } => {
+                let mut out = vec![(slot(0), OperandClass::player(player))];
+                if let Some(amount) = amount {
+                    out.push((slot(1), OperandClass::amount(amount)));
+                }
+                out
+            }
             Self::Damage { source, to, amount } => {
                 let mut out = vec![(slot(0), OperandClass::reference(source))];
                 out.extend(
@@ -452,6 +486,21 @@ impl Verb {
     /// The signature and operands of a verb the resolving evaluator performs.
     pub fn evaluated(&self) -> Option<(&'static VerbSignature, Evaluated<'_>)> {
         match self {
+            Self::Mill { player, amount } => {
+                Some((&MILL, Evaluated::PlayerAmount { player, amount }))
+            }
+            Self::Discard {
+                player,
+                amount,
+                random,
+            } => Some((
+                &DISCARD,
+                Evaluated::Discard {
+                    player,
+                    amount: amount.as_ref(),
+                    random: *random,
+                },
+            )),
             Self::Draw { player, amount } => {
                 Some((&DRAW, Evaluated::PlayerAmount { player, amount }))
             }
@@ -501,7 +550,7 @@ impl Verb {
 
 /// The leaf that supplies one unambiguous projection within a Seq sibling.
 /// Stage 1 allows a direct action or a single guarded body.
-pub fn step_producer(node: &Node) -> Option<(&VerbSignature, Option<u32>)> {
+pub fn step_producer(node: &Node) -> Option<(&'static VerbSignature, Option<u32>)> {
     match node {
         Node::Do(verb) => Some((verb.evaluated()?.0, None)),
         Node::Optional { node, .. }

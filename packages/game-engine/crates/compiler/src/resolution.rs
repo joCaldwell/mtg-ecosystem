@@ -895,6 +895,13 @@ fn evaluated_site<'a>(block: &'a ast::Ability, path: &str) -> Option<SiteKind<'a
     let action = sentence.steps.get(parts.next()?.parse::<usize>().ok()?)?;
     let field = parts.next()?;
     let site = match (action, field) {
+        (ast::Effect::Discard(discard), "who") => SiteKind::Player(&discard.who),
+        (ast::Effect::Discard(discard), "what") => match discard.what.as_ref() {
+            ast::CostDiscardWhat::ObjectRef(object) => SiteKind::Object(object),
+            ast::CostDiscardWhat::Hand => return None,
+        },
+        (ast::Effect::Mill(mill), "who") => SiteKind::Player(&mill.who),
+        (ast::Effect::Mill(mill), "amount") => SiteKind::Amount(&mill.amount),
         (ast::Effect::Draw(draw), "who") => SiteKind::Player(&draw.who),
         (ast::Effect::Variant99(life), "who") => SiteKind::Player(&life.who),
         (ast::Effect::Sacrifice(sacrifice), "who" | "chosenBy") => {
@@ -938,6 +945,9 @@ fn operand_site<'a>(
     let child = match (site, field) {
         (SiteKind::Player(ast::PlayerRef::Owner(who)), "of") => SiteKind::Object(&who.of),
         (SiteKind::Player(ast::PlayerRef::Controller(who)), "of") => SiteKind::Object(&who.of),
+        (SiteKind::Object(ast::ObjectRef::Filter(selection)), "count") => {
+            SiteKind::Amount(&selection.count)
+        }
         (SiteKind::Amount(ast::Amount::Attribute(amount)), "of") => SiteKind::Object(&amount.of),
         (SiteKind::Amount(ast::Amount::LifeTotal(amount)), "of") => SiteKind::Player(&amount.of),
         (SiteKind::Amount(ast::Amount::Plus(amount)), "a") => SiteKind::Amount(&amount.a),

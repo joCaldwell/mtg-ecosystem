@@ -456,17 +456,15 @@ fn damage_controller_discard_choice_binding_and_host_search_admission_remain_str
     let mut g = Game::new(p);
     discard(&mut g);
     let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
-    let Frame::ResolutionChoice {
-        choice: ResolutionChoice::Discard { player, .. },
-        ..
-    } = &mut forged.state.rules.frame
-    else {
-        panic!("discard");
-    };
-    *player = PlayerId(1);
+    let mut frame = serde_json::to_value(&forged.state.rules.frame).unwrap();
+    let picker = frame
+        .pointer_mut("/task/stage/remaining/0")
+        .expect("discard chooser");
+    *picker = serde_json::json!(1);
+    forged.state.rules.frame = serde_json::from_value(frame).unwrap();
     let mut structural = g.fork();
     structural.state = forged.state.clone();
-    assert!(structural.validate_actions_state().is_err());
+    assert!(structural.validate_state().is_err());
     forged.state_sha256 = digest(&forged.state).unwrap();
     assert!(
         Game::restore(

@@ -34,7 +34,6 @@ pub enum GroupResult {
     ActualEffect,
     DestroySet,
     Sacrifice { player: PlayerId },
-    Discard { player: PlayerId },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,7 +95,7 @@ impl GroupFinish {
                 return Err("payment completion belongs to its announcement".into());
             }
             Self::Cleanup => game.rules_mut().frame = Frame::CleanupClear,
-            Self::Kernel { resume } => return game.finish_kernel_sacrifice(resume, batch),
+            Self::Kernel { resume } => return game.finish_kernel_moves(resume, batch),
             Self::StateBased {
                 resume, checked, ..
             } => {
@@ -131,16 +130,6 @@ impl GroupFinish {
                             movements,
                             destroyed_creatures,
                         }
-                    }
-                    GroupResult::Discard { player } => {
-                        let mut movements = vec![];
-                        for r in occurrences {
-                            let EventOutcome::CardDiscarded { movement, .. } = &r.actual else {
-                                return Err("unexpected discard result".into());
-                            };
-                            movements.push(movement.clone());
-                        }
-                        InstructionOutcome::Discarded { player, movements }
                     }
                     GroupResult::Sacrifice { player } => {
                         let movement = match single {
@@ -382,21 +371,15 @@ impl GraveyardGroup {
             return Err("regeneration wave member invariant".into());
         }
         let producing = match &self.finish {
-            GroupFinish::Kernel { resume } => game.validate_kernel_sacrifice(&self.cause, leaves, *resume)?,
+            GroupFinish::Kernel { resume } => game.validate_kernel_moves(&self.cause, leaves, *resume)?,
             GroupFinish::Instruction { frame, result } => {
                 game.validate_resolving(frame)?;
                 let entry = game.entry(frame.stack_id)?;
                 let i = game.program_for(entry)?.instructions.get(frame.cursor as usize).ok_or("missing retained instruction")?;
                 let kind = match result {
-                    GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature) || matches!(i, kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false })),
+                    GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature),
                     GroupResult::ActualEffect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldPermanent),
                     GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}) | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. }),
-                    GroupResult::Discard { player } if matches!(i, kernel!(Discard {
-                        player: you!(), amount: fixed!(_), random: true
-                    })) => *player == entry.controller && matches!(entry.kind, StackKind::Triggered {
-                        ability: EffectiveTriggerAbility::Followup { .. }, ..
-                    }),
-                    GroupResult::Discard {..} => matches!(i, kernel!(Discard { player: you!() | event_player!(), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), random: true, .. })),
                     GroupResult::Sacrifice {player} if matches!(i, Instruction::Kernel { node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. }, .. }) => *player == entry.controller,
                     GroupResult::Sacrifice {..} => false,
                 };
@@ -406,8 +389,6 @@ impl GraveyardGroup {
                     (kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}),ProposedEvent::DestroyPermanent {..}) => true,
                     // CR 608.2b: a group destroys only its legal announced members.
                     (Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. },ProposedEvent::DestroyPermanent {object}) => entry.targets.iter().zip(&frame.legal_targets).any(|(target, legal)| target == object && *legal),
-                    (kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false }),ProposedEvent::DiscardCard {..}) => true,
-                    (_,ProposedEvent::DiscardCard {player,..}) => matches!(result, GroupResult::Discard {player:p} if p == player),
                     (_,ProposedEvent::Sacrifice {player,..}) => matches!(result, GroupResult::Sacrifice {player:p} if p == player),
                     _ => false,
                 })

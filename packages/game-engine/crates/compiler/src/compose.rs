@@ -221,11 +221,46 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
             {
                 return Ok(Part::Table(steps.clone()));
             }
-            serde_json::from_value::<Sentence>(sentence.clone())
-                .map(Part::Typed)
-                .map_err(|e| mirror_gap(sentence, &e))
+            decode_sentence(sentence).map(Part::Typed)
         })
         .collect()
+}
+
+/// Resolving discard and mill use the generated effect schema. Keep the legacy
+/// sentence envelope for the other families until their source contract moves.
+fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
+    fn migrated(raw: &serde_json::Value) -> bool {
+        matches!(raw["effect"].as_str(), Some("discard" | "mill"))
+    }
+
+    fn reads_x(raw: &serde_json::Value) -> bool {
+        match raw {
+            serde_json::Value::Object(fields) => {
+                raw["amount"] == "x" || fields.values().any(reads_x)
+            }
+            serde_json::Value::Array(items) => items.iter().any(reads_x),
+            _ => false,
+        }
+    }
+
+    let mut legacy = raw.clone();
+    if let Some(steps) = legacy["steps"].as_array_mut() {
+        steps.retain(|step| !migrated(step));
+    }
+    let mut sentence: Sentence = serde_json::from_value(legacy).map_err(|e| mirror_gap(raw, &e))?;
+    if let Some(steps) = raw["steps"].as_array() {
+        for (index, step) in steps.iter().enumerate().filter(|(_, step)| migrated(step)) {
+            let effect = typed::<ast::Effect>(step, "effect")?;
+            sentence
+                .steps
+                .insert(index, Step::Evaluated(Box::new(effect)));
+            sentence.reads_x.insert(index, reads_x(step));
+            sentence
+                .introduces
+                .insert(index, crate::ingest::Introduced::of_step(step));
+        }
+    }
+    Ok(sentence)
 }
 
 /// A reviewed trigger lowers typed sentences only. A sentence of step table

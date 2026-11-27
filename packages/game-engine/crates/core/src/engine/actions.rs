@@ -66,11 +66,6 @@ pub enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
-    Discard {
-        player: PlayerId,
-        count: usize,
-        source_block: u32,
-    },
     /// CR 701.23a: `player` chooses the found cards of the admitted search.
     Search {
         player: PlayerId,
@@ -293,75 +288,6 @@ impl RulesTxn {
     // actual trigger occurrence. The invocation's controller remains "you";
     // neither source control changes nor departures rebind either player.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn resolution_player(
-        &self,
-        frame: &Resolving,
-        recipient: Option<&ActionRecipient>,
-    ) -> Result<PlayerId, String> {
-        match recipient {
-            None | Some(ActionRecipient::Controller) => Ok(self.entry(frame.stack_id)?.controller),
-            Some(ActionRecipient::EventPlayer) => {
-                let kind = &self.entry(frame.stack_id)?.kind;
-                let StackKind::Triggered { witness, .. } = kind else {
-                    return Err("unbound damage-recipient action".into());
-                };
-                match witness {
-                    TriggerEventWitness::DamageDealt { damage, .. } => match damage.recipient {
-                        DamageRecipient::Player { player } => Ok(player),
-                        DamageRecipient::Permanent { .. } => {
-                            Err("action event requires a player damage recipient".into())
-                        }
-                    },
-                    _ => kind
-                        .event_player()?
-                        .ok_or_else(|| "missing event player".into()),
-                }
-            }
-        }
-    }
-    fn discard_spec<'a>(
-        &self,
-        frame: &Resolving,
-        instruction: &'a Instruction,
-    ) -> Result<(PlayerId, &'a Quantity, u32), String> {
-        match instruction {
-            kernel!(Discard { player: player @ (you!() | event_player!()), amount: fixed!(count), random: false } @ source_block) =>
-            {
-                let recipient = player
-                    .is_event_player()
-                    .then_some(ActionRecipient::EventPlayer);
-                Ok((
-                    self.resolution_player(frame, recipient.as_ref())?,
-                    count,
-                    *source_block,
-                ))
-            }
-            kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(count), random: false } @ source_block) =>
-            {
-                let player = frame
-                    .group_discard
-                    .as_ref()
-                    .and_then(|group| group.remaining.first())
-                    .ok_or("missing group discard chooser")?;
-                Ok((*player, count, *source_block))
-            }
-            kernel!(Discard { player: target_player!(target_slot), amount: fixed!(count), random: false } @ source_block) =>
-            {
-                // A sole illegal target ends resolution before instruction dispatch.
-                let slot = *target_slot as usize;
-                if frame.legal_targets.get(slot) != Some(&true) {
-                    return Err("missing legal discard target".into());
-                }
-                let player = *self
-                    .entry(frame.stack_id)?
-                    .player_targets
-                    .get(slot)
-                    .ok_or("missing discard player target")?;
-                Ok((player, count, *source_block))
-            }
-            _ => Err("expected discard instruction".into()),
-        }
-    }
     pub(crate) fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
@@ -517,12 +443,7 @@ impl RulesTxn {
                 (!choices.is_empty())
                     .then(|| self.pick_objects(*player, Reason::Sacrifice, choices, 1))
             }
-            ResolutionChoice::Discard { player, count, .. } if self.is_live(*player) => {
-                let hand = self.action_hand(*player);
-                let count = (*count).min(hand.len());
-                (!hand.is_empty())
-                    .then(|| self.pick_objects(*player, Reason::ResolveDiscard, hand, count))
-            }
+
             _ => None,
         })
     }
@@ -550,7 +471,7 @@ impl RulesTxn {
                     self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                 }
             }
-            Frame::ResolutionChoice { mut frame, choice } => {
+            Frame::ResolutionChoice { frame, choice } => {
                 if matches!(choice, ResolutionChoice::Object {}) {
                     return self.object_choice_step(frame);
                 }
@@ -602,10 +523,6 @@ impl RulesTxn {
                                 movement: None,
                             }
                         }
-                        ResolutionChoice::Discard { player, .. } => InstructionOutcome::Discarded {
-                            player,
-                            movements: vec![],
-                        },
                     };
                     self.rules_mut().pending = None;
                     self.finish_instruction(frame, outcome)?;
@@ -629,8 +546,7 @@ impl RulesTxn {
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::SearchEntry { .. } => unreachable!(),
-                    ResolutionChoice::TappedReturnPayment { source_block, .. }
-                    | ResolutionChoice::Discard { source_block, .. } => source_block,
+                    ResolutionChoice::TappedReturnPayment { source_block, .. } => source_block,
                 };
                 let cause = BatchCause::Instruction {
                     stack_id: frame.stack_id,
@@ -655,20 +571,6 @@ impl RulesTxn {
                             },
                         );
                     }
-                    ResolutionChoice::Discard { .. } => {
-                        let objects = input.objects()?;
-                        if let Some(group) = &mut frame.group_discard {
-                            group.select(request.player, objects)?;
-                            self.rules_mut().frame = Frame::Resolve { frame };
-                            return Ok(());
-                        }
-                        return self.complete_resolving_discards(
-                            frame,
-                            cause,
-                            request.player,
-                            objects,
-                        );
-                    }
                     _ => return Err("resolution response invariant".into()),
                 };
             }
@@ -676,55 +578,11 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(super) fn valid_discard_selection(
-        &self,
-        player: PlayerId,
-        count: usize,
-        objects: &[ObjectId],
-    ) -> bool {
-        let hand = self.action_hand(player);
-        objects.len() == count.min(hand.len())
-            && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
-            && objects.iter().all(|o| hand.contains(o))
-    }
-    pub(super) fn complete_resolving_discards(
-        &mut self,
-        frame: Resolving,
-        cause: BatchCause,
-        player: PlayerId,
-        objects: Vec<ObjectId>,
-    ) -> Result<(), String> {
-        if objects.is_empty() {
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::Discarded {
-                    player,
-                    movements: vec![],
-                },
-            );
-        }
-        let occurrences = objects
-            .into_iter()
-            .map(|object| ProposedEvent::DiscardCard { object, player })
-            .collect();
-        self.complete_graveyard_group(
-            cause,
-            EventGroup::Simultaneous { occurrences },
-            GroupFinish::Instruction {
-                frame,
-                result: GroupResult::Discard { player },
-            },
-        )
-    }
-
     pub(super) fn finish_instruction(
         &mut self,
         mut frame: Resolving,
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
-        if frame.group_discard.is_some() {
-            return Err("cannot advance an unfinished group discard".into());
-        }
         if frame.random_discard.is_some() {
             return Err("cannot advance an unfinished random discard".into());
         }
@@ -737,99 +595,6 @@ impl RulesTxn {
             .ok_or("instruction cursor resource limit")?;
         self.rules_mut().frame = Frame::Resolve { frame };
         Ok(())
-    }
-
-    /// CR 701.17a, 701.9a-b, 701.21a: a kernel mill, discard or sacrifice,
-    /// performed by the executors whose events, choices and outcomes
-    /// recovery re-derives.
-    pub(super) fn execute_player_action(
-        &mut self,
-        frame: Resolving,
-        op: Instruction,
-    ) -> Result<(), String> {
-        match op {
-            kernel!(Mill { player, amount } @ source_block) => {
-                let recipient = match player {
-                    you!() => None,
-                    target_player!(target_slot) => Some(LifeRecipient::Target { target_slot }),
-                    _ => return Err("kernel mill player has no audited executor".into()),
-                };
-                let count = match amount {
-                    fixed!(value) => value,
-                    announced_x!() => self
-                        .entry(frame.stack_id)?
-                        .x
-                        .clone()
-                        .ok_or("missing announced X")?,
-                    _ => return Err("kernel mill amount has no audited executor".into()),
-                };
-                self.execute_mill(frame, recipient, count, source_block)
-            }
-            kernel!(Discard { player: player @ (mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent), amount: fixed!(count), random: false } @ source_block) =>
-            {
-                let scope = if player == mtg_contracts::kir::PlayerExpr::EachPlayer {
-                    GroupDiscardScope::EachPlayer
-                } else {
-                    GroupDiscardScope::EachOpponent
-                };
-                self.group_discard_step(frame, scope, count, source_block)
-            }
-            kernel!(Discard {
-                player: target_player!(slot),
-                ..
-            }) if frame.legal_targets.get(slot as usize) != Some(&true) => {
-                // CR 608.2b: another legal target can keep the program
-                // resolving while this discard's target is illegal.
-                self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-            }
-            kernel!(Discard {
-                player: target_player!(_) | you!(),
-                random: true,
-                ..
-            }) => self.random_discard_step(frame),
-            op @ (kernel!(Discard {
-                player: you!() | event_player!(),
-                amount: fixed!(_),
-                random: false
-            })
-            | kernel!(Discard {
-                player: target_player!(_),
-                amount: fixed!(_),
-                random: false
-            })) => {
-                let (player, count, source_block) = self.discard_spec(&frame, &op)?;
-                if count.is_negative() {
-                    return Err("negative discard count".into());
-                }
-                if !self.is_live(player) {
-                    return self.finish_instruction(
-                        frame,
-                        InstructionOutcome::PlayerActionSkipped { player },
-                    );
-                }
-                let actual_count = self.bounded_hand_count(player, count);
-                if actual_count == 0 {
-                    self.finish_instruction(
-                        frame,
-                        InstructionOutcome::Discarded {
-                            player,
-                            movements: vec![],
-                        },
-                    )
-                } else {
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        frame,
-                        choice: ResolutionChoice::Discard {
-                            player,
-                            count: actual_count,
-                            source_block,
-                        },
-                    };
-                    Ok(())
-                }
-            }
-            _ => Err("kernel player action has no audited executor".into()),
-        }
     }
 
     pub(super) fn finish_ability(&mut self, id: StackId, resolved: bool) -> Result<(), String> {
@@ -897,7 +662,6 @@ impl RulesTxn {
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
         self.validate_random_discard_progress(frame)?;
-        self.validate_group_discard_progress(frame)?;
         let entry = self.entry(frame.stack_id)?;
         let program = self.program_for(entry)?;
         if frame.entrant_draw.is_some() {
@@ -1052,23 +816,6 @@ impl RulesTxn {
                     },
                 ) => source_block == expected && *player == self.entry(frame.stack_id)?.controller,
                 (ResolutionChoice::Object {}, _) => self.object_choice_spec(frame).is_ok(),
-                (
-                    ResolutionChoice::Discard {
-                        player,
-                        count,
-                        source_block,
-                    },
-                    op,
-                ) => self
-                    .discard_spec(frame, op)
-                    .is_ok_and(|(actor, expected, block)| {
-                        actor == *player
-                            && *count > 0
-                            && (!self.is_live(*player)
-                                || *count == self.bounded_hand_count(*player, expected))
-                            && Quantity::from(*count as i64) <= *expected
-                            && *source_block == block
-                    }),
                 (
                     ResolutionChoice::Search { .. }
                     | ResolutionChoice::SearchSplit { .. }

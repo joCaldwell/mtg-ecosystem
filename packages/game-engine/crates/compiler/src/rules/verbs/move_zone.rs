@@ -206,6 +206,7 @@ mod tests {
                 source_block: 0,
                 x: None,
                 x_consumed: false,
+                result_from: None,
             };
             let target = json!({
                 "ref": "target",
