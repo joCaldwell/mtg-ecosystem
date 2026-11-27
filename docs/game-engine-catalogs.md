@@ -95,6 +95,43 @@ D2 substitutes only the two definition archive/parser provenance digests
 changed rows, and the manifest's archive/parser identities, catalog digest and
 payload hashes. The same producer, payload lengths and all decisions must agree.
 
+### Rust printed evidence
+
+The intake verifier applies P1–P10 to each applicable R6 row before its card is
+assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
+wire format and evidence bases. A family that opts in receives a verified
+`CardEvidence` from intake. Query its face and block before lowering and pass the
+missing obligation when an R5 input requires R6. The result is a per-card
+`evidence:requires-r6` with the requested face, block and obligation.
+
+`BlockEvidence` locates AST object nodes and individual facts in original UTF-8
+face bytes. A recorded node cites its runs and folds. An alias names the same
+occurrence and reports the resolved owner. An implicit node supplies a closed
+reason and uses the governing production as its diagnostic anchor. A hull
+locates a container. Facts on its verified tokens can be cited individually.
+An unlocated object, an alias without a usable target or a fact assigned to
+the root for uncovered tokens yields a located `evidence:missing`.
+
+The opt-in check runs the block resolver with one coverage record. P11 requires
+each consumed operand, modifier, instruction or mention to cite usable evidence.
+For a linked field, the citation must name that exact field. For a default, the
+resolver checks the closed reason against the obligation. P12 checks both the
+fact inventory and the original token occurrences after resolution. This catches
+a dropped qualifier even if its fact was also removed. Several checked meanings
+may share one citation. An unconsumed fact or token rejects the card at its
+original range. Mixed blocks need a checked claim for every occurrence.
+
+Run the frozen witness and mutation harness against the pinned candidate with
+`MTG_R6_VERIFIER_ROWS` set to its path.
+
+```sh
+sh scripts/engine-env.sh npm run engine:dev -- test -p mtg-compiler --lib frozen_family_evidence -- --ignored --nocapture
+```
+
+The verifier-only mutations rehash their local payloads over unchanged Oracle
+text. The detached source probes re-read changed text through the pinned
+parser and verify the new AST and evidence or require a located rejection.
+
 ## IR and build identity
 
 `mtg_contracts::CURRENT_IR_VERSION` is the sole executable IR authority, fixed at

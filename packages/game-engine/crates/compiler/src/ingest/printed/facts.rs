@@ -72,7 +72,7 @@ fn number(token: &Token<'_>) -> Option<u32> {
     }
 }
 
-fn location(fact: &PrintedFact) -> Option<(&str, [u32; 3], &Nullable<String>)> {
+pub(super) fn location(fact: &PrintedFact) -> Option<(&str, [u32; 3], &Nullable<String>)> {
     macro_rules! location {
         ($value:ident) => {
             Some((&$value.at, $value.tok.0, &$value.field))

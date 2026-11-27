@@ -155,7 +155,7 @@ fn implicit(value: &Value, reason: &ImplicitReason) -> bool {
     }
 }
 
-fn path(node: &PrintedNode) -> &str {
+pub(super) fn path(node: &PrintedNode) -> &str {
     match node {
         PrintedNode::Alias(v) => &v.path,
         PrintedNode::Hull(v) => &v.path,
