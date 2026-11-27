@@ -422,10 +422,11 @@ fn resolved_continuous_setter_orders_between_two_static_sources() {
     assert!(g.characteristics(bears).unwrap().colors.is_empty());
     let mut forged = g.fork();
     let effect = forged.state.rules.effects.first_mut().unwrap();
-    let ResolvedEffectKind::SetCharacteristics { timestamp, .. } = &mut effect.kind else {
-        panic!("color setter");
-    };
-    *timestamp = u64::MAX;
+    assert!(matches!(
+        effect.kind,
+        ResolvedEffectKind::SetCharacteristics { .. }
+    ));
+    effect.timestamp = u64::MAX;
     assert!(forged.validate_state().is_err());
 }
 

@@ -202,7 +202,8 @@ transforms only if it has not transformed since the ability was stacked or
 the delayed trigger created (CR 701.27f). Abilities, delayed triggers and
 activation limits keep the face they came from (CR 113.7a). The back face's
 mana value uses the front cost (CR 202.3b). Both faces must be permanents,
-both creatures or neither, with no transform-event trigger.
+both creatures or neither, with no transform-event trigger. The permanent
+receives a fresh rules timestamp when it transforms (CR 613.7g).
 
 An adventurer may be cast as its Adventure, which has only the inset spell's
 characteristics on the stack (CR 715.3a–b). A resolving Adventure is exiled;
@@ -545,7 +546,9 @@ creature card” instruction. A certified "it" or "that" can reuse the block's s
 
 One optional battlefield or own-graveyard target can bind independent destroy,
 tap, untap, move, counter and end-of-turn leaves; zero targets skips the
-instruction. A counted occurrence ("two target", "up to three target", two
+instruction. A life or draw step may read that target only as a whole operand
+("that creature's power", "its controller"), which skips the step when absent;
+the target inside a sum or product rejects (CR 608.2b, 608.2h). A counted occurrence ("two target", "up to three target", two
 through seven) is the program's only occurrence: one `Pick` of exactly or up to
 N distinct objects, needing N legal objects to cast or place (CR 115.3, 601.2c).
 Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one

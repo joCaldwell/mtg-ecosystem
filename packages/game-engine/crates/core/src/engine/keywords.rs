@@ -31,11 +31,11 @@ impl RulesTxn {
         &self,
         object: impl Into<KeywordSource<'a>>,
         keyword: KeywordAbility,
-    ) -> bool {
-        match object.into() {
-            KeywordSource::Current(object) => self.current_keywords(object).contains(&keyword),
+    ) -> Result<bool, String> {
+        Ok(match object.into() {
+            KeywordSource::Current(object) => self.current_keywords(object)?.contains(&keyword),
             KeywordSource::Historical(object) => object.keywords.contains(&keyword),
-        }
+        })
     }
     // CR 105.1/702.16b–h. Evaluate the source colors at their applicable boundary, including
     // instantiated token colors. C denotes colorless and is not a sixth color.
@@ -43,34 +43,44 @@ impl RulesTxn {
         source.colors.iter().any(|color| *color != Color::C)
     }
 
-    pub(super) fn printed_protection_from_everything(&self, object: ObjectId) -> bool {
-        self.copiable_definition(object).is_ok_and(|d| {
-            d.keywords
-                .contains(&KeywordAbility::ProtectionFromEverything)
-        }) && !self.printed_abilities_lost(object)
+    pub(super) fn printed_protection_from_everything(
+        &self,
+        object: ObjectId,
+    ) -> Result<bool, String> {
+        Ok(self
+            .copiable_definition(object)?
+            .keywords
+            .contains(&KeywordAbility::ProtectionFromEverything)
+            && !self.printed_abilities_lost(object)?)
     }
 
     pub(super) fn effective_protection_colors(
         &self,
         object: ObjectId,
-    ) -> impl Iterator<Item = Color> {
-        self.current_keywords(object)
+    ) -> Result<impl Iterator<Item = Color>, String> {
+        Ok(self
+            .current_keywords(object)?
             .into_iter()
-            .filter_map(KeywordAbility::fixed_protection_color)
+            .filter_map(KeywordAbility::fixed_protection_color))
     }
 
-    pub(crate) fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
+    pub(crate) fn protected_from(
+        &self,
+        target: ObjectId,
+        source: &Characteristics,
+    ) -> Result<bool, String> {
         // CR 702.16b–f,j. Printed protection from everything functions on
         // the battlefield. Only the separate each-color grant tests color.
-        self.current(target)
+        Ok(self
+            .current(target)
             .is_ok_and(|o| o.present_on_battlefield())
-            && (self.printed_protection_from_everything(target)
+            && (self.printed_protection_from_everything(target)?
                 || self
-                    .effective_protection_colors(target)
+                    .effective_protection_colors(target)?
                     .any(|color| source.colors.contains(&color))
                 || (!self.state.rules.effects.is_empty()
                     && Self::has_color(source)
-                    && self.has_keyword(target, KeywordAbility::ProtectionFromEachColor)))
+                    && self.has_keyword(target, KeywordAbility::ProtectionFromEachColor)?)))
     }
 
     // CR 608.2b: when the exact ability source has left, use its LKI,
@@ -109,23 +119,25 @@ impl RulesTxn {
         }
     }
 
-    pub(crate) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
-        let keywords = self.current_keywords(attacker);
+    pub(crate) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> Result<bool, String> {
+        let keywords = self.current_keywords(attacker)?;
         let attacker_flies = keywords.contains(&KeywordAbility::Flying);
-        self.color_layer(blocker)
-            .is_ok_and(|source| !self.protected_from(attacker, &source))
-            && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
-            && !self.creature_restrictions(blocker).any(|restriction| {
-                restriction == CreatureRestriction::CantAttackOrBlock
-                    || restriction == CreatureRestriction::CantBlock
-                    || (!attacker_flies && restriction == CreatureRestriction::CanBlockOnlyFlying)
-            })
-            && (!attacker_flies
-                || self.has_keyword(blocker, KeywordAbility::Flying)
-                || self.has_keyword(blocker, KeywordAbility::Reach))
-            && !self.landwalk_prevents_block(attacker, &keywords)
-            && !self.evasion_prevents_block(blocker, attacker, &keywords)
-            && self.block_rules_permit(blocker, attacker)
+        Ok(
+            !self.protected_from(attacker, self.color_layer(blocker)?.as_ref())?
+                && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)?
+                && !self.creature_restrictions(blocker)?.any(|restriction| {
+                    restriction == CreatureRestriction::CantAttackOrBlock
+                        || restriction == CreatureRestriction::CantBlock
+                        || (!attacker_flies
+                            && restriction == CreatureRestriction::CanBlockOnlyFlying)
+                })
+                && (!attacker_flies
+                    || self.has_keyword(blocker, KeywordAbility::Flying)?
+                    || self.has_keyword(blocker, KeywordAbility::Reach)?)
+                && !self.landwalk_prevents_block(attacker, &keywords)
+                && !self.evasion_prevents_block(blocker, attacker, &keywords)?
+                && self.block_rules_permit(blocker, attacker)?,
+        )
     }
 
     // CR 702.13b, 702.28b, 702.31b, 702.36b, 702.118b: checked against the
@@ -137,37 +149,39 @@ impl RulesTxn {
         blocker: ObjectId,
         attacker: ObjectId,
         keywords: &[KeywordAbility],
-    ) -> bool {
+    ) -> Result<bool, String> {
         use KeywordAbility as K;
-        let blocker_keywords = self.current_keywords(blocker);
+        let blocker_keywords = self.current_keywords(blocker)?;
         let has = |k| keywords.contains(&k);
         if has(K::Shadow) != blocker_keywords.contains(&K::Shadow)
             || (has(K::Horsemanship) && !blocker_keywords.contains(&K::Horsemanship))
         {
-            return true;
+            return Ok(true);
         }
         if !(has(K::Fear) || has(K::Intimidate) || has(K::Skulk)) {
-            return false;
+            return Ok(false);
         }
         let (Ok(blocking), Ok(attacking)) = (
             self.characteristics(blocker),
             self.characteristics(attacker),
         ) else {
-            return true;
+            return Ok(true);
         };
         let artifact = blocking.has_type(CardKind::Artifact);
         let shares_color = blocking
             .colors
             .iter()
             .any(|c| *c != Color::C && attacking.colors.contains(c));
-        (has(K::Fear) && !artifact && !blocking.colors.contains(&Color::B))
-            || (has(K::Intimidate) && !artifact && !shares_color)
-            || (has(K::Skulk)
-                && blocking
-                    .power
-                    .as_ref()
-                    .zip(attacking.power.as_ref())
-                    .is_none_or(|(b, a)| b > a))
+        Ok(
+            (has(K::Fear) && !artifact && !blocking.colors.contains(&Color::B))
+                || (has(K::Intimidate) && !artifact && !shares_color)
+                || (has(K::Skulk)
+                    && blocking
+                        .power
+                        .as_ref()
+                        .zip(attacking.power.as_ref())
+                        .is_none_or(|(b, a)| b > a)),
+        )
     }
 
     // CR 509.1b/702.14: each attack has its own defending player. Basic land
@@ -248,7 +262,7 @@ impl RulesTxn {
             // Assignment-time deathtouch still separately proves the legal
             // trample split (702.2c); it does not preserve a lost damage grant.
             let appearance = &source_appearances[&d.id];
-            if self.has_keyword(appearance, KeywordAbility::Lifelink)
+            if appearance.keywords.contains(&KeywordAbility::Lifelink)
                 && self.is_live(appearance.controller)
                 && !self.state.rules.players[appearance.controller.0 as usize]
                     .life_frozen_until_next_turn
@@ -258,7 +272,7 @@ impl RulesTxn {
                     .or_default()
                     .add(&d.amount);
             }
-            if self.has_keyword(appearance, KeywordAbility::Deathtouch)
+            if appearance.keywords.contains(&KeywordAbility::Deathtouch)
                 && let DamageRecipient::Permanent { object } = d.recipient
                 && self.is_battlefield_creature(object)
             {

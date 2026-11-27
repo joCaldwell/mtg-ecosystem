@@ -134,6 +134,8 @@ pub struct ObjectBefore {
     pub keyword_rank: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battlefield_entry_turn: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battlefield_entry_timestamp: Option<u64>,
     /// CR 702.30a: `Object::control_upkeeps` as last known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_upkeeps: Option<u64>,
@@ -195,6 +197,7 @@ impl ObjectBefore {
             keyword_timestamp,
             keyword_rank,
             battlefield_entry_turn,
+            battlefield_entry_timestamp,
             control_upkeeps,
             unearthed,
             dashed,
@@ -229,6 +232,7 @@ impl ObjectBefore {
             keyword_timestamp,
             keyword_rank,
             battlefield_entry_turn,
+            battlefield_entry_timestamp,
             control_upkeeps,
             plus_one_counters,
             loyalty_counters,
@@ -278,7 +282,7 @@ testkit_fields! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub(super) control: Option<Box<ControlBefore>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub next_attachment_timestamp: Option<u64>,
+        pub next_timestamp: Option<u64>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub attachments: Vec<AttachmentBefore>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,7 +315,7 @@ pub struct ControlBefore {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) resolved_grants: Vec<ResolvedEffect>,
     pub live_players: Vec<PlayerId>,
-    pub next_attachment_timestamp: u64,
+    pub next_timestamp: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -383,7 +387,6 @@ impl CommittedBatch {
 enum FactKey {
     ManaAbilityUse(CardId),
     ActivationUse(CardId),
-    AttachmentAllocation,
     TokenAllocation,
     Stack(StackId),
     Turn,
@@ -472,6 +475,8 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::PutOnTopOwnerLibrary { .. }
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
+            | ProposedEvent::Transform { .. }
+            | ProposedEvent::TurnFaceUp { .. }
             | ProposedEvent::ReversePermanentMana { .. }
             | ProposedEvent::CleanupEffects
     ) || matches!(event, ProposedEvent::CreateEffect { effect }
@@ -616,20 +621,8 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::AllDamage]);
             (keys.clone(), keys)
         }
-        ProposedEvent::EnterAttached { object, target } => {
-            let writes =
-                BTreeSet::from([FactKey::Object(object.card), FactKey::AttachmentAllocation]);
-            let mut reads = writes.clone();
-            reads.insert(FactKey::Object(target.card));
-            (reads, writes)
-        }
         ProposedEvent::Attach { object, target } => {
-            let mut writes = BTreeSet::from([FactKey::Object(object.card)]);
-            // Two new attachments have semantic timestamp order and cannot
-            // silently acquire that order from simultaneous leaf iteration.
-            if target.is_some() {
-                writes.insert(FactKey::AttachmentAllocation);
-            }
+            let writes = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = writes.clone();
             if let Some(target) = target {
                 reads.insert(FactKey::Object(target.card));
@@ -666,9 +659,13 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         }
         ProposedEvent::Move { object, .. }
         | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::EnterAttached { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = keys.clone();
+            if let ProposedEvent::EnterAttached { target, .. } = event {
+                reads.insert(FactKey::Object(target.card));
+            }
             // Zone membership is authoritative (CR 400.7). A battlefield Aura
             // moving to graveyard neither consumes nor changes library order.
             // Its SBA may coincide with a tucked token ceasing (704.5d/m).
@@ -737,6 +734,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
     let keys: Vec<_> = match event {
         ProposedEvent::Move { object, .. }
         | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::EnterAttached { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             vec![
                 FactKey::ManaAbilityUse(object.card),
@@ -808,7 +806,6 @@ fn collect<'a>(
                     matches!(
                         e,
                         ProposedEvent::Setup { .. }
-                            | ProposedEvent::EnterAttached { .. }
                             | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
                             | ProposedEvent::CommitDamage { .. }
@@ -906,7 +903,7 @@ impl RulesTxn {
             effects: self.state.rules.control_effects.clone(),
             resolved_grants,
             live_players: self.live_players(),
-            next_attachment_timestamp: self.state.rules.next_attachment_timestamp,
+            next_timestamp: self.state.rules.timestamps.next(),
         })))
     }
 
@@ -1168,7 +1165,7 @@ impl RulesTxn {
                     if let Ok(tx) = self.damage_transaction() {
                         for d in &tx.entries {
                             let appearance = self.damage_source_appearance(d)?;
-                            if self.has_keyword(&appearance, KeywordAbility::Lifelink)
+                            if appearance.keywords.contains(&KeywordAbility::Lifelink)
                                 && self.is_live(appearance.controller)
                             {
                                 players.insert(appearance.controller);
@@ -1490,7 +1487,7 @@ impl RulesTxn {
             } else {
                 None
             },
-            next_attachment_timestamp: events
+            next_timestamp: events
                 .iter()
                 .any(|event| {
                     matches!(
@@ -1498,7 +1495,7 @@ impl RulesTxn {
                         ProposedEvent::Attach { .. } | ProposedEvent::EnterAttached { .. }
                     )
                 })
-                .then_some(self.state.rules.next_attachment_timestamp),
+                .then_some(self.state.rules.timestamps.next()),
             attachments,
             match_state: if events.iter().any(|e| {
                 matches!(
@@ -1918,6 +1915,9 @@ impl RulesTxn {
                     )?;
                     path.pop();
                 }
+                if self.state.rules.timestamps != common.state.rules.timestamps {
+                    self.reject_simultaneous_timestamp_order()?;
+                }
                 let group = GroupId {
                     batch,
                     path: path.clone(),
@@ -2025,30 +2025,13 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    fn entry_tapped(&self, entering: &Object) -> Result<bool, String> {
-        if self.entry_abilities_lost(entering.id)? {
-            return Ok(false);
-        }
-        Ok(self
-            .copiable_definition(entering.id)?
-            .static_abilities
-            .iter()
-            .any(|ability| match &ability.effect {
-                StaticEffect::EntersTapped => true,
-                StaticEffect::EntersTappedIf { condition } => {
-                    self.entry_condition(entering, condition)
-                }
-                _ => false,
-            }))
-    }
     fn apply_move(
         &mut self,
         object: ObjectId,
         destination: Zone,
         (intended, face_down_cast): (Option<(PlayerId, CardFace)>, bool),
         entry_state: Option<&Self>,
-        force_tapped: bool,
-        entry_accepted: Option<bool>,
+        modifiers: battlefield_entry::EntryModifiers,
     ) -> Result<EventOutcome, String> {
         let object = &object;
         let destination = &destination;
@@ -2071,7 +2054,6 @@ impl RulesTxn {
             Zone::Battlefield | Zone::Stack => intended.map_or(CardFace::Front, |(_, face)| face),
             _ => CardFace::Front,
         };
-        let face_id = ObjectId { face, ..*object };
         // CR 702.37c, 708.3-708.4: a face-down cast is turned face down
         // before it is put on the stack, and the spell becomes a face-down
         // permanent. Every other move turns the card face up (CR 708.9).
@@ -2086,7 +2068,9 @@ impl RulesTxn {
         // CR 304.4, 307.4, 712.14b: an instant or sorcery cannot enter.
         if *destination == Zone::Battlefield
             && matches!(
-                self.copiable_definition(face_id)?.characteristics.kind,
+                self.face_definition(object.card, face)?
+                    .characteristics
+                    .kind,
                 CardKind::Instant | CardKind::Sorcery
             )
         {
@@ -2163,6 +2147,23 @@ impl RulesTxn {
         } else {
             owner
         };
+        let timestamp = if *destination == Zone::Battlefield {
+            Some(self.allocate_timestamp(entry_state)?)
+        } else {
+            None
+        };
+        let prior = entry_state.unwrap_or(self);
+        let mut entering = prior.new_zone_object(
+            successor,
+            controller,
+            *destination,
+            face_down_entry,
+            timestamp,
+            &modifiers,
+        );
+        if *destination == Zone::Battlefield {
+            prior.apply_entry_replacements(*object, &mut entering, &modifiers, None)?;
+        }
         self.remove_from_combat(*object);
         self.remove_regeneration_shields(*object);
         for library in self.rules_mut().libraries.values_mut() {
@@ -2175,101 +2176,7 @@ impl RulesTxn {
                 .or_default()
                 .push(object.card);
         }
-        // CR 614.1c/614.12: this source replacement modifies entry,
-        // rather than tapping the permanent in a subsequent event.
-        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        let enters_tapped = if *destination != Zone::Battlefield {
-            false
-        } else if force_tapped {
-            true
-        } else {
-            let prior = entry_state.unwrap_or(self);
-            let unpaid = if let Some(choice) = prior.entry_choice(face_id)? {
-                match entry_accepted {
-                    Some(accepted) => !accepted,
-                    None if !prior.entry_choice_open(controller, *object, &choice) => true,
-                    None => {
-                        return Err(
-                            "payable entry requires a battlefield entry continuation".into()
-                        );
-                    }
-                }
-            } else {
-                false
-            };
-            unpaid
-                || prior.entry_tapped(&Object {
-                    id: face_id,
-                    controller,
-                    ..o.clone()
-                })?
-        };
-        // CR 122.6 and 614.1c: entry counters exist on the successor from
-        // the moment it enters, including for entry observers.
-        let mut plus_one_counters = Quantity::zero();
-        if *destination == Zone::Battlefield && !self.entry_abilities_lost(face_id)? {
-            for ability in &self.copiable_definition(face_id)?.static_abilities {
-                if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
-                    plus_one_counters.add(count);
-                }
-            }
-        }
-        // CR 306.5b: loyalty is placed as the permanent enters, even if
-        // continuous effects remove its printed abilities.
-        let loyalty_counters = if *destination == Zone::Battlefield && !face_down_entry {
-            self.copiable_definition(face_id)?
-                .characteristics
-                .loyalty
-                .clone()
-                .unwrap_or_default()
-        } else {
-            Quantity::zero()
-        };
-        let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
-        let counters = if *destination == Zone::Battlefield && !face_down_entry {
-            let prior = entry_state.unwrap_or(self);
-            prior.entry_lore_counters(
-                face_id,
-                batch.checked_sub(1).ok_or("missing lore entry batch")?,
-            )?
-        } else {
-            vec![]
-        };
-        let keyword_rank = self.apnap_rank(controller);
-        let control_upkeeps = (*destination == Zone::Battlefield)
-            .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
-        self.rules_mut().objects.insert(
-            object.card,
-            Object {
-                hideaway: None,
-                phased_out: None,
-                attached_to: None,
-                attachment_timestamp: None,
-                battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
-                control_upkeeps,
-                keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
-                keyword_rank,
-                plus_one_counters,
-                loyalty_counters,
-                loyalty_used_turn: None,
-                counters,
-                transforms: 0,
-                adventure_player: None,
-                // CR 702.37c, 708.4: a face-down spell becomes a face-down
-                // permanent; any other zone change turns it face up (708.9).
-                face_down: face_down_entry,
-                marked_damage: Quantity::zero(),
-                attack_ready: false,
-                deathtouch_damage: false,
-                unearthed: false,
-                dashed: false,
-                id: successor,
-                controller,
-                default_controller: controller,
-                zone: *destination,
-                tapped: enters_tapped,
-            },
-        );
+        self.rules_mut().objects.insert(object.card, entering);
         // CR 708.9: a face-down permanent or spell leaving for any zone other
         // than the battlefield is revealed to all players as it moves. Public
         // zones show it; a hand or library keeps that public knowledge.
@@ -2295,7 +2202,7 @@ impl RulesTxn {
         before: Option<&PreEventFacts>,
     ) -> Result<bool, String> {
         let Some(before) = before else {
-            return Ok(self.has_keyword(object, KeywordAbility::Indestructible));
+            return self.has_keyword(object, KeywordAbility::Indestructible);
         };
         // The leaf's facts are produced against its pre-event fork, not supplied
         // by a caller. Captured characteristics may include layer-4 effects.
@@ -2446,8 +2353,10 @@ impl RulesTxn {
                     Zone::Battlefield,
                     (Some((owner, CardFace::Front)), false),
                     entry_state,
-                    true,
-                    None,
+                    battlefield_entry::EntryModifiers {
+                        tapped: true,
+                        ..Default::default()
+                    },
                 )?
             }
             ProposedEvent::RevealFound { player, objects } => {
@@ -2479,24 +2388,25 @@ impl RulesTxn {
                 // CR 303.4a/608.3c/603.6a: the Aura is already legally
                 // attached when entry observers and ETB hooks see it.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                let source = self.current(*object)?;
+                let prior = entry_state.unwrap_or(self);
+                let source = prior.current(*object)?;
                 {
-                    let characteristics = self.structural_characteristics(*object)?;
+                    let characteristics = prior.structural_characteristics(*object)?;
                     // CR 303.4f: an Aura entering without being cast (from its
                     // owner's library, hand or graveyard) enchants a chosen
                     // object it could enchant; that choice does not target.
-                    let owner = self.state.rules.cards[&object.card].owner;
+                    let owner = prior.state.rules.cards[&object.card].owner;
                     let chosen = matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } | Zone::Hand { owner: p } if p == owner);
                     if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]
-                        || !self.is_live(source.controller)
-                        || !self.attachment_target_type_valid(*object, *target)?
-                        || !self
-                            .current(*target)
-                            .is_ok_and(|o| o.present_on_battlefield() && self.is_live(o.controller))
-                        || (!chosen && !self.targetable_by(*target, source.controller))
-                        || self.protected_from(*target, &characteristics)
+                        || !prior.is_live(source.controller)
+                        || !prior.attachment_target_type_valid(*object, *target)?
+                        || !prior.current(*target).is_ok_and(|o| {
+                            o.present_on_battlefield() && prior.is_live(o.controller)
+                        })
+                        || (!chosen && !prior.targetable_by(*target, source.controller))
+                        || prior.protected_from(*target, &characteristics)?
                     {
                         return Err("invalid attached Aura entry".into());
                     }
@@ -2504,16 +2414,16 @@ impl RulesTxn {
                 let force_tapped = matches!(authority, BatchAuthority::BattlefieldEntry { entries, .. }
                     if entries.iter().any(|(entrant, entry)| entrant == object
                         && matches!(entry, EntryOverride::ForceTapped)));
-                // Check allocation before movement/LKI writes, even for direct
-                // private application; the batch/rule-step owns full rollback.
-                let (attachment_timestamp, next) = self.next_attachment_allocation()?;
                 let EventOutcome::Moved { movement } = self.apply_move(
                     *object,
                     Zone::Battlefield,
                     (None, false),
                     entry_state,
-                    force_tapped,
-                    None,
+                    battlefield_entry::EntryModifiers {
+                        tapped: force_tapped,
+                        attached_to: Some(*target),
+                        ..Default::default()
+                    },
                 )?
                 else {
                     return Err("attached entry movement invariant".into());
@@ -2521,18 +2431,11 @@ impl RulesTxn {
                 if movement.destination != Zone::Battlefield {
                     return Err("unsupported replaced attached entry".into());
                 }
-                let batch = self.state.rules.next_batch_id;
-                let rank = self.apnap_rank(self.current(movement.successor)?.controller);
-                let permanent = self
-                    .rules_mut()
-                    .objects
-                    .get_mut(&movement.successor.card)
-                    .ok_or("missing entering Aura")?;
-                permanent.attached_to = Some(*target);
-                permanent.attachment_timestamp = Some(attachment_timestamp);
-                permanent.keyword_timestamp = Some(batch);
-                permanent.keyword_rank = rank;
-                self.rules_mut().next_attachment_timestamp = next;
+                // CR 613.7d–e: it enters already attached, at one time.
+                let attachment_timestamp = self
+                    .current(movement.successor)?
+                    .keyword_timestamp
+                    .ok_or("missing attached entry timestamp")?;
                 EventOutcome::EnteredAttached {
                     movement,
                     target: *target,
@@ -2540,23 +2443,25 @@ impl RulesTxn {
                 }
             }
             ProposedEvent::Attach { object, target } => {
+                let prior = entry_state.unwrap_or(self);
+                let current = prior.current(*object)?;
                 let target_valid = match target {
                     Some(t) => {
                         *t != *object
-                            && self.current(*t).is_ok_and(|o| {
-                                o.present_on_battlefield() && self.is_live(o.controller)
+                            && prior.current(*t).is_ok_and(|o| {
+                                o.present_on_battlefield() && prior.is_live(o.controller)
                             })
-                            && self.attachment_target_type_valid(*object, *t)?
-                            && !self.protected_from(*t, self.color_layer(*object)?.as_ref())
+                            && prior.attachment_target_type_valid(*object, *t)?
+                            && !prior.protected_from(*t, prior.color_layer(*object)?.as_ref())?
                     }
                     None => true,
                 };
                 // CR 704.5p: anything attached may become unattached; only an
                 // Aura or Equipment attaches.
-                if !self.current(*object)?.present_on_battlefield()
-                    || !self.is_live(self.current(*object)?.controller)
+                if !current.present_on_battlefield()
+                    || !prior.is_live(current.controller)
                     || (target.is_some()
-                        && !self
+                        && !prior
                             .structural_characteristics(*object)?
                             .subtypes
                             .iter()
@@ -2565,14 +2470,13 @@ impl RulesTxn {
                 {
                     return Err("invalid attachment event".into());
                 }
-                let previous = self.current(*object)?.attached_to;
+                let previous = current.attached_to;
+                let rank = prior.apnap_rank(current.controller);
                 let allocation = if previous != *target && target.is_some() {
-                    Some(self.next_attachment_allocation()?)
+                    Some(self.allocate_timestamp(entry_state)?)
                 } else {
                     None
                 };
-                let batch = self.state.rules.next_batch_id;
-                let rank = self.apnap_rank(self.current(*object)?.controller);
                 let o = self
                     .rules_mut()
                     .objects
@@ -2580,13 +2484,10 @@ impl RulesTxn {
                     .ok_or("missing attachment")?;
                 if previous != *target {
                     o.attached_to = *target;
-                    o.attachment_timestamp = allocation.map(|(timestamp, _)| timestamp);
-                    if target.is_some() {
-                        o.keyword_timestamp = Some(batch);
+                    o.attachment_timestamp = allocation;
+                    if let Some(timestamp) = allocation {
+                        o.keyword_timestamp = Some(timestamp);
                         o.keyword_rank = rank;
-                    }
-                    if let Some((_, next)) = allocation {
-                        self.rules_mut().next_attachment_timestamp = next;
                     }
                 }
                 EventOutcome::AttachmentChanged {
@@ -2678,15 +2579,9 @@ impl RulesTxn {
                 {
                     return Err("invalid counter placement".into());
                 }
-                // CR 613.7c: this placement's batch timestamps every counter
-                // of each placed kind on the permanent. The batch has already
-                // reserved its successor ID.
-                let timestamp = self
-                    .state
-                    .rules
-                    .next_batch_id
-                    .checked_sub(1)
-                    .ok_or("missing counter placement batch")?;
+                // CR 613.7c: existing counters of the same kind share the
+                // timestamp of the new placement.
+                let timestamp = self.allocate_timestamp(entry_state)?;
                 let o = self
                     .rules_mut()
                     .objects
@@ -2757,14 +2652,16 @@ impl RulesTxn {
             | ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::CreatePredefinedTokens { .. }
             | ProposedEvent::CeaseToken { .. }
-            | ProposedEvent::CeaseSpellCopy { .. }) => self.apply_token_event(event)?,
+            | ProposedEvent::CeaseSpellCopy { .. }) => {
+                self.apply_token_event(event, entry_state)?
+            }
             ProposedEvent::Setup { action } => EventOutcome::Setup {
                 actual: self.apply_setup_action(action)?,
             },
             event @ (ProposedEvent::CreateEffect { .. }
             | ProposedEvent::ApplyDamageEffect { .. }
             | ProposedEvent::CommitDamage { .. }
-            | ProposedEvent::CleanupEffects) => self.apply_effect_event(event)?,
+            | ProposedEvent::CleanupEffects) => self.apply_effect_event(event, entry_state)?,
             ProposedEvent::FreezeLifeUntilNextTurn { player } => {
                 if !self.is_live(*player) {
                     return Err("departed frozen life recipient".into());
@@ -3010,7 +2907,7 @@ impl RulesTxn {
                 let player = self.state.rules.active.ok_or("missing attacking player")?;
                 self.validate_attacks(player, attacks)?;
                 for (object, _, _) in attacks {
-                    if !self.has_keyword(*object, KeywordAbility::Vigilance) {
+                    if !self.has_keyword(*object, KeywordAbility::Vigilance)? {
                         self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
                     }
                 }
@@ -3203,7 +3100,7 @@ impl RulesTxn {
                 }
             }
             ProposedEvent::LandPlayed { player } => {
-                if !self.main_phase_action(*player) || !self.has_land_play_allowance(*player) {
+                if !self.main_phase_action(*player) || !self.has_land_play_allowance(*player)? {
                     return Err("invalid land-play counting event".into());
                 }
                 let previous = self.state.rules.turn.lands_played;
@@ -3224,7 +3121,7 @@ impl RulesTxn {
                 // CR510.4/702.7b: capture eligibility atomically as the first
                 // damage step begins, before any later departure boundary.
                 if next.step == TurnStep::FirstStrikeDamage {
-                    self.rules_mut().first_strike_participants = self.first_strikers();
+                    self.rules_mut().first_strike_participants = self.first_strikers()?;
                 }
                 // CR511.3: remove every combatant as the end of combat step
                 // ends, before the separately budgeted postcombat entry unit.
@@ -3285,11 +3182,17 @@ impl RulesTxn {
                 {
                     return Err("invalid transform event".into());
                 }
-                self.rules_mut()
+                // CR 613.7g: transforming refreshes the permanent's timestamp.
+                let rank = self.apnap_rank(o.controller);
+                let timestamp = self.allocate_timestamp(entry_state)?;
+                let permanent = self
+                    .rules_mut()
                     .objects
                     .get_mut(&object.card)
-                    .ok_or("missing transforming object")?
-                    .transforms = next;
+                    .ok_or("missing transforming object")?;
+                permanent.transforms = next;
+                permanent.keyword_timestamp = Some(timestamp);
+                permanent.keyword_rank = rank;
                 EventOutcome::Transformed { object: *object }
             }
             // CR 702.37e, 708.8: the same permanent turns face up; effects
@@ -3308,17 +3211,15 @@ impl RulesTxn {
                 }
                 let counter = face_down.kind == FaceDownKind::Megamorph;
                 // CR 613.7f, 613.7m: a new timestamp, ordered by APNAP.
-                let (batch, rank) = (
-                    self.state.rules.next_batch_id,
-                    self.apnap_rank(o.controller),
-                );
+                let rank = self.apnap_rank(o.controller);
+                let timestamp = self.allocate_timestamp(entry_state)?;
                 let o = self
                     .rules_mut()
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing face-down object")?;
                 o.face_down = false;
-                o.keyword_timestamp = Some(batch);
+                o.keyword_timestamp = Some(timestamp);
                 o.keyword_rank = rank;
                 if counter {
                     o.plus_one_counters.add(&Quantity::from(1));
@@ -3538,8 +3439,11 @@ impl RulesTxn {
                     *destination,
                     (intended, face_down),
                     entry_state,
-                    force_tapped,
-                    payment,
+                    battlefield_entry::EntryModifiers {
+                        tapped: force_tapped,
+                        accepted: payment,
+                        ..Default::default()
+                    },
                 )?
             }
         };

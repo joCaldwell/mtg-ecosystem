@@ -406,7 +406,7 @@ pub(crate) struct Sentence {
 }
 
 /// The objects one printed step names besides its own pronouns and the
-/// source (CR 201.5, 608.2c). A later "it" or "that <noun>" may mean any of
+/// source (CR 201.5, 700.7, 608.2c). A later "it" or "that <noun>" may mean any of
 /// them, so the antecedent rule counts them as candidates.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Introduced {
@@ -415,6 +415,9 @@ pub(crate) struct Introduced {
     /// The step names an untargeted object: a chosen, created, revealed,
     /// attached or set object, or a step result (CR 608.2c, 608.2h).
     pub(crate) other: bool,
+    /// The step names the source itself, as "this <type>" or by name
+    /// (CR 201.5, 700.7): a later bare "it" may mean it.
+    pub(crate) source: bool,
 }
 
 impl Introduced {
@@ -422,20 +425,26 @@ impl Introduced {
         Self {
             object_target: self.object_target || other.object_target,
             other: self.other || other.other,
+            source: self.source || other.source,
         }
     }
 
-    /// Scan one archived step. Pronouns, "this"/"self" and the trigger's
-    /// own event object name nothing new; every other object reference,
-    /// and every step that creates, reveals or moves cards it does not
-    /// target, introduces a candidate.
+    /// Scan one archived step. Pronouns and the trigger's own event object
+    /// name nothing new, and "this"/"self" names only the source; every
+    /// other object reference, and every step that creates, reveals or
+    /// moves cards it does not target, introduces a candidate. A "this
+    /// <type>" inside a quoted granted ability names the object that has
+    /// that ability, not this block's source (CR 113.10, 700.7), so it never
+    /// counts as naming the source.
     pub(crate) fn of_step(step: &serde_json::Value) -> Self {
-        fn walk(value: &serde_json::Value, out: &mut Introduced) {
+        fn walk(value: &serde_json::Value, quoted: bool, out: &mut Introduced) {
             match value {
                 serde_json::Value::Object(object) => {
+                    let quoted =
+                        quoted || object.get("gained").and_then(|g| g.as_str()) == Some("quoted");
                     match object.get("ref").and_then(|r| r.as_str()) {
-                        Some("it" | "that" | "them" | "this" | "self" | "trigger-event-object") => {
-                        }
+                        Some("it" | "that" | "them" | "trigger-event-object") => {}
+                        Some("this" | "self") => out.source |= !quoted,
                         Some("target" | "any-target") => out.object_target = true,
                         Some(_) => out.other = true,
                         None => {}
@@ -475,14 +484,14 @@ impl Introduced {
                     {
                         out.other = true;
                     }
-                    object.values().for_each(|v| walk(v, out));
+                    object.values().for_each(|v| walk(v, quoted, out));
                 }
-                serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, out)),
+                serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, quoted, out)),
                 _ => {}
             }
         }
         let mut out = Self::default();
-        walk(step, &mut out);
+        walk(step, false, &mut out);
         out
     }
 }

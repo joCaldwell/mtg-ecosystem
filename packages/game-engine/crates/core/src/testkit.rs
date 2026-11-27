@@ -357,6 +357,11 @@ pub trait GameTestkit {
     fn prepare_combat_damage(&mut self, damage: Vec<DamageOccurrence>) -> Result<(), String>;
     fn program(&self) -> Result<&SpellProgram, String>;
     fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String>;
+    fn prospective_characteristics(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+    ) -> Result<Characteristics, String>;
     fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool;
     fn query_work_units(&self, query: &Query) -> Result<u64, String>;
     fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Game, String), String>;
@@ -576,7 +581,7 @@ impl GameTestkit for Game {
         RulesTxn::blank_view(self, viewer)
     }
     fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
-        RulesTxn::can_block(self, blocker, attacker)
+        RulesTxn::can_block(self, blocker, attacker).unwrap()
     }
     fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
         RulesTxn::can_pay(self, player, cost)
@@ -715,16 +720,17 @@ impl GameTestkit for Game {
         RulesTxn::creature_or_planeswalker(self, id)
     }
     fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
-        RulesTxn::creatures(self, player, attacking)
+        RulesTxn::creatures(self, player, attacking).unwrap()
     }
     fn current(&self, id: ObjectId) -> Result<&Object, String> {
         Ok(RulesTxn::current(self, id)?)
     }
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
-        RulesTxn::current_keywords(self, object)
+        RulesTxn::current_keywords(self, object).unwrap()
     }
     fn granted_mana_abilities(&self, object: ObjectId) -> Vec<ManaAbility> {
         RulesTxn::granted_mana_abilities(self, object)
+            .unwrap()
             .into_iter()
             .map(|(_, a)| a.clone())
             .collect()
@@ -845,13 +851,13 @@ impl GameTestkit for Game {
         object: impl Into<KeywordSource<'a>>,
         keyword: KeywordAbility,
     ) -> bool {
-        RulesTxn::has_keyword(self, object, keyword)
+        RulesTxn::has_keyword(self, object, keyword).unwrap()
     }
     fn has_land_play_allowance(&self, player: PlayerId) -> bool {
-        RulesTxn::has_land_play_allowance(self, player)
+        RulesTxn::has_land_play_allowance(self, player).unwrap()
     }
     fn has_restriction(&self, object: ObjectId, restriction: CreatureRestriction) -> bool {
-        RulesTxn::has_restriction(self, object, restriction)
+        RulesTxn::has_restriction(self, object, restriction).unwrap()
     }
     fn has_target_domain(
         &self,
@@ -1022,8 +1028,15 @@ impl GameTestkit for Game {
     fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
         Ok(RulesTxn::program_for(self, stack)?)
     }
+    fn prospective_characteristics(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+    ) -> Result<Characteristics, String> {
+        RulesTxn::prospective_characteristics(self, object, controller)
+    }
     fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
-        RulesTxn::protected_from(self, target, source)
+        RulesTxn::protected_from(self, target, source).unwrap()
     }
     fn query_work_units(&self, query: &Query) -> Result<u64, String> {
         RulesTxn::query_work_units(self, query)

@@ -372,6 +372,16 @@ impl SampleBuildWork {
                 None => (row.owner, false, false, Quantity::zero()),
             };
             let turn = self.game.state.rules.turn.number;
+            // The permitted root has no relative timestamps. Allocate in
+            // input row order for repeatable sampling. Stage 6 needs a reviewed
+            // projection of the ordering facts for timestamp-sensitive search.
+            let timestamp = if row.zone == Zone::Battlefield {
+                Some(self.game.allocate_timestamp(None).map_err(invariant)?)
+            } else {
+                None
+            };
+            let entered = row.visible.as_ref().is_some_and(|v| v.entered_this_turn);
+            let keyword_rank = self.game.apnap_rank(controller);
             self.game.rules_mut().objects.insert(
                 id,
                 Object {
@@ -379,16 +389,13 @@ impl SampleBuildWork {
                     phased_out: None,
                     attached_to: None,
                     attachment_timestamp: None,
-                    battlefield_entry_turn: row
-                        .visible
-                        .as_ref()
-                        .filter(|v| v.entered_this_turn)
-                        .map(|_| turn),
+                    battlefield_entry_timestamp: timestamp.filter(|_| entered),
+                    battlefield_entry_turn: entered.then_some(turn),
                     // CR 702.30a: echo history is not in the permitted
                     // view, and echo is outside the reviewed search tier.
                     control_upkeeps: (row.zone == Zone::Battlefield).then_some(0),
-                    keyword_timestamp: None,
-                    keyword_rank: 0,
+                    keyword_timestamp: timestamp,
+                    keyword_rank,
                     plus_one_counters: Quantity::zero(),
                     loyalty_counters: Quantity::zero(),
                     loyalty_used_turn: None,

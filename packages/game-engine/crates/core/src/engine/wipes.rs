@@ -314,6 +314,7 @@ impl RulesTxn {
         let effect = ResolvedEffect {
             target_handles,
             id: EffectId(self.state.rules.next_effect_id),
+            timestamp: self.state.rules.timestamps.next(),
             origin: EffectOrigin {
                 activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
                 source_face: self.entry(frame.stack_id)?.program_face(),

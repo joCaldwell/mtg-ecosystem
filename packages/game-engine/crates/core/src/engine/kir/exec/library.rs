@@ -582,7 +582,7 @@ impl RulesTxn {
                 && object.present_on_battlefield()
                 && self.is_live(object.controller)
                 && self.attachment_target_type_valid(aura, object.id)?
-                && !self.protected_from(object.id, &characteristics)
+                && self.protected_from(object.id, &characteristics) == Ok(false)
             {
                 hosts.push(object.id);
             }
@@ -797,7 +797,7 @@ impl RulesTxn {
                     current.id == *host
                         && current.present_on_battlefield()
                         && self.attachment_target_type_valid(*aura, *host)?
-                        && !self.protected_from(*host, printed)
+                        && self.protected_from(*host, printed) == Ok(false)
                 }
                 None => {
                     self.state

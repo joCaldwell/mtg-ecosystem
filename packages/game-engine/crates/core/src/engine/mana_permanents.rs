@@ -220,20 +220,23 @@ pub(super) fn reversible_receipts(receipts: &[ManaActivationUndo]) -> bool {
 impl RulesTxn {
     /// CR 113.10a, 613.1f: the mana abilities battlefield statics grant
     /// `object` now, with each granting object, in timestamp order.
-    pub(crate) fn granted_mana_abilities(&self, object: ObjectId) -> Vec<(ObjectId, &ManaAbility)> {
+    pub(crate) fn granted_mana_abilities(
+        &self,
+        object: ObjectId,
+    ) -> Result<Vec<(ObjectId, &ManaAbility)>, String> {
         self.granted_mana_with_sources(object, None)
     }
     pub(super) fn granted_mana_with_sources<'a>(
         &'a self,
         object: ObjectId,
         sources: Option<&'a [CardId]>,
-    ) -> Vec<(ObjectId, &'a ManaAbility)> {
+    ) -> Result<Vec<(ObjectId, &'a ManaAbility)>, String> {
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
-            return vec![];
+            return Ok(vec![]);
         }
         use mtg_contracts::kir::Change;
         let changes =
-            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources);
+            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources)?;
         // CR 613.7: a later removal of every ability takes an earlier grant,
         // except the grants of the removing effect itself.
         // CR 613.7m: simultaneous sources go in APNAP order; a removal
@@ -246,7 +249,7 @@ impl RulesTxn {
             .filter(|(_, _, c)| matches!(c, Change::RemoveAllAbilities { .. }))
             .map(|(time, key, _)| (order(*time, key), *key))
             .collect();
-        changes
+        Ok(changes
             .into_iter()
             .filter(|(time, key, _)| {
                 removals
@@ -259,12 +262,12 @@ impl RulesTxn {
                 }
                 _ => vec![],
             })
-            .collect()
+            .collect())
     }
     /// The printed mana abilities that still function (CR 113.10, 305.7).
     fn printed_mana_abilities(&self, object: ObjectId) -> Result<&[ManaAbility], String> {
         let definition = self.copiable_definition(object)?;
-        Ok(if self.printed_abilities_lost(object) {
+        Ok(if self.printed_abilities_lost(object)? {
             &[]
         } else {
             &definition.mana_abilities
@@ -280,7 +283,7 @@ impl RulesTxn {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             out.push((ManaSlot::Printed(index), a.clone()));
         }
-        for (index, (_, a)) in self.granted_mana_abilities(object).into_iter().enumerate() {
+        for (index, (_, a)) in self.granted_mana_abilities(object)?.into_iter().enumerate() {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             out.push((ManaSlot::Granted(index), a.clone()));
         }
@@ -293,7 +296,7 @@ impl RulesTxn {
                 .get(index as usize)
                 .cloned(),
             ManaSlot::Granted(index) => self
-                .granted_mana_abilities(source)
+                .granted_mana_abilities(source)?
                 .get(index as usize)
                 .map(|(_, a)| (*a).clone()),
         }
@@ -363,16 +366,16 @@ impl RulesTxn {
                 .loyalty_used_turn
                 .is_some_and(|turn| turn == 0 || turn > self.state.rules.turn.number)
             || row.attached_to.is_some() != row.attachment_timestamp.is_some()
-            || row.attachment_timestamp.is_some_and(|timestamp| {
-                timestamp == 0 || timestamp >= self.state.rules.next_attachment_timestamp
-            })
+            || row
+                .attachment_timestamp
+                .is_some_and(|timestamp| !self.state.rules.timestamps.contains(timestamp))
         {
             return Err("invalid mana receipt source row".into());
         }
         if row
             .counters
             .iter()
-            .any(|stack| stack.timestamp >= self.state.rules.next_batch_id)
+            .any(|stack| !self.state.rules.timestamps.contains(stack.timestamp))
         {
             return Err("invalid mana receipt counters".into());
         }
@@ -446,10 +449,9 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
-        self.printed_mana_abilities(object)
-            .is_ok_and(|abilities| !abilities.is_empty())
-            || !self.granted_mana_abilities(object).is_empty()
+    pub(super) fn is_permanent_mana(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(!self.printed_mana_abilities(object)?.is_empty()
+            || !self.granted_mana_abilities(object)?.is_empty())
     }
     pub(super) fn mana_colors(
         &self,
@@ -772,7 +774,7 @@ impl RulesTxn {
             || (a.costs.tap
                 && self.target_is_creature(source)
                 && !o.attack_ready
-                && !self.has_keyword(source, KeywordAbility::Haste))
+                && !self.has_keyword(source, KeywordAbility::Haste)?)
         {
             return Err("invalid permanent mana source or tap eligibility".into());
         }
@@ -811,7 +813,7 @@ impl RulesTxn {
     ) -> Result<Vec<Color>, String> {
         match scope {
             ManaSourceScope::Mixed => Err("mixed provider requires an ability identity".into()),
-            ManaSourceScope::Intrinsic if self.is_permanent_mana(source) => {
+            ManaSourceScope::Intrinsic if self.is_permanent_mana(source)? => {
                 Err("printed provider cannot select an intrinsic-only scope".into())
             }
             ManaSourceScope::Intrinsic => self.intrinsic_choice_colors(player, source),
@@ -875,7 +877,7 @@ impl RulesTxn {
         source: ObjectId,
         resume: Frame,
     ) -> Result<(), String> {
-        if self.is_permanent_mana(source) {
+        if self.is_permanent_mana(source)? {
             self.begin_permanent_mana(input, source, resume)
         } else {
             self.begin_intrinsic_mana(input, source, resume)

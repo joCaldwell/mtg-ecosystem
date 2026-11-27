@@ -78,7 +78,7 @@ impl RulesTxn {
         spec: &mtg_contracts::TargetSpec,
         x: XBound<'_>,
     ) -> bool {
-        if self.protected_from(object, source) {
+        if self.protected_from(object, source) != Ok(false) {
             return false;
         }
         match spec.domain {

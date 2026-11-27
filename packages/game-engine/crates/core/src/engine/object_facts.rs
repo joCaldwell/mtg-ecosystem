@@ -64,7 +64,9 @@ impl ObjectFacts for DerivedObject<'_> {
             .map(Cow::Owned)
     }
     fn has_keyword(&self, keyword: KeywordAbility) -> Tri {
-        self.game.has_keyword(self.object.id, keyword).into()
+        self.game
+            .has_keyword(self.object.id, keyword)
+            .map_or(Tri::Unknown, Tri::from)
     }
     fn controller_is_live(&self) -> Tri {
         self.game.is_live(self.object.controller).into()

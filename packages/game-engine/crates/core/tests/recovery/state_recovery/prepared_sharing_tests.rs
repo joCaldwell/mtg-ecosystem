@@ -40,6 +40,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             kernel_leaf: game.kernel_leaf.clone(),
             published: None,
             actual_journal: None,
+            prospective_entry: None,
         },
     }
 }

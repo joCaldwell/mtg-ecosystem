@@ -78,16 +78,17 @@ impl RulesTxn {
         }
     }
 
-    fn source_tap_payable(&self, player: PlayerId, source: ObjectId) -> bool {
+    fn source_tap_payable(&self, player: PlayerId, source: ObjectId) -> Result<bool, String> {
         // CR 302.6 applies to the source's {T} symbol only.
-        self.current(source).is_ok_and(|o| {
-            o.present_on_battlefield()
-                && o.controller == player
-                && !o.tapped
-                && (o.attack_ready
-                    || !self.is_battlefield_creature(source)
-                    || self.has_keyword(source, KeywordAbility::Haste))
-        })
+        let Ok(o) = self.current(source) else {
+            return Ok(false);
+        };
+        Ok(o.present_on_battlefield()
+            && o.controller == player
+            && !o.tapped
+            && (o.attack_ready
+                || !self.is_battlefield_creature(source)
+                || self.has_keyword(source, KeywordAbility::Haste)?))
     }
 
     fn eligible_cost_objects(
@@ -96,7 +97,7 @@ impl RulesTxn {
         source: ObjectId,
         cost: &ChosenObjectCost,
     ) -> Result<Vec<ObjectId>, String> {
-        if cost.tap_source && !self.source_tap_payable(player, source) {
+        if cost.tap_source && !self.source_tap_payable(player, source)? {
             return Ok(vec![]);
         }
         let mut eligible = vec![];
