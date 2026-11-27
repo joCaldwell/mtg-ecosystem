@@ -24,6 +24,7 @@ current launch scope and remaining gates.
 | Deck behavior, permissions and public compatibility | [Deck specification](docs/deck-builder-spec.md), [MCP workflows](docs/deck-builder-mcp-workflows.md) |
 | Backend operations and checks | [Operations](packages/deck-builder/OPERATIONS.md), [test gate](packages/deck-builder/AGENTS.md#focused-test-gate) |
 | Client/session contracts, delivery and acceptance | [Game client](docs/game-client.md), [client setup](packages/game/README.md) |
+| Engine and parser rework: stages, gates and training target | [Rework plan](docs/game-engine-rework.md) |
 | Engine support and source-qualified acceptance | [Current engine map](docs/game-engine-current.md), [core mechanics](docs/game-engine-mechanics.md), [board mechanics](docs/game-engine-board-mechanics.md), [evidence](docs/game-engine-evidence.md) |
 | Engine environment, verification and storage | [Development and verification](docs/game-engine-development.md), [storage](docs/game-engine-storage.md) |
 | Parser, archives and ingestion | [Parser](docs/oracle_parser.md), [data contracts](docs/oracle_parser.md#data-contracts), [Scryfall](docs/oracle_parser.md#ingestion) |
