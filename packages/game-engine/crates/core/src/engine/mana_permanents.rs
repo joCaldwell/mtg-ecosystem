@@ -132,6 +132,9 @@ testkit_fields! {
         pub player: PlayerId,
         pub source: ObjectBefore,
         pub counters: Quantity,
+        /// CR 122.1: the source's other counter kinds, restored exactly.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub other_counters: Vec<CounterStack>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ability_use: Option<ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -313,6 +316,28 @@ impl RulesTxn {
             || !restricted_mana::valid_buckets(&receipt.spent_restricted)
         {
             return Err("invalid restricted mana receipt".into());
+        }
+        // CR 122.1, 733.1: reversal restores exactly the counters the source
+        // had as the activation began, which its captured facts also hold.
+        // A ceased token keeps no definition to compare its identity with.
+        if receipt.source.object != source {
+            return Err("mana receipt source mismatch".into());
+        }
+        Self::validate_fact_counters(&receipt.source)?;
+        if self.definition(source.card).is_ok() {
+            self.validate_fact_identity(&receipt.source)?;
+        } else if self.current(source).is_ok() {
+            return Err("unknown mana receipt source".into());
+        }
+        if receipt.counters.is_negative()
+            || receipt.counters != receipt.source.plus_one_counters
+            || receipt.other_counters != receipt.source.counters
+            || receipt
+                .other_counters
+                .iter()
+                .any(|stack| stack.timestamp >= self.state.rules.next_batch_id)
+        {
+            return Err("invalid mana receipt counters".into());
         }
         // Only a sacrificed source sets turn facts, once per seat, and each
         // fact it set still holds.
@@ -593,7 +618,9 @@ impl RulesTxn {
                     DamageContinuation::Mana { activation } => {
                         self.saved_frame(activation.resume)?
                     }
-                    DamageContinuation::Combat | DamageContinuation::Instruction { .. } => break,
+                    DamageContinuation::Combat { .. } | DamageContinuation::Instruction { .. } => {
+                        break;
+                    }
                 },
                 Frame::ManaSourceChoice { resume, .. } => self.saved_frame(*resume)?,
                 _ => break,
@@ -985,6 +1012,7 @@ impl RulesTxn {
             player: a.player,
             source: self.object_before(a.source)?,
             counters: self.current(a.source)?.plus_one_counters.clone(),
+            other_counters: self.current(a.source)?.counters.clone(),
             ability_use: a
                 .ability
                 .restriction
@@ -1550,6 +1578,7 @@ impl RulesTxn {
                         plus_one_counters: r.counters.clone(),
                         loyalty_counters: Quantity::zero(),
                         loyalty_used_turn: None,
+                        counters: r.other_counters.clone(),
                         transforms: 0,
                         adventure_player: None,
                         face_down: false,
@@ -1573,6 +1602,7 @@ impl RulesTxn {
                     o.tapped = r.source.tapped;
                     // CR 733: exact restoration bypasses placement/replacement.
                     o.plus_one_counters = r.counters.clone();
+                    o.counters = r.other_counters.clone();
                 }
                 // CR 400.7/733: a departed source is never restored or rebound.
             }

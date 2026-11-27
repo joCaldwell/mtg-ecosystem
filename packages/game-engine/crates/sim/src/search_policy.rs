@@ -88,6 +88,7 @@ pub fn choose(
             }else{Answer::Pay{pay:PayAnswer::Finish{undo_on_failure:true}}}
         }
         (_,Shape::Order{items,min,..})=>Answer::Order{order:items.iter().take(*min as usize).copied().collect()},
+        (_,Shape::CombatDistribute{groups,..})=>mtg_core::combat_allocation_to_blockers(groups),
         (_,Shape::Distribute{total,buckets,gates})=>crate::policy::damage_assignment(total,buckets,gates),
         (Reason::Targets{..},Shape::Pick{slots,rules})=>{
             let mut picks=Vec::<Vec<u32>>::new();

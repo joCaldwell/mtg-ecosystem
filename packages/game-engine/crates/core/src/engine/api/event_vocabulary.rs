@@ -115,6 +115,15 @@ pub enum ProposedEvent {
         source: ObjectId,
         defenders: Vec<PlayerId>,
     },
+    /// CR 702.116a, 508.4, 608.2f: one token copy of the myriad source
+    /// `source` for each accepted defender, tapped and attacking that
+    /// player, all created at once for the invocation `creator`.
+    CreateMyriadTokens {
+        controller: PlayerId,
+        source: ObjectId,
+        defenders: Vec<PlayerId>,
+        creator: StackId,
+    },
     CreatePredefinedTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -137,10 +146,16 @@ pub enum ProposedEvent {
         poison: Quantity,
         energy: Quantity,
     },
-    PutPermanentCounters {
+    /// CR 122.1, 701.34a: one atomic placement of one or more kinds on a
+    /// permanent, in strictly increasing kind order.
+    PutCounters {
         object: ObjectId,
-        plus_one: Quantity,
-        loyalty: Quantity,
+        counters: Vec<CounterAmount>,
+    },
+    /// CR 122.3, 704.5q: remove `amount` +1/+1 and `amount` -1/-1 counters.
+    AnnihilateCounters {
+        object: ObjectId,
+        amount: Quantity,
     },
     CeaseSpellCopy {
         object: ObjectId,
@@ -344,6 +359,11 @@ pub enum EventOutcome {
     CounterPrevented {
         target: StackId,
     },
+    /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
+    /// opponent; the copies are created together afterwards (CR 608.2f).
+    MyriadAccepted {
+        defender: PlayerId,
+    },
     AttachmentChanged {
         object: ObjectId,
         previous: Option<ObjectId>,
@@ -374,6 +394,14 @@ pub enum EventOutcome {
         controller: PlayerId,
         original: ObjectId,
     },
+    MyriadTokensCreated {
+        objects: Vec<ObjectId>,
+        controller: PlayerId,
+        original: ObjectId,
+        /// Each token's attacked player, or `None` when it entered without
+        /// attacking (CR 506.3b, 508.4a).
+        attacking: Vec<Option<PlayerId>>,
+    },
     PredefinedTokensCreated {
         objects: Vec<ObjectId>,
         controller: PlayerId,
@@ -392,12 +420,18 @@ pub enum EventOutcome {
         previous_poison: Quantity,
         previous_energy: Quantity,
     },
-    PermanentCountersPlaced {
+    CountersPlaced {
         object: ObjectId,
-        plus_one: Quantity,
-        loyalty: Quantity,
-        previous_plus_one: Quantity,
-        previous_loyalty: Quantity,
+        placed: Vec<CounterChange>,
+    },
+    CountersAnnihilated {
+        object: ObjectId,
+        amount: Quantity,
+    },
+    /// CR 122.1d: the untap was replaced by removing one stun counter.
+    StunCounterRemoved {
+        object: ObjectId,
+        previous: Quantity,
     },
     SpellCopyCeased {
         object: ObjectId,
@@ -565,6 +599,11 @@ pub enum InstructionOutcome {
     },
     CounterPrevented {
         target: StackId,
+    },
+    /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
+    /// opponent; the copies are created together afterwards (CR 608.2f).
+    MyriadAccepted {
+        defender: PlayerId,
     },
     SetMoved {
         movements: Vec<MoveOutcome>,
@@ -742,4 +781,22 @@ pub enum Event {
         stack_id: StackId,
         reason: String,
     },
+}
+
+/// CR 122.1: `amount` counters of one kind.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CounterAmount {
+    pub counter: mtg_contracts::kir::CounterKind,
+    pub amount: Quantity,
+}
+
+/// CR 122.1: one kind's placement and the counts around it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CounterChange {
+    pub counter: mtg_contracts::kir::CounterKind,
+    pub amount: Quantity,
+    pub previous: Quantity,
+    pub current: Quantity,
 }

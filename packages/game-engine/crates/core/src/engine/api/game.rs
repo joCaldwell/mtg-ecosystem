@@ -119,6 +119,7 @@ impl RulesTxn {
                             Quantity::zero()
                         },
                         loyalty_used_turn: None,
+                        counters: vec![],
                         transforms: 0,
                         adventure_player: None,
                         face_down: false,
@@ -169,6 +170,7 @@ impl RulesTxn {
                 libraries: prepared.config.initial_libraries().into(),
                 combat: vec![],
                 combat_declared: false,
+                combat_defenders: vec![],
                 damage_choices: BTreeMap::new(),
                 defender_damage_choices: BTreeMap::new(),
                 first_strike_participants: BTreeSet::new(),

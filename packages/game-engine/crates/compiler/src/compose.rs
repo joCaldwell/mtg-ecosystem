@@ -960,6 +960,20 @@ fn compose(
                     ));
                 }
             }
+            FaceLayout::Split => {
+                let colors: BTreeSet<_> = front
+                    .characteristics
+                    .colors
+                    .iter()
+                    .chain(&back.characteristics.colors)
+                    .collect();
+                if colors != card.printed_colors().into_iter().flatten().collect() {
+                    return Err(unsupported(
+                        "source.colors",
+                        "split colors disagree with the combined mana cost",
+                    ));
+                }
+            }
             FaceLayout::Single | FaceLayout::ModalDoubleFaced => {}
         }
         front.layout = card.layout;
@@ -1132,6 +1146,12 @@ fn compose_face(
                                 .static_abilities
                                 .push(keywords::affinity(one, text)?);
                             labels.statics.push(label);
+                        }
+                        [one] if one.keyword == "crew" => {
+                            definition
+                                .activated
+                                .push(keywords::crew(&card, one, label, text)?);
+                            labels.activated.push(label);
                         }
                         [one] if one.keyword == "equip" => {
                             definition
@@ -1339,6 +1359,13 @@ fn compose_face(
                                     .triggered
                                     .push(keywords::triggered(&card, keyword, label)?);
                                 labels.triggered.push(label);
+                                // CR 702.25a: "a creature without flanking"
+                                // reads this marker.
+                                if keyword.keyword == "flanking"
+                                    && !definition.keywords.contains(&KeywordAbility::Flanking)
+                                {
+                                    definition.keywords.push(KeywordAbility::Flanking);
+                                }
                             }
                         }
                         _ => definition

@@ -232,7 +232,6 @@ const UNSUPPORTED_RULES_SUBTYPES: &[&str] = &[
     "Saga",
     "Class",
     "Case",
-    "Vehicle",
     "Curse",
     "Spacecraft",
     "Attraction",
@@ -332,6 +331,8 @@ pub enum Capability {
     TransformingDoubleFacedV1,
     /// CR 715: an adventurer card and its Adventure spell.
     AdventurerV1,
+    /// CR 709.3–4: one split half on the stack, combined elsewhere.
+    SplitV1,
     /// CR 701.27a,f: an ability of a permanent transforms that permanent.
     TransformSourceV1,
 
@@ -383,6 +384,7 @@ pub enum Capability {
     DiscardSourceCostV1,
     ExileSourceCostV1,
     ChosenObjectCostV1,
+    VehicleV1,
     AnyDamageTargetV1,
 
     PlayerOrPlaneswalkerTargetV1,
@@ -436,11 +438,23 @@ pub enum Capability {
     MenaceV1,
     FightV1,
     PopulateV1,
+    /// CR 702.116a: myriad's attacking token copies and their exile.
+    MyriadV1,
+    /// CR 702.25a: the flanking marker and its block-pair trigger.
+    FlankingV1,
     PlayerCountersV1,
     ProliferateV1,
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    /// CR 122.1a, 122.3, 704.5q: -1/-1 counters and their annihilation.
+    MinusOneCountersV1,
+    /// CR 122.1b, 613.1f, 613.7c: keyword counters in layer 6.
+    KeywordCountersV1,
+    /// CR 122.1d: stun counters replace untapping.
+    StunCountersV1,
+    /// CR 122.1: counters without rules meaning, read by their cards.
+    NamedCountersV1,
 
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -803,6 +817,8 @@ impl CreatureToken {
                 .any(|k| k.basic_landwalk_type().is_some() || k.fixed_protection_color().is_some())
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
+            // CR 702.25a: a token recipe carries no flanking trigger.
+            || self.keywords.contains(&KeywordAbility::Flanking)
             || self.colors.contains(&Color::C)
             || self.colors.iter().collect::<BTreeSet<_>>().len() != self.colors.len()
             || self.subtypes.is_empty()
@@ -954,11 +970,25 @@ impl Instruction {
     }
     /// CR 122.1: put `amount` +1/+1 counters on `on`.
     pub fn plus_one_counters(on: kir::SetExpr, amount: Quantity, source_block: u32) -> Self {
+        Self::counters(
+            on,
+            kir::CounterKind::PlusOnePlusOne,
+            kir::Amount::Fixed { value: amount },
+            source_block,
+        )
+    }
+    /// CR 122.1: put `amount` counters of `counter` on `on`.
+    pub fn counters(
+        on: kir::SetExpr,
+        counter: kir::CounterKind,
+        amount: kir::Amount,
+        source_block: u32,
+    ) -> Self {
         Self::act(
             kir::Verb::PutCounters {
                 on,
-                counter: kir::CounterKind::PlusOnePlusOne,
-                amount: kir::Amount::Fixed { value: amount },
+                counter,
+                amount,
             },
             source_block,
         )
@@ -1409,6 +1439,8 @@ pub struct ChosenObjectCost {
     pub filter: ChosenCostFilter,
     #[schemars(range(min = 1))]
     pub count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_power: Option<u32>,
     pub another: bool,
     pub tap_source: bool,
     pub mana: Option<ManaCost>,
@@ -1756,7 +1788,7 @@ pub struct SourceLabels {
     pub statics: Vec<u32>,
     pub spell_modes: Vec<String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum KeywordAbility {
     Flash,
@@ -1797,6 +1829,10 @@ pub enum KeywordAbility {
     Horsemanship,
     Fear,
     Skulk,
+    // CR 702.25a: flanking is a triggered ability; this marker is what "a
+    // creature without flanking" reads. Each printed instance is its own
+    // trigger, and nothing grants or removes the marker alone.
+    Flanking,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -1835,6 +1871,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "horsemanship" => Ok(Self::Horsemanship),
             "fear" => Ok(Self::Fear),
             "skulk" => Ok(Self::Skulk),
+            "flanking" => Ok(Self::Flanking),
 
             other => Err(de::Error::unknown_variant(
                 other,
@@ -1871,6 +1908,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "horsemanship",
                     "fear",
                     "skulk",
+                    "flanking",
                 ],
             )),
         }
@@ -1918,6 +1956,8 @@ pub enum FaceLayout {
     Transforming,
     /// CR 715.3: cast normally or as its Adventure (the back part).
     Adventurer,
+    /// CR 709.3–4: two spell halves on one card.
+    Split,
 }
 impl FaceLayout {
     pub fn is_single(&self) -> bool {
@@ -1964,7 +2004,7 @@ pub struct Definition {
     #[serde(default, skip_serializing_if = "FaceLayout::is_single")]
     pub layout: FaceLayout,
     /// The other printed part of a two-part card: a double-faced card's back
-    /// face or an adventurer's Adventure. Only a physical card's root
+    /// face, an adventurer's Adventure, or a split card's right half. Only the root
     /// definition owns it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub back_face: Option<Box<Definition>>,
@@ -2031,14 +2071,47 @@ impl Definition {
     }
 
     /// The parts a player may choose to cast or play from a zone other than
-    /// the battlefield (CR 712.11b, 712.12, 715.3). A transforming card's
+    /// the battlefield (CR 709.3a, 712.11b, 712.12, 715.3). A transforming card's
     /// back face is never chosen this way (CR 712.11).
     pub fn faces(&self) -> impl Iterator<Item = CardFace> {
         let back = matches!(
             self.layout,
-            FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer
+            FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer | FaceLayout::Split
         ) && self.back_face.is_some();
         std::iter::once(CardFace::Front).chain(back.then_some(CardFace::Back))
+    }
+
+    /// Printed characteristics of the card outside the stack (CR 709.4,
+    /// 712.8a, 715.4). Spell proposals always look up the chosen face.
+    pub fn card_characteristics(&self) -> std::borrow::Cow<'_, Characteristics> {
+        let Some(right) = self
+            .back_face
+            .as_deref()
+            .filter(|_| self.layout == FaceLayout::Split)
+        else {
+            return std::borrow::Cow::Borrowed(&self.characteristics);
+        };
+        let right = &right.characteristics;
+        let mut both = self.characteristics.clone();
+        both.mana_cost.generic.add(&right.mana_cost.generic);
+        both.mana_cost.colored.extend(&right.mana_cost.colored);
+        both.hybrid_mana.extend_from_slice(&right.hybrid_mana);
+        both.colors.extend(&right.colors);
+        both.colors.sort();
+        both.colors.dedup();
+        for kind in std::iter::once(&right.kind).chain(&right.additional_types) {
+            if !both.has_type(*kind) {
+                both.additional_types.push(*kind);
+            }
+        }
+        for subtype in &right.subtypes {
+            if !both.subtypes.contains(subtype) {
+                both.subtypes.push(subtype.clone());
+            }
+        }
+        both.legendary |= right.legendary;
+        both.snow |= right.snow;
+        std::borrow::Cow::Owned(both)
     }
 
     /// CR 712.9: only a nonmodal double-faced card's permanent transforms.
@@ -2115,6 +2188,9 @@ impl Definition {
         }
         for program in self.spell_programs() {
             add_program_requirements(&mut set, program);
+        }
+        if self.characteristics.subtypes == ["Vehicle"] {
+            set.insert(Capability::VehicleV1);
         }
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
@@ -2193,6 +2269,7 @@ impl Definition {
             set.insert(match self.layout {
                 FaceLayout::Transforming => Capability::TransformingDoubleFacedV1,
                 FaceLayout::Adventurer => Capability::AdventurerV1,
+                FaceLayout::Split => Capability::SplitV1,
                 FaceLayout::Single | FaceLayout::ModalDoubleFaced => Capability::ModalDoubleFacedV1,
             });
             set.extend(back.requirements());
@@ -2290,7 +2367,10 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
         E::BecomesTapped { .. } if *pattern == E::self_becomes_tapped() => {
             Capability::SourceTapTriggerV1
         }
-        E::Attacks { .. } => Capability::AttackTriggerV1,
+        E::Attacks { .. }
+        | E::AttacksAlone { .. }
+        | E::AttacksWithGreaterPower { .. }
+        | E::AttacksPlayerWithMostLife { .. } => Capability::AttackTriggerV1,
         E::Cast { spell, .. } => {
             if matches!(spell.0.as_slice(), [Atom::Color { .. }]) {
                 caps.push(Capability::CastColorPredicateV1);
@@ -2412,7 +2492,7 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|i| i.controller_discard().is_some())
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
-fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
+pub(crate) fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
         KeywordAbility::ProtectionFromEachColor => return None,
         KeywordAbility::ProtectionFromEverything => Capability::ProtectionFromEverythingV1,
@@ -2444,6 +2524,7 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
         | KeywordAbility::Horsemanship
         | KeywordAbility::Fear
         | KeywordAbility::Skulk => Capability::EvasionKeywordsV1,
+        KeywordAbility::Flanking => Capability::FlankingV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
     })
 }

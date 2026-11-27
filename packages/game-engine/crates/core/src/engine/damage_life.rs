@@ -69,6 +69,8 @@ impl RulesTxn {
             keyword_rank: o.keyword_rank,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,
+            plus_one_counters: o.plus_one_counters.clone(),
+            counters: o.counters.clone(),
             object,
             owner: self
                 .state
@@ -412,12 +414,10 @@ impl RulesTxn {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            self.validate_characteristic_identity(
-                entry.source,
-                fact.transforms,
-                fact.face_down,
-                &fact.characteristics,
-            )?;
+            if fact.object != entry.source {
+                return Err("stack source fact identity mismatch".into());
+            }
+            self.validate_fact_identity(fact)?;
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {

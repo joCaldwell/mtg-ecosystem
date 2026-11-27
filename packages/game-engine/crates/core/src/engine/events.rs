@@ -145,6 +145,11 @@ pub struct ObjectBefore {
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deathtouch_damage: bool,
+    /// CR 122.1, 608.2h: the counters as last known.
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counters: Vec<CounterStack>,
     pub object: ObjectId,
     pub owner: PlayerId,
     pub controller: PlayerId,
@@ -398,6 +403,10 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             BTreeSet::from([FactKey::TokenAllocation, FactKey::Object(source.card)]),
             BTreeSet::from([FactKey::TokenAllocation]),
         ),
+        ProposedEvent::CreateMyriadTokens { source, .. } => (
+            BTreeSet::from([FactKey::TokenAllocation, FactKey::Object(source.card)]),
+            BTreeSet::from([FactKey::TokenAllocation]),
+        ),
         ProposedEvent::CreateCreatureTokens { .. }
         | ProposedEvent::CreatePredefinedTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
@@ -407,7 +416,8 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::PlayerCounters(*player)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutPermanentCounters { object, .. } => {
+        ProposedEvent::PutCounters { object, .. }
+        | ProposedEvent::AnnihilateCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -739,6 +749,7 @@ fn collect<'a>(
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateTokenCopy { .. }
                             | ProposedEvent::CreateEncoreTokens { .. }
+                            | ProposedEvent::CreateMyriadTokens { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::CreatePredefinedTokens { .. }
                             | ProposedEvent::FreezeLifeUntilNextTurn { .. }
@@ -948,6 +959,7 @@ impl RulesTxn {
                     objects.insert(*original);
                 }
                 ProposedEvent::CreateEncoreTokens { controller, .. }
+                | ProposedEvent::CreateMyriadTokens { controller, .. }
                 | ProposedEvent::CreateCreatureTokens { controller, .. }
                 | ProposedEvent::CreatePredefinedTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
@@ -957,7 +969,8 @@ impl RulesTxn {
                 ProposedEvent::GivePlayerCounters { player, .. } => {
                     players.insert(*player);
                 }
-                ProposedEvent::PutPermanentCounters { object, .. } => {
+                ProposedEvent::PutCounters { object, .. }
+                | ProposedEvent::AnnihilateCounters { object, .. } => {
                     objects.insert(*object);
                 }
                 ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
@@ -1627,8 +1640,7 @@ impl RulesTxn {
             || events.iter().any(|e| {
                 matches!(
                     e,
-                    ProposedEvent::PutPermanentCounters { .. }
-                        | ProposedEvent::GivePlayerCounters { .. }
+                    ProposedEvent::PutCounters { .. } | ProposedEvent::GivePlayerCounters { .. }
                 )
             })
         {
@@ -2138,6 +2150,7 @@ impl RulesTxn {
                 plus_one_counters,
                 loyalty_counters,
                 loyalty_used_turn: None,
+                counters: vec![],
                 transforms: 0,
                 adventure_player: None,
                 // CR 702.37c, 708.4: a face-down spell becomes a face-down
@@ -2190,12 +2203,7 @@ impl RulesTxn {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        self.validate_characteristic_identity(
-            object,
-            fact.transforms,
-            fact.face_down,
-            &fact.characteristics,
-        )?;
+        self.validate_fact_identity(fact)?;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone
@@ -2560,42 +2568,77 @@ impl RulesTxn {
                     previous_energy,
                 }
             }
-            ProposedEvent::PutPermanentCounters {
-                object,
-                plus_one,
-                loyalty,
-            } => {
+            ProposedEvent::PutCounters { object, counters } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {
                     return Err("counter placement requires complete batch authority".into());
                 }
                 // The staged allocation checks which permanents this instruction
                 // permits. Proliferate can add to a formerly animated land.
                 if !self.current(*object)?.present_on_battlefield()
-                    || plus_one.is_negative()
-                    || loyalty.is_negative()
-                    || (*plus_one == Quantity::zero() && *loyalty == Quantity::zero())
+                    || counters.is_empty()
+                    || counters.iter().any(|c| c.amount <= Quantity::zero())
+                    || counters.windows(2).any(|w| w[0].counter >= w[1].counter)
                 {
                     return Err("invalid counter placement".into());
                 }
+                // CR 613.7c: this placement's batch timestamps every counter
+                // of each placed kind on the permanent. The batch has already
+                // reserved its successor ID.
+                let timestamp = self
+                    .state
+                    .rules
+                    .next_batch_id
+                    .checked_sub(1)
+                    .ok_or("missing counter placement batch")?;
                 let o = self
                     .rules_mut()
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing counter recipient")?;
-                let previous_plus_one = o.plus_one_counters.clone();
-                let previous_loyalty = o.loyalty_counters.clone();
-                o.plus_one_counters.add(plus_one);
-                o.loyalty_counters.add(loyalty);
-                EventOutcome::PermanentCountersPlaced {
+                let placed = counters
+                    .iter()
+                    .map(|c| {
+                        let previous = o.add_counters(&c.counter, &c.amount, timestamp);
+                        CounterChange {
+                            counter: c.counter.clone(),
+                            amount: c.amount.clone(),
+                            previous,
+                            current: o.counter_count(&c.counter),
+                        }
+                    })
+                    .collect();
+                EventOutcome::CountersPlaced {
                     object: *object,
-                    plus_one: plus_one.clone(),
-                    loyalty: loyalty.clone(),
-                    previous_plus_one,
-                    previous_loyalty,
+                    placed,
+                }
+            }
+            ProposedEvent::AnnihilateCounters { object, amount } => {
+                // CR 122.3, 704.5q: exactly the smaller of the two counts,
+                // only as a state-based action.
+                let o = self.current(*object)?;
+                let plus = o.plus_one_counters.clone();
+                let minus = o.counter_count(&mtg_contracts::kir::CounterKind::MinusOneMinusOne);
+                if !o.present_on_battlefield()
+                    || *amount <= Quantity::zero()
+                    || *amount != std::cmp::min(plus, minus)
+                {
+                    return Err("invalid counter annihilation".into());
+                }
+                let o = self
+                    .rules_mut()
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing annihilation object")?;
+                o.remove_counters(&mtg_contracts::kir::CounterKind::PlusOnePlusOne, amount);
+                o.remove_counters(&mtg_contracts::kir::CounterKind::MinusOneMinusOne, amount);
+                EventOutcome::CountersAnnihilated {
+                    object: *object,
+                    amount: amount.clone(),
                 }
             }
             event @ (ProposedEvent::CreateTokenCopy { .. }
             | ProposedEvent::CreateEncoreTokens { .. }
+            | ProposedEvent::CreateMyriadTokens { .. }
             | ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::CreatePredefinedTokens { .. }
             | ProposedEvent::CeaseToken { .. }
@@ -2861,6 +2904,10 @@ impl RulesTxn {
                     self.rules_mut().cast_history[player.0 as usize].attacked = true;
                 }
                 self.rules_mut().combat_declared = !attacks.is_empty();
+                let mut defenders: Vec<_> = attacks.iter().map(|(_, d, _)| *d).collect();
+                defenders.sort();
+                defenders.dedup();
+                self.rules_mut().combat_defenders = defenders;
                 self.rules_mut().combat = attacks
                     .iter()
                     .map(|(attacker, defender, planeswalker)| Attacker {
@@ -3004,6 +3051,21 @@ impl RulesTxn {
                 let o = self.current(*object)?;
                 if !o.present_on_battlefield() || !o.tapped {
                     return Err("invalid untap event".into());
+                }
+                // CR 122.1d, 614.1a: a stun counter is removed instead, on
+                // every untap path (untap step, effects and costs).
+                let stun = mtg_contracts::kir::CounterKind::Stun;
+                if o.counter_count(&stun) > Quantity::zero() {
+                    let previous = self
+                        .rules_mut()
+                        .objects
+                        .get_mut(&object.card)
+                        .ok_or("missing untap object")?
+                        .remove_counters(&stun, &Quantity::from(1));
+                    return Ok(EventOutcome::StunCounterRemoved {
+                        object: *object,
+                        previous,
+                    });
                 }
                 self.rules_mut()
                     .objects

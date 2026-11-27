@@ -40,14 +40,21 @@ impl ObjectFacts for DerivedObject<'_> {
             .contains_key(&self.object.id.card)
     }
     fn copiable(&self) -> Option<Cow<'_, Characteristics>> {
-        let definition = self.game.copiable_definition(self.object.id).ok()?;
-        Some(Cow::Borrowed(&definition.characteristics))
+        self.game.copiable_characteristics(self.object).ok()
     }
     fn structural(&self) -> Option<Cow<'_, Characteristics>> {
+        // The engine currently supports type and color layer effects only on the battlefield.
+        // Keep this incarnation's zone when a split spell has departed.
+        if self.object.zone != Zone::Battlefield {
+            return self.copiable();
+        }
         self.game.structural_characteristics(self.object.id).ok()
     }
     // The color layer keeps the structural card types (CR 613.1d-e).
     fn current(&self) -> Option<Cow<'_, Characteristics>> {
+        if self.object.zone != Zone::Battlefield {
+            return self.copiable();
+        }
         self.game.color_layer(self.object.id).ok()
     }
     fn derived(&self) -> Option<Cow<'_, Characteristics>> {

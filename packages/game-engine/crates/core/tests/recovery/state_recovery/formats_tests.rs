@@ -20,15 +20,15 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    99,
-    "f2af5ae205f890ba1b344ed3cb4b5bb6012e76fc967aab21580417084bf707d9",
+    104,
+    "c3492803cae73ee0271e45cdb099e500c7551c9fcc7a31eaa81b151475b95a2f",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    129,
+    134,
     "f26ccc3e861131390e5ab28526e2505dfeedfa7587626a778414d3908f2295e3",
 );
 const WORK_PIN: (u32, &str) = (
-    64,
+    66,
     "457d166e0eb8fafe7caadb513d8df47defbd2fb78904b44cf008fef8d55e6e45",
 );
 
@@ -527,6 +527,7 @@ fn chosen_cost_shapes() -> Vec<Game> {
         forest.activated.push(ActivatedAbility {
             modal: None,
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
+                minimum_power: None,
                 action,
                 filter: ChosenCostFilter::Any,
                 count: 1,

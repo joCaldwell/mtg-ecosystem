@@ -163,7 +163,7 @@ pub struct PolicyMemory {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PaymentAction {
-    Cast(String, Zone),
+    Cast(String, Zone, mtg_contracts::CardFace),
     /// CR 702.37a: a face-down cast of this card.
     CastFaceDown(ObjectHandle),
     /// CR 702.37e: turning this permanent face up.
@@ -397,6 +397,9 @@ impl Strategy<'_> {
             (_, Shape::Order { items, min, .. }) => Answer::Order {
                 order: items.iter().take(*min as usize).copied().collect(),
             },
+            (_, Shape::CombatDistribute { groups, .. }) => {
+                mtg_core::combat_allocation_to_blockers(groups)
+            }
             (
                 _,
                 Shape::Distribute {

@@ -238,6 +238,18 @@ impl RulesTxn {
                 _ => {}
             }
         }
+        // CR 122.1b, 613.1f, 613.7c: a keyword counter grants its keyword in
+        // layer 6 at the timestamp its kind last received.
+        if let Ok(o) = self.current(object) {
+            for stack in &o.counters {
+                if let mtg_contracts::kir::CounterKind::Keyword { keyword } = &stack.kind {
+                    rows.push((
+                        (stack.timestamp, 1, 0),
+                        Row::Grant(std::slice::from_ref(keyword)),
+                    ));
+                }
+            }
+        }
         // CR 702.84a, 611.2c: an unearthed incarnation gains haste for as
         // long as it remains that object, from the moment it entered.
         // CR 702.141a: so does an encore token, and a dashed one.
@@ -335,7 +347,11 @@ impl RulesTxn {
                 R::CantAttackOrBlock => Some(CreatureRestriction::CantAttackOrBlock),
                 R::CantBeBlocked => Some(CreatureRestriction::CantBeBlocked),
                 R::CanBlockOnlyFlying => Some(CreatureRestriction::CanBlockOnlyFlying),
-                R::AttackEachCombat | R::AttackAsThoughNoDefender => None,
+                R::AttackEachCombat
+                | R::AttackAsThoughNoDefender
+                | R::AssignCombatDamageWithToughness
+                | R::AdditionalBlocks(_)
+                | R::UnlimitedBlocks => None,
             })
     }
 

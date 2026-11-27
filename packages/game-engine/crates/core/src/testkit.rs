@@ -1181,7 +1181,14 @@ impl GameTestkit for Game {
         source: ObjectId,
         c: &Characteristics,
     ) -> Result<(), String> {
-        RulesTxn::validate_characteristic_identity(self, source, 0, false, c)
+        RulesTxn::validate_characteristic_identity(
+            self,
+            source,
+            0,
+            false,
+            self.current(source)?.zone,
+            c,
+        )
     }
     fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
         RulesTxn::validate_condition_cache(self, frame)

@@ -146,6 +146,7 @@ impl Published {
             libraries,
             combat,
             combat_declared,
+            combat_defenders,
             damage_choices,
             defender_damage_choices,
             first_strike_participants,
@@ -203,6 +204,7 @@ impl Published {
             && *pending_triggers == was.pending_triggers
             && *combat == was.combat
             && *combat_declared == was.combat_declared
+            && *combat_defenders == was.combat_defenders
             && *control_effects == was.control_effects
             && *commanders == was.commanders
             && *commander_returns == was.commander_returns

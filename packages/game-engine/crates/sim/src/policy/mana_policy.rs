@@ -764,6 +764,7 @@ mod tests {
             loyalty_counters: 0.into(),
             loyalty_used_this_turn: false,
             plus_one_counters: 0.into(),
+            counters: vec![],
             characteristics: Some(d.characteristics.clone()),
             marked_damage: 0.into(),
             attack_ready: true,

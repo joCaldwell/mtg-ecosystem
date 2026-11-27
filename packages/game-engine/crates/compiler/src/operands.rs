@@ -2052,6 +2052,7 @@ pub(crate) fn lower_x_binding(
     }
     match &*binding.value {
         ast::Amount::Count(count) => lower_count(count, context).map(Some),
+        amount @ ast::Amount::CounterCount(_) => source_counter_amount(amount).map(Some),
         ast::Amount::AttributeExtremum(extremum) => {
             if extremum.extremum != ast::AmountAttributeExtremumExtremum::Maximum {
                 return Err(operand("bindings", "attribute_extremum:minimum"));
@@ -2264,4 +2265,68 @@ pub(crate) fn is_source_creature(subject: &TriggerObject) -> bool {
 
 pub(crate) fn is_other_creature(subject: &TriggerObject) -> bool {
     matches!(subject,TriggerObject::Filter {filter,count} if filter.properties.is_none() && filter.other && filter.types==["creature"] && filter.control.is_none() && !filter.non_token && filter.non_subtypes.is_empty() && fixed_one(count))
+}
+
+/// CR 122.1, 608.2h: "[N for each | the number of] [kind] counter(s) on
+/// this [permanent]", read as the verb is performed. Other recipients,
+/// "any" kinds and totals reject.
+pub(crate) fn source_counter_amount(amount: &ast::Amount) -> Result<kir::Amount, Failure> {
+    let (factor, count) = match amount {
+        ast::Amount::CounterCount(count) => (1, &**count),
+        ast::Amount::Product(product) => match product.factors.as_slice() {
+            [ast::Amount::Fixed(n), ast::Amount::CounterCount(count)]
+                if n.value > 0 && u32::try_from(n.value).is_ok() =>
+            {
+                (n.value, &**count)
+            }
+            _ => return Err(operand("amount", "product")),
+        },
+        other => return Err(operand("amount", variant(other))),
+    };
+    let ast::AmountCounterCount { counter, on, total } = count;
+    let (ast::ObjectFilterCounterConstraintsItemCounter::CounterSpec(spec), None) =
+        (&**counter, total)
+    else {
+        return Err(operand("amount", "counter_count:kind"));
+    };
+    let ast::AmountCounterCountOn::ObjectRef(on) = &**on else {
+        return Err(operand("amount", "counter_count:player"));
+    };
+    if !is_this_permanent(on) {
+        return Err(operand("amount", "counter_count:recipient"));
+    }
+    let of = kir::Amount::CountersOn {
+        object: kir::Ref::Source,
+        counter: object_counter_kind(&spec.r#type)?,
+    };
+    Ok(if factor == 1 {
+        of
+    } else {
+        kir::Amount::Times {
+            factor: Quantity::from(factor),
+            of: Box::new(of),
+        }
+    })
+}
+
+/// CR 122.1: the permanent counter kinds whose rules the engine executes.
+pub(crate) fn object_counter_kind(name: &str) -> Result<kir::CounterKind, Failure> {
+    match name {
+        "+1/+1" => Ok(kir::CounterKind::PlusOnePlusOne),
+        "-1/-1" => Ok(kir::CounterKind::MinusOneMinusOne),
+        // CR 122.1b: a keyword counter grants exactly its keyword; the
+        // kernel check admits only keywords whose grant the runtime executes.
+        name @ ("flying" | "first strike" | "double strike" | "deathtouch" | "haste"
+        | "hexproof" | "indestructible" | "lifelink" | "menace" | "reach" | "trample"
+        | "vigilance") => Ok(kir::CounterKind::Keyword {
+            keyword: serde_json::from_value(serde_json::Value::String(name.into()))
+                .map_err(|_| unsupported("effects.steps", "verb:put-counters:counter_kind"))?,
+        }),
+        "stun" => Ok(kir::CounterKind::Stun),
+        name if kir::plain_counter_name(name) => Ok(kir::CounterKind::Named { name: name.into() }),
+        _ => Err(unsupported(
+            "effects.steps",
+            "verb:put-counters:counter_kind",
+        )),
+    }
 }

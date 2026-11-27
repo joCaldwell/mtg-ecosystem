@@ -36,7 +36,11 @@ impl RulesTxn {
         if face_down {
             return self.face_down_announcement(player, object);
         }
-        let definition = self.face_definition(card, face)?;
+        let root = self.definition(card)?;
+        if face == CardFace::Back && !root.faces().any(|candidate| candidate == face) {
+            return Err("card cannot be cast as that face".into());
+        }
+        let definition = root.face(face).ok_or("missing cast face")?;
         // CR 702.34a: flashback permits casting from its owner's graveyard.
         // CR 715.3d: an exiled Adventure's controller may cast its card, but
         // not as an Adventure.
@@ -202,9 +206,19 @@ impl RulesTxn {
         card: &ObjectHandle,
         x: Option<&Quantity>,
     ) -> Result<ManaCost, String> {
+        self.quote_face_cast_cost(viewer, card, CardFace::Front, x)
+    }
+
+    /// CR 709.3a: quote a permitted half at its own locked spell cost.
+    pub fn quote_face_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+        face: CardFace,
+        x: Option<&Quantity>,
+    ) -> Result<ManaCost, String> {
         let object = self.resolve_handle(viewer, card)?;
-        let proposal =
-            self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
+        let proposal = self.priority_spell_announcement(viewer, object.card, face, false)?;
         let source = ObjectId {
             face: proposal.face,
             ..proposal.original_object

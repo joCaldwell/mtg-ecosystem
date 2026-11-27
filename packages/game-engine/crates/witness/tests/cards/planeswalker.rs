@@ -311,7 +311,7 @@ fn planeswalker_unblocked_attack_triggers_for_its_defending_player() {
     }
 }
 
-// CR 702.19b,d: a legal blocker receives lethal before excess reaches the
+// CR 702.19b, 506.4c: a legal blocker receives lethal before excess reaches the
 // attacked planeswalker. Its departure gives no excess to the defending player.
 #[test]
 fn planeswalker_trample_excess_follows_the_attacked_permanent() {
@@ -402,19 +402,27 @@ fn planeswalker_loyalty_use_is_public_and_resets_on_reentry() {
     };
     assert!(loyalty_is_used(&g));
     checked(&g);
-    let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-    forged["state"]["objects"]["0"]
-        .as_object_mut()
-        .unwrap()
-        .remove("loyalty_used_turn");
-    forged["state_sha256"] = digest(&forged["state"]).unwrap().into();
-    let error = Game::restore(g.prepared.as_ref().clone(), &forged.to_string())
-        .err()
-        .expect("restored paid loyalty activation without its turn marker");
-    assert!(
-        error.contains("snapshot paid loyalty activation lacks its turn marker"),
-        "{error}"
-    );
+    let snapshot: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+    for marker in [
+        None,
+        Some(g.state.rules.turn.number.checked_sub(1).unwrap()),
+    ] {
+        let mut forged = snapshot.clone();
+        let object = forged["state"]["objects"]["0"].as_object_mut().unwrap();
+        if let Some(turn) = marker {
+            object.insert("loyalty_used_turn".into(), turn.into());
+        } else {
+            object.remove("loyalty_used_turn");
+        }
+        forged["state_sha256"] = digest(&forged["state"]).unwrap().into();
+        let error = Game::restore(g.prepared.as_ref().clone(), &forged.to_string())
+            .err()
+            .expect("restored paid loyalty activation without its current turn marker");
+        assert!(
+            error.contains("snapshot paid loyalty activation lacks its turn marker"),
+            "{error}"
+        );
+    }
 
     resolve(&mut g);
     rescue(&mut g, 1, 0, 2);
@@ -435,5 +443,62 @@ fn planeswalker_loyalty_use_is_public_and_resets_on_reentry() {
     resolve(&mut g);
     assert_eq!(jace_loyalty(&g, 0), 5.into());
     assert!(loyalty_is_used(&g));
+    checked(&g);
+}
+
+// CR 701.34a: loyalty is one of the counter kinds proliferate can add.
+#[test]
+fn planeswalker_loyalty_is_proliferated_once() {
+    let plan = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/phase1-r5/2fc6de19-9d04-422b-90bc-eee2f9f8c84c.json"
+    ));
+    let mut g = game(
+        &[JACE, plan],
+        &[
+            ("Jace Beleren", 0, Zone::Battlefield),
+            ("Contentious Plan", 0, Zone::Hand { owner: PlayerId(0) }),
+            ("Island", 0, Zone::Battlefield),
+            ("Island", 0, Zone::Battlefield),
+        ],
+    );
+    Driver::cast(&mut g, CardId(1));
+    Driver::pay(&mut g, &[2, 3]);
+    let d = until(&mut g, &Reason::Proliferate);
+    let jace = Driver::object(&g, 0);
+    let answer = d.pick_one(&Candidate::Object { object: jace }).unwrap();
+    g.respond(d.player, d.id, answer).unwrap();
+    resolve(&mut g);
+    assert_eq!(jace_loyalty(&g, 0), 4.into());
+    assert!(view(&g, 0).objects.iter().all(|o| {
+        o.counters
+            .iter()
+            .all(|counter| counter.kind != mtg_contracts::kir::CounterKind::Loyalty)
+    }));
+    checked(&g);
+}
+
+// CR 702.105a: a planeswalker's controller is a defending player, but an
+// attack on their planeswalker does not trigger dethrone.
+#[test]
+fn planeswalker_defender_does_not_trigger_dethrone() {
+    let cutthroat = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/phase1-r5/9a133991-8a7a-4bfd-b0ae-d76433450c03.json"
+    ));
+    let mut g = game(
+        &[JACE, cutthroat],
+        &[
+            ("Grenzo's Cutthroat", 0, Zone::Battlefield),
+            ("Jace Beleren", 1, Zone::Battlefield),
+        ],
+    );
+    attack_planeswalker(&mut g, 1);
+    let d = resolve(&mut g);
+    assert_eq!(d.reason, Reason::Priority);
+    assert_eq!(
+        g.state.rules.objects[&CardId(0)].plus_one_counters,
+        0.into()
+    );
     checked(&g);
 }

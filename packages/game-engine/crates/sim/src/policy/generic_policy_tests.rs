@@ -44,6 +44,7 @@ mod board {
             loyalty_counters: 0.into(),
             loyalty_used_this_turn: false,
             plus_one_counters: 0.into(),
+            counters: vec![],
             characteristics: Some(d.characteristics.clone()),
             marked_damage: 0.into(),
             attack_ready: true,
@@ -137,6 +138,70 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
         targets: vec![],
     });
     v.objects.push(o);
+}
+
+#[test]
+fn split_development_plays_a_land_first_and_retries_only_the_other_half() {
+    let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r5/fcdeb83f-531c-4087-9254-7f19eb065f00.json"
+        ),
+    ) else {
+        panic!("expected the frozen split spell")
+    };
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+
+    let mut v = board::view();
+    let seat = v.viewer;
+    v.active = Some(seat);
+    v.turn.step = TurnStep::PrecombatMain;
+    let hand = Zone::Hand { owner: seat };
+    let mut spell = board::card(&catalog, "Assault", seat.0, hand);
+    let printed = catalog.definition_by_oracle_id(&spell.oracle_id).unwrap();
+    spell.characteristics = Some(printed.card_characteristics().into_owned());
+    spell.faces = serde_json::from_value(serde_json::json!({
+        "layout": printed.layout, "front_name": printed.name,
+        "back_name": printed.back_face.as_ref().unwrap().name, "active_face": null
+    }))
+    .unwrap();
+    let land = board::card(&catalog, "Forest", seat.0, hand);
+    let front = Action::Cast {
+        card: spell.handle.clone(),
+    };
+    let back = Action::CastBackFace {
+        card: spell.handle.clone(),
+    };
+    let play = Action::PlayLand {
+        object: land.handle.clone(),
+    };
+    v.objects.extend([spell, land]);
+    let player = v.players.iter_mut().find(|p| p.player == seat).unwrap();
+    player.mana.insert(Color::R, 3.into());
+    player.mana.insert(Color::G, 1.into());
+    let mut obs = observation(v);
+    obs.decision = Some(pick_fixture(
+        seat,
+        Reason::Priority,
+        [play.clone(), front.clone(), back.clone()]
+            .into_iter()
+            .map(|action| Candidate::Action { action })
+            .collect(),
+        vec![mtg_core::SlotRole::Choice],
+        vec![],
+    ));
+    let mut policy = strategy(&catalog);
+    assert_eq!(policy.priority(&obs).unwrap(), play);
+    obs.view.turn.lands_played = 1;
+    assert_eq!(policy.priority(&obs).unwrap(), front);
+    policy.memory.payment.abandoned(seat);
+    assert_eq!(policy.priority(&obs).unwrap(), back);
+    policy.memory.payment.abandoned(seat);
+    assert_eq!(policy.priority(&obs).unwrap(), Action::Pass);
 }
 
 #[test]
