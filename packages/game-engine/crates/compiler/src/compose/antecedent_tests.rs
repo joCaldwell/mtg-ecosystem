@@ -1,7 +1,8 @@
 //! Pronoun antecedents on exact frozen R5 rows, lowered through the
 //! composition entry points without the archive's reference resolution, so
 //! the Rust rule must be right on its own. Each case has a neighbour with
-//! the opposite outcome. CR 110.1, 201.5, 400.7, 608.2b-c, 608.2h, 700.2.
+//! the opposite outcome. CR 110.1, 201.5, 400.7, 608.2b-c, 608.2h, 700.2,
+//! 700.7.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::reference_trace::{Bound, Resolved, traced};
@@ -333,4 +334,70 @@ fn up_to_one_target_life_reads_admit_only_the_target_read_itself() {
             )
         );
     }
+}
+
+/// CR 113.10, 700.7: "this creature" inside a quoted granted ability names
+/// the object that has the ability, not the granting block's source, so a
+/// later bare "it" cannot mean the source through it. The same reference
+/// outside the quotes still names the source.
+#[test]
+fn a_quoted_abilitys_this_does_not_name_the_source() {
+    let this = serde_json::json!({"ref": "this", "noun": "creature"});
+    let quoted = serde_json::json!({
+        "effect": "gain-abilities",
+        "what": {"ref": "target", "filter": {"types": ["creature"]}},
+        "abilities": [{"gained": "quoted", "ability": {
+            "kind": "activated",
+            "effects": [{"steps": [{"effect": "sacrifice", "what": this}]}],
+        }}],
+        "duration": {"until": "end-of-turn"},
+    });
+    let introduced = crate::ingest::Introduced::of_step(&quoted);
+    assert!(introduced.object_target);
+    assert!(!introduced.source);
+    // Neighbour: the same grant to this creature itself names the source.
+    let mut own = quoted.clone();
+    own["what"] = this;
+    assert!(crate::ingest::Introduced::of_step(&own).source);
+}
+
+/// CR 700.2, 608.2h: "you gain life equal to the life lost this way" reads
+/// the life loss of its own mode. In a selection where an earlier chosen
+/// mode made opponents lose life, a later mode cannot read that loss, so it
+/// rejects; the same two steps in one mode link.
+#[test]
+fn life_lost_this_way_reads_only_its_own_mode() {
+    let lose = serde_json::json!({"steps": [{"effect": "lose-life",
+        "who": {"player": "each-opponent"}, "amount": {"amount": "fixed", "value": 2}}]});
+    let gain = serde_json::json!({"steps": [{"effect": "gain-life", "who": {"player": "you"},
+        "amount": {"amount": "event-quantity", "event": "life-change", "scope": "this-way",
+            "change": "lost"}}]});
+    let mut selection = SpellProgram::instructions(SpellTiming::Instant);
+    modal::append_mode(&mut selection, std::slice::from_ref(&lose), 0).unwrap();
+    assert!(
+        modal::append_mode(&mut selection, std::slice::from_ref(&gain), 0).is_err_and(|failure| {
+            failure
+                .reason
+                .contains("no dominating life-change projection")
+        })
+    );
+    // Neighbour: one mode prints both steps, so the gain reads the loss.
+    let mut selection = SpellProgram::instructions(SpellTiming::Instant);
+    modal::append_mode(&mut selection, &[lose, gain], 0).unwrap();
+    let [
+        Instruction::Kernel {
+            node: kir::Node::Seq(nodes),
+            ..
+        },
+    ] = selection.instructions.as_slice()
+    else {
+        panic!("one linked life change: {:?}", selection.instructions);
+    };
+    assert!(matches!(
+        nodes.as_slice(),
+        [
+            kir::Node::Do(Verb::LoseLife { .. }),
+            kir::Node::Do(Verb::GainLife { .. })
+        ]
+    ));
 }

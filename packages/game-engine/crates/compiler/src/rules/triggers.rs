@@ -150,7 +150,7 @@ pub(crate) fn cast_event(
     })
 }
 
-/// CR 201.5, 603.2: the trigger's bindings, and whether its event object is
+/// CR 201.5, 700.7, 603.2: the trigger's bindings, and whether its event object is
 /// the source itself ("when this creature enters").
 pub(crate) fn trigger_scope(condition: &TriggerCondition) -> Scope {
     let player = trigger_player_binding(condition);
@@ -177,7 +177,7 @@ pub(crate) fn trigger_scope(condition: &TriggerCondition) -> Scope {
             })
             .fold(0u8, |bits, kind| bits | 1 << kind.card_type_index())
     });
-    // CR 201.5: a source the condition names besides its event object
+    // CR 201.5, 700.7: a source the condition names besides its event object
     // ("a spell that targets this creature", "this creature becomes blocked
     // by a creature") is a candidate for a later bare "it". "Another"
     // excludes the source rather than naming it.

@@ -37,11 +37,11 @@ pub(crate) struct StepCx<'a> {
     pub program: &'a mut SpellProgram,
     pub slots: &'a mut BTreeMap<String, u32>,
     pub player_binding: PlayerBinding,
-    /// CR 201.5: the trigger's event object is the source itself.
+    /// CR 201.5, 700.7: the trigger's event object is the source itself.
     pub event_is_source: bool,
     /// The card types the trigger's event object pattern names (bits).
     pub event_types: u8,
-    /// CR 201.5: the trigger condition names the source apart from its
+    /// CR 201.5, 700.7: the trigger condition names the source apart from its
     /// event object.
     pub source_named: bool,
     /// CR 700.2: the current mode's first target and instruction.

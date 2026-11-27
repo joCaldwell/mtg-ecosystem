@@ -263,7 +263,7 @@ deals damage equal to its power"). Otherwise the antecedent is the one announced
 target whose domain the noun admits: a battlefield permanent of the noun's type,
 a card outside the battlefield for `that card`, or a stack spell for `that spell`.
 An earlier step's "this creature" (or the card's name) is a candidate for a bare
-`it` (CR 201.5) that ties with a target and outranks the event object. Failing
+`it` (CR 201.5, 700.7) that ties with a target and outranks the event object. Failing
 those, it is the trigger's event object when its pattern's types admit the noun
 and it is not the source; a source the trigger condition names besides that
 object ("a spell that targets this creature", "this creature becomes blocked by

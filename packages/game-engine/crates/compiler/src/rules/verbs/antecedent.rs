@@ -1,5 +1,5 @@
 //! The antecedent of a singular object pronoun (CR 608.2c, 608.2h, 400.7,
-//! 201.5, 700.2).
+//! 201.5, 700.2, 700.7).
 //!
 //! "It" and "that <noun>" name one object the block already introduced:
 //! an announced target, the trigger's event object, or the object
@@ -116,7 +116,7 @@ fn target_class(target: &TargetSpec) -> TargetClass {
 /// admits, else the trigger's event object of an admitted type other than
 /// the source. Two admissible targets, or any untargeted object an earlier
 /// step named, make it ambiguous. A bare "it" may also mean a source the
-/// block names apart from its event object (CR 201.5): an earlier step's
+/// block names apart from its event object (CR 201.5, 700.7): an earlier step's
 /// "this creature" is nearer than the event object but competes with a
 /// target, and the trigger condition's ("a spell that targets this
 /// creature") competes with the event object. With neither, "it" in a
@@ -232,7 +232,7 @@ fn bind(
             TargetClass::Other => competing = true,
         }
     }
-    // CR 201.5: the source is "this <type>" or its name in Oracle text, so
+    // CR 201.5, 700.7: the source is "this <type>" or its name in Oracle text, so
     // only a bare "it" refers back to it; "that <noun>" means another
     // object. When the event object is the source, it is that object.
     let bare = noun.is_none() && !cx.event_is_source;
