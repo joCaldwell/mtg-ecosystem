@@ -609,7 +609,9 @@ pub enum Verb {
     /// CR 701.9.
     Discard {
         player: PlayerExpr,
-        amount: Amount,
+        /// Omitting the count discards the entire hand without a choice.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<Amount>,
         #[serde(default, skip_serializing_if = "is_false")]
         random: bool,
     },

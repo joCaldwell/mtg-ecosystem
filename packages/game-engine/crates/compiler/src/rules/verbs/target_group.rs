@@ -216,7 +216,7 @@ pub(super) fn lower(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instr
     if step.damage().is_some() && cx.context != Context::Spell {
         return Err(operand("target", format!("{}:damage_source", group.code())));
     }
-    // CR 122.6, 608.2c: counters put on each of several targets are one
+    // CR 608.2f, 603.2c: counters put on each of several targets are one
     // simultaneous placement event over the group's legal members.
     let counters = matches!(step.effect(), Some(ast::Effect::PutCounters(_)));
     if group.count > MAX_GROUP {
@@ -264,7 +264,7 @@ pub(super) fn lower(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instr
     Ok(Some(batch(cx, group.count, out)))
 }
 
-/// CR 122.6, 608.2b: the per-member placements of one counted occurrence,
+/// CR 608.2b, 608.2f: the per-member placements of one counted occurrence,
 /// identical but for their slot, become one placement on every legal member.
 fn placement(cx: &StepCx<'_>, members: &[Instruction]) -> Result<Instruction, Failure> {
     let mut shape = None;

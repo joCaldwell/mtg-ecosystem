@@ -803,9 +803,7 @@ impl RulesTxn {
             | InterveningCheck::ControlsOwnCommander { passed: false, .. }
             | InterveningCheck::OpponentControlsMore { passed: false, .. },
         ) = &frame.condition_check
-            && (frame.cursor != 0
-                || frame.random_discard.is_some()
-                || frame.group_discard.is_some())
+            && (frame.cursor != 0 || frame.random_discard.is_some())
         {
             return Err("snapshot progressed after failed intervening comparison".into());
         }

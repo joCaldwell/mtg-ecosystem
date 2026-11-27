@@ -90,8 +90,22 @@ where
 impl Task {
     pub(in crate::engine) fn sacrifice_choices(&self) -> &[(PlayerId, ObjectId)] {
         match &self.stage {
-            Stage::Step(StepProgress::Collect { chosen, .. }) => chosen,
+            Stage::Step(StepProgress::Collect {
+                chosen,
+                private: false,
+                ..
+            }) => chosen,
             _ => &[],
+        }
+    }
+
+    pub(in crate::engine) fn random_stream(&self) -> Option<u64> {
+        match &self.stage {
+            Stage::Step(StepProgress::Sample {
+                sampling: Some(progress),
+                ..
+            }) => Some(progress.stream),
+            _ => None,
         }
     }
 
@@ -217,6 +231,7 @@ impl RulesTxn {
         let entry = self.entry(frame.stack_id)?;
         Ok(match set {
             SetExpr::Matching { zone, filter } => self.kernel_set(frame, zone, filter)?.0,
+            SetExpr::Result { step, filter } => self.result_cards(task, *step, filter)?,
             SetExpr::One {
                 object: Ref::Source,
             } => vec![entry.source],
@@ -590,14 +605,18 @@ impl RulesTxn {
             }
             (
                 Stage::Step(progress @ StepProgress::Collect { .. }),
-                Node::Do(Verb::Sacrifice { .. }),
+                Node::Do(Verb::Sacrifice { .. } | Verb::Discard { .. }),
             ) if depth == self.state.rules.frames.len() => self.validate_collect(task, progress),
+            (
+                Stage::Step(progress @ StepProgress::Sample { .. }),
+                Node::Do(Verb::Discard { random: true, .. }),
+            ) if depth == self.state.rules.frames.len() => self.validate_sample(task, progress),
             // A specialist transaction holds this saved task as its parent.
             (
                 Stage::Step(
                     StepProgress::Damage { .. }
                     | StepProgress::Counters { .. }
-                    | StepProgress::Sacrifice { .. },
+                    | StepProgress::CommitMoves { .. },
                 ),
                 Node::Do(_),
             ) if self.specialist_resumes(depth) => Ok(()),
@@ -712,6 +731,7 @@ impl RulesTxn {
         match &task.stage {
             Stage::Step(StepProgress::Sequence { .. }) => return self.step_sequence(task),
             Stage::Step(StepProgress::Collect { .. }) => return self.step_collect(task),
+            Stage::Step(StepProgress::Sample { .. }) => return self.step_sample(task),
             Stage::Step(_) => return Err("a specialist transaction resumes this step".into()),
             _ => {}
         }
@@ -1091,20 +1111,6 @@ impl RulesTxn {
                 .into_iter()
                 .any(|id| self.current(id).is_ok()),
             Node::Do(verb) if verb.is_evaluated() => self.evaluated_performable(task, verb)?,
-            Node::Do(Verb::Mill { player, amount }) => {
-                let amount = self.control_amount(task, amount)?;
-                amount > Quantity::zero()
-                    && self.control_players(task, player)?.into_iter().any(|p| {
-                        let library = self
-                            .state
-                            .rules
-                            .objects
-                            .values()
-                            .filter(|o| o.zone == Zone::Library { owner: p })
-                            .count();
-                        self.is_live(p) && Quantity::from(library as i64) >= amount
-                    })
-            }
             // Composition admits optional bodies of the verbs above only
             // (`compose::control::decided`); nested control decides its own
             // choices when it runs.

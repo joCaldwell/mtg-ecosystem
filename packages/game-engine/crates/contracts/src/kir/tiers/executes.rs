@@ -331,6 +331,47 @@ pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<()
     validate_target_bindings(p, None, false)
 }
 
+/// CR 608.2b, 608.2h: every player and amount slot of a life or draw
+/// signature skips the verb when its operand is absent, so reading the
+/// unchosen target ("gain life equal to that creature's power", "its
+/// controller loses 2 life") does nothing on its own. That holds only for
+/// an operand that is the target read itself. Inside a sum, difference or
+/// product the other terms still have values ("gain 2 life plus that
+/// creature's power" would gain 2), which skipping the whole verb would
+/// lose, so such an operand rejects.
+fn skips_on_absent_target(node: &kir::Node) -> bool {
+    let kir::Node::Do(verb) = node else {
+        return false;
+    };
+    let mut verb = verb.clone();
+    let (kir::Verb::GainLife { player, amount }
+    | kir::Verb::LoseLife { player, amount }
+    | kir::Verb::Draw { player, amount }) = &mut verb
+    else {
+        return false;
+    };
+    if matches!(
+        amount,
+        kir::Amount::StatOf {
+            object: kir::Ref::Target { .. },
+            ..
+        }
+    ) {
+        *amount = kir::Amount::Fixed { value: 1.into() };
+    }
+    if matches!(
+        player,
+        kir::PlayerExpr::ControllerOf {
+            object: kir::Ref::Target { .. }
+        } | kir::PlayerExpr::OwnerOf {
+            object: kir::Ref::Target { .. }
+        }
+    ) {
+        *player = kir::PlayerExpr::EachPlayer;
+    }
+    kir::target_slots(&kir::Node::Do(verb)).is_empty()
+}
+
 fn validate_target_bindings(
     p: &SpellProgram,
     context: Option<Context>,
@@ -413,7 +454,7 @@ fn validate_target_bindings(
                         && group_leaf_shape(node) == shape
                 })
             });
-        // CR 122.6, 608.2b: counters on each legal member are one
+        // CR 608.2f, 603.2c: counters on each legal member are one
         // simultaneous placement over the whole group.
         let placement = battlefield
             && matches!(targeted.as_slice(),
@@ -444,16 +485,7 @@ fn validate_target_bindings(
                         | kir::Verb::PutCounters { on: what, .. }
                         | kir::Verb::ModifyUntil { what, .. }
                     ) if *what == kir::SetExpr::target(0))
-                        // CR 608.2b, 608.2h: every player and amount slot of
-                        // a life or draw signature skips the verb when its
-                        // operand is absent, so reading the unchosen target
-                        // ("gain life equal to that creature's power") does
-                        // nothing on its own.
-                        && !matches!(node, kir::Node::Do(
-                            kir::Verb::GainLife { .. }
-                            | kir::Verb::LoseLife { .. }
-                            | kir::Verb::Draw { .. }
-                        ))
+                        && !skips_on_absent_target(node)
                 }))
     {
         return cell("target", "up_to_one_requires_independent_object_leaves");

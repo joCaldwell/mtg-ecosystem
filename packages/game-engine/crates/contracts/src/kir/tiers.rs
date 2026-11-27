@@ -159,16 +159,6 @@ pub enum Cell {
     UntapControllerLands,
     /// CR 701.27a,f: a permanent's ability transforms that permanent.
     TransformSource,
-    // CR 701.17: mill.
-    MillController,
-    MillTargetPlayer,
-    MillTargetPlayerX,
-    // CR 701.9: discard.
-    DiscardController,
-    DiscardDamagedPlayer,
-    DiscardTarget,
-    DiscardTargetRandom,
-    DiscardGroup,
     // CR 701.21: sacrifice.
     /// CR 702.86a, 508.5: an attack trigger's defending player sacrifices N
     /// permanents of their choice, or every one they control if fewer.
@@ -350,7 +340,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DamageController
         | C::MoveTargetOwnerHand
         | C::MoveTargetOwnerLibraryTop
-        | C::DiscardController => Tiers::SEARCH_HOSTING,
+        | C::Evaluated(EvaluatedVerb::Discard) => Tiers::SEARCH_HOSTING,
         C::DrawTargetPlayer
         | C::DestroyTargetCreature
         | C::DestroyAllCreatures
@@ -391,13 +381,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::UntapSet
         | C::UntapControllerLands
         | C::TransformSource
-        | C::MillController
-        | C::MillTargetPlayer
-        | C::MillTargetPlayerX
-        | C::DiscardDamagedPlayer
-        | C::DiscardTarget
-        | C::DiscardTargetRandom
-        | C::DiscardGroup
         | C::PredefinedTokens
         | C::Fight
         | C::Populate

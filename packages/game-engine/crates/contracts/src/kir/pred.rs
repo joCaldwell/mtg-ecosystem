@@ -156,6 +156,9 @@ pub enum SetExpr {
     /// CR 115.3, 608.2b: the still-legal announced objects of a counted
     /// target occurrence's slots, acted on together as one event.
     Targets { slots: Vec<u32> },
+    /// Characteristic reads of the actual publicly moved cards (CR 608.2h).
+    /// Only count and existence readers accept this set.
+    Result { step: u32, filter: Pred },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

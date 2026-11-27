@@ -220,10 +220,10 @@ tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Stage 1 [rework](game-engine-rework.md) contract. Draw, life, damage, permanent
-counter placement and sacrifice use `kir::signatures`. `kir::Verb` remains
-the action representation on the wire. Damage prevention and commit, counter
-placement and graveyard moves retain their transaction authorities.
+Draw, life, damage, permanent counter placement, sacrifice, discard and mill
+use `kir::signatures`. `kir::Verb` remains the action representation on the
+wire. Damage prevention and commit, counter placement and graveyard moves
+retain their transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env`
@@ -262,15 +262,31 @@ Inside a step performed by an object, `its` means that performer ("this creature
 deals damage equal to its power"). Otherwise the antecedent is the one announced
 target whose domain the noun admits: a battlefield permanent of the noun's type,
 a card outside the battlefield for `that card`, or a stack spell for `that spell`.
-Failing that, it is the trigger's event object when its pattern's types admit
-the noun and it is not the source. `It` in a trigger on the source itself means
-that event object. Two admissible targets, a player-or-object target, or an
-untargeted object an earlier printed step named (chosen, created, revealed or
-set) reject as `operand:object:ambiguous_antecedent`. No candidate rejects as
-`unbound_antecedent`. A step that acts on the pronoun also rejects when it names
-a card or spell target, or a target an earlier instruction moved (CR 400.7). The
-frozen R5 resolution is not consulted for this choice.
+An earlier step's "this creature" (or the card's name) is a candidate for a bare
+`it` (CR 201.5, 700.7) that ties with a target and outranks the event object. Failing
+those, it is the trigger's event object when its pattern's types admit the noun
+and it is not the source; a source the trigger condition names besides that
+object ("a spell that targets this creature", "this creature becomes blocked by
+a creature") ties with it. `That <noun>` never means the source. `It` in a
+trigger on the source itself means that event object. Two admissible targets, a
+tie, a player-or-object target, or an untargeted object an earlier printed step
+named (chosen, created, revealed or set) reject as
+`operand:object:ambiguous_antecedent`. No candidate rejects as
+`unbound_antecedent`. A step that acts on the pronoun as a permanent never binds
+a cast spell (CR 110.1), and rejects when it names a card or spell target or any
+object an earlier instruction moved, destroyed, sacrificed or countered
+(CR 400.7). In a selection of several chosen modes, each mode sees only its own
+targets and instructions (CR 700.2). The frozen R5 resolution is not consulted
+for this choice.
 `scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
+
+**Actual card results.** An unqualified “discarded this way” or “milled this
+way” in a count or condition names the unique earlier direct producer of that
+event in the same resolving block and chosen mode (CR 608.2c,h, 700.2). The
+checked sequence reads its actual object set and count. Type, subtype and other
+card predicates read the exact public successor or its known characteristics
+when it has left (CR 400.7, 701.9c, 701.17c). An unrevealed hidden destination supplies no
+characteristics. A missing or competing producer rejects at the linked operand.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write. One
@@ -373,8 +389,8 @@ target's block-relative slot must be the one announced for its selection.
 Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
 target bind through the [antecedent rule](#verb-signatures). Counters on each of
 several targets lower to one `PutCounters` over `SetExpr::Targets`, a single
-simultaneous placement on the counted occurrence's legal members (CR 122.6,
-608.2b); per-member leaves would split it into several events.
+simultaneous placement on the counted occurrence's legal members (CR 608.2f,
+603.2c); per-member leaves would split it into several events.
 
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.

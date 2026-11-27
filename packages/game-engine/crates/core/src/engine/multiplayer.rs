@@ -190,7 +190,6 @@ impl RulesTxn {
         let legal_targets = self.announced_target_legality(&stack)?;
         self.rules_mut().frame = Frame::Resolve {
             frame: Resolving {
-                group_discard: None,
                 random_discard: None,
                 entrant_draw: None,
                 fight: None,
@@ -558,7 +557,6 @@ impl RulesTxn {
             frame.random_discard = None;
         }
         self.revalidate_commander_departure()?;
-        self.remove_group_discard_recipient(player);
         self.revalidate_actions_departure()?;
 
         if !self.state.rules.simultaneous_losses {

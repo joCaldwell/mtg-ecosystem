@@ -58,7 +58,7 @@ fn rules_text(line: &str) -> String {
 }
 
 /// CR 109.5, 608.2d: R5 drops the chooser from "you may have [player]
-/// [draw/gain/lose]." Recover it for a single evaluated step from its
+/// [draw/gain/lose/mill]." Recover it for a single evaluated step from its
 /// certified sentence. The original archived AST remains intact.
 pub(super) fn bind_evaluated_choosers(
     canonical: &str,
@@ -86,7 +86,7 @@ pub(super) fn bind_evaluated_choosers(
         };
         if matches!(
             step["effect"].as_str(),
-            Some("draw" | "gain-life" | "lose-life")
+            Some("draw" | "gain-life" | "lose-life" | "mill")
         ) && step["optional"] == true
             && step.get("decidedBy").is_none()
         {
