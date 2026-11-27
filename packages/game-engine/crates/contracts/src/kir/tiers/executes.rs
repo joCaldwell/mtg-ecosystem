@@ -756,7 +756,37 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
     Ok(())
 }
 
+/// The ability's mana cost, when it has a mana window.
+fn activation_mana(cost: &ActivationCost) -> Option<&ManaCost> {
+    match cost {
+        ActivationCost::Mana { cost }
+        | ActivationCost::DiscardSource { mana: cost }
+        | ActivationCost::ExileSource { mana: cost } => Some(cost),
+        ActivationCost::SacrificePermanent { mana, .. } => mana.as_ref(),
+        ActivationCost::ChooseObjects(cost) => cost.mana.as_ref(),
+        ActivationCost::Composite { costs } => costs.mana.as_ref(),
+        ActivationCost::SacrificeSource
+        | ActivationCost::TapSource
+        | ActivationCost::TapPayLifeSacrificeSource { .. } => None,
+    }
+}
+
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 107.3a, 107.4e-f, 602.2b: a battlefield ability's X and hybrid or
+    // Phyrexian symbols are announced before its targets and paid in its
+    // mana window; a modal ability or another zone has no announcement.
+    if (a.x_mana_cost || !a.hybrid_mana.is_empty())
+        && (a.functioning_zone != FunctioningZone::Battlefield
+            || a.modal.is_some()
+            || activation_mana(&a.cost).is_none()
+            || !matches!(
+                a.cost,
+                ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
+            )
+            || !a.hybrid_mana.iter().all(hybrid_symbol))
+    {
+        return cell("activated", "announced_mana");
+    }
     // CR 602.2b, 700.2: a modal activation is a battlefield ability whose
     // every selection is checked below as its own program.
     if let Some(modal) = &a.modal {
@@ -890,7 +920,7 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     for p in a.programs() {
         cost(d, a, p)?;
         if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
-            program(p, Context::Activated, None, false)?;
+            program(p, Context::Activated, None, a.x_mana_cost)?;
         }
     }
     Ok(())
@@ -1253,6 +1283,18 @@ fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), Strin
     surfaces(d)
 }
 
+/// CR 107.4e-f: a two-color hybrid symbol names two distinct colors and a
+/// Phyrexian symbol one color and its 2-life alternative.
+fn hybrid_symbol(symbol: &ColorHybridSymbol) -> bool {
+    match symbol.colors {
+        [HybridPayment::Mana(a), HybridPayment::Mana(b)] => {
+            a != b && a != Color::C && b != Color::C
+        }
+        [HybridPayment::Mana(a), HybridPayment::PayTwoLife] => a != Color::C,
+        _ => false,
+    }
+}
+
 /// The surface rows alone: card shell, keywords, statics, mana abilities,
 /// activated and triggered abilities and the spell program. The public tier
 /// queries run these, so a definition whose surface no runtime executes
@@ -1267,13 +1309,6 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     // below then requires the land's intrinsic mana (CR 305.6).
     // CR 107.4e-f: a two-color hybrid symbol names two distinct colors and a
     // Phyrexian symbol one color and its 2-life alternative.
-    let hybrid_symbol = |symbol: &ColorHybridSymbol| match symbol.colors {
-        [HybridPayment::Mana(a), HybridPayment::Mana(b)] => {
-            a != b && a != Color::C && b != Color::C
-        }
-        [HybridPayment::Mana(a), HybridPayment::PayTwoLife] => a != Color::C,
-        _ => false,
-    };
     if ((!c.hybrid_mana.is_empty() || d.x_mana_cost) && d.spell.is_none())
         || !c.hybrid_mana.iter().all(hybrid_symbol)
         || c.snow

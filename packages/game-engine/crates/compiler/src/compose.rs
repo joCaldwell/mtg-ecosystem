@@ -372,9 +372,13 @@ fn activation(
     printed: &str,
 ) -> Result<ActivatedAbility, Failure> {
     costs::printed(costs, printed)?;
-    let (cost, functioning_zone) = match costs::exile_source(card, costs)? {
-        Some(exile) => exile,
-        None => (costs::lower(card, costs)?, FunctioningZone::Battlefield),
+    let (cost, functioning_zone, hybrid_mana, x_mana_cost) = match costs::exile_source(card, costs)?
+    {
+        Some((cost, zone)) => (cost, zone, vec![], false),
+        None => {
+            let (cost, hybrid, x) = costs::announced(card, costs)?;
+            (cost, FunctioningZone::Battlefield, hybrid, x)
+        }
     };
     // CR 608.2c: only sacrificing this exact source proves a first pronoun.
     let first_it_is_self = matches!(cost, ActivationCost::SacrificeSource)
@@ -410,8 +414,8 @@ fn activation(
         PlayerBinding::Unbound,
     )?;
     Ok(ActivatedAbility {
-        x_mana_cost: false,
-        hybrid_mana: vec![],
+        x_mana_cost,
+        hybrid_mana,
         modal: None,
         functioning_zone,
         restriction: None,

@@ -1607,7 +1607,40 @@ impl ActivationRestriction {
         }
     }
 }
+impl ActivationCost {
+    /// The fixed mana of this cost; a cost without mana has none.
+    pub fn fixed_mana(&self) -> ManaCost {
+        let zero = || ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![],
+        };
+        match self {
+            Self::SacrificePermanent { mana, .. } => mana.clone().unwrap_or_else(zero),
+            Self::ChooseObjects(cost) => cost.mana.clone().unwrap_or_else(zero),
+            Self::Mana { cost }
+            | Self::DiscardSource { mana: cost }
+            | Self::ExileSource { mana: cost } => cost.clone(),
+            Self::Composite { costs } => costs.mana.clone().unwrap_or_else(zero),
+            Self::SacrificeSource | Self::TapSource | Self::TapPayLifeSacrificeSource { .. } => {
+                zero()
+            }
+        }
+    }
+}
 impl ActivatedAbility {
+    /// CR 107.3a, 107.4e-f, 601.2f, 602.2b: the total mana cost of an
+    /// activation: its fixed mana, each announced hybrid color (a 2-life
+    /// Phyrexian payment adds none) and its announced X.
+    pub fn announced_cost(&self, hybrid: &[HybridPayment], x: Option<&Quantity>) -> ManaCost {
+        let mut total = self.cost.fixed_mana();
+        total
+            .colored
+            .extend(hybrid.iter().filter_map(|payment| payment.color()));
+        if let Some(x) = x {
+            total.generic.add(x);
+        }
+        total
+    }
     /// Executable versions of this ability's program: its selections when
     /// modal, otherwise the program itself.
     pub fn programs(&self) -> impl Iterator<Item = &SpellProgram> {

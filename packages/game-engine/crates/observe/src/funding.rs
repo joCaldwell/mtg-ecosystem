@@ -145,7 +145,9 @@ pub(super) fn funding(
                         _ => None,
                     };
                     let Some(cost) = mana else { return 1 };
-                    (cost.clone(), &[][..])
+                    // CR 107.4e-f: a hybrid announcement is not a fixed cost;
+                    // an X of 0 is the cheapest announcement.
+                    (cost.clone(), a.hybrid_mana.as_slice())
                 }
                 _ => unreachable!(),
             };

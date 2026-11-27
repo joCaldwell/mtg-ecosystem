@@ -802,6 +802,9 @@ impl Strategy<'_> {
                 let mut choices = std::mem::take(&mut self.memory.hybrid_choices);
                 if choices.len() != slots.len() {
                     let (definition, _) = self.top_program(v).ok_or("missing public spell")?;
+                    if definition.characteristics.hybrid_mana.len() != slots.len() {
+                        return Err("unplanned hybrid announcement".into());
+                    }
 
                     let (planned, plan) = mana_policy::hybrid_plan(
                         self.catalog,

@@ -1245,6 +1245,17 @@ impl Strategy<'_> {
         chosen
     }
     fn program_ready(&self, v: &PermittedView, d: &Definition, p: &SpellProgram) -> bool {
+        self.program_ready_with_x(v, d, p, None)
+    }
+    /// `x` is an activation's planned X; a spell's X is chosen from its own
+    /// cast quote.
+    fn program_ready_with_x(
+        &self,
+        v: &PermittedView,
+        d: &Definition,
+        p: &SpellProgram,
+        x: Option<&Quantity>,
+    ) -> bool {
         if p.instructions.iter().any(|i| {
             matches!(
                 i,
@@ -1275,7 +1286,9 @@ impl Strategy<'_> {
         {
             return false;
         }
-        let x = if p.instructions.iter().any(announced_x) {
+        let x = if let Some(x) = x {
+            x.clone()
+        } else if p.instructions.iter().any(announced_x) {
             let Some(x) = self.choose_x(v, d, p, None) else {
                 return false;
             };
@@ -1672,7 +1685,12 @@ impl Strategy<'_> {
             || self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
                 matches!(failed, PaymentAction::Activate(handle, index) if handle == &o.handle && *index == ability)
             })
-            || !self.program_ready(v, d, &a.program)
+            || !self.program_ready_with_x(
+                v,
+                d,
+                &a.program,
+                a.x_mana_cost.then(|| Quantity::from(1)).as_ref(),
+            )
         {
             return None;
         }
@@ -1786,12 +1804,41 @@ impl Strategy<'_> {
             return None;
         }
 
-        self.memory.mana_plan = mana_policy::plan_for(
-            self.catalog,
-            v,
-            &cost,
-            if tap || sac { Some(&o.handle) } else { None },
-        )?;
+        let exclude = (tap || sac).then_some(&o.handle);
+        // CR 107.3a, 107.4e-f, 602.2b: hybrid symbols, then X, are announced
+        // as the ability is activated. The total is the engine's own cost
+        // construction over those announcements.
+        let hybrid = if a.hybrid_mana.is_empty() {
+            vec![]
+        } else {
+            let reserved: Vec<&ObjectHandle> = exclude.into_iter().collect();
+            mana_policy::hybrid_plan_reserved(self.catalog, v, cost, &a.hybrid_mana, &reserved)?.0
+        };
+        let mut x = None;
+        if a.x_mana_cost {
+            // The largest X this view can fund; an X of 0 does nothing.
+            for n in 1..=64i64 {
+                let n = Quantity::from(n);
+                if mana_policy::plan_for(
+                    self.catalog,
+                    v,
+                    &a.announced_cost(&hybrid, Some(&n)),
+                    exclude,
+                )
+                .is_none()
+                {
+                    break;
+                }
+                x = Some(n);
+            }
+            if !self.program_ready_with_x(v, d, &a.program, Some(x.as_ref()?)) {
+                return None;
+            }
+        }
+        let cost = a.announced_cost(&hybrid, x.as_ref());
+        self.memory.mana_plan = mana_policy::plan_for(self.catalog, v, &cost, exclude)?;
+        self.memory.hybrid_choices = hybrid;
+        self.memory.planned_x = x;
         self.memory.payment.exclude = (tap || sac).then(|| o.handle.clone());
         self.memory.payment.announced_cost = Some(cost);
         self.memory.payment.action = Some(PaymentAction::Activate(o.handle.clone(), ability));

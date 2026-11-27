@@ -61,7 +61,7 @@ impl RulesTxn {
                     .last_mut()
                     .ok_or("missing hybrid spell")?
                     .hybrid_colors = colors;
-                self.rules_mut().frame = self.spell_announcement_frame(cast)?;
+                self.rules_mut().frame = self.announcement_frame(cast)?;
             }
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::CounterPlacement { .. } => self.counter_placement_step()?,
