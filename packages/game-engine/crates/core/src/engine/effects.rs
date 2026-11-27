@@ -3522,10 +3522,15 @@ impl RulesTxn {
         if face_down && (transforms > 0 || definition.face_down.is_none()) {
             return Err("captured face-down facts for a card that cannot be face down".into());
         }
-        let mut base = self
-            .fact_definition(source, transforms, face_down)?
-            .characteristics
-            .clone();
+        let face = self.fact_definition(source, transforms, face_down)?;
+        let mut base = if definition.layout == FaceLayout::Split && zone != Zone::Stack {
+            if source.face != CardFace::Front {
+                return Err("captured split half outside the stack".into());
+            }
+            definition.card_characteristics().into_owned()
+        } else {
+            face.characteristics.clone()
+        };
         let has_stats =
             c.has_type(CardKind::Creature) || (zone != Zone::Battlefield && base.power.is_some());
         if has_stats != c.power.is_some() || c.power.is_some() != c.toughness.is_some() {

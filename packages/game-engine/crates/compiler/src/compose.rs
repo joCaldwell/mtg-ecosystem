@@ -948,6 +948,20 @@ fn compose(
                     ));
                 }
             }
+            FaceLayout::Split => {
+                let colors: BTreeSet<_> = front
+                    .characteristics
+                    .colors
+                    .iter()
+                    .chain(&back.characteristics.colors)
+                    .collect();
+                if colors != card.printed_colors().into_iter().flatten().collect() {
+                    return Err(unsupported(
+                        "source.colors",
+                        "split colors disagree with the combined mana cost",
+                    ));
+                }
+            }
             FaceLayout::Single | FaceLayout::ModalDoubleFaced => {}
         }
         front.layout = card.layout;

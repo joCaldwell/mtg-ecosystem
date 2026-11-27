@@ -370,6 +370,9 @@ impl RulesTxn {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
+            if fact.object != entry.source {
+                return Err("stack source fact identity mismatch".into());
+            }
             self.validate_fact_identity(fact)?;
         }
         if entry.kind.is_spell() {

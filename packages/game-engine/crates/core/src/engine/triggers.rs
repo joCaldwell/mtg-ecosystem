@@ -2691,10 +2691,7 @@ impl RulesTxn {
         {
             return Err("snapshot trigger source invariant".into());
         }
-        {
-            self.validate_fact_identity(fact)?;
-        }
-        Ok(())
+        self.validate_fact_identity(fact)
     }
     fn valid_entry_subject(
         &self,

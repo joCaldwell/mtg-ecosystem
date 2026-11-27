@@ -794,7 +794,8 @@ impl RulesTxn {
             layout: definition.layout,
             front_name: definition.name.clone(),
             back_name: back.name.clone(),
-            active_face: object.face(),
+            active_face: (definition.layout != FaceLayout::Split || object.zone == Zone::Stack)
+                .then(|| object.face()),
             on_adventure: object.adventure_player.is_some(),
         }))
     }

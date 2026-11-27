@@ -325,6 +325,8 @@ pub enum Capability {
     TransformingDoubleFacedV1,
     /// CR 715: an adventurer card and its Adventure spell.
     AdventurerV1,
+    /// CR 709.3–4: one split half on the stack, combined elsewhere.
+    SplitV1,
     /// CR 701.27a,f: an ability of a permanent transforms that permanent.
     TransformSourceV1,
 
@@ -1944,6 +1946,8 @@ pub enum FaceLayout {
     Transforming,
     /// CR 715.3: cast normally or as its Adventure (the back part).
     Adventurer,
+    /// CR 709.3–4: two spell halves on one card.
+    Split,
 }
 impl FaceLayout {
     pub fn is_single(&self) -> bool {
@@ -1990,7 +1994,7 @@ pub struct Definition {
     #[serde(default, skip_serializing_if = "FaceLayout::is_single")]
     pub layout: FaceLayout,
     /// The other printed part of a two-part card: a double-faced card's back
-    /// face or an adventurer's Adventure. Only a physical card's root
+    /// face, an adventurer's Adventure, or a split card's right half. Only the root
     /// definition owns it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub back_face: Option<Box<Definition>>,
@@ -2057,14 +2061,47 @@ impl Definition {
     }
 
     /// The parts a player may choose to cast or play from a zone other than
-    /// the battlefield (CR 712.11b, 712.12, 715.3). A transforming card's
+    /// the battlefield (CR 709.3a, 712.11b, 712.12, 715.3). A transforming card's
     /// back face is never chosen this way (CR 712.11).
     pub fn faces(&self) -> impl Iterator<Item = CardFace> {
         let back = matches!(
             self.layout,
-            FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer
+            FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer | FaceLayout::Split
         ) && self.back_face.is_some();
         std::iter::once(CardFace::Front).chain(back.then_some(CardFace::Back))
+    }
+
+    /// Printed characteristics of the card outside the stack (CR 709.4,
+    /// 712.8a, 715.4). Spell proposals always look up the chosen face.
+    pub fn card_characteristics(&self) -> std::borrow::Cow<'_, Characteristics> {
+        let Some(right) = self
+            .back_face
+            .as_deref()
+            .filter(|_| self.layout == FaceLayout::Split)
+        else {
+            return std::borrow::Cow::Borrowed(&self.characteristics);
+        };
+        let right = &right.characteristics;
+        let mut both = self.characteristics.clone();
+        both.mana_cost.generic.add(&right.mana_cost.generic);
+        both.mana_cost.colored.extend(&right.mana_cost.colored);
+        both.hybrid_mana.extend_from_slice(&right.hybrid_mana);
+        both.colors.extend(&right.colors);
+        both.colors.sort();
+        both.colors.dedup();
+        for kind in std::iter::once(&right.kind).chain(&right.additional_types) {
+            if !both.has_type(*kind) {
+                both.additional_types.push(*kind);
+            }
+        }
+        for subtype in &right.subtypes {
+            if !both.subtypes.contains(subtype) {
+                both.subtypes.push(subtype.clone());
+            }
+        }
+        both.legendary |= right.legendary;
+        both.snow |= right.snow;
+        std::borrow::Cow::Owned(both)
     }
 
     /// CR 712.9: only a nonmodal double-faced card's permanent transforms.
@@ -2218,6 +2255,7 @@ impl Definition {
             set.insert(match self.layout {
                 FaceLayout::Transforming => Capability::TransformingDoubleFacedV1,
                 FaceLayout::Adventurer => Capability::AdventurerV1,
+                FaceLayout::Split => Capability::SplitV1,
                 FaceLayout::Single | FaceLayout::ModalDoubleFaced => Capability::ModalDoubleFacedV1,
             });
             set.extend(back.requirements());
