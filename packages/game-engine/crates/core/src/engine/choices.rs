@@ -396,22 +396,31 @@ impl RulesTxn {
     ) -> Option<&'a StackId> {
         entry.stack_targets.get(slot)
     }
+    /// CR 601.2, 608.3: the entry of a resolving paid permanent spell, read
+    /// from its movement facet.
     pub(super) fn completed_entry_cast(
         &self,
-        cause: &BatchCause,
+        actuals: &[Actual],
         witness: &TriggerEventWitness,
     ) -> Option<EntryCast> {
-        let BatchCause::SpellCompletion {
-            stack_id,
-            player,
-            source,
-        } = cause
-        else {
-            return None;
-        };
         let TriggerEventWitness::Moved { movement } = witness else {
             return None;
         };
+        let (stack_id, source, player) = actuals.iter().find_map(|actual| {
+            match (actual.facet(FacetKind::Moved)?, &actual.cause) {
+                (
+                    Facet::Moved {
+                        object,
+                        how: MoveKind::Resolved { stack_id },
+                        ..
+                    },
+                    BatchCause::SpellCompletion { player, .. },
+                ) if actual.movement().as_ref() == Some(movement) => {
+                    Some((stack_id, object, player))
+                }
+                _ => None,
+            }
+        })?;
         let spell = self.state.rules.stack.last()?;
         let alternative_cost_paid = self
             .offered_alternative_cost(spell)
@@ -437,7 +446,7 @@ impl RulesTxn {
         .then_some(EntryCast {
             stack_id: *stack_id,
             spell: *source,
-            caster: *player,
+            caster: spell.controller,
             alternative_cost_paid,
         })
     }
@@ -795,8 +804,6 @@ impl RulesTxn {
             | InterveningCheck::OpponentControlsMore { passed: false, .. },
         ) = &frame.condition_check
             && (frame.cursor != 0
-                || frame.draw_progress.is_some()
-                || frame.each_player_draw.is_some()
                 || frame.set_damage.is_some()
                 || frame.random_discard.is_some()
                 || frame.group_discard.is_some())

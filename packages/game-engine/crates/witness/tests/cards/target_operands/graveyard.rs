@@ -543,7 +543,7 @@ fn reanimate_uses_the_selected_graveyard_cards_mana_value() {
         REANIMATE,
         &[
             Cell::MoveGraveyardCreatureToBattlefield,
-            Cell::LifeGraveyardCreatureManaValue,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::LoseLife),
         ],
         Tiers::EXECUTES,
     )])
@@ -584,7 +584,7 @@ fn reanimate_handles_zero_mana_value_and_an_illegal_target() {
         let prepared = board(&[
             (
                 REANIMATE,
-                &[Cell::LifeGraveyardCreatureManaValue],
+                &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::LoseLife)],
                 Tiers::EXECUTES,
             ),
             (ORNITHOPTER, &[], Tiers::HOSTING),

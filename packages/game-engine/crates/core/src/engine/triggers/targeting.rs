@@ -146,6 +146,7 @@ impl RulesTxn {
         )?;
         for draft in drafts {
             if self.is_live(draft.controller) {
+                let binding = self.followup_event_binding(&draft.witness)?;
                 self.enqueue_trigger(
                     draft.ability,
                     draft.controller,
@@ -155,6 +156,7 @@ impl RulesTxn {
                     (
                         TriggerOccurrenceId::Target(TargetOccurrenceId { targeting: id }),
                         draft.witness,
+                        binding,
                     ),
                 )?;
                 // Enqueue with the announcement face, then supply any later

@@ -31,6 +31,8 @@ before edits. [Core](../../docs/game-engine-mechanics.md) and [board](../../docs
   witnesses in `cards` and server integration in `host`; prefer `testkit::Board`
   and `Driver` for private boards and keep adversarial modules on public APIs
   ([test topology](../../docs/game-engine-development.md#engine-test-topology)).
+- Compile whole archives through the [frozen-input command](../../docs/game-engine-catalogs.md#frozen-input-compile);
+  `build-ir` remains its byte-identical legacy control.
 - Iterate with `engine:dev` selectors and run [`check:engine:gate`](../../docs/game-engine-development.md#inner-loop-and-one-gate)
   once before publishing; never take the Cargo lock around a runner that owns it.
   No incidental mechanic or pool expansion.

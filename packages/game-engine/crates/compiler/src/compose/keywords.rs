@@ -491,9 +491,11 @@ pub(super) fn cycling(
 ) -> Result<ActivatedAbility, Failure> {
     let mana = keyword_mana(keyword, "Cycling", text)?;
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
-    program.instructions.push(Instruction::draw(
-        kir::PlayerExpr::you(Context::Activated),
-        Quantity::from(1),
+    program.instructions.push(Instruction::act(
+        kir::Verb::Draw {
+            player: kir::PlayerExpr::you(Context::Activated),
+            amount: kir::Amount::fixed(1),
+        },
         block,
     ));
     Ok(ActivatedAbility {

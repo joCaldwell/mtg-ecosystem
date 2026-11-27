@@ -168,30 +168,34 @@ fn announced_x_is_in_scope_only_when_the_object_has_x() {
     with_x.announced_x = true;
     let requirements = check(&node, &with_x).unwrap();
     assert!(requirements.announced_x);
-    assert_eq!(requirements.cells, BTreeSet::from([Cell::LifeControllerX]));
-    assert_eq!(cell_tiers(Cell::LifeControllerX), Tiers::EXECUTES);
-    // CR 107.3: X is the amount for the controller or one announced
-    // player; a group or event player has no audited X cell.
+    assert_eq!(
+        requirements.cells,
+        BTreeSet::from([Cell::Evaluated(EvaluatedVerb::GainLife)])
+    );
+    assert_eq!(
+        cell_tiers(Cell::Evaluated(EvaluatedVerb::GainLife)),
+        Tiers::EXECUTES
+    );
+    // CR 107.3: the same announced value can feed a player or a group.
     let targets = player_target();
-    let mut targeted = spell(&targets);
-    targeted.announced_x = true;
-    let x = |player| {
-        Node::Do(Verb::LoseLife {
+    let targeted = Env {
+        announced_x: true,
+        ..spell(&targets)
+    };
+    for (player, env) in [
+        (PlayerExpr::you(Context::Spell), &with_x),
+        (PlayerExpr::target(0), &targeted),
+        (PlayerExpr::EachOpponent, &with_x),
+    ] {
+        let node = Node::Do(Verb::LoseLife {
             player,
             amount: Amount::announced_x(),
-        })
-    };
-    assert_eq!(
-        check(&x(PlayerExpr::you(Context::Spell)), &with_x)
-            .unwrap()
-            .cells,
-        requirements.cells
-    );
-    check(&x(PlayerExpr::target(0)), &targeted).unwrap();
-    assert!(matches!(
-        check(&x(PlayerExpr::EachOpponent), &targeted),
-        Err(KirError::Unaudited(_))
-    ));
+        });
+        assert_eq!(
+            check(&node, env).unwrap().cells,
+            BTreeSet::from([Cell::Evaluated(EvaluatedVerb::LoseLife)])
+        );
+    }
     // A battlefield count does not consume the announced X.
     let counted = gain(
         PlayerExpr::you(Context::Spell),
@@ -201,75 +205,49 @@ fn announced_x_is_in_scope_only_when_the_object_has_x() {
     );
     let requirements = check(&counted, &with_x).unwrap();
     assert!(!requirements.announced_x);
-    assert_eq!(requirements.cells, BTreeSet::from([Cell::LifeCounted]));
+    assert_eq!(
+        requirements.cells,
+        BTreeSet::from([Cell::Evaluated(EvaluatedVerb::GainLife)])
+    );
 }
 
 #[test]
-fn the_drain_pair_uses_the_top_level_executor() {
-    let pair = |amount| Node::drain(Context::Spell, amount);
-    let requirements = check(&pair(Amount::fixed(2)), &spell(&[])).unwrap();
-    assert_eq!(
-        requirements.capabilities,
-        BTreeSet::from([
-            Capability::OpponentLifeDrainV1,
-            Capability::LifeLossV1,
-            Capability::LifeGainV1
+fn life_loss_projects_actual_amount_to_a_later_verb() {
+    let pair = |amount| {
+        Node::Seq(vec![
+            Node::Do(Verb::LoseLife {
+                player: PlayerExpr::EachOpponent,
+                amount,
+            }),
+            gain(
+                PlayerExpr::you(Context::Spell),
+                Amount::Var {
+                    of: Ref::StepResult {
+                        step: 0,
+                        role: StepRole::Amount,
+                    },
+                },
+            ),
         ])
-    );
-    assert_eq!(
-        node_capabilities(&pair(Amount::fixed(2))),
-        requirements.capabilities
-    );
-    assert_eq!(drain(&pair(Amount::fixed(2))), Some(&Amount::fixed(2)));
-    // CR 119.3: a fixed drain is positive; X needs an announced X.
-    assert!(matches!(
-        check(&pair(Amount::fixed(0)), &spell(&[])),
-        Err(KirError::Type(_))
-    ));
-    assert!(matches!(
-        check(&pair(Amount::announced_x()), &spell(&[])),
-        Err(KirError::Scope(_))
-    ));
-    let mut with_x = spell(&[]);
-    with_x.announced_x = true;
+    };
+    let node = pair(Amount::fixed(0));
+    let requirements = check(&node, &spell(&[])).unwrap();
+    assert_eq!(requirements.capabilities, node_capabilities(&node));
     assert!(
-        check(&pair(Amount::announced_x()), &with_x)
+        requirements
+            .cells
+            .contains(&Cell::Evaluated(EvaluatedVerb::LoseLife))
+    );
+    assert!(check(&pair(Amount::announced_x()), &spell(&[])).is_err());
+    let env = Env {
+        announced_x: true,
+        ..spell(&[])
+    };
+    assert!(
+        check(&pair(Amount::announced_x()), &env)
             .unwrap()
             .announced_x
     );
-    // "You" must be the role of the resolving context (CR 109.5).
-    assert!(matches!(
-        check(
-            &Node::drain(Context::Triggered, Amount::fixed(1)),
-            &spell(&[])
-        ),
-        Err(KirError::Scope(_))
-    ));
-    let Node::Seq(steps) = pair(Amount::fixed(2)) else {
-        unreachable!()
-    };
-    for ordinary in [
-        Node::Seq(vec![steps[0].clone()]),
-        Node::Seq(vec![steps[0].clone(), steps[0].clone()]),
-    ] {
-        assert_eq!(drain(&ordinary), None);
-        let required = check(&ordinary, &spell(&[])).unwrap();
-        assert_eq!(required.capabilities, node_capabilities(&ordinary));
-        assert!(
-            !required
-                .capabilities
-                .contains(&Capability::OpponentLifeDrainV1)
-        );
-    }
-    for unaudited in [
-        Node::Seq(vec![steps[0].clone(), steps[1].clone(), steps[0].clone()]),
-        Node::Seq(vec![pair(Amount::fixed(2))]),
-    ] {
-        assert!(matches!(
-            check(&unaudited, &spell(&[])),
-            Err(KirError::Unaudited(_))
-        ));
-    }
 }
 
 #[test]
@@ -300,10 +278,7 @@ fn bound_variables_and_step_results_follow_lexical_scope() {
         },
         amount: Amount::fixed(1),
     });
-    assert!(matches!(
-        check(&each(bound_draw), &spell(&[])),
-        Err(KirError::Unaudited(_))
-    ));
+    assert!(check(&each(bound_draw), &spell(&[])).is_ok());
     let other = gain(
         PlayerExpr::Is {
             who: Ref::BoundVar { id: 8 },
@@ -327,10 +302,7 @@ fn bound_variables_and_step_results_follow_lexical_scope() {
         )
     };
     let first = gain(you.clone(), Amount::fixed(1));
-    assert!(matches!(
-        check(&Node::Seq(vec![first.clone(), result(0)]), &spell(&[])),
-        Err(KirError::Unaudited(_))
-    ));
+    assert!(check(&Node::Seq(vec![first.clone(), result(0)]), &spell(&[])).is_ok());
     let step_draw = Node::Do(Verb::Draw {
         player: you.clone(),
         amount: Amount::Var {
@@ -340,10 +312,7 @@ fn bound_variables_and_step_results_follow_lexical_scope() {
             },
         },
     });
-    assert!(matches!(
-        check(&Node::Seq(vec![first.clone(), step_draw]), &spell(&[])),
-        Err(KirError::Unaudited(_))
-    ));
+    assert!(check(&Node::Seq(vec![first.clone(), step_draw]), &spell(&[])).is_ok());
     for forward in [
         Node::Seq(vec![result(0), first.clone()]),
         Node::Seq(vec![first.clone(), result(1)]),
@@ -514,12 +483,6 @@ fn control_rejects_unsupported_operands_and_children() {
             }))),
         },
         Node::Seq(vec![gain(
-            you.clone(),
-            Amount::LifeOf {
-                player: you.clone(),
-            },
-        )]),
-        Node::Seq(vec![gain(
             PlayerExpr::ControllerOf {
                 object: Ref::Source,
             },
@@ -611,7 +574,7 @@ fn permanent_source_modifications_require_an_executable_context() {
 }
 
 #[test]
-fn control_rejects_counted_draw_leaves() {
+fn control_admits_counted_draw_leaves() {
     let targets = [TargetSpec::new(0, "line:0:0", TargetDomain::AnyPlayer)];
     let env = Env {
         announced_x: true,
@@ -629,17 +592,14 @@ fn control_rejects_counted_draw_leaves() {
     ] {
         let leaf = Node::Do(Verb::Draw { player, amount });
         assert!(check(&leaf, &env).is_ok());
-        assert!(matches!(
-            check(&Node::Seq(vec![leaf]), &env),
-            Err(KirError::Unaudited(reason)) if reason.contains("nested counted draw")
-        ));
+        assert!(check(&Node::Seq(vec![leaf]), &env).is_ok());
     }
     for amount in [Amount::fixed(0), Amount::fixed(2), Amount::announced_x()] {
         let leaf = Node::Do(Verb::Draw {
             player: target.clone(),
             amount,
         });
-        assert!(matches!(check(&leaf, &env), Err(KirError::Unaudited(_))));
+        assert!(check(&leaf, &env).is_ok());
     }
     for player in [you, target] {
         let leaf = Node::Do(Verb::Draw {
@@ -730,7 +690,7 @@ fn a_filtered_count_of_a_hidden_zone_is_rejected() {
     let hand_size = count(ZoneExpr::Hand { of: you.clone() }, Pred::default());
     assert_eq!(
         check(&hand_size, &spell(&[])).unwrap().cells,
-        BTreeSet::from([Cell::LifeCounted])
+        BTreeSet::from([Cell::Evaluated(EvaluatedVerb::GainLife)])
     );
     let library_size = count(ZoneExpr::Library { of: you.clone() }, Pred::default());
     assert!(matches!(
@@ -746,7 +706,7 @@ fn a_filtered_count_of_a_hidden_zone_is_rejected() {
             check(&count(public, creatures()), &spell(&[]))
                 .unwrap()
                 .cells,
-            BTreeSet::from([Cell::LifeCounted])
+            BTreeSet::from([Cell::Evaluated(EvaluatedVerb::GainLife)])
         );
     }
     assert!(matches!(
@@ -828,19 +788,17 @@ fn life_cells_admit_exactly_the_audited_recipients_and_amounts() {
             Err(KirError::Type(_))
         ));
     }
-    // CR 119.3: an opponent-only target domain has no audited life cell.
+    // New recipient domains are admitted by the same slots at Executes.
     let opponent = [TargetSpec::new(0, "line:0:1", TargetDomain::OpponentPlayer)];
-    assert!(matches!(
-        check(
-            &gain(PlayerExpr::target(0), Amount::fixed(1)),
-            &spell(&opponent)
-        ),
-        Err(KirError::Unaudited(_))
-    ));
-    assert!(matches!(
-        check(&gain(PlayerExpr::EachPlayer, Amount::fixed(1)), &env),
-        Err(KirError::Unaudited(_))
-    ));
+    for (player, env) in [
+        (PlayerExpr::target(0), spell(&opponent)),
+        (PlayerExpr::EachPlayer, env),
+    ] {
+        assert_eq!(
+            check(&gain(player, Amount::fixed(1)), &env).unwrap().cells,
+            BTreeSet::from([Cell::Evaluated(EvaluatedVerb::GainLife)])
+        );
+    }
 }
 
 #[test]
@@ -1099,7 +1057,7 @@ fn every_audited_verb_names_the_cell_it_occupies() {
             &gain(PlayerExpr::EachOpponent, Amount::fixed(2)),
             &spell(&[])
         ),
-        BTreeSet::from([Cell::LifeEachOpponent])
+        BTreeSet::from([Cell::Evaluated(EvaluatedVerb::GainLife)])
     );
     let targets = creature_target();
     let damage = |amount| {
@@ -1133,7 +1091,68 @@ fn every_audited_verb_names_the_cell_it_occupies() {
     ]);
     assert_eq!(
         cells(&sequence, &spell(&[])),
-        BTreeSet::from([Cell::Control, Cell::DrawController])
+        BTreeSet::from([Cell::Control, Cell::DrawController, Cell::LifeController])
+    );
+}
+
+#[test]
+fn one_and_two_fixed_draws_keep_the_reviewed_cells_and_capabilities() {
+    use crate::Capability;
+
+    let mut definition = crate::Catalog::read(include_str!(
+        "../../../tests/fixtures/expected-action-ir.json"
+    ))
+    .unwrap()
+    .definitions
+    .into_iter()
+    .find(|definition| definition.name == "Cruel Edict")
+    .unwrap();
+    for (player, targets, cell, capability) in [
+        (
+            PlayerExpr::you(Context::Spell),
+            vec![],
+            Cell::DrawController,
+            Capability::ControllerDrawV1,
+        ),
+        (
+            PlayerExpr::target(0),
+            player_target(),
+            Cell::DrawTargetPlayer,
+            Capability::TargetPlayerDrawV1,
+        ),
+    ] {
+        for count in [1, 2] {
+            let verb = Verb::Draw {
+                player: player.clone(),
+                amount: Amount::fixed(count),
+            };
+            let program = definition.spell.as_mut().unwrap();
+            program.targets = targets.clone();
+            program.instructions = vec![crate::Instruction::act(verb.clone(), 0)];
+            assert_eq!(
+                check(&Node::Do(verb), &spell(&targets)).unwrap().cells,
+                BTreeSet::from([cell])
+            );
+            let capabilities = definition.requirements();
+            assert!(capabilities.contains(&capability));
+            assert!(!capabilities.contains(&Capability::ControllerCountedDrawV1));
+        }
+    }
+    let draw_three = Verb::Draw {
+        player: PlayerExpr::you(Context::Spell),
+        amount: Amount::fixed(3),
+    };
+    let program = definition.spell.as_mut().unwrap();
+    program.targets.clear();
+    program.instructions = vec![crate::Instruction::act(draw_three.clone(), 0)];
+    assert_eq!(
+        check(&Node::Do(draw_three), &spell(&[])).unwrap().cells,
+        BTreeSet::from([Cell::Evaluated(EvaluatedVerb::Draw)])
+    );
+    assert!(
+        definition
+            .requirements()
+            .contains(&Capability::ControllerCountedDrawV1)
     );
 }
 
@@ -1199,7 +1218,7 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
     });
     assert_eq!(
         definition_cells(&bears).unwrap(),
-        BTreeSet::from([Cell::LifeEachOpponent])
+        BTreeSet::from([Cell::Evaluated(EvaluatedVerb::GainLife)])
     );
     assert!(
         !definition_tiers(&bears)
@@ -1211,7 +1230,7 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
         unqualified(&bears, T::HeadlessQualified)
             .unwrap()
             .1
-            .contains(&Cell::LifeEachOpponent)
+            .contains(&Cell::Evaluated(EvaluatedVerb::GainLife))
     );
 }
 

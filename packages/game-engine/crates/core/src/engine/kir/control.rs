@@ -3,6 +3,8 @@
 //! No snapshot supplies an executable node.
 use super::*;
 use mtg_contracts::kir::{Cmp, Cond, Domain, Payment};
+mod evaluated;
+use evaluated::{StepProgress, StepResults};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -19,21 +21,33 @@ enum Stage {
     Leaf,
     Complete {
         outcomes: Vec<InstructionOutcome>,
+        results: StepResults,
+        first_batch: u64,
     },
-    Optional {
+    Step(StepProgress),
+    MyriadDefender {
         chooser: PlayerId,
     },
-    MyriadDefender {
+    #[serde(untagged)]
+    Ask(AskKind),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
+enum AskKind {
+    Optional {
         chooser: PlayerId,
     },
     ObjectPayment {
         payer: PlayerId,
     },
-    Life {
+    #[serde(rename = "life")]
+    PayLife {
         payer: PlayerId,
         amount: Quantity,
     },
-    Choose {
+    #[serde(rename = "choose")]
+    Pick {
         chooser: PlayerId,
         remaining: Vec<ObjectId>,
         selected: Vec<ObjectId>,
@@ -46,7 +60,8 @@ enum Stage {
 #[serde(deny_unknown_fields)]
 pub struct Task {
     pub(in crate::engine) resume: FrameLink,
-    path: Vec<usize>,
+    path: Vec<u32>,
+    iterations: Vec<u32>,
     #[serde(deserialize_with = "read_bindings")]
     bindings: BTreeMap<u32, Binding>,
     stage: Stage,
@@ -73,11 +88,12 @@ where
 }
 
 impl Task {
-    fn child(&self, index: usize) -> Self {
+    fn child(&self, index: u32) -> Self {
         let mut path = self.path.clone();
         path.push(index);
         Self {
             path,
+            iterations: self.iterations.clone(),
             bindings: self.bindings.clone(),
             resume: self.resume,
             stage: Stage::Run,
@@ -89,7 +105,7 @@ impl Task {
     }
 
     pub(in crate::engine) fn candidate(&self) -> Option<ObjectId> {
-        if let Stage::Choose { remaining, .. } = &self.stage {
+        if let Stage::Ask(AskKind::Pick { remaining, .. }) = &self.stage {
             remaining.last().copied()
         } else {
             None
@@ -98,24 +114,29 @@ impl Task {
 
     fn chooser(&self) -> Option<PlayerId> {
         match self.stage {
-            Stage::Run | Stage::Leaf | Stage::Complete { .. } => None,
-            Stage::Optional { chooser }
+            Stage::Run | Stage::Leaf | Stage::Complete { .. } | Stage::Step(_) => None,
+            Stage::Ask(AskKind::Optional { chooser })
             | Stage::MyriadDefender { chooser }
-            | Stage::Choose { chooser, .. } => Some(chooser),
-            Stage::Life { payer, .. } | Stage::ObjectPayment { payer } => Some(payer),
+            | Stage::Ask(AskKind::Pick { chooser, .. }) => Some(chooser),
+            Stage::Ask(AskKind::PayLife { payer, .. })
+            | Stage::Ask(AskKind::ObjectPayment { payer }) => Some(payer),
         }
     }
 }
 
 impl RulesTxn {
     pub(super) fn begin_kernel_control(&mut self, frame: Resolving) -> Result<(), String> {
+        let first_batch = self.state.rules.next_batch_id;
         let resume = self.save_frame(Frame::Resolve { frame });
         let root = Task {
             resume,
             path: Vec::new(),
+            iterations: Vec::new(),
             bindings: BTreeMap::new(),
             stage: Stage::Complete {
                 outcomes: Vec::new(),
+                results: StepResults::default(),
+                first_batch,
             },
         };
         let mut task = Task {
@@ -125,6 +146,11 @@ impl RulesTxn {
         task.resume = self.save_frame(Frame::Kernel {
             task: Box::new(root),
         });
+        if let (Node::Do(verb), block) = self.node_at(&task)?
+            && verb.evaluated_operands().is_some()
+        {
+            return self.evaluate_step(task, &verb.clone(), block);
+        }
         self.install_kernel(task);
         Ok(())
     }
@@ -152,9 +178,9 @@ impl RulesTxn {
             return Err("missing kernel instruction".into());
         };
         let mut node = node;
-        for index in &task.path {
+        for &index in &task.path {
             node = match node {
-                Node::Seq(nodes) => nodes.get(*index),
+                Node::Seq(nodes) => nodes.get(index as usize),
                 Node::If {
                     then, otherwise, ..
                 } => match index {
@@ -167,7 +193,7 @@ impl RulesTxn {
                 | Node::Optional { node: body, .. }
                 | Node::UnlessPays { node: body, .. }
                 | Node::IfPays { node: body, .. }
-                    if *index == 0 =>
+                    if index == 0 =>
                 {
                     Some(body.as_ref())
                 }
@@ -359,7 +385,7 @@ impl RulesTxn {
         let Frame::Kernel { task } = self.saved_frame(resume)?.clone() else {
             return Err("invalid kernel return frame".into());
         };
-        if let Stage::Complete { mut outcomes } = task.stage {
+        if let Stage::Complete { mut outcomes, .. } = task.stage {
             let outcome = match outcomes.len() {
                 0 => InstructionOutcome::Effect { actual: None },
                 1 => outcomes.remove(0),
@@ -378,7 +404,7 @@ impl RulesTxn {
         let Some(Frame::Kernel { task }) = self.rules_mut().frames.get_mut(1) else {
             return Err("missing kernel completion".into());
         };
-        let Stage::Complete { outcomes } = &mut task.stage else {
+        let Stage::Complete { outcomes, .. } = &mut task.stage else {
             return Err("missing kernel result collector".into());
         };
         Ok(outcomes)
@@ -419,7 +445,7 @@ impl RulesTxn {
             return Ok((candidates.len() > 1)
                 .then(|| self.pick(player, Reason::MyriadDefender, candidates, 1, 1)));
         }
-        if matches!(task.stage, Stage::ObjectPayment { .. }) {
+        if matches!(task.stage, Stage::Ask(AskKind::ObjectPayment { .. })) {
             let candidates = self.object_payment_candidates(player, self.node_at(task)?.0)?;
             return Ok(Some(
                 self.pick(
@@ -452,8 +478,12 @@ impl RulesTxn {
     /// a departed chooser does; the continuation then skips the node.
     fn still_offered(&self, task: &Task) -> Result<bool, String> {
         match (&task.stage, self.node_at(task)?.0) {
-            (Stage::Optional { .. }, Node::Optional { node, .. }) => self.performable(task, node),
-            (Stage::ObjectPayment { payer }, node) if Self::is_sacrifice_payment(node) => {
+            (Stage::Ask(AskKind::Optional { .. }), Node::Optional { node, .. }) => {
+                self.performable(task, node)
+            }
+            (Stage::Ask(AskKind::ObjectPayment { payer }), node)
+                if Self::is_sacrifice_payment(node) =>
+            {
                 Ok(!self.object_payment_candidates(*payer, node)?.is_empty())
             }
             _ => Ok(true),
@@ -537,14 +567,26 @@ impl RulesTxn {
         {
             return Err("missing kernel completion".into());
         }
+        self.validate_step_address(task)?;
         match (&task.stage, node) {
-            (Stage::Complete { outcomes }, _)
+            (Stage::Step(progress), Node::Do(verb @ Verb::Draw { .. }))
+                if depth == self.state.rules.frames.len()
+                    || matches!(self.state.rules.frame, Frame::CommanderReturn {
+                        continuation: CommanderContinuation::ResolutionDraw { resume }, ..
+                    } if resume.0 == depth) =>
+            {
+                self.validate_sequence(task, progress, verb)
+            }
+
+            (Stage::Complete { outcomes, .. }, _)
                 if task.resume == FrameLink(0)
                     && task.path.is_empty()
+                    && task.iterations.is_empty()
                     && task.bindings.is_empty()
                     && depth == 1
                     && depth < self.state.rules.frames.len() =>
             {
+                self.validate_step_results(task)?;
                 for outcome in outcomes {
                     self.validate_library_reorder_outcome(self.kernel_root()?, None, outcome)?;
                     self.validate_counter_outcome(root, outcome)?;
@@ -552,7 +594,8 @@ impl RulesTxn {
                 }
                 Ok(())
             }
-            (Stage::Leaf, Node::Do(_)) | (Stage::Run, _) => Ok(()),
+            (Stage::Leaf, Node::Do(verb)) if verb.evaluated_operands().is_none() => Ok(()),
+            (Stage::Run, _) => Ok(()),
             (Stage::MyriadDefender { chooser }, Node::Do(Verb::CreateMyriadToken { defender })) => {
                 self.myriad_defender(task, defender)?;
                 if self.entry(root.stack_id)?.controller != *chooser {
@@ -561,14 +604,14 @@ impl RulesTxn {
                 Ok(())
             }
             // The saved chooser is the one the admitted node names.
-            (Stage::Optional { chooser }, Node::Optional { chooser: named, .. }) => {
+            (Stage::Ask(AskKind::Optional { chooser }), Node::Optional { chooser: named, .. }) => {
                 if self.control_players(task, named)? != [*chooser] {
                     return Err("kernel chooser differs from its node".into());
                 }
                 Ok(())
             }
             (
-                Stage::ObjectPayment { payer },
+                Stage::Ask(AskKind::ObjectPayment { payer }),
                 Node::IfPays {
                     payer: named,
                     payment,
@@ -591,7 +634,7 @@ impl RulesTxn {
             }
             // CR 118.12: the saved payer and amount are the admitted terms.
             (
-                Stage::Life { payer, amount },
+                Stage::Ask(AskKind::PayLife { payer, amount }),
                 Node::UnlessPays {
                     payer: named,
                     payment: Payment::Life { amount: admitted },
@@ -614,15 +657,21 @@ impl RulesTxn {
                 Ok(())
             }
             (
-                Stage::Choose {
+                Stage::Ask(AskKind::Pick {
                     remaining,
                     selected,
                     minimum,
                     maximum,
                     ..
-                },
+                }),
                 Node::Choose { .. },
             ) if minimum <= maximum
+                && remaining
+                    .iter()
+                    .chain(selected)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    == remaining.len() + selected.len()
                 && !remaining.is_empty()
                 && selected.len() < *maximum
                 && selected.len() + remaining.len() > *minimum =>
@@ -636,6 +685,9 @@ impl RulesTxn {
     pub(in crate::engine) fn step_kernel_task(&mut self, mut task: Task) -> Result<(), String> {
         let (node, block) = self.node_at(&task)?;
         let node = node.clone();
+        if matches!(task.stage, Stage::Step(_)) {
+            return self.step_sequence(task);
+        }
         if let Stage::MyriadDefender { chooser } = task.stage {
             let candidates = self.myriad_candidates(&task, chooser)?;
             let input = self.rules_mut().pending.take();
@@ -666,7 +718,7 @@ impl RulesTxn {
                 },
             );
         }
-        if let Stage::ObjectPayment { payer } = task.stage {
+        if let Stage::Ask(AskKind::ObjectPayment { payer }) = task.stage {
             let input = self.rules_mut().pending.take();
             let paid = if self.is_live(payer) && self.still_offered(&task)? {
                 match input.ok_or("missing object payment decision")?.one()? {
@@ -719,11 +771,13 @@ impl RulesTxn {
                 false
             };
             match std::mem::take(&mut task.stage) {
-                Stage::Optional { .. } if perform => self.install_kernel(task.child(0)),
-                Stage::Optional { .. } => return self.return_kernel(task.resume),
+                Stage::Ask(AskKind::Optional { .. }) if perform => {
+                    self.install_kernel(task.child(0))
+                }
+                Stage::Ask(AskKind::Optional { .. }) => return self.return_kernel(task.resume),
                 // CR 118.12: "unless" performs the node when the payer
                 // declines; "if they do" performs it once they have paid.
-                Stage::Life { amount, .. } if perform => {
+                Stage::Ask(AskKind::PayLife { amount, .. }) if perform => {
                     if !self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
                         return Err("unpayable kernel life payment".into());
                     }
@@ -735,14 +789,14 @@ impl RulesTxn {
                     }
                     return self.paid(task, &node, true);
                 }
-                Stage::Life { .. } => return self.paid(task, &node, false),
-                Stage::Choose {
+                Stage::Ask(AskKind::PayLife { .. }) => return self.paid(task, &node, false),
+                Stage::Ask(AskKind::Pick {
                     mut remaining,
                     mut selected,
                     minimum,
                     maximum,
                     ..
-                } => {
+                }) => {
                     let object = remaining.pop().ok_or("missing kernel candidate")?;
                     if perform {
                         selected.push(object);
@@ -754,8 +808,9 @@ impl RulesTxn {
                 }
                 Stage::Run
                 | Stage::Leaf
+                | Stage::Step(_)
                 | Stage::Complete { .. }
-                | Stage::ObjectPayment { .. }
+                | Stage::Ask(AskKind::ObjectPayment { .. })
                 | Stage::MyriadDefender { .. } => {
                     return Err("unexpected kernel input".into());
                 }
@@ -764,7 +819,7 @@ impl RulesTxn {
         }
         match &node {
             Node::Seq(nodes) => {
-                self.schedule(task.resume, (0..nodes.len()).map(|i| task.child(i)))?
+                self.schedule(task.resume, (0..nodes.len() as u32).map(|i| task.child(i)))?
             }
             Node::If {
                 condition,
@@ -791,7 +846,7 @@ impl RulesTxn {
                 if !self.performable(&task, child)? {
                     return self.return_kernel(task.resume);
                 }
-                task.stage = Stage::Optional { chooser };
+                task.stage = Stage::Ask(AskKind::Optional { chooser });
                 self.install_kernel(task);
             }
             Node::ForEach { var, over, .. } => {
@@ -809,8 +864,9 @@ impl RulesTxn {
                 };
                 self.schedule(
                     task.resume,
-                    members.into_iter().map(|member| {
+                    members.into_iter().enumerate().map(|(ordinal, member)| {
                         let mut child = task.child(0);
+                        child.iterations.push(ordinal as u32);
                         child.bindings.insert(*var, member);
                         child
                     }),
@@ -827,10 +883,16 @@ impl RulesTxn {
                 let Some(player) = self.chooser(&task, chooser)? else {
                     return self.return_kernel(task.resume);
                 };
-                let mut objects = self.control_objects(&task, from)?;
-                for object in &objects {
-                    self.handle_for(player, *object)?;
-                }
+                let mut candidates = self
+                    .control_objects(&task, from)?
+                    .into_iter()
+                    .map(|object| Ok((self.handle_for(player, object)?.0, object)))
+                    .collect::<Result<Vec<_>, String>>()?;
+                candidates.sort_by(|left, right| left.0.cmp(&right.0));
+                let mut objects = candidates
+                    .into_iter()
+                    .map(|(_, object)| object)
+                    .collect::<Vec<_>>();
                 let min = self.control_amount(&task, minimum)?;
                 let max = self.control_amount(&task, maximum)?;
                 if min.is_negative() || max < min {
@@ -851,7 +913,7 @@ impl RulesTxn {
                     // Keep a private discard offer even with no matching card.
                     // CR 400.2: only the payer may see the eligible hand objects.
                     Payment::SacrificeCreature {} | Payment::DiscardArtifact {} => {
-                        task.stage = Stage::ObjectPayment { payer: player };
+                        task.stage = Stage::Ask(AskKind::ObjectPayment { payer: player });
                         self.install_kernel(task);
                     }
                     Payment::Life { amount } => {
@@ -861,10 +923,10 @@ impl RulesTxn {
                         }
                         // CR 119.4: a player can't pay more life than they have.
                         if self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
-                            task.stage = Stage::Life {
+                            task.stage = Stage::Ask(AskKind::PayLife {
                                 payer: player,
                                 amount,
-                            };
+                            });
                             self.install_kernel(task);
                         } else {
                             self.paid(task, &node, false)?;
@@ -896,41 +958,8 @@ impl RulesTxn {
                     }
                 }
             }
-            Node::Do(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
-                let amount = self.control_amount(&task, amount)?;
-                if amount > Quantity::zero() {
-                    let occurrences = self
-                        .control_players(&task, player)?
-                        .into_iter()
-                        .filter(|p| self.is_live(*p))
-                        .map(|player| {
-                            if matches!(node, Node::Do(Verb::GainLife { .. })) {
-                                ProposedEvent::GainLife {
-                                    player,
-                                    amount: amount.clone(),
-                                }
-                            } else {
-                                ProposedEvent::LoseLife {
-                                    player,
-                                    amount: amount.clone(),
-                                }
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    if !occurrences.is_empty() {
-                        let batch = self.commit_batch(
-                            self.instruction_cause(self.kernel_root()?, block)?,
-                            EventGroup::Simultaneous { occurrences },
-                        )?;
-                        self.kernel_results()?
-                            .extend(batch.occurrences.into_iter().map(|event| {
-                                InstructionOutcome::Life {
-                                    actual: Some(event.actual),
-                                }
-                            }));
-                    }
-                }
-                self.return_kernel(task.resume)?;
+            Node::Do(verb) if verb.evaluated_operands().is_some() => {
+                self.evaluate_step(task, verb, block)?;
             }
             // CR 702.116a: choose a defender for each accepted copy before
             // creating all copies together (CR 608.2f).
@@ -1035,16 +1064,8 @@ impl RulesTxn {
                 .control_objects(task, what)?
                 .into_iter()
                 .any(|id| self.current(id).is_ok()),
-            Node::Do(
-                Verb::Draw { player, amount }
-                | Verb::GainLife { player, amount }
-                | Verb::LoseLife { player, amount },
-            ) => {
-                self.control_amount(task, amount)? > Quantity::zero()
-                    && self
-                        .control_players(task, player)?
-                        .into_iter()
-                        .any(|p| self.is_live(p))
+            Node::Do(verb) if verb.evaluated_operands().is_some() => {
+                self.evaluated_performable(task, verb)?
             }
             Node::Do(Verb::Mill { player, amount }) => {
                 let amount = self.control_amount(task, amount)?;
@@ -1223,13 +1244,13 @@ impl RulesTxn {
             child.bindings.insert(var, Binding::Objects(selected));
             self.install_kernel(child);
         } else {
-            task.stage = Stage::Choose {
+            task.stage = Stage::Ask(AskKind::Pick {
                 chooser,
                 remaining,
                 selected,
                 minimum,
                 maximum,
-            };
+            });
             self.install_kernel(task);
         }
         Ok(())

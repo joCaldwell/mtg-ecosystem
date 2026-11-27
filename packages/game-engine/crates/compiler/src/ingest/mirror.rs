@@ -453,7 +453,7 @@ impl TryFrom<serde_json::Value> for Sentence {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, remote = "Self")]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 pub(crate) enum Step {
     GainControl {
@@ -658,18 +658,8 @@ pub(crate) enum Step {
         #[serde(default, deserialize_with = "present_bool_field")]
         optional: Option<bool>,
     },
-    GainLife {
-        who: PlayerSelector,
-        amount: serde_json::Value,
-        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
-        for_each: Option<serde_json::Value>,
-    },
-    LoseLife {
-        who: PlayerSelector,
-        amount: serde_json::Value,
-        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
-        for_each: Option<serde_json::Value>,
-    },
+    #[serde(skip)]
+    Evaluated(Box<ast::Effect>),
     ReturnToHand {
         what: serde_json::Value,
         to: String,
@@ -695,15 +685,39 @@ pub(crate) enum Step {
         #[serde(rename = "chosenBy", default, deserialize_with = "present_ast_field")]
         chosen_by: Option<PlayerSelector>,
     },
-    Draw {
-        who: PlayerSelector,
-        amount: DrawAmount,
-        #[serde(default)]
-        optional: bool,
-        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
-        for_each: Option<serde_json::Value>,
-    },
     Discard(DiscardStep),
+}
+
+impl<'de> Deserialize<'de> for Step {
+    fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> Result<Self, D::Error> {
+        let raw = serde_json::Value::deserialize(decoder)?;
+        if matches!(
+            raw["effect"].as_str(),
+            Some("draw" | "gain-life" | "lose-life")
+        ) {
+            if raw
+                .as_object()
+                .is_some_and(|fields| fields.values().any(serde_json::Value::is_null))
+            {
+                return Err(serde::de::Error::custom(
+                    "explicit null on an evaluated action",
+                ));
+            }
+            return serde_json::from_value(raw)
+                .map(|effect| Self::Evaluated(Box::new(effect)))
+                .map_err(serde::de::Error::custom);
+        }
+        Step::deserialize(raw).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Step {
+    pub(crate) fn effect(&self) -> Option<&ast::Effect> {
+        match self {
+            Self::Evaluated(effect) => Some(effect),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

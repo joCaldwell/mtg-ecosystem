@@ -1,5 +1,5 @@
 //! Reproducible whole-archive intake measurement; no header substitution.
-use crate::{CompileResult, compile_result, lower};
+use crate::{CompileResult, bulk::OutcomePhase, compile_result, lower};
 use mtg_contracts::bulk_catalog::BulkStatus;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
@@ -192,7 +192,30 @@ fn archive_exclusion(row: &Value) -> Option<String> {
 
 pub(crate) enum RecordAssessment {
     Definition(Definition),
-    Gap { status: BulkStatus, reason: String },
+    Gap {
+        status: BulkStatus,
+        reason: String,
+        phase: OutcomePhase,
+        /// JSON pointer into the archive record (read phase) or the
+        /// compiler's field path (lower phase), when one is known.
+        location: Option<String>,
+    },
+}
+
+/// First failed face line of an unparsed record, as a JSON pointer.
+fn failed_face_line(row: &Value) -> Option<String> {
+    let faces = row["faces"].as_array()?;
+    faces.iter().enumerate().find_map(|(i, face)| {
+        let Some(lines) = face["result"]["lines"].as_array() else {
+            return (face["status"] != "attempted" || face["result"]["ok"] != true)
+                .then(|| format!("/faces/{i}"));
+        };
+        lines
+            .iter()
+            .position(|line| line["ok"] != true)
+            .map(|j| format!("/faces/{i}/result/lines/{j}"))
+            .or_else(|| (face["result"]["ok"] == false).then(|| format!("/faces/{i}/result")))
+    })
 }
 
 pub(crate) fn assess_record(
@@ -200,9 +223,14 @@ pub(crate) fn assess_record(
     raw: &str,
     row: &Value,
 ) -> RecordAssessment {
-    let gap = |status, reason| RecordAssessment::Gap { status, reason };
+    let gap = |status, reason, phase, location| RecordAssessment::Gap {
+        status,
+        reason,
+        phase,
+        location,
+    };
     if let Some(reason) = archive_exclusion(row) {
-        return gap(BulkStatus::Unparsed, reason);
+        return gap(BulkStatus::Unparsed, reason, OutcomePhase::Scope, None);
     }
     let ast = &row["faces"][0]["result"]["abilities"];
     match compile_result(lower(accepted, raw)) {
@@ -215,18 +243,32 @@ pub(crate) fn assess_record(
             };
             match singleton.validate() {
                 Ok(()) => RecordAssessment::Definition(singleton.definitions.pop().unwrap()),
-                Err(e) => gap(BulkStatus::Invalid, reason_code("ir", &e, ast)),
+                Err(e) => gap(
+                    BulkStatus::Invalid,
+                    reason_code("ir", &e, ast),
+                    OutcomePhase::Validate,
+                    None,
+                ),
             }
         }
-        CompileResult::Unsupported { path, reason: _ } if path == "status" => {
-            gap(BulkStatus::Unparsed, "status:unparsed".into())
-        }
-        CompileResult::Unsupported { path, reason } => {
-            gap(BulkStatus::Unsupported, reason_code(&path, &reason, ast))
-        }
-        CompileResult::Invalid { path, reason } => {
-            gap(BulkStatus::Invalid, reason_code(&path, &reason, ast))
-        }
+        CompileResult::Unsupported { path, reason: _ } if path == "status" => gap(
+            BulkStatus::Unparsed,
+            "status:unparsed".into(),
+            OutcomePhase::Read,
+            failed_face_line(row),
+        ),
+        CompileResult::Unsupported { path, reason } => gap(
+            BulkStatus::Unsupported,
+            reason_code(&path, &reason, ast),
+            OutcomePhase::Lower,
+            Some(path),
+        ),
+        CompileResult::Invalid { path, reason } => gap(
+            BulkStatus::Invalid,
+            reason_code(&path, &reason, ast),
+            OutcomePhase::Lower,
+            Some(path),
+        ),
     }
 }
 
@@ -499,7 +541,7 @@ pub fn coverage_selected(
             RecordAssessment::Definition(_) => {
                 (BulkStatus::LoweredValidated.as_str(), String::new())
             }
-            RecordAssessment::Gap { status, reason } => (status.as_str(), reason),
+            RecordAssessment::Gap { status, reason, .. } => (status.as_str(), reason),
         };
         summary.total += 1;
         if legal {

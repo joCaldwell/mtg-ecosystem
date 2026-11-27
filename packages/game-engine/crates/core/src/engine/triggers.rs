@@ -30,6 +30,15 @@ pub struct PendingTrigger {
     pub(super) source_handles: Vec<publish::StoredObjectHandle>,
     event: TriggerOccurrenceId,
     pub witness: TriggerEventWitness,
+    binding: EventBinding,
+}
+impl PendingTrigger {
+    /// CR 733.1: whether this trigger came from one of these members'
+    /// occurrences; a reversed cost reverses every member of each.
+    pub(super) fn caused_by_any(&self, events: &[EventId]) -> bool {
+        matches!(&self.event, TriggerOccurrenceId::Batch(id)
+            if events.iter().any(|event| event.occurrence == *id))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,6 +256,44 @@ pub struct ObservedObject {
     controller_at_match: PlayerId,
     pub(super) last_known: Box<ObjectBefore>,
     pub(super) handles: Vec<publish::StoredObjectHandle>,
+}
+
+/// The occurrence's player and object facts as the ability triggered.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventBinding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) player: Option<PlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) object: Option<Box<ObjectBefore>>,
+}
+
+impl EventBinding {
+    fn validate(&self, game: &RulesTxn, witness: &TriggerEventWitness) -> Result<(), String> {
+        let expected = witness.binding_subject();
+        if self.player != witness.binding_player()
+            || self.object.as_ref().map(|facts| facts.object) != expected
+            || self
+                .player
+                .is_some_and(|player| !game.state.rules.original_seating.contains(&player))
+        {
+            return Err("invalid triggered event binding".into());
+        }
+        if let Some(facts) = &self.object {
+            game.validate_fact_identity(facts)?;
+            if (witness.looks_back() && facts.zone != Zone::Battlefield)
+                || game
+                    .state
+                    .rules
+                    .cards
+                    .get(&facts.object.card)
+                    .is_none_or(|card| card.owner != facts.owner)
+            {
+                return Err("invalid triggered event object facts".into());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Actual trigger-event evidence, independent of whether the event has an object.
@@ -473,6 +520,48 @@ impl TriggerEventWitness {
             | Self::ResolutionPaid { .. } => None,
         }
     }
+    fn binding_subject(&self) -> Option<ObjectId> {
+        match self {
+            Self::SpellCast { cast } => Some(cast.spell.object),
+            Self::Discarded { movement, .. } => Some(movement.successor),
+            Self::Moved { movement } if !self.looks_back() => Some(movement.successor),
+            _ => self.subject(),
+        }
+    }
+
+    fn bound_facts(&self) -> Option<&ObjectBefore> {
+        match self {
+            Self::Entered { entrant, .. } => Some(entrant),
+            Self::CreatureAttacked { attacker, .. }
+            | Self::AttackerUnblocked { attacker, .. }
+            | Self::BecameBlocked { attacker, .. }
+            | Self::BlockedCreature { attacker, .. } => Some(attacker),
+            Self::Blocked { blocker, .. } | Self::BlockedByCreature { blocker, .. } => {
+                Some(blocker)
+            }
+            Self::BecameTarget { target, .. } => Some(target),
+            Self::PermanentDamaged { recipient, .. } => Some(recipient),
+            Self::Sacrificed { object, .. } => Some(object),
+            Self::SpellCast { cast } => Some(&cast.spell),
+            Self::DamageDealt {
+                damage,
+                match_source,
+                ..
+            } => Some(match_source.as_deref().unwrap_or(&damage.source)),
+            _ => None,
+        }
+    }
+
+    fn binding_player(&self) -> Option<PlayerId> {
+        match self {
+            Self::DamageDealt { damage, .. } => match damage.recipient {
+                DamageRecipient::Player { player } => Some(player),
+                DamageRecipient::Permanent { .. } => None,
+            },
+            _ => self.event_player(),
+        }
+    }
+
     pub(super) fn event_player(&self) -> Option<PlayerId> {
         match self {
             Self::StepBegan { active, .. } => *active,
@@ -764,6 +853,13 @@ impl TriggerEventWitness {
 }
 
 impl StackKind {
+    pub(super) fn event_binding(&self) -> Result<&EventBinding, String> {
+        match self {
+            Self::Triggered { binding, .. } => Ok(binding),
+            _ => Err("event binding outside a triggered invocation".into()),
+        }
+    }
+
     pub(super) fn observed_object(&self) -> Result<&ObservedObject, String> {
         match self {
             Self::Triggered { witness, .. } => witness
@@ -790,18 +886,6 @@ fn entry_witness(
     })
 }
 
-pub(super) fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
-    match outcome {
-        EventOutcome::EnteredAttached { movement, .. }
-        | EventOutcome::Moved { movement }
-        | EventOutcome::Sacrificed { movement, .. }
-        | EventOutcome::CardDiscarded { movement, .. }
-        | EventOutcome::StateBasedMoved { movement, .. }
-        | EventOutcome::LibraryTopMoved { movement, .. } => Some(movement),
-        EventOutcome::StackObjectCountered { movement, .. } => movement.as_ref(),
-        _ => None,
-    }
-}
 impl RulesTxn {
     pub(crate) fn stack_limit(&self) -> usize {
         capacities::STACK_LIMIT
@@ -856,92 +940,13 @@ impl RulesTxn {
         }))
     }
 
-    pub(super) fn record_turn_occurrences(
+    /// CR 119.9, 120.3f: the life-gain ledger, still on its `EventOutcome`
+    /// boundary until life migrates to actuals (E3).
+    pub(super) fn record_unmigrated_history(
         &mut self,
-        before: &RulesTxn,
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
-        // CR 603.2c, 603.10a: every member of a simultaneous occurrence
-        // contributes before any member is checked. Departures use LKI.
         for occurrence in occurrences {
-            // CR 733.1: supported mana costs only change or remove existing
-            // permanents, and mana effects add mana, gain life, or deal damage.
-            // None causes an entry that a mana receipt must reverse.
-            let entering = match &occurrence.actual {
-                EventOutcome::TokenCopied { object, .. } => std::slice::from_ref(object),
-                EventOutcome::TokensCreated { objects, .. }
-                | EventOutcome::PredefinedTokensCreated { objects, .. }
-                | EventOutcome::EncoreTokensCreated { objects, .. }
-                | EventOutcome::MyriadTokensCreated { objects, .. } => objects,
-                actual => movement(actual)
-                    .filter(|m| m.from != Zone::Battlefield && m.destination == Zone::Battlefield)
-                    .map_or(&[][..], |m| std::slice::from_ref(&m.successor)),
-            };
-            for &entrant in entering {
-                let controller = self.current(entrant)?.controller;
-                let types = self.characteristics(entrant)?;
-                let row = &mut self.rules_mut().cast_history[controller.0 as usize];
-                let one = Quantity::from(1);
-                if types.has_type(CardKind::Artifact) {
-                    row.artifacts_entered.add(&one);
-                }
-                if types.has_type(CardKind::Creature) {
-                    row.creatures_entered.add(&one);
-                }
-                if !types.has_type(CardKind::Land) {
-                    row.nonlands_entered.add(&one);
-                }
-            }
-            let departure = match &occurrence.actual {
-                EventOutcome::LeftGame { object, .. } => Some((*object, false)),
-                actual => movement(actual)
-                    .filter(|m| m.from == Zone::Battlefield && m.destination != Zone::Battlefield)
-                    .map(|m| (m.previous, matches!(m.destination, Zone::Graveyard { .. }))),
-            };
-            if let Some((object, to_graveyard)) = departure
-                && before
-                    .current(object)
-                    .is_ok_and(|o| o.present_on_battlefield())
-            {
-                let prior = before.object_before(object)?;
-                let row = &mut self.rules_mut().cast_history[prior.controller.0 as usize];
-                row.permanent_left = true;
-                row.creature_died |=
-                    to_graveyard && prior.characteristics.has_type(CardKind::Creature);
-            }
-            // CR 111.2: the creating player, once per token.
-            let created = match &occurrence.actual {
-                EventOutcome::TokenCopied { controller, .. } => Some((*controller, 1)),
-                EventOutcome::TokensCreated {
-                    objects,
-                    controller,
-                    ..
-                }
-                | EventOutcome::EncoreTokensCreated {
-                    objects,
-                    controller,
-                    ..
-                }
-                | EventOutcome::PredefinedTokensCreated {
-                    objects,
-                    controller,
-                    ..
-                }
-                | EventOutcome::MyriadTokensCreated {
-                    objects,
-                    controller,
-                    ..
-                } => Some((*controller, objects.len())),
-                _ => None,
-            };
-            if let Some((player, n)) = created {
-                let n = u32::try_from(n).map_err(|_| "token history count limit")?;
-                let row = &mut self.rules_mut().cast_history[player.0 as usize];
-                row.tokens_created = row
-                    .tokens_created
-                    .checked_add(n)
-                    .ok_or("token history count limit")?;
-            }
             match &occurrence.actual {
                 EventOutcome::LifeGained { player, amount, .. } => {
                     self.rules_mut().cast_history[player.0 as usize]
@@ -961,6 +966,31 @@ impl RulesTxn {
         Ok(())
     }
 
+    /// The witness a creation, entry or movement member offers matching:
+    /// a zone change, a token entering without a move, or a permanent
+    /// leaving the game (CR 603.6a, 603.6c, 111.13).
+    fn actual_witness(actual: &Actual) -> Option<TriggerEventWitness> {
+        if let Some(movement) = actual.movement() {
+            return Some(TriggerEventWitness::Moved { movement });
+        }
+        match actual.facet(FacetKind::Moved) {
+            Some(Facet::Moved {
+                object,
+                prior: Some(_),
+                from: Zone::Battlefield,
+                to: Destination::LeftGame { owner },
+                ..
+            }) => Some(TriggerEventWitness::PermanentLeftGame {
+                object: *object,
+                owner: *owner,
+            }),
+            Some(_) => None,
+            None => actual
+                .entrant()
+                .map(|object| TriggerEventWitness::TokenEntered { object }),
+        }
+    }
+
     // CR 603.2c/603.3a/603.10a: one match per actual occurrence, with
     // pre-event lookback for dies and post-event observers for enters. An
     // atomic simultaneous group shares one observer view, including sources
@@ -971,10 +1001,14 @@ impl RulesTxn {
         cause: &BatchCause,
         before: &RulesTxn,
         occurrences: &[OccurrenceResult],
+        actuals: &[Vec<Actual>],
     ) -> Result<(), String> {
-        for occurrence in occurrences {
+        if occurrences.len() != actuals.len() {
+            return Err("trigger collection actual invariant".into());
+        }
+        for (occurrence, members) in occurrences.iter().zip(actuals) {
             if !self.state.rules.resolution_triggers.is_empty() {
-                self.collect_resolution_departure(occurrence, before)?;
+                self.collect_resolution_departure(before, &occurrence.id, members)?;
             }
             let mut witnesses = match &occurrence.actual {
                 // CR 120.4b/120.8, 510.2, 603.2c/g, 615.6: match actual
@@ -1105,16 +1139,6 @@ impl RulesTxn {
                         current: c.current.clone(),
                     })
                     .collect(),
-                EventOutcome::TokenCopied { object, .. } => {
-                    vec![TriggerEventWitness::TokenEntered { object: *object }]
-                }
-                EventOutcome::TokensCreated { objects, .. }
-                | EventOutcome::EncoreTokensCreated { objects, .. }
-                | EventOutcome::MyriadTokensCreated { objects, .. }
-                | EventOutcome::PredefinedTokensCreated { objects, .. } => objects
-                    .iter()
-                    .map(|object| TriggerEventWitness::TokenEntered { object: *object })
-                    .collect(),
                 // CR 603.2b/503.1a/504.1/117.5: collect at the actual
                 // boundary; EnterStep still owns the normal draw/replacement.
                 // Stabilization/APNAP placement follows those entry actions.
@@ -1144,21 +1168,11 @@ impl RulesTxn {
                         nth: None,
                     }]
                 }
-                EventOutcome::Milled { movements, .. }
-                | EventOutcome::Surveilled { movements, .. } => movements
-                    .iter()
-                    .map(|movement| TriggerEventWitness::Moved {
-                        movement: movement.clone(),
-                    })
-                    .collect(),
-                actual => movement(actual)
-                    .map(|m| {
-                        vec![TriggerEventWitness::Moved {
-                            movement: m.clone(),
-                        }]
-                    })
-                    .unwrap_or_default(),
+                _ => vec![],
             };
+            // Creation, entry and movement match their facets, never the
+            // outcome or batch cause.
+            witnesses.extend(members.iter().filter_map(Self::actual_witness));
             // CR 119.9, 120.3f: each source's positive life gain is its own
             // life-gain event; lifelink gains arrive grouped by source.
             let gains: Vec<(PlayerId, &Quantity)> = match &occurrence.actual {
@@ -1259,16 +1273,6 @@ impl RulesTxn {
             // CR 603.6c, 701.9a, 701.21a: departures and the discard or
             // sacrifice itself, beside any zone change.
             match &occurrence.actual {
-                EventOutcome::LeftGame { object, owner }
-                    if before
-                        .current(*object)
-                        .is_ok_and(|o| o.present_on_battlefield()) =>
-                {
-                    witnesses.push(TriggerEventWitness::PermanentLeftGame {
-                        object: *object,
-                        owner: *owner,
-                    });
-                }
                 EventOutcome::Sacrificed { player, movement } => {
                     witnesses.push(TriggerEventWitness::Sacrificed {
                         player: *player,
@@ -1343,7 +1347,7 @@ impl RulesTxn {
                     || witness.leaves()
                 {
                     self.collect_trigger_witness(
-                        Some((before, cause)),
+                        Some((before, members)),
                         TriggerOccurrenceId::Batch(occurrence.id.clone()),
                         witness,
                     )?;
@@ -1399,7 +1403,7 @@ impl RulesTxn {
     }
     pub(super) fn collect_trigger_witness(
         &mut self,
-        before: Option<(&RulesTxn, &BatchCause)>,
+        before: Option<(&RulesTxn, &[Actual])>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -1420,7 +1424,7 @@ impl RulesTxn {
     }
     fn collect_trigger_witness_staged(
         &mut self,
-        before: Option<(&RulesTxn, &BatchCause)>,
+        before: Option<(&RulesTxn, &[Actual])>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -1516,6 +1520,7 @@ impl RulesTxn {
         } else {
             None
         };
+        let mut event_binding = None;
         let token = |object: ObjectId| observers.state.rules.tokens.contains_key(&object.card);
         let mut matched = vec![];
         // Filled once per actual entry, only for observers that need its characteristics.
@@ -1939,6 +1944,23 @@ impl RulesTxn {
                             None
                         };
                     }
+                    if event_binding.is_none() {
+                        event_binding = Some(EventBinding {
+                            player: witness.binding_player(),
+                            object: damage_match_source
+                                .as_deref()
+                                .or_else(|| witness.bound_facts())
+                                .cloned()
+                                .map(Ok)
+                                .or_else(|| {
+                                    witness
+                                        .binding_subject()
+                                        .map(|id| observers.object_before(id))
+                                })
+                                .transpose()?
+                                .map(Box::new),
+                        });
+                    }
                     let observed = if binds_observed_object(definition) {
                         let object = subject.ok_or("missing bound event object")?;
                         Some(observers.object_before(object)?)
@@ -1977,8 +1999,8 @@ impl RulesTxn {
                                             kir::Intervening::SourceCastByController
                                                 | kir::Intervening::SourceCostPaid { .. }
                                         ) {
-                                            before.and_then(|(prior, cause)| {
-                                                prior.completed_entry_cast(cause, &witness)
+                                            before.and_then(|(prior, actuals)| {
+                                                prior.completed_entry_cast(actuals, &witness)
                                             })
                                         } else {
                                             None
@@ -2052,7 +2074,13 @@ impl RulesTxn {
                 source_facts,
                 death_controller,
                 match_condition,
-                (event.clone(), witness),
+                (
+                    event.clone(),
+                    witness,
+                    event_binding
+                        .clone()
+                        .ok_or("missing collected event binding")?,
+                ),
             )?;
         }
         self.check_history_capacity()?;
@@ -2180,6 +2208,26 @@ impl RulesTxn {
             _ => None,
         })
     }
+    pub(super) fn followup_event_binding(
+        &self,
+        witness: &TriggerEventWitness,
+    ) -> Result<EventBinding, String> {
+        Ok(EventBinding {
+            player: witness.binding_player(),
+            object: witness
+                .bound_facts()
+                .cloned()
+                .map(Ok)
+                .or_else(|| {
+                    witness
+                        .binding_subject()
+                        .map(|subject| self.object_before(subject))
+                })
+                .transpose()?
+                .map(Box::new),
+        })
+    }
+
     pub(super) fn enqueue_trigger(
         &mut self,
         ability: EffectiveTriggerAbility,
@@ -2187,7 +2235,7 @@ impl RulesTxn {
         source_facts: ObjectBefore,
         death_controller: Option<PlayerId>,
         match_condition: Option<InterveningCheck>,
-        (occurrence, witness): (TriggerOccurrenceId, TriggerEventWitness),
+        (occurrence, witness, binding): (TriggerOccurrenceId, TriggerEventWitness, EventBinding),
     ) -> Result<TriggerId, String> {
         self.preflight_trigger_emission(1)?;
         let id = TriggerId(self.state.rules.next_trigger_id);
@@ -2208,6 +2256,7 @@ impl RulesTxn {
             source_handles,
             event: occurrence.clone(),
             witness: witness.clone(),
+            binding,
         });
         self.record_event(Event::TriggerCollected {
             trigger_id: id,
@@ -2365,6 +2414,7 @@ impl RulesTxn {
                         .position(|t| t.id == id)
                         .ok_or("missing ordered trigger")?;
                     let trigger = self.rules_mut().pending_triggers.remove(index);
+                    trigger.binding.validate(self, &trigger.witness)?;
                     self.validate_match_condition(
                         trigger.source,
                         trigger.source_face,
@@ -2439,6 +2489,7 @@ impl RulesTxn {
                             trigger_id: id,
                             event: trigger.event,
                             witness: trigger.witness,
+                            binding: trigger.binding,
                         },
                         player_targets: vec![],
                         id: stack_id,
@@ -3490,10 +3541,12 @@ impl RulesTxn {
             event,
             witness,
             match_condition,
+            binding,
         } = &entry.kind
         else {
             return Ok(None);
         };
+        binding.validate(self, witness)?;
         self.validate_trigger_source(
             entry.source,
             entry.program_face(),
@@ -3576,6 +3629,7 @@ impl RulesTxn {
         let mut ids = BTreeSet::new();
         let mut occurrences = TriggerOccurrences::default();
         for trigger in &self.state.rules.pending_triggers {
+            trigger.binding.validate(self, &trigger.witness)?;
             self.validate_trigger_source(
                 trigger.source,
                 trigger.source_face,
@@ -3851,7 +3905,11 @@ fn trigger_history_charge(witness: &TriggerEventWitness) -> usize {
 }
 pub fn entry_history_charge(entry: &StackInstance) -> usize {
     match &entry.kind {
-        StackKind::Triggered { witness, .. } => trigger_history_charge(witness),
+        StackKind::Triggered {
+            witness, binding, ..
+        } => {
+            trigger_history_charge(witness).saturating_add(stored_history::payload_charge(binding))
+        }
         _ => 0,
     }
 }
@@ -3860,7 +3918,9 @@ impl RulesTxn {
         let mut charge = self.resolution_trigger_history_charge();
         // Cascade/owned-child frames already charge their complete payload.
         for t in &self.state.rules.pending_triggers {
-            charge = charge.saturating_add(trigger_history_charge(&t.witness));
+            charge = charge
+                .saturating_add(trigger_history_charge(&t.witness))
+                .saturating_add(stored_history::payload_charge(&t.binding));
         }
         let rules = &self.state.rules;
         for s in rules.stack.iter().chain(rules.detached.values()) {

@@ -13,7 +13,9 @@
 //! pays a spell with a pain land's colored mana ability, reaching a selected
 //! printed mana ability, its rider's damage transaction and a kept receipt; a
 //! fourth stops a granted mana ability at its color choice; a fifth puts a
-//! loyalty ability and its source's prior-row facts on the stack.
+//! loyalty ability and its source's prior-row facts on the stack; a sixth
+//! fills a held mana receipt's cost event identities and ledger delta; a
+//! seventh suspends a counted draw between attempts.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -25,8 +27,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "a028d099240a5fb214fdc3c86d42b56e7c2eb88991a6c679e5c988c893595834",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    138,
-    "57e0b74669b91923c87ca4e664c746b6f4a5837a2a28149243e448b680ca4a82",
+    140,
+    "45b0849ce0084a7d9d8c850724434d5c52f9262de47a3dfd58b9c4a26e681339",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -133,6 +135,10 @@ pub(super) fn actions_scenario() -> Prepared {
 }
 
 pub(super) fn cast_edict(prepared: Prepared) -> Game {
+    cast_edict_at(prepared, vec![PlayerId(1)])
+}
+
+pub(super) fn cast_edict_at(prepared: Prepared, targets: Vec<PlayerId>) -> Game {
     let mut game = Game::new(prepared);
     let answer = |game: &mut Game, response: Answer| {
         let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
@@ -145,7 +151,7 @@ pub(super) fn cast_edict(prepared: Prepared) -> Game {
         answer(&mut game, selected_answer)
     };
     {
-        let selected_answer = game.next_test_decision().player_targets(vec![PlayerId(1)]);
+        let selected_answer = game.next_test_decision().player_targets(targets);
         answer(&mut game, selected_answer)
     };
     for land in [2, 3] {
@@ -255,6 +261,65 @@ fn granted_mana() -> Game {
         Reason::ManaColor { .. }
     ));
     game
+}
+
+/// CR 733.1: a held mana receipt whose cost published actuals, as a
+/// sacrificed source's would (cards admit sacrifice mana costs only on
+/// predefined tokens, which no fixture board here creates): its event
+/// identities and every ledger delta field. Only its JSON shape is
+/// fingerprinted.
+fn sacrificed_mana_receipt() -> String {
+    fn fill(value: &mut Value) -> bool {
+        match value {
+            Value::Object(map) if map.contains_key("cost_events") => {
+                map.insert(
+                    "cost_events".into(),
+                    serde_json::to_value([EventId {
+                        occurrence: OccurrenceId {
+                            batch: 1,
+                            path: vec![0],
+                        },
+                        member: 0,
+                    }])
+                    .unwrap(),
+                );
+                map.insert(
+                    "ledger".into(),
+                    serde_json::json!({ "seats": [{
+                        "seat": PlayerId(0),
+                        "permanent_left": true,
+                        "creature_died": true,
+                        "artifacts_entered": 1,
+                        "creatures_entered": 1,
+                        "nonlands_entered": 1,
+                        "tokens_created": 1,
+                    }] }),
+                );
+                true
+            }
+            Value::Object(map) => map.values_mut().any(fill),
+            Value::Array(items) => items.iter_mut().any(fill),
+            _ => false,
+        }
+    }
+    let game = mana_riders().pop().unwrap();
+    let mut sample: Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    assert!(fill(&mut sample["state"]), "a held mana receipt");
+    // The shape must round-trip through the real receipt type.
+    let mut receipt = None;
+    fn find(value: &Value, out: &mut Option<PermanentManaUndo>) {
+        match value {
+            Value::Object(map) if map.contains_key("cost_events") => {
+                *out = Some(serde_json::from_value(value.clone()).unwrap())
+            }
+            Value::Object(map) => map.values().for_each(|v| find(v, out)),
+            Value::Array(items) => items.iter().for_each(|v| find(v, out)),
+            _ => {}
+        }
+    }
+    find(&sample["state"], &mut receipt);
+    assert_eq!(receipt.unwrap().ledger.seats.len(), 1);
+    serde_json::to_string(&sample).unwrap()
 }
 
 /// CR 605.3a-b, 733.1: a cast paid by Yavimaya Coast's second printed mana
@@ -542,7 +607,13 @@ fn chosen_cost_shapes() -> Vec<Game> {
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
-                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+                Instruction::act(
+                    mtg_contracts::kir::Verb::Draw {
+                        player: PlayerExpr::you(Context::Activated),
+                        amount: mtg_contracts::kir::Amount::fixed(1),
+                    },
+                    0,
+                ),
             ]),
         });
     }
@@ -616,8 +687,15 @@ fn activation_condition_shapes() -> Vec<Game> {
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,
-                program: SpellProgram::instructions(SpellTiming::Instant)
-                    .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
+                program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
+                    Instruction::act(
+                        mtg_contracts::kir::Verb::Draw {
+                            player: you.clone(),
+                            amount: mtg_contracts::kir::Amount::fixed(1),
+                        },
+                        0,
+                    ),
+                ]),
             });
         } else if d.name == "Sol Ring" {
             d.mana_abilities[0].condition = Some(controls(CardKind::Artifact));
@@ -954,7 +1032,13 @@ fn loyalty_activation() -> String {
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,
         program: SpellProgram::instructions(SpellTiming::MainPhase).with_instructions([
-            Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+            Instruction::act(
+                mtg_contracts::kir::Verb::Draw {
+                    player: PlayerExpr::you(Context::Activated),
+                    amount: mtg_contracts::kir::Amount::fixed(1),
+                },
+                0,
+            ),
         ]),
     });
     walker.capabilities = walker.requirements();
@@ -1020,6 +1104,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            super::kernel_control_tests::suspended_counted_draw(),
             super::kernel_control_tests::suspended_creature_payment(),
             pending_stack_target(),
             suspended_delve(),
@@ -1070,7 +1155,11 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
                 .unwrap();
             serde_json::to_string(&sample).unwrap()
         }])
-        .chain([object_choice_shape(), loyalty_activation()])
+        .chain([
+            object_choice_shape(),
+            loyalty_activation(),
+            sacrificed_mana_receipt(),
+        ])
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

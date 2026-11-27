@@ -159,7 +159,16 @@ impl Resolution {
     /// Every resolved reference of every block, looked up in the reference
     /// table ([`reference_row`]): its role, read where it is printed, either
     /// has a lowering or is rejected under `ref:<role>:<block kind>`.
+    #[cfg(test)]
     pub(super) fn references(&self, abilities: &Value) -> Result<(), Failure> {
+        self.references_with_types(abilities, &[])
+    }
+
+    pub(super) fn references_with_types(
+        &self,
+        abilities: &Value,
+        typed: &[ast::Ability],
+    ) -> Result<(), Failure> {
         for (index, block) in self.blocks()?.iter().enumerate() {
             let ability = &abilities[index];
             let kind = BlockKind::of(ability);
@@ -197,7 +206,16 @@ impl Resolution {
                     scope,
                     operand: ability.pointer(path),
                 };
-                if !reference_row(role, &site) {
+                let evaluated = typed
+                    .get(index)
+                    .and_then(|block| evaluated_site(block, path));
+                let admitted = match (evaluated, role) {
+                    (Some(kind), Role::Resolved(reference)) => {
+                        evaluated_reference(reference, kind, &site)
+                    }
+                    _ => reference_row(role, &site),
+                };
+                if !admitted {
                     return Err(unsupported(
                         "resolution",
                         format!("ref:{}:{}", describe(entry), kind.name()),
@@ -870,6 +888,103 @@ impl Site<'_> {
             e.as_object()
                 .is_some_and(|o| o.len() == 1 && o.get("player") == Some(&Value::from("you")))
         })
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SiteKind<'a> {
+    Player(&'a ast::PlayerRef),
+    Object(&'a ast::ObjectRef),
+}
+
+fn evaluated_site<'a>(block: &'a ast::Ability, path: &str) -> Option<SiteKind<'a>> {
+    let effects = match block {
+        ast::Ability::Activated(block) => &block.effects,
+        ast::Ability::Triggered(block) => &block.effects,
+        ast::Ability::Spell(block) => &block.effects,
+        _ => return None,
+    };
+    let mut parts = path.strip_prefix("/effects/")?.split('/');
+    let sentence = effects.get(parts.next()?.parse::<usize>().ok()?)?;
+    if parts.next()? != "steps" {
+        return None;
+    }
+    let action = sentence.steps.get(parts.next()?.parse::<usize>().ok()?)?;
+    let (who, amount) = match action {
+        ast::Effect::Draw(draw) => (&*draw.who, &*draw.amount),
+        ast::Effect::Variant99(life) => (&*life.who, &*life.amount),
+        _ => return None,
+    };
+    match parts.collect::<Vec<_>>().as_slice() {
+        ["who"] => Some(SiteKind::Player(who)),
+        ["who", "of"] => match who {
+            ast::PlayerRef::Owner(who) => Some(SiteKind::Object(&who.of)),
+            ast::PlayerRef::Controller(who) => Some(SiteKind::Object(&who.of)),
+            _ => None,
+        },
+        ["amount", "of"] => match amount {
+            ast::Amount::Attribute(amount) => Some(SiteKind::Object(&amount.of)),
+            ast::Amount::LifeTotal(amount) => Some(SiteKind::Player(&amount.of)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn class_of(reference: &ResolvedRef, site: SiteKind<'_>) -> Option<kir::OperandClass> {
+    use kir::OperandClass as Class;
+    match (reference, site) {
+        (ResolvedRef::Controller(_), SiteKind::Player(ast::PlayerRef::You(_))) => {
+            Some(Class::Controller)
+        }
+        (
+            ResolvedRef::EventPlayer(_),
+            SiteKind::Player(ast::PlayerRef::ThatPlayer(_) | ast::PlayerRef::They(_)),
+        ) => Some(Class::EventPlayer),
+        (
+            ResolvedRef::Target(_),
+            SiteKind::Player(ast::PlayerRef::TargetPlayer(_) | ast::PlayerRef::TargetOpponent(_)),
+        ) => Some(Class::Target),
+        (
+            ResolvedRef::Source(_),
+            SiteKind::Object(ast::ObjectRef::This(_) | ast::ObjectRef::SelfObject(_)),
+        ) => Some(Class::Source),
+        (
+            ResolvedRef::Target(_),
+            SiteKind::Object(
+                ast::ObjectRef::Target(_) | ast::ObjectRef::It(_) | ast::ObjectRef::That(_),
+            ),
+        ) => Some(Class::Target),
+        (
+            ResolvedRef::EventObject(_),
+            SiteKind::Object(ast::ObjectRef::It(_) | ast::ObjectRef::That(_)),
+        ) => Some(Class::EventObject),
+        _ => None,
+    }
+}
+
+fn evaluated_reference(reference: &ResolvedRef, kind: SiteKind<'_>, at: &Site<'_>) -> bool {
+    use kir::OperandClass as Class;
+    match class_of(reference, kind) {
+        Some(Class::Controller) => controller_row(Some(reference), at),
+        Some(Class::EventPlayer) => match reference {
+            ResolvedRef::EventPlayer(event) => kernel_event_player(&event.role).is_some_and(|(_, trigger)| {
+                at.scope.is_none() && at.kind == BlockKind::Triggered && at.ability["trigger"]["trigger"] == trigger
+            }),
+            _ => false,
+        },
+        Some(Class::EventObject) => match reference {
+            ResolvedRef::EventObject(event) => {
+                at.scope.is_none() && at.kind == BlockKind::Triggered
+                    && event.role == at.ability["trigger"]["trigger"].as_str().unwrap_or_default()
+                    && !at.block.refs.iter().any(|entry| {
+                        matches!(entry, RefEntry::Ref(r) if matches!(r.r#ref.as_ref(), ResolvedRef::Target(_)))
+                    })
+            }
+            _ => false,
+        },
+        Some(Class::Source | Class::Target) => reference_row(Role::Resolved(reference), at),
+        _ => false,
     }
 }
 
