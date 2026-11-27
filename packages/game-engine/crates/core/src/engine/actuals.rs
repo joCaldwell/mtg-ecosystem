@@ -130,15 +130,6 @@ pub enum CounterHolder {
     },
 }
 
-impl CounterHolder {
-    fn seat(self) -> PlayerId {
-        match self {
-            Self::Permanent { controller, .. } => controller,
-            Self::Player { player } => player,
-        }
-    }
-}
-
 /// The settled change of one kind on one holder. The prior is zero on
 /// entry (CR 122.6, 400.7); the entry link names the new incarnation's event.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,10 +305,6 @@ pub struct SeatDelta {
     pub nonlands_entered: u32,
     #[serde(default, skip_serializing_if = "state::is_zero_count")]
     pub tokens_created: u32,
-    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
-    pub counter_placements: Quantity,
-    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
-    pub counter_removals: Quantity,
 }
 impl SeatDelta {
     fn new(seat: PlayerId) -> Self {
@@ -329,8 +316,6 @@ impl SeatDelta {
             creatures_entered: 0,
             nonlands_entered: 0,
             tokens_created: 0,
-            counter_placements: Quantity::zero(),
-            counter_removals: Quantity::zero(),
         }
     }
     fn is_empty(&self) -> bool {
@@ -375,8 +360,6 @@ impl LedgerDelta {
             let into = self.seat(row.seat);
             into.permanent_left |= row.permanent_left;
             into.creature_died |= row.creature_died;
-            into.counter_placements.add(&row.counter_placements);
-            into.counter_removals.add(&row.counter_removals);
             for (a, b) in [
                 (&mut into.artifacts_entered, row.artifacts_entered),
                 (&mut into.creatures_entered, row.creatures_entered),
@@ -394,8 +377,6 @@ impl LedgerDelta {
                 .get_mut(row.seat.0 as usize)
                 .ok_or("invalid turn history seat")?;
             h.permanent_left |= row.permanent_left;
-            h.counter_placements.add(&row.counter_placements);
-            h.counter_removals.add(&row.counter_removals);
             h.creature_died |= row.creature_died;
             h.artifacts_entered.add(&q(row.artifacts_entered));
             h.creatures_entered.add(&q(row.creatures_entered));
@@ -414,8 +395,6 @@ impl LedgerDelta {
         for row in &self.seats {
             let h = &mut history[row.seat.0 as usize];
             h.permanent_left &= !row.permanent_left;
-            h.counter_placements.subtract(&row.counter_placements);
-            h.counter_removals.subtract(&row.counter_removals);
             h.creature_died &= !row.creature_died;
             h.artifacts_entered.subtract(&q(row.artifacts_entered));
             h.creatures_entered.subtract(&q(row.creatures_entered));
@@ -441,10 +420,6 @@ impl LedgerDelta {
                 || !le(row.creatures_entered, &h.creatures_entered)
                 || !le(row.nonlands_entered, &h.nonlands_entered)
                 || row.tokens_created > h.tokens_created
-                || row.counter_placements.is_negative()
-                || row.counter_removals.is_negative()
-                || row.counter_placements > h.counter_placements
-                || row.counter_removals > h.counter_removals
             {
                 return Err("invalid ledger delta".into());
             }
@@ -873,15 +848,6 @@ impl RulesTxn {
         let mut delta = LedgerDelta::default();
         let history = &self.state.rules.cast_history;
         for actual in actuals {
-            if let Some(change) = actual.counters() {
-                let row = delta.seat(change.holder.seat());
-                let delta = change.delta();
-                if delta.is_negative() {
-                    row.counter_removals.subtract(&delta);
-                } else {
-                    row.counter_placements.add(&delta);
-                }
-            }
             if let Some(entrant) = actual.entrant() {
                 let controller = self.current(entrant)?.controller;
                 let types = self.characteristics(entrant)?;

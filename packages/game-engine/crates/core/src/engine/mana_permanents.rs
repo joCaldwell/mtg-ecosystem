@@ -376,7 +376,7 @@ impl RulesTxn {
         {
             return Err("invalid mana receipt counters".into());
         }
-        // Source costs can record a departure, death or counter removal.
+        // Source costs can record a departure or death.
         // The facts still hold and the cost events name published batches.
         if receipt.ledger.seats.iter().any(|delta| {
             delta.seat != receipt.player
@@ -385,8 +385,6 @@ impl RulesTxn {
                 || delta.creatures_entered != 0
                 || delta.nonlands_entered != 0
                 || delta.tokens_created != 0
-                || delta.counter_placements != Quantity::zero()
-                || delta.counter_removals > row.plus_one_counters
         }) || receipt
             .ledger
             .check_holds(&self.state.rules.cast_history)

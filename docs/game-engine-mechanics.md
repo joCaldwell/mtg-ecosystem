@@ -93,9 +93,8 @@ accepted-input replay with exact identity.
     fixed: commit state and retain last-known facts, then reduce history through
     one reducer returning a `LedgerDelta`. Next it reconciles control and zones,
     matches triggers and delayed watchers, and binds step results. Trace and
-    views project afterwards. Counter placements and removals contribute to
-    the private turn ledger by holder seat. Mana reversal inverts the ledger
-    delta and restores the recorded balances. Counter step results derive
+    views project afterwards. Mana reversal inverts the ledger delta and
+    restores the recorded counter balances. Counter step results derive
     their recipients and amount from the published members. For migrated
     families, facets supply the match witnesses. The [event witness contract](game-engine-board-mechanics.md#trigger-families-and-event-witnesses)
     describes current uniqueness checks and the E3 deduplication work. Ordered

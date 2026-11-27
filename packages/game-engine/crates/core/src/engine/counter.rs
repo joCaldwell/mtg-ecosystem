@@ -144,6 +144,25 @@ impl RulesTxn {
                     self.validate_counter_outcome(frame, outcome)?;
                 }
             }
+            InstructionOutcome::CounterPlacements { events } => {
+                // One batch per placement step and one counter kind per
+                // occurrence. Simultaneous recipients get consecutive paths.
+                if let Some(first) = events.first()
+                    && (first.occurrence.batch >= self.state.rules.next_batch_id
+                        || events.len() > self.event_group_limit()
+                        || events.iter().enumerate().any(|(index, event)| {
+                            event.member != 0
+                                || event.occurrence.batch != first.occurrence.batch
+                                || if events.len() == 1 {
+                                    !event.occurrence.path.is_empty()
+                                } else {
+                                    event.occurrence.path != [index as u32]
+                                }
+                        }))
+                {
+                    return Err("snapshot counter placement event invariant".into());
+                }
+            }
             InstructionOutcome::Countered { target, movement } => {
                 let (bound, domain) = self.counter_target(frame, 0)?;
                 if *target != bound
