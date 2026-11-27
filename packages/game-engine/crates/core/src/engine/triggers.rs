@@ -2616,15 +2616,7 @@ impl RulesTxn {
         {
             return Err("snapshot trigger source invariant".into());
         }
-        {
-            self.validate_characteristic_identity(
-                source,
-                fact.transforms,
-                fact.face_down,
-                &fact.characteristics,
-            )?;
-        }
-        Ok(())
+        self.validate_fact_identity(fact)
     }
     fn valid_entry_subject(
         &self,

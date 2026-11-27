@@ -62,6 +62,8 @@ pub(crate) struct Source {
     layout: String,
     pub(crate) color_identity: Vec<Color>,
     colors: Option<Vec<Color>>,
+    #[serde(default)]
+    keywords: Vec<String>,
     card_faces: Option<Box<RawValue>>,
     loyalty: Option<Box<RawValue>>,
     defense: Option<Box<RawValue>>,
@@ -73,7 +75,7 @@ pub(crate) struct SourceFace {
     pub(crate) oracle_text: String,
     pub(crate) mana_cost: String,
     pub(crate) type_line: String,
-    /// Absent on an adventurer's parts, whose colors follow their mana costs.
+    /// Split and adventurer parts derive colors from their mana costs.
     pub(crate) colors: Option<Vec<Color>>,
     pub(crate) power: Option<String>,
     pub(crate) toughness: Option<String>,
@@ -157,6 +159,7 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
         "modal_dfc" => FaceLayout::ModalDoubleFaced,
         "transform" => FaceLayout::Transforming,
         "adventure" => FaceLayout::Adventurer,
+        "split" => FaceLayout::Split,
         layout => return Err(unsupported("source.layout", format!("layout:{layout}"))),
     };
     let printed: Vec<SourceFace> = match (layout, &source.card_faces) {
@@ -174,20 +177,40 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
             ));
         }
         (_, Some(faces)) => {
+            if layout == FaceLayout::Split && r.faces.len() != 2 {
+                return Err(unsupported("source.card_faces", "expected two split halves"));
+            }
             let faces: [SourceFace; 2] = decode(faces.get(), "source.card_faces")?;
+            if layout == FaceLayout::Split {
+                // CR 709.5, 702.102, 702.127: each shell needs its own rules.
+                if faces
+                    .iter()
+                    .any(|f| f.type_line.split_whitespace().any(|t| t == "Room"))
+                {
+                    return Err(unsupported("source.type_line", "subtype:Room"));
+                }
+                for (printed, reason) in
+                    [("Fuse", "keyword:fuse"), ("Aftermath", "keyword:aftermath")]
+                {
+                    if source.keywords.iter().any(|k| k == printed) {
+                        return Err(unsupported("source.keywords", reason));
+                    }
+                }
+            }
             if source.name != format!("{} // {}", faces[0].name, faces[1].name) {
                 return Err(invalid(
                     "source.name",
                     "card name does not match its printed parts",
                 ));
             }
-            // CR 715.2, 202.2: an adventurer's parts have no color indicator,
+            // CR 709.4b, 715.2, 202.2: split and adventurer parts have no color indicator,
             // and each part's colors follow its own mana cost; double-faced
             // faces print their colors (CR 712.8).
-            let adventure = layout == FaceLayout::Adventurer;
+            let colors_from_cost = matches!(layout, FaceLayout::Adventurer | FaceLayout::Split);
             if faces.iter().any(|face| {
-                face.colors.is_some() == adventure || (adventure && face.color_indicator.is_some())
-            }) || (adventure && source.colors.is_none())
+                face.colors.is_some() == colors_from_cost
+                    || (colors_from_cost && face.color_indicator.is_some())
+            }) || (colors_from_cost && source.colors.is_none())
             {
                 return Err(unsupported(
                     "source.face",

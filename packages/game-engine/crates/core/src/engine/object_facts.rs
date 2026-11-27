@@ -40,8 +40,7 @@ impl ObjectFacts for DerivedObject<'_> {
             .contains_key(&self.object.id.card)
     }
     fn copiable(&self) -> Option<Cow<'_, Characteristics>> {
-        let definition = self.game.copiable_definition(self.object.id).ok()?;
-        Some(Cow::Borrowed(&definition.characteristics))
+        self.game.copiable_characteristics(self.object).ok()
     }
     fn structural(&self) -> Option<Cow<'_, Characteristics>> {
         self.game.structural_characteristics(self.object.id).ok()

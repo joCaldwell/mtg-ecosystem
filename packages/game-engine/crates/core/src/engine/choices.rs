@@ -826,7 +826,7 @@ impl RulesTxn {
         !self.state.rules.tokens.contains_key(&card)
             && (filter.0.is_empty()
                 || self.definition(card).is_ok_and(|definition| {
-                    let printed = &definition.characteristics;
+                    let printed = definition.card_characteristics();
                     filter.0.iter().all(|atom| match atom {
                         Atom::Type { kind } => printed.has_type(*kind),
                         Atom::AnyType { kinds } => kinds.iter().any(|kind| printed.has_type(*kind)),

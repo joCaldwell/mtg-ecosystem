@@ -493,12 +493,7 @@ impl RulesTxn {
         {
             return Err("snapshot chosen-object payment identity invariant".into());
         }
-        self.validate_characteristic_identity(
-            id,
-            paid.before.transforms,
-            paid.before.face_down,
-            &paid.before.characteristics,
-        )?;
+        self.validate_fact_identity(&paid.before)?;
         let valid = match (&paid.outcome, action) {
             (CostOutcome::Tapped { later_untapped }, Tap) => {
                 paid.before.zone == Zone::Battlefield

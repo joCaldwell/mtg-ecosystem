@@ -1096,6 +1096,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         Some("modal_dfc") => FaceLayout::ModalDoubleFaced,
         Some("transform") => FaceLayout::Transforming,
         Some("adventure") => FaceLayout::Adventurer,
+        Some("split") => FaceLayout::Split,
         _ => FaceLayout::Single,
     };
     if d.layout != layout || d.back_face.is_some() == layout.is_single() {
@@ -1180,6 +1181,26 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
                 && back.mana_abilities.is_empty()
                 && back.static_abilities.is_empty()
                 && back.keywords.is_empty()
+        }
+        // CR 709.3–4: both parts must be complete spell programs.
+        // Permanent splits, fused casts and Aftermath each need distinct rules.
+        FaceLayout::Split => {
+            let unsupported_keyword = source["keywords"].as_array().is_some_and(|ks| {
+                ks.iter()
+                    .any(|k| matches!(k.as_str(), Some("Fuse" | "Aftermath")))
+            });
+            !unsupported_keyword
+                && [d, back].iter().all(|half| {
+                    !permanent(half)
+                        && !adventure_subtype(half)
+                        && half.characteristics.front_face_mana_value.is_none()
+                        && half.spell.is_some()
+                        && half.activated.is_empty()
+                        && half.triggered.is_empty()
+                        && half.static_abilities.is_empty()
+                        && half.mana_abilities.is_empty()
+                        && half.keywords.is_empty()
+                })
         }
         FaceLayout::Single => false,
     };

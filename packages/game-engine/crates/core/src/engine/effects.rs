@@ -3433,6 +3433,7 @@ impl RulesTxn {
             fact.object,
             fact.transforms,
             fact.face_down,
+            fact.zone,
             &fact.characteristics,
         )
     }
@@ -3446,6 +3447,7 @@ impl RulesTxn {
         source: ObjectId,
         transforms: u32,
         face_down: bool,
+        zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
         let definition = self.definition(source.card)?;
@@ -3456,10 +3458,15 @@ impl RulesTxn {
         if face_down && (transforms > 0 || definition.face_down.is_none()) {
             return Err("captured face-down facts for a card that cannot be face down".into());
         }
-        let mut base = self
-            .fact_definition(source, transforms, face_down)?
-            .characteristics
-            .clone();
+        let face = self.fact_definition(source, transforms, face_down)?;
+        let mut base = if definition.layout == FaceLayout::Split && zone != Zone::Stack {
+            if source.face != CardFace::Front {
+                return Err("captured split half outside the stack".into());
+            }
+            definition.card_characteristics().into_owned()
+        } else {
+            face.characteristics.clone()
+        };
         if c.has_type(CardKind::Creature) != c.power.is_some()
             || c.power.is_some() != c.toughness.is_some()
         {

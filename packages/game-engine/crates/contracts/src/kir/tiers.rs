@@ -566,6 +566,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         C::ModalChoiceV1
         | C::ModalDoubleFacedV1
         | C::TransformingDoubleFacedV1
+        | C::SplitV1
         | C::AdventurerV1
         | C::TransformSourceV1
         | C::FaceDownCastV1

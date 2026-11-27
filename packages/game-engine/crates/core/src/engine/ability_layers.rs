@@ -284,11 +284,8 @@ impl RulesTxn {
     }
 
     pub(super) fn type_layer(&self, object: ObjectId) -> Result<TypeLayer<'_>, String> {
-        let printed = &self.copiable_definition(object)?.characteristics;
-        let present = self
-            .current(object)
-            .is_ok_and(|o| o.id == object && o.present_on_battlefield());
-        let entry = if present {
+        let live = self.current(object).ok();
+        let entry = if live.is_some_and(Object::present_on_battlefield) {
             self.global_types()?.entries.get(&object)
         } else {
             None
@@ -300,7 +297,10 @@ impl RulesTxn {
                 applied: e.applied.clone(),
             },
             None => TypeLayer {
-                facts: Cow::Borrowed(printed),
+                facts: match live {
+                    Some(live) => self.copiable_characteristics(live)?,
+                    None => Cow::Borrowed(&self.copiable_definition(object)?.characteristics),
+                },
                 rules_text_removed: false,
                 applied: vec![],
             },

@@ -132,17 +132,18 @@ impl<O> VisiblePlayer<O> {
         }
     }
 }
-/// The two printed parts of a double-faced or adventurer card. Available
+/// The printed parts of a double-faced, adventurer or split card. Available
 /// only when the viewer can identify the card (CR 712.6-7).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleFaces {
     pub layout: FaceLayout,
     pub front_name: String,
-    /// The back face, or an adventurer's Adventure (CR 715.2).
+    /// The back face, inset Adventure or right split half (CR 709.3, 715.2).
     pub back_name: String,
-    /// The face up, or the Adventure while cast as one (CR 712.8, 715.3b).
-    pub active_face: CardFace,
+    /// The selected face. A split card off the stack has both printed
+    /// names and no single active half (CR 709.3b–4, 712.8, 715.3b).
+    pub active_face: Option<CardFace>,
     /// CR 715.3d: exiled as a resolving Adventure; its controller may play it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_adventure: bool,

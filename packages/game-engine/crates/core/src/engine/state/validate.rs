@@ -103,7 +103,7 @@ impl RulesTxn {
             if object.hideaway.is_some()
                 || !matches!(
                     layout,
-                    FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer
+                    FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer | FaceLayout::Split
                 )
                 || match object.zone {
                     Zone::Stack => card.spell.is_none(),
