@@ -44,7 +44,7 @@ impl RulesTxn {
             || o.tapped
             || (self.characteristics(source)?.has_type(CardKind::Creature)
                 && !o.attack_ready
-                && !self.has_keyword(source, KeywordAbility::Haste))
+                && !self.has_keyword(source, KeywordAbility::Haste)?)
         {
             return Err("invalid unpaid tap mana source".into());
         }

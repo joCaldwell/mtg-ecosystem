@@ -23,18 +23,18 @@ impl RulesTxn {
     // CR 305.2: compare the total allowance with lands already played. The
     // controller and turn were frozen when each continuous effect resolved.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(crate) fn has_land_play_allowance(&self, player: PlayerId) -> bool {
+    pub(crate) fn has_land_play_allowance(&self, player: PlayerId) -> Result<bool, String> {
         let turn = &self.state.rules.turn;
         let mut allowance = Quantity::from(1);
-        if self.static_land_allowance(player, &mut allowance) {
-            return true;
+        if self.static_land_allowance(player, &mut allowance)? {
+            return Ok(true);
         }
         for effect in &self.state.rules.effects {
             if let Some(count) = effect.additional_land_plays(player, turn.number) {
                 allowance.add(count);
             }
         }
-        allowance > Quantity::from(i64::from(turn.lands_played))
+        Ok(allowance > Quantity::from(i64::from(turn.lands_played)))
     }
 
     // CR 305.1-3: playing a land is a special action during the active
@@ -63,6 +63,18 @@ impl RulesTxn {
                     .into(),
             );
         }
+        if !self.playable_land_face(player, card, face)? || !self.has_land_play_allowance(player)? {
+            return Err("invalid or unsupported land play".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn playable_land_face(
+        &self,
+        player: PlayerId,
+        card: CardId,
+        face: CardFace,
+    ) -> Result<bool, String> {
         let object = self
             .state
             .rules
@@ -70,18 +82,13 @@ impl RulesTxn {
             .get(&card)
             .ok_or("invalid land source")?;
         let definition = self.face_definition(card, face)?;
-        if definition.characteristics.kind != CardKind::Land
-            || !definition.capabilities.contains(&Capability::LandPlayV1)
-            || self.state.rules.cards[&card].owner != player
-            || !(object.zone == (Zone::Hand { owner: player })
+        Ok(definition.characteristics.kind == CardKind::Land
+            && definition.capabilities.contains(&Capability::LandPlayV1)
+            && self.state.rules.cards[&card].owner == player
+            && (object.zone == (Zone::Hand { owner: player })
                 || (object.zone == Zone::Exile
                     && object.adventure_player == Some(player)
-                    && face == CardFace::Front))
-            || !self.has_land_play_allowance(player)
-        {
-            return Err("invalid or unsupported land play".into());
-        }
-        Ok(())
+                    && face == CardFace::Front)))
     }
     pub(super) fn play_land(
         &mut self,
@@ -140,7 +147,7 @@ impl RulesTxn {
         {
             TurnStep::EndCombat
         } else if self.state.rules.turn.step == TurnStep::DeclareBlockers
-            && !self.first_strikers().is_empty()
+            && !self.first_strikers()?.is_empty()
         {
             TurnStep::FirstStrikeDamage
         } else if self.state.rules.turn.step == TurnStep::Cleanup && self.state.rules.cleanup_repeat

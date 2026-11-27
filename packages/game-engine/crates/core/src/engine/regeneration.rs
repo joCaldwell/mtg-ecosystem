@@ -108,7 +108,7 @@ impl RulesTxn {
             };
             let current = self.current(object)?;
             if !current.present_on_battlefield()
-                || self.has_keyword(object, KeywordAbility::Indestructible)
+                || self.has_keyword(object, KeywordAbility::Indestructible)?
             {
                 continue;
             }

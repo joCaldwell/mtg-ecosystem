@@ -33,6 +33,8 @@ testkit_fields! {
         pub(in crate::engine) published: Option<Arc<publish::Published>>,
         // Open only while a bounded procedure records what it publishes.
         pub(in crate::engine) actual_journal: Option<Box<ActualJournal>>,
+        // Present only on the private CR 614.12 lookahead fork.
+        pub(in crate::engine) prospective_entry: Option<battlefield_entry::ProspectiveEntryState>,
     }
 }
 testkit_fields! {
@@ -90,6 +92,14 @@ impl RulesTxn {
                 )
             })
             .collect();
+        let mut timestamps = TimestampAllocator::default();
+        // CR 613.7m: setup permanents share one time, ordered from seat zero.
+        let setup_time = prepared
+            .config
+            .cards
+            .iter()
+            .any(|c| c.zone == Zone::Battlefield)
+            .then(|| timestamps.allocate().expect("initial timestamp"));
         let objects = prepared
             .config
             .cards
@@ -103,12 +113,11 @@ impl RulesTxn {
                         attached_to: None,
                         attachment_timestamp: None,
                         battlefield_entry_turn: None,
+                        battlefield_entry_timestamp: None,
                         // CR 702.30a: setup permanents came under control
                         // before any upkeep.
                         control_upkeeps: (c.zone == Zone::Battlefield).then_some(0),
-                        keyword_timestamp: None,
-                        // CR 613.7m: setup permanents share one timestamp,
-                        // ordered by APNAP from the first active player.
+                        keyword_timestamp: setup_time.filter(|_| c.zone == Zone::Battlefield),
                         keyword_rank: c.controller.0,
                         plus_one_counters: Quantity::zero(),
                         loyalty_counters: if c.zone == Zone::Battlefield {
@@ -213,7 +222,7 @@ impl RulesTxn {
                 pending_concessions: vec![],
                 priority: PlayerId(0),
                 passes: vec![],
-                next_attachment_timestamp: 1,
+                timestamps,
                 next_stack_id: 0,
                 stack: vec![].into(),
                 detached: BTreeMap::new(),
@@ -247,6 +256,7 @@ impl RulesTxn {
             in_rule_step: false,
             kernel_leaf: None,
             actual_journal: None,
+            prospective_entry: None,
             published: None,
         };
         if let Some(starting) = game
@@ -283,6 +293,7 @@ impl RulesTxn {
             kernel_leaf: self.kernel_leaf.clone(),
             published: self.published.clone(),
             actual_journal: self.actual_journal.clone(),
+            prospective_entry: self.prospective_entry.clone(),
         }
     }
     /// Trusted host execution boundary; never a player-facing identifier.

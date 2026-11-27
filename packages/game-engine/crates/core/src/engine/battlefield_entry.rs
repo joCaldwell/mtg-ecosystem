@@ -44,16 +44,242 @@ pub(in crate::engine) enum EntryChoice {
     Reveal(mtg_contracts::kir::Pred),
 }
 
+#[derive(Default)]
+pub(super) struct EntryModifiers {
+    pub(super) tapped: bool,
+    pub(super) accepted: Option<bool>,
+    pub(super) attached_to: Option<ObjectId>,
+}
+
+#[derive(Clone)]
+pub struct ProspectiveEntryState {
+    pub(super) entrant: ObjectId,
+    pub(super) previous: Option<Object>,
+}
+
+pub(super) struct ProspectiveEntry {
+    pub(super) characteristics: Characteristics,
+    pub(super) printed_abilities_lost: bool,
+}
+
 impl RulesTxn {
+    pub(super) fn new_zone_object(
+        &self,
+        id: ObjectId,
+        controller: PlayerId,
+        zone: Zone,
+        face_down: bool,
+        timestamp: Option<u64>,
+        modifiers: &EntryModifiers,
+    ) -> Object {
+        Object {
+            id,
+            controller,
+            default_controller: controller,
+            zone,
+            face_down,
+            tapped: modifiers.tapped,
+            attached_to: modifiers.attached_to,
+            attachment_timestamp: timestamp.filter(|_| modifiers.attached_to.is_some()),
+            battlefield_entry_turn: timestamp.map(|_| self.state.rules.turn.number),
+            battlefield_entry_timestamp: timestamp,
+            control_upkeeps: timestamp
+                .map(|_| self.state.rules.players[controller.0 as usize].upkeeps),
+            keyword_timestamp: timestamp,
+            keyword_rank: self.apnap_rank(controller),
+            hideaway: None,
+            phased_out: None,
+            plus_one_counters: Quantity::zero(),
+            loyalty_counters: Quantity::zero(),
+            loyalty_used_turn: None,
+            counters: vec![],
+            transforms: 0,
+            adventure_player: None,
+            marked_damage: Quantity::zero(),
+            attack_ready: false,
+            deathtouch_damage: false,
+            unearthed: false,
+            dashed: false,
+        }
+    }
+
+    /// CR 614.12: evaluate just this entrant on the common prior battlefield.
+    /// The fork contains the intended incarnation, face, controller, status
+    /// and modifications so far. No ID, history or knowledge is committed.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn prospective_entry(
+        &self,
+        entrant: &Object,
+        token: Option<&tokens::TokenIdentity>,
+    ) -> Result<ProspectiveEntry, String> {
+        let mut preview = self.fork();
+        preview.prospective_entry = Some(ProspectiveEntryState {
+            entrant: entrant.id,
+            previous: self.state.rules.objects.get(&entrant.id.card).cloned(),
+        });
+        if let Some(token) = token {
+            preview.insert_token_definition(entrant.id.card, entrant.controller, token.clone());
+        }
+        preview
+            .rules_mut()
+            .objects
+            .insert(entrant.id.card, entrant.clone());
+        preview.reject_simultaneous_timestamp_order()?;
+        Ok(ProspectiveEntry {
+            characteristics: preview.derived_characteristics_with_sources(entrant.id, None)?,
+            printed_abilities_lost: preview.printed_abilities_lost(entrant.id)?,
+        })
+    }
+
+    pub(super) fn apply_entry_replacements(
+        &self,
+        previous: ObjectId,
+        entrant: &mut Object,
+        modifiers: &EntryModifiers,
+        token: Option<&tokens::TokenIdentity>,
+    ) -> Result<(), String> {
+        let definition = if entrant.face_down {
+            face_down::face_down_definition()
+        } else if let Some(token) = token {
+            &token.definition
+        } else {
+            self.face_definition(entrant.id.card, entrant.id.face)?
+        };
+        // CR 306.5b: existing intrinsic loyalty placement uses the face's
+        // printed starting loyalty.
+        if let Some(loyalty) = &definition.characteristics.loyalty {
+            entrant.loyalty_counters = loyalty.clone();
+        }
+        if !definition.characteristics.has_subtype("Saga")
+            && !definition.static_abilities.iter().any(|ability| {
+                matches!(
+                    ability.effect,
+                    StaticEffect::EntersTapped
+                        | StaticEffect::EntersTappedIf { .. }
+                        | StaticEffect::PayLifeOrEnterTapped { .. }
+                        | StaticEffect::RevealOrEnterTapped { .. }
+                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                )
+            })
+        {
+            return Ok(());
+        }
+        let prospective = self.prospective_entry(entrant, token)?;
+        if prospective.printed_abilities_lost {
+            return Ok(());
+        }
+        if !entrant.tapped {
+            if let Some(choice) = Self::printed_entry_choice(definition) {
+                entrant.tapped = match modifiers.accepted {
+                    Some(accepted) => !accepted,
+                    None if !self.entry_choice_open(entrant.controller, previous, &choice) => true,
+                    None => {
+                        return Err(
+                            "payable entry requires a battlefield entry continuation".into()
+                        );
+                    }
+                };
+            }
+            for ability in &definition.static_abilities {
+                entrant.tapped |= match &ability.effect {
+                    StaticEffect::EntersTapped => true,
+                    StaticEffect::EntersTappedIf { condition } => {
+                        self.entry_condition(entrant, condition)?
+                    }
+                    _ => false,
+                };
+            }
+        }
+        // CR 122.6, 614.1c, 714.3a: these counters are part of the entry.
+        for ability in &definition.static_abilities {
+            if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
+                entrant.plus_one_counters.add(count);
+            }
+        }
+        if prospective.characteristics.has_subtype("Saga") {
+            entrant.counters.push(CounterStack {
+                kind: mtg_contracts::kir::CounterKind::Lore,
+                count: 1.into(),
+                timestamp: entrant.keyword_timestamp.ok_or("missing entry timestamp")?,
+            });
+        }
+        Ok(())
+    }
+
     pub(in crate::engine) fn entry_choice(
         &self,
         object: ObjectId,
     ) -> Result<Option<EntryChoice>, String> {
-        if self.entry_abilities_lost(object)? {
+        let current = self
+            .state
+            .rules
+            .objects
+            .get(&object.card)
+            .filter(|current| current.id.incarnation == object.incarnation)
+            .ok_or("missing prospective entry object")?;
+        let face_down = current.zone == Zone::Stack && current.face_down;
+        let definition = if face_down {
+            face_down::face_down_definition()
+        } else {
+            self.face_definition(object.card, object.face)?
+        };
+        let Some(choice) = Self::printed_entry_choice(definition) else {
             return Ok(None);
-        }
-        Ok(self
-            .copiable_definition(object)?
+        };
+        let entrant = self.entry_draft(
+            object,
+            current.controller,
+            face_down,
+            &EntryModifiers::default(),
+        )?;
+        Ok((!self
+            .prospective_entry(&entrant, None)?
+            .printed_abilities_lost)
+            .then_some(choice))
+    }
+
+    fn entry_draft(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+        face_down: bool,
+        modifiers: &EntryModifiers,
+    ) -> Result<Object, String> {
+        let id = ObjectId {
+            incarnation: object
+                .incarnation
+                .checked_add(1)
+                .ok_or("incarnation resource limit")?,
+            ..object
+        };
+        Ok(self.new_zone_object(
+            id,
+            controller,
+            Zone::Battlefield,
+            face_down,
+            Some(self.state.rules.timestamps.next()),
+            modifiers,
+        ))
+    }
+
+    #[cfg(feature = "testkit")]
+    pub(crate) fn prospective_characteristics(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+    ) -> Result<Characteristics, String> {
+        let current = self.current(object)?;
+        let entrant = self.entry_draft(
+            object,
+            controller,
+            current.zone == Zone::Stack && current.face_down,
+            &EntryModifiers::default(),
+        )?;
+        Ok(self.prospective_entry(&entrant, None)?.characteristics)
+    }
+
+    fn printed_entry_choice(definition: &Definition) -> Option<EntryChoice> {
+        definition
             .static_abilities
             .iter()
             .find_map(|ability| match &ability.effect {
@@ -64,7 +290,7 @@ impl RulesTxn {
                     Some(EntryChoice::Reveal(filter.clone()))
                 }
                 _ => None,
-            }))
+            })
     }
 
     pub(super) fn entry_life_cost(&self, object: ObjectId) -> Result<Option<Quantity>, String> {

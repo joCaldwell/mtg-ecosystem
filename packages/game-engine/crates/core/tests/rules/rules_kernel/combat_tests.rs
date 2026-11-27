@@ -152,7 +152,7 @@ fn damage_aggregate_sums_shared_recipients_and_preserves_pre_state_facts() {
             .counters = vec![CounterStack {
             kind: mtg_contracts::kir::CounterKind::MinusOneMinusOne,
             count: 1.into(),
-            timestamp: 0,
+            timestamp: 1,
         }];
     }
     let batch = g
@@ -321,8 +321,10 @@ fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage(
 fn control_change_and_reentry_reset_readiness_even_before_untap_processing() {
     let mut g = game();
     let a = object(&g, 0);
+    let control_time_0 = g.state.rules.timestamps.test_allocate();
     g.state.rules.control_effects.push(ControlEffect {
         id: 0,
+        timestamp: control_time_0,
         object: a,
         controller: PlayerId(1),
         source: ControlSource::Persistent,
@@ -467,15 +469,19 @@ fn simultaneous_losers_remove_all_owned_objects_before_control_restoration() {
         .get_mut(&CardId(0))
         .unwrap()
         .controller = PlayerId(1);
+    let control_time_0 = g.state.rules.timestamps.test_allocate();
+    let control_time_1 = g.state.rules.timestamps.test_allocate();
     g.state.rules.control_effects = vec![
         ControlEffect {
             id: 0,
+            timestamp: control_time_0,
             object: survivor,
             controller: PlayerId(1),
             source: ControlSource::Static { object: owned },
         },
         ControlEffect {
             id: 1,
+            timestamp: control_time_1,
             object: survivor,
             controller: PlayerId(2),
             source: ControlSource::Persistent,

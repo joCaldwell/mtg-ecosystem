@@ -144,12 +144,6 @@ mod shared_map {
         value.is_empty()
     }
 }
-fn initial_attachment_timestamp() -> u64 {
-    1
-}
-fn attachment_timestamp_is_initial(timestamp: &u64) -> bool {
-    *timestamp == initial_attachment_timestamp()
-}
 state_layout! {
     rules {
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -216,11 +210,8 @@ state_layout! {
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
         commander_returns: BTreeSet<ObjectId>,
         control_effects: Vec<ControlEffect>,
-        // CR 613.7: semantic attachment order, independent of IDs and trace.
-        // Like other unused allocation counters, omit the initial value. This
-        // leaves unrelated scenario states unchanged; consumed history is kept.
-        #[serde(default = "initial_attachment_timestamp", skip_serializing_if = "attachment_timestamp_is_initial")]
-        next_attachment_timestamp: u64,
+        #[serde(default, skip_serializing_if = "TimestampAllocator::is_initial")]
+        timestamps: TimestampAllocator,
         pending_concessions: Vec<PlayerId>,
         priority: PlayerId,
         passes: Vec<PlayerId>,

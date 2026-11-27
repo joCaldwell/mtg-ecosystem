@@ -810,8 +810,7 @@ fn reversed_mana_sacrifice_restores_loyalty_and_attachment() {
             .definition
             .characteristics
             .subtypes = vec!["Equipment".into()];
-        let timestamp = g.state.rules.next_attachment_timestamp;
-        g.state.rules.next_attachment_timestamp += 1;
+        let timestamp = 1;
         let turn = g.state.rules.turn.number;
         let row = g.state.rules.objects.get_mut(&treasure.card).unwrap();
         row.loyalty_counters = 4.into();
@@ -878,7 +877,7 @@ fn restore_rejects_forged_mana_receipt_source_rows() {
     failed_murder(&mut g, murder, theirs, treasure, |g| {
         let clock = (
             g.state.rules.turn.number,
-            g.state.rules.next_attachment_timestamp,
+            g.state.rules.timestamps.test_next(),
         );
         let forgeries: [RowForgery; 9] = [
             |row, _| row.zone = Zone::Graveyard { owner: row.owner },
