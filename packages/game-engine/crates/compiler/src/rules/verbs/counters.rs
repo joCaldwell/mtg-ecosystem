@@ -27,8 +27,14 @@ pub(super) fn lower(
         kir::SetExpr::source()
     } else if let Some(slot) = continuous::followup_target(cx, &on) {
         SetExpr::target(slot)
-    } else {
+    } else if counter.needs_creature() {
         kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, &on)?)
+    } else {
+        // CR 122.1: other kinds go on any permanent the target admits.
+        kir::SetExpr::target(
+            bind_creature_target(cx.program, cx.slots, &on)
+                .or_else(|_| bind_permanent_target(cx.program, cx.slots, &on))?,
+        )
     };
     Ok(Instruction::counters(on, counter, amount, cx.source_block))
 }
@@ -46,6 +52,7 @@ pub(crate) fn object_counter_kind(counter: &SourceCounter) -> Result<kir::Counte
             keyword: serde_json::from_value(serde_json::Value::String(name.into()))
                 .map_err(|_| step("put-counters", "counter_kind"))?,
         }),
+        "stun" => Ok(kir::CounterKind::Stun),
         _ => Err(step("put-counters", "counter_kind")),
     }
 }

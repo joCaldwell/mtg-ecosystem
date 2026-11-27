@@ -42,7 +42,7 @@ impl RulesTxn {
         if amount.is_negative() {
             return Err("negative counter placement".into());
         }
-        if amount == Quantity::zero() || !self.is_battlefield_creature(object) {
+        if amount == Quantity::zero() || !self.counter_recipient(object, &counter) {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
         self.begin_counter_placements(frame, counter, vec![(object, amount)], cause)
@@ -92,6 +92,17 @@ impl RulesTxn {
     pub(super) fn can_proliferate_permanent(&self, object: ObjectId) -> bool {
         self.current(object)
             .is_ok_and(|o| o.present_on_battlefield() && o.counter_kinds().next().is_some())
+    }
+
+    /// CR 122.1: P/T and keyword counters go on battlefield creatures here;
+    /// other kinds on any present permanent.
+    fn counter_recipient(&self, object: ObjectId, counter: &CounterKind) -> bool {
+        if counter.needs_creature() {
+            self.is_battlefield_creature(object)
+        } else {
+            self.current(object)
+                .is_ok_and(Object::present_on_battlefield)
+        }
     }
 
     /// CR 701.34a: one more counter of each kind the permanent has.
@@ -354,7 +365,7 @@ impl RulesTxn {
                     self.current(m.object)
                         .is_ok_and(Object::present_on_battlefield)
                 } else {
-                    self.is_battlefield_creature(m.object)
+                    self.counter_recipient(m.object, &m.counter)
                 }
             })
             .map(|m| ProposedEvent::PutCounters {

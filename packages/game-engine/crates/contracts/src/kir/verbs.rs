@@ -78,9 +78,23 @@ pub enum CounterKind {
     Keyword {
         keyword: crate::KeywordAbility,
     },
+    /// CR 122.1d: untapping removes one instead.
+    #[serde(deserialize_with = "no_operands")]
+    Stun,
     Named {
         name: String,
     },
+}
+
+impl CounterKind {
+    /// CR 122.1a-b: power/toughness and keyword counters act only on
+    /// creatures here; other kinds may sit on any permanent.
+    pub fn needs_creature(&self) -> bool {
+        matches!(
+            self,
+            Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Keyword { .. }
+        )
+    }
 }
 
 /// Player counters for poison and energy (CR 107.14, 122.1f, 704.5c).

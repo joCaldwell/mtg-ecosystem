@@ -453,7 +453,12 @@ impl RulesTxn {
                     }
                     _ => return Err("kernel counter recipient has no audited executor".into()),
                 };
-                if !self.is_battlefield_creature(target) {
+                if !self.is_battlefield_creature(target)
+                    && (counter.needs_creature()
+                        || !self
+                            .current(target)
+                            .is_ok_and(Object::present_on_battlefield))
+                {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }

@@ -421,3 +421,60 @@ fn daring_fiendbonder_indestructible_counter_survives_destruction() {
     assert_eq!(zone(&g, 3), Zone::Battlefield);
     assert_eq!(zone(&g, 4), Zone::Graveyard { owner: PlayerId(1) });
 }
+
+const TRANQUILIZE: &str = record!("1133633a-b717-42cb-b477-4e18584d876f");
+
+/// Tranquilize: "Tap target creature an opponent controls and put three
+/// stun counters on it." Each would-be untap, from its controller's untap
+/// step or Seeker of Skybreak's "Untap target creature", removes one stun
+/// counter instead; with none left it untaps (CR 122.1d, 502.3, 614.1a).
+#[test]
+fn tranquilize_stun_counters_replace_each_untap() {
+    let prepared = board(&[(TRANQUILIZE, &[Cell::KindCountersTarget])])
+        .permanent_or_hand("Tranquilize", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Seeker of Skybreak", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .libraries("Island", 8)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let bears = Driver::object(&g, 4);
+    let stun = |g: &Game| g.current(bears).unwrap().counter_count(&CounterKind::Stun);
+    Driver::cast(&mut g, CardId(0));
+    let d = targets(&mut g, 0);
+    answer(&mut g, &d, &[Candidate::Object { object: bears }]);
+    Driver::pay(&mut g, &[1, 2]);
+    settle(&mut g);
+    assert!(g.current(bears).unwrap().tapped);
+    assert_eq!(stun(&g), Quantity::from(3));
+    // An untap effect is replaced too.
+    let seeker = Driver::object(&g, 3);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: seeker,
+            ability: 0,
+        },
+    );
+    let d = targets(&mut g, 0);
+    answer(&mut g, &d, &[Candidate::Object { object: bears }]);
+    settle(&mut g);
+    assert!(g.current(bears).unwrap().tapped);
+    assert_eq!(stun(&g), Quantity::from(2));
+    // Seat 1's next two untap steps each remove one; the third untaps.
+    let seat_one_turn = |g: &mut Game| loop {
+        next_turn(g);
+        if g.state.rules.active == Some(PlayerId(1)) {
+            break;
+        }
+    };
+    for expected in [1, 0] {
+        seat_one_turn(&mut g);
+        assert!(g.current(bears).unwrap().tapped);
+        assert_eq!(stun(&g), Quantity::from(expected));
+    }
+    seat_one_turn(&mut g);
+    assert!(!g.current(bears).unwrap().tapped);
+    assert!(g.current(bears).unwrap().counters.is_empty());
+}

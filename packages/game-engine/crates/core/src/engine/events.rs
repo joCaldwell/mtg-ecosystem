@@ -2950,6 +2950,21 @@ impl RulesTxn {
                 if !o.present_on_battlefield() || !o.tapped {
                     return Err("invalid untap event".into());
                 }
+                // CR 122.1d, 614.1a: a stun counter is removed instead, on
+                // every untap path (untap step, effects and costs).
+                let stun = mtg_contracts::kir::CounterKind::Stun;
+                if o.counter_count(&stun) > Quantity::zero() {
+                    let previous = self
+                        .rules_mut()
+                        .objects
+                        .get_mut(&object.card)
+                        .ok_or("missing untap object")?
+                        .remove_counters(&stun, &Quantity::from(1));
+                    return Ok(EventOutcome::StunCounterRemoved {
+                        object: *object,
+                        previous,
+                    });
+                }
                 self.rules_mut()
                     .objects
                     .get_mut(&object.card)

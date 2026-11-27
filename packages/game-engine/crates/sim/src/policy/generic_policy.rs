@@ -361,7 +361,13 @@ impl Strategy<'_> {
                 on: target_object!(target_slot),
                 counter,
                 ..
-            }) if *counter != kir::CounterKind::MinusOneMinusOne => *target_slot == slot,
+            }) if !matches!(
+                counter,
+                kir::CounterKind::MinusOneMinusOne | kir::CounterKind::Stun
+            ) =>
+            {
+                *target_slot == slot
+            }
             kernel!(Regenerate {
                 what: target_object!(target_slot)
             }) => *target_slot == slot,

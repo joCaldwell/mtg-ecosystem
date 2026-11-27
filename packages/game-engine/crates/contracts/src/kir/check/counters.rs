@@ -39,6 +39,10 @@ impl Walk<'_, '_> {
                 Self::fixed_at_least(amount, 1, "counter amount")?;
                 false
             }
+            CounterKind::Stun => {
+                Self::fixed_at_least(amount, 1, "counter amount")?;
+                false
+            }
             CounterKind::Keyword { .. } | CounterKind::Named { .. } => return unaudited("verb"),
         };
         let cell = |plus: Cell, kind: Cell| Ok(if plus_one { plus } else { kind });
@@ -72,6 +76,14 @@ impl Walk<'_, '_> {
                 _ if self.creature_target(*slot)? => {
                     cell(Cell::PlusOneCountersTarget, Cell::KindCountersTarget)
                 }
+                // CR 122.1: a kind without P/T or keyword meaning may sit
+                // on any permanent the target domain admits.
+                TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent
+                    if !counter.needs_creature() =>
+                {
+                    Ok(Cell::KindCountersTarget)
+                }
                 _ => unaudited("counter target domain"),
             },
             _ => unaudited("counter recipient"),
@@ -91,6 +103,9 @@ pub(super) fn capabilities(counter: &CounterKind, amount: &Amount, out: &mut BTr
         CounterKind::Keyword { keyword } => {
             out.insert(Capability::KeywordCountersV1);
             out.extend(crate::intrinsic_keyword_capability(*keyword));
+        }
+        CounterKind::Stun => {
+            out.insert(Capability::StunCountersV1);
         }
         CounterKind::Named { .. } => {}
     }

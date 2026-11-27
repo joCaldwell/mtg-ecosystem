@@ -436,6 +436,8 @@ pub enum Capability {
     MinusOneCountersV1,
     /// CR 122.1b, 613.1f, 613.7c: keyword counters in layer 6.
     KeywordCountersV1,
+    /// CR 122.1d: stun counters replace untapping.
+    StunCountersV1,
 
     DestroyCreatureV1,
     GraveyardRecursionV1,

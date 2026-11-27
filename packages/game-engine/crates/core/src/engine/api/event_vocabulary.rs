@@ -398,6 +398,11 @@ pub enum EventOutcome {
         object: ObjectId,
         amount: Quantity,
     },
+    /// CR 122.1d: the untap was replaced by removing one stun counter.
+    StunCounterRemoved {
+        object: ObjectId,
+        previous: Quantity,
+    },
     SpellCopyCeased {
         object: ObjectId,
     },
