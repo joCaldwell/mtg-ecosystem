@@ -71,7 +71,7 @@ impl RulesTxn {
             Some(face) => self.face_definition(object.card, face).ok()?,
             None => self.copiable_definition(object).ok()?,
         };
-        let granted = self.granted_mana_abilities(object);
+        let granted = self.granted_mana_abilities(object).ok()?;
         if kind == DecisionSourceKind::ManaAbility
             && !granted.is_empty()
             && (ability.is_none() || definition.mana_abilities.is_empty())
@@ -251,7 +251,8 @@ impl RulesTxn {
                     // A source with granted abilities is described whole.
                     let granted = self
                         .resolve_handle(viewer, object)
-                        .is_ok_and(|id| !self.granted_mana_abilities(id).is_empty());
+                        .and_then(|id| self.granted_mana_abilities(id))
+                        .is_ok_and(|abilities| !abilities.is_empty());
                     source = describe(
                         object,
                         DecisionSourceKind::ManaAbility,

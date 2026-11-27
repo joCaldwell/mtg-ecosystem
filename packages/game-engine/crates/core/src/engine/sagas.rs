@@ -95,27 +95,6 @@ impl RulesTxn {
             player: object.controller,
         }))
     }
-
-    /// CR 714.3a: a lore counter is part of the entry, not a separate event.
-    pub(super) fn entry_lore_counters(
-        &self,
-        entering: ObjectId,
-        timestamp: u64,
-    ) -> Result<Vec<CounterStack>, String> {
-        if self
-            .copiable_definition(entering)?
-            .characteristics
-            .has_subtype("Saga")
-            && !self.entry_abilities_lost(entering)?
-        {
-            return Ok(vec![CounterStack {
-                kind: CounterKind::Lore,
-                count: Quantity::from(1),
-                timestamp,
-            }]);
-        }
-        Ok(vec![])
-    }
 }
 
 /// CR 714.2b: a chapter's intervening threshold describes the occurrence.

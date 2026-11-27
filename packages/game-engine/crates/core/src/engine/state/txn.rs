@@ -233,6 +233,7 @@ impl RulesTxn {
             kernel_leaf: self.kernel_leaf.clone(),
             published: None,
             actual_journal: None,
+            prospective_entry: None,
         })
     }
 }

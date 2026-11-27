@@ -163,7 +163,7 @@ impl Published {
             commanders,
             commander_returns,
             control_effects,
-            next_attachment_timestamp,
+            timestamps,
             // A queued concession and an accepted input suppress the decision
             // token only; the departure itself changes players and objects.
             pending_concessions: _,
@@ -217,7 +217,7 @@ impl Published {
             && *next_effect_id == was.next_effect_id
             && *next_damage_transaction_id == was.next_damage_transaction_id
             && *next_trigger_id == was.next_trigger_id
-            && *next_attachment_timestamp == was.next_attachment_timestamp
+            && *timestamps == was.timestamps
             && *next_stack_id == was.next_stack_id
     }
 

@@ -995,3 +995,51 @@ fn front_face_effect_keeps_applying_after_the_permanent_transforms() {
     assert_eq!(game.state.rules.players[1].life, expected);
     assert_recoverable((&game).into());
 }
+
+/// CR 613.7a,g: Mystic Subdual's removal predates the refreshed timestamp
+/// on Ulvenwald Behemoth. Its grant of haste and trample to the enchanted
+/// creature therefore survives the removal.
+#[test]
+fn pre_e2_transform_timestamp_refresh_changes_layer_order() {
+    const ODDITY: &str = record!("90379825-1894-4b79-bf72-445175e97ffb");
+    const SUBDUAL: &str = record!("fdd423d5-f19b-4bb2-98ca-75cc3c058d32");
+    let prepared = lands(
+        board(&[ODDITY, SUBDUAL])
+            .seats(4)
+            .permanent_or_hand("Ulvenwald Oddity", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Mystic Subdual", 0, 0, true),
+        "Island",
+        2,
+    );
+    let mut game = Game::new(
+        lands(prepared, "Forest", 7)
+            .libraries("Island", 2)
+            .prepare(),
+    );
+    let (source, bears) = (Driver::object(&game, 0), Driver::object(&game, 1));
+    let time = |game: &Game, object| game.object_before(object).unwrap().keyword_timestamp;
+    Driver::cast(&mut game, CardId(2));
+    Driver::pick_object(&mut game, bears);
+    Driver::pay(&mut game, &[3, 4]);
+    settle_stack(&mut game);
+    let aura = Driver::object(&game, 2);
+    assert!(time(&game, source) < time(&game, aura));
+    assert!(game.current_keywords(bears).is_empty());
+
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: source,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut game, &[5, 6, 7, 8, 9, 10, 11]);
+    settle_stack(&mut game);
+    assert_eq!(game.current(source).unwrap().face(), CardFace::Back);
+    assert!(time(&game, source) > time(&game, aura));
+    let keywords = game.current_keywords(bears);
+    assert!(keywords.contains(&KeywordAbility::Haste));
+    assert!(keywords.contains(&KeywordAbility::Trample));
+    assert_recoverable((&game).into());
+}

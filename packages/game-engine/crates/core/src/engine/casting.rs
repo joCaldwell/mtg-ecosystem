@@ -579,7 +579,7 @@ impl RulesTxn {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<(), String> {
-        if self.is_permanent_mana(object) {
+        if self.is_permanent_mana(object)? {
             return self.validate_permanent_mana_activation(player, object);
         }
         if self.reserved_mana_source(object)? {

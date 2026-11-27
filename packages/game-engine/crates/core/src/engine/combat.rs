@@ -74,6 +74,9 @@ impl RulesTxn {
             .objects
             .values()
             .filter(|o| {
+                let Ok(keywords) = self.current_keywords(o.id) else {
+                    return false;
+                };
                 o.controller == player
                     && !o.tapped
                     && self.is_battlefield_creature(o.id)
@@ -84,8 +87,8 @@ impl RulesTxn {
                         _ => false,
                     })
                     && (!attacking
-                        || ((o.attack_ready || self.has_keyword(o.id, KeywordAbility::Haste))
-                            && (!self.has_keyword(o.id, KeywordAbility::Defender)
+                        || ((o.attack_ready || keywords.contains(&KeywordAbility::Haste))
+                            && (!keywords.contains(&KeywordAbility::Defender)
                                 // CR 609.4, 702.3b.
                                 || self.combat_requirements(o.id, None).any(|rule| {
                                     rule == CombatRequirement::AttackAsThoughNoDefender
@@ -114,9 +117,9 @@ impl RulesTxn {
                 && match affects {
                     S::Target { target } => *target == object,
                     S::Creatures {} => true,
-                    S::CreaturesWithoutFlying {} => !self
+                    S::CreaturesWithoutFlying {} => self
                         .current_keywords_with_sources(object, sources)
-                        .contains(&KeywordAbility::Flying),
+                        .is_ok_and(|keywords| !keywords.contains(&KeywordAbility::Flying)),
                 })
             .then_some(*restriction)
         });
@@ -157,7 +160,7 @@ impl RulesTxn {
     /// CR 509.1b, 702.111b: the least and greatest number of creatures a
     /// nonempty block of `attacker` may use.
     pub(super) fn blocker_count_bounds(&self, attacker: ObjectId) -> (u32, Option<u32>) {
-        let mut least = if self.has_keyword(attacker, KeywordAbility::Menace) {
+        let mut least = if self.has_keyword(attacker, KeywordAbility::Menace) == Ok(true) {
             2
         } else {
             1
@@ -305,7 +308,7 @@ impl RulesTxn {
         let attacks = &self.state.rules.combat;
         let mut variable = Vec::new();
         for attack in attacks {
-            if self.assigns_in_damage_step(attack.attacker)
+            if self.assigns_in_damage_step(attack.attacker)?
                 && self.needs_damage_split(attack.attacker, attack.blockers.len())
             {
                 let total = self.combat_damage_amount(attack.attacker)?;
@@ -338,7 +341,7 @@ impl RulesTxn {
             );
             let mut blockers = attack.blockers.clone();
             blockers.sort_by_key(|b| self.current(*b).ok().and_then(|o| o.keyword_timestamp));
-            let deathtouch = self.has_keyword(attack.attacker, KeywordAbility::Deathtouch);
+            let deathtouch = self.has_keyword(attack.attacker, KeywordAbility::Deathtouch)?;
             let mut recipients = Vec::new();
             for blocker in blockers {
                 recipients.push(candidate_index(
@@ -448,7 +451,10 @@ impl RulesTxn {
                             .rules
                             .combat
                             .iter()
-                            .filter(|a| a.defender == player && self.can_block(subject, a.attacker))
+                            .filter(|a| {
+                                a.defender == player
+                                    && self.can_block(subject, a.attacker) == Ok(true)
+                            })
                             .map(|a| {
                                 candidate_index(
                                     &mut candidates,
@@ -686,7 +692,7 @@ impl RulesTxn {
         for &(blocker, attacker) in blocks {
             if !seen.insert((blocker, attacker))
                 || !eligible.contains(&blocker)
-                || !self.can_block(blocker, attacker)
+                || !self.can_block(blocker, attacker)?
                 || !self
                     .state
                     .rules
@@ -913,26 +919,34 @@ impl RulesTxn {
         Ok(())
     }
     /// CR510.4/702.7b/702.4b: actual first/double strike determines the extra step.
-    pub(super) fn first_strikers(&self) -> BTreeSet<ObjectId> {
-        self.state
+    pub(super) fn first_strikers(&self) -> Result<BTreeSet<ObjectId>, String> {
+        let mut strikers = BTreeSet::new();
+        for object in self
+            .state
             .rules
             .combat
             .iter()
             .map(|a| a.attacker)
             .chain(self.state.rules.blocking_creatures.iter().copied())
-            .filter(|o| {
-                self.has_keyword(*o, KeywordAbility::FirstStrike)
-                    || self.has_keyword(*o, KeywordAbility::DoubleStrike)
-            })
-            .collect()
-    }
-    fn assigns_in_damage_step(&self, object: ObjectId) -> bool {
-        if self.state.rules.turn.step == TurnStep::FirstStrikeDamage {
-            self.state.rules.first_strike_participants.contains(&object)
-        } else {
-            !self.state.rules.first_strike_participants.contains(&object)
-                || self.has_keyword(object, KeywordAbility::DoubleStrike)
+        {
+            let keywords = self.current_keywords(object)?;
+            if keywords.contains(&KeywordAbility::FirstStrike)
+                || keywords.contains(&KeywordAbility::DoubleStrike)
+            {
+                strikers.insert(object);
+            }
         }
+        Ok(strikers)
+    }
+    fn assigns_in_damage_step(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(
+            if self.state.rules.turn.step == TurnStep::FirstStrikeDamage {
+                self.state.rules.first_strike_participants.contains(&object)
+            } else {
+                !self.state.rules.first_strike_participants.contains(&object)
+                    || self.has_keyword(object, KeywordAbility::DoubleStrike)?
+            },
+        )
     }
     fn combat_defender(&self, attack: &Attacker) -> Option<DamageRecipient> {
         if attack.defender_removed {
@@ -958,7 +972,7 @@ impl RulesTxn {
             .combat
             .iter()
             .find(|a| a.attacker == source)
-            .filter(|_| self.has_keyword(source, KeywordAbility::Trample))
+            .filter(|_| self.has_keyword(source, KeywordAbility::Trample) == Ok(true))
             .and_then(|a| self.combat_defender(a))
     }
     pub(crate) fn lethal_requirement(
@@ -967,7 +981,7 @@ impl RulesTxn {
         blocker: ObjectId,
     ) -> Result<Quantity, String> {
         let remaining = self.blocker_damage_remaining(source, blocker, true)?;
-        Ok(if self.has_keyword(source, KeywordAbility::Deathtouch) {
+        Ok(if self.has_keyword(source, KeywordAbility::Deathtouch)? {
             remaining.min(Quantity::from(1))
         } else {
             remaining
@@ -987,11 +1001,16 @@ impl RulesTxn {
         remaining.subtract(&self.current(blocker)?.marked_damage);
         // CR 702.19b: account for other assignments in this damage step.
         // Joint offers leave variable assignments for their combined gates.
-        for a in self.state.rules.combat.iter().filter(|a| {
-            a.attacker != source
-                && a.blockers.contains(&blocker)
-                && self.assigns_in_damage_step(a.attacker)
-        }) {
+        for a in self
+            .state
+            .rules
+            .combat
+            .iter()
+            .filter(|a| a.attacker != source && a.blockers.contains(&blocker))
+        {
+            if !self.assigns_in_damage_step(a.attacker)? {
+                continue;
+            }
             let amount = if include_choices
                 && let Some(choice) = self.state.rules.damage_choices.get(&a.attacker)
             {
@@ -1005,7 +1024,8 @@ impl RulesTxn {
             } else {
                 Quantity::zero()
             };
-            if amount > Quantity::zero() && self.has_keyword(a.attacker, KeywordAbility::Deathtouch)
+            if amount > Quantity::zero()
+                && self.has_keyword(a.attacker, KeywordAbility::Deathtouch)?
             {
                 return Ok(Quantity::zero());
             }
@@ -1052,7 +1072,7 @@ impl RulesTxn {
         for a in self.state.rules.combat.clone() {
             let amount = self.combat_damage_amount(a.attacker)?;
             let controller = self.current(a.attacker)?.controller;
-            if self.assigns_in_damage_step(a.attacker) && amount > Quantity::zero() {
+            if self.assigns_in_damage_step(a.attacker)? && amount > Quantity::zero() {
                 if self.needs_damage_split(a.attacker, a.blockers.len()) {
                     let choice = self
                         .state
@@ -1132,7 +1152,7 @@ impl RulesTxn {
             })
         });
         for blocker in blockers {
-            if !self.assigns_in_damage_step(blocker) {
+            if !self.assigns_in_damage_step(blocker)? {
                 continue;
             }
             let amount = self.combat_damage_amount(blocker)?;
@@ -1416,15 +1436,15 @@ impl RulesTxn {
         if !o.present_on_battlefield() {
             return Ok(None);
         }
-        let characteristics = match self.characteristics_with_sources(object, sources) {
-            Ok(characteristics) if characteristics.has_type(CardKind::Creature) => characteristics,
-            _ => return Ok(None),
-        };
+        let characteristics = self.characteristics_with_sources(object, sources)?;
+        if !characteristics.has_type(CardKind::Creature) {
+            return Ok(None);
+        }
         let toughness = characteristics.toughness.ok_or("missing toughness")?;
         let reason = if toughness <= Quantity::zero() {
             Some(CreatureLossReason::ZeroToughness)
         } else if self
-            .current_keywords_with_sources(object, sources)
+            .current_keywords_with_sources(object, sources)?
             .contains(&KeywordAbility::Indestructible)
         {
             // CR 702.12b/704.5g-h: ignore destructive SBAs entirely.

@@ -57,12 +57,13 @@ impl RulesTxn {
             transforms: o.transforms,
             face_down: o.face_down,
             battlefield_entry_turn: o.battlefield_entry_turn,
+            battlefield_entry_timestamp: o.battlefield_entry_timestamp,
             control_upkeeps: o.control_upkeeps,
             unearthed: o.unearthed,
             dashed: o.dashed,
             keyword_timestamp: o.keyword_timestamp,
             keyword_rank: o.keyword_rank,
-            keywords: { self.current_keywords(object) },
+            keywords: self.current_keywords(object)?,
             deathtouch_damage: o.deathtouch_damage,
             plus_one_counters: o.plus_one_counters.clone(),
             counters: o.counters.clone(),
@@ -396,12 +397,14 @@ impl RulesTxn {
         // CR 602.2b/601.2c,h: announce targets before paying the tap cost;
         // there is no mana window when this cost contains no mana.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        let source_payable = self.current(entry.source).is_ok_and(|source| {
+        let source_payable = if let Ok(source) = self.current(entry.source) {
             source.present_on_battlefield()
                 && source.controller == entry.controller
                 && !source.tapped
-                && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
-        });
+                && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste)?)
+        } else {
+            false
+        };
         if !source_payable
             || self.stack_definition(&entry)?.activated[ability as usize].cost
                 != ActivationCost::TapSource

@@ -343,7 +343,7 @@ impl RulesTxn {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let rows = self.static_changes_keyed(object.id, Layer::Ability, None);
+            let rows = self.static_changes_keyed(object.id, Layer::Ability, None)?;
             for (time, removing, removal) in &rows {
                 let removed: Option<&[KeywordAbility]> = match removal {
                     Change::RemoveAllAbilities { .. } => None,
@@ -396,11 +396,7 @@ impl RulesTxn {
     fn compute_global_types(&self) -> Result<GlobalTypes, String> {
         let mut effects: Vec<Eff<'_>> = vec![];
         for effect in &self.state.rules.effects {
-            if let ResolvedEffectKind::SetCharacteristics {
-                targets,
-                values,
-                timestamp,
-            } = &effect.kind
+            if let ResolvedEffectKind::SetCharacteristics { targets, values } = &effect.kind
                 && let Some(animation) = &values.animation
             {
                 let targets: Vec<ObjectId> = targets
@@ -412,7 +408,7 @@ impl RulesTxn {
                     })
                     .collect();
                 effects.push(Eff {
-                    order: (*timestamp, 1, 0, effects.len()),
+                    order: (effect.timestamp, 1, 0, effects.len()),
                     kind: EffKind::Resolved { targets, animation },
                 });
             }
@@ -796,9 +792,8 @@ impl RulesTxn {
     /// CR 113.10, 305.7, 613.1f: the object no longer has the abilities of
     /// its card (printed keywords, triggered, activated, mana and static
     /// abilities, and characteristic-defining abilities).
-    pub(crate) fn printed_abilities_lost(&self, object: ObjectId) -> bool {
+    pub(crate) fn printed_abilities_lost(&self, object: ObjectId) -> Result<bool, String> {
         self.printed_abilities_lost_with_sources(object, None)
-            .unwrap_or(false)
     }
 
     pub(super) fn printed_abilities_lost_with_sources(
@@ -868,54 +863,111 @@ impl RulesTxn {
     }
 }
 
-impl RulesTxn {
-    /// CR 614.12: whether a permanent entering with the copiable values of
-    /// `entering` would lack the abilities its card generates once on the
-    /// battlefield, so its own entry replacements do not apply. Only a
-    /// filtered scope reaches an entering permanent; admitted filters read
-    /// copiable card types, supertypes and token status (`kir::statics`).
-    pub(super) fn entry_abilities_lost(&self, entering: ObjectId) -> Result<bool, String> {
-        let Some(object) = self.state.rules.objects.get(&entering.card) else {
-            return Ok(false);
-        };
-        let probe = Object {
-            id: entering,
-            tapped: false,
-            ..object.clone()
-        };
-        let printed = &self.copiable_definition(entering)?.characteristics;
-        for r in self.alive_removals(None)? {
-            if matches!(r.affects, Scope::Matching { .. })
-                && self.static_matches(r.affects, r.source, &probe, printed, probe.controller)
-            {
-                return Ok(true);
-            }
-        }
-        if !printed.has_type(CardKind::Land) || !self.land_type_setters(None) {
-            return Ok(false);
-        }
-        for (source, _, effect) in self.indexed_battlefield_statics(None) {
-            if let StaticEffect::Continuous {
-                affects: affects @ Scope::Matching { .. },
-                changes,
-                condition: None,
-            } = effect
-                && changes
-                    .iter()
-                    .any(|c| matches!(c, Change::SetLandSubtypes { .. }))
-                && self.static_matches(affects, source, &probe, printed, probe.controller)
-                && self.keeps_rules_text(source.id)?
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CR 613.7m: a simultaneous same-controller color conflict cannot
+    /// yield either a guessed ability or a missing static modifier.
+    #[test]
+    fn pre_e2_layer_read_returns_order_failure() {
+        use crate::testkit::{Board, Driver, FixtureCatalog, assert_recoverable};
+        use mtg_contracts::kir::Pred;
+        let mut catalog = FixtureCatalog::Witness.get().clone();
+        let base = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Darksteel Relic")
+            .unwrap()
+            .clone();
+        for (id, name, change) in [
+            (
+                1,
+                "Red layer fixture",
+                Change::SetColors {
+                    colors: vec![Color::R],
+                },
+            ),
+            (
+                2,
+                "Blue layer fixture",
+                Change::SetColors {
+                    colors: vec![Color::U],
+                },
+            ),
+            (
+                3,
+                "Removal layer fixture",
+                Change::RemoveAllAbilities {
+                    except_own_grants: false,
+                },
+            ),
+        ] {
+            let mut definition = base.clone();
+            definition.oracle_id = format!("00000000-0000-4000-8000-00000000000{id}");
+            definition.name = name.into();
+            definition.source_labels = None;
+            definition.static_abilities.push(StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::continuous(
+                    Scope::Matching {
+                        filter: Pred::creatures(),
+                    },
+                    vec![change],
+                ),
+            });
+            definition.capabilities = definition.requirements();
+            catalog.definitions.push(definition);
+        }
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        let prepared = Board::new(catalog, "layer-read-order-failure")
+            .permanent_or_hand("Red layer fixture", 0, 0, false)
+            .permanent_or_hand("Blue layer fixture", 0, 0, false)
+            .permanent_or_hand("Removal layer fixture", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, true)
+            .libraries("Forest", 2)
+            .prepare();
+        for mode in [
+            TraceMode::Off,
+            TraceMode::Compact,
+            TraceMode::Stream,
+            TraceMode::Detailed,
+        ] {
+            for quantum in [1, u64::MAX] {
+                let mut game = Game::with_trace(prepared.clone(), mode);
+                Driver::request(&mut game, quantum);
+                assert_recoverable((&game).into());
+                let object = Driver::object(&game, 3);
+                let mut stage = RulesTxn::fork(&game);
+                let before = game.state_digest().unwrap();
+                let timestamp = stage.allocate_timestamp(None).unwrap();
+                let entrant = stage.new_zone_object(
+                    object,
+                    PlayerId(0),
+                    Zone::Battlefield,
+                    false,
+                    Some(timestamp),
+                    &Default::default(),
+                );
+                stage.rules_mut().objects.insert(object.card, entrant);
+                let expected = "simultaneous continuous setters require timestamp order";
+                assert_eq!(stage.printed_abilities_lost(object).unwrap_err(), expected);
+                assert_eq!(
+                    stage
+                        .static_changes_keyed(object, Layer::Ability, None)
+                        .unwrap_err(),
+                    expected
+                );
+                assert_eq!(
+                    game.move_object(object, Zone::Battlefield).unwrap_err(),
+                    expected
+                );
+                assert_eq!(game.state_digest().unwrap(), before);
+            }
+        }
+    }
 
     /// CR 613.8a: what a land- or creature-subtype setter does depends on
     /// the recipient's card types, so the scheduler compares it.

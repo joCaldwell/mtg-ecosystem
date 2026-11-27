@@ -817,7 +817,7 @@ impl RulesTxn {
         Ok(ObjectCore {
             faces: self.visible_faces(object)?,
             keywords: if object.zone == Zone::Battlefield {
-                let keywords = self.current_keywords_with_sources(object.id, static_sources);
+                let keywords = self.current_keywords_with_sources(object.id, static_sources)?;
                 if self.target_is_creature(object.id) {
                     keywords
                 } else {
@@ -862,7 +862,7 @@ impl RulesTxn {
                     keywords: t.definition.keywords.clone(),
                 }),
             granted_mana: self
-                .granted_mana_with_sources(object.id, static_sources)
+                .granted_mana_with_sources(object.id, static_sources)?
                 .into_iter()
                 .map(|(_, a)| a.clone())
                 .collect(),

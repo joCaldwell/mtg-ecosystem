@@ -69,6 +69,8 @@ pub struct EffectOrigin {
 pub struct ResolvedEffect {
     pub target_handles: Vec<publish::StoredObjectHandle>,
     pub id: EffectId,
+    /// CR 613.7b: the time the effect was created.
+    pub timestamp: u64,
     pub origin: EffectOrigin,
     pub expires_in_cleanup_of_turn: u64,
     pub kind: ResolvedEffectKind,
@@ -124,15 +126,12 @@ pub enum ResolvedEffectKind {
     ProtectControllerUntilNextTurn,
     RemoveIndestructibleSet {
         targets: Vec<ObjectId>,
-        timestamp: u64,
     },
     GrantKeywordsSet {
         targets: Vec<ObjectId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
-        /// CR 613.7b: orders the grant against static ability removal.
-        timestamp: u64,
     },
     PumpSet {
         targets: Vec<ObjectId>,
@@ -147,8 +146,6 @@ pub enum ResolvedEffectKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
-        /// CR 613.7b: orders the grant against static ability removal.
-        timestamp: u64,
     },
     CombatProhibition {
         affects: CombatProhibitionScope<ObjectId>,
@@ -162,7 +159,6 @@ pub enum ResolvedEffectKind {
     SetCharacteristics {
         targets: Vec<ObjectId>,
         values: CharacteristicSet,
-        timestamp: u64,
     },
     PumpAnnouncedX {
         targets: Vec<ObjectId>,
@@ -292,9 +288,9 @@ fn static_compare(left: &Quantity, cmp: Cmp, right: &Quantity) -> bool {
 type Stamp = (u64, Option<u8>);
 
 // CR 613.7m: simultaneous objects of different controllers go in APNAP
-// order. One controller's simultaneous objects, or an object and a resolved
-// effect sharing a timestamp, with conflicting setters would need a player's
-// choice and reject; ordered or commuting setters apply.
+// order. CR 613.7n puts an entrant's own static effect before a
+// simultaneous resolved setter on it. Conflicting same-controller statics
+// still require a choice.
 fn latest_setter<T: PartialEq>(
     setters: impl Iterator<Item = (Stamp, T)>,
 ) -> Result<Option<T>, String> {
@@ -307,10 +303,8 @@ fn latest_setter<T: PartialEq>(
         .filter(|((t, _), _)| *t == time)
         .map(|((_, rank), value)| (rank, value))
         .collect();
-    if latest.iter().all(|(rank, _)| rank.is_some()) {
-        let top = latest.iter().map(|(rank, _)| *rank).max().flatten();
-        latest.retain(|(rank, _)| *rank == top);
-    }
+    let top = latest.iter().map(|(rank, _)| rank.unwrap_or(u8::MAX)).max();
+    latest.retain(|(rank, _)| Some(rank.unwrap_or(u8::MAX)) == top);
     let (_, value) = latest.remove(0);
     if latest.iter().any(|(_, other)| *other != value) {
         return Err("simultaneous continuous setters require timestamp order".into());
@@ -336,11 +330,11 @@ impl RulesTxn {
             .effects
             .iter()
             .filter_map(move |effect| match &effect.kind {
-                ResolvedEffectKind::SetCharacteristics {
-                    targets,
-                    values,
-                    timestamp,
-                } if present && targets.contains(&object) => Some((*timestamp, values)),
+                ResolvedEffectKind::SetCharacteristics { targets, values }
+                    if present && targets.contains(&object) =>
+                {
+                    Some((effect.timestamp, values))
+                }
                 _ => None,
             })
     }
@@ -442,9 +436,10 @@ impl RulesTxn {
         let Ok(characteristics) = self.characteristics(target) else {
             return false;
         };
-        let keywords = self.current_keywords(target);
         object.present_on_battlefield()
-            && self.declaration_predicate(filter, source, object, &characteristics, &keywords)
+            && self.current_keywords(target).is_ok_and(|keywords| {
+                self.declaration_predicate(filter, source, object, &characteristics, &keywords)
+            })
     }
 
     fn declaration_predicate(
@@ -511,6 +506,16 @@ impl RulesTxn {
         characteristics: &Characteristics,
         controller: PlayerId,
     ) -> bool {
+        // CR 614.12: the entrant's own statics can affect the entrant
+        // during lookahead; they are not yet in effect for other objects.
+        if self
+            .prospective_entry
+            .as_ref()
+            .is_some_and(|entry| entry.entrant == source.id)
+            && source.id != target.id
+        {
+            return false;
+        }
         match scope {
             Scope::Source => source.id == target.id,
             Scope::Matching { filter } => {
@@ -523,16 +528,26 @@ impl RulesTxn {
         }
     }
 
+    /// CR 614.12: counts read the prior zone occupancy. In particular the
+    /// entrant does not yet add its mana symbols to devotion (THB Release Notes).
+    /// https://magic.wizards.com/en/news/feature/theros-beyond-death-release-notes-2020-01-10
+    fn objects_for_static_counts(&self) -> impl Iterator<Item = &Object> {
+        let entry = self.prospective_entry.as_ref();
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(move |object| entry.is_none_or(|entry| entry.entrant != object.id))
+            .chain(entry.and_then(|entry| entry.previous.as_ref()))
+    }
+
     fn static_count(&self, source: &Object, set: &SetExpr) -> usize {
         match set {
             SetExpr::One {
                 object: Ref::Source,
             } => 1,
             SetExpr::Matching { zone, filter } => self
-                .state
-                .rules
-                .objects
-                .values()
+                .objects_for_static_counts()
                 .filter(|target| {
                     let present = match zone {
                         ZoneExpr::Battlefield => target.present_on_battlefield(),
@@ -585,8 +600,8 @@ impl RulesTxn {
     pub(super) fn devotion(&self, player: PlayerId, colors: &[Color]) -> Option<Quantity> {
         let mut count = Quantity::zero();
         for permanent in self
-            .battlefield_static_sources(None)
-            .filter(|p| p.controller == player)
+            .objects_for_static_counts()
+            .filter(|p| p.present_on_battlefield() && p.controller == player)
         {
             let c = &self.copiable_definition(permanent.id).ok()?.characteristics;
             count.add(&(c.devotion_symbols(colors) as i64).into());
@@ -598,29 +613,26 @@ impl RulesTxn {
         &self,
         entrant: &Object,
         condition: &mtg_contracts::kir::EntryCondition,
-    ) -> bool {
+    ) -> Result<bool, String> {
         use mtg_contracts::kir::EntryCondition;
-        match condition {
+        Ok(match condition {
             EntryCondition::UnlessControlled { filter, cmp, count } => {
-                let actual = self
-                    .battlefield_static_sources(None)
-                    .filter(|target| {
-                        target.id != entrant.id
-                            && target.controller == entrant.controller
-                            && self.structural_characteristics(target.id).is_ok_and(
-                                |characteristics| {
-                                    self.static_predicate(
-                                        filter,
-                                        entrant,
-                                        target,
-                                        &characteristics,
-                                        target.controller,
-                                    )
-                                },
-                            )
-                    })
-                    .count();
-                !static_compare(&(actual as i64).into(), *cmp, count)
+                let mut actual = 0;
+                for target in self.battlefield_static_sources(None).filter(|target| {
+                    target.id.card != entrant.id.card && target.controller == entrant.controller
+                }) {
+                    let characteristics = self.structural_characteristics(target.id)?;
+                    if self.static_predicate(
+                        filter,
+                        entrant,
+                        target,
+                        &characteristics,
+                        target.controller,
+                    ) {
+                        actual += 1;
+                    }
+                }
+                !static_compare(&Quantity::from(actual), *cmp, count)
             }
             EntryCondition::UnlessOpponents { cmp, count } => {
                 let actual = self
@@ -630,7 +642,7 @@ impl RulesTxn {
                     .count();
                 !static_compare(&(actual as i64).into(), *cmp, count)
             }
-        }
+        })
     }
 
     pub(super) fn static_condition(&self, source: &Object, condition: &Cond) -> bool {
@@ -724,11 +736,12 @@ impl RulesTxn {
         target: ObjectId,
         layer: Layer,
         sources: Option<&'a [CardId]>,
-    ) -> Vec<(u64, &'a Change)> {
-        self.static_changes_by_source(target, layer, sources)
+    ) -> Result<Vec<(u64, &'a Change)>, String> {
+        Ok(self
+            .static_changes_by_source(target, layer, sources)?
             .into_iter()
             .map(|(timestamp, _, change)| (timestamp, change))
-            .collect()
+            .collect())
     }
 
     /// The layer's applicable static changes with the object whose static
@@ -738,11 +751,12 @@ impl RulesTxn {
         target: ObjectId,
         layer: Layer,
         sources: Option<&'a [CardId]>,
-    ) -> Vec<(u64, ObjectId, &'a Change)> {
-        self.static_changes_keyed(target, layer, sources)
+    ) -> Result<Vec<(u64, ObjectId, &'a Change)>, String> {
+        Ok(self
+            .static_changes_keyed(target, layer, sources)?
             .into_iter()
             .map(|(time, key, change)| (time, key.source, change))
-            .collect()
+            .collect())
     }
 
     /// [`Self::static_changes_by_source`] naming each generating ability.
@@ -751,16 +765,16 @@ impl RulesTxn {
         target: ObjectId,
         layer: Layer,
         sources: Option<&'a [CardId]>,
-    ) -> Vec<(u64, ability_layers::StaticKey, &'a Change)> {
+    ) -> Result<Vec<(u64, ability_layers::StaticKey, &'a Change)>, String> {
         let Ok(target) = self.current(target) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         if !target.present_on_battlefield() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let setters = self.land_type_setters(sources);
         let alive = if layer >= Layer::Ability {
-            self.alive_removals(sources).unwrap_or_default()
+            self.alive_removals(sources)?
         } else {
             vec![]
         };
@@ -788,7 +802,7 @@ impl RulesTxn {
                 // CR 613.8: layer 4 orders its effects by dependency.
                 Layer::Type => {
                     if type_layer.is_none() {
-                        type_layer = self.type_layer(target.id).ok();
+                        type_layer = Some(self.type_layer(target.id)?);
                     }
                     type_layer
                         .as_ref()
@@ -799,14 +813,11 @@ impl RulesTxn {
                         Layer::Color => self.structural_characteristics(target.id),
                         _ => self.color_layer_with_sources(target.id, sources),
                     };
-                    facts.is_ok_and(|c| {
-                        self.static_matches(affects, source, target, &c, target.controller)
-                    }) && condition
-                        .as_ref()
-                        .is_none_or(|c| self.static_condition(source, c))
-                        && self
-                            .static_exists(source, key, Some(first), &alive, setters)
-                            .unwrap_or(false)
+                    self.static_matches(affects, source, target, facts?.as_ref(), target.controller)
+                        && condition
+                            .as_ref()
+                            .is_none_or(|c| self.static_condition(source, c))
+                        && self.static_exists(source, key, Some(first), &alive, setters)?
                 }
             };
             if member {
@@ -818,8 +829,8 @@ impl RulesTxn {
                 );
             }
         }
-        matching.sort_by_key(|(timestamp, _, _)| *timestamp);
-        matching
+        matching.sort_by_key(|(timestamp, key, _)| (*timestamp, self.source_rank(key.source)));
+        Ok(matching)
     }
 
     pub(super) fn combat_statics<'a>(
@@ -876,7 +887,10 @@ impl RulesTxn {
                     return None;
                 };
                 self.static_player(who, source.controller, player)
-                    .then_some((source.keyword_timestamp.unwrap_or(0), change))
+                    .then_some((
+                        (source.keyword_timestamp.unwrap_or(0), source.keyword_rank),
+                        change,
+                    ))
             })
             .collect();
         changes.sort_by_key(|(timestamp, _)| *timestamp);
@@ -1031,7 +1045,7 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let mut facts = self.structural_characteristics(object)?;
-        let statics = self.static_changes_by_source(object, Layer::Color, sources);
+        let statics = self.static_changes_by_source(object, Layer::Color, sources)?;
         let colors = statics
             .into_iter()
             .filter_map(|(time, source, change)| match change {
@@ -1071,7 +1085,10 @@ impl RulesTxn {
             };
             // CR 613.1f, 613.4a: a CDA removed in layer 6 no longer defines
             // the stat, which keeps its printed value (`*` is 0, CR 208.2a).
-            if *lost.get_or_insert_with(|| self.printed_abilities_lost(object)) {
+            if lost.is_none() {
+                lost = Some(self.printed_abilities_lost(object)?);
+            }
+            if lost == Some(true) {
                 return Ok(());
             }
             for (amount, stat) in [(power, &mut c.power), (toughness, &mut c.toughness)] {
@@ -1174,7 +1191,7 @@ impl RulesTxn {
             return Err("characteristic-defining set has no evaluation".into());
         };
         let mut members = Vec::new();
-        for target in self.state.rules.objects.values() {
+        for target in self.objects_for_static_counts() {
             let present = match (zone, target.zone) {
                 (ZoneExpr::Battlefield, _) => target.present_on_battlefield(),
                 (ZoneExpr::Graveyards, Zone::Graveyard { .. }) => true,
@@ -1220,7 +1237,8 @@ impl RulesTxn {
         }
         self.characteristic_power_toughness(object, &mut c)?;
         if c.has_type(CardKind::Creature) {
-            let statics = self.static_changes_by_source(object, Layer::PowerToughnessSet, sources);
+            let statics =
+                self.static_changes_by_source(object, Layer::PowerToughnessSet, sources)?;
             // CR 613.4b: a setter can leave either characteristic alone.
             // Neither supported kind reads a layer-7 result (CR 613.8a).
             let base = |power_stat| {
@@ -1267,7 +1285,7 @@ impl RulesTxn {
                 t.subtract(&minus);
             }
         }
-        for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources) {
+        for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources)? {
             if let Change::PowerToughness { power, toughness } = change {
                 c.power
                     .as_mut()
@@ -1450,6 +1468,7 @@ impl RulesTxn {
         let effect = ResolvedEffect {
             target_handles,
             id: EffectId(self.state.rules.next_effect_id),
+            timestamp: self.state.rules.timestamps.next(),
             origin: EffectOrigin {
                 activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
                 source_face: self.entry(frame.stack_id)?.program_face(),
@@ -1658,27 +1677,30 @@ impl RulesTxn {
 
     // CR 702.16e,g and 616.1: separate printed qualities have separate
     // candidate identities even when a multicolored source matches both.
-    fn intrinsic_protection_keys(&self, recipient: &DamageRecipient) -> Vec<EffectKey> {
+    fn intrinsic_protection_keys(
+        &self,
+        recipient: &DamageRecipient,
+    ) -> Result<Vec<EffectKey>, String> {
         let DamageRecipient::Permanent { object } = *recipient else {
-            return vec![];
+            return Ok(vec![]);
         };
         if !self
             .current(object)
             .is_ok_and(|o| o.present_on_battlefield())
         {
-            return vec![];
+            return Ok(vec![]);
         }
         let mut keys: Vec<_> = self
-            .effective_protection_colors(object)
+            .effective_protection_colors(object)?
             .map(|color| EffectKey::IntrinsicProtectionFromColor {
                 source: object,
                 color,
             })
             .collect();
-        if self.printed_protection_from_everything(object) {
+        if self.printed_protection_from_everything(object)? {
             keys.push(EffectKey::IntrinsicProtectionFromEverything { source: object });
         }
-        keys
+        Ok(keys)
     }
 
     fn application(
@@ -1704,7 +1726,7 @@ impl RulesTxn {
                     || !self
                         .current(*source)
                         .is_ok_and(|o| o.present_on_battlefield())
-                    || !self.printed_protection_from_everything(*source)
+                    || !self.printed_protection_from_everything(*source)?
                 {
                     return Err("wrong intrinsic protection source".into());
                 }
@@ -1716,7 +1738,7 @@ impl RulesTxn {
                         .current(*source)
                         .is_ok_and(|o| o.present_on_battlefield())
                     || !self
-                        .effective_protection_colors(*source)
+                        .effective_protection_colors(*source)?
                         .any(|printed| printed == *color)
                 {
                     return Err("wrong fixed-color protection source".into());
@@ -1813,9 +1835,9 @@ impl RulesTxn {
         });
         recipients.dedup();
         let mut keys = self.live_effect_keys();
-        keys.extend(self.static_damage_keys());
+        keys.extend(self.static_damage_keys()?);
         for (player, recipient) in recipients {
-            let intrinsic = self.intrinsic_protection_keys(&recipient);
+            let intrinsic = self.intrinsic_protection_keys(&recipient)?;
             let pairs = tx
                 .entries
                 .iter()
@@ -1960,11 +1982,14 @@ impl RulesTxn {
     pub(super) fn apply_effect_event(
         &mut self,
         event: &ProposedEvent,
+        common: Option<&Self>,
     ) -> Result<EventOutcome, String> {
         match event {
             ProposedEvent::CreateEffect { effect } => {
                 self.reserve_effect_slot()?;
+                let timestamp = common.unwrap_or(self).state.rules.timestamps.next();
                 if effect.id != EffectId(self.state.rules.next_effect_id)
+                    || effect.timestamp != timestamp
                     || effect.expires_in_cleanup_of_turn != self.state.rules.turn.number
                     || effect.origin.controller.0 >= 4
                     || effect.origin.source_handles.len() != 4
@@ -2008,18 +2033,7 @@ impl RulesTxn {
                         | ResolvedEffectKind::PumpAnnouncedX { .. }),
                     ) => {
                         *source_block == effect.origin.source_block
-                            && self
-                                .continuous_kind(
-                                    frame,
-                                    verb,
-                                    self.state
-                                        .rules
-                                        .next_batch_id
-                                        .checked_sub(1)
-                                        .ok_or("missing effect creation batch")?,
-                                )?
-                                .as_ref()
-                                == Some(kind)
+                            && self.continuous_kind(frame, verb)?.as_ref() == Some(kind)
                     }
                     (
                         kernel!(RestrictCombat { affects, restriction, .. } @ source_block),
@@ -2082,18 +2096,7 @@ impl RulesTxn {
                     ) => {
                         *source_block == effect.origin.source_block
                             && supported_temporary_keywords(keywords)
-                            && self
-                                .keyword_grant_kind(
-                                    frame,
-                                    what,
-                                    keywords,
-                                    self.state
-                                        .rules
-                                        .next_batch_id
-                                        .checked_sub(1)
-                                        .ok_or("missing effect creation batch")?,
-                                )?
-                                .as_ref()
+                            && self.keyword_grant_kind(frame, what, keywords)?.as_ref()
                                 == Some(kind)
                     }
 
@@ -2196,6 +2199,7 @@ impl RulesTxn {
                     .next_effect_id
                     .checked_add(1)
                     .ok_or("effect identity limit")?;
+                self.allocate_timestamp(common)?;
                 self.rules_mut().effects.push(*effect.clone());
                 Ok(EventOutcome::EffectCreated {
                     effect: effect.clone(),
@@ -2394,14 +2398,13 @@ impl RulesTxn {
             .rules
             .effects
             .windows(2)
-            .all(|rows| rows[0].id < rows[1].id)
+            .all(|rows| rows[0].id < rows[1].id && rows[0].timestamp < rows[1].timestamp)
         {
             return Err("effect creation order invariant".into());
         }
-        let mut last_setter = None;
-        let mut last_grant = None;
         for e in &self.state.rules.effects {
-            if e.id.0 >= self.state.rules.next_effect_id
+            if !self.state.rules.timestamps.contains(e.timestamp)
+                || e.id.0 >= self.state.rules.next_effect_id
                 || e.origin.controller.0 >= 4
                 || if e.extends_beyond_creation_turn() {
                     e.expires_in_cleanup_of_turn == 0
@@ -2413,25 +2416,6 @@ impl RulesTxn {
                 || !self.state.rules.cards.contains_key(&e.origin.source.card)
             {
                 return Err("effect state identity invariant".into());
-            }
-            if let ResolvedEffectKind::SetCharacteristics { timestamp, .. } = &e.kind {
-                if *timestamp >= self.state.rules.next_batch_id
-                    || last_setter.is_some_and(|previous| previous >= *timestamp)
-                {
-                    return Err("characteristic setter timestamp invariant".into());
-                }
-                last_setter = Some(*timestamp);
-            }
-            // CR 613.7b: a grant's timestamp is its creation batch.
-            if let ResolvedEffectKind::GrantKeywords { timestamp, .. }
-            | ResolvedEffectKind::GrantKeywordsSet { timestamp, .. } = &e.kind
-            {
-                if *timestamp > self.state.rules.next_batch_id
-                    || last_grant.is_some_and(|previous| previous > *timestamp)
-                {
-                    return Err("keyword grant timestamp invariant".into());
-                }
-                last_grant = Some(*timestamp);
             }
             if e.origin.stack_id.0 >= self.state.rules.next_stack_id
                 // CR 712.18: only a transforming card's program can come
@@ -2506,12 +2490,10 @@ impl RulesTxn {
                         ResolvedEffectKind::SetCharacteristics {
                             targets,
                             values: saved,
-                            timestamp,
                         },
                     ) => {
                         *source_block == e.origin.source_block
                             && values == saved
-                            && *timestamp < self.state.rules.next_batch_id
                             && self.valid_continuous_capture(e, what, targets)
                     }
                     (
@@ -2816,7 +2798,7 @@ impl RulesTxn {
         // damage occurrence needs a command handle for the affected controller.
         let mut intrinsic: [Vec<EffectKey>; 4] = Default::default();
         if let Ok(tx) = self.damage_transaction() {
-            let statics = self.static_damage_keys();
+            let statics = self.static_damage_keys()?;
             for d in &tx.entries {
                 let Some(controller) = self.recipient_chooser(&d.recipient) else {
                     continue;
@@ -2828,7 +2810,7 @@ impl RulesTxn {
                     .get_mut(controller.0 as usize)
                     .ok_or("invalid protection controller")?;
                 for key in self
-                    .intrinsic_protection_keys(&d.recipient)
+                    .intrinsic_protection_keys(&d.recipient)?
                     .into_iter()
                     .chain(statics.iter().cloned())
                 {
@@ -3214,7 +3196,7 @@ impl RulesTxn {
             }
             EffectKey::IntrinsicProtectionFromColor { .. } => DamageEffectKind::ProtectionFromColor,
             EffectKey::StaticAbility { source, ability } => match self
-                .live_damage_rule(source, ability)
+                .live_damage_rule(source, ability)?
                 .ok_or("missing static damage rule")?
                 .1
             {
@@ -3885,7 +3867,7 @@ impl RulesTxn {
                     // occurrence binds its incarnation and retained copiable
                     // identity. Restore replays the accepted inputs.
                     if d.recipient != (DamageRecipient::Permanent { object: *source })
-                        || !self.printed_protection_from_everything(*source)
+                        || !self.printed_protection_from_everything(*source)?
                         || a.qualification.is_some()
                     {
                         return Err("invalid intrinsic prevention prefix".into());

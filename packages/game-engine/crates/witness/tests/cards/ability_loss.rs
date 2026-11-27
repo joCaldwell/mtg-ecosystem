@@ -878,11 +878,9 @@ fn simultaneous_timestamp_order_survives_the_turn() {
 /// with every other setup permanent (one shared timestamp).
 fn forge_attached(g: &mut Game, aura: ObjectId, host: ObjectId) {
     let rules = &mut g.state.rules;
-    let timestamp = rules.next_attachment_timestamp;
-    rules.next_attachment_timestamp += 1;
     let o = rules.objects.get_mut(&aura.card).unwrap();
     o.attached_to = Some(host);
-    o.attachment_timestamp = Some(timestamp);
+    o.attachment_timestamp = Some(1);
 }
 
 /// CR 613.4b, 613.7m: simultaneous base power and toughness setters of
@@ -917,4 +915,127 @@ fn simultaneous_base_pt_setters_follow_apnap() {
     forge_attached(&mut g, kenrith, bears);
     let err = g.characteristics(bears).unwrap_err();
     assert!(err.contains("simultaneous"), "{err}");
+}
+
+/// CR 613.7m: one simultaneous battlefield move orders interacting layer-6
+/// effects by APNAP, even when the nonactive player's event is applied first.
+#[test]
+fn pre_e2_entering_statics_share_time_and_use_apnap() {
+    for (humility, conviction, granted) in [(0, 1, true), (1, 0, false)] {
+        let initial = unstarted(&[
+            ("Humility", humility, G),
+            ("True Conviction", conviction, G),
+            ("Grizzly Bears", conviction, B),
+        ]);
+        let mut expected = None;
+        for mode in [
+            TraceMode::Off,
+            TraceMode::Compact,
+            TraceMode::Stream,
+            TraceMode::Detailed,
+        ] {
+            for quantum in [1, u64::MAX] {
+                let mut g = Game::with_trace(initial.prepared.as_ref().clone(), mode);
+                Driver::request(&mut g, quantum);
+                assert_recoverable((&g).into());
+                let mut ids = [0, 1];
+                ids.sort_by_key(|id| if *id == 0 { humility } else { conviction });
+                ids.reverse();
+                let occurrences = ids.map(|id| ProposedEvent::Move {
+                    object: object(&g, id),
+                    destination: Zone::Battlefield,
+                });
+                g.commit_batch(
+                    BatchCause::Fixture,
+                    EventGroup::Simultaneous {
+                        occurrences: occurrences.into(),
+                    },
+                )
+                .unwrap();
+                let hold = |g: &Game| {
+                    let rows = [0, 1].map(|id| g.object_before(object(g, id)).unwrap());
+                    assert_eq!(rows[0].keyword_timestamp, rows[1].keyword_timestamp);
+                    assert_eq!(
+                        [rows[0].keyword_rank, rows[1].keyword_rank],
+                        [humility, conviction]
+                    );
+                    let bears = object(g, 2);
+                    assert_eq!(
+                        keywords(g, bears).contains(&KeywordAbility::DoubleStrike),
+                        granted
+                    );
+                };
+                hold(&g);
+                let (restored, _) =
+                    Game::read_snapshot(initial.prepared.as_ref().clone(), &g.snapshot().unwrap())
+                        .unwrap();
+                hold(&restored.fork());
+                let digest = g.state_digest().unwrap();
+                assert_eq!(expected.get_or_insert_with(|| digest.clone()), &digest);
+            }
+        }
+    }
+}
+
+/// CR 614.12 and 700.5: the same layer evaluator sees Heliod's prospective
+/// type-changing static and the prior devotion. Actual entry adds Heliod's pip.
+#[test]
+fn pre_e2_prospective_heliod_reads_prior_devotion_without_disclosing_his_hand() {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog
+        .definitions
+        .extend([lowered(HELIOD), lowered(HUMILITY)]);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let prepared = Board::new(catalog, "prospective-devotion-privacy")
+        .seats(4)
+        .step(TurnStep::PrecombatMain)
+        .card("Heliod, God of the Sun", 0, 0, H)
+        .card("Humility", 0, 0, B)
+        .card("Humility", 0, 0, B)
+        .card("Plains", 0, 0, B)
+        .card("Plains", 0, 0, B)
+        .card("Plains", 0, 0, B)
+        .card("Plains", 0, 0, B)
+        .libraries("Forest", 6)
+        .prepare();
+    let mut g = Game::new(prepared);
+    Driver::request(&mut g, u64::MAX);
+    let heliod = object(&g, 0);
+    let digest = g.state_digest().unwrap();
+    assert!(
+        g.characteristics(heliod)
+            .unwrap()
+            .has_type(CardKind::Creature)
+    );
+    let prospect = g.prospective_characteristics(heliod, PlayerId(0)).unwrap();
+    assert!(prospect.has_type(CardKind::Enchantment));
+    assert!(!prospect.has_type(CardKind::Creature));
+    assert_eq!(g.state_digest().unwrap(), digest);
+    for seat in 0..4 {
+        let QueryResult::Complete(QueryValue::Observation(view)) =
+            g.observe(PlayerId(seat), Budget::unlimited())
+        else {
+            panic!("missing seat observation");
+        };
+        assert_eq!(
+            view.view
+                .objects
+                .iter()
+                .any(|row| row.oracle_id == lowered(HELIOD).oracle_id),
+            seat == 0,
+        );
+    }
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[3, 4, 5, 6]);
+    settle(&mut g, &[]);
+    let heliod = object(&g, 0);
+    assert!(
+        g.characteristics(heliod)
+            .unwrap()
+            .has_type(CardKind::Creature)
+    );
+    assert_eq!(pt(&g, heliod), (q(1), q(1)));
+    assert_recoverable((&g).into());
 }

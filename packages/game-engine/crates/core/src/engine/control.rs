@@ -30,7 +30,7 @@ impl RulesTxn {
 
     /// Derive the complete post-mutation view before changing any cached value.
     pub(crate) fn derived_controllers(&self) -> Result<BTreeMap<ObjectId, PlayerId>, String> {
-        let mut resolved = BTreeMap::new();
+        let mut grants = BTreeMap::new();
         for effect in &self.state.rules.effects {
             if let ResolvedEffectKind::GainControl {
                 targets,
@@ -41,32 +41,49 @@ impl RulesTxn {
             {
                 for object in targets {
                     // CR 611.2c, 613.7b, 613.8: fixed recipients and an
-                    // unconditional assignment in creation order.
-                    resolved.insert(*object, *controller);
+                    // unconditional assignment in timestamp order.
+                    grants.insert(*object, ((effect.timestamp, u8::MAX), *controller));
                 }
             }
         }
-        if !resolved.is_empty() && !self.state.rules.control_effects.is_empty() {
-            return Err("resolved and synthetic control grants share no timestamp domain".into());
+        for effect in self
+            .state
+            .rules
+            .control_effects
+            .iter()
+            .filter(|effect| self.supported_control_grant(effect))
+        {
+            let order = match effect.source {
+                ControlSource::Persistent => (effect.timestamp, u8::MAX),
+                ControlSource::Static { object } => {
+                    let source = self.current(object)?;
+                    let time = source
+                        .keyword_timestamp
+                        .ok_or("missing control source timestamp")?;
+                    (time.max(effect.timestamp), source.keyword_rank)
+                }
+            };
+            let grant = grants
+                .entry(effect.object)
+                .or_insert((order, effect.controller));
+            if order > grant.0 {
+                *grant = (order, effect.controller);
+            } else if order == grant.0 && effect.controller != grant.1 {
+                return Err(
+                    "simultaneous control grants require timestamp order (CR 613.7m)".into(),
+                );
+            }
         }
         let mut controllers = BTreeMap::new();
         for object in self.state.rules.objects.values() {
-            if !self.control_battlefield(object.id) {
-                continue;
+            if self.control_battlefield(object.id) {
+                controllers.insert(
+                    object.id,
+                    grants
+                        .get(&object.id)
+                        .map_or(object.default_controller, |grant| grant.1),
+                );
             }
-            let grant = self
-                .state
-                .rules
-                .control_effects
-                .iter()
-                .filter(|effect| effect.object == object.id && self.supported_control_grant(effect))
-                .max_by_key(|effect| effect.id);
-            controllers.insert(
-                object.id,
-                resolved.get(&object.id).copied().unwrap_or_else(|| {
-                    grant.map_or(object.default_controller, |effect| effect.controller)
-                }),
-            );
         }
         // A static grant whose exact source needs control-related exile would
         // require removing that grant and reevaluating. Preserve the explicit
@@ -194,6 +211,15 @@ impl RulesTxn {
     }
 
     pub(crate) fn validate_control_state(&self) -> Result<(), String> {
+        if self
+            .state
+            .rules
+            .control_effects
+            .iter()
+            .any(|effect| !self.state.rules.timestamps.contains(effect.timestamp))
+        {
+            return Err("snapshot control grant timestamp invariant".into());
+        }
         for (object, controller) in self.derived_controllers()? {
             if !self.is_live(controller) || self.current(object)?.controller != controller {
                 return Err("snapshot cached controller invariant".into());

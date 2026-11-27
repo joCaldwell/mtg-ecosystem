@@ -140,7 +140,7 @@ impl RulesTxn {
         {
             TurnStep::EndCombat
         } else if self.state.rules.turn.step == TurnStep::DeclareBlockers
-            && !self.first_strikers().is_empty()
+            && !self.first_strikers()?.is_empty()
         {
             TurnStep::FirstStrikeDamage
         } else if self.state.rules.turn.step == TurnStep::Cleanup && self.state.rules.cleanup_repeat
