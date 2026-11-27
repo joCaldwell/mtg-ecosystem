@@ -58,12 +58,18 @@ fn crew_checks_total_power_and_uses_the_stack() {
                 })
                 .collect();
             if sick_vehicle {
+                let printed = g.characteristics(Driver::object(&g, 0)).unwrap();
+                assert_eq!(
+                    (printed.power, printed.toughness),
+                    (Some(4.into()), Some(4.into()))
+                );
                 Driver::cast(&mut g, CardId(0));
                 Driver::pay(&mut g, &(next_land..next_land + 5).collect::<Vec<_>>());
                 settle(&mut g);
             }
             let vehicle = Driver::object(&g, 0);
-            assert_eq!(g.characteristics(vehicle).unwrap().power, None);
+            let uncrewed = g.characteristics(vehicle).unwrap();
+            assert_eq!((uncrewed.power, uncrewed.toughness), (None, None));
             let activation = Action::ActivateAbility {
                 object: vehicle,
                 ability: 0,

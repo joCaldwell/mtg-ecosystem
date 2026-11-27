@@ -171,10 +171,16 @@ impl Walk<'_, '_> {
                 CombatProhibitionScope::Target {
                     target: Ref::Target { slot },
                 },
-                R::AttackEachCombat | R::AttackAsThoughNoDefender,
+                R::AttackEachCombat,
             ) if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
                 Ok(Cell::CombatProhibitionUntilEndOfTurn)
             }
+            (
+                CombatProhibitionScope::Target {
+                    target: Ref::Target { slot },
+                },
+                R::AttackAsThoughNoDefender,
+            ) if self.creature_target(*slot)? => Ok(Cell::CombatProhibitionUntilEndOfTurn),
             (
                 CombatProhibitionScope::Target {
                     target: Ref::Source,

@@ -783,7 +783,7 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                 || a.program.timing != SpellTiming::Instant
                 || !a.program.targets.is_empty()
                 || !matches!(a.program.instructions.as_slice(), [Instruction::Kernel {
-            node: kir::Node::Do(kir::Verb::SetCharacteristics { values, .. }), ..
+            node: kir::Node::Do(kir::Verb::SetCharacteristics { values, until: kir::Until::EndOfTurn, .. }), ..
         }] if values.colors.is_none() && values.keywords.is_empty()))
     {
         return cell("activated", "crew_shape");
