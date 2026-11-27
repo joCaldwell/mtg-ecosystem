@@ -728,7 +728,7 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
 /// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b, 702.116b, 702.105b,
-/// 702.149b, 702.130b). The `bool` states
+/// 702.149b, 702.130b, 702.23c, 702.121b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
@@ -740,6 +740,8 @@ const TRIGGERED: &[(&str, bool)] = &[
     ("dethrone", false),
     ("training", false),
     ("afflict", true),
+    ("rampage", true),
+    ("melee", false),
 ];
 
 pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
@@ -1131,6 +1133,35 @@ fn pump(what: kir::SetExpr, power: u32, toughness: u32) -> kir::Node {
     })
 }
 
+/// CR 608.2h, 611.2c: "[what] gets +X/+X until end of turn", X counted once.
+fn counted_pump(what: kir::SetExpr, amount: kir::Amount) -> kir::Node {
+    let delta = || kir::PumpDelta::Counted {
+        amount: amount.clone(),
+        negative: false,
+    };
+    kir::Node::Do(kir::Verb::ModifyUntil {
+        what,
+        layer: kir::Layer::PowerToughnessModify,
+        change: kir::Change::PowerToughnessX {
+            power: delta(),
+            toughness: delta(),
+        },
+        until: kir::Until::EndOfTurn,
+    })
+}
+
+/// "N for each [counted thing]" (CR 608.2h).
+fn times(n: u32, of: kir::Amount) -> kir::Amount {
+    if n == 1 {
+        of
+    } else {
+        kir::Amount::Times {
+            factor: Quantity::from(i64::from(n)),
+            of: Box::new(of),
+        }
+    }
+}
+
 /// The complete defining trigger of one printed triggered keyword.
 /// "This creature" forms apply to creature cards only; "this permanent"
 /// forms to permanent cards. Pinned rules text:
@@ -1286,6 +1317,33 @@ pub(super) fn triggered(
                 EventPattern::AttacksPlayerWithMostLife { attacker }
             } else {
                 EventPattern::AttacksWithGreaterPower { attacker }
+            }
+        }
+        // CR 702.23a-b: "Whenever this creature becomes blocked, it gets
+        // +N/+N until end of turn for each creature blocking it beyond the
+        // first", counted once as the ability resolves.
+        "rampage" if creature => {
+            let beyond = kir::Amount::BlockersOf {
+                object: Ref::Source,
+                beyond: 1,
+            };
+            program
+                .instructions
+                .push(kernel(counted_pump(this, times(n, beyond)), block));
+            EventPattern::BecomesBlocked {
+                attacker: Pred::source(),
+            }
+        }
+        // CR 702.121a: "Whenever this creature attacks, it gets +1/+1 until
+        // end of turn for each opponent you attacked with a creature this
+        // combat", counted as the ability resolves.
+        "melee" if creature => {
+            program.instructions.push(kernel(
+                counted_pump(this, kir::Amount::OpponentsAttacked {}),
+                block,
+            ));
+            EventPattern::Attacks {
+                attacker: Pred::source(),
             }
         }
         // CR 702.130a: "Whenever this creature becomes blocked, defending

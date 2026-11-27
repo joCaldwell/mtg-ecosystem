@@ -2843,6 +2843,10 @@ impl RulesTxn {
                     self.rules_mut().cast_history[player.0 as usize].attacked = true;
                 }
                 self.rules_mut().combat_declared = !attacks.is_empty();
+                let mut defenders: Vec<_> = attacks.iter().map(|(_, d)| *d).collect();
+                defenders.sort();
+                defenders.dedup();
+                self.rules_mut().combat_defenders = defenders;
                 self.rules_mut().combat = attacks
                     .iter()
                     .map(|(attacker, defender)| Attacker {

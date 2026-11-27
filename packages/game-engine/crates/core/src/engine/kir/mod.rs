@@ -533,6 +533,55 @@ impl RulesTxn {
             Amount::OtherCastsManaValue { caster } if caster.is_you() => {
                 self.other_casts_mana_value(self.entry(frame.stack_id)?)
             }
+            // CR 509.1g, 506.4, 702.23a-b: the creatures still blocking the
+            // exact source now, read once; a blocker removed from combat or
+            // phased out no longer blocks it (CR 702.26b).
+            Amount::BlockersOf {
+                object: Ref::Source,
+                beyond,
+            } => {
+                let source = self.entry(frame.stack_id)?.source;
+                let blocking = self
+                    .state
+                    .rules
+                    .combat
+                    .iter()
+                    .find(|a| a.attacker == source)
+                    .map_or(0, |a| {
+                        a.blockers
+                            .iter()
+                            .filter(|b| {
+                                self.state.rules.blocking_creatures.contains(b)
+                                    && self
+                                        .current(**b)
+                                        .is_ok_and(|o| o.id == **b && o.present_on_battlefield())
+                            })
+                            .count()
+                    });
+                let count = blocking.saturating_sub(*beyond as usize);
+                Ok(Quantity::from(
+                    i64::try_from(count).map_err(|_| "blocker count limit")?,
+                ))
+            }
+            // CR 702.121a, 508.4: the declared defenders this combat that are
+            // still opponents in the game, when the controller is the
+            // attacking player.
+            Amount::OpponentsAttacked {} => {
+                let controller = self.entry(frame.stack_id)?.controller;
+                let count = if self.state.rules.active == Some(controller) {
+                    self.state
+                        .rules
+                        .combat_defenders
+                        .iter()
+                        .filter(|p| **p != controller && self.is_live(**p))
+                        .count()
+                } else {
+                    0
+                };
+                Ok(Quantity::from(
+                    i64::try_from(count).map_err(|_| "defender count limit")?,
+                ))
+            }
             Amount::StatOf {
                 object: Ref::Target { slot },
                 stat: mtg_contracts::kir::Stat::ManaValue,

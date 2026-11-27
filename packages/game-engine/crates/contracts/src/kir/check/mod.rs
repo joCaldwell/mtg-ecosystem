@@ -556,6 +556,10 @@ impl Walk<'_, '_> {
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
             Amount::Greatest { set, .. } => self.set(set),
+            Amount::BlockersOf { object, .. } => self
+                .expect(object, &[RefKind::Object], "blocked object")
+                .map(drop),
+            Amount::OpponentsAttacked {} => Ok(()),
             Amount::Times { of, .. } => self.amount(of),
             Amount::Devotion { player, .. }
             | Amount::LifeOf { player }
@@ -1598,6 +1602,13 @@ impl Walk<'_, '_> {
             {
                 Self::audit_verb_amount(of)
             }
+            // CR 702.23a: creatures blocking the ability's own source.
+            // CR 702.121a: the combat's declared defenders.
+            Amount::BlockersOf {
+                object: Ref::Source,
+                ..
+            }
+            | Amount::OpponentsAttacked {} => Ok(()),
             _ => unaudited("resolution count"),
         }
     }

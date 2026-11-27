@@ -1,6 +1,7 @@
 //! Combat-triggered keywords lowered to their defining triggers, from exact
 //! frozen R5 source on private boards: CR 702.83 (exalted), 702.116
-//! (myriad), 702.105 (dethrone), 702.149 (training) and 702.130 (afflict).
+//! (myriad), 702.105 (dethrone), 702.149 (training), 702.130 (afflict),
+//! 702.23 (rampage) and 702.121 (melee).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -14,6 +15,8 @@ const GRENZOS_CUTTHROAT: &str = record!("9a133991-8a7a-4bfd-b0ae-d76433450c03");
 const APPRENTICE_SHARPSHOOTER: &str = record!("40d6e1ff-995b-42fc-8146-8d5e5f1adcd9");
 const GRYFF_RIDER: &str = record!("e1ca5c24-bbd8-4eed-bb2b-17163f90e72b");
 const KHENRA_ETERNAL: &str = record!("91b46b22-8062-434b-8432-5ed1062ccaf9");
+const AERATHI_BERSERKER: &str = record!("5cb495a2-c683-4066-b6ee-d0b7d8843cb9");
+const DEPUTIZED_PROTESTER: &str = record!("09947592-1730-4c1c-bfa5-be53a68d6919");
 
 fn power_toughness(g: &Game, object: ObjectId) -> (Option<Quantity>, Option<Quantity>) {
     let c = g.characteristics(object).unwrap();
@@ -465,4 +468,59 @@ fn afflict_makes_the_blocking_defender_lose_life() {
     assert_eq!([life(&g, 1), life(&g, 2)], [before[0].clone(), lost]);
     checked(&g);
     assert_recoverable((&g).into());
+}
+
+/// Aerathi Berserker ("Rampage 3", 2/4) is blocked by three Grizzly Bears:
+/// two blockers beyond the first give +6/+6, counted once as the trigger
+/// resolves (CR 702.23a-b). Blocked by one, it gets nothing.
+#[test]
+fn rampage_counts_blockers_beyond_the_first() {
+    for (blockers, expected) in [(3, pt(8, 10)), (1, pt(2, 4))] {
+        let mut b = board(&[AERATHI_BERSERKER], TurnStep::BeginningCombat).permanent_or_hand(
+            "Aerathi Berserker",
+            0,
+            0,
+            false,
+        );
+        for _ in 0..blockers {
+            b = b.permanent_or_hand("Grizzly Bears", 1, 1, false);
+        }
+        let mut g = Game::with_trace(prepare(b), TraceMode::Detailed);
+        let berserker = Driver::object(&g, 0);
+        let blocks: Vec<_> = (1..=blockers)
+            .map(|i| (Driver::object(&g, i), berserker))
+            .collect();
+        blocked_combat(&mut g, &[(berserker, PlayerId(1))], &blocks);
+        assert_eq!(power_toughness(&g, berserker), expected);
+        checked(&g);
+        assert_recoverable((&g).into());
+    }
+}
+
+/// Four seats. Deputized Protester (2/1, melee) attacks seat 1 and Grizzly
+/// Bears attacks seat 2: two opponents were attacked, so the Protester gets
+/// +2/+2 (CR 702.121a). Attacking alone it gets +1/+1.
+#[test]
+fn melee_counts_each_opponent_attacked_this_combat() {
+    for (with_bears, expected) in [(true, pt(4, 3)), (false, pt(3, 2))] {
+        let mut g = Game::with_trace(
+            prepare(
+                board(&[DEPUTIZED_PROTESTER], TurnStep::BeginningCombat)
+                    .seats(4)
+                    .permanent_or_hand("Deputized Protester", 0, 0, false)
+                    .permanent_or_hand("Grizzly Bears", 0, 0, false),
+            ),
+            TraceMode::Detailed,
+        );
+        let (protester, bears) = (Driver::object(&g, 0), Driver::object(&g, 1));
+        let mut attacks = vec![(protester, PlayerId(1))];
+        if with_bears {
+            attacks.push((bears, PlayerId(2)));
+        }
+        declare(&mut g, &attacks);
+        assert_eq!(triggers_of(&g, protester), 1);
+        settle(&mut g);
+        assert_eq!(power_toughness(&g, protester), expected);
+        assert_recoverable((&g).into());
+    }
 }
