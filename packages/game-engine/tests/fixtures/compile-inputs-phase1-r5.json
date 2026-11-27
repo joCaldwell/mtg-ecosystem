@@ -1,0 +1,35 @@
+{
+  "artifactKind": "oracle-compile-inputs",
+  "schemaVersion": 1,
+  "oracle": {
+    "path": "../../../../generated/oracle-source-f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738.json",
+    "bytes": 203323272,
+    "sha256": "f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738",
+    "canonicalRecordsSha256": "2acb9b7730fb81a944a393dd99303d86617a2a62b22fe77a3fda1c833cf93582"
+  },
+  "paperEvidence": {
+    "path": "../../../../generated/paper-printing-evidence-d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699.json",
+    "bytes": 8216961,
+    "sha256": "d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699"
+  },
+  "scope": "paper-printing-evidence-non-silver-non-acorn-v2",
+  "rules": {
+    "edition": "2026-09-25",
+    "sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca"
+  },
+  "reader": {
+    "revision": "1382948c0a1b8839398e66e3f85813126454ae02",
+    "sourceSha256": "f6c0f9a1136d0684f26d3472320658eeca9c6cd39dc09ff83b7f48694d08d650"
+  },
+  "archive": {
+    "file": "oracle-ast-phase1-r5.jsonl",
+    "schemaVersion": 4,
+    "bytes": 492655495,
+    "sha256": "7400edf1925081db984d619c56ce17f3f004153f99a57160b5f2f08fd52c5303",
+    "headerSha256": "85e4fddf2337c2943a6eff3d0b45700d136cb4e9392aa5f0b2a5a720b4ed6db3"
+  },
+  "compiler": {
+    "irVersion": 1,
+    "bulkFormatVersion": 2
+  }
+}
