@@ -60,6 +60,11 @@ struct FlatStateReference {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     commander_returns: BTreeSet<ObjectId>,
     control_effects: Vec<ControlEffect>,
+    #[serde(
+        default = "initial_timestamp",
+        skip_serializing_if = "is_initial_timestamp"
+    )]
+    timestamps: u64,
     external_inputs: Vec<ExternalInput>,
     pending_concessions: Vec<PlayerId>,
     priority: PlayerId,
@@ -71,6 +76,14 @@ struct FlatStateReference {
     journal: Vec<AcceptedInput>,
     next_batch_id: u64,
     next_event_sequence: u64,
+}
+
+fn initial_timestamp() -> u64 {
+    1
+}
+
+fn is_initial_timestamp(timestamp: &u64) -> bool {
+    *timestamp == initial_timestamp()
 }
 
 #[derive(Serialize, Deserialize)]

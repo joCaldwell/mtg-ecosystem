@@ -51,13 +51,22 @@ impl RulesTxn {
         if positions.len() < 2 {
             return (candidates, shape);
         }
+        let setup_time = TimestampAllocator::default().next();
         let key = |o: ObjectId| {
             let live = self.current(o).ok();
             let zone = live.map(|o| o.zone);
             let public = match zone {
                 Some(Zone::Battlefield) => (
                     0,
-                    live.and_then(|o| o.keyword_timestamp).unwrap_or(u64::MAX),
+                    live.and_then(|o| {
+                        // A configured setup permanent has rules time but no
+                        // observed entry. Its viewer handle orders it until
+                        // a public event gives it a new timestamp.
+                        o.keyword_timestamp.filter(|&time| {
+                            time != setup_time || o.battlefield_entry_timestamp.is_some()
+                        })
+                    })
+                    .unwrap_or(u64::MAX),
                 ),
                 Some(Zone::Stack) => (
                     1,
