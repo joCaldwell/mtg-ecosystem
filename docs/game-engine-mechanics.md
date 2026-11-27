@@ -85,18 +85,19 @@ accepted-input replay with exact identity.
     fixed: commit state and retain last-known facts, then reduce history through
     one reducer returning a `LedgerDelta`. Next it reconciles control and zones,
     matches triggers and delayed watchers, and binds step results. Trace and
-    views project afterwards. Matching reads the facet, never `BatchCause`. It
-    deduplicates on ability instance and `EventId`, or once per declared "one or
-    more" group. Ordered siblings settle in order; simultaneous siblings share
-    one prior. A bounded procedure binds its members and ledger change through
-    an `ActualJournal` (mana costs); resolving steps bind their committed
-    outcomes until the frame migrates, and draw, cycle and life still read
-    their outcome and cause.
+    views project afterwards. For migrated families, facets supply the match
+    witnesses. The [event witness contract](game-engine-board-mechanics.md#trigger-families-and-event-witnesses)
+    describes current uniqueness checks and the E3 deduplication work. Ordered
+    siblings settle in order; simultaneous siblings share one prior. A bounded
+    procedure binds its members and ledger change through an `ActualJournal`
+    (mana costs). Resolving steps bind their committed outcomes until the frame
+    migrates. Draw, cycle and life still read their outcome and cause.
   - *Invariance.* The reducer and evidence run identically when nothing matches,
-    in every trace mode. Each family's parity gate compares legacy and canonical
-    state digest, triggers, ledger and authorized decisions under
-    `assert_recoverable`, with zero-match and reversed-mana cases, at zero
-    coverage gain.
+    in every trace mode. E1a witnesses compare the state digest, pending
+    triggers, stack, ledger and authorized decisions across trace modes, cover
+    zero-match and reversed-mana cases, and exercise `assert_recoverable`.
+    The existing suites and format pins are regression checks, with only the
+    private snapshot pin advanced for E1a. Expected coverage gain is zero.
 - **Replacement before commit (E2 contract).** A replacement is proposed,
   matched, ordered, transformed and recomputed before one atomic commit; nothing
   is repaired after commit. A persisted proposal holds the root, resume owner,
@@ -582,6 +583,14 @@ at `Executes`.
 The three reviews above `Executes` are independent. A rejected hosting or search
 request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 (`UnqualifiedCells`) below its tier.
+
+Fixed draws of one or two cards by the controller or an announced any-player
+target keep their single-draw cells and capabilities. Under CR 121.2,
+`StepProgress::Sequence` settles one draw attempt per rules transaction, with
+its replacement handling, trigger collection, visibility publication and
+saved cursor. The second attempt resumes from the first attempt's committed
+state, with the same decision ownership and visibility for search and hosting
+as two consecutive single draws.
 
 `Executes` is decided per surface, each row independent (CR 113.3, 602.1,
 603.1, 608.2); a surface without a row rejects under `cell:<surface>:<detail>`:

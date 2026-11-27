@@ -1836,7 +1836,11 @@ impl Strategy<'_> {
         if tap && !available_tap(o) {
             return None;
         }
-        let draw = a.program.instructions.iter().any(I::uncounted_draw);
+        let draw = a.program.instructions.iter().any(|instruction| matches!(
+            instruction.verb(),
+            Some(mtg_contracts::kir::Verb::Draw { player: player @ mtg_contracts::kir::PlayerExpr::Is { .. }, amount })
+                if amount.as_fixed().is_some_and(|count| *count > Quantity::zero() && (!player.is_you() || *count <= Quantity::from(2)))
+        ));
         if draw
             && v.players
                 .iter()

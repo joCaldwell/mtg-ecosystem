@@ -591,97 +591,21 @@ impl RulesTxn {
         Ok(target)
     }
 
-    pub(super) fn commit_opponent_life(
-        &mut self,
-        frame: &Resolving,
-        amount: &Quantity,
-        source_block: u32,
-        gain: bool,
-    ) -> Result<Option<CommittedBatch>, String> {
-        let occurrences = self
-            .opponents(self.entry(frame.stack_id)?.controller)
-            .into_iter()
-            .map(|player| {
-                if gain {
-                    ProposedEvent::GainLife {
-                        player,
-                        amount: amount.clone(),
-                    }
-                } else {
-                    ProposedEvent::LoseLife {
-                        player,
-                        amount: amount.clone(),
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-        if occurrences.is_empty() {
-            return Ok(None);
-        }
-        self.commit_batch(
-            self.instruction_cause(frame, source_block)?,
-            EventGroup::Simultaneous { occurrences },
-        )
-        .map(Some)
-    }
-
-    // CR 119.3/119.9, 608.2c/h, 704.4. Both commits belong to one staged
-    // resolution step, so failure of the gain also rolls back the losses.
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn drain_opponents(
-        &mut self,
-        frame: Resolving,
-        amount: Quantity,
-        source_block: u32,
-    ) -> Result<(), String> {
-        if amount == Quantity::zero() {
-            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
-        }
-        let Some(losses) = self.commit_opponent_life(&frame, &amount, source_block, false)? else {
-            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
-        };
-        let mut total = Quantity::zero();
-        for occurrence in &losses.occurrences {
-            if matches!(occurrence.actual, EventOutcome::LifeChangeProhibited { .. }) {
-                continue;
-            }
-            let EventOutcome::LifeLost { amount, .. } = &occurrence.actual else {
-                return Err("missing opponent life loss outcome".into());
-            };
-            total.add(amount);
-        }
-        let player = self.entry(frame.stack_id)?.controller;
-        let actual = if total > Quantity::zero() && self.is_live(player) {
-            Some(self.commit(
-                ProposedEvent::GainLife {
-                    player,
-                    amount: total,
-                },
-                losses.cause,
-            )?)
-        } else {
-            None
-        };
-        self.finish_instruction(frame, InstructionOutcome::Life { actual })
-    }
-
     // CR 608.2b-c/704.4: execute the ordered program without an intervening
     // SBA check. A self-targeted Soul Feast may reach zero then recover before
     // the next priority checkpoint; an all-target-illegal spell never starts.
-    pub(crate) fn execute_damage_life_instruction(
+    pub(crate) fn execute_directed_damage(
         &mut self,
         frame: Resolving,
-        instruction: Instruction,
+        source: mtg_contracts::kir::Ref,
+        who: mtg_contracts::kir::Ref,
+        amount: &mtg_contracts::kir::Amount,
+        source_block: u32,
     ) -> Result<(), String> {
-        use mtg_contracts::kir::{DamageTo, Ref};
-        let kernel!(Damage { source, to: DamageTo::Ref { who }, amount } @ source_block) =
-            instruction
-        else {
-            return Err("unexpected damage instruction".into());
-        };
+        use mtg_contracts::kir::Ref;
         let entry = self.entry(frame.stack_id)?;
         let (source, controller) = self.damage_source(entry, source)?;
-        let amount = Self::directed_damage_amount(entry, &amount, &source)?;
+        let amount = Self::directed_damage_amount(entry, amount, &source)?;
         let target = match who {
             Ref::Target { slot } if frame.legal_targets.get(slot as usize) == Some(&true) => {
                 let target = self.directed_damage_target(entry, slot)?;

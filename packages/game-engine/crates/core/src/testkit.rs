@@ -806,7 +806,13 @@ impl GameTestkit for Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        RulesTxn::execute_damage_life_instruction(self, frame, instruction)
+        let mtg_contracts::kernel!(
+            Damage { source, to: mtg_contracts::kir::DamageTo::Ref { who }, amount } @ source_block
+        ) = instruction
+        else {
+            return Err("expected a directed damage instruction".into());
+        };
+        RulesTxn::execute_directed_damage(self, frame, source, who, &amount, source_block)
     }
     fn execute_kernel_instruction(
         &mut self,

@@ -139,10 +139,11 @@ impl RulesTxn {
         if matches!(node, Node::Do(Verb::ExileMyriadTokens {})) {
             return self.execute_myriad_exile(frame, source_block);
         }
-        // CR 119.3: the standalone drain pair uses the actual loss total.
-        if let Some(amount) = mtg_contracts::kir::drain(&node) {
-            let amount = self.kernel_amount(&frame, amount)?;
-            return self.drain_opponents(frame, amount, source_block);
+        if node
+            .verb()
+            .is_some_and(|verb| verb.evaluated_operands().is_some())
+        {
+            return self.begin_kernel_control(frame);
         }
         if !matches!(node, Node::Do(_)) {
             let instruction = Instruction::Kernel {
@@ -201,12 +202,12 @@ impl RulesTxn {
         }
         // CR 120.2b, 608.2h: damage keeps the directed and board-wide
         // executors, whose prepared transactions recovery re-derives.
-        if matches!(node, Node::Do(Verb::Damage { .. })) {
-            let instruction = Instruction::Kernel { node, source_block };
-            return if instruction.set_damage().is_some() {
-                self.execute_set_damage(frame)
-            } else {
-                self.execute_damage_life_instruction(frame, instruction)
+        if let Node::Do(Verb::Damage { source, to, amount }) = &node {
+            return match to {
+                mtg_contracts::kir::DamageTo::Ref { who } => {
+                    self.execute_directed_damage(frame, *source, *who, amount, source_block)
+                }
+                _ => self.execute_set_damage(frame),
             };
         }
         // CR 111.1, 122.1: tokens and +1/+1 counters keep the token executor,
@@ -336,15 +337,6 @@ impl RulesTxn {
                     Some(self.commit(event, self.instruction_cause(&frame, source_block)?)?)
                 };
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual })
-            }
-            Verb::GainLife { player, amount } => {
-                self.kernel_life(frame, true, &player, &amount, source_block)
-            }
-            Verb::LoseLife { player, amount } => {
-                self.kernel_life(frame, false, &player, &amount, source_block)
-            }
-            Verb::Draw { player, amount } => {
-                self.kernel_draw(frame, &player, &amount, source_block)
             }
             Verb::Transform { what: Ref::Source } => {
                 self.kernel_transform_source(frame, source_block)

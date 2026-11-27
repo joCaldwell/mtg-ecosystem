@@ -4,7 +4,9 @@
 // See AGENTS.md for the development loop and design rules.
 
 export { parseOracleText, type ParseContext } from "./parser/index.ts";
-export { normalizeOracleText } from "./normalize.ts";
+export { normalizeOracleText, normalizeOracleTextTracked } from "./normalize.ts";
+export { mapToOriginal, projectNormalizedRange, Utf8Index, type MappedNormalization, type ProjectedRange, type TrackedNormalization } from "./printed/text.ts";
+export type { ByteRange, Edit } from "./printed/schema.ts";
 export { lex, LexError, type Token } from "./lexer.ts";
 export { buildCardNameCatalog, CardNameCatalog, type CardNameSource, type CatalogNameKind, type CatalogNameSource, type CatalogNameMatch } from "./card-names.ts";
 export * from "./ast.ts";

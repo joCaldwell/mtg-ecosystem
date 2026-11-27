@@ -406,17 +406,21 @@ impl RulesTxn {
         let TriggerEventWitness::Moved { movement } = witness else {
             return None;
         };
-        let (stack_id, source) =
-            actuals
-                .iter()
-                .find_map(|actual| match actual.facet(FacetKind::Moved)? {
+        let (stack_id, source, player) = actuals.iter().find_map(|actual| {
+            match (actual.facet(FacetKind::Moved)?, &actual.cause) {
+                (
                     Facet::Moved {
                         object,
                         how: MoveKind::Resolved { stack_id },
                         ..
-                    } if actual.movement().as_ref() == Some(movement) => Some((stack_id, object)),
-                    _ => None,
-                })?;
+                    },
+                    BatchCause::SpellCompletion { player, .. },
+                ) if actual.movement().as_ref() == Some(movement) => {
+                    Some((stack_id, object, player))
+                }
+                _ => None,
+            }
+        })?;
         let spell = self.state.rules.stack.last()?;
         let alternative_cost_paid = self
             .offered_alternative_cost(spell)
@@ -436,6 +440,7 @@ impl RulesTxn {
             && matches!(&self.state.rules.frame, Frame::Resolve { frame } if frame.stack_id == *stack_id && self.entry(frame.stack_id).is_ok_and(|entry| entry.source == *source))
             && spell.source == *source
             && spell.id == *stack_id
+            && spell.controller == *player
             && spell.kind.is_spell()
             && spell.paid.as_ref() == Some(&spell.total_cost))
         .then_some(EntryCast {
@@ -799,8 +804,6 @@ impl RulesTxn {
             | InterveningCheck::OpponentControlsMore { passed: false, .. },
         ) = &frame.condition_check
             && (frame.cursor != 0
-                || frame.draw_progress.is_some()
-                || frame.each_player_draw.is_some()
                 || frame.set_damage.is_some()
                 || frame.random_discard.is_some()
                 || frame.group_discard.is_some())

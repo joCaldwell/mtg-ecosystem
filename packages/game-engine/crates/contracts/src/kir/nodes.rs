@@ -197,24 +197,6 @@ pub enum Node {
 }
 
 impl Node {
-    /// The drain pair of [`drain`] for "you" in `context`.
-    pub fn drain(context: Context, amount: Amount) -> Self {
-        Self::Seq(vec![
-            Self::Do(Verb::LoseLife {
-                player: PlayerExpr::EachOpponent,
-                amount,
-            }),
-            Self::Do(Verb::GainLife {
-                player: PlayerExpr::you(context),
-                amount: Amount::Var {
-                    of: Ref::StepResult {
-                        step: 0,
-                        role: StepRole::Amount,
-                    },
-                },
-            }),
-        ])
-    }
     /// The verb of a single-action node.
     pub fn verb(&self) -> Option<&Verb> {
         match self {
@@ -277,7 +259,7 @@ impl Node {
 
     pub(crate) fn uses_continuation(&self) -> bool {
         match self {
-            Self::Seq(_) => drain(self).is_none(),
+            Self::Seq(_) => true,
             Self::Optional { .. } => self.optional_target_destroy().is_none(),
             Self::If { .. }
             | Self::ForEach { .. }

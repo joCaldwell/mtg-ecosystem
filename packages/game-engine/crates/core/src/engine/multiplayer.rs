@@ -192,8 +192,6 @@ impl RulesTxn {
                 group_discard: None,
                 random_discard: None,
                 entrant_draw: None,
-                draw_progress: None,
-                each_player_draw: None,
                 set_damage: None,
                 fight: None,
                 target_facts: self.capture_target_facts(&stack, &legal_targets)?,

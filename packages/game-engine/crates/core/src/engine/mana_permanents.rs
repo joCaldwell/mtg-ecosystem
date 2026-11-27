@@ -383,9 +383,15 @@ impl RulesTxn {
         {
             return Err("invalid mana receipt counters".into());
         }
-        // Only a sacrificed source changes the ledger, and each fact its
-        // delta recorded still holds. Its events name published batches.
+        // A sacrifice can record a departure or death. Each recorded fact
+        // still holds, and the cost events name published batches.
         if !receipt.sacrificed && !receipt.ledger.is_empty()
+            || receipt.ledger.seats.iter().any(|row| {
+                row.artifacts_entered != 0
+                    || row.creatures_entered != 0
+                    || row.nonlands_entered != 0
+                    || row.tokens_created != 0
+            })
             || receipt
                 .ledger
                 .check_holds(&self.state.rules.cast_history)

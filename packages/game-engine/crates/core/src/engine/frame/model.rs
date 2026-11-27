@@ -52,15 +52,6 @@ pub struct SetDamageFacts {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DrawProgress {
-    pub cursor: u32,
-    pub source_block: u32,
-    pub completed: Quantity,
-    pub remaining: Quantity,
-    pub failed: Quantity,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entrant_draw: Option<Box<ObjectBefore>>,
@@ -68,10 +59,6 @@ pub struct Resolving {
     pub group_discard: Option<group_discard::GroupDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub random_discard: Option<random_discard::RandomDiscardProgress>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub draw_progress: Option<DrawProgress>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub each_player_draw: Option<EachPlayerDrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

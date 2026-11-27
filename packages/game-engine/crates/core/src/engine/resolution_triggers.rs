@@ -577,6 +577,7 @@ impl RulesTxn {
     /// exact incarnation, read from the movement facet.
     pub(super) fn collect_resolution_departure(
         &mut self,
+        before: &RulesTxn,
         event: &OccurrenceId,
         members: &[Actual],
     ) -> Result<(), String> {
@@ -604,13 +605,14 @@ impl RulesTxn {
                 ),
                 _ => continue,
             };
-            self.fire_departure_watchers(event, object, witness)?;
+            self.fire_departure_watchers(before, event, object, witness)?;
         }
         Ok(())
     }
 
     fn fire_departure_watchers(
         &mut self,
+        before: &RulesTxn,
         event: &OccurrenceId,
         object: ObjectId,
         witness: TriggerEventWitness,
@@ -632,11 +634,13 @@ impl RulesTxn {
             return Ok(());
         }
         self.preflight_trigger_emission(ready.len())?;
+        let binding = before.followup_event_binding(&witness)?;
         for creator in ready {
             self.fire_resolution_trigger(
                 creator,
                 TriggerOccurrenceId::Batch(event.clone()),
                 witness.clone(),
+                binding.clone(),
             )?;
         }
         Ok(())
@@ -681,13 +685,16 @@ impl RulesTxn {
             return Err("reflexive trigger requires actual payment".into());
         }
         self.register_resolution_trigger(&frame, None, None)?;
+        let witness = TriggerEventWitness::ResolutionPaid {
+            player: controller,
+            cost: cost.clone(),
+        };
+        let binding = self.followup_event_binding(&witness)?;
         self.fire_resolution_trigger(
             frame.stack_id,
             TriggerOccurrenceId::Batch(occurrence.id.clone()),
-            TriggerEventWitness::ResolutionPaid {
-                player: controller,
-                cost: cost.clone(),
-            },
+            witness,
+            binding,
         )
     }
 
@@ -726,11 +733,13 @@ impl RulesTxn {
             return Ok(());
         }
         self.preflight_trigger_emission(ready.len())?;
+        let binding = self.followup_event_binding(witness)?;
         for creator in ready {
             self.fire_resolution_trigger(
                 creator,
                 TriggerOccurrenceId::Batch(event.clone()),
                 witness.clone(),
+                binding.clone(),
             )?;
         }
         Ok(())
@@ -741,6 +750,7 @@ impl RulesTxn {
         creator: StackId,
         occurrence: TriggerOccurrenceId,
         witness: TriggerEventWitness,
+        binding: triggers::EventBinding,
     ) -> Result<(), String> {
         let row = self
             .state
@@ -758,7 +768,7 @@ impl RulesTxn {
             source_facts,
             None,
             None,
-            (occurrence.clone(), witness.clone()),
+            (occurrence.clone(), witness.clone(), binding),
         )?;
         self.rules_mut()
             .resolution_triggers

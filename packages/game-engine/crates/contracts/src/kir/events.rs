@@ -237,6 +237,12 @@ impl EventPattern {
     pub fn object_role(&self) -> Option<EventObjectRole> {
         match self {
             Self::Enters { .. } => Some(EventObjectRole::Entered),
+            Self::Dies { .. } => Some(EventObjectRole::Died),
+            Self::LeavesBattlefield { .. } => Some(EventObjectRole::LeftBattlefield),
+            Self::Sacrifices { .. } => Some(EventObjectRole::Sacrificed),
+            Self::DealsDamage { .. } => Some(EventObjectRole::DealtDamage),
+            Self::IsDealtDamage { .. } => Some(EventObjectRole::Damaged),
+            Self::Cast { .. } => Some(EventObjectRole::CastSpell),
             Self::Attacks { .. }
             | Self::AttacksAlone { .. }
             | Self::AttacksWithGreaterPower { .. }
