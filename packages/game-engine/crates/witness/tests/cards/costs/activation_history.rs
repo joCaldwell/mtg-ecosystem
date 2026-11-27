@@ -349,3 +349,97 @@ fn pit_imp_activates_at_most_twice_per_object_each_turn() {
     assert_ne!(again, imp);
     assert!(actions(&mut g).contains(&activate(again, 0)));
 }
+
+const BEAR: &str = record!("2f6f49a4-f2ea-4147-a6d3-69cf875c302e");
+const COMPOUND: &str = record!("99c70f4e-de8a-426d-99aa-17b2f87625ba");
+const KEEPER: &str = record!("434e82b5-abd4-41ac-a5b1-2dd01c667374");
+
+/// Dragon-Scarred Bear: "Formidable — {1}{G}: Regenerate this creature.
+/// Activate only if creatures you control have total power 8 or greater."
+/// Only your creatures count (CR 208.1); 3 + 2 + 2 is seven, and a
+/// Colossal Dreadmaw makes it thirteen.
+#[test]
+fn formidable_reads_the_total_power_you_control() {
+    for dreadmaw in [false, true] {
+        let mut b = board(&[(BEAR, CONDITIONED)])
+            .permanent_or_hand("Dragon-Scarred Bear", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Colossal Dreadmaw", 1, 1, false);
+        if dreadmaw {
+            b = b.permanent_or_hand("Colossal Dreadmaw", 0, 0, false);
+        }
+        let mut g = Game::with_trace(b.prepare(), TraceMode::Detailed);
+        let bear = Driver::object(&g, 0);
+        assert_eq!(actions(&mut g).contains(&activate(bear, 0)), dreadmaw);
+        if dreadmaw {
+            Driver::action(&mut g, activate(bear, 0));
+            Driver::pay(&mut g, &[1, 2]);
+            assert_eq!(evidence(&g), Some(vec![13]));
+            assert!(forge(&g, vec![7]).validate_state().is_err());
+            checked(&g);
+            settle(&mut g);
+        }
+    }
+}
+
+/// Training Compound: "{T}: Add {R} or {G}. Activate only if this land
+/// entered this turn or if you control a basic land." The land played this
+/// turn qualifies on its own; one on the battlefield since before needs a
+/// basic land (CR 400.7, 605.3a).
+#[test]
+fn training_compound_reads_its_own_entry_or_a_basic_land() {
+    let colored = Candidate::ManaAbility {
+        ability: ManaAbilityIdentity::Printed { index: 1 },
+    };
+    let offered = |g: &Game, land: ObjectId| {
+        let mut f = g.fork();
+        let answer = f.next_test_decision().activate_mana(land);
+        Driver::answer(&mut f, u64::MAX, answer);
+        Driver::request(&mut f, u64::MAX)
+            .candidates
+            .contains(&colored)
+    };
+    for (in_hand, basic, holds) in [
+        (false, false, false),
+        (false, true, true),
+        (true, false, true),
+    ] {
+        let mut b = board(&[(COMPOUND, CONDITIONED)])
+            .permanent_or_hand("Training Compound", 0, 0, in_hand)
+            .permanent_or_hand("Sol Ring", 0, 0, false);
+        if basic {
+            b = b.permanent_or_hand("Mountain", 0, 0, false);
+        }
+        let mut g = Game::with_trace(b.prepare(), TraceMode::Detailed);
+        let mut land = Driver::object(&g, 0);
+        if in_hand {
+            Driver::action(&mut g, Action::PlayLand { object: land });
+            Driver::request(&mut g, u64::MAX);
+            land = g.object_id(land.card).unwrap();
+        }
+        assert_eq!(offered(&g, land), holds, "{in_hand} {basic}");
+        checked(&g);
+    }
+}
+
+/// Bloodline Keeper: "{B}: Transform this creature. Activate only if you
+/// control five or more Vampires." The Keeper counts itself.
+#[test]
+fn bloodline_keeper_counts_five_vampires() {
+    for nighthawks in [3usize, 4] {
+        let mut b = board(&[(KEEPER, CONDITIONED)])
+            .permanent_or_hand("Bloodline Keeper", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Vampire Nighthawk", 1, 1, false);
+        for _ in 0..nighthawks {
+            b = b.permanent_or_hand("Vampire Nighthawk", 0, 0, false);
+        }
+        let g = Game::with_trace(b.prepare(), TraceMode::Detailed);
+        let keeper = Driver::object(&g, 0);
+        // Ability 0 makes a Vampire; ability 1 transforms.
+        assert_eq!(may(&g, 0, keeper, 1), nighthawks == 4);
+    }
+}

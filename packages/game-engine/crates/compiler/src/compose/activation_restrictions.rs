@@ -261,6 +261,67 @@ fn condition(
             };
             (cond, vec!["a creature died this turn".into()])
         }
+        // CR 400.7: "if this land entered this turn", the source itself.
+        Some("zone-change-history")
+            if fields == 5
+                && value["event"] == "enters"
+                && value["to"] == json!({"zone": "battlefield"})
+                && value["during"] == "this-turn"
+                && value["subject"]["match"] == "object"
+                && value["subject"].as_object().map(Map::len) == Some(2)
+                && value["subject"]["what"]["ref"] == "this"
+                && value["subject"]["what"].as_object().map(Map::len) == Some(2) =>
+        {
+            let noun = match value["subject"]["what"]["noun"].as_str() {
+                Some(n @ ("land" | "creature" | "artifact" | "enchantment" | "permanent")) => n,
+                _ => return Err(reject()),
+            };
+            let cond = Cond::Measured {
+                measure: kir::Measure::SourceEnteredThisTurn {},
+                cmp: Cmp::AtLeast,
+                value: 1.into(),
+            };
+            (cond, vec![format!("this {noun} entered this turn")])
+        }
+        // CR 208.1, 107.1b: "if creatures you control have total power N or
+        // greater".
+        Some("compare")
+            if fields == 3
+                && value["value"]["amount"] == "attribute-sum"
+                && value["value"]["attribute"] == "power"
+                && value["value"].as_object().map(Map::len) == Some(3)
+                && value["value"]["among"]["ref"] == "each"
+                && value["value"]["among"].as_object().map(Map::len) == Some(2)
+                && value["value"]["among"]["filter"]["control"] == "you" =>
+        {
+            let (cmp, n) = control::comparison(&value["comparison"])?;
+            let bound = (1..=40)
+                .find(|&i| n == Quantity::from(i))
+                .ok_or_else(reject)?;
+            if cmp != Cmp::AtLeast {
+                return Err(reject());
+            }
+            let mut filter = value["value"]["among"]["filter"].clone();
+            filter.as_object_mut().ok_or_else(reject)?.remove("control");
+            let noun = plural(&filter, false)?;
+            let Cond::Compare {
+                left:
+                    kir::Amount::Count {
+                        set: kir::SetExpr::Matching { filter: pred, .. },
+                    },
+                ..
+            } = controlled(&filter, Cmp::AtLeast, n.clone())?
+            else {
+                return Err(reject());
+            };
+            let cond = Cond::Measured {
+                measure: kir::Measure::TotalPower { filter: pred },
+                cmp: Cmp::AtLeast,
+                value: n,
+            };
+            let phrase = format!("{noun} you control have total power {bound} or greater");
+            (cond, vec![phrase])
+        }
         // CR 102.2-102.3: "if an opponent controls more lands than you".
         Some("control-count")
             if fields == 4
@@ -473,10 +534,12 @@ fn condition(
         Some("compare") if fields == 3 => {
             let measured = &value["value"];
             let stat = measured["attribute"].as_str();
-            if measured.as_object().map(Map::len) != Some(3)
-                || measured["amount"] != "attribute"
-                || measured["of"] != json!({"noun": "creature", "ref": "this"})
+            if measured["of"] != json!({"noun": "creature", "ref": "this"})
+                && measured["of"] != json!({"ref": "self"})
             {
+                return Err(reject());
+            }
+            if measured.as_object().map(Map::len) != Some(3) || measured["amount"] != "attribute" {
                 return Err(reject());
             }
             let (cmp, n) = control::comparison(&value["comparison"])?;
@@ -492,8 +555,11 @@ fn condition(
                 Some("toughness") => (Atom::Toughness { cmp, value }, "toughness"),
                 _ => return Err(reject()),
             };
-            let phrase = format!("this creature's {stat} is {bound} or greater");
-            (source(kir::Pred(vec![atom])), vec![phrase])
+            // "~" is the source's own printed name (CR 201.4b).
+            let phrases = ["this creature", "~"]
+                .map(|subject| format!("{subject}'s {stat} is {bound} or greater"))
+                .to_vec();
+            (source(kir::Pred(vec![atom])), phrases)
         }
         // "if this creature is attacking or blocking": one fact of the source.
         Some("any-of")
@@ -536,11 +602,12 @@ fn condition(
             let joined = phrases.iter().fold(vec![String::new()], |done, options| {
                 done.iter()
                     .flat_map(|head| {
-                        options.iter().map(move |o| {
+                        // "A or B" and "A or if B".
+                        options.iter().flat_map(move |o| {
                             if head.is_empty() {
-                                o.clone()
+                                vec![o.clone()]
                             } else {
-                                format!("{head} or {o}")
+                                vec![format!("{head} or {o}"), format!("{head} or if {o}")]
                             }
                         })
                     })
@@ -864,7 +931,13 @@ fn plural(filter: &Value, card: bool) -> Result<String, Failure> {
         "permanent",
         "card",
     ];
-    if !REGULAR.contains(&head.as_str()) {
+    // A subtype head pluralizes regularly ("Vampires"); the printed
+    // sentence check rejects any irregular plural.
+    let subtype = filter.get("subtypes").is_some_and(|s| {
+        s.as_array()
+            .is_some_and(|a| a.len() == 1 && a[0] == head.as_str())
+    });
+    if !REGULAR.contains(&head.as_str()) && !subtype {
         return Err(reject());
     }
     let words: Vec<_> = lead.iter().map(String::as_str).collect();

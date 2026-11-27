@@ -342,6 +342,8 @@ fn condition_holds(
             | C::SharedName { .. }
             | C::GraveyardCardTypes { .. }
             | C::LifeAboveStarting { .. }
+            | C::TotalPower { .. }
+            | C::SourceEnteredThisTurn
             | C::All(_)
             | C::Any(_) => None,
         }

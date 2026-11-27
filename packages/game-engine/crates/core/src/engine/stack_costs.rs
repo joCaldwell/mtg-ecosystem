@@ -179,6 +179,26 @@ impl RulesTxn {
                 }
                 types.iter().filter(|t| **t).count()
             }
+            // CR 208.1, 107.1b: negative powers count as themselves.
+            C::TotalPower { filter, .. } => {
+                let mut total = Quantity::zero();
+                for o in objects_iter(self) {
+                    let facts = self.object_facts(o);
+                    if query::matches_battlefield_pred(&facts, player, filter) == Tri::Yes {
+                        let power = facts.derived().and_then(|c| c.power.clone());
+                        total.add(&power.unwrap_or_else(Quantity::zero));
+                    }
+                }
+                return Ok(saturate(&total.max(Quantity::zero())));
+            }
+            // CR 400.7: this incarnation's own battlefield entry.
+            C::SourceEnteredThisTurn => {
+                let current = self.current(source)?;
+                usize::from(
+                    current.present_on_battlefield()
+                        && current.battlefield_entry_turn == Some(self.state.rules.turn.number),
+                )
+            }
             // CR 103.4: the life total against the configured starting one.
             C::LifeAboveStarting { .. } => {
                 let mut above = self.state.rules.players[player.0 as usize].life.clone();
@@ -222,7 +242,9 @@ impl RulesTxn {
                     C::Controlled { .. } | C::OpponentControls { .. } | C::SharedName { .. } => {
                         objects
                     }
-                    C::Source { .. } | C::OpponentControlsMore { .. } => 1,
+                    C::Source { .. }
+                    | C::OpponentControlsMore { .. }
+                    | C::SourceEnteredThisTurn => 1,
                     C::GraveyardCardTypes { .. } => CardKind::CARD_TYPES.len(),
                     // CR 500.2: an activation still on the stack began this
                     // turn, and each turn fact only grows during a turn.
@@ -237,7 +259,7 @@ impl RulesTxn {
                         }
                     }
                     // Life can since have fallen; any amount was possible.
-                    C::LifeAboveStarting { .. } => usize::MAX,
+                    C::LifeAboveStarting { .. } | C::TotalPower { .. } => usize::MAX,
                     C::GraveyardCards { .. } | C::HandCards { .. } | C::All(_) | C::Any(_) => owned,
                 };
                 count as usize <= bound

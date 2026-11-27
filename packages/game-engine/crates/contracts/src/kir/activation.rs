@@ -53,6 +53,12 @@ pub enum ActivationCondition {
     /// "if you have at least N life more than your starting life total"
     /// (CR 103.4, 119.1): how far the life total exceeds the starting one.
     LifeAboveStarting { value: Quantity },
+    /// "if creatures you control have total power N or greater" (CR 208.1,
+    /// 107.1b: a negative power counts as itself).
+    TotalPower { filter: Pred, value: Quantity },
+    /// "if this land entered this turn" (CR 400.7): the source's current
+    /// incarnation entered the battlefield this turn. One or zero.
+    SourceEnteredThisTurn,
     /// Every part holds.
     All(Vec<ActivationCondition>),
     /// "or": at least one part holds.
@@ -74,6 +80,11 @@ pub enum Measure {
     /// CR 103.4: how much the activator's life total exceeds their starting
     /// life total; zero when it does not.
     LifeAboveStarting {},
+    /// CR 208.1, 107.1b: the total power of the phased-in permanents the
+    /// activator controls satisfying `filter`; zero when negative.
+    TotalPower { filter: Pred },
+    /// CR 400.7: one when the source entered the battlefield this turn.
+    SourceEnteredThisTurn {},
 }
 
 fn you() -> PlayerExpr {
@@ -224,6 +235,18 @@ impl ActivationCondition {
                 cmp: Cmp::AtLeast,
                 right: Amount::fixed(value.clone()),
             },
+            Self::TotalPower { filter, value } => Cond::Measured {
+                measure: Measure::TotalPower {
+                    filter: filter.clone(),
+                },
+                cmp: Cmp::AtLeast,
+                value: value.clone(),
+            },
+            Self::SourceEnteredThisTurn => Cond::Measured {
+                measure: Measure::SourceEnteredThisTurn {},
+                cmp: Cmp::AtLeast,
+                value: 1.into(),
+            },
             Self::LifeAboveStarting { value } => Cond::Measured {
                 measure: Measure::LifeAboveStarting {},
                 cmp: Cmp::AtLeast,
@@ -315,7 +338,7 @@ impl ActivationCondition {
                         value: value.clone(),
                     }
                 }
-                Measure::SharedName { filter } => {
+                Measure::SharedName { filter } | Measure::TotalPower { filter } => {
                     let controller = Atom::ControlledBy { player: you() };
                     let rest: Vec<_> = filter.0.iter().filter(|a| **a != controller).collect();
                     if rest.len() + 1 != filter.0.len()
@@ -324,10 +347,20 @@ impl ActivationCondition {
                     {
                         return Err(unaudited());
                     }
-                    Self::SharedName {
-                        filter: filter.clone(),
-                        value: value.clone(),
+                    if matches!(measure, Measure::TotalPower { .. }) {
+                        Self::TotalPower {
+                            filter: filter.clone(),
+                            value: value.clone(),
+                        }
+                    } else {
+                        Self::SharedName {
+                            filter: filter.clone(),
+                            value: value.clone(),
+                        }
                     }
+                }
+                Measure::SourceEnteredThisTurn {} if *value == Quantity::from(1) => {
+                    Self::SourceEnteredThisTurn
                 }
                 Measure::LifeAboveStarting {} => Self::LifeAboveStarting {
                     value: value.clone(),
@@ -391,13 +424,16 @@ impl ActivationCondition {
             }
             Self::OpponentControls { value, .. }
             | Self::SharedName { value, .. }
+            | Self::TotalPower { value, .. }
             | Self::GraveyardCardTypes { value }
             | Self::LifeAboveStarting { value } => {
                 let (first, rest) = counts.split_first()?;
                 *counts = rest;
                 holds(*first, Cmp::AtLeast, value)
             }
-            Self::OpponentControlsMore { .. } | Self::Source { .. } => {
+            Self::OpponentControlsMore { .. }
+            | Self::Source { .. }
+            | Self::SourceEnteredThisTurn => {
                 let (first, rest) = counts.split_first()?;
                 *counts = rest;
                 match first {
