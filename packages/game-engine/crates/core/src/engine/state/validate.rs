@@ -544,9 +544,9 @@ impl RulesTxn {
                     self.validate_chosen_cost_frame(top, cast, selected)?;
                 }
             }
-            Frame::Resolve { frame }
-            | Frame::ResolutionChoice { frame, .. }
-            | Frame::ForcedSacrifice { frame, .. } => self.validate_resolving(frame)?,
+            Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => {
+                self.validate_resolving(frame)?
+            }
             _ => {}
         }
         if let Some(pending) = &s.rules.pending {

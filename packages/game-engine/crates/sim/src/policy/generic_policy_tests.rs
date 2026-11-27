@@ -218,9 +218,12 @@ fn selective_set_damage_uses_the_stack_controller_and_scores_lethal_recipients()
             .unwrap();
         let program = card.spell.as_mut().unwrap();
         program.targets.clear();
-        program.instructions = vec![I::damage(
-            kir::DamageTo::Players { players },
-            kir::Amount::fixed(2),
+        program.instructions = vec![I::act(
+            kir::Verb::Damage {
+                source: kir::Ref::Source,
+                to: kir::DamageTo::Players { players },
+                amount: kir::Amount::fixed(2),
+            },
             0,
         )];
         let mut view = board::view();
@@ -369,8 +372,26 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
         .unwrap();
     let p = bolt.spell.as_mut().unwrap();
     p.instructions = vec![
-        I::damage_target(0, kir::Amount::fixed(3), 0),
-        I::damage_target(1, kir::Amount::fixed(3), 0),
+        I::act(
+            kir::Verb::Damage {
+                source: kir::Ref::Source,
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: 0 },
+                },
+                amount: kir::Amount::fixed(3),
+            },
+            0,
+        ),
+        I::act(
+            kir::Verb::Damage {
+                source: kir::Ref::Source,
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: 1 },
+                },
+                amount: kir::Amount::fixed(3),
+            },
+            0,
+        ),
     ];
     let mut second = p.targets[0].clone();
     second.slot = 1;

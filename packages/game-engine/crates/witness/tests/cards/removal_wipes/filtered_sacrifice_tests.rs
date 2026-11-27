@@ -284,6 +284,7 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     let mut board = Board::new(catalog, "apnap-fixed-sacrifice")
+        .seats(4)
         .step(TurnStep::PrecombatMain)
         .permanent_or_hand("Barter in Blood", 0, 0, true);
     for _ in 0..4 {
@@ -326,6 +327,7 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
     assert!(
         matches!(&c.reason, Reason::ForcedSacrifice { previous: earlier } if earlier == &previous)
     );
+    assert_recoverable((&game).into());
     let mut restored = Game::restore(prepared, &game.snapshot().unwrap()).unwrap();
     assert_eq!(Driver::request(&mut restored, u64::MAX), c);
     for (_, object) in previous {

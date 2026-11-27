@@ -33,17 +33,9 @@ pub(super) fn lower(
         decided_by.as_deref(),
     )?;
     let gain = *effect == ast::ReplacementEventVariant4Event::GainLife;
-    let player = match who.as_ref() {
-        ast::PlayerRef::Controller(controller) => {
-            let slot = preceding_target(cx.program, cx.source_block, &controller.of)?;
-            PlayerExpr::ControllerOf {
-                object: kir::Ref::Target { slot },
-            }
-        }
-        who => pilot_player(cx, who)?,
-    };
+    let player = pilot_player(cx, who)?;
     let amount = match (for_each, amount.as_ref()) {
-        (Some(filter), amount) => lower_each_filter((**filter).clone(), amount, cx.context)?,
+        (Some(filter), amount) => pilot_each_filter(cx, filter, amount)?,
         (None, ast::Amount::Variant(quantity)) => {
             let ast::AmountVariant::LifeChange(change) = quantity.as_ref() else {
                 return Err(operand("amount", variant(quantity)));
@@ -61,11 +53,6 @@ pub(super) fn lower(
                 object,
                 stat: kir::Stat::Power,
             }
-        }
-        (None, ast::Amount::Attribute(attribute))
-            if !gain && attribute.attribute == ast::PropertyConstraintProperty::ManaValue =>
-        {
-            graveyard_return_mana_value(cx, &attribute.of)?
         }
         (None, amount) => pilot_amount(cx, amount)?,
     };
@@ -132,33 +119,4 @@ fn linked_change(
         node: kir::Node::Seq(vec![node, kir::Node::Do(action(gain, player, amount))]),
         source_block: cx.source_block,
     })
-}
-
-/// CR 202.3, 608.2h: "that card" can read the graveyard target's mana
-/// value after the immediately preceding move has changed its incarnation.
-fn graveyard_return_mana_value(cx: &StepCx<'_>, what: &ast::ObjectRef) -> Result<Amount, Failure> {
-    let [target] = cx.program.targets.as_slice() else {
-        return Err(operand("amount", "graveyard_return_target"));
-    };
-    let object = kir::Ref::Target { slot: target.slot };
-    if !cx.program.optional_target
-        && matches!(target.domain, TargetDomain::GraveyardCard { .. })
-        && matches!(what, ast::ObjectRef::That(that)
-            if that.plural.is_none()
-                && present_fields(&that.filter) == ["cls"]
-                && that.filter.cls == Some(ast::ObjectFilterCls::Card))
-        && cx.program.instructions.last().is_some_and(|previous| {
-            previous.source_block() == cx.source_block
-                && matches!(previous.verb(), Some(Verb::Move {
-                    what: SetExpr::One { object: moved },
-                    to: Destination::Battlefield { .. },
-                }) if *moved == object)
-        })
-    {
-        return Ok(Amount::StatOf {
-            object,
-            stat: kir::Stat::ManaValue,
-        });
-    }
-    Err(operand("amount", "graveyard_return_target"))
 }

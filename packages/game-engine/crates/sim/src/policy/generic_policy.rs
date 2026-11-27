@@ -19,9 +19,45 @@ fn set_shrink(i: &I) -> Option<(&SetExpr, &Quantity)> {
     toughness.is_negative().then_some((what, toughness))
 }
 
+struct SetDamage<'a> {
+    sets: Vec<&'a SetExpr>,
+    each_player: bool,
+    selective_players: Option<&'a kir::PlayerExpr>,
+    amount: &'a kir::Amount,
+}
+
+/// CR 608.2h: damage to every member of board-wide creature sets and,
+/// optionally, each player.
+fn set_damage(instruction: &I) -> Option<SetDamage<'_>> {
+    let kernel!(Damage { to, amount, .. }) = instruction else {
+        return None;
+    };
+    let parts = match to {
+        kir::DamageTo::Ref { .. } => return None,
+        kir::DamageTo::All { parts } => parts.as_slice(),
+        part => std::slice::from_ref(part),
+    };
+    let mut damage = SetDamage {
+        sets: vec![],
+        each_player: false,
+        selective_players: None,
+        amount,
+    };
+    for part in parts {
+        match part {
+            kir::DamageTo::Objects { set } => damage.sets.push(set),
+            kir::DamageTo::Players {
+                players: kir::PlayerExpr::EachPlayer,
+            } => damage.each_player = true,
+            kir::DamageTo::Players { players } => damage.selective_players = Some(players),
+            _ => return None,
+        }
+    }
+    Some(damage)
+}
 fn set_damage_hits_player(
     v: &PermittedView,
-    damage: &mtg_contracts::SetDamage<'_>,
+    damage: &SetDamage<'_>,
     controller: PlayerId,
     event_player: Option<PlayerId>,
     player: PlayerId,
@@ -683,7 +719,7 @@ impl Strategy<'_> {
                             damage.add(amount);
                         }
                     }
-                    i if let Some(set_damage) = i.set_damage() => {
+                    i if let Some(set_damage) = set_damage(i) => {
                         let hit = match target {
                             PlayerTargetEntity::Player { player } => set_damage_hits_player(
                                 v,
@@ -996,7 +1032,7 @@ impl Strategy<'_> {
                     q.subtract(toughness);
                     (vec![what.clone()], Some(q))
                 }
-                i if let Some(set_damage) = i.set_damage() => {
+                i if let Some(set_damage) = set_damage(i) => {
                     let damage = self.wipe_amount(v, set_damage.amount, x)?;
                     let takes_damage =
                         |player| set_damage_hits_player(v, &set_damage, v.viewer, None, player);

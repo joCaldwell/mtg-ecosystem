@@ -18,24 +18,31 @@ pub(crate) fn validate_damage_sources(
         for (sentence_index, sentence) in effects.iter().enumerate() {
             for (step_index, step) in sentence.steps.iter().enumerate() {
                 match step {
-                    Step::Damage { source, .. } => match binding {
-                        DamageSourceBinding::Spell
-                            if !matches!(source, DamageSource::SelfReference {}) =>
-                        {
-                            return false;
+                    Step::Evaluated(effect) => {
+                        if let ast::Effect::Damage(damage) = effect.as_ref() {
+                            match binding {
+                                DamageSourceBinding::Spell
+                                    if !matches!(
+                                        damage.source.as_ref(),
+                                        ast::ObjectRef::SelfObject(_)
+                                    ) =>
+                                {
+                                    return false;
+                                }
+                                DamageSourceBinding::Invocation { first_it_is_self }
+                                    if matches!(damage.source.as_ref(), ast::ObjectRef::It(_))
+                                        && (!first_it_is_self
+                                            || !top_level
+                                            || sentence_index != 0
+                                            || step_index != 0
+                                            || !sentence.bindings.is_empty()) =>
+                                {
+                                    return false;
+                                }
+                                _ => {}
+                            }
                         }
-                        DamageSourceBinding::Invocation { first_it_is_self }
-                            if matches!(source, DamageSource::It {})
-                                && (!first_it_is_self
-                                    || !top_level
-                                    || sentence_index != 0
-                                    || step_index != 0
-                                    || !sentence.bindings.is_empty()) =>
-                        {
-                            return false;
-                        }
-                        _ => {}
-                    },
+                    }
                     Step::Modal { options, .. }
                         if options
                             .iter()
@@ -70,7 +77,8 @@ pub(crate) fn validate_trigger_damage_sources(
 ) -> Result<(), Failure> {
     // The events whose first-step pronoun "it" is the source itself.
     let pattern = condition.pattern();
-    let first_it_is_self = *pattern == EventPattern::self_dies()
+    let first_it_is_self = pattern.object_role().is_some()
+        || *pattern == EventPattern::self_dies()
         || matches!(pattern, EventPattern::Dies { object } if *object == Pred::source())
         || *pattern == EventPattern::self_enters()
         || matches!(pattern, EventPattern::Attacks { attacker } if *attacker == Pred::source())
@@ -142,11 +150,47 @@ pub(crate) fn cast_event(
     })
 }
 
+/// CR 201.5, 603.2: the trigger's bindings, and whether its event object is
+/// the source itself ("when this creature enters").
+pub(crate) fn trigger_scope(condition: &TriggerCondition) -> Scope {
+    let player = trigger_player_binding(condition);
+    // The pattern of the object the event role names: a blocked-by trigger
+    // names the blocker, though its matched object is the attacker.
+    let object = match condition.pattern() {
+        EventPattern::BlockedByCreature { blocker, .. } => Some(blocker),
+        pattern => pattern.object(),
+    };
+    let event_is_source = player.event_object_role().is_some()
+        && object.is_some_and(|object| {
+            object.0.contains(&Atom::Is {
+                object: Ref::Source,
+            })
+        });
+    let event_types = object.map_or(0, |object| {
+        object
+            .0
+            .iter()
+            .flat_map(|atom| match atom {
+                Atom::Type { kind } => std::slice::from_ref(kind),
+                Atom::AnyType { kinds } => kinds.as_slice(),
+                _ => &[],
+            })
+            .fold(0u8, |bits, kind| bits | 1 << kind.card_type_index())
+    });
+    Scope {
+        event_is_source,
+        event_types,
+        ..player.into()
+    }
+}
+
 pub(crate) fn trigger_player_binding(condition: &TriggerCondition) -> PlayerBinding {
     if let Some(role) = kir::event_player_role(condition) {
         PlayerBinding::EventPlayer(role, condition.pattern().object_role())
     } else if matches!(condition.pattern(), EventPattern::DealsDamage { .. }) {
         PlayerBinding::DamageRecipient
+    } else if matches!(condition.pattern(), EventPattern::GainsLife { .. }) {
+        PlayerBinding::LifeGain
     } else if *condition.pattern() == EventPattern::opponent_creature_dies() {
         PlayerBinding::DeathController
     } else if let Some(role) = condition.pattern().object_role() {
@@ -344,7 +388,7 @@ pub(crate) fn lower_trigger(
             effects,
             block,
             &mut BTreeMap::new(),
-            trigger_player_binding(&condition),
+            trigger_scope(&condition),
             Context::Triggered,
         )?;
     }

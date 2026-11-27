@@ -36,6 +36,7 @@ fn spell<'a>(targets: &'a [TargetSpec]) -> Env<'a> {
         targets,
         event: None,
         announced_x: false,
+        single_sacrifice_cost: false,
     }
 }
 fn gain(player: PlayerExpr, amount: Amount) -> Node {
@@ -123,6 +124,7 @@ fn event_players_exist_only_for_events_that_supply_the_role() {
         targets: &[],
         event,
         announced_x: false,
+        single_sacrifice_cost: false,
     };
     let requirements = check(&caster, &triggered(Some(&cast))).unwrap();
     assert!(requirements.event_player);
@@ -180,6 +182,7 @@ fn announced_x_is_in_scope_only_when_the_object_has_x() {
     let targets = player_target();
     let targeted = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&targets)
     };
     for (player, env) in [
@@ -241,6 +244,7 @@ fn life_loss_projects_actual_amount_to_a_later_verb() {
     assert!(check(&pair(Amount::announced_x()), &spell(&[])).is_err());
     let env = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&[])
     };
     assert!(
@@ -398,6 +402,7 @@ fn control_checks_branches_bindings_payments_and_capabilities() {
     };
     let env = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&[])
     };
     let requirements = check(&control, &env).unwrap();
@@ -578,6 +583,7 @@ fn control_admits_counted_draw_leaves() {
     let targets = [TargetSpec::new(0, "line:0:0", TargetDomain::AnyPlayer)];
     let env = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&targets)
     };
     let you = PlayerExpr::you(Context::Spell);
@@ -1075,11 +1081,12 @@ fn every_audited_verb_names_the_cell_it_occupies() {
     );
     let x = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&targets)
     };
     assert_eq!(
         cells(&damage(Amount::announced_x()), &x),
-        BTreeSet::from([Cell::DamageTargetX])
+        BTreeSet::from([Cell::Evaluated(crate::kir::EvaluatedVerb::Damage)])
     );
     // A control node occupies the continuation cell and its leaves' cells.
     let sequence = Node::Seq(vec![
@@ -1093,6 +1100,33 @@ fn every_audited_verb_names_the_cell_it_occupies() {
         cells(&sequence, &spell(&[])),
         BTreeSet::from([Cell::Control, Cell::DrawController, Cell::LifeController])
     );
+}
+
+#[test]
+fn damage_recipients_read_only_a_step_results_player() {
+    // CR 120.1, 608.2c: a step's acting player can be dealt damage; its
+    // amount or object set names no recipient, so the check rejects them
+    // instead of leaving the interpreter to fail at resolution.
+    let you = PlayerExpr::you(Context::Spell);
+    let to = |role| {
+        Node::Seq(vec![
+            Node::Do(Verb::Draw {
+                player: you.clone(),
+                amount: Amount::fixed(1),
+            }),
+            Node::Do(Verb::Damage {
+                source: Ref::Source,
+                to: DamageTo::Ref {
+                    who: Ref::StepResult { step: 0, role },
+                },
+                amount: Amount::fixed(1),
+            }),
+        ])
+    };
+    assert!(check(&to(StepRole::Player), &spell(&[])).is_ok());
+    for role in [StepRole::Objects, StepRole::Amount] {
+        assert!(check(&to(role), &spell(&[])).is_err(), "{role:?}");
+    }
 }
 
 #[test]

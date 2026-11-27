@@ -100,7 +100,7 @@ pub enum Payment {
     Generic { amount: Amount },
     Life { amount: Amount },
     Mana { mana: ManaCost },
-    SacrificeCreature {},
+    Sacrifice { count: u32, filter: Pred },
     DiscardArtifact {},
 }
 

@@ -137,6 +137,12 @@ fn sacrificing_commander_waits_until_whole_spell_finishes_before_return_sba() {
         g.advance(Budget::new(1)),
         Advance::Suspended { .. }
     ));
+    assert!(matches!(g.state.rules.frame, Frame::Kernel { .. }));
+    assert_eq!(g.current(commander).unwrap().zone, Zone::Battlefield);
+    assert!(matches!(
+        g.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
     assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
     assert_eq!(
         g.state.rules.objects[&CardId(0)].zone,

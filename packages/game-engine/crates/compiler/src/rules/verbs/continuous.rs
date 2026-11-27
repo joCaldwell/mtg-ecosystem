@@ -3,37 +3,15 @@
 use super::*;
 use kir::{Animation, CharacteristicSet, Until};
 
-// CR 608.2b-c: an admitted singular antecedent in the same printed block.
-// The resolution graph checks the archived target slot after lowering.
+// CR 608.2c: the announced target a singular pronoun names, if it names one.
 pub(super) fn followup_target(cx: &StepCx<'_>, what: &ast::ObjectRef) -> Option<u32> {
-    let [target] = cx.program.targets.as_slice() else {
+    if !matches!(what, ast::ObjectRef::It(_) | ast::ObjectRef::That(_)) {
         return None;
-    };
-    let singular = match what {
-        ast::ObjectRef::It(_) => true,
-        ast::ObjectRef::That(that) => {
-            that.plural.is_none()
-                && (present_fields(&that.filter) == ["types"]
-                    && that.filter.types.as_ref().is_some_and(|v| v.len() == 1)
-                    || present_fields(&that.filter) == ["cls"]
-                        && that.filter.cls == Some(ast::ObjectFilterCls::Permanent))
-        }
-        _ => false,
-    };
-    let reads_target = cx
-        .program
-        .instructions
-        .iter()
-        .rev()
-        .take_while(|i| i.source_block() == cx.source_block)
-        .any(|i| {
-            matches!(i.verb(),
-            Some(Verb::GainControl { what, .. } | Verb::Untap { what }
-                | Verb::Tap { what } | Verb::ModifyUntil { what, .. }
-                | Verb::PutCounters { on: what, .. })
-                if *what == SetExpr::target(target.slot))
-        });
-    (singular && reads_target).then_some(target.slot)
+    }
+    match antecedent::permanent(cx, what) {
+        Ok(Ref::Target { slot }) => Some(slot),
+        _ => None,
+    }
 }
 
 pub(super) fn targets_creature(cx: &StepCx<'_>, slot: u32) -> bool {

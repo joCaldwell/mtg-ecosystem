@@ -176,14 +176,20 @@ fn plus(base: &Quantity, n: i64) -> Quantity {
 /// damage dealt (CR 107.3a, 601.2b, 601.2f).
 #[test]
 fn blaze_announces_x_pays_it_and_deals_that_much_damage() {
-    let prepared = board(&[(BLAZE, &[Cell::XManaCost, Cell::DamageTargetX])])
-        .permanent_or_hand("Blaze", 0, 0, true)
-        .permanent_or_hand("Mountain", 0, 0, false)
-        .permanent_or_hand("Mountain", 0, 0, false)
-        .permanent_or_hand("Mountain", 0, 0, false)
-        .permanent_or_hand("Colossal Dreadmaw", 1, 1, false)
-        .libraries("Island", 2)
-        .prepare();
+    let prepared = board(&[(
+        BLAZE,
+        &[
+            Cell::XManaCost,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Damage),
+        ],
+    )])
+    .permanent_or_hand("Blaze", 0, 0, true)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Colossal Dreadmaw", 1, 1, false)
+    .libraries("Island", 2)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let before = life(&g, 1);
     Driver::cast(&mut g, CardId(0));
@@ -754,7 +760,11 @@ fn krark_clan_engineers_sacrifices_two_artifacts() {
 fn corrosive_gale_announces_its_phyrexian_symbol_before_x() {
     let prepared = board(&[(
         CORROSIVE_GALE,
-        &[Cell::XManaCost, Cell::HybridManaCost, Cell::DamageSet],
+        &[
+            Cell::XManaCost,
+            Cell::HybridManaCost,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Damage),
+        ],
     )])
     .permanent_or_hand("Corrosive Gale", 0, 0, true)
     .permanent_or_hand("Forest", 0, 0, false)
@@ -896,7 +906,11 @@ fn corrosive_gale_survives_a_concession_during_its_announcement() {
     for at_x in [false, true] {
         let prepared = board(&[(
             CORROSIVE_GALE,
-            &[Cell::XManaCost, Cell::HybridManaCost, Cell::DamageSet],
+            &[
+                Cell::XManaCost,
+                Cell::HybridManaCost,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Damage),
+            ],
         )])
         .permanent_or_hand("Corrosive Gale", 0, 0, true)
         .permanent_or_hand("Forest", 0, 0, false)
@@ -976,7 +990,11 @@ fn finish_by_concession(g: &mut Game) {
 fn corrosive_gale_locked_after_concession_keeps_its_announcements() {
     let prepared = board(&[(
         CORROSIVE_GALE,
-        &[Cell::XManaCost, Cell::HybridManaCost, Cell::DamageSet],
+        &[
+            Cell::XManaCost,
+            Cell::HybridManaCost,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Damage),
+        ],
     )])
     .permanent_or_hand("Corrosive Gale", 0, 0, true)
     .permanent_or_hand("Forest", 0, 0, false)

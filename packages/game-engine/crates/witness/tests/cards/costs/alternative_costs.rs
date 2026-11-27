@@ -74,8 +74,14 @@ fn resolve_all(g: &mut Game) {
 #[test]
 fn mulldrifter_evoke_replaces_its_cost_and_sacrifices_it_on_entry() {
     for (evoke, lands) in [(true, 3), (false, 5), (false, 3)] {
-        let mut fixture = board(&[(MULLDRIFTER, &[Cell::Evoke, Cell::SacrificeSource])])
-            .permanent_or_hand("Mulldrifter", 0, 0, true);
+        let mut fixture = board(&[(
+            MULLDRIFTER,
+            &[
+                Cell::Evoke,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Sacrifice),
+            ],
+        )])
+        .permanent_or_hand("Mulldrifter", 0, 0, true);
         for _ in 0..lands {
             fixture = fixture.permanent_or_hand("Island", 0, 0, false);
         }
@@ -160,13 +166,19 @@ fn mulldrifter_evoke_replaces_its_cost_and_sacrifices_it_on_entry() {
 #[test]
 fn shriekmaw_evoked_destroys_its_target_after_being_sacrificed() {
     let mut g = Game::with_trace(
-        board(&[(SHRIEKMAW, &[Cell::Evoke, Cell::SacrificeSource])])
-            .permanent_or_hand("Shriekmaw", 0, 0, true)
-            .permanent_or_hand("Swamp", 0, 0, false)
-            .permanent_or_hand("Swamp", 0, 0, false)
-            .permanent_or_hand("Grizzly Bears", 1, 1, false)
-            .libraries("Island", 2)
-            .prepare(),
+        board(&[(
+            SHRIEKMAW,
+            &[
+                Cell::Evoke,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Sacrifice),
+            ],
+        )])
+        .permanent_or_hand("Shriekmaw", 0, 0, true)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .libraries("Island", 2)
+        .prepare(),
         TraceMode::Detailed,
     );
     Driver::cast(&mut g, CardId(0));

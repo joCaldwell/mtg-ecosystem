@@ -80,7 +80,7 @@ impl RulesTxn {
             let player = self.entry(frame.stack_id)?.controller;
             self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
-                choice: ResolutionChoice::Sacrifice {
+                choice: ResolutionChoice::TappedReturnPayment {
                     player,
                     source_block,
                 },
@@ -139,10 +139,7 @@ impl RulesTxn {
         if matches!(node, Node::Do(Verb::ExileMyriadTokens {})) {
             return self.execute_myriad_exile(frame, source_block);
         }
-        if node
-            .verb()
-            .is_some_and(|verb| verb.evaluated_operands().is_some())
-        {
+        if node.verb().is_some_and(Verb::is_evaluated) {
             return self.begin_kernel_control(frame);
         }
         if !matches!(node, Node::Do(_)) {
@@ -200,22 +197,9 @@ impl RulesTxn {
             return self
                 .execute_wipes_instruction(frame, Instruction::Kernel { node, source_block });
         }
-        // CR 120.2b, 608.2h: damage keeps the directed and board-wide
-        // executors, whose prepared transactions recovery re-derives.
-        if let Node::Do(Verb::Damage { source, to, amount }) = &node {
-            return match to {
-                mtg_contracts::kir::DamageTo::Ref { who } => {
-                    self.execute_directed_damage(frame, *source, *who, amount, source_block)
-                }
-                _ => self.execute_set_damage(frame),
-            };
-        }
-        // CR 111.1, 122.1: tokens and +1/+1 counters keep the token executor,
-        // whose proposed events and recipe authentication recovery re-derives.
-        if matches!(
-            node,
-            Node::Do(Verb::CreateTokens { .. } | Verb::PutCounters { .. })
-        ) {
+        // CR 111.1: tokens keep the token executor, whose proposed events and
+        // recipe authentication recovery re-derives.
+        if matches!(node, Node::Do(Verb::CreateTokens { .. })) {
             return self
                 .execute_token_instruction(frame, Instruction::Kernel { node, source_block });
         }
@@ -254,31 +238,16 @@ impl RulesTxn {
         }
         if matches!(node, Node::Do(Verb::ModifyUntil { .. })) {
             let instruction = Instruction::Kernel { node, source_block };
-            let (set, source) = match instruction.pumped() {
-                Some((SetExpr::Matching { .. }, ..)) => (true, false),
-                Some((what, ..)) => (false, *what == SetExpr::source()),
-                None => (false, false),
-            };
+            let set = matches!(instruction.pumped(), Some((SetExpr::Matching { .. }, ..)));
             return if set {
                 self.execute_wipes_instruction(frame, instruction)
-            } else if source {
-                self.execute_sacrifice_instruction(frame, instruction)
             } else {
                 self.execute_effect_instruction(frame, instruction)
             };
         }
-        // CR 701.21a: "sacrifice it" names one exact permanent, never a choice.
-        if let Node::Do(Verb::Sacrifice { player, filter, .. }) = &node
-            && *filter == mtg_contracts::kir::Pred::source()
-        {
-            return self.kernel_sacrifice_source(frame, player, source_block);
-        }
-        // CR 701.17a, 701.9a-b, 701.21a: mill, discard and sacrifice keep
-        // their executors, choices and recovery checks.
-        if matches!(
-            node,
-            Node::Do(Verb::Mill { .. } | Verb::Discard { .. } | Verb::Sacrifice { .. })
-        ) {
+        // CR 701.17a, 701.9a-b: mill and discard keep their executors,
+        // choices and recovery checks.
+        if matches!(node, Node::Do(Verb::Mill { .. } | Verb::Discard { .. })) {
             return self.execute_player_action(frame, Instruction::Kernel { node, source_block });
         }
         let Node::Do(verb) = node else {

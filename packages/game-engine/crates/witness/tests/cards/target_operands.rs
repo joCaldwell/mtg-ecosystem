@@ -231,16 +231,22 @@ fn breath_of_fire_deals_two_damage_to_a_target_creature() {
 /// (CR 122.6, 608.2h); the opponent's creature is unaffected.
 #[test]
 fn titanias_boon_counters_each_creature_you_control() {
-    let prepared = board(&[(TITANIAS_BOON, &[Cell::PlusOneCountersSet], Tiers::EXECUTES)])
-        .permanent_or_hand("Titania's Boon", 0, 0, true)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .permanent_or_hand("Llanowar Elves", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 1, 1, false)
-        .prepare();
+    let prepared = board(&[(
+        TITANIAS_BOON,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Titania's Boon", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Llanowar Elves", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     Driver::cast(&mut g, CardId(0));
     Driver::pay(&mut g, &[1, 2, 3, 4]);

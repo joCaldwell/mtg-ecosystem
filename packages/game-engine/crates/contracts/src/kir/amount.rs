@@ -64,10 +64,15 @@ pub enum Amount {
     OtherCastsManaValue {
         caster: PlayerExpr,
     },
-    /// CR 107.1, 208.2a: the sum of two or more numbers. Read only by a
-    /// characteristic-defining ability (`kir::statics`).
+    /// CR 107.1, 208.2a: the sum of two or more numbers.
     Sum {
         terms: Vec<Amount>,
+    },
+    /// CR 107.1b: `minuend` minus `subtrahend`. The difference stays signed
+    /// until the verb that reads it applies its own quantity rule.
+    Difference {
+        minuend: Box<Amount>,
+        subtrahend: Box<Amount>,
     },
     /// CR 205.2a, 205.3i, 105.1: how many different card types, basic land
     /// types or colors the objects of a set have among them. Read only by a
@@ -130,6 +135,11 @@ impl Amount {
                 set: SetExpr::Matching { zone, .. },
             } => matches!(zone, ZoneExpr::Hand { .. }),
             Self::Times { of, .. } => of.counts_hand(),
+            Self::Sum { terms } => terms.iter().any(Self::counts_hand),
+            Self::Difference {
+                minuend,
+                subtrahend,
+            } => minuend.counts_hand() || subtrahend.counts_hand(),
             _ => false,
         }
     }

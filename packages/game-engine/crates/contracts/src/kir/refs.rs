@@ -122,6 +122,11 @@ pub enum Ref {
         step: u32,
         role: StepRole,
     },
+    /// CR 601.2h, 602.2b, 608.2h: the actual single selected object
+    /// sacrificed to pay an activation cost, its payer, or the number paid.
+    CostResult {
+        role: StepRole,
+    },
     /// A variable bound by an enclosing [`Node::ForEach`] or [`Node::Choose`].
     BoundVar {
         id: u32,
@@ -133,6 +138,10 @@ pub enum Ref {
     /// CR 107.3, 601.2b: the value announced for X.
     #[serde(deserialize_with = "no_operands")]
     AnnouncedX,
+    /// CR 603.2, 608.2h: the number the triggering event carried, such as
+    /// the damage dealt or the life gained ("that much", "that many").
+    #[serde(deserialize_with = "no_operands")]
+    EventAmount,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

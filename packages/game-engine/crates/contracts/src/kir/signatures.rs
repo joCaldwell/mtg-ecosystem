@@ -7,6 +7,9 @@ pub enum EvaluatedVerb {
     Draw,
     GainLife,
     LoseLife,
+    Damage,
+    PutCounters,
+    Sacrifice,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,6 +20,8 @@ pub enum OperandClass {
     TargetRelation,
     EventPlayer,
     EventObject,
+    /// CR 603.2, 608.2h: the number the triggering event carried ("that much").
+    EventAmount,
     ObjectRelation,
     Bound,
     PlayerDomain,
@@ -24,6 +29,7 @@ pub enum OperandClass {
     AnnouncedX,
     Measure,
     StepResult,
+    CostResult,
 }
 
 impl OperandClass {
@@ -34,9 +40,11 @@ impl OperandClass {
             Ref::Target { .. } => Self::Target,
             Ref::EventPlayer { .. } => Self::EventPlayer,
             Ref::EventObject { .. } => Self::EventObject,
+            Ref::EventAmount => Self::EventAmount,
             Ref::BoundVar { .. } => Self::Bound,
             Ref::AnnouncedX => Self::AnnouncedX,
             Ref::StepResult { .. } => Self::StepResult,
+            Ref::CostResult { .. } => Self::CostResult,
             _ => return None,
         })
     }
@@ -59,6 +67,26 @@ impl OperandClass {
             Amount::Fixed { .. } => Some(Self::Fixed),
             Amount::Var { of } => Self::reference(of),
             _ => Some(Self::Measure),
+        }
+    }
+
+    /// A set of objects: one referenced object, or a set computed when the
+    /// step is performed (CR 608.2h).
+    pub fn set(set: &SetExpr) -> Option<Self> {
+        match set {
+            SetExpr::One { object } => Self::reference(object),
+            SetExpr::Matching { .. } => Some(Self::Measure),
+            SetExpr::Pool { pool } => Self::reference(pool),
+        }
+    }
+
+    /// Every recipient part of a damage step (CR 120.2).
+    pub fn recipients(to: &DamageTo) -> Vec<Option<Self>> {
+        match to {
+            DamageTo::Ref { who } => vec![Self::reference(who)],
+            DamageTo::Players { players } => vec![Self::player(players)],
+            DamageTo::Objects { set } => vec![Self::set(set)],
+            DamageTo::All { parts } => parts.iter().flat_map(Self::recipients).collect(),
         }
     }
 }
@@ -151,20 +179,66 @@ pub struct VerbSignature {
     pub projections: &'static [StepRole],
 }
 
+const PLAYER_CLASSES: &[OperandClass] = &[
+    OperandClass::Controller,
+    OperandClass::Target,
+    OperandClass::TargetRelation,
+    OperandClass::EventPlayer,
+    OperandClass::ObjectRelation,
+    OperandClass::Bound,
+    OperandClass::PlayerDomain,
+    OperandClass::StepResult,
+    OperandClass::CostResult,
+];
+
+const QUANTITY_CLASSES: &[OperandClass] = &[
+    OperandClass::Fixed,
+    OperandClass::AnnouncedX,
+    OperandClass::Measure,
+    OperandClass::StepResult,
+    OperandClass::CostResult,
+    OperandClass::EventAmount,
+];
+
+const fn quantity(domain: QuantityDomain) -> OperandSlot {
+    OperandSlot {
+        field: "amount",
+        role: SlotRole::Amount,
+        sort: Sort::Quantity,
+        accepts: QUANTITY_CLASSES,
+        quantity: Some(domain),
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ReadCurrentOrLastKnown,
+        absent: Absent::SkipVerb,
+    }
+}
+
 const PLAYER_AMOUNT: &[OperandSlot] = &[
     OperandSlot {
         field: "player",
         role: SlotRole::Recipient,
         sort: Sort::Player,
+        accepts: PLAYER_CLASSES,
+        quantity: None,
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ReadCurrentOrLastKnown,
+        absent: Absent::SkipVerb,
+    },
+    quantity(QuantityDomain::NonNegative),
+];
+
+/// CR 120.1-120.3, 608.2h: the object that deals the damage, its recipients
+/// and the amount. A source that left reads last-known information.
+const DAMAGE_SLOTS: &[OperandSlot] = &[
+    OperandSlot {
+        field: "source",
+        role: SlotRole::Source,
+        sort: Sort::Object,
         accepts: &[
-            OperandClass::Controller,
+            OperandClass::Source,
             OperandClass::Target,
-            OperandClass::TargetRelation,
-            OperandClass::EventPlayer,
-            OperandClass::ObjectRelation,
+            OperandClass::EventObject,
             OperandClass::Bound,
-            OperandClass::PlayerDomain,
-            OperandClass::StepResult,
         ],
         quantity: None,
         read: ReadTime::StepStart,
@@ -172,19 +246,82 @@ const PLAYER_AMOUNT: &[OperandSlot] = &[
         absent: Absent::SkipVerb,
     },
     OperandSlot {
-        field: "amount",
-        role: SlotRole::Amount,
-        sort: Sort::Quantity,
+        field: "to",
+        role: SlotRole::Recipient,
+        sort: Sort::Set,
         accepts: &[
-            OperandClass::Fixed,
-            OperandClass::AnnouncedX,
+            OperandClass::Source,
+            OperandClass::Controller,
+            OperandClass::Target,
+            OperandClass::TargetRelation,
+            OperandClass::EventPlayer,
+            OperandClass::EventObject,
+            OperandClass::ObjectRelation,
+            OperandClass::Bound,
+            OperandClass::PlayerDomain,
             OperandClass::Measure,
             OperandClass::StepResult,
+            OperandClass::CostResult,
         ],
-        quantity: Some(QuantityDomain::NonNegative),
+        quantity: None,
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ActOnLiveIncarnation,
+        absent: Absent::SkipMember,
+    },
+    quantity(QuantityDomain::Positive),
+];
+
+/// CR 122.1, 122.6: the permanents that receive counters and how many each.
+const COUNTER_SLOTS: &[OperandSlot] = &[
+    OperandSlot {
+        field: "on",
+        role: SlotRole::Recipient,
+        sort: Sort::Set,
+        accepts: &[
+            OperandClass::Source,
+            OperandClass::Target,
+            OperandClass::EventObject,
+            OperandClass::Bound,
+            OperandClass::Measure,
+            OperandClass::StepResult,
+            OperandClass::CostResult,
+        ],
+        quantity: None,
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ActOnLiveIncarnation,
+        absent: Absent::SkipMember,
+    },
+    quantity(QuantityDomain::Positive),
+];
+
+/// CR 701.21a, 609.3: who sacrifices, how many and which permanents: one
+/// designated permanent ("sacrifice it") or a choice among the permanents
+/// that player controls.
+const SACRIFICE_SLOTS: &[OperandSlot] = &[
+    OperandSlot {
+        field: "player",
+        role: SlotRole::Subject,
+        sort: Sort::Player,
+        accepts: PLAYER_CLASSES,
+        quantity: None,
         read: ReadTime::StepStart,
         use_: ObjectUse::ReadCurrentOrLastKnown,
         absent: Absent::SkipVerb,
+    },
+    quantity(QuantityDomain::Positive),
+    OperandSlot {
+        field: "filter",
+        role: SlotRole::Recipient,
+        sort: Sort::Set,
+        accepts: &[
+            OperandClass::Source,
+            OperandClass::EventObject,
+            OperandClass::Measure,
+        ],
+        quantity: None,
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ActOnLiveIncarnation,
+        absent: Absent::SkipMember,
     },
 ];
 
@@ -204,15 +341,161 @@ const LOSS: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::LoseLife,
     ..GAIN
 };
+const DAMAGE: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::Damage,
+    slots: DAMAGE_SLOTS,
+    distribution: Distribution::EachSimultaneous,
+    projections: &[StepRole::Amount, StepRole::Objects, StepRole::Player],
+};
+const COUNTERS: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::PutCounters,
+    slots: COUNTER_SLOTS,
+    distribution: Distribution::EachSimultaneous,
+    projections: &[StepRole::Amount, StepRole::Objects],
+};
+const SACRIFICE: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::Sacrifice,
+    slots: SACRIFICE_SLOTS,
+    distribution: Distribution::CollectThenSimultaneous,
+    projections: &[StepRole::Amount, StepRole::Objects, StepRole::Player],
+};
 
-impl Verb {
-    pub fn evaluated_operands(&self) -> Option<(&'static VerbSignature, &PlayerExpr, &Amount)> {
-        match self {
-            Self::Draw { player, amount } => Some((&DRAW, player, amount)),
-            Self::GainLife { player, amount } => Some((&GAIN, player, amount)),
-            Self::LoseLife { player, amount } => Some((&LOSS, player, amount)),
+/// The operands of an evaluated verb, in signature slot order.
+#[derive(Clone, Copy, Debug)]
+pub enum Evaluated<'a> {
+    PlayerAmount {
+        player: &'a PlayerExpr,
+        amount: &'a Amount,
+    },
+    Damage {
+        source: &'a Ref,
+        to: &'a DamageTo,
+        amount: &'a Amount,
+    },
+    Counters {
+        on: &'a SetExpr,
+        counter: &'a CounterKind,
+        amount: &'a Amount,
+    },
+    Sacrifice {
+        player: &'a PlayerExpr,
+        count: &'a Amount,
+        filter: &'a Pred,
+        greatest_power: bool,
+    },
+}
+
+impl<'a> Evaluated<'a> {
+    /// The quantity slot every evaluated verb has.
+    pub fn amount(&self) -> &'a Amount {
+        match *self {
+            Self::PlayerAmount { amount, .. }
+            | Self::Damage { amount, .. }
+            | Self::Counters { amount, .. }
+            | Self::Sacrifice { count: amount, .. } => amount,
+        }
+    }
+
+    /// CR 701.21a: "sacrifice it" names one exact permanent instead of a
+    /// choice among the player's permanents.
+    pub fn designated(&self) -> Option<&'a Ref> {
+        match *self {
+            Self::Sacrifice { filter, .. } => match filter.0.as_slice() {
+                [Atom::Is { object }] => Some(object),
+                _ => None,
+            },
             _ => None,
         }
+    }
+
+    /// Each slot with the classes of the operands it holds, in slot order.
+    pub fn classes(
+        &self,
+        signature: &'static VerbSignature,
+    ) -> Vec<(&'static OperandSlot, Option<OperandClass>)> {
+        let slot = |index: usize| &signature.slots[index];
+        match *self {
+            Self::PlayerAmount { player, amount } => vec![
+                (slot(0), OperandClass::player(player)),
+                (slot(1), OperandClass::amount(amount)),
+            ],
+            Self::Damage { source, to, amount } => {
+                let mut out = vec![(slot(0), OperandClass::reference(source))];
+                out.extend(
+                    OperandClass::recipients(to)
+                        .into_iter()
+                        .map(|c| (slot(1), c)),
+                );
+                out.push((slot(2), OperandClass::amount(amount)));
+                out
+            }
+            Self::Counters { on, amount, .. } => vec![
+                (slot(0), OperandClass::set(on)),
+                (slot(1), OperandClass::amount(amount)),
+            ],
+            Self::Sacrifice { player, count, .. } => vec![
+                (slot(0), OperandClass::player(player)),
+                (slot(1), OperandClass::amount(count)),
+                (
+                    slot(2),
+                    match self.designated() {
+                        Some(object) => OperandClass::reference(object),
+                        None => Some(OperandClass::Measure),
+                    },
+                ),
+            ],
+        }
+    }
+}
+
+impl Verb {
+    /// The signature and operands of a verb the resolving evaluator performs.
+    pub fn evaluated(&self) -> Option<(&'static VerbSignature, Evaluated<'_>)> {
+        match self {
+            Self::Draw { player, amount } => {
+                Some((&DRAW, Evaluated::PlayerAmount { player, amount }))
+            }
+            Self::GainLife { player, amount } => {
+                Some((&GAIN, Evaluated::PlayerAmount { player, amount }))
+            }
+            Self::LoseLife { player, amount } => {
+                Some((&LOSS, Evaluated::PlayerAmount { player, amount }))
+            }
+            Self::Damage { source, to, amount } => {
+                Some((&DAMAGE, Evaluated::Damage { source, to, amount }))
+            }
+            Self::PutCounters {
+                on,
+                counter,
+                amount,
+            } => Some((
+                &COUNTERS,
+                Evaluated::Counters {
+                    on,
+                    counter,
+                    amount,
+                },
+            )),
+            Self::Sacrifice {
+                player,
+                count,
+                filter,
+                greatest_power,
+            } => Some((
+                &SACRIFICE,
+                Evaluated::Sacrifice {
+                    player,
+                    count,
+                    filter,
+                    greatest_power: *greatest_power,
+                },
+            )),
+            _ => None,
+        }
+    }
+
+    pub fn is_evaluated(&self) -> bool {
+        self.evaluated().is_some()
     }
 }
 
@@ -220,14 +503,14 @@ impl Verb {
 /// Stage 1 allows a direct action or a single guarded body.
 pub fn step_producer(node: &Node) -> Option<(&VerbSignature, Option<u32>)> {
     match node {
-        Node::Do(verb) => Some((verb.evaluated_operands()?.0, None)),
+        Node::Do(verb) => Some((verb.evaluated()?.0, None)),
         Node::Optional { node, .. }
         | Node::IfPays { node, .. }
         | Node::If {
             then: node,
             otherwise: None,
             ..
-        } => Some((node.verb()?.evaluated_operands()?.0, Some(0))),
+        } => Some((node.verb()?.evaluated()?.0, Some(0))),
         _ => None,
     }
 }

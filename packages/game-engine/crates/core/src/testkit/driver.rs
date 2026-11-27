@@ -71,9 +71,14 @@ impl Driver {
                     domain: TargetDomain::AnyDamageTarget,
                     filter: None,
                 }],
-                instructions: vec![Instruction::damage_target(
-                    0,
-                    Amount::Fixed { value: amount },
+                instructions: vec![Instruction::act(
+                    mtg_contracts::kir::Verb::Damage {
+                        source: mtg_contracts::kir::Ref::Source,
+                        to: mtg_contracts::kir::DamageTo::Ref {
+                            who: mtg_contracts::kir::Ref::Target { slot: 0 },
+                        },
+                        amount: Amount::Fixed { value: amount },
+                    },
                     0,
                 )],
             },

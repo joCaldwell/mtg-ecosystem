@@ -23,12 +23,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    109,
-    "a028d099240a5fb214fdc3c86d42b56e7c2eb88991a6c679e5c988c893595834",
+    110,
+    "c9164cb995b7cd8ddab00f3a17a06f784eb76cd500b0636ca5a8095de651adee",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    140,
-    "45b0849ce0084a7d9d8c850724434d5c52f9262de47a3dfd58b9c4a26e681339",
+    141,
+    "6ab32201a4766d273cafd527c97ab599d4fc26beeddc181a129737fcab6b2811",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -379,10 +379,7 @@ fn mid_resolution() -> Game {
         panic!("the edict resolves to its target player's sacrifice")
     };
     assert_eq!(player, PlayerId(1));
-    assert!(matches!(
-        game.state.rules.frame,
-        Frame::ResolutionChoice { .. }
-    ));
+    assert!(matches!(game.state.rules.frame, Frame::Kernel { .. }));
     let restored =
         Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
     assert_eq!(
@@ -480,6 +477,10 @@ fn suspended_land_play_rejects_rehashed_tampering() {
 fn library_entry_shapes() -> Vec<String> {
     let game = mid_resolution();
     let object = Driver::object(&game, 0);
+    let Frame::Resolve { frame } = &game.state.rules.frames[0] else {
+        unreachable!("fixture has a saved resolving frame")
+    };
+    let choice_frame = frame.clone();
     let mut search: Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
     search["state"]["rules"]["frame"]["choice"] =
         serde_json::to_value(ResolutionChoice::SearchEntry {
@@ -503,10 +504,6 @@ fn library_entry_shapes() -> Vec<String> {
             source_block: 0,
         })
         .unwrap();
-    let Frame::ResolutionChoice { frame, .. } = &game.state.rules.frame else {
-        unreachable!("fixture has a resolving choice")
-    };
-    let choice_frame = frame.clone();
     let mut frame = frame.clone();
     frame.cursor = 1;
     frame.outcomes = vec![InstructionOutcome::Effect {
@@ -577,8 +574,12 @@ fn library_entry_shapes() -> Vec<String> {
 /// CR 608.2d: the open object choice carries only the resolving frame and a tag.
 fn object_choice_shape() -> String {
     let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
-    sample["state"]["rules"]["frame"]["choice"] =
-        serde_json::to_value(ResolutionChoice::Object {}).unwrap();
+    let frame = sample["state"]["frames"][0]["frame"].clone();
+    sample["state"]["frame"] = serde_json::json!({
+        "stage": "resolution_choice",
+        "frame": frame,
+        "choice": ResolutionChoice::Object {},
+    });
     serde_json::to_string(&sample).unwrap()
 }
 
@@ -779,7 +780,8 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
         },
     ])
     .map(move |check| {
-        sample["state"]["frame"]["frame"]["condition_check"] = serde_json::to_value(check).unwrap();
+        sample["state"]["frames"][0]["frame"]["condition_check"] =
+            serde_json::to_value(check).unwrap();
         serde_json::to_string(&sample).unwrap()
     })
 }
@@ -1146,7 +1148,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
                 history[field] = serde_json::to_value(Quantity::from(1)).unwrap();
             }
             history["life_gained"] = serde_json::to_value(Quantity::from(2)).unwrap();
-            sample["state"]["frame"]["frame"]["condition_check"] =
+            sample["state"]["frames"][0]["frame"]["condition_check"] =
                 serde_json::to_value(InterveningCheck::TurnHistory {
                     controller: PlayerId(0),
                     observed: 2.into(),

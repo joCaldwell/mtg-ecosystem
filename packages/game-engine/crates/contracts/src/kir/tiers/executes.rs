@@ -164,7 +164,7 @@ fn program(
     event: Option<&TriggerCondition>,
     announced_x: bool,
 ) -> Result<(), String> {
-    validate_program(p, context, event, announced_x, false)
+    validate_program(p, context, event, announced_x, false, false)
 }
 
 fn validate_program(
@@ -173,6 +173,7 @@ fn validate_program(
     event: Option<&TriggerCondition>,
     announced_x: bool,
     modal: bool,
+    single_sacrifice_cost: bool,
 ) -> Result<(), String> {
     if p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
@@ -230,6 +231,7 @@ fn validate_program(
         targets: &p.targets,
         event,
         announced_x,
+        single_sacrifice_cost,
     };
     // CR 608.2c, n: the resolving spell's own shuffle completes the
     // invocation when its source leaves the stack.
@@ -436,6 +438,16 @@ fn validate_target_bindings(
                         | kir::Verb::PutCounters { on: what, .. }
                         | kir::Verb::ModifyUntil { what, .. }
                     ) if *what == kir::SetExpr::target(0))
+                        // CR 608.2b, 608.2h: every player and amount slot of
+                        // a life or draw signature skips the verb when its
+                        // operand is absent, so reading the unchosen target
+                        // ("gain life equal to that creature's power") does
+                        // nothing on its own.
+                        && !matches!(node, kir::Node::Do(
+                            kir::Verb::GainLife { .. }
+                            | kir::Verb::LoseLife { .. }
+                            | kir::Verb::Draw { .. }
+                        ))
                 }))
     {
         return cell("target", "up_to_one_requires_independent_object_leaves");
@@ -953,7 +965,14 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     for p in a.programs() {
         cost(d, a, p)?;
         if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
-            program(p, Context::Activated, None, a.x_mana_cost)?;
+            validate_program(
+                p,
+                Context::Activated,
+                None,
+                a.x_mana_cost,
+                false,
+                matches!(a.cost, ActivationCost::SacrificePermanent { count: 1, .. }),
+            )?;
         }
     }
     Ok(())
@@ -1749,6 +1768,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                     None,
                     d.x_mana_cost,
                     d.modal_spell.is_some(),
+                    false,
                 )?;
             }
         }
@@ -1892,7 +1912,16 @@ mod tests {
         }
     }
     fn damage() -> Instruction {
-        Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
+        Instruction::act(
+            kir::Verb::Damage {
+                source: kir::Ref::Source,
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: 0 },
+                },
+                amount: kir::Amount::fixed(1),
+            },
+            0,
+        )
     }
 
     /// CR 118.3, 119.4: a life payment is a mana-ability cost only. A

@@ -24,6 +24,7 @@ pub mod bulk;
 pub mod catalog;
 pub mod compile;
 pub mod coverage;
+pub mod reference_trace;
 
 mod assemble;
 mod compose;

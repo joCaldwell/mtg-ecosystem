@@ -400,6 +400,91 @@ pub(crate) struct Sentence {
     pub(crate) steps: Vec<Step>,
     /// CR 107.3: which steps read the sentence's variable X, in step order.
     pub(crate) reads_x: Vec<bool>,
+    /// CR 608.2c: the objects each step names that a later pronoun could
+    /// mean, in step order.
+    pub(crate) introduces: Vec<Introduced>,
+}
+
+/// The objects one printed step names besides its own pronouns and the
+/// source (CR 201.5, 608.2c). A later "it" or "that <noun>" may mean any of
+/// them, so the antecedent rule counts them as candidates.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Introduced {
+    /// The step announces an object target (CR 601.2c).
+    pub(crate) object_target: bool,
+    /// The step names an untargeted object: a chosen, created, revealed,
+    /// attached or set object, or a step result (CR 608.2c, 608.2h).
+    pub(crate) other: bool,
+}
+
+impl Introduced {
+    pub(crate) fn join(self, other: Self) -> Self {
+        Self {
+            object_target: self.object_target || other.object_target,
+            other: self.other || other.other,
+        }
+    }
+
+    /// Scan one archived step. Pronouns, "this"/"self" and the trigger's
+    /// own event object name nothing new; every other object reference,
+    /// and every step that creates, reveals or moves cards it does not
+    /// target, introduces a candidate.
+    pub(crate) fn of_step(step: &serde_json::Value) -> Self {
+        fn walk(value: &serde_json::Value, out: &mut Introduced) {
+            match value {
+                serde_json::Value::Object(object) => {
+                    match object.get("ref").and_then(|r| r.as_str()) {
+                        Some("it" | "that" | "them" | "this" | "self" | "trigger-event-object") => {
+                        }
+                        Some("target" | "any-target") => out.object_target = true,
+                        Some(_) => out.other = true,
+                        None => {}
+                    }
+                    if object.get("to").and_then(|t| t.as_str()) == Some("any-target") {
+                        out.object_target = true;
+                    }
+                    if object
+                        .get("effect")
+                        .and_then(|e| e.as_str())
+                        .is_some_and(|effect| {
+                            matches!(
+                                effect,
+                                "create-token"
+                                    | "copy-card"
+                                    | "copy-stack-object"
+                                    | "manifest"
+                                    | "manifest-dread"
+                                    | "cloak"
+                                    | "amass"
+                                    | "incubate"
+                                    | "create-role"
+                                    | "discover"
+                                    | "explore"
+                                    | "search"
+                                    | "reveal"
+                                    | "look-at"
+                                    | "choose-object"
+                                    | "draw"
+                                    | "discard"
+                                    | "mill"
+                                    | "surveil"
+                                    | "connive"
+                                    | "learn"
+                            )
+                        })
+                    {
+                        out.other = true;
+                    }
+                    object.values().for_each(|v| walk(v, out));
+                }
+                serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, out)),
+                _ => {}
+            }
+        }
+        let mut out = Self::default();
+        walk(step, &mut out);
+        out
+    }
 }
 
 #[derive(Deserialize)]
@@ -436,6 +521,10 @@ impl TryFrom<serde_json::Value> for Sentence {
             .as_array()
             .map(|steps| steps.iter().map(reads_x).collect())
             .unwrap_or_default();
+        let introduces = value["steps"]
+            .as_array()
+            .map(|steps| steps.iter().map(Introduced::of_step).collect())
+            .unwrap_or_default();
         let SentenceFields {
             condition,
             condition_kind,
@@ -448,6 +537,7 @@ impl TryFrom<serde_json::Value> for Sentence {
             bindings,
             steps,
             reads_x: reads,
+            introduces,
         })
     }
 }
@@ -604,11 +694,6 @@ pub(crate) enum Step {
         counter: SourceCounter,
         count: serde_json::Value,
     },
-    PutCounters {
-        on: serde_json::Value,
-        counter: SourceCounter,
-        count: serde_json::Value,
-    },
     RemoveCounters {
         from: serde_json::Value,
         counter: SourceCounter,
@@ -651,13 +736,6 @@ pub(crate) enum Step {
     Counter {
         what: CounterTarget,
     },
-    Damage {
-        source: DamageSource,
-        amount: serde_json::Value,
-        to: DamageDestination,
-        #[serde(default, deserialize_with = "present_bool_field")]
-        optional: Option<bool>,
-    },
     #[serde(skip)]
     Evaluated(Box<ast::Effect>),
     ReturnToHand {
@@ -679,12 +757,6 @@ pub(crate) enum Step {
         #[serde(default, deserialize_with = "present_json_operand")]
         who: Option<serde_json::Value>,
     },
-    Sacrifice {
-        who: PlayerSelector,
-        what: FilterObject<Count, ast::ObjectFilter>,
-        #[serde(rename = "chosenBy", default, deserialize_with = "present_ast_field")]
-        chosen_by: Option<PlayerSelector>,
-    },
     Discard(DiscardStep),
 }
 
@@ -693,7 +765,7 @@ impl<'de> Deserialize<'de> for Step {
         let raw = serde_json::Value::deserialize(decoder)?;
         if matches!(
             raw["effect"].as_str(),
-            Some("draw" | "gain-life" | "lose-life")
+            Some("draw" | "gain-life" | "lose-life" | "damage" | "put-counters" | "sacrifice")
         ) {
             if raw
                 .as_object()
@@ -712,6 +784,13 @@ impl<'de> Deserialize<'de> for Step {
 }
 
 impl Step {
+    pub(crate) fn damage(&self) -> Option<&ast::EffectDamage> {
+        match self.effect()? {
+            ast::Effect::Damage(effect) => Some(effect),
+            _ => None,
+        }
+    }
+
     pub(crate) fn effect(&self) -> Option<&ast::Effect> {
         match self {
             Self::Evaluated(effect) => Some(effect),
@@ -803,37 +882,6 @@ pub(crate) enum SourceCost {
     },
     Mana {
         symbols: Vec<String>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum DamageSource {
-    It {},
-    #[serde(rename = "self")]
-    SelfReference {},
-    This {
-        noun: String,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "to", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum DamageDestination {
-    Object {
-        #[serde(rename = "ref")]
-        reference: serde_json::Value,
-    },
-    Each {
-        refs: Vec<serde_json::Value>,
-    },
-    Player {
-        #[serde(rename = "ref")]
-        reference: serde_json::Value,
-    },
-    AnyTarget {
-        #[serde(rename = "selectionId")]
-        selection_id: String,
     },
 }
 
