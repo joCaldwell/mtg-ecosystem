@@ -457,6 +457,7 @@ pub enum Capability {
     KeywordCountersV1,
     /// CR 122.1d: stun counters replace untapping.
     StunCountersV1,
+    SagaV1,
     /// CR 122.1: counters without rules meaning, read by their cards.
     NamedCountersV1,
 
@@ -2397,6 +2398,7 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
         }
     };
     let event = match pattern {
+        E::SagaChapter { .. } => Capability::SagaV1,
         E::Enters { .. } if *pattern == E::self_enters() => Capability::SelfEntersBattlefieldV1,
         E::Enters { .. } if *pattern == E::other_creature_enters() => {
             Capability::OtherCreatureEntersBattlefieldV1

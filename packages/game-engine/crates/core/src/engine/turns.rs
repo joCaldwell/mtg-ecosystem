@@ -224,6 +224,11 @@ impl RulesTxn {
                     }
                 }
             }
+            TurnStep::PrecombatMain => {
+                if let Some(group) = self.main_phase_lore_group()? {
+                    self.commit_batch(BatchCause::PrecombatMainLore, group)?;
+                }
+            }
             TurnStep::BeginningCombat => {
                 self.clear_combat();
                 self.rules_mut().combat_declared = false;

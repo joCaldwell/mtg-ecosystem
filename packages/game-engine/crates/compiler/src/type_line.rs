@@ -76,7 +76,7 @@ pub(super) fn parse(line: &str, adventure: bool) -> Result<ParsedTypes, Failure>
         ));
     }
     for subtype in tail.split_whitespace() {
-        if unsupported_rules_subtype(subtype) && !adventure {
+        if unsupported_rules_subtype(subtype) && !adventure && subtype != "Saga" {
             return Err(unsupported(
                 "source.type_line.subtypes",
                 format!("subtype:{}", subtype.to_lowercase()),

@@ -50,6 +50,8 @@ pub struct TurnOrdinal {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventPattern {
+    /// CR 714.2b-c: an independent chapter ability of the source Saga.
+    SagaChapter { number: u32 },
     /// CR 603.6a: a permanent enters the battlefield. Its object is matched
     /// on the battlefield the event results in.
     Enters { object: Pred },
@@ -204,6 +206,7 @@ impl EventPattern {
     /// Stable reporting vocabulary, independent of the serde representation.
     pub fn reporting_key(&self) -> &'static str {
         match self {
+            Self::SagaChapter { .. } => "saga_chapter",
             Self::Enters { .. } => "enters",
             Self::Dies { .. } => "dies",
             Self::BecomesTapped { .. } => "becomes_tapped",
@@ -266,7 +269,8 @@ impl EventPattern {
             | Self::AttacksUnblocked { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
-            Self::StepBegins { .. }
+            Self::SagaChapter { .. }
+            | Self::StepBegins { .. }
             | Self::Draws { .. }
             | Self::GainsLife { .. }
             | Self::AnyOf { .. } => None,
@@ -464,6 +468,9 @@ fn event_pred(pred: &Pred, depth: usize) -> Result<(), KirError> {
 /// expressions. `attachment` states whether the source is an Aura or
 /// Equipment, the only sources with a host (CR 301.5, 303.4).
 pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirError> {
+    if matches!(pattern, EventPattern::SagaChapter { number: 0 }) {
+        return Err(KirError::Unaudited("zero chapter number".into()));
+    }
     if let EventPattern::AnyOf { first, second } = pattern {
         // Each branch names the source and neither binds an event operand.
         // A single occurrence cannot be both an entry and a death or attack.

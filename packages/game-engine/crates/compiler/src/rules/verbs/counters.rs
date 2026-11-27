@@ -64,3 +64,22 @@ pub(super) fn player(
         },
     }))
 }
+
+/// CR 122.1, 609.3: the fixed one-lore removal on an announced permanent.
+pub(super) fn remove(
+    cx: &mut StepCx<'_>,
+    from: &serde_json::Value,
+    counter: &SourceCounter,
+    count: &serde_json::Value,
+) -> Result<Instruction, Failure> {
+    uncounted(cx)?;
+    if counter.r#type != "lore"
+        || fixed_positive_amount(&typed(count, "amount")?)? != Quantity::from(1)
+    {
+        return Err(step("remove-counters", "counter_kind_or_amount"));
+    }
+    let from = bind_permanent_target(cx.program, cx.slots, &object(from)?)?;
+    Ok(cx.act(Verb::RemoveLoreCounter {
+        from: kir::Ref::Target { slot: from },
+    }))
+}

@@ -194,7 +194,7 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
         return Err(invalid("source", "missing or mismatched card identity"));
     }
     let layout = match source.layout.as_str() {
-        "normal" => FaceLayout::Single,
+        "normal" | "saga" => FaceLayout::Single,
         "modal_dfc" => FaceLayout::ModalDoubleFaced,
         "transform" => FaceLayout::Transforming,
         "adventure" => FaceLayout::Adventurer,
@@ -264,6 +264,25 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
             faces.into()
         }
     };
+    // CR 714.1a, 702.155: these variants require independent mechanics.
+    for face in &printed {
+        let (types, subtypes) = face.type_line.split_once(" — ").unwrap_or(("", ""));
+        if !subtypes.split_whitespace().any(|s| s == "Saga") {
+            continue;
+        }
+        if layout != FaceLayout::Single {
+            return Err(unsupported("source.layout", "layout:multiface_saga"));
+        }
+        if types.split_whitespace().any(|t| t == "Creature") {
+            return Err(unsupported("source.type_line", "subtype:saga_creature"));
+        }
+        if face.oracle_text.lines().any(|line| {
+            line.eq_ignore_ascii_case("Read ahead")
+                || line.to_ascii_lowercase().starts_with("read ahead (")
+        }) {
+            return Err(unsupported("source.keywords", "keyword:read_ahead"));
+        }
+    }
     if r.status != "parsed" {
         return Err(unsupported("status", "complete-card parsing is required"));
     }

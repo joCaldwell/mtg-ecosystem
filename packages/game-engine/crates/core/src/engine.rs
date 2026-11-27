@@ -47,6 +47,7 @@ pub mod attachments;
 pub mod counter_placement;
 pub mod predefined_token_templates;
 pub mod resolution_payment;
+mod sagas;
 
 pub use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 pub mod staples;

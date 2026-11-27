@@ -609,6 +609,11 @@ pub(crate) enum Step {
         counter: SourceCounter,
         count: serde_json::Value,
     },
+    RemoveCounters {
+        from: serde_json::Value,
+        counter: SourceCounter,
+        count: serde_json::Value,
+    },
     Modal {
         count: ModeCount,
         options: Vec<ModeOption>,

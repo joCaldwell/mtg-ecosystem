@@ -20,6 +20,7 @@ mod planeswalker;
 mod removal_wipes;
 mod replacement_prevention;
 mod resolution_moves;
+mod sagas;
 mod split;
 mod target_operands;
 mod token_creation;

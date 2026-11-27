@@ -207,6 +207,7 @@ pub enum Cell {
     Populate,
     PlayerCounters,
     Proliferate,
+    RemoveLoreCounter,
     CreatureTokens,
     MultiTypeCreatureTokens,
     TokensForTargetController,
@@ -457,6 +458,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Populate
         | C::PlayerCounters
         | C::Proliferate
+        | C::RemoveLoreCounter
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::CountedTokens
@@ -600,6 +602,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::MinusOneCountersV1
         | C::KeywordCountersV1
         | C::StunCountersV1
+        | C::SagaV1
         | C::NamedCountersV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1

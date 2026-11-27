@@ -261,6 +261,11 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             count,
         } => counters::player(cx, who, counter, count),
         Step::PutCounters { on, counter, count } => counters::lower(cx, on, counter, count),
+        Step::RemoveCounters {
+            from,
+            counter,
+            count,
+        } => counters::remove(cx, from, counter, count),
         Step::Pump {
             what,
             power,

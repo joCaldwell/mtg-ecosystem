@@ -750,7 +750,7 @@ impl BlockKind {
         match ability["kind"].as_str() {
             Some("spell") => Self::Spell,
             Some("activated" | "loyalty") => Self::Activated,
-            Some("triggered") => Self::Triggered,
+            Some("triggered" | "chapter") => Self::Triggered,
             Some("static") => Self::Static,
             _ => Self::Other,
         }
