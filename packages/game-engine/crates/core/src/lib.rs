@@ -76,4 +76,5 @@ pub use engine::{
     WorldProposal, Zone, admit_dynamic_pod, distinct_payment_choices, inspect_dynamic_deck,
     match_profile, payment_choice_minimum, policy_digest, validate_pod,
 };
+pub use engine::{CounterChange, CounterCost, CounterHolder};
 pub use mtg_view::combat_allocation_to_blockers;

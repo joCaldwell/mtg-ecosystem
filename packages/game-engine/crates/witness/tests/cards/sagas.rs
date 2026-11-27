@@ -111,9 +111,11 @@ fn chapter(g: &Game, source: ObjectId, index: u32, previous: i64, current: i64) 
     assert_eq!(entry.source, source);
     assert!(matches!(&entry.kind, StackKind::Triggered {
         ability: EffectiveTriggerAbility::Intrinsic { index: i },
-        witness: TriggerEventWitness::LorePlaced { object, previous: before, current: after },
+        witness: TriggerEventWitness::LorePlaced { change, .. },
         ..
-    } if *i == index && *object == source && *before == previous.into() && *after == current.into()));
+    } if *i == index
+        && matches!(change.holder, CounterHolder::Permanent { object, .. } if object == source)
+        && change.previous == previous.into() && change.current == current.into()));
 }
 
 fn sacrifice_recorded(g: &Game, saga: ObjectId) -> bool {
@@ -503,10 +505,12 @@ fn saga_lore_removal_allows_a_chapter_to_trigger_again() {
     cast_clash(&mut g, 4, 5, 0b110, saga);
 
     pass_until(&mut g, |g| {
-        g.events().iter().any(|e| {
-            matches!(e, Event::Committed {
-        actual: EventOutcome::LoreCounterRemoved { object, .. }, ..
-    } if *object == saga)
+        g.trace().records.iter().any(|record| {
+            matches!(&record.record, EvidenceRecord::Batch { batch } if batch.occurrences.iter().any(|occurrence|
+                matches!(occurrence.proposed, ProposedEvent::RemoveLoreCounter { object } if object == saga)
+                    && occurrence.counter_changes.iter().any(|change|
+                        change.counter == CounterKind::Lore && change.delta() == (-1).into())
+            ))
         })
     });
     assert_eq!(lore(&g, 0), 1.into());

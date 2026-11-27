@@ -550,6 +550,12 @@ Creature entry history can also ask whether any opponent had an entry. Each
 check reads the current turn from its start, including the event that caused
 the trigger (CR 603.4, 603.10a).
 
+Saga chapters match the positive lore-counter facet against its prior and
+settled balance, including the lore placed on entry. Each chapter whose
+threshold the change crosses triggers once, retaining that member's identity
+and facts (CR 122.6, 714.2b). Removal, annihilation and loyalty changes
+publish their actuals for history and recovery. The admitted counter-trigger vocabulary is Saga chapters.
+
 A per-turn player ledger (spells as frozen stack facts, draws, life-gain
 events) counts from the turn's start, whether or not the source was present,
 and resets with the turn. A `TurnOrdinal` on cast, draw, life gain or an

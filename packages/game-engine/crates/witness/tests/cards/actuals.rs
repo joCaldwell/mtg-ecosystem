@@ -1,4 +1,4 @@
-//! E1 parity gate for creation, battlefield entry and zone movement from
+//! E1 parity gate for creation, battlefield entry, zone movement and counters from
 //! exact frozen R5 source on private boards. One writer publishes each
 //! member as an `Actual`; history, trigger matching, delayed watchers and
 //! mana reversal read its facets. Every family agrees across all four trace
@@ -7,6 +7,7 @@
 //! matching listener, and replays, restores and forks at every quantum.
 //! CR 111.1-2, 111.13, 400.7, 603.2c, 603.6a, 603.10a, 608.3, 700.4, 733.1:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use mtg_contracts::kir::CounterKind;
 use mtg_core::testkit::*;
 
 macro_rules! record {
@@ -43,6 +44,14 @@ const MODES: [TraceMode; 4] = [
 ];
 
 fn prepared(records: &[&str], cards: impl FnOnce(Board) -> Board) -> Prepared {
+    let catalog = exact_catalog(records);
+    let board = Board::new(catalog, "e1-actuals-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2);
+    cards(board).libraries("Island", 6).seed([11; 32]).prepare()
+}
+
+fn exact_catalog(records: &[&str]) -> Catalog {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in records {
         let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
@@ -54,10 +63,7 @@ fn prepared(records: &[&str], cards: impl FnOnce(Board) -> Board) -> Prepared {
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    let board = Board::new(catalog, "e1-actuals-witness")
-        .step(TurnStep::PrecombatMain)
-        .seats(2);
-    cards(board).libraries("Island", 6).seed([11; 32]).prepare()
+    catalog
 }
 
 fn open_journal(g: &mut Game) {
@@ -155,6 +161,8 @@ fn row(seat: PlayerId) -> SeatDelta {
         creatures_entered: 0,
         nonlands_entered: 0,
         tokens_created: 0,
+        counter_placements: Quantity::zero(),
+        counter_removals: Quantity::zero(),
     }
 }
 
@@ -664,6 +672,405 @@ fn resolving_permanent_spell_copy_enters_as_a_token_without_creation() {
         matches!(&trigger.witness, TriggerEventWitness::Entered { movement: Some(movement), .. }
         if movement.destination == Zone::Battlefield && movement.successor.card == spell.source.card)
     );
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+const HISTORY_OF_BENALIA: &str = record!("c15bb7eb-aaaa-4468-9641-8f706d6137e8");
+const CONTENTIOUS_PLAN: &str = record!("2fc6de19-9d04-422b-90bc-eee2f9f8c84c");
+const SPIKE_FEEDER: &str = record!("5b147eab-39dd-4c2a-8f59-d778037788aa");
+
+fn counter_members(journal: &ActualJournal) -> Vec<(&Actual, &CounterChange)> {
+    journal
+        .actuals
+        .iter()
+        .filter_map(|actual| actual.counters().map(|change| (actual, change)))
+        .collect()
+}
+
+/// CR 122.6, 701.34a, 714.2b: the Saga and planeswalker get counters at
+/// the same time. Only the Saga has a counter trigger. The following draw
+/// and its private card stay outside the other three viewers' observations.
+fn proliferate_actuals(mode: TraceMode, include_saga: bool) -> (Game, ActualJournal) {
+    use super::planeswalker::JACE;
+    let p = Board::new(
+        exact_catalog(&[JACE, HISTORY_OF_BENALIA, CONTENTIOUS_PLAN]),
+        "counter-actuals-four-seats",
+    )
+    .step(TurnStep::PrecombatMain)
+    .seats(4)
+    .permanent_or_hand("History of Benalia", 0, 0, true)
+    .permanent_or_hand("Jace Beleren", 1, 1, false)
+    .permanent_or_hand("Contentious Plan", 0, 0, true)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .library_card("Forest", 0)
+    .libraries("Island", 6)
+    .prepare();
+    let mut g = Game::with_trace(p, mode);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[3, 4, 5]);
+    settle(&mut g);
+    let saga = Driver::object(&g, 0);
+    let jace = Driver::object(&g, 1);
+    Driver::cast(&mut g, CardId(2));
+    Driver::pay(&mut g, &[6, 7]);
+    let choice = (0..24)
+        .find_map(|_| {
+            let d = Driver::request(&mut g, 1);
+            if d.reason == Reason::Proliferate {
+                return Some(d);
+            }
+            assert_eq!(d.reason, Reason::Priority);
+            Driver::pass(&mut g);
+            None
+        })
+        .expect("Contentious Plan's proliferate choice");
+    assert_eq!(choice.player, P0);
+    for viewer in [P1, PlayerId(2), PlayerId(3)] {
+        assert!(matches!(
+            g.player_session(viewer).decision(Budget::unlimited()),
+            QueryResult::Complete(QueryValue::Decision(None))
+        ));
+    }
+    let spell = g.state.rules.stack.last().unwrap().id;
+    open_journal(&mut g);
+    let recipients = if include_saga {
+        vec![saga, jace]
+    } else {
+        vec![jace]
+    };
+    g.respond(choice.player, choice.id, choice.pick_objects(recipients))
+        .unwrap();
+    assert!(matches!(
+        g.advance(Budget::new(0)),
+        Advance::Suspended { .. }
+    ));
+    assert!(g.actual_journal.as_ref().unwrap().actuals.is_empty());
+    for _ in 0..16 {
+        assert!(matches!(
+            g.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+        if g.actual_journal
+            .as_ref()
+            .unwrap()
+            .actuals
+            .iter()
+            .any(|actual| actual.counters().is_some())
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        counter_members(g.actual_journal.as_ref().unwrap()).len(),
+        if include_saga { 2 } else { 1 }
+    );
+    assert!(g.state.rules.stack.iter().any(|entry| entry.id == spell));
+    let paused = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    assert_eq!(g.state_digest().unwrap(), paused.state_digest().unwrap());
+    if mode == TraceMode::Detailed {
+        assert_recoverable((&g).into());
+    }
+    resolve(&mut g, spell);
+    let journal = take_journal(&mut g);
+    let mut resumed = paused;
+    resolve(&mut resumed, spell);
+    assert_eq!(resumed.state_digest().unwrap(), g.state_digest().unwrap());
+    let changes = counter_members(&journal);
+    assert_eq!(changes.len(), if include_saga { 2 } else { 1 });
+    let (loyalty, change) = changes.last().copied().unwrap();
+    assert_eq!(
+        change.holder,
+        CounterHolder::Permanent {
+            object: jace,
+            controller: P1
+        }
+    );
+    assert_eq!(change.counter, CounterKind::Loyalty);
+    assert_eq!(change.placed_by, Some(P0));
+    assert_eq!(
+        (change.previous.clone(), change.current.clone()),
+        (3.into(), 4.into())
+    );
+    assert_eq!(loyalty.origin.root, Root::Effect);
+    assert_eq!(loyalty.origin.invocation, Some(spell));
+    assert!(loyalty.lineage.is_none());
+    assert!(
+        loyalty
+            .reference(FacetKind::Counters)
+            .unwrap()
+            .resolve(&journal.actuals)
+            .is_some()
+    );
+    if include_saga {
+        let (lore, change) = changes[0];
+        assert_eq!(
+            change.holder,
+            CounterHolder::Permanent {
+                object: saga,
+                controller: P0
+            }
+        );
+        assert_eq!(change.counter, CounterKind::Lore);
+        assert_eq!(
+            (change.previous.clone(), change.current.clone()),
+            (1.into(), 2.into())
+        );
+        assert_eq!(lore.group, loyalty.group);
+        assert_eq!(
+            lore.group,
+            Some(GroupId {
+                batch: lore.id.occurrence.batch,
+                path: vec![]
+            })
+        );
+        assert_eq!(lore.id.occurrence.path, [0]);
+        assert_eq!(loyalty.id.occurrence.path, [1]);
+        assert_eq!(triggers_from(&g, saga), 1);
+        assert!(g.state.rules.stack.iter().any(|entry| matches!(&entry.kind,
+            StackKind::Triggered { witness: TriggerEventWitness::LorePlaced { member, change: retained }, .. }
+                if *member == lore.id && retained.as_ref() == change
+        )));
+        assert_eq!(
+            seat(&journal.ledger, P0).unwrap().counter_placements,
+            1.into()
+        );
+    } else {
+        assert_eq!(loyalty.group, None);
+        assert_eq!(triggers_from(&g, saga), 0);
+        assert!(seat(&journal.ledger, P0).is_none());
+    }
+    assert_eq!(
+        seat(&journal.ledger, P1).unwrap().counter_placements,
+        1.into()
+    );
+    assert_eq!(g.state.rules.cast_history[1].counter_placements, 1.into());
+    for viewer in [P0, P1, PlayerId(2), PlayerId(3)] {
+        let QueryResult::Complete(QueryValue::Observation(observation)) =
+            g.player_session(viewer).observe(Budget::unlimited())
+        else {
+            panic!("permitted view for {viewer:?}");
+        };
+        let hand = Zone::Hand { owner: P0 };
+        assert_eq!(
+            observation
+                .view
+                .objects
+                .iter()
+                .filter(|object| object.zone == hand)
+                .count(),
+            usize::from(viewer == P0)
+        );
+    }
+    (g, journal)
+}
+
+#[test]
+fn counters_from_one_effect_share_membership_with_or_without_a_match() {
+    for include_saga in [false, true] {
+        let (g, _) = parity(|mode| proliferate_actuals(mode, include_saga));
+        checked(&g);
+        assert_recoverable((&g).into());
+    }
+}
+
+/// CR 306.5b, 606.3–4: entry establishes the initial balance and the
+/// targeted activation pays its own counter cost when its target is chosen.
+fn loyalty_actuals(mode: TraceMode) -> (Game, ActualJournal) {
+    let p = prepared(&[super::planeswalker::JACE], |b| {
+        b.permanent_or_hand("Jace Beleren", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+    });
+    let mut g = Game::with_trace(p, mode);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3]);
+    open_journal(&mut g);
+    settle(&mut g);
+    let jace = Driver::object(&g, 0);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: jace,
+            ability: 1,
+        },
+    );
+    let d = Driver::request(&mut g, 1);
+    let answer = d.pick_one(&Candidate::Player { player: P0 }).unwrap();
+    g.respond(d.player, d.id, answer).unwrap();
+    Driver::request(&mut g, 1);
+    let journal = take_journal(&mut g);
+    let changes = counter_members(&journal);
+    let [(entry, placed), (payment, removed)] = changes.as_slice() else {
+        panic!("expected one entry and one loyalty payment: {changes:?}");
+    };
+    let entered = placed.with_entry.as_ref().unwrap();
+    assert_eq!(entered.occurrence, entry.id.occurrence);
+    assert!(journal.actuals.iter().any(|actual| &actual.id == entered
+        && actual.entrant() == Some(jace)
+        && actual.group == entry.group));
+    assert_eq!(placed.delta(), 3.into());
+    assert_eq!(placed.placed_by, Some(P0));
+    assert_eq!(removed.placed_by, None);
+    assert_eq!(
+        removed.holder,
+        CounterHolder::Permanent {
+            object: jace,
+            controller: P0
+        }
+    );
+    assert_eq!(removed.counter, CounterKind::Loyalty);
+    assert_eq!(
+        (removed.previous.clone(), removed.current.clone()),
+        (3.into(), 2.into())
+    );
+    assert_eq!(payment.origin.root, Root::Cost(CostOf::Loyalty));
+    assert_eq!(
+        payment.origin.invocation,
+        g.state.rules.stack.last().map(|s| s.id)
+    );
+    assert_eq!(
+        g.current(jace).unwrap().loyalty_used_turn,
+        Some(g.turn().number)
+    );
+    assert_eq!(
+        seat(&journal.ledger, P0).unwrap().counter_placements,
+        3.into()
+    );
+    assert_eq!(
+        seat(&journal.ledger, P0).unwrap().counter_removals,
+        1.into()
+    );
+    (g, journal)
+}
+
+#[test]
+fn loyalty_entry_and_activation_publish_counter_actuals() {
+    let (g, _) = parity(loyalty_actuals);
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// CR 118.3, 122.6, 602.2b, 733.1: the first announcement lacks the
+/// mana to complete payment. A retry pays exactly one source counter and
+/// its resolving step reports the actual placement on the target.
+fn paid_counter_cost(mode: TraceMode) -> (Game, ActualJournal) {
+    let p = prepared(&[SPIKE_FEEDER], |b| {
+        b.permanent_or_hand("Spike Feeder", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+    });
+    let mut g = Game::with_trace(p, mode);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[2, 3, 4]);
+    settle(&mut g);
+    let source = Driver::object(&g, 0);
+    let bears = Driver::object(&g, 1);
+    let forest = Driver::object(&g, 5);
+    let before = g.current(source).unwrap().clone();
+    let history = g.state.rules.cast_history.clone();
+    assert_eq!(before.plus_one_counters, 2.into());
+
+    let activate = |g: &mut Game| {
+        Driver::action(
+            g,
+            Action::ActivateAbility {
+                object: source,
+                ability: 0,
+            },
+        );
+        Driver::pick_object(g, bears);
+    };
+    activate(&mut g);
+    let d = Driver::request(&mut g, 1);
+    g.respond(d.player, d.id, d.activate_mana(forest)).unwrap();
+    let d = Driver::request(&mut g, 1);
+    assert!(g.current(forest).unwrap().tapped);
+    assert!(matches!(d.reason, Reason::Mana { .. }));
+    if mode == TraceMode::Detailed {
+        assert_recoverable((&g).into());
+    }
+    open_journal(&mut g);
+    g.respond(
+        d.player,
+        d.id,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    )
+    .unwrap();
+    assert_eq!(Driver::request(&mut g, 1).reason, Reason::Priority);
+    assert_eq!(g.current(source).unwrap(), &before);
+    assert_eq!(g.state.rules.cast_history, history);
+    assert!(g.state.rules.stack.is_empty());
+    assert!(!g.current(forest).unwrap().tapped);
+    assert!(counter_members(&take_journal(&mut g)).is_empty());
+    if mode == TraceMode::Detailed {
+        assert_recoverable((&g).into());
+    }
+
+    activate(&mut g);
+    open_journal(&mut g);
+    Driver::pay(&mut g, &[5, 6]);
+    settle(&mut g);
+    let journal = take_journal(&mut g);
+    let changes = counter_members(&journal);
+    let [(payment, removed), (effect, placed)] = changes.as_slice() else {
+        panic!("expected one counter removal and one placement: {changes:?}");
+    };
+    assert_eq!(payment.origin.root, Root::Cost(CostOf::Activation));
+    assert_eq!(
+        removed.holder,
+        CounterHolder::Permanent {
+            object: source,
+            controller: P0
+        }
+    );
+    assert_eq!(removed.counter, CounterKind::PlusOnePlusOne);
+    assert_eq!(
+        (removed.previous.clone(), removed.current.clone()),
+        (2.into(), 1.into())
+    );
+    assert_eq!(effect.origin.root, Root::Effect);
+    assert_eq!(effect.origin.invocation, payment.origin.invocation);
+    assert_eq!(
+        placed.holder,
+        CounterHolder::Permanent {
+            object: bears,
+            controller: P0
+        }
+    );
+    assert_eq!(placed.counter, CounterKind::PlusOnePlusOne);
+    assert_eq!(
+        (placed.previous.clone(), placed.current.clone()),
+        (0.into(), 1.into())
+    );
+    assert_eq!(placed.placed_by, Some(P0));
+    let ledger = seat(&journal.ledger, P0).unwrap();
+    assert_eq!(
+        (
+            ledger.counter_removals.clone(),
+            ledger.counter_placements.clone()
+        ),
+        (1.into(), 1.into())
+    );
+    (g, journal)
+}
+
+#[test]
+fn failed_payment_rolls_back_and_a_retry_publishes_the_counter_cost() {
+    let (g, _) = parity(paid_counter_cost);
     checked(&g);
     assert_recoverable((&g).into());
 }

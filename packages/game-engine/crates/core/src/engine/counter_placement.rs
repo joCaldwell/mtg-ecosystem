@@ -72,10 +72,7 @@ impl RulesTxn {
         };
         self.validate_counter_allocations(&transaction)?;
         if transaction.members.is_empty() && transaction.players.is_empty() {
-            return self.finish_instruction(
-                *transaction.frame,
-                InstructionOutcome::CounterPlacements { actual: vec![] },
-            );
+            return self.finish_counter_placement(*transaction.frame, kernel, std::iter::empty());
         }
         self.rules_mut().frame = Frame::CounterPlacement { transaction };
         self.counter_placement_step()
@@ -364,46 +361,42 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn finish_counter_batch(&mut self, batch: &CommittedBatch) -> Result<(), String> {
-        let frame = self.counter_transaction()?.frame.as_ref().clone();
-        let kernel = self.counter_transaction()?.kernel;
-        let outcome = match &batch.group {
-            EventGroup::Occurrence { .. } => InstructionOutcome::Effect {
-                actual: Some(
-                    batch
-                        .result(&[])
-                        .ok_or("missing counter placement outcome")?
-                        .clone(),
-                ),
-            },
-            EventGroup::Simultaneous { .. } => InstructionOutcome::CounterPlacements {
-                actual: batch
-                    .occurrences
-                    .iter()
-                    .map(|leaf| leaf.actual.clone())
-                    .collect(),
-            },
-            _ => return Err("unexpected counter placement group".into()),
-        };
+    pub(super) fn finish_counter_batch<'a>(
+        &mut self,
+        actuals: impl IntoIterator<Item = &'a Actual>,
+    ) -> Result<(), String> {
+        let tx = self.counter_transaction()?;
+        self.finish_counter_placement(tx.frame.as_ref().clone(), tx.kernel, actuals)
+    }
+
+    fn finish_counter_placement<'a>(
+        &mut self,
+        frame: Resolving,
+        kernel: Option<FrameLink>,
+        actuals: impl IntoIterator<Item = &'a Actual>,
+    ) -> Result<(), String> {
         match kernel {
-            Some(resume) => self.finish_kernel_counters(resume, Some(batch), outcome),
-            None => self.finish_instruction(frame, outcome),
+            Some(resume) => self.finish_kernel_counters(resume, actuals),
+            None => self.finish_instruction(
+                frame,
+                InstructionOutcome::CounterPlacements {
+                    events: actuals
+                        .into_iter()
+                        .map(|actual| actual.id.clone())
+                        .collect(),
+                },
+            ),
         }
     }
+
     pub(super) fn counter_placement_step(&mut self) -> Result<(), String> {
-        let cause = self.counter_transaction()?.cause.clone();
         // A recipient may have departed; never recreate a departed incarnation.
         let tx = self.counter_transaction()?;
         if let Some(group) = self.counter_placement_group(tx)? {
-            self.commit_batch(cause, group)?;
+            self.commit_batch(tx.cause.clone(), group)?;
             Ok(())
         } else {
-            let outcome = { InstructionOutcome::Effect { actual: None } };
-            let frame = tx.frame.as_ref().clone();
-            match tx.kernel {
-                Some(resume) => self.finish_kernel_counters(resume, None, outcome),
-                None => self.finish_instruction(frame, outcome),
-            }
+            self.finish_counter_batch(std::iter::empty())
         }
     }
     pub(super) fn validate_counter_placement_state(&self) -> Result<(), String> {

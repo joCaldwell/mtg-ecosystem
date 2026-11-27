@@ -49,12 +49,14 @@ accepted-input replay with exact identity.
 - **Canonical actuals (E1 contract).** Every rules occurrence is one actual
   with a member identity, group, origin root and lineage. One writer reduces
   history, reconciles control, matches triggers and binds step results from it,
-  with or without a listener. Creation, entry and movement have migrated
-  (`engine/actuals.rs`); counters including costs follow (E1b), and every other
-  family keeps its `EventOutcome` boundary until E3.
+  with or without a listener. Creation, entry, movement and counters use
+  `engine/actuals.rs`. The remaining families keep their `EventOutcome`
+  boundary until E3.
   - *Identity.* `EventId { occurrence, member }` adds a semantic member to the
     existing `OccurrenceId { batch, path }`. Member indices carry no public order.
-    A simultaneous group is `GroupId { batch, path }` of its `Simultaneous` node.
+    A simultaneous group is `GroupId { batch, path }` of its `Simultaneous`
+    node or of the occurrence that settles its members together, such as an
+    entry with counters.
     An `ActualRef` names one facet of one event and resolves with tracing off.
   - *Origin and lineage.* The existing `BatchCause` keeps invocation, actor and
     source. `Origin` adds a root, the step (a `StepRef` until Stage 1's
@@ -73,8 +75,14 @@ accepted-input replay with exact identity.
     destination or leaving the game, successor, and whether a permanent spell
     resolved), `Created` (creator,
     recipe, invocation) and `Entered` (object, controller, tapped, token,
-    attachment, face). It also defines `Counters` (holder, kind, signed delta,
-    previous, current, timestamp, entry link). E3 adds tap, untap, life, draw
+    attachment, face). One `Counters` member records a holder and kind, its
+    signed balance change, putting player, stored timestamp where applicable
+    and the link to an entry member. Entry counters start at zero on the new
+    incarnation (CR 122.2, 122.6). Annihilation publishes both removals in
+    one group. Damage that removes loyalty uses the counter facet for the
+    clamped balance and keeps the specialist damage transaction for damage
+    (CR 120.3c). A zero loyalty payment stamps the use (CR 606.3–4).
+    E3 adds tap, untap, life, draw
     attempt, mill and damage. Procedural leaves (setup, shuffle, mana, cleanup,
     turn transition) return typed receipts that never feed history or triggers.
     `ObjectBefore` already captures the complete reversible row (loyalty and its
@@ -85,8 +93,11 @@ accepted-input replay with exact identity.
     fixed: commit state and retain last-known facts, then reduce history through
     one reducer returning a `LedgerDelta`. Next it reconciles control and zones,
     matches triggers and delayed watchers, and binds step results. Trace and
-    views project afterwards. For migrated families, facets supply the match
-    witnesses. The [event witness contract](game-engine-board-mechanics.md#trigger-families-and-event-witnesses)
+    views project afterwards. Counter placements and removals contribute to
+    the private turn ledger by holder seat. Mana reversal inverts the ledger
+    delta and restores the recorded balances. Counter step results derive
+    their recipients and amount from the published members. For migrated
+    families, facets supply the match witnesses. The [event witness contract](game-engine-board-mechanics.md#trigger-families-and-event-witnesses)
     describes current uniqueness checks and the E3 deduplication work. Ordered
     siblings settle in order; simultaneous siblings share one prior. A bounded
     procedure binds its members and ledger change through an `ActualJournal`

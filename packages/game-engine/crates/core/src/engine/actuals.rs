@@ -1,12 +1,13 @@
 //! Canonical actuals (E1): one typed record per member of each rules
 //! occurrence, written once at publication and read by history, trigger
 //! matching, delayed watchers and mana reversal. Creation, battlefield entry
-//! and zone movement are migrated; counters follow (E1b) and the remaining
+//! zone movement and counters are migrated. The remaining
 //! families keep their `EventOutcome` boundaries until E3.
 //! The runtime invariants in `docs/game-engine-mechanics.md` own the
 //! contract. CR 111.1-2, 111.13, 400.7, 603.2c, 603.6a, 603.10a, 700.4,
 //! 733.1: <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>
 use super::*;
+use mtg_contracts::kir::CounterKind;
 use tokens::TokenTemplate;
 use triggers::TurnCastHistory;
 
@@ -31,6 +32,7 @@ pub enum FacetKind {
     Moved,
     Created,
     Entered,
+    Counters,
 }
 
 /// One facet of one event; it resolves against the published actuals, with
@@ -115,6 +117,53 @@ pub enum MoveKind {
     Resolved { stack_id: StackId },
 }
 
+/// CR 122.1: a counter belongs to a particular incarnation or player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "holder", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CounterHolder {
+    Permanent {
+        object: ObjectId,
+        controller: PlayerId,
+    },
+    Player {
+        player: PlayerId,
+    },
+}
+
+impl CounterHolder {
+    fn seat(self) -> PlayerId {
+        match self {
+            Self::Permanent { controller, .. } => controller,
+            Self::Player { player } => player,
+        }
+    }
+}
+
+/// The settled change of one kind on one holder. The prior is zero on
+/// entry (CR 122.6, 400.7); the entry link names the new incarnation's event.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CounterChange {
+    pub holder: CounterHolder,
+    pub counter: CounterKind,
+    pub previous: Quantity,
+    pub current: Quantity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placed_by: Option<PlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_entry: Option<EventId>,
+}
+
+impl CounterChange {
+    pub fn delta(&self) -> Quantity {
+        let mut delta = self.current.clone();
+        delta.subtract(&self.previous);
+        delta
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Facet {
     /// A zone change. `prior` retains the complete row of a permanent that
@@ -144,6 +193,7 @@ pub enum Facet {
         attached_to: Option<ObjectId>,
         face: CardFace,
     },
+    Counters(CounterChange),
 }
 impl Facet {
     pub fn kind(&self) -> FacetKind {
@@ -151,6 +201,7 @@ impl Facet {
             Self::Moved { .. } => FacetKind::Moved,
             Self::Created { .. } => FacetKind::Created,
             Self::Entered { .. } => FacetKind::Entered,
+            Self::Counters(_) => FacetKind::Counters,
         }
     }
 }
@@ -167,6 +218,13 @@ pub struct Actual {
     pub facets: Vec<Facet>,
 }
 impl Actual {
+    pub fn counters(&self) -> Option<&CounterChange> {
+        match self.facet(FacetKind::Counters) {
+            Some(Facet::Counters(change)) => Some(change),
+            _ => None,
+        }
+    }
+
     pub fn facet(&self, kind: FacetKind) -> Option<&Facet> {
         self.facets.iter().find(|facet| facet.kind() == kind)
     }
@@ -256,6 +314,10 @@ pub struct SeatDelta {
     pub nonlands_entered: u32,
     #[serde(default, skip_serializing_if = "state::is_zero_count")]
     pub tokens_created: u32,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub counter_placements: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub counter_removals: Quantity,
 }
 impl SeatDelta {
     fn new(seat: PlayerId) -> Self {
@@ -267,6 +329,8 @@ impl SeatDelta {
             creatures_entered: 0,
             nonlands_entered: 0,
             tokens_created: 0,
+            counter_placements: Quantity::zero(),
+            counter_removals: Quantity::zero(),
         }
     }
     fn is_empty(&self) -> bool {
@@ -311,6 +375,8 @@ impl LedgerDelta {
             let into = self.seat(row.seat);
             into.permanent_left |= row.permanent_left;
             into.creature_died |= row.creature_died;
+            into.counter_placements.add(&row.counter_placements);
+            into.counter_removals.add(&row.counter_removals);
             for (a, b) in [
                 (&mut into.artifacts_entered, row.artifacts_entered),
                 (&mut into.creatures_entered, row.creatures_entered),
@@ -328,6 +394,8 @@ impl LedgerDelta {
                 .get_mut(row.seat.0 as usize)
                 .ok_or("invalid turn history seat")?;
             h.permanent_left |= row.permanent_left;
+            h.counter_placements.add(&row.counter_placements);
+            h.counter_removals.add(&row.counter_removals);
             h.creature_died |= row.creature_died;
             h.artifacts_entered.add(&q(row.artifacts_entered));
             h.creatures_entered.add(&q(row.creatures_entered));
@@ -346,6 +414,8 @@ impl LedgerDelta {
         for row in &self.seats {
             let h = &mut history[row.seat.0 as usize];
             h.permanent_left &= !row.permanent_left;
+            h.counter_placements.subtract(&row.counter_placements);
+            h.counter_removals.subtract(&row.counter_removals);
             h.creature_died &= !row.creature_died;
             h.artifacts_entered.subtract(&q(row.artifacts_entered));
             h.creatures_entered.subtract(&q(row.creatures_entered));
@@ -371,6 +441,10 @@ impl LedgerDelta {
                 || !le(row.creatures_entered, &h.creatures_entered)
                 || !le(row.nonlands_entered, &h.nonlands_entered)
                 || row.tokens_created > h.tokens_created
+                || row.counter_placements.is_negative()
+                || row.counter_removals.is_negative()
+                || row.counter_placements > h.counter_placements
+                || row.counter_removals > h.counter_removals
             {
                 return Err("invalid ledger delta".into());
             }
@@ -476,6 +550,159 @@ fn movements(actual: &EventOutcome) -> Vec<&MoveOutcome> {
 }
 
 impl RulesTxn {
+    /// Read the settled balances exactly once, at the leaf's commit boundary.
+    /// A zone change forgets old counters (CR 122.2), so only the entrant's
+    /// initial counters count as changes. Reversal restores rows directly.
+    pub(super) fn committed_counter_changes(
+        &self,
+        prior: &Self,
+        id: &OccurrenceId,
+        cause: &BatchCause,
+        proposed: &ProposedEvent,
+        outcome: &EventOutcome,
+    ) -> Result<Vec<CounterChange>, String> {
+        let putter = match cause {
+            BatchCause::Instruction { player, .. }
+            | BatchCause::AbilityActivation { player, .. }
+            | BatchCause::SpecialAction { player, .. } => Some(*player),
+            BatchCause::PrecombatMainLore => prior.state.rules.active,
+            _ => None,
+        };
+        let mut changes = vec![];
+        let mut permanent = |object, with_entry: Option<EventId>| -> Result<(), String> {
+            let next = self.current(object)?;
+            let previous = if with_entry.is_some() {
+                None
+            } else {
+                Some(prior.current(object)?)
+            };
+            let holder = CounterHolder::Permanent {
+                object,
+                controller: previous.unwrap_or(next).controller,
+            };
+            let kinds: BTreeSet<_> = next
+                .counter_kinds()
+                .chain(previous.into_iter().flat_map(Object::counter_kinds))
+                .collect();
+            for counter in kinds {
+                let before = previous.map_or_else(Quantity::zero, |o| o.counter_count(&counter));
+                let current = next.counter_count(&counter);
+                if before != current {
+                    let row = if current > before {
+                        next
+                    } else {
+                        previous.unwrap_or(next)
+                    };
+                    let timestamp = row
+                        .counters
+                        .iter()
+                        .find(|stack| stack.kind == counter)
+                        .map(|stack| stack.timestamp);
+                    let placed_by = if current <= before {
+                        None
+                    } else if with_entry.is_some() {
+                        // CR 122.6a: intrinsic entry counters are put on by
+                        // the entering permanent's controller.
+                        Some(next.controller)
+                    } else {
+                        putter
+                    };
+                    changes.push(CounterChange {
+                        holder,
+                        counter,
+                        previous: before,
+                        current,
+                        placed_by,
+                        timestamp,
+                        with_entry: with_entry.clone(),
+                    });
+                }
+            }
+            Ok(())
+        };
+        match proposed {
+            ProposedEvent::PutCounters { object, .. }
+            | ProposedEvent::PayCounterCost { object, .. }
+            | ProposedEvent::RemoveLoreCounter { object }
+            | ProposedEvent::AnnihilateCounters { object, .. }
+            | ProposedEvent::TurnFaceUp { object }
+            | ProposedEvent::Untap { object } => permanent(*object, None)?,
+            _ => {}
+        }
+        if let EventOutcome::DamageCommitted { actual, .. } = outcome {
+            let recipients: BTreeSet<_> = actual
+                .iter()
+                .filter_map(|damage| match damage.recipient {
+                    DamageRecipient::Permanent { object } => Some(object),
+                    DamageRecipient::Player { .. } => None,
+                })
+                .collect();
+            for object in recipients {
+                permanent(object, None)?;
+            }
+        }
+
+        let entry = &mut |member: usize, object| {
+            permanent(
+                object,
+                Some(EventId {
+                    occurrence: id.clone(),
+                    member: u32::try_from(member).map_err(|_| "event member limit")?,
+                }),
+            )
+        };
+        match outcome {
+            EventOutcome::TokenCopied { object, .. } => entry(0, *object)?,
+            EventOutcome::TokensCreated { objects, .. }
+            | EventOutcome::PredefinedTokensCreated { objects, .. }
+            | EventOutcome::EncoreTokensCreated { objects, .. }
+            | EventOutcome::MyriadTokensCreated { objects, .. } => {
+                for (member, object) in objects.iter().enumerate() {
+                    entry(member, *object)?;
+                }
+            }
+            _ => {
+                for (member, movement) in movements(outcome).into_iter().enumerate() {
+                    if movement.from != Zone::Battlefield
+                        && movement.destination == Zone::Battlefield
+                    {
+                        entry(member, movement.successor)?;
+                    }
+                }
+            }
+        }
+
+        if let ProposedEvent::GivePlayerCounters { player, .. } = proposed {
+            let previous = &prior.state.rules.players[player.0 as usize];
+            let current = &self.state.rules.players[player.0 as usize];
+            for (kind, before, after) in [
+                (
+                    "poison",
+                    &previous.poison_counters,
+                    &current.poison_counters,
+                ),
+                (
+                    "energy",
+                    &previous.energy_counters,
+                    &current.energy_counters,
+                ),
+            ] {
+                if before != after {
+                    changes.push(CounterChange {
+                        holder: CounterHolder::Player { player: *player },
+                        counter: CounterKind::Named { name: kind.into() },
+                        previous: before.clone(),
+                        current: after.clone(),
+                        placed_by: (after > before).then_some(putter).flatten(),
+                        timestamp: None,
+                        with_entry: None,
+                    });
+                }
+            }
+        }
+        Ok(changes)
+    }
+
     fn entered_facet(&self, object: ObjectId) -> Result<Facet, String> {
         let current = self.current(object)?;
         Ok(Facet::Entered {
@@ -488,7 +715,7 @@ impl RulesTxn {
         })
     }
 
-    /// The single writer of creation, entry and movement facts: the actual
+    /// The single writer of creation, entry, movement and counter facts: the actual
     /// members of one committed occurrence, read against its prior.
     pub(crate) fn occurrence_actuals(
         &self,
@@ -497,7 +724,16 @@ impl RulesTxn {
         group: Option<&GroupId>,
         occurrence: &OccurrenceResult,
     ) -> Result<Vec<Actual>, String> {
-        let origin = Origin::of(cause, before);
+        let mut origin = Origin::of(cause, before);
+        if matches!(
+            occurrence.proposed,
+            ProposedEvent::PayCounterCost {
+                cost: CounterCost::Loyalty { .. },
+                ..
+            }
+        ) {
+            origin.root = Root::Cost(CostOf::Loyalty);
+        }
         let mut members: Vec<Vec<Facet>> = vec![];
         let created = |object: &ObjectId, creator: PlayerId| -> Result<Vec<Facet>, String> {
             let recipe = self
@@ -592,6 +828,21 @@ impl RulesTxn {
                 }
             }
         }
+        let group = group.cloned().or_else(|| {
+            (!occurrence.counter_changes.is_empty()
+                && members.len() + occurrence.counter_changes.len() > 1)
+                .then(|| GroupId {
+                    batch: occurrence.id.batch,
+                    path: occurrence.id.path.clone(),
+                })
+        });
+        members.extend(
+            occurrence
+                .counter_changes
+                .iter()
+                .cloned()
+                .map(|change| vec![Facet::Counters(change)]),
+        );
         members
             .into_iter()
             .enumerate()
@@ -601,7 +852,7 @@ impl RulesTxn {
                         occurrence: occurrence.id.clone(),
                         member: u32::try_from(member).map_err(|_| "event member limit")?,
                     },
-                    group: group.cloned(),
+                    group: group.clone(),
                     cause: cause.clone(),
                     origin,
                     lineage: None,
@@ -622,6 +873,15 @@ impl RulesTxn {
         let mut delta = LedgerDelta::default();
         let history = &self.state.rules.cast_history;
         for actual in actuals {
+            if let Some(change) = actual.counters() {
+                let row = delta.seat(change.holder.seat());
+                let delta = change.delta();
+                if delta.is_negative() {
+                    row.counter_removals.subtract(&delta);
+                } else {
+                    row.counter_placements.add(&delta);
+                }
+            }
             if let Some(entrant) = actual.entrant() {
                 let controller = self.current(entrant)?.controller;
                 let types = self.characteristics(entrant)?;
@@ -698,9 +958,8 @@ impl RulesTxn {
         }
         // 4. Trigger matching and delayed watchers read the facets.
         self.collect_triggers(cause, before, occurrences, &actuals)?;
-        // 5. A bounded procedure that opened a journal (a mana ability's
-        // costs) binds the members and ledger change. Resolving steps still
-        // bind their own committed outcomes until the frame migrates.
+        // 5. Bounded procedures and the resolving counter step bind the
+        // members from this publication.
         if let Some(journal) = self.actual_journal.as_deref_mut() {
             for (occurrence, members) in occurrences.iter().zip(&actuals) {
                 if members.is_empty() {
@@ -713,6 +972,11 @@ impl RulesTxn {
                 journal.actuals.extend(members.iter().cloned());
             }
             journal.ledger.merge(&delta)?;
+        }
+        if matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction }
+            if &transaction.cause == cause)
+        {
+            self.finish_counter_batch(actuals.iter().flatten())?;
         }
         Ok(())
     }
