@@ -109,17 +109,21 @@ fn field_presence_and_discriminator_faults_keep_their_pointers() {
         Fault::Unknown,
     );
     change("/schemaVersion", json!(2), Fault::Unknown);
+    change("/schemaVersion", json!("1"), Fault::Malformed);
 
     let mut present = input.clone();
     let token = &mut present["faces"][0]["lines"][0]["tokens"][0];
     token["possessive"] = json!(true);
     assert!(PrintedCard::decode(&present.to_string()).is_ok());
-    present["faces"][0]["lines"][0]["tokens"][0]["possessive"] = Value::Null;
-    reject(
-        &present.to_string(),
-        Fault::Null,
-        "/faces/0/lines/0/tokens/0/possessive",
-    );
+    let possessive_path = "/faces/0/lines/0/tokens/0/possessive";
+    for (value, fault) in [
+        (Value::Null, Fault::Null),
+        (json!(false), Fault::Unknown),
+        (json!("true"), Fault::Malformed),
+    ] {
+        *present.pointer_mut(possessive_path).unwrap() = value;
+        reject(&present.to_string(), fault, possessive_path);
+    }
     change(
         "/faces/0/blocks/0/facts/0/field",
         json!([]),
@@ -144,6 +148,13 @@ fn field_presence_and_discriminator_faults_keep_their_pointers() {
         let decoded = PrintedFace::decode(&missing.to_string()).unwrap();
         assert_eq!(serde_json::to_value(decoded).unwrap(), missing);
     }
+}
+
+#[test]
+fn unmappable_face_round_trips() {
+    let input = json!({ "sourceFaceIndex": 1, "status": "unmappable", "reason": "raw-nul" });
+    let decoded = PrintedFace::decode(&input.to_string()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), input);
 }
 
 #[test]
