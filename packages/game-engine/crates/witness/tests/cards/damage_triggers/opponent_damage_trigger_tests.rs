@@ -266,7 +266,7 @@ fn opponent_damage_private_noncombat_leaf_multiplicity_and_negative_recipients()
         DamageRecipient::Player {
             player: PlayerId(0),
         },
-        DamageRecipient::Creature { object: source },
+        DamageRecipient::Permanent { object: source },
     ] {
         legacy(&mut g, recipient, 1).unwrap();
         assert!(g.state.rules.pending_triggers.is_empty());

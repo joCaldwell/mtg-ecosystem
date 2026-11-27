@@ -85,6 +85,7 @@ pub(super) fn lower(cost: &SourceCost) -> Result<ChosenObjectCost, Failure> {
         _ => return Err(gap()),
     };
     Ok(ChosenObjectCost {
+        minimum_power: None,
         action,
         filter,
         count,
@@ -182,6 +183,7 @@ pub(super) fn matches_printed(cost: &ChosenObjectCost, term: &str) -> bool {
         Type(kind) => match kind {
             CardKind::Artifact => "artifact",
             CardKind::Creature => "creature",
+            CardKind::Planeswalker => "planeswalker",
             CardKind::Enchantment => "enchantment",
             CardKind::Instant => "instant",
             CardKind::Land => "land",

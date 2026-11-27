@@ -180,6 +180,13 @@ impl RulesTxn {
                         .collect(),
                 }
             }
+            Shape::CombatDistribute { mut groups, lethal } => {
+                for group in &mut groups {
+                    group.source = m(&group.source);
+                    group.recipients = group.recipients.iter().map(m).collect();
+                }
+                Shape::CombatDistribute { groups, lethal }
+            }
             Shape::Pay {
                 cost,
                 pool,
@@ -469,7 +476,7 @@ impl RulesTxn {
         };
         for spec in specs {
             let allowed = match spec.domain {
-                TargetDomain::AnyDamageTarget => self
+                TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => self
                     .eligible_entities()
                     .into_iter()
                     .map(|entity| {
@@ -480,9 +487,7 @@ impl RulesTxn {
                         candidate_index(&mut candidates, target)
                     })
                     .collect(),
-                TargetDomain::AnyPlayer
-                | TargetDomain::OpponentPlayer
-                | TargetDomain::PlayerOrPlaneswalker => self
+                TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => self
                     .eligible_players(spec.domain, entry.controller)
                     .into_iter()
                     .map(|player| candidate_index(&mut candidates, Candidate::Player { player }))

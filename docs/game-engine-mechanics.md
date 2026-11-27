@@ -82,15 +82,21 @@ public revisions change only with permitted information. Real restore rejects
 sampled origins ([search](game-engine-search.md) owns hypothetical origins).
 
 <a id="modal-double-faced-cards"></a>
+<a id="double-faced-cards-and-adventurers"></a>
 
-## Double-faced cards and adventurers
+## Two-part cards
 
-The layout allowlist admits Scryfall `normal`, `modal_dfc`, `transform` and
-`adventure`. Both Archive R5 parts must lower completely; the card requires
+The layout allowlist admits Scryfall `normal`, `modal_dfc`, `transform`, `adventure` and
+`split`. Both Archive R5 parts must lower completely; the card requires
 both parts' capabilities and keeps one frozen color identity (CR 903.4d).
-Deck construction, commander eligibility and zones other than the stack or
-battlefield use the front or normal characteristics. Every zone change
+For double-faced cards and adventurers, deck construction, commander eligibility
+and zones other than the stack or battlefield use the front or normal characteristics. Every zone change
 creates a fresh front-face incarnation (CR 400.7, 712.8a, 712.14, 715.4).
+
+A split instant/sorcery has both names, types and colors and the sum of its mana
+costs outside the stack. Each cast offers only legal halves and uses the chosen
+half alone through resolution (CR 709.3–4). Rooms, Fuse and Aftermath reject
+explicitly (CR 709.5, 702.102, 702.127).
 
 A modal card offers each legal face as its own cast or land play, with that
 face's timing, targets, costs and entry rules; the cast face stays up
@@ -115,8 +121,8 @@ exile; hidden zones show neither part (CR 712.6–7). Decision context names
 the chosen part after restore. Snapshots reject a face, transform count,
 permission, ability face or baseline the card or zone cannot have.
 
-Support is provisional at `Executes`. Split, flip, meld, prototype, Omen and
-Room layouts, battle and planeswalker faces, daybound, disturb, craft,
+Support is provisional at `Executes`. Flip, meld, prototype and Omen layouts,
+battle faces and two-part planeswalker cards, daybound, disturb, craft,
 casting or entering transformed and two-part flashback stay rejected.
 
 ## Face-down casting
@@ -378,6 +384,9 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   move (CR 400.2). The menu offers the ability only if enough objects remain
   after funding mana. Random or whole-hand discard, variable counts, other
   graveyards, self-exile from hand and chosen-object mana abilities reject.
+- **Crew** (CR 702.122a) uses priority and the stack. Its cost chooses other
+  untapped creatures the activator controls with enough combined current
+  power. Summoning sickness does not prevent a creature from paying this cost.
 - **Restrictions** are permission gates. "As a sorcery" is main-phase timing;
   your turn, your upkeep, your turn before attackers, combat, end of combat and
   not your turn are typed windows. "Only once each turn" and "no more than
@@ -441,9 +450,8 @@ exactly the announced X, or any number up to the announced X (CR 115.3,
 Zero targets still allows untargeted actions to resolve. Other graveyard group
 entries, derived X counts, mixed required and optional occurrences
 and optional permanent spells reject. "Target player or planeswalker" announces
-players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
-120.3). Already-matching tap status emits no event and combat membership is
-preserved. "Put a +1/+1 counter on each [creature filter]" applies
+either entity (CR 115.1, 120.3). Already-matching tap status emits no event and
+combat membership is preserved. "Put a +1/+1 counter on each [creature filter]" applies
 simultaneously to the current set. “Tap all creatures target player controls”
 reads that player’s creatures at resolution.
 
@@ -485,7 +493,7 @@ request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition; reviewed patterns keep their capabilities, others use `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes, mana grants, rule statics and P/T CDAs (`characteristic_power_toughness_v1`); the [mana abilities](#mana-abilities) (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
-| Card shell | Normal cards and [double-faced or adventurer cards](#double-faced-cards-and-adventurers) whose parts have complete bound source and supported spell costs and keywords. |
+| Card shell | Normal cards and [two-part cards](#two-part-cards) whose parts have complete bound source and supported spell costs and keywords. |
 
 Sentences resolve in printed order (CR 608.2c); sorcery-speed activations use
 main-phase timing (CR 602.5d); tokens recover from the creating recipe.

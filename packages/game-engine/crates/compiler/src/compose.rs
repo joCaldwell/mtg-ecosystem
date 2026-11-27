@@ -65,6 +65,7 @@ impl Card<'_> {
             "artifact" => self.has_type(CardKind::Artifact),
             "enchantment" => self.has_type(CardKind::Enchantment),
             "land" => self.has_type(CardKind::Land),
+            "planeswalker" => self.has_type(CardKind::Planeswalker),
             "permanent" => !matches!(self.kind, CardKind::Instant | CardKind::Sorcery),
             _ => false,
         }
@@ -117,6 +118,10 @@ enum Block {
         ability_word: Option<String>,
         effects: Vec<serde_json::Value>,
     },
+    Loyalty {
+        cost: LoyaltyCost,
+        effects: Vec<serde_json::Value>,
+    },
     Activated {
         restriction: Option<serde_json::Value>,
         #[serde(rename = "abilityWord")]
@@ -136,6 +141,13 @@ enum Block {
         #[serde(rename = "variableConstraints")]
         variable_constraints: Option<serde_json::Value>,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoyaltyCost {
+    sign: i64,
+    amount: i64,
 }
 
 /// One printed sentence: either the shared typed mirror or step-table rows.
@@ -954,6 +966,20 @@ fn compose(
                     ));
                 }
             }
+            FaceLayout::Split => {
+                let colors: BTreeSet<_> = front
+                    .characteristics
+                    .colors
+                    .iter()
+                    .chain(&back.characteristics.colors)
+                    .collect();
+                if colors != card.printed_colors().into_iter().flatten().collect() {
+                    return Err(unsupported(
+                        "source.colors",
+                        "split colors disagree with the combined mana cost",
+                    ));
+                }
+            }
             FaceLayout::Single | FaceLayout::ModalDoubleFaced => {}
         }
         front.layout = card.layout;
@@ -1012,6 +1038,7 @@ fn compose_face(
     let kind = types.kind;
     let noun = match kind {
         CardKind::Creature => "creature",
+        CardKind::Planeswalker => "planeswalker",
         CardKind::Artifact => "artifact",
         CardKind::Enchantment => "enchantment",
         CardKind::Land => "land",
@@ -1125,6 +1152,12 @@ fn compose_face(
                                 .static_abilities
                                 .push(keywords::affinity(one, text)?);
                             labels.statics.push(label);
+                        }
+                        [one] if one.keyword == "crew" => {
+                            definition
+                                .activated
+                                .push(keywords::crew(&card, one, label, text)?);
+                            labels.activated.push(label);
                         }
                         [one] if one.keyword == "equip" => {
                             definition
@@ -1332,6 +1365,13 @@ fn compose_face(
                                     .triggered
                                     .push(keywords::triggered(&card, keyword, label)?);
                                 labels.triggered.push(label);
+                                // CR 702.25a: "a creature without flanking"
+                                // reads this marker.
+                                if keyword.keyword == "flanking"
+                                    && !definition.keywords.contains(&KeywordAbility::Flanking)
+                                {
+                                    definition.keywords.push(KeywordAbility::Flanking);
+                                }
                             }
                         }
                         _ => definition
@@ -1436,6 +1476,52 @@ fn compose_face(
                             &control_env(Context::Spell, &program.targets, None),
                         )?;
                     }
+                }
+                Block::Loyalty { cost, effects } => {
+                    // CR 606.4: fixed printed loyalty change is the sole cost.
+                    let text = &result.lines[block].text;
+                    let printed_cost = match (cost.sign, cost.amount) {
+                        (1, amount) if amount > 0 => format!("+{amount}"),
+                        (-1, amount) if amount > 0 => format!("-{amount}"),
+                        (0, 0) => "0".to_owned(),
+                        _ => return Err(unsupported("compose.cost", "unsupported loyalty cost")),
+                    };
+                    if kind != CardKind::Planeswalker
+                        || text.split_once(": ").map(|(cost, _)| cost)
+                            != Some(printed_cost.as_str())
+                    {
+                        return Err(unsupported(
+                            "compose.cost",
+                            "printed loyalty cost differs from the AST",
+                        ));
+                    }
+                    let mut program = SpellProgram::instructions(SpellTiming::MainPhase);
+                    append_effects(
+                        &mut program,
+                        parts(&effects)?,
+                        block,
+                        &mut BTreeMap::new(),
+                        Context::Activated,
+                        |typed| {
+                            validate_damage_sources(
+                                typed,
+                                DamageSourceBinding::Invocation {
+                                    first_it_is_self: false,
+                                },
+                            )
+                        },
+                        PlayerBinding::Unbound,
+                    )?;
+                    definition.activated.push(ActivatedAbility {
+                        modal: None,
+                        functioning_zone: FunctioningZone::Battlefield,
+                        restriction: None,
+                        cost: ActivationCost::Loyalty {
+                            change: Quantity::from(cost.sign * cost.amount),
+                        },
+                        program,
+                    });
+                    labels.activated.push(label);
                 }
                 Block::Activated {
                     ability_word: word,

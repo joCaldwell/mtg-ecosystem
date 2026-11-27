@@ -59,19 +59,14 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         | TargetDomain::ControlledBattlefieldPermanent
         | TargetDomain::BattlefieldCreature => (Route::Object, ANY),
         TargetDomain::AnyDamageTarget => (Route::Entity, ANY),
-        TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
-            (Route::Player, SPELL | TRIGGERED)
-        }
+        TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => (Route::Player, ANY),
         TargetDomain::GraveyardCard { .. }
         | TargetDomain::OwnGraveyardCreatureCard
         | TargetDomain::OwnGraveyardCard => (Route::Object, ANY),
         TargetDomain::StackSpell
         | TargetDomain::ControlledCreatureSpell
         | TargetDomain::StackActivatedOrTriggeredAbility => (Route::Stack, SPELL | ACTIVATED),
-        // CR 115.1, 120.3: planeswalker faces are not admitted (see mechanics), so
-        // the closed scenario's inhabitants are players, announced as
-        // AnyPlayer is.
-        TargetDomain::PlayerOrPlaneswalker => (Route::Player, SPELL | TRIGGERED),
+        TargetDomain::PlayerOrPlaneswalker => (Route::Entity, ANY),
         TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
@@ -675,6 +670,15 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
             use ChosenCostFilter::{Any, ArtifactOrCreature, Subtype, Type};
             a.functioning_zone == FunctioningZone::Battlefield
                 && cost.count > 0
+                && cost.minimum_power.is_none_or(|n| {
+                    n > 0
+                        && cost.count == 1
+                        && cost.action == Tap
+                        && cost.filter == Type(CardKind::Creature)
+                        && cost.another
+                        && !cost.tap_source
+                        && cost.mana.is_none()
+                })
                 && cost.mana.as_ref().is_none_or(mana_ok)
                 && (!cost.another || cost.action != Discard)
                 && match (&cost.action, &cost.filter) {
@@ -741,6 +745,11 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
         ActivationCost::TapPayLifeSacrificeSource { life } => {
             route.is_none() && !life.is_negative()
         }
+        ActivationCost::Loyalty { .. } => {
+            kind == CardKind::Planeswalker
+                && a.functioning_zone == FunctioningZone::Battlefield
+                && p.timing == SpellTiming::MainPhase
+        }
         ActivationCost::DiscardSource { .. } => false,
     };
     if !payable {
@@ -767,6 +776,7 @@ fn activation_mana(cost: &ActivationCost) -> Option<&ManaCost> {
         ActivationCost::Composite { costs } => costs.mana.as_ref(),
         ActivationCost::SacrificeSource
         | ActivationCost::TapSource
+        | ActivationCost::Loyalty { .. }
         | ActivationCost::TapPayLifeSacrificeSource { .. } => None,
     }
 }
@@ -792,6 +802,28 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                 && matches!(&a.cost, ActivationCost::Composite { costs } if costs.pay_life.is_some())))
     {
         return cell("activated", "announced_mana");
+    }
+    let crew =
+        matches!(&a.cost, ActivationCost::ChooseObjects(cost) if cost.minimum_power.is_some());
+    let statless_animation = a.programs().any(|program| {
+        program.instructions.iter().any(|i| {
+            matches!(i, Instruction::Kernel {
+            node: kir::Node::Do(kir::Verb::SetCharacteristics { values, .. }), ..
+        } if values.animation.is_some() && values.base_power.is_none())
+        })
+    });
+    if crew != statless_animation
+        || crew
+            && (d.characteristics.subtypes != ["Vehicle"]
+                || a.modal.is_some()
+                || a.restriction.is_some()
+                || a.program.timing != SpellTiming::Instant
+                || !a.program.targets.is_empty()
+                || !matches!(a.program.instructions.as_slice(), [Instruction::Kernel {
+            node: kir::Node::Do(kir::Verb::SetCharacteristics { values, until: kir::Until::EndOfTurn, .. }), ..
+        }] if values.colors.is_none() && values.keywords.is_empty()))
+    {
+        return cell("activated", "crew_shape");
     }
     // CR 602.2b, 700.2: a modal activation is a battlefield ability whose
     // every selection is checked below as its own program.
@@ -886,7 +918,11 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     if a.functioning_zone != FunctioningZone::Battlefield
         || !matches!(
             d.characteristics.kind,
-            CardKind::Creature | CardKind::Artifact | CardKind::Enchantment | CardKind::Land
+            CardKind::Creature
+                | CardKind::Artifact
+                | CardKind::Enchantment
+                | CardKind::Land
+                | CardKind::Planeswalker
         )
     {
         return cell("activated", "source");
@@ -989,6 +1025,28 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     if let Some(modal) = &a.modal {
         modal_shape(&a.program, modal, true)?;
     }
+    // CR 702.116a: myriad is exactly the reviewed ability of a single-faced
+    // creature card; its tokens copy that card. CR 614.1c, 614.12: the
+    // copies' own entry replacements would modify their creation, which has
+    // no entry stage.
+    if a.names_myriad()
+        && (!a.is_myriad()
+            || kind != CardKind::Creature
+            || d.layout != FaceLayout::Single
+            || d.back_face.is_some()
+            || d.static_abilities.iter().any(|s| {
+                matches!(
+                    s.effect,
+                    StaticEffect::EntersTapped
+                        | StaticEffect::PayLifeOrEnterTapped { .. }
+                        | StaticEffect::RevealOrEnterTapped { .. }
+                        | StaticEffect::EntersTappedIf { .. }
+                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                )
+            }))
+    {
+        return cell("trigger", "myriad");
+    }
     for p in a.programs() {
         if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
             program(p, Context::Triggered, Some(&a.condition), false)?;
@@ -1085,7 +1143,12 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
 /// The keyword row (CR 702): evergreen keywords with no parameters.
 fn keyword(d: &Definition, k: KeywordAbility) -> bool {
     use KeywordAbility as K;
-    match d.characteristics.kind {
+    let kind = if d.characteristics.subtypes == ["Vehicle"] {
+        CardKind::Creature
+    } else {
+        d.characteristics.kind
+    };
+    match kind {
         CardKind::Creature => matches!(
             k,
             K::Flash
@@ -1120,16 +1183,24 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
                 | K::Horsemanship
                 | K::Fear
                 | K::Skulk
+                // CR 702.25a: with its trigger (`triggered`).
+                | K::Flanking
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
-        CardKind::Instant | CardKind::Sorcery => false,
+        CardKind::Instant | CardKind::Sorcery | CardKind::Planeswalker => false,
     }
 }
 
 /// Complete admission of a composed definition. Nothing here defers to a
 /// whole-card family, so a rejected row can never be reached another way.
 pub(crate) fn validate(d: &Definition) -> Result<(), String> {
+    // CR 702.25a: the flanking marker and the flanking trigger come together.
+    if d.keywords.contains(&KeywordAbility::Flanking)
+        != d.triggered.iter().any(TriggeredAbility::is_flanking)
+    {
+        return cell("keyword", "flanking");
+    }
     let p = &d.provenance;
     let source: serde_json::Value = strict_read(&p.source_json)?;
     let abilities_json = match &d.back_face {
@@ -1148,6 +1219,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         Some("modal_dfc") => FaceLayout::ModalDoubleFaced,
         Some("transform") => FaceLayout::Transforming,
         Some("adventure") => FaceLayout::Adventurer,
+        Some("split") => FaceLayout::Split,
         _ => FaceLayout::Single,
     };
     if d.layout != layout || d.back_face.is_some() == layout.is_single() {
@@ -1232,6 +1304,26 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
                 && back.mana_abilities.is_empty()
                 && back.static_abilities.is_empty()
                 && back.keywords.is_empty()
+        }
+        // CR 709.3–4: both parts must be complete spell programs.
+        // Permanent splits, fused casts and Aftermath each need distinct rules.
+        FaceLayout::Split => {
+            let unsupported_keyword = source["keywords"].as_array().is_some_and(|ks| {
+                ks.iter()
+                    .any(|k| matches!(k.as_str(), Some("Fuse" | "Aftermath")))
+            });
+            !unsupported_keyword
+                && [d, back].iter().all(|half| {
+                    !permanent(half)
+                        && !adventure_subtype(half)
+                        && half.characteristics.front_face_mana_value.is_none()
+                        && half.spell.is_some()
+                        && half.activated.is_empty()
+                        && half.triggered.is_empty()
+                        && half.static_abilities.is_empty()
+                        && half.mana_abilities.is_empty()
+                        && half.keywords.is_empty()
+                })
         }
         FaceLayout::Single => false,
     };
@@ -1320,6 +1412,8 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     // Phyrexian symbol one color and its 2-life alternative.
     if ((!c.hybrid_mana.is_empty() || d.x_mana_cost) && d.spell.is_none())
         || !c.hybrid_mana.iter().all(hybrid_symbol)
+        || (c.kind == CardKind::Planeswalker) != c.loyalty.is_some()
+        || c.loyalty.as_ref().is_some_and(Quantity::is_negative)
         || c.snow
         || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
@@ -1329,6 +1423,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && !(s == "Adventure"
                     && matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
                     && c.subtypes == ["Adventure"]))
+                || (s == "Vehicle" && (c.kind != CardKind::Artifact || c.subtypes != ["Vehicle"]))
                 || (s == "Aura" && (c.kind != CardKind::Enchantment || c.subtypes != ["Aura"]))
                 || (s == "Equipment"
                     && (c.kind != CardKind::Artifact || c.subtypes != ["Equipment"]))
@@ -1411,10 +1506,12 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && d.intrinsic_zone.is_none()
                 && d.spell.as_ref().is_some_and(permanent_spell)
         }
-        CardKind::Artifact | CardKind::Enchantment => {
-            c.power.is_none()
-                && c.toughness.is_none()
-                && d.intrinsic_zone.is_none()
+        CardKind::Artifact | CardKind::Enchantment | CardKind::Planeswalker => {
+            (if c.subtypes == ["Vehicle"] && c.kind == CardKind::Artifact {
+                c.power.is_some() && c.toughness.is_some()
+            } else {
+                c.power.is_none() && c.toughness.is_none()
+            }) && d.intrinsic_zone.is_none()
                 && d.spell.as_ref().is_some_and(permanent_spell)
         }
         // CR 305.1, 305.9: lands are played, never cast, and have no mana cost.

@@ -146,8 +146,9 @@ impl Published {
             libraries,
             combat,
             combat_declared,
+            combat_defenders,
             damage_choices,
-            player_damage_choices,
+            defender_damage_choices,
             first_strike_participants,
             blocking_creatures,
             cleanup_repeat,
@@ -203,13 +204,14 @@ impl Published {
             && *pending_triggers == was.pending_triggers
             && *combat == was.combat
             && *combat_declared == was.combat_declared
+            && *combat_defenders == was.combat_defenders
             && *control_effects == was.control_effects
             && *commanders == was.commanders
             && *commander_returns == was.commander_returns
             && *match_state == was.match_state
             && *mana_ability_uses == was.mana_ability_uses
             && *damage_choices == was.damage_choices
-            && *player_damage_choices == was.player_damage_choices
+            && *defender_damage_choices == was.defender_damage_choices
             && *first_strike_participants == was.first_strike_participants
             && *blocking_creatures == was.blocking_creatures
             && *cleanup_repeat == was.cleanup_repeat

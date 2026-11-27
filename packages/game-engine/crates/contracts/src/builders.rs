@@ -335,6 +335,144 @@ impl ActivatedAbility {
     }
 }
 
+impl TriggeredAbility {
+    /// CR 702.116a: "Whenever this creature attacks, for each opponent other
+    /// than defending player, you may create a token that's a copy of this
+    /// creature that's tapped and attacking that player or a planeswalker
+    /// they control. If one or more tokens are created this way, exile the
+    /// tokens at end of combat."
+    pub fn myriad(block: u32) -> Self {
+        let kernel = |node| Instruction::Kernel {
+            source_block: block,
+            node,
+        };
+        let mut exile = SpellProgram::instructions(SpellTiming::Instant);
+        exile
+            .instructions
+            .push(kernel(kir::Node::Do(kir::Verb::ExileMyriadTokens {})));
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        program.instructions.push(kernel(kir::Node::ForEach {
+            var: 0,
+            over: kir::Domain::Players {
+                players: kir::PlayerExpr::EachOpponent,
+            },
+            body: Box::new(kir::Node::Optional {
+                chooser: kir::PlayerExpr::you(kir::Context::Triggered),
+                node: Box::new(kir::Node::Do(kir::Verb::CreateMyriadToken {
+                    defender: kir::PlayerExpr::Is {
+                        who: kir::Ref::BoundVar { id: 0 },
+                    },
+                })),
+            }),
+        }));
+        program.instructions.push(kernel(kir::Node::Delayed {
+            event: kir::DelayedEvent::EndOfCombat,
+            program: Box::new(exile),
+        }));
+        Self {
+            modal: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::Event {
+                pattern: kir::EventPattern::Attacks {
+                    attacker: kir::Pred::source(),
+                },
+                intervening_if: None,
+                once_each_turn: false,
+                your_turn: false,
+            },
+            program,
+        }
+    }
+
+    /// CR 702.25a: "Whenever this creature becomes blocked by a creature
+    /// without flanking, the blocking creature gets -1/-1 until end of turn."
+    pub fn flanking(block: u32) -> Self {
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::ModifyUntil {
+                what: kir::SetExpr::One {
+                    object: kir::Ref::EventObject {
+                        role: kir::EventObjectRole::Blocker,
+                    },
+                },
+                layer: kir::Layer::PowerToughnessModify,
+                change: kir::Change::PowerToughness {
+                    power: kir::Amount::fixed(-1),
+                    toughness: kir::Amount::fixed(-1),
+                },
+                until: kir::Until::EndOfTurn,
+            }),
+        });
+        Self {
+            modal: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::on(kir::EventPattern::BlockedByCreature {
+                attacker: kir::Pred::source(),
+                blocker: kir::Pred(vec![
+                    kir::Atom::Type {
+                        kind: CardKind::Creature,
+                    },
+                    kir::Atom::NotKeyword {
+                        keyword: KeywordAbility::Flanking,
+                    },
+                ]),
+            }),
+            program,
+        }
+    }
+
+    /// CR 702.25a: this is exactly a flanking ability.
+    pub fn is_flanking(&self) -> bool {
+        let block = self.program.instructions.first().map(|i| match i {
+            Instruction::Kernel { source_block, .. } => *source_block,
+        });
+        block.is_some_and(|block| *self == Self::flanking(block))
+    }
+
+    /// CR 702.116a: this is exactly a myriad ability.
+    pub fn is_myriad(&self) -> bool {
+        let block = self.program.instructions.first().map(|i| match i {
+            Instruction::Kernel { source_block, .. } => *source_block,
+        });
+        block.is_some_and(|block| *self == Self::myriad(block))
+    }
+
+    /// Whether any program of this ability names a myriad verb.
+    pub fn names_myriad(&self) -> bool {
+        fn names(node: &kir::Node) -> bool {
+            match node {
+                kir::Node::Do(
+                    kir::Verb::CreateMyriadToken { .. } | kir::Verb::ExileMyriadTokens {},
+                ) => true,
+                kir::Node::Do(_) => false,
+                kir::Node::Seq(nodes) => nodes.iter().any(names),
+                kir::Node::If {
+                    then, otherwise, ..
+                } => names(then) || otherwise.as_deref().is_some_and(names),
+                kir::Node::Optional { node, .. }
+                | kir::Node::UnlessPays { node, .. }
+                | kir::Node::IfPays { node, .. } => names(node),
+                kir::Node::ForEach { body, .. } | kir::Node::Choose { body, .. } => names(body),
+                kir::Node::Delayed { program, .. } | kir::Node::Reflexive { program, .. } => {
+                    program.instructions.iter().any(|i| match i {
+                        Instruction::Kernel { node, .. } => names(node),
+                    })
+                }
+                kir::Node::ChooseObject { .. }
+                | kir::Node::TapTargets { .. }
+                | kir::Node::SacrificeForTappedReturn { .. }
+                | kir::Node::RemoveTargets { .. } => false,
+            }
+        }
+        self.programs().any(|p| {
+            p.instructions.iter().any(|i| match i {
+                Instruction::Kernel { node, .. } => names(node),
+            })
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

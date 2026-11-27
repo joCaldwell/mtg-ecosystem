@@ -142,14 +142,16 @@ impl PendingInput {
         };
         let mut result = vec![];
         for (slot, picked) in slots.iter().zip(picks) {
-            if let [index] = picked.as_slice() {
+            if !picked.is_empty() {
                 let Candidate::Object { object } = self
                     .decision
                     .candidate(slot.subject.ok_or("missing combat subject")?)?
                 else {
                     return Err("expected combat creature".into());
                 };
-                result.push((*object, self.decision.candidate(*index)?));
+                for &index in picked {
+                    result.push((*object, self.decision.candidate(index)?));
+                }
             }
         }
         Ok(result)
@@ -283,6 +285,9 @@ impl RulesTxn {
                     remapped[target] = n.clone();
                 }
                 Answer::Distribute { amounts: remapped }
+            }
+            (Shape::CombatDistribute { .. }, _, _) | (_, Shape::CombatDistribute { .. }, _) => {
+                return Err("combat allocation offer changed".into());
             }
             _ => pending.answer.clone(),
         };

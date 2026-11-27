@@ -923,6 +923,39 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                 qualified_condition(x.condition.as_deref(), x.condition_kind)?,
             )
         }
+        C::BlockCapacity(x) => {
+            use ast::CombatRuleBlockCapacityCapacity as Capacity;
+            let requirement = match x.capacity.as_ref() {
+                Capacity::Additional(extra) => {
+                    let count = u32::try_from(fixed_value(&extra.additional)?)
+                        .ok()
+                        .filter(|count| *count > 0)
+                        .ok_or_else(|| gap("combat-rule:block-capacity:amount"))?;
+                    CombatRequirement::AdditionalBlocks(count)
+                }
+                Capacity::Maximum(maximum)
+                    if matches!(
+                        maximum.maximum.as_ref(),
+                        ast::LandPlayAllowanceAdditional::Unlimited
+                    ) =>
+                {
+                    CombatRequirement::UnlimitedBlocks
+                }
+                _ => return Err(gap("combat-rule:block-capacity:maximum")),
+            };
+            (
+                requirement,
+                qualified_condition(x.condition.as_deref(), x.condition_kind)?,
+            )
+        }
+        C::DamageAssignmentValue(x)
+            if x.value == ast::CombatRuleDamageAssignmentValueValue::Toughness =>
+        {
+            (
+                CombatRequirement::AssignCombatDamageWithToughness,
+                qualified_condition(x.condition.as_deref(), x.condition_kind)?,
+            )
+        }
         C::BlockingFilter(x)
             if x.mode == ast::CombatRuleBlockerFilterMode::Only
                 && matches!(scope(&x.attackers, false)?, Scope::Matching { filter }
@@ -975,10 +1008,10 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
             });
         }
         C::AttackRestriction(x) => {
-            // CR 508.1b: the engine's only attackable objects are players,
-            // so "planeswalkers you control" adds no defender.
+            // CR 508.1b: player and planeswalker attack restrictions are distinct.
             let you = PlayerExpr::static_controller();
             let mut players = vec![];
+            let mut planeswalkers = false;
             for defender in &x.defenders {
                 match defender {
                     ast::CombatDefender::Player(p) => players.push(player(&p.who)?),
@@ -987,7 +1020,10 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                             if each.filter.types.as_deref()
                                 == Some(&["planeswalker".to_owned()])
                                 && each.filter.control == Some(ast::ObjectFilterControl::You)
-                                && present_fields(&each.filter).len() == 2 => {}
+                                && present_fields(&each.filter).len() == 2 =>
+                        {
+                            planeswalkers = true;
+                        }
                         _ => return Err(gap("combat-rule:attack-restriction:defender")),
                     },
                     _ => return Err(gap("combat-rule:attack-restriction:defender")),
@@ -1002,6 +1038,7 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                 StaticRule::AttackRestriction {
                     affects: declaration_scope(what)?,
                     defender: you,
+                    planeswalkers,
                 },
                 condition,
             ));

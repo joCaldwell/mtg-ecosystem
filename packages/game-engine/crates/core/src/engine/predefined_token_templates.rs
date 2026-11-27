@@ -28,6 +28,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         color_identity: vec![],
         power: None,
         toughness: None,
+        loyalty: None,
         front_face_mana_value: None,
     };
     d.intrinsic_zone = None;

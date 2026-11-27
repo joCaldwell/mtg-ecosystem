@@ -76,6 +76,9 @@ struct StepStamp {
 pub struct ResolutionTriggerClock {
     end: Option<StepStamp>,
     upkeep: [Option<StepStamp>; 4],
+    /// CR 511.1: the latest end of combat step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_combat: Option<StepStamp>,
 }
 
 impl CreatorProgram {
@@ -127,6 +130,14 @@ impl ResolutionTrigger {
             DelayedEvent::NextUpkeep { .. } => {
                 step == TurnStep::Upkeep && turn > self.turn && owner == self.controller
             }
+            // CR 511.2, 603.7: "at end of combat" of the combat it was
+            // created in.
+            DelayedEvent::EndOfCombat => {
+                step == TurnStep::EndCombat
+                    && self.turn == turn
+                    && self.step.phase() == Phase::Combat
+                    && self.step != TurnStep::EndCombat
+            }
             _ => false,
         }
     }
@@ -139,6 +150,39 @@ impl ResolutionTrigger {
 }
 
 impl RulesTxn {
+    pub(super) fn validate_myriad_outcome(
+        &self,
+        frame: &Resolving,
+        outcome: &InstructionOutcome,
+    ) -> Result<(), String> {
+        match outcome {
+            InstructionOutcome::Kernel { outcomes } => {
+                for child in outcomes {
+                    self.validate_myriad_outcome(frame, child)?;
+                }
+            }
+            InstructionOutcome::MyriadAccepted { defender } => {
+                let entry = self.entry(frame.stack_id)?;
+                if !matches!(&entry.kind, StackKind::Triggered {
+                    witness: TriggerEventWitness::CreatureAttacked { defender_player_id, .. },
+                    ..
+                } if *defender_player_id != defender.player)
+                    || !self.state.rules.original_seating.contains(&defender.player)
+                    || defender.player == entry.controller
+                    || defender
+                        .planeswalker
+                        .is_some_and(|o| !self.state.rules.cards.contains_key(&o.card))
+                {
+                    return Err("snapshot invalid myriad defender".into());
+                }
+                // The accepted-input replay proves control, type and presence
+                // at the choice, including a defender that has since departed.
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn resolution_trigger_node<'a>(
         &'a self,
         row: &'a ResolutionTrigger,
@@ -431,6 +475,48 @@ impl RulesTxn {
                     );
                 }
             }
+            // CR 702.116a, 608.2f: create the copies the controller accepted,
+            // all at once; "if one or more tokens are created this way",
+            // their delayed exile.
+            DelayedEvent::EndOfCombat => {
+                fn accepted(outcome: &InstructionOutcome, out: &mut Vec<MyriadDefender>) {
+                    match outcome {
+                        InstructionOutcome::MyriadAccepted { defender } => out.push(*defender),
+                        InstructionOutcome::Kernel { outcomes } => {
+                            outcomes.iter().for_each(|o| accepted(o, out));
+                        }
+                        _ => {}
+                    }
+                }
+                let entry = self.entry(frame.stack_id)?;
+                let (source, controller) = (entry.source, entry.controller);
+                let mut defenders = vec![];
+                frame
+                    .outcomes
+                    .iter()
+                    .for_each(|o| accepted(o, &mut defenders));
+                defenders.retain(|d| self.is_live(d.player) && d.player != controller);
+                if defenders.is_empty() || !self.is_live(controller) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                let actual = self.commit(
+                    ProposedEvent::CreateMyriadTokens {
+                        controller,
+                        source,
+                        defenders,
+                        creator: frame.stack_id,
+                    },
+                    self.instruction_cause(&frame, block)?,
+                )?;
+                self.register_resolution_trigger(&frame, None, None)?;
+                return self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    },
+                );
+            }
             DelayedEvent::TargetLeavesAfterExilingSource { slot } => {
                 watched = self.resolving_creature(&frame, slot)?;
                 let StackKind::Triggered {
@@ -612,6 +698,7 @@ impl RulesTxn {
         });
         match turn.step {
             TurnStep::End => self.rules_mut().resolution_trigger_clock.end = stamp,
+            TurnStep::EndCombat => self.rules_mut().resolution_trigger_clock.end_combat = stamp,
             TurnStep::Upkeep => {
                 self.rules_mut().resolution_trigger_clock.upkeep[owner.0 as usize] = stamp
             }
@@ -772,6 +859,36 @@ impl RulesTxn {
                 result: GroupResult::Effect,
             },
         )
+    }
+
+    /// CR 702.116a, 603.7: exile every token the creating myriad ability
+    /// made that is still on the battlefield, whoever controls it, in one
+    /// simultaneous event. A phased-out token does not exist (CR 702.26b).
+    pub(super) fn execute_myriad_exile(
+        &mut self,
+        frame: Resolving,
+        block: u32,
+    ) -> Result<(), String> {
+        let StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Followup { creator },
+            ..
+        } = self.entry(frame.stack_id)?.kind
+        else {
+            return Err("myriad exile has no delayed invocation".into());
+        };
+        let objects: Vec<_> = self
+            .state
+            .rules
+            .tokens
+            .iter()
+            .filter(|(_, t)| {
+                matches!(t.spec, TokenTemplate::MyriadCopy { creator: c, .. } if c == creator)
+            })
+            .filter_map(|(card, _)| self.state.rules.objects.get(card))
+            .filter(|o| o.present_on_battlefield())
+            .map(|o| o.id)
+            .collect();
+        self.move_board_objects(frame, objects, wipes::SetMove::Exile, block, false)
     }
 
     /// CR 702.84a, 603.7c: exile the returned permanent if it is still the
@@ -968,7 +1085,12 @@ impl RulesTxn {
         let rules = &self.state.rules;
         let clock = &rules.resolution_trigger_clock;
         let seated = |player| rules.original_seating.contains(&player);
-        for stamp in clock.end.iter().chain(clock.upkeep.iter().flatten()) {
+        for stamp in clock
+            .end
+            .iter()
+            .chain(clock.end_combat.iter())
+            .chain(clock.upkeep.iter().flatten())
+        {
             if stamp.batch >= rules.next_batch_id || stamp.turn > rules.turn.number {
                 return Err("resolution trigger step clock invariant".into());
             }
@@ -1150,6 +1272,7 @@ impl RulesTxn {
                         DelayedEvent::NextUpkeep { .. } => clock.upkeep[row.controller.0 as usize]
                             .as_ref()
                             .is_some_and(after),
+                        DelayedEvent::EndOfCombat => clock.end_combat.as_ref().is_some_and(after),
                         _ => return Err("unsupported delayed trigger event".into()),
                     };
                     if let Some(firing) = &row.firing {
@@ -1166,6 +1289,7 @@ impl RulesTxn {
                         };
                         let last = match turn.step {
                             TurnStep::End => clock.end,
+                            TurnStep::EndCombat => clock.end_combat,
                             TurnStep::Upkeep if seated(*owner) => clock.upkeep[owner.0 as usize],
                             _ => None,
                         };

@@ -51,7 +51,7 @@ fn filtered_sacrifice_sources_lower_completely() {
         add(&mut catalog, raw);
     }
     assert!(
-        matches!(compile(ARCHON), mtg_compiler::CompileResult::Unsupported { reason, .. } if reason == "operand:filter:type:planeswalker")
+        matches!(compile(ARCHON), mtg_compiler::CompileResult::Unsupported { reason, .. } if reason == "operand:player:target_opponent")
     );
     assert!(!matches!(
         compile(ENTRAPMENT),

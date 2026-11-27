@@ -183,9 +183,13 @@ state_layout! {
         libraries: Shared<BTreeMap<PlayerId, Vec<CardId>>>,
         combat: Vec<Attacker>,
         combat_declared: bool,
+        /// CR 508.6, 702.121a: the players attacked directly by declared
+        /// attackers this combat, in seat order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        combat_defenders: Vec<PlayerId>,
         damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        player_damage_choices: BTreeMap<ObjectId, (PlayerId, Quantity)>,
+        defender_damage_choices: BTreeMap<ObjectId, (DamageRecipient, Quantity)>,
         /// CR510.4/702.7b: incarnation-bound first-step eligibility, retained even
         /// after combat departure. Empty in every historical profile.
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]

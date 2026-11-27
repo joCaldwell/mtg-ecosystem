@@ -19,6 +19,8 @@ fn zero_budget_defers_projection_and_request_headers_until_initialization_unit()
     // A deliberately invalid private projection fixture makes accidental header
     // construction observable. No snapshot/admission claim is made for it.
     game.state.rules.combat.push(Attacker {
+        planeswalker: None,
+        defender_removed: false,
         attacker: ObjectId {
             face: Default::default(),
             card: CardId(999),

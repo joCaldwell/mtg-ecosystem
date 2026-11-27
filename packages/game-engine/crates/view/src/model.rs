@@ -177,6 +177,7 @@ pub enum Reason<S: Space> {
         offered: Option<GraveyardOrderOption>,
     },
     OptionalEffect,
+    MyriadDefender,
     DamageEffect {
         recipient: S::Entity,
     },
@@ -282,6 +283,7 @@ impl<S: Space> Reason<S> {
             Self::SearchSplitBattlefield => 36,
             Self::LookChooseHand => 37,
             Self::ResolveCardChoice => 38,
+            Self::MyriadDefender => 39,
         }
     }
 }

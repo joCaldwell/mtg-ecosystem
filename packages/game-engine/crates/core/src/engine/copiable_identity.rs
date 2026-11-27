@@ -6,8 +6,9 @@
 use super::*;
 
 impl RulesTxn {
-    /// Base characteristics and intrinsic abilities of this exact incarnation,
-    /// including after departure. This lookup alone does not establish presence
+    /// Printed face for this incarnation, including after departure. A split
+    /// card off the stack combines both halves in `copiable_characteristics`.
+    /// This lookup alone does not establish presence
     /// or authorize an action. The observer/stack/event owns its ObjectId.
     pub(crate) fn copiable_definition(
         &self,
@@ -29,6 +30,22 @@ impl RulesTxn {
         definition
             .face(face)
             .ok_or_else(|| "card has no selected face".into())
+    }
+
+    /// CR 709.3b–4: an identified split card has both halves' copiable
+    /// characteristics everywhere except the stack.
+    pub(super) fn copiable_characteristics(
+        &self,
+        object: &Object,
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let definition = self.copiable_definition(object.id)?;
+        Ok(
+            if object.zone != Zone::Stack && definition.layout == FaceLayout::Split {
+                definition.card_characteristics()
+            } else {
+                std::borrow::Cow::Borrowed(&definition.characteristics)
+            },
+        )
     }
 
     /// CR 113.7a, 712.18: an activated or triggered ability on the stack is

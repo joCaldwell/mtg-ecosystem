@@ -244,7 +244,11 @@ pub struct DamageTransaction {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DamageContinuation {
-    Combat,
+    Combat {
+        // Frozen at assignment, before replacement choices or concessions.
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        toughness_sources: BTreeSet<ObjectId>,
+    },
     Instruction {
         frame: Box<Resolving>,
     },
@@ -265,7 +269,7 @@ impl DamageRecipient {
     pub(super) fn entity(&self) -> TargetEntity {
         match *self {
             Self::Player { player } => TargetEntity::Player { player },
-            Self::Creature { object } => TargetEntity::Object { object },
+            Self::Permanent { object } => TargetEntity::Object { object },
         }
     }
 }
@@ -1203,6 +1207,12 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<Characteristics, String> {
         let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
+        // CR 208.3, 301.7a–b: outside the battlefield, retain printed
+        // stats. On the battlefield, layer 4 determines their availability.
+        if self.current(object)?.zone == Zone::Battlefield && !c.has_type(CardKind::Creature) {
+            c.power = None;
+            c.toughness = None;
+        }
         self.characteristic_power_toughness(object, &mut c)?;
         if c.has_type(CardKind::Creature) {
             let statics = self.static_changes_by_source(object, Layer::PowerToughnessSet, sources);
@@ -1242,11 +1252,14 @@ impl RulesTxn {
         }
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
+            let minus = o.counter_count(&mtg_contracts::kir::CounterKind::MinusOneMinusOne);
             if let Some(p) = c.power.as_mut() {
                 p.add(&o.plus_one_counters);
+                p.subtract(&minus);
             }
             if let Some(t) = c.toughness.as_mut() {
                 t.add(&o.plus_one_counters);
+                t.subtract(&minus);
             }
         }
         for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources) {
@@ -1366,10 +1379,38 @@ impl RulesTxn {
                     source_block,
                 )
             }
+            // CR 603.10, 611.2c: the exact creature the event named, while it
+            // is still that creature on the battlefield (CR 400.7).
+            kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
+            {
+                let target = self.event_object_target(&frame)?;
+                if !self.is_battlefield_creature(target) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::ModifyPowerToughness {
+                        target,
+                        power,
+                        toughness,
+                    },
+                    source_block,
+                )
+            }
 
             _ => return Err("unexpected effect instruction".into()),
         };
         self.commit_resolved_effect(frame, kind, block)
+    }
+
+    /// CR 603.10: the exact incarnation the resolving trigger's event bound.
+    pub(super) fn event_object_target(&self, frame: &Resolving) -> Result<ObjectId, String> {
+        Ok(self
+            .entry(frame.stack_id)?
+            .kind
+            .observed_object()?
+            .last_known
+            .object)
     }
 
     pub(super) fn commit_resolved_effect(
@@ -1472,6 +1513,13 @@ impl RulesTxn {
         // extra occurrences. First/double strike use separate transactions.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         Self::validate_combat_player_members(damage.iter().map(|d| (d.source, &d.recipient)))?;
+        let toughness_sources = damage
+            .iter()
+            .map(|d| d.source)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|source| self.assigns_with_toughness(*source))
+            .collect();
         let entries = damage
             .into_iter()
             .enumerate()
@@ -1490,12 +1538,12 @@ impl RulesTxn {
             })
             .collect::<Result<Vec<_>, String>>()?;
         self.rules_mut().damage_choices.clear();
-        self.rules_mut().player_damage_choices.clear();
+        self.rules_mut().defender_damage_choices.clear();
         self.begin_damage(
             DamageKind::Combat,
             entries,
             BatchCause::Combat,
-            DamageContinuation::Combat,
+            DamageContinuation::Combat { toughness_sources },
         )
     }
     pub(crate) fn prepare_noncombat_damage(
@@ -1574,7 +1622,7 @@ impl RulesTxn {
                 controller,
                 recipient: match t {
                     TargetEntity::Player { player } => DamageRecipient::Player { player },
-                    TargetEntity::Object { object } => DamageRecipient::Creature { object },
+                    TargetEntity::Object { object } => DamageRecipient::Permanent { object },
                 },
                 original_amount: amount.clone(),
                 amount: amount.clone(),
@@ -1638,8 +1686,8 @@ impl RulesTxn {
     pub(super) fn recipient_chooser(&self, recipient: &DamageRecipient) -> Option<PlayerId> {
         match recipient {
             DamageRecipient::Player { player } => self.is_live(*player).then_some(*player),
-            DamageRecipient::Creature { object } => self
-                .is_battlefield_creature(*object)
+            DamageRecipient::Permanent { object } => self
+                .is_permanent_damage_recipient(*object)
                 .then(|| self.current(*object).ok().map(|o| o.controller))
                 .flatten(),
         }
@@ -1690,7 +1738,7 @@ impl RulesTxn {
         keywords: &[KeywordAbility],
         damage: &PreparedDamage,
     ) -> bool {
-        matches!(damage.recipient, DamageRecipient::Creature { object } if targets.contains(&object))
+        matches!(damage.recipient, DamageRecipient::Permanent { object } if targets.contains(&object))
             && keywords.contains(&KeywordAbility::ProtectionFromEachColor)
             && Self::has_color(&damage.source.characteristics)
     }
@@ -1698,7 +1746,7 @@ impl RulesTxn {
     // CR 702.16e,g and 616.1: separate printed qualities have separate
     // candidate identities even when a multicolored source matches both.
     fn intrinsic_protection_keys(&self, recipient: &DamageRecipient) -> Vec<EffectKey> {
-        let DamageRecipient::Creature { object } = *recipient else {
+        let DamageRecipient::Permanent { object } = *recipient else {
             return vec![];
         };
         if !self
@@ -1739,7 +1787,7 @@ impl RulesTxn {
         let mut qualification = None;
         let (after, prevented) = match &pair.effect {
             EffectKey::IntrinsicProtectionFromEverything { source } => {
-                if d.recipient != (DamageRecipient::Creature { object: *source })
+                if d.recipient != (DamageRecipient::Permanent { object: *source })
                     || !self
                         .current(*source)
                         .is_ok_and(|o| o.present_on_battlefield())
@@ -1750,7 +1798,7 @@ impl RulesTxn {
                 (Quantity::zero(), d.amount.clone())
             }
             EffectKey::IntrinsicProtectionFromColor { source, color } => {
-                if d.recipient != (DamageRecipient::Creature { object: *source })
+                if d.recipient != (DamageRecipient::Permanent { object: *source })
                     || !self
                         .current(*source)
                         .is_ok_and(|o| o.present_on_battlefield())
@@ -1838,7 +1886,7 @@ impl RulesTxn {
             .iter()
             .filter_map(|d| {
                 self.recipient_chooser(&d.recipient)
-                    .map(|p| (p, d.recipient.clone()))
+                    .map(|p| (p, d.recipient))
             })
             .collect();
         recipients.sort_by_key(|(p, r)| {
@@ -1846,7 +1894,7 @@ impl RulesTxn {
                 order.iter().position(|q| q == p).unwrap_or(4),
                 match r {
                     DamageRecipient::Player { player } => (0, u32::from(player.0), 0),
-                    DamageRecipient::Creature { object } => (1, object.card.0, object.incarnation),
+                    DamageRecipient::Permanent { object } => (1, object.card.0, object.incarnation),
                 },
             )
         });
@@ -1952,7 +2000,7 @@ impl RulesTxn {
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match tx.continuation {
-                DamageContinuation::Combat => self.grant_turn_priority()?,
+                DamageContinuation::Combat { .. } => self.grant_turn_priority()?,
                 DamageContinuation::Mana { activation } => self.resume_mana_riders(*activation)?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
                     *frame,
@@ -2144,6 +2192,20 @@ impl RulesTxn {
                             && toughness == t
                             && *source_block == effect.origin.source_block
                     }
+                    (
+                        kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
+                        ResolvedEffectKind::ModifyPowerToughness {
+                            target,
+                            power: p,
+                            toughness: t,
+                        },
+                    ) => {
+                        self.event_object_target(frame).ok() == Some(*target)
+                            && self.is_battlefield_creature(*target)
+                            && power == p
+                            && toughness == t
+                            && *source_block == effect.origin.source_block
+                    }
 
                     _ => false,
                 };
@@ -2329,7 +2391,7 @@ impl RulesTxn {
                     }
                     (0, u32::from(player.0))
                 }
-                DamageRecipient::Creature { object } => (1, object.card.0),
+                DamageRecipient::Permanent { object } => (1, object.card.0),
             };
             totals.entry(key).or_default().add(&d.amount);
             source_appearances.insert(d.id, self.damage_source_appearance(d)?);
@@ -2337,7 +2399,7 @@ impl RulesTxn {
                 id: d.id,
                 source: d.source.clone(),
                 controller: d.controller,
-                recipient: d.recipient.clone(),
+                recipient: d.recipient,
                 amount: d.amount.clone(),
             });
         }
@@ -2350,18 +2412,15 @@ impl RulesTxn {
                     self.rules_mut().players[player.0 as usize].lose_life(&amount);
                 (DamageRecipient::Player { player }, before, after)
             } else {
-                let o = self
-                    .rules_mut()
+                let object = self
+                    .state
+                    .rules
                     .objects
-                    .get_mut(&CardId(id))
-                    .ok_or("missing final damage object")?;
-                let before = o.marked_damage.clone();
-                o.marked_damage.add(&amount);
-                (
-                    DamageRecipient::Creature { object: o.id },
-                    before,
-                    o.marked_damage.clone(),
-                )
+                    .get(&CardId(id))
+                    .ok_or("missing final damage object")?
+                    .id;
+                let (before, after) = self.apply_permanent_damage(object, &amount)?;
+                (DamageRecipient::Permanent { object }, before, after)
             };
             results.push(DamageResult {
                 recipient,
@@ -2724,7 +2783,7 @@ impl RulesTxn {
                     }
 
                     (
-                        kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
+                        kernel!(ModifyUntil { what: target_object!(_) | event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -3264,7 +3323,7 @@ impl RulesTxn {
         // The grant supplies the durable effect handle. The creature that
         // actually has protection is the source of this prevention ability.
         let origin = if kind == DamageEffectKind::ProtectionFromEachColor {
-            let DamageRecipient::Creature { object } = d.recipient else {
+            let DamageRecipient::Permanent { object } = d.recipient else {
                 return Err("protection requires a creature recipient".into());
             };
             let handle = self.handle_for(viewer, object)?;
@@ -3417,11 +3476,25 @@ impl RulesTxn {
 
     /// `validate_characteristic_identity` for captured facts, whose transform
     /// count names the face they were captured with (CR 712.18).
+    /// CR 122.1, 608.2h: retained counters feed last-known reads, so they
+    /// hold only admitted kinds, exactly as a permanent's own counters do.
+    pub(crate) fn validate_fact_counters(fact: &ObjectBefore) -> Result<(), String> {
+        if !tokens::counter_kinds_admitted(&fact.counters) {
+            return Err("captured counter kind admission".into());
+        }
+        if fact.plus_one_counters.is_negative() || !tokens::counter_stacks_valid(&fact.counters) {
+            return Err("captured counter facts".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
+        Self::validate_fact_counters(fact)?;
         self.validate_characteristic_identity(
             fact.object,
             fact.transforms,
             fact.face_down,
+            fact.zone,
             &fact.characteristics,
         )
     }
@@ -3435,6 +3508,7 @@ impl RulesTxn {
         source: ObjectId,
         transforms: u32,
         face_down: bool,
+        zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
         let definition = self.definition(source.card)?;
@@ -3445,13 +3519,18 @@ impl RulesTxn {
         if face_down && (transforms > 0 || definition.face_down.is_none()) {
             return Err("captured face-down facts for a card that cannot be face down".into());
         }
-        let mut base = self
-            .fact_definition(source, transforms, face_down)?
-            .characteristics
-            .clone();
-        if c.has_type(CardKind::Creature) != c.power.is_some()
-            || c.power.is_some() != c.toughness.is_some()
-        {
+        let face = self.fact_definition(source, transforms, face_down)?;
+        let mut base = if definition.layout == FaceLayout::Split && zone != Zone::Stack {
+            if source.face != CardFace::Front {
+                return Err("captured split half outside the stack".into());
+            }
+            definition.card_characteristics().into_owned()
+        } else {
+            face.characteristics.clone()
+        };
+        let has_stats =
+            c.has_type(CardKind::Creature) || (zone != Zone::Battlefield && base.power.is_some());
+        if has_stats != c.power.is_some() || c.power.is_some() != c.toughness.is_some() {
             return Err("modified source has invalid stat shape".into());
         }
         // Replay authenticates which provider existed at the original capture.
@@ -3611,6 +3690,8 @@ impl RulesTxn {
             face_down: frozen.face_down,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
+            plus_one_counters: frozen.plus_one_counters.clone(),
+            counters: frozen.counters.clone(),
             ..current
         } == *frozen
     }
@@ -3640,6 +3721,8 @@ impl RulesTxn {
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
                 keywords: fact.keywords.clone(),
+                plus_one_counters: fact.plus_one_counters.clone(),
+                counters: fact.counters.clone(),
                 ..damage.source.clone()
             }) != *fact
         {
@@ -3693,7 +3776,7 @@ impl RulesTxn {
                 tx.entries.iter().map(|d| (d.source.object, &d.recipient)),
             )?;
         }
-        let mut powers: BTreeMap<ObjectId, Quantity> = BTreeMap::new();
+        let mut assigned_by_source: BTreeMap<ObjectId, Quantity> = BTreeMap::new();
         for (i, d) in tx.entries.iter().enumerate() {
             let physical = self
                 .state
@@ -3747,6 +3830,13 @@ impl RulesTxn {
                             && (expected_keywords.contains(keyword)
                                 || (d.source.zone == Zone::Battlefield
                                     && (self.historical_granted_keyword(*keyword)
+                                        // CR 122.1b: a keyword counter it had.
+                                        || d.source.counters.iter().any(|stack| {
+                                            stack.kind
+                                                == mtg_contracts::kir::CounterKind::Keyword {
+                                                    keyword: *keyword,
+                                                }
+                                        })
                                         // CR 702.84a: unearth grants haste.
                                         || (*keyword == KeywordAbility::Haste
                                             && (d.source.unearthed
@@ -3772,31 +3862,39 @@ impl RulesTxn {
                 if !battlefield_creature || d.source.controller != d.controller {
                     return Err("invalid assigned combat source".into());
                 }
-                powers
+                assigned_by_source
                     .entry(d.source.object)
                     .or_default()
                     .add(&d.original_amount);
             }
         }
         match (&tx.kind, &tx.continuation) {
-            (DamageKind::Combat, DamageContinuation::Combat) => {
+            (DamageKind::Combat, DamageContinuation::Combat { toughness_sources }) => {
                 if tx.cause != BatchCause::Combat {
                     return Err("wrong combat damage cause".into());
                 }
-                for (source, assigned) in powers {
+                if toughness_sources
+                    .iter()
+                    .any(|source| !assigned_by_source.contains_key(source))
+                {
+                    return Err("unknown toughness assignment source".into());
+                }
+                for (source, assigned) in assigned_by_source {
                     let fact = &tx
                         .entries
                         .iter()
                         .find(|d| d.source.object == source)
                         .ok_or("missing combat source")?
                         .source;
-                    let power = fact
-                        .characteristics
-                        .power
-                        .as_ref()
-                        .ok_or("missing combat power")?;
-                    if &assigned != power {
-                        return Err("combat assigned total differs from frozen power".into());
+                    let characteristic = if toughness_sources.contains(&source) {
+                        &fact.characteristics.toughness
+                    } else {
+                        &fact.characteristics.power
+                    };
+                    if characteristic.as_ref() != Some(&assigned) {
+                        return Err(
+                            "combat assigned total differs from frozen characteristic".into()
+                        );
                     }
                 }
             }
@@ -3892,7 +3990,7 @@ impl RulesTxn {
                     // The recipient may since have departed. The original
                     // occurrence binds its incarnation and retained copiable
                     // identity. Restore replays the accepted inputs.
-                    if d.recipient != (DamageRecipient::Creature { object: *source })
+                    if d.recipient != (DamageRecipient::Permanent { object: *source })
                         || !self.printed_protection_from_everything(*source)
                         || a.qualification.is_some()
                     {
@@ -3910,7 +4008,7 @@ impl RulesTxn {
                     self.validate_source_appearance(d, &qualification.damage_source)?;
                     // Replay proves the already-consumed recipient and damage-time
                     // colors even when either object or its color provider left.
-                    if d.recipient != (DamageRecipient::Creature { object: *source })
+                    if d.recipient != (DamageRecipient::Permanent { object: *source })
                         || protector.object != *source
                         || protector.zone != Zone::Battlefield
                         || !protector.characteristics.has_type(CardKind::Creature)

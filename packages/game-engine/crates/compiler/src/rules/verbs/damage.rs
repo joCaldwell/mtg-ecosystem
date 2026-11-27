@@ -24,7 +24,7 @@ pub(super) fn lower(
             if cx.context != Context::Spell
                 && matches!(
                     noun.as_str(),
-                    "creature" | "artifact" | "enchantment" | "land" | "permanent"
+                    "creature" | "artifact" | "enchantment" | "land" | "permanent" | "planeswalker"
                 ) => {}
         DamageSource::It {} | DamageSource::This { .. } => return Err(step("damage", "source")),
     }

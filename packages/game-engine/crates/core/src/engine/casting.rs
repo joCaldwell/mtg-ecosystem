@@ -36,7 +36,11 @@ impl RulesTxn {
         if face_down {
             return self.face_down_announcement(player, object);
         }
-        let definition = self.face_definition(card, face)?;
+        let root = self.definition(card)?;
+        if face == CardFace::Back && !root.faces().any(|candidate| candidate == face) {
+            return Err("card cannot be cast as that face".into());
+        }
+        let definition = root.face(face).ok_or("missing cast face")?;
         // CR 702.34a: flashback permits casting from its owner's graveyard.
         // CR 715.3d: an exiled Adventure's controller may cast its card, but
         // not as an Adventure.
@@ -202,9 +206,19 @@ impl RulesTxn {
         card: &ObjectHandle,
         x: Option<&Quantity>,
     ) -> Result<ManaCost, String> {
+        self.quote_face_cast_cost(viewer, card, CardFace::Front, x)
+    }
+
+    /// CR 709.3a: quote a permitted half at its own locked spell cost.
+    pub fn quote_face_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+        face: CardFace,
+        x: Option<&Quantity>,
+    ) -> Result<ManaCost, String> {
         let object = self.resolve_handle(viewer, card)?;
-        let proposal =
-            self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
+        let proposal = self.priority_spell_announcement(viewer, object.card, face, false)?;
         let source = ObjectId {
             face: proposal.face,
             ..proposal.original_object
@@ -222,9 +236,20 @@ impl RulesTxn {
         x: Option<&Quantity>,
         hybrid: &[HybridPayment],
     ) -> Result<ManaCost, String> {
+        self.quote_hybrid_face_cast_cost(viewer, card, CardFace::Front, x, hybrid)
+    }
+
+    /// CR 709.3a: quote the complete announcement for a specified half.
+    pub fn quote_hybrid_face_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+        face: CardFace,
+        x: Option<&Quantity>,
+        hybrid: &[HybridPayment],
+    ) -> Result<ManaCost, String> {
         let object = self.resolve_handle(viewer, card)?;
-        let proposal =
-            self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
+        let proposal = self.priority_spell_announcement(viewer, object.card, face, false)?;
         let source = ObjectId {
             face: proposal.face,
             ..proposal.original_object
@@ -490,14 +515,12 @@ impl RulesTxn {
             Some(TargetDomain::PlayerGraveyardCards { .. }) => {
                 return Err("dependent targets need their player".into());
             }
-            Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
-            // CR 115.1, 120.3: planeswalker cards are not admitted, so the domain's
-            // inhabitants are players.
-            Some(
-                TargetDomain::OpponentPlayer
-                | TargetDomain::AnyPlayer
-                | TargetDomain::PlayerOrPlaneswalker,
-            ) => Frame::PlayerTargets { cast },
+            Some(TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker) => {
+                Frame::EntityTargets { cast }
+            }
+            Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer) => {
+                Frame::PlayerTargets { cast }
+            }
             Some(
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::ControlledBattlefieldPermanent

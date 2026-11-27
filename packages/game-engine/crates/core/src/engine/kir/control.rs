@@ -23,6 +23,9 @@ enum Stage {
     Optional {
         chooser: PlayerId,
     },
+    MyriadDefender {
+        chooser: PlayerId,
+    },
     ObjectPayment {
         payer: PlayerId,
     },
@@ -44,8 +47,29 @@ enum Stage {
 pub struct Task {
     pub(in crate::engine) resume: FrameLink,
     path: Vec<usize>,
+    #[serde(deserialize_with = "read_bindings")]
     bindings: BTreeMap<u32, Binding>,
     stage: Stage,
+}
+
+// A tagged Frame buffers its payload before passing it to Task. Its map
+// keys arrive as strings, so decode canonical numeric keys explicitly.
+fn read_bindings<'de, D>(decoder: D) -> Result<BTreeMap<u32, Binding>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    BTreeMap::<String, Binding>::deserialize(decoder)?
+        .into_iter()
+        .map(|(key, value)| {
+            let index = key.parse::<u32>().map_err(serde::de::Error::custom)?;
+            if key != index.to_string() {
+                return Err(serde::de::Error::custom(
+                    "noncanonical kernel binding index",
+                ));
+            }
+            Ok((index, value))
+        })
+        .collect()
 }
 
 impl Task {
@@ -75,7 +99,9 @@ impl Task {
     fn chooser(&self) -> Option<PlayerId> {
         match self.stage {
             Stage::Run | Stage::Leaf | Stage::Complete { .. } => None,
-            Stage::Optional { chooser } | Stage::Choose { chooser, .. } => Some(chooser),
+            Stage::Optional { chooser }
+            | Stage::MyriadDefender { chooser }
+            | Stage::Choose { chooser, .. } => Some(chooser),
             Stage::Life { payer, .. } | Stage::ObjectPayment { payer } => Some(payer),
         }
     }
@@ -388,6 +414,11 @@ impl RulesTxn {
         if !self.still_offered(task)? {
             return Ok(None);
         }
+        if matches!(task.stage, Stage::MyriadDefender { .. }) {
+            let candidates = self.myriad_candidates(task, player)?;
+            return Ok((candidates.len() > 1)
+                .then(|| self.pick(player, Reason::MyriadDefender, candidates, 1, 1)));
+        }
         if matches!(task.stage, Stage::ObjectPayment { .. }) {
             let candidates = self.object_payment_candidates(player, self.node_at(task)?.0)?;
             return Ok(Some(
@@ -517,10 +548,18 @@ impl RulesTxn {
                 for outcome in outcomes {
                     self.validate_library_reorder_outcome(self.kernel_root()?, None, outcome)?;
                     self.validate_counter_outcome(root, outcome)?;
+                    self.validate_myriad_outcome(root, outcome)?;
                 }
                 Ok(())
             }
             (Stage::Leaf, Node::Do(_)) | (Stage::Run, _) => Ok(()),
+            (Stage::MyriadDefender { chooser }, Node::Do(Verb::CreateMyriadToken { defender })) => {
+                self.myriad_defender(task, defender)?;
+                if self.entry(root.stack_id)?.controller != *chooser {
+                    return Err("invalid myriad chooser".into());
+                }
+                Ok(())
+            }
             // The saved chooser is the one the admitted node names.
             (Stage::Optional { chooser }, Node::Optional { chooser: named, .. }) => {
                 if self.control_players(task, named)? != [*chooser] {
@@ -597,6 +636,36 @@ impl RulesTxn {
     pub(in crate::engine) fn step_kernel_task(&mut self, mut task: Task) -> Result<(), String> {
         let (node, block) = self.node_at(&task)?;
         let node = node.clone();
+        if let Stage::MyriadDefender { chooser } = task.stage {
+            let candidates = self.myriad_candidates(&task, chooser)?;
+            let input = self.rules_mut().pending.take();
+            let selected = match candidates.as_slice() {
+                [] => return self.return_kernel(task.resume),
+                [only] => only.clone(),
+                _ => input
+                    .ok_or("missing myriad defender decision")?
+                    .one()?
+                    .clone(),
+            };
+            if !candidates.contains(&selected) {
+                return Err("ineligible myriad defender".into());
+            }
+            let Some(Candidate::Player { player }) = candidates.first() else {
+                return Err("missing myriad opponent".into());
+            };
+            let planeswalker = match selected {
+                Candidate::Player { .. } => None,
+                Candidate::Object { object } => Some(object),
+                _ => return Err("invalid myriad defender".into()),
+            };
+            return self.accept_myriad(
+                task,
+                MyriadDefender {
+                    player: *player,
+                    planeswalker,
+                },
+            );
+        }
         if let Stage::ObjectPayment { payer } = task.stage {
             let input = self.rules_mut().pending.take();
             let paid = if self.is_live(payer) && self.still_offered(&task)? {
@@ -683,7 +752,11 @@ impl RulesTxn {
                     };
                     self.choose_next(task, var, player, remaining, selected, minimum, maximum)?;
                 }
-                Stage::Run | Stage::Leaf | Stage::Complete { .. } | Stage::ObjectPayment { .. } => {
+                Stage::Run
+                | Stage::Leaf
+                | Stage::Complete { .. }
+                | Stage::ObjectPayment { .. }
+                | Stage::MyriadDefender { .. } => {
                     return Err("unexpected kernel input".into());
                 }
             }
@@ -859,6 +932,25 @@ impl RulesTxn {
                 }
                 self.return_kernel(task.resume)?;
             }
+            // CR 702.116a: choose a defender for each accepted copy before
+            // creating all copies together (CR 608.2f).
+            Node::Do(Verb::CreateMyriadToken { .. }) => {
+                let chooser = self.entry(self.kernel_root()?.stack_id)?.controller;
+                match self.myriad_candidates(&task, chooser)?.as_slice() {
+                    [] => self.return_kernel(task.resume)?,
+                    [Candidate::Player { player }] => self.accept_myriad(
+                        task,
+                        MyriadDefender {
+                            player: *player,
+                            planeswalker: None,
+                        },
+                    )?,
+                    _ => {
+                        task.stage = Stage::MyriadDefender { chooser };
+                        self.install_kernel(task);
+                    }
+                }
+            }
             Node::Do(_) => self.begin_kernel_leaf(task)?,
             Node::Reflexive { payment, .. } => {
                 let player = self.entry(self.kernel_root()?.stack_id)?.controller;
@@ -918,6 +1010,9 @@ impl RulesTxn {
                         .into_iter()
                         .any(|p| self.is_live(p))
             }
+            Node::Do(Verb::CreateMyriadToken { defender }) => {
+                self.myriad_defender(task, defender)?.is_some()
+            }
             // CR 701.27c-f: the source can still turn over.
             Node::Do(Verb::Transform { what: Ref::Source }) => {
                 self.source_transformable(self.entry(self.kernel_root()?.stack_id)?)?
@@ -970,6 +1065,70 @@ impl RulesTxn {
             // choices when it runs.
             _ => true,
         })
+    }
+
+    fn accept_myriad(&mut self, task: Task, defender: MyriadDefender) -> Result<(), String> {
+        self.kernel_results()?
+            .push(InstructionOutcome::MyriadAccepted { defender });
+        self.return_kernel(task.resume)
+    }
+
+    fn myriad_candidates(
+        &self,
+        task: &Task,
+        chooser: PlayerId,
+    ) -> Result<Vec<Candidate<Rules>>, String> {
+        let Node::Do(Verb::CreateMyriadToken { defender }) = self.node_at(task)?.0 else {
+            return Err("myriad choice requires a token node".into());
+        };
+        let Some(player) = self.myriad_defender(task, defender)? else {
+            return Ok(vec![]);
+        };
+        let mut walkers = self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.controller == player && self.is_battlefield_planeswalker(o.id))
+            .map(|o| Ok((self.object_handle_id(chooser, o.id)?.clone(), o.id)))
+            .collect::<Result<Vec<_>, String>>()?;
+        walkers.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(std::iter::once(Candidate::Player { player })
+            .chain(
+                walkers
+                    .into_iter()
+                    .map(|(_, object)| Candidate::Object { object }),
+            )
+            .collect())
+    }
+
+    /// CR 702.116a: the bound player, if they are a live opponent of the
+    /// ability's controller other than the defending player its source
+    /// attacked. Myriad offers no choice for anyone else (CR 608.2d).
+    fn myriad_defender(
+        &self,
+        task: &Task,
+        defender: &PlayerExpr,
+    ) -> Result<Option<PlayerId>, String> {
+        let [player] = self.control_players(task, defender)?[..] else {
+            return Err("myriad requires one bound player".into());
+        };
+        let entry = self.entry(self.kernel_root()?.stack_id)?;
+        let StackKind::Triggered {
+            witness:
+                TriggerEventWitness::CreatureAttacked {
+                    defender_player_id, ..
+                },
+            ..
+        } = &entry.kind
+        else {
+            return Err("myriad requires an attack trigger".into());
+        };
+        Ok((self.is_live(player)
+            && self.is_live(entry.controller)
+            && player != entry.controller
+            && player != *defender_player_id)
+            .then_some(player))
     }
 
     pub(in crate::engine) fn kernel_payment_terms(

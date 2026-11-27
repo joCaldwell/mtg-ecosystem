@@ -157,7 +157,7 @@ pub fn encode(
         match d.shape {
             Shape::Pick { .. } => 0,
             Shape::Order { .. } => 1,
-            Shape::Distribute { .. } => 2,
+            Shape::Distribute { .. } | Shape::CombatDistribute { .. } => 2,
             Shape::Number { .. } => 3,
             Shape::Pay { .. } => 4,
         },
@@ -240,6 +240,15 @@ pub fn encode(
         }
         n[8] = int(&o.marked_damage);
         n[9] = int(&o.plus_one_counters);
+        // CR 122.1: -1/-1 counters, then every other kind together.
+        for counter in &o.counters {
+            let column = if counter.kind == mtg_contracts::kir::CounterKind::MinusOneMinusOne {
+                20
+            } else {
+                21
+            };
+            n[column] = n[column].saturating_add(int(&counter.count));
+        }
         for k in &o.keywords {
             let bit = *k as usize;
             n[11 + bit / 32] |= 1 << (bit % 32);
