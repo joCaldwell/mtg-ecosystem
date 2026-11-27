@@ -5,6 +5,8 @@
 //! every struct rejects unknown fields, so an archive row either decodes
 //! completely or names the exact shape it violates. A leaf crate: compiler
 //! edits never recompile the generated code.
+//!
+//! Printed evidence has separate path-aware decoders and a generated vocabulary.
 pub use generated::*;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -12,6 +14,11 @@ use serde_json::Value;
 // Generated layout is the generator's; rustfmt leaves it alone.
 #[rustfmt::skip]
 mod generated;
+#[rustfmt::skip]
+pub mod printed;
+mod printed_decode;
+#[rustfmt::skip]
+pub mod vocab;
 
 /// Decode one already-dispatched union member.
 fn strict<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, String> {
