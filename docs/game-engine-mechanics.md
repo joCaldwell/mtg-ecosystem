@@ -39,12 +39,85 @@ accepted-input replay with exact identity.
   mode charges the same retained payload and none changes rules behavior.
   Diagnostics enter neither semantic hashes nor permitted views; `events()`
   populates only in Detailed and `trace()` is trusted evidence.
-- **Atomicity.** Stage complete rule mutations atomically, capturing consumed
-  pre-event facts and actual typed outcomes. Simultaneous groups permit only
-  independent read/write footprints; unsupported composition faults. Freeze all
-  loss candidates before simultaneous departures, cleanup and adjudication.
-  Restore proves fault reachability. Capacity/budget suspension never invents a
-  win/draw, truncation or partial mutation.
+- **Atomicity.** Stage complete rule mutations atomically. Simultaneous groups
+  permit only independent read/write footprints; unsupported composition faults.
+  Freeze all loss candidates before simultaneous departures, cleanup and
+  adjudication. Restore proves fault reachability. Capacity/budget suspension
+  never invents a win/draw, truncation or partial mutation. Until a family
+  migrates to canonical actuals, its captured pre-event facts and typed
+  `EventOutcome` stay authoritative.
+- **Canonical actuals (E1 contract).** Every rules occurrence is one actual
+  with a member identity, group, origin root and lineage. One writer reduces
+  history, reconciles control, matches triggers and binds step results from it,
+  with or without a listener. Families migrate in order: creation and entry,
+  movement, then counters including costs.
+  - *Identity.* `EventId { occurrence, member }` adds a semantic member to the
+    existing `OccurrenceId { batch, path }`. Member indices carry no public order.
+    A simultaneous group is `GroupId { batch, path }` of its `Simultaneous` node.
+    An `ActualRef` names one facet of one event and resolves with tracing off.
+  - *Origin and lineage.* The existing `BatchCause` keeps invocation, actor and
+    source. `Origin` adds a root, the `StepInstance` and the payment term. The
+    root is the cost of a spell, activation, mana ability, loyalty ability,
+    resolution payment or entry, or else a resolving effect, turn-based action,
+    state-based action, special action or other rule. `Lineage` records the
+    proposal, the original proposed fact and the applied replacements in order.
+    Its last application is the immediate producer. The root answers cost
+    accounting (CR 118.11, 606.4). "Produced by an effect" means an effect root or
+    any applied replacement (CR 614.16).
+  - *Facets.* A member carries at most one facet per kind, so an entry counts
+    once whether it arrived by move or by creation. E1 defines `Moved` (complete
+    prior row, origin zone, destination, successor, how), `Created` (creator,
+    recipe, invocation) and `Entered` (object, controller, tapped, token,
+    attachment, face). It also defines `Counters` (holder, kind, signed delta,
+    previous, current, timestamp, entry link). E3 adds tap, untap, life, draw
+    attempt, mill and damage. Procedural leaves (setup, shuffle, mana, cleanup,
+    turn transition) return typed receipts that never feed history or triggers.
+    `ObjectBefore` grows to the complete reversible row; a consumer outliving its
+    batch retains its prior facts, charged in every trace mode.
+  - *Single writer.* `publish_actuals(before, cause, actuals)` replaces the
+    paired `record_turn_occurrences` and `collect_triggers` calls. Its order is
+    fixed: commit state and retain last-known facts, then reduce history through
+    one reducer returning a `LedgerDelta`. Next it reconciles control and zones,
+    matches triggers and delayed watchers, and binds step results. Trace and
+    views project afterwards. Matching reads the facet, never `BatchCause`. It
+    deduplicates on ability instance and `EventId`, or once per declared "one or
+    more" group. Ordered siblings settle in order; simultaneous siblings share
+    one prior.
+  - *Invariance.* The reducer and evidence run identically when nothing matches,
+    in every trace mode. Each family's parity gate compares legacy and canonical
+    state digest, triggers, ledger and authorized decisions under
+    `assert_recoverable`, with zero-match and reversed-mana cases, at zero
+    coverage gain.
+- **Replacement before commit (E2 contract).** A replacement is proposed,
+  matched, ordered, transformed and recomputed before one atomic commit; nothing
+  is repaired after commit. A persisted proposal holds the root, resume owner,
+  members with provisional keys, applications, decisions and payment
+  reservations, but no state copy. Nothing is written before commit, so the live
+  state is the common prior. [Battlefield entry](game-engine-board-mechanics.md#battlefield-entry-replacements)
+  adds the prospective-entrant rules. Each step is one rule unit:
+  1. **Propose** the event with quantities read once, its affected subject,
+     origin root and immediate producer.
+  2. **Match** each effect whose predicate holds and that has not already applied
+     to that member (CR 614.5). Two copies of a static ability are distinct instances.
+  3. **Choose.** The affected player, or the affected object's controller with
+     owner fallback, picks one eligible effect under CR 616.1 precedence. For
+     simultaneous choosers this goes in APNAP order, under an additive
+     `Reason::ReplacementOrder`. A sole mandatory option advances; optional
+     application still asks. The choice authenticates chooser, candidates and
+     answer, and a private suspension reveals only the offer.
+  4. **Transform** the member.
+  5. **Record** the applied instance, input and output in lineage. Evidence is
+     charged in every trace mode.
+  6. **Recompute** eligibility, precedence and chooser for that member (CR
+     616.1f, 616.2). Contained events become choosable only after their
+     container (CR 616.1g).
+  7. **Preflight and commit.** Check the final group on a fork (allocations,
+     capacity, recipients, conflicting writes, combined payments, observations,
+     trigger payloads, reservations); a failure faults with no write. Otherwise
+     one batch commits writes, use stamps, creation cohort, lineage, history,
+     results and pending triggers together. Restore never spends again. Ordered
+     cost components stay ordered, and damage keeps its specialist authority
+     until E3.
 - **Invocations.** An invocation has one owner holding the source's last-known
   facts: its stack entry, or `rules.detached` while a frame still resolves it
   (CR 608.2m, 113.7a). Frames name invocations by `StackId` and hold progress
@@ -230,14 +303,26 @@ life costs, without riders, restrictions, conditions or tapped-status filters.
 
 Reversal (CR 733.1) restores receipt-recorded unrestricted and restricted
 mana, taps and counters. An activation that paid life or performed riders is
-kept with every activation of that attempt.
+kept with every activation of that attempt. Today `kept` is inferred from a
+ledger difference, so a new cost fact in the ledger would keep every tapping
+ability. Before E1 records any cost fact it becomes an explicit rules flag.
+Under E1 the receipt stores its `EventId`s and `LedgerDelta`; reversal applies
+the inverse in reverse order, removes pending triggers and watchers by
+`EventId`, restores each prior row exactly and keeps existing history and
+triggers, creating no untap, gain or placement trigger. A loyalty cost is a
+`Counters` facet with a loyalty-cost root (CR 606.4). `pay_loyalty` today
+writes the balance and the use stamp together. They separate, so a
+zero-loyalty cost stamps the use and emits no facet.
 
 CR 106.6 spending predicates distinguish spells, activated abilities and
 resolution payments. The spend decision offers only eligible buckets and
 validates the exact unrestricted and bucket allocation. Pools are public
 (CR 106.4a–b): every seat sees the unrestricted row and the canonical restricted
 buckets, and the encoded player row counts both, its restricted part in
-column 20. The finite rows
+column 20. Outside a payment the own-pool globals (19–24) also include
+restricted mana; payment globals count only what that payment may spend.
+`mana` keeps its unrestricted meaning, because funding treats it as freely
+spendable. The finite rows
 cover spell types, colorless spells, artifact spells and battlefield artifact
 abilities, colorless Eldrazi spells and battlefield colorless Eldrazi
 abilities, and activated abilities generally. Mana with an uncounterable

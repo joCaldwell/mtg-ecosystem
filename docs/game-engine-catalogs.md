@@ -192,6 +192,111 @@ hosting and search sets. A procedure without an audited node and execution path
 rejects during lowering; a new mechanic adds a typed operand, a capability and a
 tested rules operation wherever the algebra cannot already express it.
 
+### Verb signatures
+
+Stage 1 [rework](game-engine-rework.md) contract; each family's audited cells
+stay authoritative until it migrates. `kir::Verb` remains the only action
+representation, the wire form is unchanged, and each verb's signature is a
+static Rust table that this manual does not duplicate.
+
+A verb admits an operand when the operand's class is in the slot's accepted set
+and resolves in scope; no row names a verb and reference pair. Scope is the
+existing `Env` (context, targets, event roles, lexical bindings), and the sort
+must match. One verb-independent classifier maps a resolved reference and its
+typed AST site to a class. Required capabilities are the union over the verb,
+its operand classes, its distribution and its projections.
+
+| Slot attribute | Declares |
+| --- | --- |
+| `field`, `role` | the verb field and its semantic role (subject, recipient, amount, source) |
+| `sort`, `cardinality` | player, object, set or quantity; singleton, bounded or unbounded |
+| `quantity_policy` | nonnegative, positive or signed, and the verb's zero rule |
+| `zone` | where an object operand must be when it is read or acted on |
+| read time, object use | announcement, resolution start, step start, event before or after; act on the live incarnation, read the event snapshot, or read current-or-last-known |
+| `absence_behavior` | skip the member, skip the verb, or reject (CR 608.2b) |
+| `accepted_constructors` | the operand classes the slot accepts |
+| `capability_requirements` | capabilities the slot adds when used |
+
+Last-known information answers a read and never authorizes acting on a new
+incarnation (CR 400.7, 608.2h).
+
+**Distribution** is admitted per verb, separately from operand acceptance:
+accepting a player set does not license a simultaneous or divided write.
+`Distribution::None` is one member (`Single`) or members in turn
+(`EachSequential`). `Simultaneous` is one event for every member
+(`EachSimultaneous`), optionally after APNAP choice collection
+(`CollectThenSimultaneous`, CR 101.4). `Divided` (`DividedAtAnnouncement`) rejects
+in Stage 1.
+
+**Projections.** A step may bind only a declared projection of a dominating
+performed step. Each `(verb, StepRole)` pair has exactly one rules-defined
+projection: the actual result after replacement.
+
+| Verb | Quantity | Distribution | `Amount` | `Objects` | `Player` |
+| --- | --- | --- | --- | --- | --- |
+| `Draw` | ≥ 0; zero makes no attempt | `EachSequential` (CR 121.2c) | draws completed | drawn successors, private | players who drew |
+| `GainLife` / `LoseLife` | ≥ 0; zero is no event (CR 119.9–10) | `EachSimultaneous` | life actually gained or lost | none | players whose total changed |
+| `Damage` | > 0 | `EachSimultaneous` through the damage transaction | damage dealt, never life lost or prevented | permanents dealt damage | players dealt damage |
+| `PutCounters` | > 0 | `EachSimultaneous` | counters actually put | recipients | none |
+| `Sacrifice` | > 0, as many as possible (CR 609.3) | `CollectThenSimultaneous` (CR 701.21a) | number sacrificed | permanents sacrificed, whatever the destination | sacrificing players |
+
+A second projection of one verb ("life lost this way" from damage, "died this
+way") rejects until a new `StepRole` is added additively. `Ref::StepResult { step, role }`
+keeps its wire form. The checker resolves it to one producer among earlier
+siblings of its `Seq`, rejects an ambiguous projection, and requires that step
+to hold exactly one `Do` leaf, directly or under `Optional`, `If` or `IfPays`.
+Reads from nested bodies wait for Stage 2. **Absent is not zero.** A producer
+that did not run yields `Resolved::Absent` with its reason: illegal target, not
+chosen, departed player, no event member or not performed. A producer that ran
+and affected nothing yields an empty result.
+
+**Tier preservation.** The 17 previously qualified higher-tier shapes in
+`kir::tiers` keep their legacy cells and tiers; every other evaluator-admitted
+node is `Cell::Evaluated(verb)` at `Executes`.
+
+### Resolving frame
+
+Stage 1 keeps the `Task` chain, `Frame::Kernel`, `Task.resume`, lexical paths,
+scoped bindings and the root collector at `frames[1]` that `kernel_results` reads.
+
+- **Step identity.** `ForEach` runs every iteration at `task.child(0)`, so a path
+  alone aliases iterations. A dynamic step is
+  `StepInstance { stack, instruction, path, iterations }`, adding the iteration
+  ordinals `ForEach` pushes.
+- **Results at the root**, keyed by `(path, iterations)`, record event ids,
+  objects (prior, successor, controller before), players and an optional amount.
+  A missing entry means not performed; an entry with no members means it ran and
+  changed nothing.
+- **Asks and progress.** An ask (optional, pay life, object payment, pick) stores
+  chooser, selections and bounds. Candidates are re-derived at offer and answer
+  when reproducible from state, else the bounded frozen domain is kept; an answer
+  is accepted only for the pending `decision_id`. Step progress covers sequences
+  (replacing both draw cursors), APNAP collection (replacing
+  `Frame::ForcedSacrifice`) and an E2 proposal. `MyriadDefender` stays until
+  Stage 3, and a migrated task never installs a rewritten leaf program.
+
+Recovery extends `validate_kernel_task` and is witnessed by `assert_recoverable`
+at quanta `1` and `u64::MAX` under Off, Compact, Stream and Detailed:
+
+1. One evaluator step is one rule unit. It evaluates, then commits at most one
+   batch or installs one ask. A larger budget takes no fast path.
+2. A value that can change between quanta is persisted at first read.
+3. The result, its batch and the cursor advance in one `RulesTxn` stage, so a
+   suspension after a committed draw cannot draw again. A replay witness covers
+   the double draw that separate writes would allow.
+4. Restore authenticates the address, compatible stage, iteration membership and
+   output dominance. Every event id must be below `next_batch_id`, and
+   `done + remaining == total`. It rejects stale answers, forged or
+   cross-invocation results and duplicate selections.
+5. Retained payload is charged identically in every trace mode. The state digest
+   agrees across all four modes, the verification commitment across the three
+   recording modes, and state and trace with replay within one mode.
+6. Candidates order by public facts, then the viewer's handle, never a raw ID. A
+   hidden-zone choice is always raised, with Decline. Bindings and results never
+   reach an observation, and a mid-instruction frame is never a search root.
+   Worlds differing only in another seat's hidden cards stay indistinguishable
+   across suspension and concession.
+
 ## Compositional lowering
 
 Archive R5 supplies the source, parsed abilities and bound resolution graph.
@@ -234,6 +339,14 @@ the same rows as `blockers.tsv` for the [deck scoreboard](game-engine-developmen
 `--example inspect ARCHIVE NAME` prints one compile result. New lowerers start IR
 structs from `PermanentFilter::any()`, `TargetSpec::new` and
 `SpellProgram::instructions` (`contracts/src/builders.rs`).
+
+**Decoder boundary (Stage 1, unchanged R5).** A migrated lowerer reads only the
+generated `mtg-oracle-ast` types (`scripts/generate-rust-ast.ts`) and decodes
+the whole containing block, keeping omitted, null, unknown and malformed fields
+distinct. Before a card is accepted, Rust must account for every operative
+field, qualifier and printed action on every required face. An unprovable
+reading gets a located read, resolve, elaborate, check or admission rejection.
+Printed-evidence spans on R6 are the Stage 2 source-evidence obligation.
 
 Adding a primitive touches the row that owns it, not every card:
 
