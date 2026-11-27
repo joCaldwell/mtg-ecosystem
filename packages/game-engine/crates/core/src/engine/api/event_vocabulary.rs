@@ -160,6 +160,10 @@ pub enum ProposedEvent {
         object: ObjectId,
         amount: Quantity,
     },
+    PayCounterCost {
+        object: ObjectId,
+        cost: CounterCost,
+    },
     CeaseSpellCopy {
         object: ObjectId,
     },
@@ -294,11 +298,8 @@ pub enum EventOutcome {
     Transformed {
         object: ObjectId,
     },
-    /// CR 702.37b: `counter` records the megamorph +1/+1 counter.
     TurnedFaceUp {
         object: ObjectId,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        counter: bool,
     },
     LifeFrozenUntilNextTurn {
         player: PlayerId,
@@ -410,30 +411,8 @@ pub enum EventOutcome {
         token: Box<mtg_contracts::CreatureToken>,
     },
 
-    PlayerCountersPlaced {
-        player: PlayerId,
-        poison: Quantity,
-        energy: Quantity,
-        previous_poison: Quantity,
-        previous_energy: Quantity,
-    },
-    CountersPlaced {
-        object: ObjectId,
-        placed: Vec<CounterChange>,
-    },
-    LoreCounterRemoved {
-        object: ObjectId,
-        previous: Quantity,
-    },
-    CountersAnnihilated {
-        object: ObjectId,
-        amount: Quantity,
-    },
-    /// CR 122.1d: the untap was replaced by removing one stun counter.
-    StunCounterRemoved {
-        object: ObjectId,
-        previous: Quantity,
-    },
+    /// The committed counter members live on the occurrence.
+    CounterAction,
     SpellCopyCeased {
         object: ObjectId,
     },
@@ -590,7 +569,7 @@ pub enum InstructionOutcome {
     },
 
     CounterPlacements {
-        actual: Vec<EventOutcome>,
+        events: Vec<EventId>,
     },
     CounterPrevented {
         target: StackId,
@@ -778,22 +757,25 @@ pub enum Event {
     },
 }
 
+/// The exact counter term of an authenticated activation payment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "term", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CounterCost {
+    Remove {
+        counters: CounterAmount,
+    },
+    /// CR 606.3–4: the signed term includes the use stamp even at zero.
+    Loyalty {
+        change: Quantity,
+    },
+}
+
 /// CR 122.1: `amount` counters of one kind.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CounterAmount {
     pub counter: mtg_contracts::kir::CounterKind,
     pub amount: Quantity,
-}
-
-/// CR 122.1: one kind's placement and the counts around it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CounterChange {
-    pub counter: mtg_contracts::kir::CounterKind,
-    pub amount: Quantity,
-    pub previous: Quantity,
-    pub current: Quantity,
 }
 
 /// CR 702.116a: an opponent, or a chosen planeswalker they control.

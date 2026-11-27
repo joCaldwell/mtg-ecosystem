@@ -478,40 +478,48 @@ impl RulesTxn {
     }
 
     /// CR 122.6: record the counters actually put on each permanent.
-    pub(in crate::engine) fn finish_kernel_counters(
+    pub(in crate::engine) fn finish_kernel_counters<'a>(
         &mut self,
         resume: FrameLink,
-        batch: Option<&CommittedBatch>,
-        outcome: InstructionOutcome,
+        actuals: impl IntoIterator<Item = &'a Actual>,
     ) -> Result<(), String> {
         let Frame::Kernel { task } = self.saved_frame(resume)?.clone() else {
             return Err("missing kernel counter task".into());
         };
-        let mut result = StepResult {
-            amount: Some(Quantity::zero()),
-            ..StepResult::default()
-        };
-        for receipt in batch.into_iter().flat_map(|batch| &batch.occurrences) {
-            result.events.push(receipt.id.clone());
-            if let EventOutcome::CountersPlaced { object, placed } = &receipt.actual {
-                for placed in placed {
-                    result
-                        .amount
-                        .as_mut()
-                        .expect("counter projection")
-                        .add(&placed.amount);
-                }
-                if !result.objects.iter().any(|o| o.prior == *object) {
-                    result.objects.push(ResultObject {
-                        prior: *object,
-                        successor: None,
-                        controller_before: self.current(*object)?.controller,
-                        public_card: None,
-                    });
-                }
+        let mut result = StepResult::default();
+        let mut amount = Quantity::zero();
+        let mut events = vec![];
+        for actual in actuals {
+            let Some(change) = actual.counters() else {
+                return Err("counter step received a non-counter actual".into());
+            };
+            let CounterHolder::Permanent { object, controller } = change.holder else {
+                return Err("counter step received a player counter".into());
+            };
+            let delta = change.delta();
+            if delta <= Quantity::zero() {
+                return Err("counter step received a non-placement".into());
+            }
+            amount.add(&delta);
+            events.push(actual.id.clone());
+            if result.events.last() != Some(&actual.id.occurrence) {
+                result.events.push(actual.id.occurrence.clone());
+            }
+            if !result.objects.iter().any(|o| o.prior == object) {
+                result.objects.push(ResultObject {
+                    prior: object,
+                    successor: None,
+                    controller_before: controller,
+                    public_card: None,
+                });
             }
         }
-        self.complete_evaluated(&task, Some(result), [outcome])
+        result.amount = Some(amount);
+        self.complete_evaluated(
+            &task,
+            Some(result),
+            [InstructionOutcome::CounterPlacements { events }],
+        )
     }
 
     /// The counter placement a task saved is the one its step read.

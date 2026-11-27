@@ -8,6 +8,8 @@ import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseOracleText } from "../packages/oracle-parser/src/index.ts";
 import { buildCardNameCatalog } from "../packages/oracle-parser/src/card-names.ts";
+import { parseOracleTextWithPrintedEvidence } from "../packages/oracle-parser/src/printed/evidence.ts";
+import type { PrintedCard, PrintedFace } from "../packages/oracle-parser/src/printed/schema.ts";
 import type { ParseCardResult } from "../packages/oracle-parser/src/ast.ts";
 import { analyzeCardBindings } from "../packages/oracle-parser/src/semantic/bindings.ts";
 import type { CardBindingAnalysis } from "../packages/oracle-parser/src/semantic/types.ts";
@@ -19,6 +21,8 @@ import { loadPaperEvidence, paperExclusion, readPaperEvidence, type PaperEvidenc
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const DEFAULT_INPUT = path.join(ROOT, ".scryfall-cache/oracle-cards.json");
 const DEFAULT_OUTPUT = path.join(ROOT, "generated/oracle-ast.jsonl");
+const CANDIDATE_OUTPUT = path.join(ROOT, "generated/oracle-ast-phase1-r6-candidate.jsonl");
+const DEFAULT_RULES = path.join(ROOT, ".scryfall-cache/ComprehensiveRules-20260925.txt");
 type Fingerprint = ReturnType<typeof sourceIdentity>;
 type Fingerprinter = () => Fingerprint;
 
@@ -81,7 +85,7 @@ function requireFiniteJson(value: unknown): void {
   }
 }
 
-function requireSnapshot(expected: Fingerprint, fingerprint: Fingerprinter): void {
+export function requireSnapshot(expected: Fingerprint, fingerprint: Fingerprinter): void {
   if (JSON.stringify(fingerprint()) !== JSON.stringify(expected)) {
     throw new Error("Parser sources changed during archive generation; retry after edits finish");
   }
@@ -110,9 +114,10 @@ function successfulAstHash(faces: ArchivedFace[]): string {
   return sha256(JSON.stringify(abilities));
 }
 
-/** Build against one local corpus snapshot. Missing texts and unsupported
- * blocks remain failures. Excluded and duplicate source rows are retained. */
-export function buildArchive(options: { cacheFile?: string; fingerprint?: Fingerprinter; paperEvidence?: PaperEvidence } = {}): ParserArchive {
+type ArchiveOptions = { cacheFile?: string; fingerprint?: Fingerprinter; paperEvidence?: PaperEvidence };
+
+/** Both cuts use the same source order, paper scope and legacy row builder. */
+export function prepareArchive(options: ArchiveOptions = {}) {
   const fingerprint = options.fingerprint ?? sourceIdentity;
   const parser = fingerprint();
   const corpus = fs.readFileSync(options.cacheFile ?? DEFAULT_INPUT);
@@ -133,50 +138,69 @@ export function buildArchive(options: { cacheFile?: string; fingerprint?: Finger
     bindingSummary: emptyBindingSummary(),
     resolutionSummary: emptyResolutionSummary(),
   };
-  const seen = new Set<string>();
-  const records = cards.map((source, sourceIndex): ArchiveRecord => {
-    const canonicalSource = JSON.stringify(source);
-    sourceRecordsHash.update(canonicalSource).update("\n");
-    const oracleIdentity = identity(source);
-    const base: RecordSource = {
-      recordType: "card", sourceIndex, oracleIdentity, sourceSha256: sha256(canonicalSource), source,
-    };
-    const reason = paperExclusion(source, evidence) ?? (seen.has(oracleIdentity) ? "duplicate" : undefined);
-    if (reason) {
-      manifest.excluded[reason] = (manifest.excluded[reason] ?? 0) + 1;
-      return { ...base, status: "excluded", reason };
-    }
-    seen.add(oracleIdentity);
-    manifest.cardsChecked++;
-    const faces = (source.card_faces ?? [source]).map((face, sourceFaceIndex): ArchivedFace => {
-      if (face.oracle_text == null) return { sourceFaceIndex, status: "missing-oracle-text", name: face.name };
-      const result = parseOracleText(face.oracle_text, face.name, {
-        layout: source.layout, typeLine: face.type_line ?? source.type_line ?? undefined, includeSourceProvenance: true, cardNames,
-      });
-      for (const line of result.lines) {
-        manifest.linesChecked++;
-        if (line.ok) manifest.linesOk++;
+  function* records(capturePrinted: boolean): Generator<{ record: ArchiveRecord; printed?: PrintedCard }> {
+    const seen = new Set<string>();
+    for (const [sourceIndex, source] of cards.entries()) {
+      const canonicalSource = JSON.stringify(source);
+      sourceRecordsHash.update(canonicalSource).update("\n");
+      const oracleIdentity = identity(source);
+      const base: RecordSource = {
+        recordType: "card", sourceIndex, oracleIdentity, sourceSha256: sha256(canonicalSource), source,
+      };
+      const reason = paperExclusion(source, evidence) ?? (seen.has(oracleIdentity) ? "duplicate" : undefined);
+      if (reason) {
+        manifest.excluded[reason] = (manifest.excluded[reason] ?? 0) + 1;
+        yield { record: { ...base, status: "excluded", reason } };
+        continue;
       }
-      requireFiniteJson(result);
-      return { sourceFaceIndex, status: "attempted", result };
-    });
-    const input = { identity: oracleIdentity, source, faces: faces.map(face => ({
-      sourceFaceIndex: face.sourceFaceIndex, ...(face.status === "attempted" ? { result: face.result } : {}),
-    })) };
-    const binding = analyzeCardBindings(input);
-    addBindingSummary(manifest.bindingSummary, binding);
-    const resolution = resolveCard(input, binding);
-    addResolutionSummary(manifest.resolutionSummary, resolution);
-    const analyzed: Analyzed = { binding, bindingSha256: sha256(JSON.stringify(binding)), resolution, resolutionSha256: sha256(JSON.stringify(resolution)) };
-    if (faces.every(face => face.status === "attempted" && face.result.ok)) {
-      manifest.cardsOk++;
-      return { ...base, status: "parsed", faces, astSha256: successfulAstHash(faces), ...analyzed };
+      seen.add(oracleIdentity);
+      manifest.cardsChecked++;
+      const printedFaces: PrintedFace[] = [];
+      const faces = (source.card_faces ?? [source]).map((face, sourceFaceIndex): ArchivedFace => {
+        if (face.oracle_text == null) {
+          if (capturePrinted) printedFaces.push({ sourceFaceIndex, status: "missing-oracle-text",
+            field: Object.hasOwn(face, "oracle_text") ? "null" : "absent" });
+          return { sourceFaceIndex, status: "missing-oracle-text", name: face.name };
+        }
+        const context = { layout: source.layout, typeLine: face.type_line ?? source.type_line ?? undefined, cardNames };
+        const captured = capturePrinted ? parseOracleTextWithPrintedEvidence(face.oracle_text, face.name, context, sourceFaceIndex) : undefined;
+        if (captured) printedFaces.push(captured.printed);
+        const result = captured?.result ?? parseOracleText(face.oracle_text, face.name, { ...context, includeSourceProvenance: true });
+        for (const line of result.lines) {
+          manifest.linesChecked++;
+          if (line.ok) manifest.linesOk++;
+        }
+        requireFiniteJson(result);
+        return { sourceFaceIndex, status: "attempted", result };
+      });
+      const input = { identity: oracleIdentity, source, faces: faces.map(face => ({
+        sourceFaceIndex: face.sourceFaceIndex, ...(face.status === "attempted" ? { result: face.result } : {}),
+      })) };
+      const binding = analyzeCardBindings(input);
+      addBindingSummary(manifest.bindingSummary, binding);
+      const resolution = resolveCard(input, binding);
+      addResolutionSummary(manifest.resolutionSummary, resolution);
+      const analyzed: Analyzed = { binding, bindingSha256: sha256(JSON.stringify(binding)), resolution, resolutionSha256: sha256(JSON.stringify(resolution)) };
+      const parsed = faces.every(face => face.status === "attempted" && face.result.ok);
+      if (parsed) manifest.cardsOk++;
+      const record: ArchiveRecord = parsed ? { ...base, status: "parsed", faces, astSha256: successfulAstHash(faces), ...analyzed }
+        : { ...base, status: "unsupported", faces, ...analyzed };
+      const printed: PrintedCard | undefined = capturePrinted
+        ? { artifactKind: "oracle-printed-evidence", schemaVersion: 1, faces: printedFaces } : undefined;
+      if (printed) requireFiniteJson(printed);
+      yield { record, printed };
     }
-    return { ...base, status: "unsupported", faces, ...analyzed };
-  });
-  manifest.corpus.canonicalRecordsSha256 = sourceRecordsHash.digest("hex");
-  requireSnapshot(parser, fingerprint);
-  return { manifest, records, sourceBytes: corpus, paperEvidenceBytes: evidence.bytes };
+    manifest.corpus.canonicalRecordsSha256 = sourceRecordsHash.digest("hex");
+    requireSnapshot(parser, fingerprint);
+  }
+  return { manifest, records, cardNames, sourceBytes: corpus, paperEvidenceBytes: evidence.bytes };
+}
+
+/** Build against one local corpus snapshot. Missing texts and unsupported
+ * blocks remain failures. Excluded and duplicate source rows are retained. */
+export function buildArchive(options: ArchiveOptions = {}): ParserArchive {
+  const { records, manifest, sourceBytes, paperEvidenceBytes } = prepareArchive(options);
+  return { records: Array.from(records(false), ({ record }) => record), manifest, sourceBytes, paperEvidenceBytes };
 }
 
 async function verifySourceSnapshot(snapshotFile: string, expected: { sha256: string; bytes: number }): Promise<void> {
@@ -191,7 +215,7 @@ async function verifySourceSnapshot(snapshotFile: string, expected: { sha256: st
   }
 }
 
-async function publishSourceSnapshot(sourceBytes: Buffer, expected: { sha256: string; bytes: number; snapshotFile: string }, directory: string): Promise<void> {
+export async function publishSourceSnapshot(sourceBytes: Buffer, expected: { sha256: string; bytes: number; snapshotFile: string }, directory: string): Promise<void> {
   if (sourceBytes.length !== expected.bytes || sha256(sourceBytes) !== expected.sha256) {
     throw new Error("Raw source bytes do not match the archive corpus hash");
   }
@@ -211,6 +235,20 @@ async function publishSourceSnapshot(sourceBytes: Buffer, expected: { sha256: st
     }
     await verifySourceSnapshot(destination, expected);
   } finally { await rm(temporary, { force: true }); }
+}
+
+/** Call after canonical serialization is established, so these preimages
+ * are exactly the ones written in the legacy row. */
+export function verifyLegacyHashes(record: ArchiveRecord): string {
+  const canonicalSource = JSON.stringify(record.source);
+  if (sha256(canonicalSource) !== record.sourceSha256) throw new Error("source hash mismatch (SHA-256 preimage)");
+  if (record.status === "parsed" && successfulAstHash(record.faces) !== record.astSha256)
+    throw new Error("AST hash mismatch (SHA-256 preimage)");
+  if (record.status !== "excluded" && sha256(JSON.stringify(record.binding)) !== record.bindingSha256)
+    throw new Error("binding hash mismatch (SHA-256 preimage)");
+  if (record.status !== "excluded" && sha256(JSON.stringify(record.resolution)) !== record.resolutionSha256)
+    throw new Error("resolution hash mismatch (SHA-256 preimage)");
+  return canonicalSource;
 }
 
 /** Verify the persisted file by parsing each record back, comparing its exact
@@ -240,16 +278,7 @@ export async function verifyArchiveFile(file: string, archive: ParserArchive): P
         if (reason ? record.status !== "excluded" || record.reason !== reason : record.status === "excluded")
           throw new Error("Archived paper scope mismatch");
         if (!reason) seen.add(record.oracleIdentity);
-        const canonicalSource = JSON.stringify(record.source);
-        if (sha256(canonicalSource) !== record.sourceSha256) throw new Error("Archived source hash mismatch");
-        sourceRecordsHash.update(canonicalSource).update("\n");
-        if (record.status === "parsed" && successfulAstHash(record.faces) !== record.astSha256) {
-          throw new Error("Archived AST hash mismatch");
-        }
-        if (record.status !== "excluded" && sha256(JSON.stringify(record.binding)) !== record.bindingSha256)
-          throw new Error("Archived reference binding hash mismatch");
-        if (record.status !== "excluded" && sha256(JSON.stringify(record.resolution)) !== record.resolutionSha256)
-          throw new Error("Archived resolution hash mismatch");
+        sourceRecordsHash.update(verifyLegacyHashes(record)).update("\n");
       }
       lineIndex++;
     }
@@ -294,14 +323,31 @@ export async function publishArchive(archive: ParserArchive, outputFile = DEFAUL
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  let cacheFile = DEFAULT_INPUT, outputFile = DEFAULT_OUTPUT, evidenceFile: string | undefined;
+  const options = new Map<string, string>();
+  const flags = ["--input", "--output", "--paper-evidence", "--legacy-baseline", "--rules", "--verify-candidate"];
   for (let i = 0; i < args.length; i += 2) {
-    if (!args[i + 1] || !["--input", "--output", "--paper-evidence"].includes(args[i])) {
-      throw new Error("Usage: npm run archive-parser -- [--input path] [--output path] [--paper-evidence path]");
-    }
-    if (args[i] === "--input") cacheFile = path.resolve(args[i + 1]);
-    else if (args[i] === "--output") outputFile = path.resolve(args[i + 1]);
-    else evidenceFile = path.resolve(args[i + 1]);
+    const [flag, value] = [args[i], args[i + 1]];
+    if (!flags.includes(flag) || !value || value.startsWith("--") || options.has(flag))
+      throw new Error(`Usage: npm run archive-parser -- [${flags.join(" PATH] [")} PATH]`);
+    options.set(flag, path.resolve(value));
+  }
+  const baseline = options.get("--legacy-baseline");
+  const verify = options.get("--verify-candidate");
+  const rules = options.get("--rules");
+  if (!baseline && (verify || rules)) throw new Error("--verify-candidate and --rules require --legacy-baseline");
+  if (verify && options.size !== 2)
+    throw new Error("--verify-candidate takes only --legacy-baseline in addition to its candidate path");
+  const cacheFile = options.get("--input") ?? DEFAULT_INPUT;
+  const outputFile = options.get("--output") ?? (baseline ? CANDIDATE_OUTPUT : DEFAULT_OUTPUT);
+  const evidenceFile = options.get("--paper-evidence");
+  if (baseline) {
+    const { checkR6Candidate, writeR6Candidate } = await import("./archive-r6.ts");
+    const report = verify ? await checkR6Candidate(baseline, verify) : await writeR6Candidate({
+      baseline, output: outputFile, rulesFile: rules ?? DEFAULT_RULES,
+      archive: { cacheFile, ...(evidenceFile ? { paperEvidence: loadPaperEvidence(evidenceFile) } : {}) },
+    });
+    console.log(JSON.stringify(report, null, 2));
+    return;
   }
   if (path.resolve(cacheFile) === path.resolve(outputFile)) throw new Error("Archive output must not overwrite its source corpus");
   const archive = buildArchive({ cacheFile, ...(evidenceFile ? { paperEvidence: loadPaperEvidence(evidenceFile) } : {}) });

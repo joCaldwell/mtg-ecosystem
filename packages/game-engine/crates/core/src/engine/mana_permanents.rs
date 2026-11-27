@@ -169,10 +169,6 @@ testkit_fields! {
     pub struct PermanentManaUndo {
         pub player: PlayerId,
         pub source: ObjectBefore,
-        pub counters: Quantity,
-        /// CR 122.1: the source's other counter kinds, restored exactly.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub other_counters: Vec<CounterStack>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ability_use: Option<ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -373,29 +369,26 @@ impl RulesTxn {
         {
             return Err("invalid mana receipt source row".into());
         }
-        if receipt.counters.is_negative()
-            || receipt.counters != receipt.source.plus_one_counters
-            || receipt.other_counters != receipt.source.counters
-            || receipt
-                .other_counters
-                .iter()
-                .any(|stack| stack.timestamp >= self.state.rules.next_batch_id)
+        if row
+            .counters
+            .iter()
+            .any(|stack| stack.timestamp >= self.state.rules.next_batch_id)
         {
             return Err("invalid mana receipt counters".into());
         }
-        // A sacrifice can record a departure or death. Each recorded fact
-        // still holds, and the cost events name published batches.
-        if !receipt.sacrificed && !receipt.ledger.is_empty()
-            || receipt.ledger.seats.iter().any(|row| {
-                row.artifacts_entered != 0
-                    || row.creatures_entered != 0
-                    || row.nonlands_entered != 0
-                    || row.tokens_created != 0
-            })
-            || receipt
-                .ledger
-                .check_holds(&self.state.rules.cast_history)
-                .is_err()
+        // Source costs can record a departure or death.
+        // The facts still hold and the cost events name published batches.
+        if receipt.ledger.seats.iter().any(|delta| {
+            delta.seat != receipt.player
+                || !receipt.sacrificed && (delta.permanent_left || delta.creature_died)
+                || delta.artifacts_entered != 0
+                || delta.creatures_entered != 0
+                || delta.nonlands_entered != 0
+                || delta.tokens_created != 0
+        }) || receipt
+            .ledger
+            .check_holds(&self.state.rules.cast_history)
+            .is_err()
             || !receipt.cost_events.windows(2).all(|w| w[0] < w[1])
             || receipt
                 .cost_events
@@ -1080,8 +1073,6 @@ impl RulesTxn {
         let mut receipt = PermanentManaUndo {
             player: a.player,
             source: self.object_before(a.source)?,
-            counters: self.current(a.source)?.plus_one_counters.clone(),
-            other_counters: self.current(a.source)?.counters.clone(),
             ability_use: a
                 .ability
                 .restriction
@@ -1203,16 +1194,22 @@ impl RulesTxn {
         if !self.permanent_source_costs_payable(source, player, costs) {
             return Err("unpayable permanent source costs".into());
         }
-        // CR 118.3/605.3b: this is removal as a cost, never a placement.
-        // The enclosing staged rule step commits cost/use/production atomically.
-        if let Some(n) = &costs.remove_source_plus_one_counters {
-            self.rules_mut()
-                .objects
-                .get_mut(&source.card)
-                .ok_or("missing source")?
-                .pay_counters(&mtg_contracts::kir::CounterKind::PlusOnePlusOne, n)?;
-        }
         let mut children = vec![];
+        // CR 118.3/605.3b: counter removal pays the cost before the other
+        // terms; the enclosing staged rule step owns rollback.
+        if let Some(amount) = &costs.remove_source_plus_one_counters {
+            children.push(EventGroup::Occurrence {
+                proposed: ProposedEvent::PayCounterCost {
+                    object: source,
+                    cost: CounterCost::Remove {
+                        counters: CounterAmount {
+                            counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+                            amount: amount.clone(),
+                        },
+                    },
+                },
+            });
+        }
         if costs.tap {
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::Tap { object: source },
@@ -1235,7 +1232,9 @@ impl RulesTxn {
                 },
             });
         }
-        if !children.is_empty() {
+        if costs.remove_source_plus_one_counters.is_some() {
+            self.commit_counter_cost_batch(cause, EventGroup::Ordered { children })?;
+        } else if !children.is_empty() {
             self.commit_batch(cause, EventGroup::Ordered { children })?;
         }
         Ok(())
@@ -1630,8 +1629,8 @@ impl RulesTxn {
                     }
                     o.tapped = r.source.tapped;
                     // CR 733: exact restoration bypasses placement/replacement.
-                    o.plus_one_counters = r.counters.clone();
-                    o.counters = r.other_counters.clone();
+                    o.plus_one_counters = r.source.plus_one_counters.clone();
+                    o.counters = r.source.counters.clone();
                 }
                 // CR 400.7/733: a departed source is never restored or rebound.
             }

@@ -680,44 +680,57 @@ fn grim_affliction_proliferates_both_kinds_on_one_permanent() {
     answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
     Driver::pay(&mut g, &[5, 6, 7]);
     let d = expect(&mut g, 0, &Reason::Proliferate);
-    let before = g.events().len();
+    let before = g.trace().records.len();
     answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
-    // Exactly one atomic placement on the Feeder carries both kinds, and it
-    // precedes the state-based annihilation.
     settle(&mut g);
-    let after = &g.events()[before..];
-    let placements: Vec<_> = after
+    let changes: Vec<_> = g
+        .trace()
+        .records
         .iter()
-        .enumerate()
-        .filter_map(|(i, e)| match e {
-            Event::Committed {
-                actual: EventOutcome::CountersPlaced { object, placed },
-                ..
-            } if *object == feeder => Some((i, placed.clone())),
+        .skip(before)
+        .filter_map(|record| match &record.record {
+            EvidenceRecord::Batch { batch } => Some(batch),
             _ => None,
         })
+        .flat_map(|batch| &batch.occurrences)
+        .filter(|occurrence| !occurrence.counter_changes.is_empty())
         .collect();
-    let change = |counter: CounterKind, amount: i64, previous: i64, current: i64| CounterChange {
-        counter,
-        amount: amount.into(),
-        previous: previous.into(),
-        current: current.into(),
+    let [placement, annihilation] = changes.as_slice() else {
+        panic!("expected one placement followed by the state-based action");
     };
-    let [(placed_at, placed)] = placements.as_slice() else {
-        panic!("expected one placement on the Feeder: {placements:?}");
+    assert!(
+        matches!(placement.proposed, ProposedEvent::PutCounters { object, .. } if object == feeder)
+    );
+    assert!(
+        matches!(annihilation.proposed, ProposedEvent::AnnihilateCounters { object, .. } if object == feeder)
+    );
+    let changes = |occurrence: &OccurrenceResult| {
+        occurrence
+            .counter_changes
+            .iter()
+            .map(|change| {
+                (
+                    change.counter.clone(),
+                    change.previous.clone(),
+                    change.current.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
     };
     assert_eq!(
-        placed,
-        &vec![
-            change(CounterKind::PlusOnePlusOne, 1, 2, 3),
-            change(CounterKind::MinusOneMinusOne, 1, 1, 2),
+        changes(placement),
+        [
+            (CounterKind::PlusOnePlusOne, 2.into(), 3.into()),
+            (CounterKind::MinusOneMinusOne, 1.into(), 2.into()),
         ]
     );
-    let annihilated_at = after
-        .iter()
-        .position(|e| format!("{e:?}").contains("CountersAnnihilated"))
-        .expect("state-based annihilation");
-    assert!(placed_at < &annihilated_at);
+    assert_eq!(
+        changes(annihilation),
+        [
+            (CounterKind::PlusOnePlusOne, 3.into(), 1.into()),
+            (CounterKind::MinusOneMinusOne, 2.into(), 0.into()),
+        ]
+    );
     let o = g.current(feeder).unwrap();
     assert_eq!(o.plus_one_counters, Quantity::from(1));
     assert!(o.counters.is_empty(), "{:?}", o.counters);
@@ -1031,8 +1044,7 @@ fn mana_undo_receipt_counter_kinds_are_admitted() {
         let mut forged = g.fork();
         if let Frame::Mana { cast } | Frame::Payment { cast } = &mut forged.state.rules.frame {
             let p = cast.mana_activations[index].permanent.as_mut().unwrap();
-            p.source.counters = vec![stack.clone()];
-            p.other_counters = vec![stack.clone()];
+            p.source.counters = vec![stack];
         }
         let err = forged.validate_state().unwrap_err();
         assert!(err.contains("counter kind admission"), "{kind:?}: {err}");

@@ -335,9 +335,8 @@ impl EventBinding {
 pub enum TriggerEventWitness {
     /// CR 122.6, 714.2b: actual count change on the same incarnation.
     LorePlaced {
-        object: ObjectId,
-        previous: Quantity,
-        current: Quantity,
+        member: EventId,
+        change: Box<CounterChange>,
     },
     /// CR 603.6a, 603.10: an entry whose pattern read the entering
     /// permanent's characteristics, with the facts it was matched on.
@@ -529,8 +528,11 @@ impl TriggerEventWitness {
             } else {
                 m.previous
             }),
+            Self::LorePlaced { change, .. } => match change.holder {
+                CounterHolder::Permanent { object, .. } => Some(object),
+                CounterHolder::Player { .. } => None,
+            },
             Self::TokenEntered { object }
-            | Self::LorePlaced { object, .. }
             | Self::Tapped { object, .. }
             | Self::TurnedFaceUp { object, .. }
             | Self::PermanentLeftGame { object, .. } => Some(*object),
@@ -1182,15 +1184,6 @@ impl RulesTxn {
                 EventOutcome::TurnedFaceUp { object, .. } => {
                     self.source_face_up_witness(*object)?.into_iter().collect()
                 }
-                EventOutcome::CountersPlaced { object, placed } => placed
-                    .iter()
-                    .filter(|c| c.counter == kir::CounterKind::Lore)
-                    .map(|c| TriggerEventWitness::LorePlaced {
-                        object: *object,
-                        previous: c.previous.clone(),
-                        current: c.current.clone(),
-                    })
-                    .collect(),
                 // CR 603.2b/503.1a/504.1/117.5: collect at the actual
                 // boundary; EnterStep still owns the normal draw/replacement.
                 // Stabilization/APNAP placement follows those entry actions.
@@ -1364,23 +1357,18 @@ impl RulesTxn {
                 }
                 _ => {}
             }
-            let entry_lore = witnesses
-                .iter()
-                .filter(|w| w.enters())
-                .filter_map(|w| w.subject())
-                .filter_map(|object| {
-                    let current = self
-                        .current(object)
-                        .ok()?
-                        .counter_count(&kir::CounterKind::Lore);
-                    (current > Quantity::zero()).then_some(TriggerEventWitness::LorePlaced {
-                        object,
-                        previous: Quantity::zero(),
-                        current,
-                    })
+            // CR 122.6, 714.2b: entry and ordinary placement share the
+            // same lore facet. Chapters cross upward, never on a removal.
+            witnesses.extend(members.iter().filter_map(|actual| {
+                let change = actual.counters()?;
+                (change.counter == kir::CounterKind::Lore
+                    && change.current > change.previous
+                    && matches!(change.holder, CounterHolder::Permanent { .. }))
+                .then(|| TriggerEventWitness::LorePlaced {
+                    member: actual.id.clone(),
+                    change: Box::new(change.clone()),
                 })
-                .collect::<Vec<_>>();
-            witnesses.extend(entry_lore);
+            }));
             for witness in witnesses {
                 self.collect_resolution_step(&occurrence.id, &witness)?;
                 if witness.dies()
@@ -1602,9 +1590,12 @@ impl RulesTxn {
             .values()
             .filter(|o| o.present_on_battlefield() || Some(o.id) == discarded)
             .filter(|o| {
-                !matches!(&witness, TriggerEventWitness::Tapped { object, .. }
-                | TriggerEventWitness::TurnedFaceUp { object, .. }
-                | TriggerEventWitness::LorePlaced { object, .. } if o.id != *object)
+                !matches!(
+                    &witness,
+                    TriggerEventWitness::Tapped { .. }
+                        | TriggerEventWitness::TurnedFaceUp { .. }
+                        | TriggerEventWitness::LorePlaced { .. }
+                ) || Some(o.id) == subject
             })
             // CR 113.10, 603.10: an object without its abilities, read when
             // the observers are, has no triggered ability to trigger.
@@ -1629,8 +1620,9 @@ impl RulesTxn {
                 let matches = match pattern {
                     EventPattern::SagaChapter { number } => matches!(
                         &witness,
-                        TriggerEventWitness::LorePlaced { object: recipient, previous, current }
-                            if *recipient == object.id && sagas::crosses_chapter(previous, current, *number)
+                        TriggerEventWitness::LorePlaced { change, .. }
+                            if subject == Some(object.id)
+                                && sagas::crosses_chapter(&change.previous, &change.current, *number)
                     ),
                     EventPattern::Enters { object: pred } => {
                         enters && {
@@ -2958,14 +2950,22 @@ impl RulesTxn {
             return Err("snapshot X/death LKI binding invariant".into());
         }
         let valid = match witness {
-            TriggerEventWitness::LorePlaced {
-                object,
-                previous,
-                current,
-            } => {
-                *object == source
+            TriggerEventWitness::LorePlaced { member, change } => {
+                witness.subject() == Some(source)
+                    && matches!(change.holder, CounterHolder::Permanent { controller, .. }
+                        if controller.0 < 4)
+                    && change.counter == kir::CounterKind::Lore
+                    && change.placed_by.is_some_and(|player| player.0 < 4)
+                    && change
+                        .timestamp
+                        .is_some_and(|ts| ts < self.state.rules.next_batch_id)
+                    && change.with_entry.as_ref().is_none_or(|entry| {
+                        change.previous == Quantity::zero()
+                            && entry.occurrence == member.occurrence
+                            && entry.member < member.member
+                    })
                     && matches!(pattern, EventPattern::SagaChapter { number }
-                        if sagas::crosses_chapter(previous, current, *number))
+                        if sagas::crosses_chapter(&change.previous, &change.current, *number))
             }
             TriggerEventWitness::ResolutionPaid { .. } => false,
             TriggerEventWitness::PermanentLeftGame { object, owner } => {
@@ -3543,6 +3543,9 @@ impl RulesTxn {
                             && Self::targeted_permanents(entry).contains(&target.object)
                             && self.stack_entry_complete(entry)
                     })
+            }
+            (TriggerOccurrenceId::Batch(id), TriggerEventWitness::LorePlaced { member, .. }) => {
+                member.occurrence == *id && id.batch < self.state.rules.next_batch_id
             }
             (TriggerOccurrenceId::Batch(id), w) => {
                 !matches!(
