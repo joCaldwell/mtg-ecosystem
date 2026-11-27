@@ -455,24 +455,33 @@ impl Strategy<'_> {
             }
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
-
+        self.desirable_objects(v, d, p, t, candidates)
+            .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
+            .map(|o| o.handle.clone())
+    }
+    /// The objects `object_target` ranks for an ordinary target slot.
+    fn desirable_objects<'v>(
+        &'v self,
+        v: &'v PermittedView,
+        d: &Definition,
+        p: &SpellProgram,
+        t: &'v TargetSpec,
+        candidates: Option<&'v [ObjectHandle]>,
+    ) -> impl Iterator<Item = &'v VisibleObject> {
         let own = self.target_beneficial(d, p, t.slot)
             || t.domain == TargetDomain::OwnGraveyardCreatureCard;
         // A paid source-tap activation should change its target's status.
         // Ordinary tap spells may still gain value from their draw follow-up.
         let needs_untapped = activated_permanent_tap_program(d, p);
-        v.objects
-            .iter()
-            .filter(|o| {
-                candidates.is_none_or(|cs| cs.contains(&o.handle))
-                    && (!needs_untapped || !o.tapped)
-                    && (!sole_target_destruction(p, t.slot)
-                        || !o.keywords.contains(&KeywordAbility::Indestructible))
-                    && self.object_matches(v, o, t, candidates.is_some())
-                    && (o.controller == v.viewer) == own
-            })
-            .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
-            .map(|o| o.handle.clone())
+        let indestructible_useless = sole_target_destruction(p, t.slot);
+        v.objects.iter().filter(move |o| {
+            candidates.is_none_or(|cs| cs.contains(&o.handle))
+                && (!needs_untapped || !o.tapped)
+                && (!indestructible_useless
+                    || !o.keywords.contains(&KeywordAbility::Indestructible))
+                && self.object_matches(v, o, t, candidates.is_some())
+                && (o.controller == v.viewer) == own
+        })
     }
     // Priority in DeclareAttackers follows the actual attack and precedes the
     // blocker decision (CR 508.2, 509.1h, 702.9). Never infer that flight removes
@@ -1135,10 +1144,39 @@ impl Strategy<'_> {
                         .sum::<usize>()
                 })
                 .unwrap_or(0);
+        // CR 601.2b-c: an exact- or up-to-X group names at most the
+        // objects this policy would choose, and a "mana value X or less"
+        // card needs X of at least its printed mana value.
+        let counted = matches!(
+            p.variable_target_count(),
+            Some(kir::VariableTargetCount::ExactlyX | kir::VariableTargetCount::UpToX)
+        );
+        let wanted = p
+            .targets
+            .first()
+            .filter(|_| counted)
+            .map(|t| self.desirable_objects(v, d, p, t, None).count());
+        let x_filtered = p
+            .targets
+            .first()
+            .filter(|t| t.mana_value_at_most_announced_x());
+        let filtered_cards: Vec<(Quantity, Quantity)> = x_filtered
+            .map(|t| {
+                self.desirable_objects(v, d, p, t, None)
+                    .filter_map(|o| {
+                        let card = definition(self.catalog, &o.oracle_id).ok()?;
+                        Some((card.characteristics.printed_mana_value(), self.value(o)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let mut best = Quantity::zero();
         let mut chosen = None;
         // This is a bounded policy search, including on views with extended mana production.
-        for n in 1..=upper.min(64) {
+        for n in usize::from(x_filtered.is_none())..=upper.min(64) {
+            if wanted.is_some_and(|wanted| n > wanted) {
+                break;
+            }
             let x = Quantity::from(n as i64);
             let cost = match quote {
                 Some((game, card)) => game.quote_cast_cost(v.viewer, card, Some(&x)).ok()?,
@@ -1156,29 +1194,40 @@ impl Strategy<'_> {
             if self.casting_mana_plan(v, d, cost).is_none() {
                 break;
             }
-            let score = self.wipe_score(v, p, &x).unwrap_or_else(|| {
-                let caps_draw = p.instructions.iter().any(|instruction| {
-                    matches!(
-                        instruction,
-                        kernel!(Draw {
-                            player: kir::PlayerExpr::Is { .. },
-                            amount: announced_x!()
-                        })
-                    )
-                });
-                if caps_draw
-                    && v.players
-                        .iter()
-                        .find(|player| player.player == v.viewer)
-                        .is_none_or(|player| n >= player.library_count as usize)
-                {
-                    Quantity::zero()
-                } else if p.instructions.iter().any(announced_x) {
-                    x.clone()
-                } else {
-                    Quantity::zero()
-                }
+            // The best card the announced X admits; the smallest such X wins.
+            let filtered_score = x_filtered.map(|_| {
+                filtered_cards
+                    .iter()
+                    .filter(|(value, _)| *value <= x)
+                    .map(|(_, score)| score.clone().max(Quantity::from(1)))
+                    .max()
+                    .unwrap_or_default()
             });
+            let score = filtered_score
+                .or_else(|| self.wipe_score(v, p, &x))
+                .unwrap_or_else(|| {
+                    let caps_draw = p.instructions.iter().any(|instruction| {
+                        matches!(
+                            instruction,
+                            kernel!(Draw {
+                                player: kir::PlayerExpr::Is { .. },
+                                amount: announced_x!()
+                            })
+                        )
+                    });
+                    if caps_draw
+                        && v.players
+                            .iter()
+                            .find(|player| player.player == v.viewer)
+                            .is_none_or(|player| n >= player.library_count as usize)
+                    {
+                        Quantity::zero()
+                    } else if counted || p.instructions.iter().any(announced_x) {
+                        x.clone()
+                    } else {
+                        Quantity::zero()
+                    }
+                });
             if score > best {
                 best = score;
                 chosen = Some(x);
