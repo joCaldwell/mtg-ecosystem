@@ -52,11 +52,8 @@ impl RulesTxn {
         self.graveyard_target_legal(object, player, spec.domain)
             && spec.filter.as_ref().is_none_or(|filter| {
                 (filter.types.is_empty()
-                    || self.copiable_definition(object.id).is_ok_and(|definition| {
-                        filter
-                            .types
-                            .iter()
-                            .any(|kind| definition.characteristics.has_type(*kind))
+                    || self.copiable_characteristics(object).is_ok_and(|printed| {
+                        filter.types.iter().any(|kind| printed.has_type(*kind))
                     }))
                     && filter.predicate.as_ref().is_none_or(|predicate| {
                         let facts = self.object_facts(object);
@@ -78,9 +75,9 @@ impl RulesTxn {
     }
 
     pub(super) fn graveyard_mana_value(&self, object: ObjectId) -> Option<Quantity> {
-        self.copiable_definition(object)
+        self.definition(object.card)
             .ok()
-            .map(|d| d.characteristics.printed_mana_value())
+            .map(|d| d.card_characteristics().printed_mana_value())
     }
 
     /// CR 400.7, 608.2b-c: only the original, still-present survivors

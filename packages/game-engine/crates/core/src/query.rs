@@ -403,9 +403,23 @@ pub fn matches_target_domain(
         TargetDomain::OwnGraveyardCreatureCard => {
             own_graveyard_card().and(known(object.copiable(), |c| c.kind == CardKind::Creature))
         }
-        TargetDomain::BattlefieldCreature
-        | TargetDomain::AnyDamageTarget
-        | TargetDomain::CreatureOrPlaneswalker => battlefield_creature(),
+        TargetDomain::BattlefieldCreature => battlefield_creature(),
+        TargetDomain::AnyDamageTarget | TargetDomain::CreatureOrPlaneswalker => {
+            if present(object) {
+                known(object.structural(), |c| {
+                    c.has_type(CardKind::Creature) || c.has_type(CardKind::Planeswalker)
+                })
+            } else {
+                Tri::No
+            }
+        }
+        TargetDomain::PlayerOrPlaneswalker => {
+            if present(object) {
+                known(object.structural(), |c| c.has_type(CardKind::Planeswalker))
+            } else {
+                Tri::No
+            }
+        }
         TargetDomain::ControlledBattlefieldCreature => {
             battlefield_creature().and((object.controller() == you).into())
         }
@@ -428,7 +442,6 @@ pub fn matches_target_domain(
         | TargetDomain::StackSpell
         | TargetDomain::ControlledCreatureSpell
         | TargetDomain::StackActivatedOrTriggeredAbility
-        | TargetDomain::PlayerOrPlaneswalker
         | TargetDomain::AnyPlayer => Tri::No,
     }
 }

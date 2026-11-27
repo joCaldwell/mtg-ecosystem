@@ -408,15 +408,30 @@ impl RulesTxn {
 
     pub(in crate::engine) fn hybrid_decision(&self) -> Result<Decision<Rules>, String> {
         let entry = self.top()?;
+        let definition = self.stack_definition(entry)?;
+        let symbols = match &entry.kind {
+            StackKind::Activated { ability, .. } => {
+                &definition
+                    .activated
+                    .get(*ability as usize)
+                    .ok_or("missing hybrid activated ability")?
+                    .hybrid_mana
+            }
+            _ => &definition.characteristics.hybrid_mana,
+        };
+        Ok(self.hybrid_pick(entry.controller, symbols))
+    }
+
+    /// CR 107.4e-f, 601.2b, 602.2b: one slot per printed hybrid symbol, in
+    /// printed order, each offering that symbol's alternatives.
+    pub(in crate::engine) fn hybrid_pick(
+        &self,
+        player: PlayerId,
+        symbols: &[ColorHybridSymbol],
+    ) -> Decision<Rules> {
         let mut candidates = vec![];
         let mut slots = vec![];
-        for (index, symbol) in self
-            .stack_definition(entry)?
-            .characteristics
-            .hybrid_mana
-            .iter()
-            .enumerate()
-        {
+        for (index, symbol) in symbols.iter().enumerate() {
             let allowed = symbol
                 .colors
                 .iter()
@@ -435,15 +450,15 @@ impl RulesTxn {
                 repeat: false,
             });
         }
-        Ok(self.decision(
-            entry.controller,
+        self.decision(
+            player,
             Reason::HybridCost,
             candidates,
             Shape::Pick {
                 slots,
                 rules: vec![],
             },
-        ))
+        )
     }
 
     pub(in crate::engine) fn target_decision(&self) -> Result<Decision<Rules>, String> {
@@ -461,7 +476,7 @@ impl RulesTxn {
         };
         for spec in specs {
             let allowed = match spec.domain {
-                TargetDomain::AnyDamageTarget => self
+                TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => self
                     .eligible_entities()
                     .into_iter()
                     .map(|entity| {
@@ -472,9 +487,7 @@ impl RulesTxn {
                         candidate_index(&mut candidates, target)
                     })
                     .collect(),
-                TargetDomain::AnyPlayer
-                | TargetDomain::OpponentPlayer
-                | TargetDomain::PlayerOrPlaneswalker => self
+                TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => self
                     .eligible_players(spec.domain, entry.controller)
                     .into_iter()
                     .map(|player| candidate_index(&mut candidates, Candidate::Player { player }))

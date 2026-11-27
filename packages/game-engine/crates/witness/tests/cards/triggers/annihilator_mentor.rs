@@ -148,6 +148,46 @@ fn annihilator_defending_player_sacrifices_n_of_their_choice() {
     assert_recoverable((&g).into());
 }
 
+/// CR 508.5: the controller of the attacked planeswalker is the defending
+/// player. The planeswalker itself can be one of the sacrificed permanents.
+#[test]
+fn annihilator_binds_the_attacked_planeswalkers_controller() {
+    let mut g = Game::new(prepare(
+        board(
+            &[ULAMOGS_CRUSHER, crate::planeswalker::JACE],
+            TurnStep::BeginningCombat,
+        )
+        .seats(3)
+        .permanent_or_hand("Ulamog's Crusher", 0, 0, false)
+        .permanent_or_hand("Jace Beleren", 1, 1, false)
+        .permanent_or_hand("Island", 1, 1, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .permanent_or_hand("Island", 2, 2, false),
+    ));
+    let [jace, island, bears, other] = [1, 2, 3, 4].map(|i| Driver::object(&g, i));
+    let d = crate::evasion::until(&mut g, &Reason::Attackers);
+    let defender = d.index(&Candidate::Object { object: jace }).unwrap();
+    g.respond(
+        d.player,
+        d.id,
+        Answer::Pick {
+            picks: vec![vec![defender]],
+        },
+    )
+    .unwrap();
+
+    let d = until_sacrifice(&mut g).expect("the defending planeswalker controller sacrifices");
+    assert_eq!((d.player, d.required_count()), (PlayerId(1), 2));
+    assert_eq!(d.objects_offered(), vec![jace, island, bears]);
+    let answer = d.pick_objects(vec![jace, island]);
+    g.respond(d.player, d.id, answer).unwrap();
+    assert!(until_sacrifice(&mut g).is_none());
+    assert_eq!(zone(&g, jace), Zone::Graveyard { owner: PlayerId(1) });
+    assert_eq!(zone(&g, other), Zone::Battlefield);
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
 /// Pathrazer of Ulamog (annihilator 3) attacks a player who controls two
 /// permanents: both are sacrificed (CR 609.3). Against a player with none,
 /// the trigger resolves with no choice.

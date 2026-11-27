@@ -685,6 +685,9 @@ impl RulesTxn {
                 attached_to: None,
                 marked_damage: Quantity::zero(),
                 plus_one_counters: Quantity::zero(),
+                loyalty_counters: Quantity::zero(),
+                loyalty_used_this_turn: false,
+                counters: vec![],
                 attack_ready: false,
                 tapped: false,
                 phased_out: false,
@@ -755,6 +758,16 @@ impl RulesTxn {
             token,
             mana_ability_used,
             plus_one_counters: object.plus_one_counters.clone(),
+            loyalty_counters: object.loyalty_counters.clone(),
+            loyalty_used_this_turn: object.loyalty_used_turn == Some(self.state.rules.turn.number),
+            counters: object
+                .counters
+                .iter()
+                .map(|stack| mtg_view::VisibleCounter {
+                    kind: stack.kind.clone(),
+                    count: stack.count.clone(),
+                })
+                .collect(),
             characteristics: Some(characteristics),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
@@ -785,7 +798,8 @@ impl RulesTxn {
             layout: definition.layout,
             front_name: definition.name.clone(),
             back_name: back.name.clone(),
-            active_face: object.face(),
+            active_face: (definition.layout != FaceLayout::Split || object.zone == Zone::Stack)
+                .then(|| object.face()),
             on_adventure: object.adventure_player.is_some(),
         }))
     }
@@ -1062,6 +1076,16 @@ impl RulesTxn {
                     Ok(VisibleAttacker {
                         attacker: self.object_handle_id(viewer, a.attacker).map(O::from)?,
                         defender: a.defender,
+                        defender_removed: a.defender_removed
+                            || a.planeswalker
+                                .is_some_and(|target| !self.is_battlefield_planeswalker(target)),
+                        planeswalker: a
+                            .planeswalker
+                            .filter(|target| {
+                                !a.defender_removed && self.is_battlefield_planeswalker(*target)
+                            })
+                            .map(|target| self.object_handle_id(viewer, target).map(O::from))
+                            .transpose()?,
                         blocked: a.blocked,
                         blockers: a
                             .blockers

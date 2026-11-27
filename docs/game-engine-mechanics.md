@@ -82,15 +82,21 @@ public revisions change only with permitted information. Real restore rejects
 sampled origins ([search](game-engine-search.md) owns hypothetical origins).
 
 <a id="modal-double-faced-cards"></a>
+<a id="double-faced-cards-and-adventurers"></a>
 
-## Double-faced cards and adventurers
+## Two-part cards
 
-The layout allowlist admits Scryfall `normal`, `modal_dfc`, `transform` and
-`adventure`. Both Archive R5 parts must lower completely; the card requires
+The layout allowlist admits Scryfall `normal`, `modal_dfc`, `transform`, `adventure` and
+`split`. Both Archive R5 parts must lower completely; the card requires
 both parts' capabilities and keeps one frozen color identity (CR 903.4d).
-Deck construction, commander eligibility and zones other than the stack or
-battlefield use the front or normal characteristics. Every zone change
+For double-faced cards and adventurers, deck construction, commander eligibility
+and zones other than the stack or battlefield use the front or normal characteristics. Every zone change
 creates a fresh front-face incarnation (CR 400.7, 712.8a, 712.14, 715.4).
+
+A split instant/sorcery has both names, types and colors and the sum of its mana
+costs outside the stack. Each cast offers only legal halves and uses the chosen
+half alone through resolution (CR 709.3–4). Rooms, Fuse and Aftermath reject
+explicitly (CR 709.5, 702.102, 702.127).
 
 A modal card offers each legal face as its own cast or land play, with that
 face's timing, targets, costs and entry rules; the cast face stays up
@@ -115,8 +121,8 @@ exile; hidden zones show neither part (CR 712.6–7). Decision context names
 the chosen part after restore. Snapshots reject a face, transform count,
 permission, ability face or baseline the card or zone cannot have.
 
-Support is provisional at `Executes`. Split, flip, meld, prototype, Omen and
-Room layouts, battle and planeswalker faces, daybound, disturb, craft,
+Support is provisional at `Executes`. Flip, meld, prototype and Omen layouts,
+battle faces and two-part planeswalker cards, daybound, disturb, craft,
 casting or entering transformed and two-part flashback stay rejected.
 
 ## Face-down casting
@@ -281,11 +287,20 @@ in cleanup of the beneficiary's next actual turn (CR 400.7j, 514.2, 611.2a).
 
 Cost keywords with dedicated announcement or payment cells are `Executes`-only.
 
-- **Spell mana symbols**: one leading `{X}`, announced nonnegative before targets
-  and frozen (CR 107.3a, 601.2b); two-color hybrid, announced as one alternative;
-  single-color Phyrexian, payable with 2 life unless below 2 life (CR 107.4e–f,
-  119.4). Several X, monocolored hybrid, colorless or hybrid Phyrexian symbols
-  reject, as do hybrid, Phyrexian, X and special symbols in activation costs.
+- **Mana symbols**: one leading `{X}`, announced nonnegative before targets
+  and frozen (CR 107.3a, 601.2b); two-color or monocolored `{2/C}` hybrid,
+  announced as one alternative; single-color Phyrexian, payable with 2 life
+  unless below 2 life (CR 107.4e–f, 119.4). Mana value counts each hybrid
+  symbol's largest component (CR 202.3f–g). Battlefield activated abilities
+  announce the same symbols, hybrid then X, before targets (CR 602.2b);
+  `ActivatedAbility::announced_cost` is the one total the engine locks and
+  Develop plans; spell announcements are quoted in lock order, before
+  reductions. Announcements that leave no mana open no mana window (CR
+  601.2g). Printed mana abilities admit only two-color hybrid, announced
+  before their nested payment (CR 605.3a); granted ones admit none. Several
+  X, colorless or hybrid Phyrexian and snow symbols reject, as do Phyrexian
+  beside "Pay N life" and announcements on modal, chosen-object,
+  sacrifice-choice or off-battlefield activations.
 - **Affinity** counts the caster's matching phased-in permanents at CR 601.2f
   and reduces generic mana by that count (CR 702.41). Each instance uses the
   stack-static cost lock. Admitted parameters cover artifact, creature,
@@ -435,9 +450,8 @@ exactly the announced X, or any number up to the announced X (CR 115.3,
 Zero targets still allows untargeted actions to resolve. Other graveyard group
 entries, derived X counts, mixed required and optional occurrences
 and optional permanent spells reject. "Target player or planeswalker" announces
-players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
-120.3). Already-matching tap status emits no event and combat membership is
-preserved. "Put a +1/+1 counter on each [creature filter]" applies
+either entity (CR 115.1, 120.3). Already-matching tap status emits no event and
+combat membership is preserved. "Put a +1/+1 counter on each [creature filter]" applies
 simultaneously to the current set. “Tap all creatures target player controls”
 reads that player’s creatures at resolution.
 
@@ -479,7 +493,7 @@ request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition; reviewed patterns keep their capabilities, others use `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes, mana grants, rule statics and P/T CDAs (`characteristic_power_toughness_v1`); the [mana abilities](#mana-abilities) (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
-| Card shell | Normal cards and [double-faced or adventurer cards](#double-faced-cards-and-adventurers) whose parts have complete bound source and supported spell costs and keywords. |
+| Card shell | Normal cards and [two-part cards](#two-part-cards) whose parts have complete bound source and supported spell costs and keywords. |
 
 Sentences resolve in printed order (CR 608.2c); sorcery-speed activations use
 main-phase timing (CR 602.5d); tokens recover from the creating recipe.

@@ -150,6 +150,39 @@ impl ResolutionTrigger {
 }
 
 impl RulesTxn {
+    pub(super) fn validate_myriad_outcome(
+        &self,
+        frame: &Resolving,
+        outcome: &InstructionOutcome,
+    ) -> Result<(), String> {
+        match outcome {
+            InstructionOutcome::Kernel { outcomes } => {
+                for child in outcomes {
+                    self.validate_myriad_outcome(frame, child)?;
+                }
+            }
+            InstructionOutcome::MyriadAccepted { defender } => {
+                let entry = self.entry(frame.stack_id)?;
+                if !matches!(&entry.kind, StackKind::Triggered {
+                    witness: TriggerEventWitness::CreatureAttacked { defender_player_id, .. },
+                    ..
+                } if *defender_player_id != defender.player)
+                    || !self.state.rules.original_seating.contains(&defender.player)
+                    || defender.player == entry.controller
+                    || defender
+                        .planeswalker
+                        .is_some_and(|o| !self.state.rules.cards.contains_key(&o.card))
+                {
+                    return Err("snapshot invalid myriad defender".into());
+                }
+                // The accepted-input replay proves control, type and presence
+                // at the choice, including a defender that has since departed.
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn resolution_trigger_node<'a>(
         &'a self,
         row: &'a ResolutionTrigger,
@@ -446,7 +479,7 @@ impl RulesTxn {
             // all at once; "if one or more tokens are created this way",
             // their delayed exile.
             DelayedEvent::EndOfCombat => {
-                fn accepted(outcome: &InstructionOutcome, out: &mut Vec<PlayerId>) {
+                fn accepted(outcome: &InstructionOutcome, out: &mut Vec<MyriadDefender>) {
                     match outcome {
                         InstructionOutcome::MyriadAccepted { defender } => out.push(*defender),
                         InstructionOutcome::Kernel { outcomes } => {
@@ -462,7 +495,7 @@ impl RulesTxn {
                     .outcomes
                     .iter()
                     .for_each(|o| accepted(o, &mut defenders));
-                defenders.retain(|p| self.is_live(*p) && *p != controller);
+                defenders.retain(|d| self.is_live(d.player) && d.player != controller);
                 if defenders.is_empty() || !self.is_live(controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });

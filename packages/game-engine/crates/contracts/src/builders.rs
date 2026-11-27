@@ -279,6 +279,8 @@ impl ActivatedAbility {
         });
         Self {
             functioning_zone: FunctioningZone::Graveyard,
+            x_mana_cost: false,
+            hybrid_mana: vec![],
             restriction: None,
             cost: ActivationCost::Mana { cost },
             program,
@@ -307,6 +309,8 @@ impl ActivatedAbility {
         });
         Self {
             functioning_zone: FunctioningZone::Graveyard,
+            x_mana_cost: false,
+            hybrid_mana: vec![],
             restriction: None,
             cost: ActivationCost::ExileSource { mana: cost },
             program,

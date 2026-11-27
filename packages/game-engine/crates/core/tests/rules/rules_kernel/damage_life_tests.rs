@@ -28,7 +28,7 @@ fn leaf(proposed: ProposedEvent) -> EventGroup {
 fn damage_event_captures_consumed_source_and_actual_creature_marks() {
     let mut g = game();
     let target = g.object_id(CardId(15)).unwrap();
-    let proposed = hit(&g, 0, DamageRecipient::Creature { object: target }, 1);
+    let proposed = hit(&g, 0, DamageRecipient::Permanent { object: target }, 1);
     let ProposedEvent::NoncombatDamage { damage } = proposed.clone() else {
         panic!()
     };
@@ -144,7 +144,7 @@ fn independent_damage_and_life_occurrences_compose_but_shared_writes_reject() {
     let damage = hit(
         &initial,
         0,
-        DamageRecipient::Creature { object: creature },
+        DamageRecipient::Permanent { object: creature },
         1,
     );
     let mut g = initial.fork();
@@ -216,8 +216,8 @@ fn invalid_damage_life_quantities_recipients_and_source_metadata_are_atomic() {
         player: PlayerId(1),
     };
     let mut invalid = vec![
-        hit(&initial, 0, recipient.clone(), 0),
-        hit(&initial, 0, recipient.clone(), -1),
+        hit(&initial, 0, recipient, 0),
+        hit(&initial, 0, recipient, -1),
         hit(
             &initial,
             0,
@@ -229,7 +229,7 @@ fn invalid_damage_life_quantities_recipients_and_source_metadata_are_atomic() {
         hit(
             &initial,
             0,
-            DamageRecipient::Creature {
+            DamageRecipient::Permanent {
                 object: initial.object_id(CardId(1)).unwrap(),
             },
             1,
@@ -237,7 +237,7 @@ fn invalid_damage_life_quantities_recipients_and_source_metadata_are_atomic() {
         hit(
             &initial,
             0,
-            DamageRecipient::Creature {
+            DamageRecipient::Permanent {
                 object: ObjectId {
                     face: Default::default(),
                     card: CardId(15),
@@ -262,8 +262,7 @@ fn invalid_damage_life_quantities_recipients_and_source_metadata_are_atomic() {
         amount: 1.into(),
     });
     for mutation in 0..9 {
-        let ProposedEvent::NoncombatDamage { mut damage } = hit(&initial, 0, recipient.clone(), 1)
-        else {
+        let ProposedEvent::NoncombatDamage { mut damage } = hit(&initial, 0, recipient, 1) else {
             panic!()
         };
         match mutation {

@@ -217,7 +217,7 @@ fn transform_activation_turns_the_same_permanent_over_once_then_it_attacks() {
         assert_eq!(faces.layout, FaceLayout::Transforming);
         assert_eq!(faces.front_name, "Ulvenwald Captive");
         assert_eq!(faces.back_name, "Ulvenwald Abomination");
-        assert_eq!(faces.active_face, CardFace::Back);
+        assert_eq!(faces.active_face, Some(CardFace::Back));
     }
     assert_recoverable((&game).into());
 
@@ -248,7 +248,7 @@ fn transform_activation_turns_the_same_permanent_over_once_then_it_attacks() {
             .as_ref()
             .unwrap()
             .active_face,
-        CardFace::Front
+        Some(CardFace::Front)
     );
     assert!(row(&view(&game, 1), &printed.oracle_id).is_none());
 }
@@ -286,7 +286,7 @@ fn transform_trigger_turns_the_permanent_over_and_the_back_face_attacks() {
             .as_ref()
             .unwrap()
             .active_face,
-        CardFace::Back
+        Some(CardFace::Back)
     );
     let mut life = game.state.rules.players[0].life.clone();
     attack(&mut game, &[farmer]);
@@ -477,7 +477,7 @@ fn optional_upkeep_transform_survives_restore_with_both_seats_views() {
                 .faces
                 .as_ref()
                 .unwrap();
-            assert_eq!(faces.active_face, CardFace::Front);
+            assert_eq!(faces.active_face, Some(CardFace::Front));
         }
         let source = owner.decision_context.unwrap().source.unwrap();
         assert_eq!(source.oracle_id, printed.oracle_id);
@@ -554,7 +554,7 @@ fn adventure_resolves_to_exile_and_its_creature_is_cast_from_exile() {
             .as_ref()
             .unwrap()
             .active_face,
-        CardFace::Front
+        Some(CardFace::Front)
     );
 
     Driver::action(&mut game, Action::CastBackFace { card });
@@ -585,7 +585,7 @@ fn adventure_resolves_to_exile_and_its_creature_is_cast_from_exile() {
         let spell = row(observed, &printed.oracle_id).unwrap();
         assert_eq!(spell.zone, Zone::Stack);
         let faces = spell.faces.as_ref().unwrap();
-        assert_eq!(faces.active_face, CardFace::Back);
+        assert_eq!(faces.active_face, Some(CardFace::Back));
         assert_eq!(faces.back_name, "Petty Theft");
         let c = spell.characteristics.as_ref().unwrap();
         assert_eq!(c.kind, CardKind::Instant);
@@ -614,7 +614,7 @@ fn adventure_resolves_to_exile_and_its_creature_is_cast_from_exile() {
             .as_ref()
             .unwrap();
         assert!(faces.on_adventure);
-        assert_eq!(faces.active_face, CardFace::Front);
+        assert_eq!(faces.active_face, Some(CardFace::Front));
     }
     assert_recoverable((&game).into());
     let decision = Driver::request(&mut game, u64::MAX);
@@ -722,7 +722,6 @@ fn adventurer_commander_casts_its_adventure_from_the_command_zone() {
 #[test]
 fn two_part_layouts_outside_this_checkpoint_reject_by_name() {
     let cases = [
-        ("split", record!("03d3fee8-f7de-4152-8c18-6d279cc6c125")),
         ("prototype", record!("02457c7f-eced-4bf3-9b61-309b4ceab2d5")),
         ("flip", record!("0664dcc8-fa68-4802-936f-ecd2979ebf3c")),
         ("meld", record!("022b42a6-ee0f-4080-b973-c1b68938c3be")),

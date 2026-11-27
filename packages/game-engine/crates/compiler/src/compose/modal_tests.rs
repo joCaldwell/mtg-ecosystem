@@ -235,6 +235,8 @@ fn modal_ability_executable_shape_is_closed() {
             let trigger = d.triggered.remove(0);
             d.activated.push(ActivatedAbility {
                 functioning_zone: zone,
+                x_mana_cost: false,
+                hybrid_mana: vec![],
                 restriction: None,
                 cost: cost.clone(),
                 program: trigger.program,

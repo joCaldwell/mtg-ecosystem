@@ -543,6 +543,25 @@ impl RulesTxn {
                 }
                 Ok(greatest)
             }
+            // CR 122.1, 608.2h: the source's counters now, or as it last
+            // existed on the battlefield.
+            Amount::CountersOn {
+                object: Ref::Source,
+                counter,
+            } => {
+                let facts = self.source_facts(self.entry(frame.stack_id)?)?;
+                Ok(
+                    if *counter == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
+                        facts.plus_one_counters
+                    } else {
+                        facts
+                            .counters
+                            .iter()
+                            .find(|stack| stack.kind == *counter)
+                            .map_or_else(Quantity::zero, |stack| stack.count.clone())
+                    },
+                )
+            }
             Amount::Times { factor, of } => {
                 let mut value = self.kernel_amount(frame, of)?;
                 value.multiply(factor);
@@ -585,9 +604,8 @@ impl RulesTxn {
                     i64::try_from(count).map_err(|_| "blocker count limit")?,
                 ))
             }
-            // CR 702.121a, 508.4: the declared defenders this combat that are
-            // still opponents in the game, when the controller is the
-            // attacking player.
+            // CR 702.121a, 508.6: count opponents attacked directly by the
+            // controller's declared attackers this combat.
             Amount::OpponentsAttacked {} => {
                 let controller = self.entry(frame.stack_id)?.controller;
                 let count = if self.state.rules.active == Some(controller) {

@@ -810,19 +810,6 @@ fn combination_output_is_one_choice_of_a_complete_bundle() {
     checked(&game);
 }
 
-#[test]
-fn bundle_with_hybrid_activation_input_is_still_rejected() {
-    let raw = include_str!(
-        "../../../../../tests/fixtures/phase1-r5/dc974eb4-72b9-4213-887b-8ee684b93420.json"
-    );
-    assert_mana_rejection(
-        "Flooded Grove",
-        raw,
-        "source.mana_cost",
-        "variable/hybrid/Phyrexian/special mana is not supported",
-    );
-}
-
 fn assert_mana_rejection(name: &str, raw: &str, path: &str, reason: &str) {
     let result = mtg_witness::compile(MANIFEST, raw);
     assert!(

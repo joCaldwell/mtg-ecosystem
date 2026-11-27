@@ -2,9 +2,9 @@
 //! coarse value estimates; only core decides legality and executes rules.
 use super::*;
 use mtg_contracts::{
-    ActivationCost, Definition, FunctioningZone, Instruction as I, KeywordAbility, ObjectSet,
-    SacrificeFilter, SpellProgram, SpellResolution, SpellTiming, StaticEffect, TargetDomain,
-    TargetSpec, TriggerCondition, announced_x, fixed, kernel,
+    ActivationCost, CardFace, Definition, FaceLayout, FunctioningZone, Instruction as I,
+    KeywordAbility, ObjectSet, SacrificeFilter, SpellProgram, SpellResolution, SpellTiming,
+    StaticEffect, TargetDomain, TargetSpec, TriggerCondition, announced_x, fixed, kernel,
     kir::{self, Context, SetExpr},
     source_object, target_object, target_player,
 };
@@ -313,6 +313,10 @@ impl Strategy<'_> {
                 .iter()
                 .find(|o| Some(&o.handle) == s.spell.as_ref())?;
             let d = definition(self.catalog, &o.oracle_id).ok()?;
+            let d = match &o.faces {
+                Some(faces) => d.face(faces.active_face?)?,
+                None => d,
+            };
             (d, d.spell.as_ref()?)
         };
         Some((d, p))
@@ -356,11 +360,19 @@ impl Strategy<'_> {
             return !self.harmful_attachment(d);
         }
         p.instructions.iter().any(|i| match i {
+            // CR 122.1a: a -1/-1 counter shrinks its recipient.
             kernel!(PutCounters {
                 on: target_object!(target_slot),
+                counter,
                 ..
-            })
-            | kernel!(Regenerate {
+            }) if !matches!(
+                counter,
+                kir::CounterKind::MinusOneMinusOne | kir::CounterKind::Stun
+            ) =>
+            {
+                *target_slot == slot
+            }
+            kernel!(Regenerate {
                 what: target_object!(target_slot)
             }) => *target_slot == slot,
             kernel!(ModifyUntil {
@@ -713,7 +725,10 @@ impl Strategy<'_> {
             for a in &v.combat {
                 let sources: Vec<_> = match target {
                     PlayerTargetEntity::Player { player }
-                        if a.defender == *player && !a.blocked =>
+                        if a.defender == *player
+                            && a.planeswalker.is_none()
+                            && !a.defender_removed
+                            && !a.blocked =>
                     {
                         vec![&a.attacker]
                     }
@@ -1056,38 +1071,64 @@ impl Strategy<'_> {
             }
         })
     }
+    /// `quote` is the engine's cast quote (game, card, face, X); with it, each
+    /// hybrid announcement is quoted in the lock order (CR 601.2f).
     fn casting_mana_plan(
         &self,
         view: &PermittedView,
         definition: &Definition,
+        card: Option<&ObjectHandle>,
         cost: ManaCost,
+        quote: Option<(&mtg_core::Game, &ObjectHandle, CardFace, Option<&Quantity>)>,
     ) -> Option<(
         Vec<mtg_contracts::HybridPayment>,
         std::collections::VecDeque<mana_policy::PlannedMana>,
     )> {
-        if definition.convoke || definition.improvise {
-            let kind = if definition.convoke {
-                CardKind::Creature
-            } else {
-                CardKind::Artifact
+        let symbols = &definition.characteristics.hybrid_mana;
+        let quote = quote.filter(|_| !symbols.is_empty());
+        let tap_kind = if definition.convoke {
+            Some(CardKind::Creature)
+        } else if definition.improvise {
+            Some(CardKind::Artifact)
+        } else {
+            None
+        };
+        // CR 601.2f-h: each announcement's total is quoted in lock order
+        // (announcements before reductions), then delve, convoke or
+        // improvise may pay part of that total.
+        mana_policy::first_announcement(view, symbols, |choices| {
+            let total = match quote {
+                Some((game, quoted_card, face, x)) => game
+                    .quote_hybrid_face_cast_cost(view.viewer, quoted_card, face, x, choices)
+                    .ok()?,
+                None => {
+                    let mut total = cost.clone();
+                    for choice in choices {
+                        choice.add_to(&mut total);
+                    }
+                    total
+                }
             };
-            let (due, reserved) = super::tap_payment_plan(view, &cost, kind);
-            if let Some(plan) = mana_policy::hybrid_plan_reserved(
-                self.catalog,
-                view,
-                due,
-                &definition.characteristics.hybrid_mana,
-                &reserved,
-            ) {
-                return Some(plan);
+            let total = if definition.delve {
+                super::delve_mana_due(total, view, card)
+            } else {
+                total
+            };
+            if let Some(kind) = tap_kind {
+                let (due, reserved) = super::tap_payment_plan(view, &total, kind);
+                if let Some(plan) = mana_policy::plan_with_reservations(
+                    self.catalog,
+                    view,
+                    &due,
+                    None,
+                    &[],
+                    &reserved,
+                ) {
+                    return Some(plan);
+                }
             }
-        }
-        mana_policy::hybrid_plan(
-            self.catalog,
-            view,
-            cost,
-            &definition.characteristics.hybrid_mana,
-        )
+            mana_policy::plan_with_reservations(self.catalog, view, &total, None, &[], &[])
+        })
     }
 
     pub(super) fn choose_x(
@@ -1095,7 +1136,7 @@ impl Strategy<'_> {
         v: &PermittedView,
         d: &Definition,
         p: &SpellProgram,
-        quote: Option<(&mtg_core::Game, &ObjectHandle)>,
+        quote: Option<(&mtg_core::Game, &ObjectHandle, CardFace)>,
     ) -> Option<Quantity> {
         // A public upper estimate from production symbols and floating mana;
         // no deck-size bound or catalog fingerprint is involved.
@@ -1173,8 +1214,8 @@ impl Strategy<'_> {
             .map(|t| {
                 self.desirable_objects(v, d, p, t, None)
                     .filter_map(|o| {
-                        let card = definition(self.catalog, &o.oracle_id).ok()?;
-                        Some((card.characteristics.printed_mana_value(), self.value(o)))
+                        let card = o.characteristics.as_ref()?;
+                        Some((card.printed_mana_value(), self.value(o)))
                     })
                     .collect()
             })
@@ -1188,19 +1229,25 @@ impl Strategy<'_> {
             }
             let x = Quantity::from(n as i64);
             let cost = match quote {
-                Some((game, card)) => game.quote_cast_cost(v.viewer, card, Some(&x)).ok()?,
+                Some((game, card, face)) => game
+                    .quote_face_cast_cost(v.viewer, card, face, Some(&x))
+                    .ok()?,
                 None => {
                     let mut cost = d.characteristics.mana_cost.clone();
                     cost.generic.add(&x);
                     cost
                 }
             };
-            let cost = if d.delve {
-                super::delve_mana_due(cost, v, quote.map(|(_, card)| card))
-            } else {
-                cost
-            };
-            if self.casting_mana_plan(v, d, cost).is_none() {
+            if self
+                .casting_mana_plan(
+                    v,
+                    d,
+                    quote.map(|(_, card, _)| card),
+                    cost,
+                    quote.map(|(game, card, face)| (game, card, face, Some(&x))),
+                )
+                .is_none()
+            {
                 break;
             }
             // The best card the announced X admits; the smallest such X wins.
@@ -1245,6 +1292,17 @@ impl Strategy<'_> {
         chosen
     }
     fn program_ready(&self, v: &PermittedView, d: &Definition, p: &SpellProgram) -> bool {
+        self.program_ready_with_x(v, d, p, None)
+    }
+    /// `x` is an activation's planned X; a spell's X is chosen from its own
+    /// cast quote.
+    fn program_ready_with_x(
+        &self,
+        v: &PermittedView,
+        d: &Definition,
+        p: &SpellProgram,
+        x: Option<&Quantity>,
+    ) -> bool {
         if p.instructions.iter().any(|i| {
             matches!(
                 i,
@@ -1275,7 +1333,9 @@ impl Strategy<'_> {
         {
             return false;
         }
-        let x = if p.instructions.iter().any(announced_x) {
+        let x = if let Some(x) = x {
+            x.clone()
+        } else if p.instructions.iter().any(announced_x) {
             let Some(x) = self.choose_x(v, d, p, None) else {
                 return false;
             };
@@ -1321,9 +1381,28 @@ impl Strategy<'_> {
         d: &Definition,
         game: Option<&mtg_core::Game>,
     ) -> Option<Action<Viewer>> {
-        if self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
-            matches!(failed, PaymentAction::Cast(id, zone) if id == &d.oracle_id && *zone == o.zone)
-        }) {
+        // Split candidates use the engine's per-half decisions below.
+        if d.layout == FaceLayout::Split {
+            return None;
+        }
+        self.cast_face(v, o, d, CardFace::Front, game)
+    }
+
+    fn cast_face(
+        &mut self,
+        v: &PermittedView,
+        o: &VisibleObject,
+        d: &Definition,
+        face: CardFace,
+        game: Option<&mtg_core::Game>,
+    ) -> Option<Action<Viewer>> {
+        if self.memory.payment.failed[usize::from(v.viewer.0)]
+            .iter()
+            .any(|failed| {
+                matches!(failed, PaymentAction::Cast(id, zone, failed_face)
+                if id == &d.oracle_id && *zone == o.zone && *failed_face == face)
+            })
+        {
             return None;
         }
         if !self.definition_ready(v, d) {
@@ -1362,7 +1441,7 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let quote = game.map(|game| (game, &o.handle));
+        let quote = game.map(|game| (game, &o.handle, face));
         let x = if let Some(p) = &d.spell
             && !flashback
             && d.x_mana_cost
@@ -1372,7 +1451,9 @@ impl Strategy<'_> {
             None
         };
         let mut cost = match quote {
-            Some((game, card)) => game.quote_cast_cost(v.viewer, card, x.as_ref()).ok()?,
+            Some((game, card, face)) => game
+                .quote_face_cast_cost(v.viewer, card, face, x.as_ref())
+                .ok()?,
             // CR 601.2f, 702.81a, 702.138a: only the engine quote includes
             // the increases and reductions that lock with a retrace or
             // escape cast; an observation alone plans neither.
@@ -1410,13 +1491,14 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let due = if d.delve {
-            super::delve_mana_due(cost.clone(), v, Some(&o.handle))
-        } else {
-            cost.clone()
-        };
         let mut alternative = None;
-        let (choices, plan) = match self.casting_mana_plan(v, d, due) {
+        let (choices, plan) = match self.casting_mana_plan(
+            v,
+            d,
+            Some(&o.handle),
+            cost.clone(),
+            quote.map(|(game, card, face)| (game, card, face, x.as_ref())),
+        ) {
             Some(plan) => plan,
             // CR 118.9, 702.74a: announce the printed alternative cost from
             // hand or the command zone when only it can be funded.
@@ -1429,18 +1511,13 @@ impl Strategy<'_> {
                 // Only the engine quote includes the tax, increases and
                 // reductions that lock with the alternative (CR 601.2f); an
                 // observation alone never plans one.
-                let (game, card) = quote?;
+                let (game, card, _) = quote?;
                 let (identity, alt) = game
                     .quote_alternative_cast_cost(v.viewer, card)
                     .ok()
                     .flatten()
                     .filter(|(identity, _)| *identity == printed.identity)?;
-                let due = if d.delve {
-                    super::delve_mana_due(alt.clone(), v, Some(&o.handle))
-                } else {
-                    alt.clone()
-                };
-                let plan = self.casting_mana_plan(v, d, due)?;
+                let plan = self.casting_mana_plan(v, d, Some(&o.handle), alt.clone(), None)?;
                 alternative = Some(identity);
                 cost = alt;
                 plan
@@ -1451,12 +1528,14 @@ impl Strategy<'_> {
         self.memory.alternative_cost = alternative;
         self.memory.planned_x = x;
         self.memory.mana_plan = plan;
-        self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
-        Some(Action::Cast {
-            card: o.handle.clone(),
+        self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone, face));
+        let card = o.handle.clone();
+        Some(match face {
+            CardFace::Front => Action::Cast { card },
+            CardFace::Back => Action::CastBackFace { card },
         })
     }
-    /// The face-down actions the pending priority decision offers.
+    /// Whether the pending priority decision offers this exact action.
     fn offered(observation: &Observation, action: &Action<Viewer>) -> bool {
         observation.decision.as_ref().is_some_and(|d| {
             d.candidates
@@ -1680,11 +1759,15 @@ impl Strategy<'_> {
             || self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
                 matches!(failed, PaymentAction::Activate(handle, index) if handle == &o.handle && *index == ability)
             })
-            || !self.program_ready(v, d, &a.program)
+            // An X ability's readiness is judged at the X it announces.
+            || (!a.x_mana_cost && !self.program_ready(v, d, &a.program))
         {
             return None;
         }
-        let (tap, sac, cost) = match &a.cost {
+        // The printed fixed mana is `a.cost.fixed_mana()`, which
+        // `announced_cost` totals with the announcements below.
+        let (tap, sac, _fixed) = match &a.cost {
+            ActivationCost::Loyalty { .. } => (false, false, zero_cost()),
             ActivationCost::TapPayLifeSacrificeSource { .. } => return None,
             ActivationCost::DiscardSource { mana } => {
                 if self.library_count(v) < 2
@@ -1794,12 +1877,45 @@ impl Strategy<'_> {
             return None;
         }
 
-        self.memory.mana_plan = mana_policy::plan_for(
-            self.catalog,
-            v,
-            &cost,
-            if tap || sac { Some(&o.handle) } else { None },
-        )?;
+        let exclude = (tap || sac).then_some(&o.handle);
+        // CR 107.3a, 107.4e-f, 602.2b: hybrid symbols, then X, are announced
+        // as the ability is activated. The total is the engine's own cost
+        // construction over those announcements.
+        let announce = |x: Option<&Quantity>| {
+            mana_policy::first_announcement(v, &a.hybrid_mana, |choices| {
+                mana_policy::plan_for(self.catalog, v, &a.announced_cost(choices, x), exclude)
+            })
+        };
+        let (hybrid, x, plan) = if a.x_mana_cost {
+            // Each X this view funds (an X of 0 does nothing) is paired with
+            // its first fundable hybrid announcement; the best-scoring ready
+            // X wins: a wipe's smallest best X, else the largest.
+            let mut best: Option<(Quantity, Quantity, Vec<mtg_contracts::HybridPayment>, _)> = None;
+            for n in 1..=64i64 {
+                let n = Quantity::from(n);
+                let Some((hybrid, plan)) = announce(Some(&n)) else {
+                    break;
+                };
+                if !self.program_ready_with_x(v, d, &a.program, Some(&n)) {
+                    continue;
+                }
+                let score = self
+                    .wipe_score(v, &a.program, &n)
+                    .unwrap_or_else(|| n.clone());
+                if best.as_ref().is_none_or(|(_, b, _, _)| score > *b) {
+                    best = Some((n, score, hybrid, plan));
+                }
+            }
+            let (n, _, hybrid, plan) = best?;
+            (hybrid, Some(n), plan)
+        } else {
+            let (hybrid, plan) = announce(None)?;
+            (hybrid, None, plan)
+        };
+        let cost = a.announced_cost(&hybrid, x.as_ref());
+        self.memory.mana_plan = plan;
+        self.memory.hybrid_choices = hybrid;
+        self.memory.planned_x = x;
         self.memory.payment.exclude = (tap || sac).then(|| o.handle.clone());
         self.memory.payment.announced_cost = Some(cost);
         self.memory.payment.action = Some(PaymentAction::Activate(o.handle.clone(), ability));
@@ -1867,7 +1983,7 @@ impl Strategy<'_> {
                 let active_face = vehicle
                     .faces
                     .as_ref()
-                    .map(|faces| faces.active_face)
+                    .and_then(|faces| faces.active_face)
                     .unwrap_or_default();
                 definition(self.catalog, &vehicle.oracle_id)
                     .ok()
@@ -2017,8 +2133,24 @@ impl Strategy<'_> {
                 if rank != stage {
                     continue;
                 }
-                if let Some(r) = self.cast(v, o, d, game) {
-                    return Ok(r);
+                if d.layout == FaceLayout::Split {
+                    // CR 709.3a: consider each half at this card's normal
+                    // casting priority, only if the pending decision offers it.
+                    for face in d.faces() {
+                        let card = o.handle.clone();
+                        let action = match face {
+                            CardFace::Front => Action::Cast { card },
+                            CardFace::Back => Action::CastBackFace { card },
+                        };
+                        if Self::offered(observation, &action)
+                            && let Some(half) = d.face(face)
+                            && let Some(action) = self.cast_face(v, o, half, face, game)
+                        {
+                            return Ok(action);
+                        }
+                    }
+                } else if let Some(action) = self.cast(v, o, d, game) {
+                    return Ok(action);
                 }
             }
         }

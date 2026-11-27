@@ -59,6 +59,17 @@ impl RulesTxn {
         }) {
             return Err("snapshot player counter quantity invariant".into());
         }
+        if rules.objects.values().any(|object| {
+            object.loyalty_counters.is_negative()
+                || object
+                    .loyalty_used_turn
+                    .is_some_and(|turn| turn > rules.turn.number)
+                || (object.zone != Zone::Battlefield
+                    && (object.loyalty_counters > Quantity::zero()
+                        || object.loyalty_used_turn.is_some()))
+        }) {
+            return Err("snapshot loyalty invariant".into());
+        }
         let s = &self.state;
         // An invocation has one owner: its stack entry, or the detached entry
         // of an invocation the frame still resumes (CR 608.2m).
@@ -103,7 +114,7 @@ impl RulesTxn {
             if object.hideaway.is_some()
                 || !matches!(
                     layout,
-                    FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer
+                    FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer | FaceLayout::Split
                 )
                 || match object.zone {
                     Zone::Stack => card.spell.is_none(),
@@ -454,15 +465,17 @@ impl RulesTxn {
                     return Err("snapshot casting frame invariant".into());
                 }
                 let sources: BTreeSet<_> = cast.mana_activations.iter().map(|a| a.object).collect();
+                // Each kept receipt's own invariant names what it rejected.
+                for a in &cast.mana_activations {
+                    if let Some(p) = &a.permanent {
+                        self.validate_mana_condition_receipt(a.player, a.object, p)?;
+                    }
+                }
                 if sources.len() != cast.mana_activations.len()
                     || cast.mana_activations.len() > s.rules.cards.len()
                     || cast.mana_activations.iter().any(|a| {
                         a.player != top.controller
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
-                            || a.permanent.as_ref().is_some_and(|p| {
-                                self.validate_mana_condition_receipt(a.player, a.object, p)
-                                    .is_err()
-                            })
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame)?,

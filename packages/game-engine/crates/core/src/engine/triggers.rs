@@ -1030,7 +1030,7 @@ impl RulesTxn {
                             id: DamageId(0),
                             source: damage.source.clone(),
                             controller: damage.controller,
-                            recipient: damage.recipient.clone(),
+                            recipient: damage.recipient,
                             amount: damage.amount.clone(),
                         }),
                     }]
@@ -1053,7 +1053,7 @@ impl RulesTxn {
                                 ),
                                 source: before.object_before(d.source)?,
                                 controller: d.controller,
-                                recipient: d.recipient.clone(),
+                                recipient: d.recipient,
                                 amount: d.amount.clone(),
                             }),
                         })
@@ -1077,18 +1077,19 @@ impl RulesTxn {
                     };
                     let life = |p: PlayerId| &self.state.rules.players[p.0 as usize].life;
                     let most = self.apnap_players().into_iter().map(life).max().cloned();
-                    for (attacker, defender) in attacks {
+                    for (attacker, defender, planeswalker) in attacks {
                         let prior = before.object_before(*attacker)?;
                         let mut outpowered = false;
                         if let Some(own) = power(*attacker)? {
-                            for (other, _) in attacks {
+                            for (other, _, _) in attacks {
                                 if other != attacker && power(*other)?.is_some_and(|p| p > own) {
                                     outpowered = true;
                                 }
                             }
                         }
-                        let most_life =
-                            self.is_live(*defender) && most.as_ref() == Some(life(*defender));
+                        let most_life = planeswalker.is_none()
+                            && self.is_live(*defender)
+                            && most.as_ref() == Some(life(*defender));
                         // The declaration leaf applies its taps internally
                         // (508.1f). Vigilance leaves the source untapped.
                         if !prior.tapped
@@ -1265,13 +1266,13 @@ impl RulesTxn {
                         .iter()
                         .filter(|d| d.amount > Quantity::zero())
                         .filter_map(|d| match d.recipient {
-                            DamageRecipient::Creature { object } => Some((kind, object)),
+                            DamageRecipient::Permanent { object } => Some((kind, object)),
                             DamageRecipient::Player { .. } => None,
                         })
                         .collect()
                 }
                 EventOutcome::NoncombatDamageDealt { damage, .. } => match damage.recipient {
-                    DamageRecipient::Creature { object } if damage.amount > Quantity::zero() => {
+                    DamageRecipient::Permanent { object } if damage.amount > Quantity::zero() => {
                         vec![(DamageKind::Noncombat, object)]
                     }
                     _ => vec![],
@@ -1280,7 +1281,7 @@ impl RulesTxn {
                     .iter()
                     .filter(|d| d.amount > Quantity::zero())
                     .filter_map(|d| match d.recipient {
-                        DamageRecipient::Creature { object } => Some((DamageKind::Combat, object)),
+                        DamageRecipient::Permanent { object } => Some((DamageKind::Combat, object)),
                         DamageRecipient::Player { .. } => None,
                     })
                     .collect(),
@@ -2541,12 +2542,12 @@ impl RulesTxn {
                 }) {
                     return self.bind_trigger_object_targets(placement, stack_id);
                 }
-                if self
-                    .program()?
-                    .targets
-                    .first()
-                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
-                {
+                if self.program()?.targets.first().is_some_and(|t| {
+                    matches!(
+                        t.domain,
+                        TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker
+                    )
+                }) {
                     return self.bind_trigger_entity_targets(placement, stack_id);
                 }
                 let input = self
@@ -2695,10 +2696,7 @@ impl RulesTxn {
         {
             return Err("snapshot trigger source invariant".into());
         }
-        {
-            self.validate_fact_identity(fact)?;
-        }
-        Ok(())
+        self.validate_fact_identity(fact)
     }
     fn valid_entry_subject(
         &self,

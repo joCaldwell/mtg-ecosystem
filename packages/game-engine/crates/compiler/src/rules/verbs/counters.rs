@@ -1,8 +1,9 @@
 //! "Put counters" (CR 122).
 use super::*;
 
-/// CR 122.1, 122.6: a positive fixed number of +1/+1 counters on the exact
-/// source or one announced creature.
+/// CR 122.1, 122.6: a positive fixed number of +1/+1 counters, or a fixed
+/// or announced-X number of -1/-1 counters (CR 122.1a), on the exact source,
+/// one announced creature or a matching creature set.
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
     on: &serde_json::Value,
@@ -10,24 +11,32 @@ pub(super) fn lower(
     count: &serde_json::Value,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
-    if counter.r#type != "+1/+1" {
-        return Err(step("put-counters", "counter_kind"));
-    }
+    let counter = object_counter_kind(&counter.r#type)?;
+    let amount = match typed(count, "amount")? {
+        ast::Amount::X(_) if counter == kir::CounterKind::MinusOneMinusOne => {
+            kir::Amount::announced_x()
+        }
+        amount => kir::Amount::Fixed {
+            value: fixed_positive_amount(&amount)?,
+        },
+    };
     let on = object(on)?;
     let on = if is_set(&on) {
         lower_board_set(&on, cx.context)?
-    } else if is_this_creature(&on) {
+    } else if is_this_creature(&on) || (!counter.needs_creature() && is_this_permanent(&on)) {
         kir::SetExpr::source()
     } else if let Some(slot) = continuous::followup_target(cx, &on) {
         SetExpr::target(slot)
-    } else {
+    } else if counter.needs_creature() {
         kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, &on)?)
+    } else {
+        // CR 122.1: other kinds go on any permanent the target admits.
+        kir::SetExpr::target(
+            bind_creature_target(cx.program, cx.slots, &on)
+                .or_else(|_| bind_permanent_target(cx.program, cx.slots, &on))?,
+        )
     };
-    Ok(Instruction::plus_one_counters(
-        on,
-        fixed_positive_amount(&typed(count, "amount")?)?,
-        cx.source_block,
-    ))
+    Ok(Instruction::counters(on, counter, amount, cx.source_block))
 }
 
 /// CR 107.14, 122.1f, 704.5c: a fixed award to you or to each opponent.

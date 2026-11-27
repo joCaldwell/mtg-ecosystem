@@ -109,6 +109,17 @@ impl RulesTxn {
                         // ordered by APNAP from the first active player.
                         keyword_rank: c.controller.0,
                         plus_one_counters: Quantity::zero(),
+                        loyalty_counters: if c.zone == Zone::Battlefield {
+                            prepared
+                                .catalog
+                                .definition_by_oracle_id(&c.oracle_id)
+                                .and_then(|d| d.characteristics.loyalty.clone())
+                                .unwrap_or_default()
+                        } else {
+                            Quantity::zero()
+                        },
+                        loyalty_used_turn: None,
+                        counters: vec![],
                         transforms: 0,
                         adventure_player: None,
                         face_down: false,
@@ -161,7 +172,7 @@ impl RulesTxn {
                 combat_declared: false,
                 combat_defenders: vec![],
                 damage_choices: BTreeMap::new(),
-                player_damage_choices: BTreeMap::new(),
+                defender_damage_choices: BTreeMap::new(),
                 first_strike_participants: BTreeSet::new(),
                 blocking_creatures: BTreeSet::new(),
                 cleanup_repeat: false,

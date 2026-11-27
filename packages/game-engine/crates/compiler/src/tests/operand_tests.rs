@@ -71,9 +71,11 @@ fn own_graveyard_permanent_target_covers_all_permanent_card_kinds() {
         .into_iter()
         .filter(|kind| match kind {
             CardKind::Instant | CardKind::Sorcery => false,
-            CardKind::Artifact | CardKind::Creature | CardKind::Enchantment | CardKind::Land => {
-                true
-            }
+            CardKind::Artifact
+            | CardKind::Creature
+            | CardKind::Enchantment
+            | CardKind::Land
+            | CardKind::Planeswalker => true,
         })
         .collect::<BTreeSet<_>>();
     assert_eq!(kinds.len(), expected.len());

@@ -79,8 +79,11 @@ pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Ce
     if a.spend_restriction.is_some() {
         cells.insert(Cell::ManaSpendRestriction);
     }
-    if a.costs.mana.is_some() {
+    if a.costs.mana.is_some() || !a.hybrid_mana.is_empty() {
         cells.insert(Cell::ManaAbilityManaCost);
+    }
+    if !a.hybrid_mana.is_empty() {
+        cells.insert(Cell::HybridManaCost);
     }
     if a.costs.pay_life.is_some() {
         cells.insert(Cell::ManaAbilityPayLife);

@@ -668,9 +668,9 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
         row["faces"][0]["result"]["abilities"][1]["costs"][0] =
             json!({"cost":"mana","symbols":["1"]});
     })));
-    // CR 107.3, 107.4e-f: one leading X and two-color hybrid or Phyrexian
-    // symbols are announced; several X, monocolored hybrid and colorless
-    // Phyrexian symbols have no runtime cost.
+    // CR 107.3, 107.4e-f: one leading X and two-color, monocolored hybrid
+    // or Phyrexian symbols are announced; several X, colorless Phyrexian
+    // and hybrid Phyrexian symbols have no runtime cost.
     match compile(
         R5,
         &changed(PIE, |row| {
@@ -694,7 +694,20 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
         }
         other => panic!("{other:?}"),
     }
-    for cost in ["{X}{X}{B}", "{B}{X}", "{2/B}", "{C/P}", "{B/G/P}"] {
+    let CompileResult::Lowered { definition, .. } = compile(
+        R5,
+        &changed(PIE, |row| row["source"]["mana_cost"] = json!("{2/B}")),
+    ) else {
+        panic!("monocolored hybrid lowers");
+    };
+    assert_eq!(
+        definition.characteristics.hybrid_mana,
+        [ColorHybridSymbol {
+            colors: [HybridPayment::Mana(Color::B), HybridPayment::PayTwoGeneric],
+        }]
+    );
+    assert_eq!(definition.characteristics.printed_mana_value(), 2.into());
+    for cost in ["{X}{X}{B}", "{B}{X}", "{2/C}", "{3/B}", "{C/P}", "{B/G/P}"] {
         assert!(
             rejected(&changed(PIE, |row| row["source"]["mana_cost"] = json!(cost))),
             "{cost}"

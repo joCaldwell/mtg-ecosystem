@@ -3,6 +3,14 @@ use super::*;
 fn is_zero_quantity(value: &Quantity) -> bool {
     *value == Quantity::zero()
 }
+/// CR 122.1: how many counters of one kind a permanent has.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisibleCounter {
+    pub kind: mtg_contracts::kir::CounterKind,
+    pub count: Quantity,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleCommanderReturnChoice {
@@ -132,17 +140,18 @@ impl<O> VisiblePlayer<O> {
         }
     }
 }
-/// The two printed parts of a double-faced or adventurer card. Available
+/// The printed parts of a double-faced, adventurer or split card. Available
 /// only when the viewer can identify the card (CR 712.6-7).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleFaces {
     pub layout: FaceLayout,
     pub front_name: String,
-    /// The back face, or an adventurer's Adventure (CR 715.2).
+    /// The back face, inset Adventure or right split half (CR 709.3, 715.2).
     pub back_name: String,
-    /// The face up, or the Adventure while cast as one (CR 712.8, 715.3b).
-    pub active_face: CardFace,
+    /// The selected face. A split card off the stack has both printed
+    /// names and no single active half (CR 709.3b–4, 712.8, 715.3b).
+    pub active_face: Option<CardFace>,
     /// CR 715.3d: exiled as a resolving Adventure; its controller may play it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_adventure: bool,
@@ -181,6 +190,14 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "quantity_is_zero")]
+    pub loyalty_counters: Quantity,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub loyalty_used_this_turn: bool,
+    /// CR 122.1: the other counter kinds on this permanent, public like
+    /// +1/+1 counters, in kind order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counters: Vec<VisibleCounter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
@@ -209,6 +226,9 @@ impl<H> VisibleObject<H> {
             restrictions: self.restrictions,
             token: self.token,
             plus_one_counters: self.plus_one_counters,
+            loyalty_counters: self.loyalty_counters,
+            loyalty_used_this_turn: self.loyalty_used_this_turn,
+            counters: self.counters,
             characteristics: self.characteristics,
             marked_damage: self.marked_damage,
             attack_ready: self.attack_ready,
@@ -366,6 +386,10 @@ impl<H, O> VisibleStackEntry<H, O> {
 pub struct VisibleAttacker<O = ObjectHandle> {
     pub attacker: O,
     pub defender: PlayerId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planeswalker: Option<O>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub defender_removed: bool,
     pub blocked: bool,
     pub blockers: Vec<O>,
 }
@@ -374,6 +398,8 @@ impl<O> VisibleAttacker<O> {
         VisibleAttacker {
             attacker: T::from(&self.attacker),
             defender: self.defender,
+            planeswalker: self.planeswalker.as_ref().map(T::from),
+            defender_removed: self.defender_removed,
             blocked: self.blocked,
             blockers: self.blockers.iter().map(T::from).collect(),
         }

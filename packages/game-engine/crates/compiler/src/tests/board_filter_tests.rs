@@ -78,6 +78,10 @@ fn closed_legacy_filters_lower_to_the_same_sets_as_before() {
 #[test]
 fn general_filter_terms_each_become_one_atom_in_fixed_order() {
     let cases = [
+        (
+            json!({"types":["planeswalker"]}),
+            vec![kind(CardKind::Planeswalker)],
+        ),
         // "Destroy all artifacts and enchantments."
         (
             json!({"allOf":[{"anyOf":[{"types":["artifact"]},{"types":["enchantment"]}]}]}),
@@ -206,7 +210,7 @@ fn unrepresented_filter_terms_reject_the_whole_set() {
         json!({"types":["enchantment"],"controlledBy":{"player":"target-player"}}),
         json!({"cls":"card","zone":{"owner":"your","zone":"library"}}),
         // A card type the engine does not model.
-        json!({"types":["planeswalker"]}),
+        json!({"types":["battle"]}),
         // A computed or X comparison, an unknown property or operator.
         json!({"types":["creature"],"properties":[
             {"property":"mana-value","comparison":{"op":"le","value":{"amount":"x"}}}]}),
