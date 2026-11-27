@@ -105,7 +105,7 @@ function actor(c: Cursor, previous: PlayerRef | undefined, imperative: string, c
     const optional = !!stated && c.word("may") !== null;
     const verb = c.word(imperative, conjugated);
     if (!verb || (optional && verb !== imperative)) return null;
-    const who = stated ?? (verb === imperative && previous?.player !== "they" ? c.imperativeController() : previous && c.alias(previous));
+    const who = stated ?? (verb === imperative && previous?.player !== "they" ? c.elidedController(previous) : previous && c.alias(previous));
     if (!who) return null;
     // Another player's "may" is that player's decision (EffectBase.decidedBy).
     const decidedBy = optional && stated && stated.player !== "you" ? c.alias(stated) : undefined;
