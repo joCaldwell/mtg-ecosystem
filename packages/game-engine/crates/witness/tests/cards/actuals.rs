@@ -161,8 +161,6 @@ fn row(seat: PlayerId) -> SeatDelta {
         creatures_entered: 0,
         nonlands_entered: 0,
         tokens_created: 0,
-        counter_placements: Quantity::zero(),
-        counter_removals: Quantity::zero(),
     }
 }
 
@@ -835,20 +833,11 @@ fn proliferate_actuals(mode: TraceMode, include_saga: bool) -> (Game, ActualJour
             StackKind::Triggered { witness: TriggerEventWitness::LorePlaced { member, change: retained }, .. }
                 if *member == lore.id && retained.as_ref() == change
         )));
-        assert_eq!(
-            seat(&journal.ledger, P0).unwrap().counter_placements,
-            1.into()
-        );
     } else {
         assert_eq!(loyalty.group, None);
         assert_eq!(triggers_from(&g, saga), 0);
-        assert!(seat(&journal.ledger, P0).is_none());
     }
-    assert_eq!(
-        seat(&journal.ledger, P1).unwrap().counter_placements,
-        1.into()
-    );
-    assert_eq!(g.state.rules.cast_history[1].counter_placements, 1.into());
+    assert!(journal.ledger.is_empty());
     for viewer in [P0, P1, PlayerId(2), PlayerId(3)] {
         let QueryResult::Complete(QueryValue::Observation(observation)) =
             g.player_session(viewer).observe(Budget::unlimited())
@@ -937,14 +926,6 @@ fn loyalty_actuals(mode: TraceMode) -> (Game, ActualJournal) {
     assert_eq!(
         g.current(jace).unwrap().loyalty_used_turn,
         Some(g.turn().number)
-    );
-    assert_eq!(
-        seat(&journal.ledger, P0).unwrap().counter_placements,
-        3.into()
-    );
-    assert_eq!(
-        seat(&journal.ledger, P0).unwrap().counter_removals,
-        1.into()
     );
     (g, journal)
 }
@@ -1057,14 +1038,7 @@ fn paid_counter_cost(mode: TraceMode) -> (Game, ActualJournal) {
         (0.into(), 1.into())
     );
     assert_eq!(placed.placed_by, Some(P0));
-    let ledger = seat(&journal.ledger, P0).unwrap();
-    assert_eq!(
-        (
-            ledger.counter_removals.clone(),
-            ledger.counter_placements.clone()
-        ),
-        (1.into(), 1.into())
-    );
+    assert!(journal.ledger.is_empty());
     (g, journal)
 }
 
@@ -1073,4 +1047,99 @@ fn failed_payment_rolls_back_and_a_retry_publishes_the_counter_cost() {
     let (g, _) = parity(paid_counter_cost);
     checked(&g);
     assert_recoverable((&g).into());
+}
+
+#[test]
+fn abort_after_counter_payment_discards_publication() {
+    // Combine a counter payment and a sacrifice in one private fixture cost.
+    // The sacrifice gives the same step a ledger write and a Korvold trigger.
+    let mut catalog = exact_catalog(&[SPIKE_FEEDER, KORVOLD]);
+    let feeder = catalog
+        .definitions
+        .iter_mut()
+        .find(|definition| definition.name == "Spike Feeder")
+        .unwrap();
+    let ability = &mut feeder.activated[1];
+    let ActivationCost::Composite { costs } = &mut ability.cost else {
+        panic!("expected Spike Feeder's counter cost");
+    };
+    costs.sacrifice = true;
+    feeder.source_labels = None;
+    feeder.capabilities = feeder.requirements();
+    let prepared = Board::new(catalog, "counter-payment-abort")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .permanent_or_hand("Spike Feeder", 0, 0, true)
+        .permanent_or_hand("Korvold, Fae-Cursed King", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .libraries("Island", 6)
+        .seed([11; 32])
+        .prepare();
+
+    for mode in MODES {
+        let mut ready = Game::with_trace(prepared.clone(), mode);
+        Driver::cast(&mut ready, CardId(0));
+        Driver::pay(&mut ready, &[2, 3, 4]);
+        settle(&mut ready);
+        let source = Driver::object(&ready, 0);
+        let korvold = Driver::object(&ready, 1);
+        Driver::action(
+            &mut ready,
+            Action::ActivateAbility {
+                object: source,
+                ability: 1,
+            },
+        );
+        assert_recoverable((&ready).into());
+
+        // The next rule step alone publishes the removal, writes history
+        // and matches the trigger when the execution boundary can advance.
+        let mut committed = ready.fork();
+        open_journal(&mut committed);
+        assert!(!matches!(
+            committed.advance(Budget::new(1)),
+            Advance::Fault(_)
+        ));
+        let committed_actuals = take_journal(&mut committed);
+        let [(_, removed)] = counter_members(&committed_actuals)[..] else {
+            panic!("expected the cost's counter removal");
+        };
+        assert_eq!(removed.delta(), (-1).into());
+        assert!(committed.state.rules.cast_history[0].creature_died);
+        assert_eq!(triggers_from(&committed, korvold), 1);
+        assert_recoverable((&committed).into());
+
+        for quantum in [1, u64::MAX] {
+            let mut aborted = ready.fork();
+            open_journal(&mut aborted);
+            // The boundary counter is incremented after the rule routine
+            // returns, so this fault occurs after publication in the stage.
+            aborted.state.rules.rule_steps = u64::MAX;
+            assert_eq!(
+                aborted.advance(Budget::new(quantum)),
+                Advance::Fault("execution boundary resource limit".into())
+            );
+            let journal = take_journal(&mut aborted);
+            assert!(journal.actuals.is_empty());
+            assert!(journal.events.is_empty());
+            assert!(journal.ledger.is_empty());
+            assert_eq!(
+                aborted.state.rules.next_batch_id,
+                ready.state.rules.next_batch_id
+            );
+            assert_eq!(
+                aborted.current(source).unwrap(),
+                ready.current(source).unwrap()
+            );
+            assert_eq!(
+                aborted.state.rules.cast_history,
+                ready.state.rules.cast_history
+            );
+            assert!(aborted.state.rules.pending_triggers.is_empty());
+            assert!(aborted.state.rules.stack.is_empty());
+            assert_eq!(aborted.trace(), ready.trace());
+        }
+    }
 }

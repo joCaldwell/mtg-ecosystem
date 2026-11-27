@@ -140,12 +140,6 @@ pub struct TurnCastHistory {
     /// CR 111.2: tokens this player created this turn.
     #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub tokens_created: u32,
-    /// CR 122.6: counters put on this seat or its permanents this turn.
-    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
-    pub counter_placements: Quantity,
-    /// CR 122.1: counters removed from this seat or its permanents this turn.
-    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
-    pub counter_removals: Quantity,
     /// CR 702.29a: cards this player cycled this turn.
     #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub cycles: u32,

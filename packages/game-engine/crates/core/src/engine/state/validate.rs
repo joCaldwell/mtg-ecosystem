@@ -238,8 +238,6 @@ impl RulesTxn {
             || s.rules.active.is_some_and(|p| !self.is_live(p))
             || s.rules.cast_history.iter().any(|h| {
                 h.mana_value.is_negative()
-                    || h.counter_placements.is_negative()
-                    || h.counter_removals.is_negative()
                     || !h.any_cast && (h.exile_cast || h.mana_value != Quantity::zero())
                     || h.any_cast == h.spells.is_empty()
             })

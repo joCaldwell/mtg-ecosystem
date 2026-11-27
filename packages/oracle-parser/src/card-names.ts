@@ -61,6 +61,14 @@ export class CardNameCatalog {
     this.size = size;
   }
 
+  *spellings(): IterableIterator<string> {
+    function* walk(node: Trie): IterableIterator<string> {
+      if (node.names) yield* node.names.keys();
+      for (const child of node.children.values()) yield* walk(child);
+    }
+    yield* walk(this.trie);
+  }
+
   /** Longest-first, exact-case, Unicode-bounded. The input must use the same
    * canonical punctuation as Oracle normalization; no fuzzy name matching. */
   matches(text: string, start: number, kinds?: readonly CatalogNameKind[]): CatalogNameMatch[] {

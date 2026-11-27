@@ -28,7 +28,7 @@ const OBSERVATION_PIN: (u32, &str) = (
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     143,
-    "175c2f4fa8f6fcfbdf476043e03c56097c8a22a12f57d82e78787dd6b5ad37ee",
+    "8ce7901a6839eb03f9073744f8350fe799f94223d88c1f2cc101313fae935ca3",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -1148,7 +1148,6 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
                 history[field] = serde_json::to_value(Quantity::from(1)).unwrap();
             }
             history["life_gained"] = serde_json::to_value(Quantity::from(2)).unwrap();
-            history["counter_removals"] = serde_json::to_value(Quantity::from(1)).unwrap();
             sample["state"]["frames"][0]["frame"]["condition_check"] =
                 serde_json::to_value(InterveningCheck::TurnHistory {
                     controller: PlayerId(0),
