@@ -867,6 +867,10 @@ fn reversed_mana_sacrifice_restores_the_transformed_face() {
 /// off the battlefield, phased out, a hideaway link, an Adventure
 /// permission, a loyalty use stamped on turn 0 or a future turn, or a broken
 /// attachment pair (one half missing, or a timestamp not yet issued).
+/// Forges a captured source row given the game's (turn, next attachment
+/// timestamp).
+type RowForgery = fn(&mut ObjectBefore, (u64, u64));
+
 #[test]
 fn restore_rejects_forged_mana_receipt_source_rows() {
     let (mut g, murder, theirs, _, treasure) = treasure_board();
@@ -875,7 +879,7 @@ fn restore_rejects_forged_mana_receipt_source_rows() {
             g.state.rules.turn.number,
             g.state.rules.next_attachment_timestamp,
         );
-        let forgeries: [fn(&mut ObjectBefore, (u64, u64)); 9] = [
+        let forgeries: [RowForgery; 9] = [
             |row, _| row.zone = Zone::Graveyard { owner: row.owner },
             |row, _| {
                 row.phased_out = Some(PhaseReturn::Direct {
