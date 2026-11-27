@@ -1,55 +1,18 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
 import { test } from "node:test";
-import type { ArchiveRecord } from "../../../scripts/archive-parser.ts";
-import { buildCardNameCatalog, type CardNameSource } from "../src/card-names.ts";
 import { normalizeOracleText, normalizeOracleTextTracked } from "../src/normalize.ts";
 import { replayNormalizationEdits } from "../src/printed/replay.ts";
 import { normalizeOracleText as legacyNormalize } from "./support/legacy-normalize.ts";
 
-const archivePath = process.env.MTG_R5_ARCHIVE;
-const archiveSha256 = "7400edf1925081db984d619c56ce17f3f004153f99a57160b5f2f08fd52c5303";
-const normalizedSha256 = "ab0114310125eeb9268512e0a2346004fdcc4b696adf0074eee519816e7be550";
+import { frozenR5, readRows } from "./support/frozen-r5.ts";
 
-async function* readRows(path: string): AsyncGenerator<ArchiveRecord> {
-  const stream = createReadStream(path, { encoding: "utf8" });
-  const lines = createInterface({ input: stream, crlfDelay: Infinity });
-  let header = true;
-  try {
-    for await (const line of lines) {
-      if (header) {
-        const manifest = JSON.parse(line);
-        assert.equal(manifest.recordType, "manifest");
-        assert.equal(manifest.schemaVersion, 4);
-        header = false;
-      } else {
-        yield JSON.parse(line) as ArchiveRecord;
-      }
-    }
-  } finally {
-    lines.close();
-    stream.destroy();
-  }
-}
+const archivePath = process.env.MTG_R5_ARCHIVE;
+const normalizedSha256 = "ab0114310125eeb9268512e0a2346004fdcc4b696adf0074eee519816e7be550";
 
 test("tracked normalization reproduces the frozen R5 archive", { skip: !archivePath && "set MTG_R5_ARCHIVE" }, async (test) => {
   assert.ok(archivePath);
-  const frozen = createHash("sha256");
-  for await (const chunk of createReadStream(archivePath)) frozen.update(chunk);
-  const observedArchiveSha256 = frozen.digest("hex");
-  assert.equal(observedArchiveSha256, archiveSha256);
-
-  // The archive writer builds the catalog before any scope or duplicate filtering.
-  const sources: CardNameSource[] = [];
-  for await (const row of readRows(archivePath)) {
-    assert.equal(row.sourceIndex, sources.length);
-    const { name, layout, oracle_id, card_faces } = row.source;
-    sources.push({ name, layout, oracle_id, card_faces: card_faces?.map(({ name, oracle_id }) => ({ name, oracle_id })) });
-  }
-  assert.equal(sources.length, 38_721);
-  const catalog = buildCardNameCatalog(sources);
+  const { catalog, observedArchiveSha256 } = await frozenR5(archivePath);
 
   const digest = createHash("sha256");
   const kinds = { gap: 0, "self-name": 0, punct: 0, "literal-name": 0, pronoun: 0 };

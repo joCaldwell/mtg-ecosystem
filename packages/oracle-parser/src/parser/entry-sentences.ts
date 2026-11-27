@@ -45,6 +45,7 @@ function singular(ref: ObjectRef): boolean | null {
 /** Folds the sentence into the last instruction of the previous sentence and
  * consumes it; returns false (cursor unchanged) when it is not that rider. */
 export function foldEntrySentence(c: Cursor, previous: Sentence): boolean {
+  const start = c.pos;
   const step: Effect | undefined = previous.steps.at(-1);
   if (!step || previous.otherwise || step.forEach || step.forEachVote) return false;
   if (previous.steps.length === 1 && step.effect === "move-zone" && step.to.zone === "battlefield" && !step.entry?.counters) {
@@ -61,10 +62,10 @@ export function foldEntrySentence(c: Cursor, previous: Sentence): boolean {
     });
     if (entry) {
       step.entry = { ...step.entry, counters: entry };
+      c.fold(step, start);
       return true;
     }
   }
-  const start = c.pos;
   const subject = parseSubject(c, step.effect === "create-token" && "name" in step.token ? step.token.name : undefined);
   if (!subject || c.word(subject.number === "singular" ? "enters" : "enter") === null) { c.pos = start; return false; }
   const details = parseBattlefieldEntryDetails(c);
@@ -86,5 +87,7 @@ export function foldEntrySentence(c: Cursor, previous: Sentence): boolean {
     if (entry?.attacking) step.token.attacking = true;
   } else { c.pos = start; return false; }
   c.punct(".");
+  if (step.effect === "create-token") c.fold(step.token, start);
+  c.fold(step, start);
   return true;
 }

@@ -322,8 +322,9 @@ fn append_effects(
     slots: &mut BTreeMap<String, u32>,
     context: Context,
     damage: impl Fn(&[Sentence]) -> Result<(), Failure>,
-    player_binding: PlayerBinding,
+    scope: impl Into<Scope>,
 ) -> Result<(), Failure> {
+    let mut scope = scope.into();
     if parts.iter().all(|p| matches!(p, Part::Typed(_))) {
         let typed: Vec<Sentence> = parts
             .into_iter()
@@ -336,7 +337,7 @@ fn append_effects(
             .collect();
         plain_sentences(&typed)?;
         damage(&typed)?;
-        return append_spell_effects(program, &typed, block, slots, player_binding, context);
+        return append_spell_effects(program, &typed, block, slots, scope, context);
     }
     let label = source_block(block)?;
     for part in parts {
@@ -356,10 +357,14 @@ fn append_effects(
                 let sentence = [sentence];
                 plain_sentences(&sentence)?;
                 damage(&sentence)?;
-                append_spell_effects(program, &sentence, block, slots, player_binding, context)?;
+                append_spell_effects(program, &sentence, block, slots, scope, context)?;
+                for introduced in &sentence[0].introduces {
+                    scope.prior = scope.prior.join(*introduced);
+                }
             }
             Part::Table(steps) => {
                 for step in &steps {
+                    scope.prior = scope.prior.join(crate::ingest::Introduced::of_step(step));
                     let instruction = if resolution_triggers::is_delayed(step) {
                         resolution_triggers::delayed(step, program, context, label)?
                     } else {
@@ -705,7 +710,7 @@ fn trigger_event(
             &mut BTreeMap::new(),
             Context::Triggered,
             |typed| validate_trigger_damage_sources(&condition, typed),
-            trigger_player_binding(&condition),
+            trigger_scope(&condition),
         )?;
     }
     // CR 702.29c: a discard of this card triggers from the graveyard.

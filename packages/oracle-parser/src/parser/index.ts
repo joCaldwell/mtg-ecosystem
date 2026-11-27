@@ -14,6 +14,7 @@ import type { Ability, CostModification, ParseCardResult, ParsedLine, Sentence, 
 import { LexError, lex, type Token } from "../lexer.ts";
 import { normalizeOracleText } from "../normalize.ts";
 import type { CardNameCatalog } from "../card-names.ts";
+import { tokenCapture } from "../printed/capture.ts";
 import { Cursor } from "./cursor.ts";
 import { parseActivationCostList, parseCostList } from "./costs.ts";
 import { type EffectContext, parseSentences, registerLineParser } from "./effects.ts";
@@ -26,7 +27,7 @@ import { prepareStackCopyInput, uniqueStackTriggerEvent, type StackCopyInputProo
 import { finalizeCharacteristicDefinitions } from "./characteristic-origin.ts";
 import { attachDiceTable, parseDiceTableRows } from "./dice.ts";
 import { parseClassCard, parseLevelCard } from "./level-cards.ts";
-import { parseStationCard } from "./station-cards.ts";
+import { parseStationCard, type StationReminderReader } from "./station-cards.ts";
 import { parseStickerSheet } from "./sticker-sheets.ts";
 import { registerBlockSource, type BlockSourceLine } from "./block-sources.ts";
 import { carrySentenceSpans } from "./sentence-spans.ts";
@@ -115,13 +116,19 @@ function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: Stack
 }
 
 function parseLineTokens(tokens: Token[], options: Token[][], session = new LineSession(tokens)): Ability | null {
+  const printed = tokenCapture(tokens);
+  const checkpoint = printed?.checkpoint();
   const parsed = parseLineTokensUnchecked(tokens, options, session);
+  if (parsed && printed) printed.mark(parsed, options.length ? tokens.concat(...options) : tokens, "complete-production");
   const ability = parsed && carrySentenceSpans(parsed, finalizeCharacteristicDefinitions(parsed));
   // Kicker alternative targets are chosen while casting that spell, never
   // when a triggered/activated ability happens to resolve (601.2c/702.33g).
-  if (ability && ability.kind !== "spell" && (hasAlternativeKickerTargets(ability) || hasCastingCostModes(ability))) return null;
   // A granted cost keyword must have its cost sentence folded in.
-  if (ability && hasUnresolvedKeywordCost(ability)) return null;
+  if (!ability || (ability.kind !== "spell" && (hasAlternativeKickerTargets(ability) || hasCastingCostModes(ability))) ||
+      hasUnresolvedKeywordCost(ability)) {
+    if (checkpoint !== undefined) printed!.rewind(checkpoint);
+    return null;
+  }
   return ability;
 }
 
@@ -223,7 +230,7 @@ function tryLoyalty(tokens: Token[], options: Token[][], session: LineSession): 
   if (!block || block.triggerLimit || block.variableConstraints || block.paymentRestriction) return null;
   return {
     kind: "loyalty",
-    cost: { sign, amount: num.kind === "number" ? num.value : "x" },
+    cost: c.markTokens({ sign, amount: num.kind === "number" ? num.value : "x" }, tokens.slice(0, i + 1)),
     effects: block.sentences,
     ...(block.costModifications ? { costModifications: block.costModifications } : {}),
     ...(block.restriction ? { restriction: block.restriction } : {}),
@@ -480,6 +487,8 @@ registerLineParser((tokens, options) => parseLineTokens(tokens, options));
 // ---------------------------------------------------------------------------
 
 /** Diagnostic-bearing single-line parse. */
+type LineLexer = typeof lex;
+
 const HEADER_TOKENS = new WeakMap<ParsedLine, Token[]>();
 
 function headerLine(parsed: ParsedLine): BlockSourceLine[] {
@@ -487,10 +496,10 @@ function headerLine(parsed: ParsedLine): BlockSourceLine[] {
   return tokens ? [{ text: parsed.text, tokens, role: "header" }] : [];
 }
 
-function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceId?: string, cardNames?: CardNameCatalog, cleave = false): ParsedLine {
+function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceId?: string, cardNames?: CardNameCatalog, cleave = false, readLine: LineLexer = lex): ParsedLine {
   let tokens: Token[];
   try {
-    tokens = lex(text, sourceId, cardNames);
+    tokens = readLine(text, sourceId, cardNames);
   } catch (e) {
     if (e instanceof LexError) {
       return { text, ok: false, error: `${e.message} at position ${e.position}` };
@@ -512,10 +521,10 @@ function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceI
 
 }
 
-function mergeFollowingReplacement(first: Ability, next: string, sourceId?: string, cardNames?: CardNameCatalog): Ability | null {
-  if (!/\binstead\b/i.test(next) || parseLineWithDiagnostics(next, [], sourceId, cardNames).ok) return null;
+function mergeFollowingReplacement(first: Ability, next: string, sourceId?: string, cardNames?: CardNameCatalog, readLine: LineLexer = lex): Ability | null {
+  if (!/\binstead\b/i.test(next) || parseLineWithDiagnostics(next, [], sourceId, cardNames, false, readLine).ok) return null;
   let tokens: Token[];
-  try { tokens = lex(next, sourceId, cardNames); } catch (error) {
+  try { tokens = readLine(next, sourceId, cardNames); } catch (error) {
     if (error instanceof LexError) return null;
     throw error;
   }
@@ -540,7 +549,7 @@ function startsDiceRow(line: string): boolean {
   return /^(?:•\s*)?-?\d+(?:\s*(?:[—-]\s*-?\d+|\+|or\s+(?:less|lower|fewer|higher|greater|more|\d+)))*\s*(?:\||—)/i.test(line);
 }
 
-function parseAbilityBlocks(lines: readonly string[], startIndex: number, context: ParseContext): ParsedLine[] {
+function parseAbilityBlocks(lines: readonly string[], startIndex: number, context: ParseContext, readLine: LineLexer): ParsedLine[] {
   const results: ParsedLine[] = [];
   const sourceId = (index: number) => context.includeSourceProvenance ? `line:${startIndex + index}` : undefined;
 
@@ -554,8 +563,8 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
       while (end < lines.length && startsDiceRow(lines[end])) end++;
       const text = lines.slice(i, end).join("\n");
       try {
-        const header = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames);
-        const rowTokens = lines.slice(i + 1, end).map((row, index) => lex(row, sourceId(i + index + 1), context.cardNames));
+        const header = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames, false, readLine);
+        const rowTokens = lines.slice(i + 1, end).map((row, index) => readLine(row, sourceId(i + index + 1), context.cardNames));
         const table = parseDiceTableRows(rowTokens, c => parseSentences(c, { modalOptions: [], allowRollAgain: true }));
         const ability = header.ok && table ? attachDiceTable(header.ability, table) : null;
         results.push(ability ? { text, ok: true, ability: finalizeCharacteristicDefinitions(ability) }
@@ -580,9 +589,9 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
     if (bullets.length > 0) {
       const blockText = [line, ...bullets].join("\n");
       try {
-        const bulletTokens = bullets.map((b, index) => lex(b, sourceId(i + index + 1), context.cardNames));
+        const bulletTokens = bullets.map((b, index) => readLine(b, sourceId(i + index + 1), context.cardNames));
         const optionTokens = bullets.map((b, index) => b.startsWith("{P}") ? bulletTokens[index] : bulletTokens[index].slice(1));
-        const parsed = parseLineWithDiagnostics(line, optionTokens, sourceId(i), context.cardNames);
+        const parsed = parseLineWithDiagnostics(line, optionTokens, sourceId(i), context.cardNames, false, readLine);
         results.push(registerBlockSource({ ...parsed, text: blockText }, { lines: [...headerLine(parsed),
           ...bullets.map((text, index): BlockSourceLine => ({ text, tokens: bulletTokens[index], role: "option" }))] }));
       } catch (error) {
@@ -593,14 +602,14 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
       continue;
     }
 
-    const parsed = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames, hasCleaveKeyword(lines));
+    const parsed = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames, hasCleaveKeyword(lines), readLine);
     // CR 614.15: a following paragraph may only replace this spell ability's
     // instruction. It then belongs to this block instead of failing alone.
     const premerge = parsed.ok && sourceId(i) !== undefined && /\binstead\b/i.test(lines[i + 1] ?? "") ? structuredClone(parsed.ability) : undefined;
     const merged = parsed.ok && i + 1 < lines.length && !lines[i + 2]?.startsWith("•")
-      ? mergeFollowingReplacement(parsed.ability, lines[i + 1], sourceId(i + 1), context.cardNames) : null;
+      ? mergeFollowingReplacement(parsed.ability, lines[i + 1], sourceId(i + 1), context.cardNames, readLine) : null;
     if (merged) {
-      const paragraph = sourceId(i + 1) === undefined ? [] : [{ text: lines[i + 1], tokens: lex(lines[i + 1], sourceId(i + 1), context.cardNames), role: "paragraph" as const }];
+      const paragraph = sourceId(i + 1) === undefined ? [] : [{ text: lines[i + 1], tokens: readLine(lines[i + 1], sourceId(i + 1), context.cardNames), role: "paragraph" as const }];
       results.push(registerBlockSource({ text: `${line}\n${lines[i + 1]}`, ok: true, ability: merged },
         { lines: [...headerLine(parsed), ...paragraph], ...(premerge ? { premerge } : {}) }));
       i++;
@@ -613,7 +622,12 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
 }
 
 export function parseOracleText(text: string, cardName?: string, context: ParseContext = {}): ParseCardResult {
-  const lines = normalizeOracleText(text, cardName, context.cardNames, context.typeLine);
+  return parseNormalizedOracleText(normalizeOracleText(text, cardName, context.cardNames, context.typeLine), text, cardName, context);
+}
+
+/** Shared entry point for the opt-in printed reader and the legacy parse. */
+export function parseNormalizedOracleText(lines: string[], text: string, cardName: string | undefined,
+  context: ParseContext, readLine: LineLexer = lex, stationReminder?: StationReminderReader): ParseCardResult {
   // Dungeon room names and their graph are rules-bearing (CR 309, 701.46).
   // The text alone lacks graph edges, so ordinary flavor-word parsing cannot
   // certify these cards. They remain failures in the unchanged corpus scope.
@@ -621,12 +635,13 @@ export function parseOracleText(text: string, cardName?: string, context: ParseC
   if (context.layout === "dungeon" || /^Dungeon\b/.test(context.typeLine ?? "")) {
     return { name: cardName ?? "", ok: false, lines: (lines.length ? lines : [""]).map(text => ({ text, ok: false, error: "unsupported dungeon room structure" })) };
   }
-  const results = parseStickerSheet(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context), context.typeLine)
-    ?? parseLevelCard(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context), context.typeLine)
-    ?? parseClassCard(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context),
-      (line, index) => lex(line, context.includeSourceProvenance ? `line:${index}` : undefined, context.cardNames))
-    ?? parseStationCard(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context), text)
-    ?? parseAbilityBlocks(lines, 0, context);
+  const blocks = (section: readonly string[], startIndex: number) => parseAbilityBlocks(section, startIndex, context, readLine);
+  const results = parseStickerSheet(lines, blocks, context.typeLine)
+    ?? parseLevelCard(lines, blocks, context.typeLine)
+    ?? parseClassCard(lines, blocks,
+      (line, index) => readLine(line, context.includeSourceProvenance ? `line:${index}` : undefined, context.cardNames))
+    ?? parseStationCard(lines, blocks, text, stationReminder)
+    ?? blocks(lines, 0);
 
   // CR 113.3a: resolving spell instructions belong to instants/sorceries.
   // A permanent's unmatched continuous text must not become a one-shot

@@ -43,7 +43,10 @@ export function mergeReplacementParagraph(first: Ability, paragraph: Token[], pa
   const c = new Cursor(split.rest);
   const replacement = parseSelfReplacement(c, first.effects[0], parseBody);
   if (!replacement || replacement.effect !== "self-replacement" || !c.done()) return null;
-  if (split.abilityWord) replacement.abilityWord = split.abilityWord;
+  if (split.abilityWord) {
+    replacement.abilityWord = split.abilityWord;
+    c.foldTokens(replacement, paragraph.slice(0, paragraph.length - split.rest.length));
+  }
   return { ...first, effects: [withSelfReplacement(first.effects[0], replacement)] };
 }
 

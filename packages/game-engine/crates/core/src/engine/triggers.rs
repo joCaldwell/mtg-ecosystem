@@ -894,6 +894,25 @@ impl TriggerEventWitness {
 }
 
 impl StackKind {
+    /// CR 202.3e: the triggering spell's mana value on the stack, its
+    /// announced X included, as recorded when it became cast. That record
+    /// is also its last known value once the spell has left the stack.
+    pub(super) fn cast_mana_value(&self) -> Result<Quantity, String> {
+        match self {
+            Self::Triggered {
+                witness: TriggerEventWitness::SpellCast { cast },
+                ..
+            } => {
+                let mut value = cast.spell.characteristics.printed_mana_value();
+                if let Some(x) = &cast.x {
+                    value.add(x);
+                }
+                Ok(value)
+            }
+            _ => Err("cast mana value outside a spell-cast trigger".into()),
+        }
+    }
+
     pub(super) fn event_binding(&self) -> Result<&EventBinding, String> {
         match self {
             Self::Triggered { binding, .. } => Ok(binding),

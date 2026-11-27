@@ -44,6 +44,7 @@ export function resolveDeferredRounding(c: Cursor, result: unknown): boolean {
   collect(result, found, new Set());
   if (found.size === 0) return true;
   if (found.size > 1) return false;
+  const start = c.pos;
   const round = c.attempt((c): "up" | "down" | null => {
     if (!c.punct(",") || !c.words("rounded")) return null;
     return c.word("up", "down") as "up" | "down" | null;
@@ -51,6 +52,7 @@ export function resolveDeferredRounding(c: Cursor, result: unknown): boolean {
   if (!round) return false;
   const [node] = found;
   node.round = round;
+  c.fold(node, start);
   unresolved.delete(node);
   return true;
 }

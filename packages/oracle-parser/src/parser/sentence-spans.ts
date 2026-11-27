@@ -3,6 +3,7 @@
 // `step` before each clause and `finish` once it accepts its sentences; only
 // tokens with source provenance are recorded, so ordinary parsing pays nothing.
 // The archive's span certificate is built from these records (semantic/spans.ts).
+import type { Token } from "../lexer.ts";
 import type { Sentence } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
 
@@ -45,10 +46,12 @@ export class SentenceRecorder {
   private count: number;
   private readonly c: Cursor;
   private readonly sentences: Sentence[];
+  private readonly modalOptions: Token[][];
 
-  constructor(c: Cursor, sentences: Sentence[]) {
+  constructor(c: Cursor, sentences: Sentence[], modalOptions: Token[][]) {
     this.c = c;
     this.sentences = sentences;
+    this.modalOptions = modalOptions;
     this.from = c.pos;
     this.count = sentences.length;
     this.snapshot();
@@ -72,6 +75,15 @@ export class SentenceRecorder {
       const pointers = this.sentences.length > this.count
         ? this.sentences.slice(this.count).map((_, index) => `/${this.count + index}`)
         : [changed(JSON.parse(this.before), this.sentences)].filter((p): p is string => p !== null);
+      if (this.c.printed && this.sentences.length === this.count + 1) {
+        const sentence = this.c.mark(this.sentences[this.count], this.from);
+        if (this.modalOptions.length && sentence.steps.some(step => step.effect === "modal"))
+          this.c.foldTokens(sentence, this.modalOptions.flat());
+      } else if (this.c.printed && this.sentences.length === this.count && pointers.length === 1) {
+        const [, index] = pointers[0].split("/");
+        const sentence = this.sentences[Number(index)];
+        if (sentence) this.c.foldTokens(sentence, tokens);
+      }
       if (sourceId !== undefined && tokens.every(token => token.provenance?.sourceId === sourceId))
         this.spans.push({ sourceId, tokens: tokens.map(token => token.provenance!.index), pointers });
       else this.spans.push({ sourceId: "", tokens: [], pointers: [] });
@@ -91,6 +103,7 @@ export class SentenceRecorder {
  * one span for everything consumed, naming every sentence it produced. */
 export function recordWhole(c: Cursor, start: number, result: Sentence[]): void {
   if (recorded.has(result)) return;
+  if (result.length === 1) c.mark(result[0], start);
   const tokens = c.tokens.slice(start, c.pos);
   const sourceId = tokens[0]?.provenance?.sourceId;
   if (sourceId === undefined || tokens.some(token => token.provenance?.sourceId !== sourceId)) return;

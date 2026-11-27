@@ -370,15 +370,13 @@ pub(super) fn shuffle_into(
     }))
 }
 
-/// "You", or "its controller": the last-known controller of the block's
-/// sole announced target, removed by the preceding step (CR 608.2h).
+/// "You", or "its controller": the last-known controller of the announced
+/// target the pronoun names (CR 608.2c, 608.2h).
 fn searcher(cx: &mut StepCx<'_>, who: &PlayerSelector) -> Result<PlayerExpr, Failure> {
     match typed::<ast::PlayerRef>(who, "player")? {
         ast::PlayerRef::You(_) => Ok(PlayerExpr::you(cx.context)),
         ast::PlayerRef::Controller(controller) => Ok(PlayerExpr::ControllerOf {
-            object: kir::Ref::Target {
-                slot: preceding_target(cx.program, cx.source_block, &controller.of)?,
-            },
+            object: antecedent::target(cx, &controller.of)?,
         }),
         other => Err(operand("player", variant(&other))),
     }

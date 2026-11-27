@@ -222,7 +222,25 @@ A triggered invocation stores an `EventBinding` for the event's player, object
 and quantity when supplied. Death reads the common prior battlefield. An
 entrant or attacker whose power is read at resolution uses the exact live
 incarnation or its departure facts. A later incarnation cannot receive an
-action for the original one.
+action for the original one. A cast spell's mana value is its stack value with
+the announced X that the cast witness recorded, which stays its last known value
+after the spell leaves (CR 202.3e).
+
+**Pronoun antecedents** (`rules/verbs/antecedent.rs`, CR 608.2c). An
+operand's `it` or `that <noun>` names one object the block already introduced.
+Inside a step performed by an object, `its` means that performer ("this creature
+deals damage equal to its power"). Otherwise the antecedent is the one announced
+target whose domain the noun admits: a battlefield permanent of the noun's type,
+a card outside the battlefield for `that card`, or a stack spell for `that spell`.
+Failing that, it is the trigger's event object when its pattern's types admit
+the noun and it is not the source. `It` in a trigger on the source itself means
+that event object. Two admissible targets, a player-or-object target, or an
+untargeted object an earlier printed step named (chosen, created, revealed or
+set) reject as `operand:object:ambiguous_antecedent`. No candidate rejects as
+`unbound_antecedent`. A step that acts on the pronoun also rejects when it names
+a card or spell target, or a target an earlier instruction moved (CR 400.7). The
+frozen R5 resolution is not consulted for this choice.
+`scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write. One
@@ -321,8 +339,11 @@ resolve to a target or step result, never an evaluated or derived entry. A step
 result names the nearest earlier producer of its role (a search's selection or
 objects, a look's objects) or, for `rest` only, the remainder of its own member
 of a simultaneous step after an earlier sibling took from the pool. A printed
-target's block-relative slot must be the one announced for its selection; a
-pronoun resolved to a target must name the block's sole announced target.
+target's block-relative slot must be the one announced for its selection.
+Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
+target bind through the [antecedent rule](#verb-signatures). Counters on each of
+several targets reject as `operand:target:<count|up_to>:counters`, because
+per-member leaves would split one simultaneous placement (CR 122.6).
 
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.

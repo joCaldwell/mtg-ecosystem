@@ -5,6 +5,7 @@
 //! under its own code (`verb:<effect>:<detail>` or `operand:<kind>:<shape>`).
 use super::*;
 
+mod antecedent;
 mod combat;
 mod continuous;
 mod counter;
@@ -36,6 +37,18 @@ pub(crate) struct StepCx<'a> {
     pub program: &'a mut SpellProgram,
     pub slots: &'a mut BTreeMap<String, u32>,
     pub player_binding: PlayerBinding,
+    /// CR 201.5: the trigger's event object is the source itself.
+    pub event_is_source: bool,
+    /// The card types the trigger's event object pattern names (bits).
+    pub event_types: u8,
+    /// CR 608.2c: what the block's earlier steps introduced.
+    pub prior: Introduced,
+    /// While a "where X is" binding lowers: what its own sentence's steps
+    /// introduce, which the binding follows in print but precedes in lowering.
+    pub pending: Introduced,
+    /// CR 608.2c: the object performing this step ("this creature deals
+    /// damage equal to its power"), which its own "its" means.
+    pub subject: Option<Ref>,
     pub context: Context,
     pub source_block: u32,
     /// CR 107.3, 608.2h: the sentence's bound X ("where X is ..."), offered
@@ -156,15 +169,7 @@ fn pilot_object(cx: &mut StepCx<'_>, object: &ast::ObjectRef) -> Result<Ref, Fai
         ast::ObjectRef::Target(_) => Ok(Ref::Target {
             slot: bind_permanent_target(cx.program, cx.slots, object)?,
         }),
-        ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => {
-            if let Ok(slot) = preceding_target(cx.program, cx.source_block, object) {
-                return Ok(Ref::Target { slot });
-            }
-            cx.player_binding
-                .event_object_role()
-                .map(|role| Ref::EventObject { role })
-                .ok_or_else(|| operand("object", "unbound event object"))
-        }
+        ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => antecedent::resolve(cx, object),
         ast::ObjectRef::Related(related)
             if cx.context == Context::Activated
                 && crate::resolution::sacrifice_cost_object(related) =>
@@ -340,9 +345,12 @@ pub(crate) fn append_spell_effects(
     effects: &[Sentence],
     block: usize,
     slots: &mut BTreeMap<String, u32>,
-    player_binding: PlayerBinding,
+    scope: impl Into<Scope>,
     context: Context,
 ) -> Result<(), Failure> {
+    let scope = scope.into();
+    let player_binding = scope.player;
+    let mut prior = scope.prior;
     if effects.is_empty() {
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
@@ -355,6 +363,9 @@ pub(crate) fn append_spell_effects(
             program
                 .instructions
                 .push(Instruction::act(verb, source_block));
+            for introduced in sentence.introduces.iter().chain(&next.introduces) {
+                prior = prior.join(*introduced);
+            }
             sentences.next();
             continue;
         }
@@ -367,12 +378,22 @@ pub(crate) fn append_spell_effects(
         if sentence.steps.is_empty() {
             return Err(invalid("effects.steps", "empty instruction group"));
         }
+        // CR 608.2c: "where X is its power" follows the sentence's steps.
+        let pending = sentence
+            .introduces
+            .iter()
+            .fold(Introduced::default(), |all, step| all.join(*step));
         let bound = pilot_x_binding(
             &mut StepCx {
                 program,
                 slots,
                 context,
                 player_binding,
+                event_is_source: scope.event_is_source,
+                event_types: scope.event_types,
+                prior,
+                pending,
+                subject: None,
                 source_block,
                 x: None,
                 x_consumed: false,
@@ -391,10 +412,18 @@ pub(crate) fn append_spell_effects(
         };
         let mut at = 0;
         while let Some(s) = sentence.steps.get(at) {
+            let step_prior = sentence.introduces[..at]
+                .iter()
+                .fold(prior, |all, step| all.join(*step));
             let mut cx = StepCx {
                 program: &mut *program,
                 slots: &mut *slots,
                 player_binding,
+                event_is_source: scope.event_is_source,
+                event_types: scope.event_types,
+                prior: step_prior,
+                pending: Introduced::default(),
+                subject: None,
                 context,
                 source_block,
                 x: None,
@@ -440,6 +469,7 @@ pub(crate) fn append_spell_effects(
             program.instructions.push(instruction);
             at += 1;
         }
+        prior = prior.join(pending);
     }
     Ok(())
 }

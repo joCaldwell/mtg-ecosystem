@@ -265,7 +265,7 @@ fn counter_recipients_decode_as_generated_objects() {
         Context::Activated,
     )
     .unwrap_err();
-    assert_eq!(code(failure), "operand:target:ref_it");
+    assert_eq!(code(failure), "operand:object:unbound_antecedent");
 }
 
 #[test]
@@ -568,5 +568,76 @@ fn printed_stars_need_their_characteristic_defining_ability() {
         .unwrap()
         .unwrap_err();
         assert_eq!(code(failure), expected);
+    }
+}
+
+/// CR 608.2c: "it" and "that <noun>" bind one antecedent the block already
+/// introduced, or reject by name; they never fall back to another object.
+#[test]
+fn pronoun_antecedents_bind_one_admissible_object_or_reject() {
+    let tap = |selection: &str| {
+        json!({"effect":"tap","what":{"ref":"target","filter":{"types":["creature"]},
+            "count":{"amount":"fixed","value":1},"selectionId":selection}})
+    };
+    let gain = |of: serde_json::Value| {
+        json!({"effect":"gain-life","who":{"player":"you"},
+            "amount":{"amount":"attribute","of":of,"attribute":"power"}})
+    };
+    let lower = |steps: Vec<serde_json::Value>| {
+        let sentences: Vec<Sentence> = steps
+            .into_iter()
+            .map(|step| serde_json::from_value(json!({"steps":[step]})).unwrap())
+            .collect();
+        let mut program = program();
+        append_spell_effects(
+            &mut program,
+            &sentences,
+            0,
+            &mut BTreeMap::new(),
+            PlayerBinding::Unbound,
+            Context::Spell,
+        )
+        .map(|()| program)
+    };
+    // The one announced creature is "that creature".
+    let program = lower(vec![
+        tap("line:0:1"),
+        gain(json!({"ref":"that","filter":{"types":["creature"]}})),
+    ])
+    .unwrap();
+    assert_eq!(
+        program.instructions[1].verb(),
+        Some(&Verb::GainLife {
+            player: PlayerExpr::you(Context::Spell),
+            amount: Amount::StatOf {
+                object: Ref::Target { slot: 0 },
+                stat: kir::Stat::Power,
+            },
+        })
+    );
+    // Two announced creatures, an earlier untargeted object, or a noun no
+    // candidate is, all reject.
+    for (steps, expected) in [
+        (
+            vec![tap("line:0:1"), tap("line:0:2"), gain(json!({"ref":"it"}))],
+            "operand:object:ambiguous_antecedent",
+        ),
+        (
+            vec![
+                json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}),
+                tap("line:0:1"),
+                gain(json!({"ref":"it"})),
+            ],
+            "operand:object:ambiguous_antecedent",
+        ),
+        (
+            vec![
+                tap("line:0:1"),
+                gain(json!({"ref":"that","filter":{"cls":"card"}})),
+            ],
+            "operand:object:unbound_antecedent",
+        ),
+    ] {
+        assert_eq!(code(lower(steps).unwrap_err()), expected);
     }
 }

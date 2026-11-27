@@ -29,5 +29,6 @@ export function foldCounterTotalLimit(c: Cursor, previous: Sentence | undefined)
     return null;
   }
   step.maxTotal = parsed.maximum;
+  c.fold(step, start);
   return true;
 }

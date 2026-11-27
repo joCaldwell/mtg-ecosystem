@@ -31,11 +31,15 @@ export function parseSearchZones(c: Cursor): SearchZones | null {
         }
         else if (c.word('or') !== null) join = 'one';
         if (!comma && !join) return null;
+        const zoneStart = c.pos;
         const parsed = parseZoneRef(c);
         if (!parsed) return null;
         // A coordinated bare zone inherits the nearest stated owner, which
         // may change midway through a list of different players' zones.
-        const zone = parsed.owner === undefined ? { ...parsed, owner: of.at(-1)!.owner } : parsed;
+        const owner = of.at(-1)!.owner;
+        const zone = parsed.owner === undefined
+          ? c.mark({ ...parsed, owner: owner && typeof owner === 'object' ? c.alias(owner) : owner }, zoneStart)
+          : parsed;
         return validZone(zone) ? { zone, join } : null;
       });
       if (!next) break;

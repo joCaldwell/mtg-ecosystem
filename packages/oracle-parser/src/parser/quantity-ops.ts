@@ -221,12 +221,14 @@ function parseMoveCounters(c: Cursor): Effect[] | null {
     // "a second target X" is a separate target selection that is contrasted
     // with the first; keep that printed contrast as the unresolved `other`
     // marker, exactly as "another target X" does.
+    const secondAt = c.pos;
     const second = c.words("a", "second");
     const to = parseObjectRef(c);
     if (!to) return null;
     if (second) {
       if (to.ref !== "target" || to.upTo || to.count.amount !== "fixed" || to.count.value !== 1) return null;
       to.filter.other = true;
+      c.fold(to.filter, secondAt, secondAt + 2);
     }
     // "from each/all": only a complete sweep has an unambiguous per-source meaning.
     if ((from.ref === "each" || from.ref === "all") && count !== "all") return null;
@@ -348,6 +350,7 @@ export function foldCoinFlipOutcome(
   if (flip?.effect === "create-delayed-trigger" && flip.effects.length === 1 && flip.effects[0].steps.length === 1
       && flip.effects[0].steps[0].effect === "flip-coin" && !flip.effects[0].otherwise) flip = flip.effects[0].steps[0];
   if (!previous || flip?.effect !== "flip-coin" || previous.otherwise) return "none";
+  const start = c.pos;
   const header = c.attempt((c): CoinFlipOutcome["result"] | "otherwise" | null => {
     if (c.word("otherwise") !== null) { c.punct(","); return "otherwise"; }
     if (c.word("if") === null) return null;
@@ -386,6 +389,7 @@ export function foldCoinFlipOutcome(
   flip.outcomes = [...outcomes, { result, effects }];
   // A following anaphoric sentence would be read as continuing the branch.
   if (c.isWord("it", "they", "them", "that", "those", "its", "their", "then")) return c.fail("sentence independent of the flip outcome");
+  c.fold(flip, start);
   return "folded";
 }
 
@@ -394,11 +398,12 @@ export function foldCoinFlipOutcome(
 // ---------------------------------------------------------------------------
 
 /** Effects whose `what` (or damage recipient) denotes a selected object. */
-function markRandom(effect: Effect): boolean {
+function markRandom(c: Cursor, effect: Effect, start: number, end: number): boolean {
   const mark = (ref: ObjectRef): boolean => {
     if ((ref.ref !== "filter" && ref.ref !== "from-pool" && ref.ref !== "target" && ref.ref !== "any-target") || ref.random) return false;
     if ("upTo" in ref && ref.upTo) return false;
     ref.random = true;
+    c.fold(ref, start, end);
     return true;
   };
   switch (effect.effect) {
@@ -408,7 +413,11 @@ function markRandom(effect: Effect): boolean {
     case "put-counters":
       return mark(effect.on);
     case "damage":
-      if (effect.to.to === "any-target") { effect.to.random = true; return true; }
+      if (effect.to.to === "any-target") {
+        effect.to.random = true;
+        c.fold(effect.to, start, end);
+        return true;
+      }
       return effect.to.to === "object" ? mark(effect.to.ref) : false;
     default:
       return false;
@@ -447,10 +456,11 @@ export function parseRandomSelection(c: Cursor, parseStep: (c: Cursor) => Effect
       if (effect.who.player !== "you" || effect.optional) return null;
       result = { effect: "choose-random", what: effect.what };
     } else {
-      if (!markRandom(effect)) return null;
+      if (!markRandom(c, effect, at, at + length)) return null;
       result = effect;
     }
     c.pos += sub.pos + length;
+    c.fold(result, at, at + length);
     return [result];
   });
 }

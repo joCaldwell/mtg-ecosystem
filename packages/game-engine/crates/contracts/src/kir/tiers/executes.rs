@@ -438,6 +438,16 @@ fn validate_target_bindings(
                         | kir::Verb::PutCounters { on: what, .. }
                         | kir::Verb::ModifyUntil { what, .. }
                     ) if *what == kir::SetExpr::target(0))
+                        // CR 608.2b, 608.2h: every player and amount slot of
+                        // a life or draw signature skips the verb when its
+                        // operand is absent, so reading the unchosen target
+                        // ("gain life equal to that creature's power") does
+                        // nothing on its own.
+                        && !matches!(node, kir::Node::Do(
+                            kir::Verb::GainLife { .. }
+                            | kir::Verb::LoseLife { .. }
+                            | kir::Verb::Draw { .. }
+                        ))
                 }))
     {
         return cell("target", "up_to_one_requires_independent_object_leaves");
