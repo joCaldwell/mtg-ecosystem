@@ -2217,8 +2217,9 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       const stated = parseAmount(c);
       const noun = c.word("card", "cards");
       if (noun === null) return null;
+      // A bare plural "cards" prints no count; that node stays unlocated.
       const count = stated ?? (noun === "card" ? c.mark({ amount: "fixed", value: 1 }, c.pos - 1)
-        : c.implicit({ amount: "fixed", value: 1 }, "implied-singular-count"));
+        : { amount: "fixed" as const, value: 1 });
       if (c.word("of") === null) return null;
       const of = parseZoneRef(c);
       if (of?.zone !== "library" || of.position) return null;

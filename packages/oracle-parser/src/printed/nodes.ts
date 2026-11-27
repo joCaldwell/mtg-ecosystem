@@ -1,6 +1,6 @@
 import type { Ability } from "../ast.ts";
 import type { Occurrence, PrintedCapture } from "./capture.ts";
-import type { PrintedNode, TokenRun } from "./schema.ts";
+import type { ImplicitReason, PrintedNode, TokenRun } from "./schema.ts";
 
 export interface CaptureDefects {
   nesting: number;
@@ -64,15 +64,23 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
   defects: CaptureDefects): LocatedNode[] {
   const ordered: LocatedNode[] = [];
   const byPath = new Map<string, LocatedNode>();
+  const fallbacks = new Map<LocatedNode, ImplicitReason>();
   const demote = (node: LocatedNode): void => {
     node.node = { path: node.node.path, basis: "unlocated" };
     for (const child of node.children) demote(child);
   };
 
   const targets = new Map<object, { path: string; value: object }>();
+  // An alias re-originated in place keeps its identity for earlier aliases of it.
+  const chains = new Map<object, object>();
   function findAliasTargets(value: unknown, path: string): void {
-    if (!value || typeof value !== "object" || capture.origin(value)?.basis === "alias") return;
+    if (!value || typeof value !== "object") return;
+    const origin = capture.origin(value);
     const identity = capture.identity(value);
+    if (origin?.basis === "alias") {
+      if (identity && identity !== origin.target) chains.set(identity, origin.target);
+      return;
+    }
     if (identity && !targets.has(identity)) targets.set(identity, { path, value });
     for (const [key, child] of Object.entries(value)) findAliasTargets(child, pointer(path, key));
   }
@@ -95,16 +103,13 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
       aliasOf = undefined;
     }
     if (aliasOf === undefined && origin?.basis === "alias") {
-      const target = targets.get(origin.target);
+      let identity = origin.target;
+      for (const seen = new Set<object>(); !targets.has(identity) && chains.has(identity) && !seen.has(identity);) {
+        seen.add(identity);
+        identity = chains.get(identity)!;
+      }
+      const target = targets.get(identity);
       if (target && JSON.stringify(target.value) === JSON.stringify(value)) aliasOf = target.path;
-    }
-    // The Halfling production uses the same parsed spending purpose twice.
-    // Carry preserves the exact origin through cloning; equality alone cannot establish reuse.
-    const shared = /^(.*)\/riders\/0\/spentOn\/(\d+)$/.exec(path);
-    if (!mutated && aliasOf === undefined && shared && obj.use === "cast" && origin?.basis === "recorded") {
-      const candidate = `${shared[1]}/restriction/uses/${shared[2]}`;
-      const original = byPath.get(candidate);
-      if (original && capture.origin(original.value) === origin && JSON.stringify(original.value) === JSON.stringify(value)) aliasOf = candidate;
     }
 
     const located: LocatedNode = { value: obj, node: { path, basis: "unlocated" }, scope, depth, children: [] };
@@ -120,10 +125,11 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
 
     if (aliasOf !== undefined) {
       located.node = { path, basis: "alias", of: aliasOf };
+      if (origin?.basis === "alias" && origin.fallback) fallbacks.set(located, origin.fallback);
       return;
     }
-    if (origin?.basis === "implicit") {
-      located.node = { path, ...origin };
+    if (origin?.basis === "implicit" || origin?.basis === "alias" && origin.fallback) {
+      located.node = { path, basis: "implicit", reason: origin.basis === "implicit" ? origin.reason : origin.fallback! };
       return;
     }
 
@@ -171,8 +177,10 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
     const node = located.node;
     if (node.basis === "alias") {
       const target = byPath.get(node.of)?.node;
-      if (!target || target.basis === "alias" || target.basis === "unlocated")
-        located.node = { path: node.path, basis: "unlocated" };
+      if (!target || target.basis === "alias" || target.basis === "unlocated") {
+        const reason = fallbacks.get(located);
+        located.node = reason ? { path: node.path, basis: "implicit", reason } : { path: node.path, basis: "unlocated" };
+      }
     }
   }
   return ordered;

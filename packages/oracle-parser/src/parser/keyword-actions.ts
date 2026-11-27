@@ -37,7 +37,7 @@ function parseActorPhrase(
     const retainsPluralActor = ctx.lastPlayer?.player === "they" || ctx.lastPlayer?.player === "group";
     // "[Player] may investigate": the other player whose "may" governs it acts.
     const who = explicit ?? (elided ? ctx.lastPlayer && c.alias(ctx.lastPlayer)
-      : ctx.impliedActor ?? (retainsPluralActor && ctx.lastPlayer ? c.alias(ctx.lastPlayer) : c.imperativeController()));
+      : ctx.impliedActor ?? (retainsPluralActor && ctx.lastPlayer ? c.alias(ctx.lastPlayer) : c.elidedController(ctx.lastPlayer)));
     if (!who) return c.fail("actor of keyword action");
     if (who.player === "group") return c.fail("supported grouped-player action");
     ctx.lastPlayer = who;

@@ -44,9 +44,10 @@ operand when coordination shares one subject, duration, or destination.
 Binding and resolution consume the existing parse result.
 
 Implicit evidence identifies an unstated singular target
-(`implied-singular-target`), an unstated singular amount
-(`implied-singular-count`), an omitted imperative actor
+(`implied-singular-target`), an omitted imperative actor
 (`imperative-controller`), or an inferred zone (`default-zone`).
+An omitted actor after a printed "you" in the same sentence, and each member
+of a "you may" group, aliases that printed "you".
 Printed pronouns, zone names, and amounts retain their own token spans.
 When a later clause changes a recorded node, the parser folds that clause's
 tokens into the claim. At finalization the capture compares the node's own

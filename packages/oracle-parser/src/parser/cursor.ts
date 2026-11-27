@@ -7,6 +7,7 @@
 //    so a failed line reports a useful diagnostic instead of "no viable
 //    alternative".
 
+import type { PlayerRef } from "../ast.ts";
 import type { Token } from "../lexer.ts";
 import { tokenCapture, type PrintedCapture } from "../printed/capture.ts";
 import type { ImplicitReason } from "../printed/schema.ts";
@@ -124,12 +125,37 @@ export class Cursor {
     return this.implicit({ player: "you" }, "imperative-controller");
   }
 
-  alias<T extends object>(node: T): T {
+  /** An omitted actor after a printed "you" in the same sentence is that
+   * subject ("You draw a card and lose 1 life"); otherwise, or when that
+   * subject is not kept in the AST, it is the imperative controller. */
+  elidedController(previous: PlayerRef | undefined): { player: "you" } {
+    const proof = this.printed && previous?.player === "you" && Object.keys(previous).length === 1
+      ? this.printed.proof(previous) : undefined;
+    if (proof) for (let i = this.pos - 1; i >= 0; i--) {
+      const token = this.tokens[i];
+      if (token.kind === "punct" && token.value === ".") break;
+      const at = this.printed!.occurrence(token);
+      if (at && proof.some(({ line, index }) => line === at.line && index === at.index))
+        return this.alias(previous as { player: "you" }, "imperative-controller");
+    }
+    return this.imperativeController();
+  }
+
+  /** `fallback` applies when the canonical occurrence is not in the final AST. */
+  alias<T extends object>(node: T, fallback?: ImplicitReason): T {
     if (!this.printed) return node;
     const checkpoint = this.printed.checkpoint();
-    const alias = this.printed.alias(node);
+    const alias = this.printed.alias(node, fallback);
     this.noteWrite(checkpoint);
     return alias;
+  }
+
+  realias(node: object, of: object): void {
+    if (this.printed) {
+      const checkpoint = this.printed.checkpoint();
+      this.printed.realias(node, of);
+      this.noteWrite(checkpoint);
+    }
   }
 
   implicit<const T extends object>(node: T, reason: ImplicitReason): T {

@@ -364,7 +364,9 @@ export function parseManaSpendingRules(c: Cursor, parseBody: BodyParser, allowRe
           const effects = parseBody(body);
           if (!effects || !body.done()) return null;
           c.pos += body.pos;
-          rider = c.mark({ rider: "effect", mana: "that", spentOn: uses, effects }, riderStart);
+          // The rider restates the restriction's printed spending purpose.
+          const spentOn = c.printed ? uses.map(use => c.alias(use)) : uses;
+          rider = c.mark({ rider: "effect", mana: "that", spentOn, effects }, riderStart);
         } else if (!c.punct(".") && !c.done()) return null;
         return { restriction: c.mark({ restriction: kind, uses }, start, restrictionEnd), rider };
       });
@@ -401,7 +403,7 @@ export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { eff
       ? { player: "player-of-choice", chooser: { player: "you" } } : null) ?? parsePlayerRef(c);
     const verb = c.word("add", "adds");
     if (!verb || explicit?.player === "player-of-choice" && verb !== "adds") return null;
-    const actor = explicit ?? (verb === "add" && previousPlayer?.player !== "they" ? c.imperativeController() : previousPlayer);
+    const actor = explicit ?? (verb === "add" && previousPlayer?.player !== "they" ? c.elidedController(previousPlayer) : previousPlayer);
     if (!actor) return c.fail("actor of mana production");
     c.words("an", "additional");
     const mana = parseProduction(c);
