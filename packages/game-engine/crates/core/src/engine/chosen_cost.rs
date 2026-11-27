@@ -128,43 +128,50 @@ impl RulesTxn {
             .ok_or("crew member has no power".into())
     }
 
-    /// CR 702.122a: each legal subset is represented once, in ascending
-    /// identity order. A candidate is reachable iff the higher positive
-    /// contributors can bring its prefix to the threshold.
+    /// CR 702.122a: each next pick must admit a completion. Using all
+    /// remaining positive contributors as the upper bound lets players pick
+    /// in any order without exposing private identities of face-down objects.
     fn crew_choices(
         &self,
         eligible: &[ObjectId],
         prefix: &[ObjectId],
         minimum: u32,
     ) -> Result<(Vec<ObjectId>, bool), String> {
-        if !valid_selection_prefix(prefix, eligible) {
+        let selected: BTreeSet<_> = prefix.iter().copied().collect();
+        if selected.len() != prefix.len()
+            || selected
+                .iter()
+                .any(|id| eligible.binary_search(id).is_err())
+        {
             return Ok((vec![], false));
         }
         let required = Quantity::from(i64::from(minimum));
-        let mut current = Quantity::zero();
-        for &object in prefix {
-            current.add(&self.crew_power(object)?);
-        }
-        let complete = current >= required;
-        let mut suffix = Quantity::zero();
-        let mut choices = vec![];
-        for &object in eligible
-            .iter()
-            .rev()
-            .take_while(|id| prefix.last().is_none_or(|last| *id > last))
-        {
+        let mut selected_power = Quantity::zero();
+        let mut possible_power = Quantity::zero();
+        let mut remaining = vec![];
+        for &object in eligible {
             let power = self.crew_power(object)?;
-            let mut maximum = current.clone();
-            maximum.add(&power);
-            maximum.add(&suffix);
-            if maximum >= required {
-                choices.push(object);
-            }
-            if power > Quantity::zero() {
-                suffix.add(&power);
+            if selected.contains(&object) {
+                selected_power.add(&power);
+            } else {
+                if power > Quantity::zero() {
+                    possible_power.add(&power);
+                }
+                remaining.push((object, power));
             }
         }
-        choices.reverse();
+        let complete = selected_power >= required;
+        possible_power.add(&selected_power);
+        let choices = remaining
+            .into_iter()
+            .filter_map(|(object, power)| {
+                let mut maximum = possible_power.clone();
+                if power.is_negative() {
+                    maximum.add(&power);
+                }
+                (maximum >= required).then_some(object)
+            })
+            .collect();
         Ok((choices, complete))
     }
 
@@ -330,8 +337,9 @@ impl RulesTxn {
             self.crew_choices(&eligible, selected, minimum)?.1
         } else {
             u32::try_from(selected.len()) == Ok(cost.count)
+                && valid_selection_prefix(selected, &eligible)
         };
-        if !payable || !valid_selection_prefix(selected, &eligible) {
+        if !payable {
             return Err("chosen-object cost is not payable".into());
         }
         let occurrences = selected
@@ -567,14 +575,19 @@ impl RulesTxn {
                 );
             }
             total >= Quantity::from(i64::from(minimum))
+                && chosen
+                    .iter()
+                    .map(|p| p.before.object.card)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    == chosen.len()
         } else {
             u32::try_from(chosen.len()) == Ok(cost.count)
+                && chosen
+                    .windows(2)
+                    .all(|w| w[0].before.object.card < w[1].before.object.card)
         };
-        if !payable
-            || !chosen
-                .windows(2)
-                .all(|w| w[0].before.object.card < w[1].before.object.card)
-        {
+        if !payable {
             return Err("snapshot chosen-object cost count or order invariant".into());
         }
         for object in chosen {

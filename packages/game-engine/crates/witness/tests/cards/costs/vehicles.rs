@@ -75,9 +75,9 @@ fn crew_checks_total_power_and_uses_the_stack() {
             }
             assert!(offered.contains(&activation));
             Driver::action(&mut g, activation);
-            for &object in &members {
+            for (index, &object) in members.iter().rev().enumerate() {
                 let decision = expect(&mut g, 0, reason.clone());
-                assert_eq!(decision.candidates, [Candidate::Object { object }]);
+                assert_eq!(decision.objects_offered(), members[..members.len() - index]);
                 assert!(
                     g.respond(
                         decision.player,
