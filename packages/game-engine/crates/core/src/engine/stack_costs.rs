@@ -602,8 +602,8 @@ impl RulesTxn {
             return Ok(None);
         }
         let kind = mtg_contracts::kir::CounterKind::Loyalty;
-        // Loyalty counters carry no per-stack timestamp (CR 613.7c applies to
-        // counter stacks only); `add_counters` ignores it for this kind.
+        // Loyalty is stored as a balance with no stack timestamp, so
+        // `add_counters` ignores this one for the loyalty kind.
         let timestamp = self.state.rules.next_batch_id.saturating_sub(1);
         let source = self
             .rules_mut()
