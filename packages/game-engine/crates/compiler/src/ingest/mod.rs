@@ -178,7 +178,10 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
         }
         (_, Some(faces)) => {
             if layout == FaceLayout::Split && r.faces.len() != 2 {
-                return Err(unsupported("source.card_faces", "expected two split halves"));
+                return Err(unsupported(
+                    "source.card_faces",
+                    "expected two split halves",
+                ));
             }
             let faces: [SourceFace; 2] = decode(faces.get(), "source.card_faces")?;
             if layout == FaceLayout::Split {
