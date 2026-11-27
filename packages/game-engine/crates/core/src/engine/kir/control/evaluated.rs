@@ -4,6 +4,7 @@ use mtg_contracts::kir::{
     self, Absent, AbsentReason, Atom, DamageTo, Distribution, Evaluated, EvaluatedVerb,
     OperandSlot, QuantityDomain, Resolved, Stat, StepRole,
 };
+mod hidden;
 mod perform;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +23,8 @@ pub(super) struct ResultObject {
     prior: ObjectId,
     successor: Option<ObjectId>,
     controller_before: PlayerId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    public_card: Option<Box<ObjectBefore>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,16 +82,24 @@ pub(super) enum StepProgress {
         recipients: Vec<ObjectId>,
         amount: Quantity,
     },
-    /// CR 101.4, 701.21a: sacrifice choices collected in APNAP order. The
-    /// count was read once when collection began.
+    /// CR 101.4: collect choices in APNAP order before a simultaneous move.
+    /// Discard choices and their earlier picks stay private (CR 101.4a).
     Collect {
         remaining: Vec<PlayerId>,
         chosen: Vec<(PlayerId, ObjectId)>,
         count: Quantity,
+        private: bool,
     },
-    /// CR 701.21a: the collected or designated permanents are being
-    /// sacrificed in one simultaneous event.
-    Sacrifice { chosen: Vec<(PlayerId, ObjectId)> },
+    /// One seeded word at a time, with the sampled membership held privately
+    /// until each denoted player has a complete selection (CR 701.9b).
+    Sample {
+        remaining: Vec<PlayerId>,
+        chosen: Vec<(PlayerId, ObjectId)>,
+        count: Quantity,
+        sampling: Option<crate::engine::random_discard::RandomDiscardProgress>,
+    },
+    /// The chosen objects move in one simultaneous event.
+    CommitMoves { chosen: Vec<(PlayerId, ObjectId)> },
 }
 
 impl RulesTxn {
@@ -370,6 +381,9 @@ impl RulesTxn {
                 result.objects.iter().map(|object| object.prior).collect()
             }
             SetExpr::Pool { .. } => self.control_objects(task, set)?,
+            SetExpr::Result { .. } => {
+                return Err("read-only step result used for an object action".into());
+            }
         }))
     }
 
@@ -552,12 +566,44 @@ impl RulesTxn {
     }
 
     pub(super) fn evaluated_performable(&self, task: &Task, verb: &Verb) -> Result<bool, String> {
-        let (_, operands) = verb.evaluated().ok_or("missing verb signature")?;
-        if !matches!(self.evaluated_amount(task, operands.amount())?, Resolved::Present(amount) if amount > Quantity::zero())
-        {
-            return Ok(false);
-        }
+        let (signature, operands) = verb.evaluated().ok_or("missing verb signature")?;
+        let amount = match operands.amount() {
+            Some(amount) => match self.evaluated_amount(task, amount)? {
+                Resolved::Present(n) if n > Quantity::zero() => Some(n),
+                _ => return Ok(false),
+            },
+            None => None,
+        };
         Ok(match operands {
+            Evaluated::PlayerAmount { player, .. } if signature.verb == EvaluatedVerb::Mill => {
+                let Resolved::Present(players) = self.evaluated_players(task, player)? else {
+                    return Ok(false);
+                };
+                !players.is_empty()
+                    && players.into_iter().all(|player| {
+                        let library = self
+                            .state
+                            .rules
+                            .objects
+                            .values()
+                            .filter(|o| o.zone == Zone::Library { owner: player })
+                            .count();
+                        amount
+                            .as_ref()
+                            .is_some_and(|amount| Quantity::from(library as i64) >= *amount)
+                    })
+            }
+            Evaluated::Discard { player, .. } => {
+                let Resolved::Present(players) = self.evaluated_players(task, player)? else {
+                    return Ok(false);
+                };
+                !players.is_empty()
+                    && players.into_iter().all(|player| {
+                        amount.as_ref().is_none_or(|amount| {
+                            Quantity::from(self.action_hand(player).len() as i64) >= *amount
+                        })
+                    })
+            }
             Evaluated::PlayerAmount { player, .. } => {
                 matches!(self.evaluated_players(task, player)?, Resolved::Present(players) if !players.is_empty())
             }
@@ -602,9 +648,12 @@ impl RulesTxn {
             EvaluatedVerb::Damage => InstructionOutcome::Damage { actual: None },
             _ => InstructionOutcome::Effect { actual: None },
         };
-        let Some(amount) =
-            Self::present_operand(quantity, self.evaluated_amount(&task, operands.amount())?)?
-        else {
+        let amount = match operands.amount() {
+            Some(amount) => self.evaluated_amount(&task, amount)?,
+            // A whole-zone action has no quantity operand.
+            None => Resolved::Present(Quantity::zero()),
+        };
+        let Some(amount) = Self::present_operand(quantity, amount)? else {
             return self.complete_evaluated(&task, None, [empty_outcome]);
         };
         // CR 107.1b: read a signed statistic and apply the quantity rule at use.
@@ -631,6 +680,9 @@ impl RulesTxn {
             return self.complete_evaluated(&task, Some(result), [empty_outcome]);
         }
         match signature.distribution {
+            Distribution::EachSimultaneous if signature.verb == EvaluatedVerb::Mill => {
+                self.perform_mill(&task, players, &amount, block)
+            }
             Distribution::EachSequential => {
                 task.stage = Stage::Step(StepProgress::Sequence {
                     players: players
@@ -836,6 +888,7 @@ impl RulesTxn {
                     prior: movement.previous,
                     successor: Some(movement.successor),
                     controller_before: controller_before.ok_or("missing draw prior controller")?,
+                    public_card: None,
                 });
                 if !result.players.contains(&player) {
                     result.players.push(player);
@@ -1146,7 +1199,13 @@ impl RulesTxn {
     ) -> Result<(), String> {
         // CR 400.7: drawn and sacrificed objects are new incarnations; a
         // damaged permanent or a counter recipient stays the same object.
-        let moved = matches!(verb, EvaluatedVerb::Draw | EvaluatedVerb::Sacrifice);
+        let moved = matches!(
+            verb,
+            EvaluatedVerb::Draw
+                | EvaluatedVerb::Sacrifice
+                | EvaluatedVerb::Discard
+                | EvaluatedVerb::Mill
+        );
         let rules = &self.state.rules;
         if result
             .events

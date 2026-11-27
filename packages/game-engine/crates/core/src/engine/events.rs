@@ -396,6 +396,7 @@ enum FactKey {
     PlayerCounters(PlayerId),
     CommanderDamage(PlayerId),
     Libraries,
+    Library(PlayerId),
     AllDamage,
     Effects,
     PendingTriggers,
@@ -491,8 +492,11 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             ..
         } => {
             let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
-            read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
-            (read, BTreeSet::from([FactKey::Libraries]))
+            let objects = looked.iter().map(|o| FactKey::Object(o.card));
+            read.extend(objects.clone());
+            let mut write = BTreeSet::from([FactKey::Libraries]);
+            write.extend(objects);
+            (read, write)
         }
 
         ProposedEvent::CreateTokenCopy { original, .. } => (
@@ -831,8 +835,20 @@ fn collect<'a>(
                 return Err("global aggregate cannot compose simultaneously".into());
             }
             out.extend(occurrences);
+            let mill_wave = occurrences
+                .iter()
+                .all(|event| matches!(event, ProposedEvent::Mill { .. }));
             if !independent_footprints(occurrences.iter().map(|event| {
                 let (mut reads, mut writes) = access(event, game);
+                // CR 701.17a: in a pure mill group, a member changes only its
+                // own prefix. Any other kind of library operation retains the
+                // global order dependency.
+                if mill_wave && let ProposedEvent::Mill { player, .. } = event {
+                    reads.remove(&FactKey::Libraries);
+                    writes.remove(&FactKey::Libraries);
+                    reads.insert(FactKey::Library(*player));
+                    writes.insert(FactKey::Library(*player));
+                }
                 // CR 704.3: Saga sacrifice and player loss share the SBA
                 // sweep. Sacrifice reads liveness from the common prior state.
                 if *cause == BatchCause::StateBased

@@ -9,11 +9,24 @@ impl Walk<'_, '_> {
                 return unaudited(format!("unsupported {} operand", slot.field));
             }
         }
-        self.audit_quantity(operands.amount())?;
+        if let Some(amount) = operands.amount() {
+            self.audit_quantity(amount)?;
+        }
         match operands {
             Evaluated::PlayerAmount { player, amount } => {
                 self.audit_evaluated_player(player)?;
                 Ok(self.player_amount_cell(signature.verb, player, amount)?)
+            }
+            Evaluated::Discard {
+                player,
+                amount,
+                random,
+            } => {
+                self.audit_evaluated_player(player)?;
+                if random && amount.is_none() {
+                    return kind("random discard requires a count");
+                }
+                Ok(Cell::Evaluated(signature.verb))
             }
             Evaluated::Damage { source, to, amount } => {
                 self.audit_evaluated_damage(source, to, amount)
@@ -39,6 +52,9 @@ impl Walk<'_, '_> {
         match amount {
             Amount::Fixed { value } if value.is_negative() => kind("negative quantity"),
             Amount::Fixed { .. } | Amount::Var { .. } => Ok(()),
+            Amount::Count {
+                set: SetExpr::Result { .. },
+            } => Ok(()),
             Amount::Count {
                 set:
                     SetExpr::Pool {

@@ -37,6 +37,23 @@ impl RulesTxn {
                 }
                 self.begin_kernel_counters(task, counter.clone(), recipients, amount, block)
             }
+            (
+                Distribution::CollectThenSimultaneous,
+                Evaluated::Discard {
+                    player,
+                    amount: mode,
+                    random,
+                },
+            ) => {
+                let Some(players) = Self::present_operand(
+                    &signature.slots[0],
+                    self.evaluated_players(&task, player)?,
+                )?
+                else {
+                    return self.complete_evaluated(&task, None, [empty]);
+                };
+                self.begin_discard(task, players, mode.map(|_| amount), random, block)
+            }
             (Distribution::CollectThenSimultaneous, Evaluated::Sacrifice { player, .. }) => {
                 let recipient = &signature.slots[0];
                 let Some(players) =
@@ -59,13 +76,14 @@ impl RulesTxn {
                         .take(1)
                         .map(|p| (p, object))
                         .collect();
-                    return self.commit_kernel_sacrifice(task, chosen, block);
+                    return self.commit_kernel_moves(task, chosen, block);
                 }
                 let mut task = task;
                 task.stage = Stage::Step(StepProgress::Collect {
                     remaining: players,
                     chosen: vec![],
                     count: amount,
+                    private: false,
                 });
                 self.install_kernel(task);
                 Ok(())
@@ -317,6 +335,7 @@ impl RulesTxn {
                             prior: object,
                             successor: None,
                             controller_before: self.current(object)?.controller,
+                            public_card: None,
                         });
                     }
                 }
@@ -491,6 +510,7 @@ impl RulesTxn {
                     prior: object,
                     successor: None,
                     controller_before: controller,
+                    public_card: None,
                 });
             }
         }
@@ -598,6 +618,7 @@ impl RulesTxn {
             remaining,
             chosen,
             count,
+            ..
         }) = &task.stage
         else {
             return Ok(None);
@@ -606,25 +627,44 @@ impl RulesTxn {
             return Ok(None);
         };
         let (node, _) = self.node_at(task)?;
-        let Some((_, operands @ Evaluated::Sacrifice { player: scope, .. })) =
-            node.verb().and_then(Verb::evaluated)
-        else {
-            return Err("missing sacrifice".into());
-        };
-        let options = self.kernel_sacrifice_candidates(task, &operands, player)?;
+        let (_, operands) = node
+            .verb()
+            .and_then(Verb::evaluated)
+            .ok_or("missing collection signature")?;
+        let options = self.collection_candidates(task, &operands, player)?;
         let count = (count.to_u32().unwrap_or(u32::MAX) as usize).min(options.len());
-        let reason = if matches!(scope, PlayerExpr::EachPlayer | PlayerExpr::EachOpponent) {
-            Reason::ForcedSacrifice {
+        let reason = match operands {
+            Evaluated::Discard { .. } => Reason::ResolveDiscard,
+            Evaluated::Sacrifice {
+                player: PlayerExpr::EachPlayer | PlayerExpr::EachOpponent,
+                ..
+            } => Reason::ForcedSacrifice {
                 previous: chosen.clone(),
-            }
-        } else {
-            Reason::Sacrifice
+            },
+            _ => Reason::Sacrifice,
         };
         Ok((count != 0).then(|| self.pick_objects(player, reason, options, count)))
     }
 
-    /// CR 101.4: take the next player's choice, then sacrifice every chosen
-    /// permanent still controlled by its chooser in one event.
+    fn collection_candidates(
+        &self,
+        task: &Task,
+        operands: &Evaluated<'_>,
+        player: PlayerId,
+    ) -> Result<Vec<ObjectId>, String> {
+        match operands {
+            Evaluated::Discard { .. } => Ok(if self.is_live(player) {
+                self.action_hand(player)
+            } else {
+                vec![]
+            }),
+            Evaluated::Sacrifice { .. } => self.kernel_sacrifice_candidates(task, operands, player),
+            _ => Err("unsupported collection operands".into()),
+        }
+    }
+
+    /// CR 101.4: collect each player's choice, then commit the live
+    /// selected objects in one event.
     pub(in crate::engine::kir::control) fn step_collect(
         &mut self,
         mut task: Task,
@@ -634,32 +674,37 @@ impl RulesTxn {
         let (_, operands) = node
             .verb()
             .and_then(Verb::evaluated)
-            .ok_or("missing sacrifice")?;
+            .ok_or("missing collection signature")?;
         let Stage::Step(StepProgress::Collect {
             mut remaining,
             mut chosen,
             count,
+            private,
         }) = task.stage.clone()
         else {
             return Err("missing sacrifice collection".into());
         };
         let Some(player) = remaining.first().copied() else {
-            let chosen = chosen
-                .into_iter()
-                .filter(|(player, object)| self.sacrificeable(*player, *object))
-                .collect();
-            return self.commit_kernel_sacrifice(task, chosen, block);
+            chosen.retain(|(player, object)| {
+                if private {
+                    self.is_live(*player)
+                        && self.zone(*object) == Some(Zone::Hand { owner: *player })
+                } else {
+                    self.sacrificeable(*player, *object)
+                }
+            });
+            return self.commit_kernel_moves(task, chosen, block);
         };
         let input = self.rules_mut().pending.take();
-        let options = self.kernel_sacrifice_candidates(&task, &operands, player)?;
+        let options = self.collection_candidates(&task, &operands, player)?;
         if !options.is_empty() {
-            let objects = input.ok_or("missing forced sacrifice input")?.objects()?;
+            let objects = input.ok_or("missing object choice")?.objects()?;
             let wanted = (count.to_u32().unwrap_or(u32::MAX) as usize).min(options.len());
             if objects.len() != wanted
                 || objects.iter().any(|o| !options.contains(o))
                 || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             {
-                return Err("ineligible forced sacrifice".into());
+                return Err("ineligible object choice".into());
             }
             chosen.extend(objects.into_iter().map(|object| (player, object)));
         }
@@ -668,33 +713,31 @@ impl RulesTxn {
             remaining,
             chosen,
             count,
+            private,
         });
         self.install_kernel(task);
         Ok(())
     }
 
-    fn commit_kernel_sacrifice(
+    pub(super) fn commit_kernel_moves(
         &mut self,
         mut task: Task,
         chosen: Vec<(PlayerId, ObjectId)>,
         block: u32,
     ) -> Result<(), String> {
         if chosen.is_empty() {
-            let result = StepResult {
-                amount: Some(Quantity::zero()),
-                ..StepResult::default()
-            };
-            return self.complete_evaluated(
-                &task,
-                Some(result),
-                [InstructionOutcome::Effect { actual: None }],
-            );
+            return self.finish_moves(&task, None);
         }
+        let verb = self
+            .node_at(&task)?
+            .0
+            .verb()
+            .ok_or("missing movement verb")?;
         let mut occurrences: Vec<_> = chosen
             .iter()
-            .map(|&(player, object)| ProposedEvent::Sacrifice { player, object })
-            .collect();
-        let group = if occurrences.len() == 1 {
+            .map(|&(player, object)| Self::propose_kernel_move(verb, player, object))
+            .collect::<Result<_, _>>()?;
+        let group = if occurrences.len() == 1 && matches!(verb, Verb::Sacrifice { .. }) {
             EventGroup::Occurrence {
                 proposed: occurrences.remove(0),
             }
@@ -702,77 +745,105 @@ impl RulesTxn {
             EventGroup::Simultaneous { occurrences }
         };
         let cause = self.instruction_cause(self.kernel_root()?, block)?;
-        task.stage = Stage::Step(StepProgress::Sacrifice { chosen });
+        task.stage = Stage::Step(StepProgress::CommitMoves { chosen });
         let resume = self.save_frame(Frame::Kernel {
             task: Box::new(task),
         });
         self.complete_graveyard_group(cause, group, GroupFinish::Kernel { resume })
     }
 
-    /// CR 701.21a: record the permanents actually sacrificed and who did.
-    pub(in crate::engine) fn finish_kernel_sacrifice(
+    fn propose_kernel_move(
+        verb: &Verb,
+        player: PlayerId,
+        object: ObjectId,
+    ) -> Result<ProposedEvent, String> {
+        match verb {
+            Verb::Discard { .. } => Ok(ProposedEvent::DiscardCard { player, object }),
+            Verb::Sacrifice { .. } => Ok(ProposedEvent::Sacrifice { player, object }),
+            _ => Err("unexpected kernel movement verb".into()),
+        }
+    }
+
+    pub(in crate::engine) fn finish_kernel_moves(
         &mut self,
         resume: FrameLink,
         batch: Option<&CommittedBatch>,
     ) -> Result<(), String> {
         let Frame::Kernel { task } = self.saved_frame(resume)?.clone() else {
-            return Err("missing kernel sacrifice task".into());
+            return Err("missing kernel movement task".into());
         };
+        self.finish_moves(&task, batch)
+    }
+
+    /// CR 400.7, 701.9, 701.21: a committed movement supplies its exact prior
+    /// and succeeding incarnations. Public decisions never read this result.
+    fn finish_moves(&mut self, task: &Task, batch: Option<&CommittedBatch>) -> Result<(), String> {
         let mut result = StepResult {
             amount: Some(Quantity::zero()),
             ..StepResult::default()
         };
         let mut outcomes = Vec::new();
+        let mut discarded = Vec::new();
         for receipt in batch.into_iter().flat_map(|batch| &batch.occurrences) {
-            if let EventOutcome::Sacrificed { player, movement } = &receipt.actual {
-                result.events.push(receipt.id.clone());
-                result
-                    .amount
-                    .as_mut()
-                    .expect("sacrifice projection")
-                    .add(&Quantity::from(1));
-                result.objects.push(ResultObject {
-                    prior: movement.previous,
-                    successor: Some(movement.successor),
-                    controller_before: *player,
-                });
-                if !result.players.contains(player) {
-                    result.players.push(*player);
+            let (player, movement) = match &receipt.actual {
+                EventOutcome::Sacrificed { player, movement } => {
+                    outcomes.push(InstructionOutcome::Sacrificed {
+                        player: *player,
+                        movement: Some(movement.clone()),
+                    });
+                    (player, movement)
                 }
-                outcomes.push(InstructionOutcome::Sacrificed {
-                    player: *player,
-                    movement: Some(movement.clone()),
-                });
-            }
+                EventOutcome::CardDiscarded { player, movement } => {
+                    discarded.push(movement.clone());
+                    (player, movement)
+                }
+                _ => return Err("unexpected kernel movement receipt".into()),
+            };
+            result.events.push(receipt.id.clone());
+            let facts = if matches!(receipt.actual, EventOutcome::CardDiscarded { .. }) {
+                self.public_move_characteristics(movement)?
+            } else {
+                None
+            };
+            result.record_move(*player, movement, facts);
+        }
+        if let Some(Verb::Discard { player, .. }) = self.node_at(task)?.0.verb()
+            && !matches!(player, PlayerExpr::EachPlayer | PlayerExpr::EachOpponent)
+            && let Resolved::Present(players) = self.evaluated_players(task, player)?
+            && let [player] = players.as_slice()
+        {
+            outcomes.push(InstructionOutcome::Discarded {
+                player: *player,
+                movements: discarded,
+            });
         }
         if outcomes.is_empty() {
             outcomes.push(InstructionOutcome::Effect { actual: None });
         }
-        self.complete_evaluated(&task, Some(result), outcomes)
+        self.complete_evaluated(task, Some(result), outcomes)
     }
 
-    /// The sacrifice group a task saved names the permanents its step chose.
-    pub(in crate::engine) fn validate_kernel_sacrifice(
+    pub(in crate::engine) fn validate_kernel_moves(
         &self,
         cause: &BatchCause,
         leaves: &[ProposedEvent],
         resume: FrameLink,
     ) -> Result<bool, String> {
         let Frame::Kernel { task } = self.saved_frame(resume)? else {
-            return Err("missing kernel sacrifice task".into());
+            return Err("missing kernel movement task".into());
         };
-        let Stage::Step(StepProgress::Sacrifice { chosen }) = &task.stage else {
-            return Err("kernel sacrifice task is not sacrificing".into());
+        let Stage::Step(StepProgress::CommitMoves { chosen }) = &task.stage else {
+            return Err("kernel movement task has no committed selections".into());
         };
         let (node, block) = self.node_at(task)?;
-        if !matches!(node, Node::Do(Verb::Sacrifice { .. })) {
-            return Err("kernel sacrifice task does not name a sacrifice".into());
-        }
-        Ok(*cause == self.instruction_cause(self.kernel_root()?, block)?
-            && leaves.len() == chosen.len()
-            && leaves.iter().zip(chosen).all(|(leaf, (p, o))| {
-                matches!(leaf, ProposedEvent::Sacrifice { player, object } if player == p && object == o)
-            }))
+        let verb = node.verb().ok_or("missing kernel movement verb")?;
+        Ok(
+            *cause == self.instruction_cause(self.kernel_root()?, block)?
+                && leaves.len() == chosen.len()
+                && leaves.iter().zip(chosen).all(|(leaf, (p, o))| {
+                    Self::propose_kernel_move(verb, *p, *o).as_ref() == Ok(leaf)
+                }),
+        )
     }
 
     pub(in crate::engine::kir::control) fn validate_collect(
@@ -784,15 +855,27 @@ impl RulesTxn {
             remaining,
             chosen,
             count,
+            private,
         } = progress
         else {
             return Err("missing sacrifice collection".into());
         };
         let (node, _) = self.node_at(task)?;
-        let Some((_, operands @ Evaluated::Sacrifice { player, .. })) =
-            node.verb().and_then(Verb::evaluated)
-        else {
-            return Err("collection outside a sacrifice".into());
+        let (_, operands) = node
+            .verb()
+            .and_then(Verb::evaluated)
+            .ok_or("missing collection signature")?;
+        let player = match operands {
+            Evaluated::Sacrifice { player, .. } if !private => player,
+            Evaluated::Discard {
+                player,
+                amount: Some(amount),
+                random: false,
+            } if *private => {
+                return self
+                    .validate_private_choices(task, player, remaining, chosen, count, amount);
+            }
+            _ => return Err("invalid object collection mode".into()),
         };
         let seating = &self.state.rules.original_seating;
         let order = self.apnap_seats().collect::<Vec<_>>();
@@ -816,14 +899,14 @@ impl RulesTxn {
                 .iter()
                 .any(|(_, o)| !self.state.rules.cards.contains_key(&o.card))
         {
-            return Err("invalid sacrifice collection".into());
+            return Err("invalid object collection".into());
         }
         if let Resolved::Present(players) = self.evaluated_players(task, player)?
             && remaining
                 .iter()
                 .any(|p| !players.contains(p) && self.is_live(*p))
         {
-            return Err("sacrifice collection names another player".into());
+            return Err("object collection names another player".into());
         }
         Ok(())
     }

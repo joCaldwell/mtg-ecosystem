@@ -385,10 +385,9 @@ fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
     let draw = json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"x"}});
     let mill = json!({"effect":"mill","who":{"player":"you"},"amount":{"amount":"x"}});
     let lower = |steps: serde_json::Value, value: serde_json::Value| {
-        let sentence: Sentence = serde_json::from_value(
-            json!({"steps":steps,"bindings":[{"variable":"x","value":value}]}),
-        )
-        .unwrap();
+        let sentence = crate::compose::decode_sentence(
+            &json!({"steps":steps,"bindings":[{"variable":"x","value":value}]}),
+        )?;
         append_spell_effects(
             &mut program(),
             &[sentence],
@@ -399,6 +398,7 @@ fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
         )
     };
     assert!(lower(json!([draw.clone()]), creatures.clone()).is_ok());
+    assert!(lower(json!([mill.clone()]), creatures.clone()).is_ok());
     assert!(
         lower(
             json!([draw.clone()]),
@@ -414,9 +414,9 @@ fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
             "operand:bindings:reread_after_change",
         ),
         (
-            json!([mill]),
-            creatures.clone(),
-            "bindings:unconsumed_count_binding",
+            json!([mill, draw]),
+            json!({"amount":"count","of":{"cls":"card","zone":{"zone":"graveyard","owner":"your"}}}),
+            "operand:bindings:reread_after_change",
         ),
         (
             json!([draw]),

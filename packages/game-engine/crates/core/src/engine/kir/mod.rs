@@ -245,11 +245,6 @@ impl RulesTxn {
                 self.execute_effect_instruction(frame, instruction)
             };
         }
-        // CR 701.17a, 701.9a-b: mill and discard keep their executors,
-        // choices and recovery checks.
-        if matches!(node, Node::Do(Verb::Mill { .. } | Verb::Discard { .. })) {
-            return self.execute_player_action(frame, Instruction::Kernel { node, source_block });
-        }
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());
         };
