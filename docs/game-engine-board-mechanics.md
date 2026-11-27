@@ -187,7 +187,12 @@ counters before entry triggers and SBAs, on every move onto the battlefield (CR
 122.6, 614.1c, 614.12). Conditional tapped entry can count permanents the
 incoming controller controls (current structural characteristics, excluding the
 entrant) or that player's live opponents; simultaneous entry uses the common
-prior battlefield and ordered entry sees earlier moves.
+prior battlefield and ordered entry sees earlier moves. The private
+`ProspectiveEntry` query uses the ordinary layers over one entrant's incoming
+controller, face, status and applied modifications. It applies the entrant's
+own statics to itself and uses prior occupancy for counts such as devotion.
+Cards and unallocated tokens share the query. It consumes no handles, history
+or timestamps (CR 614.12, 700.5).
 
 Life-payment entry offers run through `begin_battlefield_entry`; a search asks
 each payable entrant in order, counting life already committed, then commits one
@@ -210,10 +215,8 @@ revealed copies. Other entry costs (behold, multiple cards) reject.
 **Quantity and entry replacements (E2 contract).** They follow the shared
 [pre-commit protocol](game-engine-mechanics.md#runtime-invariants). An entering
 permanent is tested as it would exist, under its incoming controller, against
-the battlefield before any simultaneous entrant. The `ProspectiveEntry` query,
-shared by cards and unallocated tokens, applies modifications so far, the
-entrant's own statics and existing continuous effects (CR 614.12); a co-entering
-doubler never activates through allocation order. The entrant's own "enters
+the battlefield before any simultaneous entrant. The prospective entry query is used before each replacement application. A
+co-entering doubler never activates through allocation order. The entrant's own "enters
 with" counters, intrinsic loyalty and ordinary Saga lore become contained
 counter members that quantity effects can see (CR 122.6, 714.3a). Precombat-main
 lore stays a turn-based action (CR 714.3c). Quantity replacements lower to
@@ -229,6 +232,15 @@ Scales then Season gives four, and Season then Scales gives three.
 instruction and the committed count against the recorded applications.
 
 ## Keywords, attachments and temporary effects
+
+The state-owned timestamp allocator records rules time independently of batch
+and trace IDs (CR 613.7a–g, 613.7m–n). Ordered occurrences get separate times.
+Simultaneous sources share a time and retain their APNAP ranks when assigned.
+One controller's unresolved order rejects if it would change the result.
+Becoming attached, transforming and turning face up refresh the object's
+timestamp. Resolved effects, entry haste grants and counter stacks retain their
+own creation or most recent placement time. Dependencies still override
+timestamp order (CR 613.8).
 
 Battlefield static abilities use KIR scopes, predicates, conditions and
 characteristic changes; the first applicable layer selects recipients for every
@@ -549,6 +561,12 @@ use the resulting battlefield types and controller, including token entries.
 Creature entry history can also ask whether any opponent had an entry. Each
 check reads the current turn from its start, including the event that caused
 the trigger (CR 603.4, 603.10a).
+
+Saga chapters match the positive lore-counter facet against its prior and
+settled balance, including the lore placed on entry. Each chapter whose
+threshold the change crosses triggers once, retaining that member's identity
+and facts (CR 122.6, 714.2b). Removal, annihilation and loyalty changes
+publish their actuals for history and recovery. The admitted counter-trigger vocabulary is Saga chapters.
 
 A per-turn player ledger (spells as frozen stack facts, draws, life-gain
 events) counts from the turn's start, whether or not the source was present,

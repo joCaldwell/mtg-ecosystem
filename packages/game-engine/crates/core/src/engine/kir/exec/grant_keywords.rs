@@ -1,5 +1,5 @@
 //! CR 608.2b, 611.2c, 613.7b: capture the legal battlefield incarnations
-//! when the grant resolves. The effect ID orders resolved layer 6 grants.
+//! when the grant resolves.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 
@@ -9,7 +9,6 @@ impl RulesTxn {
         frame: &Resolving,
         what: &SetExpr,
         keywords: &[KeywordAbility],
-        timestamp: u64,
     ) -> Result<Option<ResolvedEffectKind>, String> {
         let target = match what {
             SetExpr::One {
@@ -32,7 +31,6 @@ impl RulesTxn {
                         targets,
                         modifier: None,
                         keywords: keywords.to_vec(),
-                        timestamp,
                     }),
                 );
             }
@@ -44,7 +42,6 @@ impl RulesTxn {
                 target,
                 modifier: None,
                 keywords: keywords.to_vec(),
-                timestamp,
             }))
     }
 
@@ -55,9 +52,7 @@ impl RulesTxn {
         keywords: &[KeywordAbility],
         source_block: u32,
     ) -> Result<(), String> {
-        let Some(kind) =
-            self.keyword_grant_kind(&frame, what, keywords, self.state.rules.next_batch_id)?
-        else {
+        let Some(kind) = self.keyword_grant_kind(&frame, what, keywords)? else {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         };
         if let ResolvedEffectKind::GrantKeywordsSet { targets, .. } = &kind {

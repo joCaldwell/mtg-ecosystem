@@ -72,6 +72,10 @@ pub struct Object {
     pub(in crate::engine) keyword_rank: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) battlefield_entry_turn: Option<u64>,
+    /// The original entry time for haste granted by dash, encore or unearth.
+    /// Refreshes of the permanent's rules timestamp do not refresh that grant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::engine) battlefield_entry_timestamp: Option<u64>,
     /// CR 702.30a: on the battlefield, the controller's upkeep count when
     /// this permanent last came under that player's control.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -355,6 +359,7 @@ mod tests {
             keyword_timestamp: None,
             keyword_rank: 0,
             battlefield_entry_turn: Some(1),
+            battlefield_entry_timestamp: Some(2),
             control_upkeeps: None,
             plus_one_counters: plus_one.into(),
             loyalty_counters: loyalty.into(),
@@ -478,6 +483,7 @@ mod tests {
             keyword_timestamp: o.keyword_timestamp,
             keyword_rank: o.keyword_rank,
             battlefield_entry_turn: o.battlefield_entry_turn,
+            battlefield_entry_timestamp: o.battlefield_entry_timestamp,
             control_upkeeps: o.control_upkeeps,
             unearthed: o.unearthed,
             dashed: o.dashed,

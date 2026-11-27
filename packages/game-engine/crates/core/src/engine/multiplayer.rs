@@ -31,6 +31,7 @@ pub enum ControlSource {
 #[serde(deny_unknown_fields)]
 pub struct ControlEffect {
     pub id: u32,
+    pub timestamp: u64,
     pub object: ObjectId,
     pub controller: PlayerId,
     pub source: ControlSource,

@@ -169,10 +169,6 @@ testkit_fields! {
     pub struct PermanentManaUndo {
         pub player: PlayerId,
         pub source: ObjectBefore,
-        pub counters: Quantity,
-        /// CR 122.1: the source's other counter kinds, restored exactly.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub other_counters: Vec<CounterStack>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub ability_use: Option<ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -224,20 +220,23 @@ pub(super) fn reversible_receipts(receipts: &[ManaActivationUndo]) -> bool {
 impl RulesTxn {
     /// CR 113.10a, 613.1f: the mana abilities battlefield statics grant
     /// `object` now, with each granting object, in timestamp order.
-    pub(crate) fn granted_mana_abilities(&self, object: ObjectId) -> Vec<(ObjectId, &ManaAbility)> {
+    pub(crate) fn granted_mana_abilities(
+        &self,
+        object: ObjectId,
+    ) -> Result<Vec<(ObjectId, &ManaAbility)>, String> {
         self.granted_mana_with_sources(object, None)
     }
     pub(super) fn granted_mana_with_sources<'a>(
         &'a self,
         object: ObjectId,
         sources: Option<&'a [CardId]>,
-    ) -> Vec<(ObjectId, &'a ManaAbility)> {
+    ) -> Result<Vec<(ObjectId, &'a ManaAbility)>, String> {
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
-            return vec![];
+            return Ok(vec![]);
         }
         use mtg_contracts::kir::Change;
         let changes =
-            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources);
+            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources)?;
         // CR 613.7: a later removal of every ability takes an earlier grant,
         // except the grants of the removing effect itself.
         // CR 613.7m: simultaneous sources go in APNAP order; a removal
@@ -250,7 +249,7 @@ impl RulesTxn {
             .filter(|(_, _, c)| matches!(c, Change::RemoveAllAbilities { .. }))
             .map(|(time, key, _)| (order(*time, key), *key))
             .collect();
-        changes
+        Ok(changes
             .into_iter()
             .filter(|(time, key, _)| {
                 removals
@@ -263,12 +262,12 @@ impl RulesTxn {
                 }
                 _ => vec![],
             })
-            .collect()
+            .collect())
     }
     /// The printed mana abilities that still function (CR 113.10, 305.7).
     fn printed_mana_abilities(&self, object: ObjectId) -> Result<&[ManaAbility], String> {
         let definition = self.copiable_definition(object)?;
-        Ok(if self.printed_abilities_lost(object) {
+        Ok(if self.printed_abilities_lost(object)? {
             &[]
         } else {
             &definition.mana_abilities
@@ -284,7 +283,7 @@ impl RulesTxn {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             out.push((ManaSlot::Printed(index), a.clone()));
         }
-        for (index, (_, a)) in self.granted_mana_abilities(object).into_iter().enumerate() {
+        for (index, (_, a)) in self.granted_mana_abilities(object)?.into_iter().enumerate() {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             out.push((ManaSlot::Granted(index), a.clone()));
         }
@@ -297,7 +296,7 @@ impl RulesTxn {
                 .get(index as usize)
                 .cloned(),
             ManaSlot::Granted(index) => self
-                .granted_mana_abilities(source)
+                .granted_mana_abilities(source)?
                 .get(index as usize)
                 .map(|(_, a)| (*a).clone()),
         }
@@ -367,35 +366,32 @@ impl RulesTxn {
                 .loyalty_used_turn
                 .is_some_and(|turn| turn == 0 || turn > self.state.rules.turn.number)
             || row.attached_to.is_some() != row.attachment_timestamp.is_some()
-            || row.attachment_timestamp.is_some_and(|timestamp| {
-                timestamp == 0 || timestamp >= self.state.rules.next_attachment_timestamp
-            })
+            || row
+                .attachment_timestamp
+                .is_some_and(|timestamp| !self.state.rules.timestamps.contains(timestamp))
         {
             return Err("invalid mana receipt source row".into());
         }
-        if receipt.counters.is_negative()
-            || receipt.counters != receipt.source.plus_one_counters
-            || receipt.other_counters != receipt.source.counters
-            || receipt
-                .other_counters
-                .iter()
-                .any(|stack| stack.timestamp >= self.state.rules.next_batch_id)
+        if row
+            .counters
+            .iter()
+            .any(|stack| !self.state.rules.timestamps.contains(stack.timestamp))
         {
             return Err("invalid mana receipt counters".into());
         }
-        // A sacrifice can record a departure or death. Each recorded fact
-        // still holds, and the cost events name published batches.
-        if !receipt.sacrificed && !receipt.ledger.is_empty()
-            || receipt.ledger.seats.iter().any(|row| {
-                row.artifacts_entered != 0
-                    || row.creatures_entered != 0
-                    || row.nonlands_entered != 0
-                    || row.tokens_created != 0
-            })
-            || receipt
-                .ledger
-                .check_holds(&self.state.rules.cast_history)
-                .is_err()
+        // Source costs can record a departure or death.
+        // The facts still hold and the cost events name published batches.
+        if receipt.ledger.seats.iter().any(|delta| {
+            delta.seat != receipt.player
+                || !receipt.sacrificed && (delta.permanent_left || delta.creature_died)
+                || delta.artifacts_entered != 0
+                || delta.creatures_entered != 0
+                || delta.nonlands_entered != 0
+                || delta.tokens_created != 0
+        }) || receipt
+            .ledger
+            .check_holds(&self.state.rules.cast_history)
+            .is_err()
             || !receipt.cost_events.windows(2).all(|w| w[0] < w[1])
             || receipt
                 .cost_events
@@ -453,10 +449,9 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
-        self.printed_mana_abilities(object)
-            .is_ok_and(|abilities| !abilities.is_empty())
-            || !self.granted_mana_abilities(object).is_empty()
+    pub(super) fn is_permanent_mana(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(!self.printed_mana_abilities(object)?.is_empty()
+            || !self.granted_mana_abilities(object)?.is_empty())
     }
     pub(super) fn mana_colors(
         &self,
@@ -779,7 +774,7 @@ impl RulesTxn {
             || (a.costs.tap
                 && self.target_is_creature(source)
                 && !o.attack_ready
-                && !self.has_keyword(source, KeywordAbility::Haste))
+                && !self.has_keyword(source, KeywordAbility::Haste)?)
         {
             return Err("invalid permanent mana source or tap eligibility".into());
         }
@@ -818,7 +813,7 @@ impl RulesTxn {
     ) -> Result<Vec<Color>, String> {
         match scope {
             ManaSourceScope::Mixed => Err("mixed provider requires an ability identity".into()),
-            ManaSourceScope::Intrinsic if self.is_permanent_mana(source) => {
+            ManaSourceScope::Intrinsic if self.is_permanent_mana(source)? => {
                 Err("printed provider cannot select an intrinsic-only scope".into())
             }
             ManaSourceScope::Intrinsic => self.intrinsic_choice_colors(player, source),
@@ -882,7 +877,7 @@ impl RulesTxn {
         source: ObjectId,
         resume: Frame,
     ) -> Result<(), String> {
-        if self.is_permanent_mana(source) {
+        if self.is_permanent_mana(source)? {
             self.begin_permanent_mana(input, source, resume)
         } else {
             self.begin_intrinsic_mana(input, source, resume)
@@ -1080,8 +1075,6 @@ impl RulesTxn {
         let mut receipt = PermanentManaUndo {
             player: a.player,
             source: self.object_before(a.source)?,
-            counters: self.current(a.source)?.plus_one_counters.clone(),
-            other_counters: self.current(a.source)?.counters.clone(),
             ability_use: a
                 .ability
                 .restriction
@@ -1203,16 +1196,22 @@ impl RulesTxn {
         if !self.permanent_source_costs_payable(source, player, costs) {
             return Err("unpayable permanent source costs".into());
         }
-        // CR 118.3/605.3b: this is removal as a cost, never a placement.
-        // The enclosing staged rule step commits cost/use/production atomically.
-        if let Some(n) = &costs.remove_source_plus_one_counters {
-            self.rules_mut()
-                .objects
-                .get_mut(&source.card)
-                .ok_or("missing source")?
-                .pay_counters(&mtg_contracts::kir::CounterKind::PlusOnePlusOne, n)?;
-        }
         let mut children = vec![];
+        // CR 118.3/605.3b: counter removal pays the cost before the other
+        // terms; the enclosing staged rule step owns rollback.
+        if let Some(amount) = &costs.remove_source_plus_one_counters {
+            children.push(EventGroup::Occurrence {
+                proposed: ProposedEvent::PayCounterCost {
+                    object: source,
+                    cost: CounterCost::Remove {
+                        counters: CounterAmount {
+                            counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+                            amount: amount.clone(),
+                        },
+                    },
+                },
+            });
+        }
         if costs.tap {
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::Tap { object: source },
@@ -1235,7 +1234,9 @@ impl RulesTxn {
                 },
             });
         }
-        if !children.is_empty() {
+        if costs.remove_source_plus_one_counters.is_some() {
+            self.commit_counter_cost_batch(cause, EventGroup::Ordered { children })?;
+        } else if !children.is_empty() {
             self.commit_batch(cause, EventGroup::Ordered { children })?;
         }
         Ok(())
@@ -1630,8 +1631,8 @@ impl RulesTxn {
                     }
                     o.tapped = r.source.tapped;
                     // CR 733: exact restoration bypasses placement/replacement.
-                    o.plus_one_counters = r.counters.clone();
-                    o.counters = r.other_counters.clone();
+                    o.plus_one_counters = r.source.plus_one_counters.clone();
+                    o.counters = r.source.counters.clone();
                 }
                 // CR 400.7/733: a departed source is never restored or rebound.
             }

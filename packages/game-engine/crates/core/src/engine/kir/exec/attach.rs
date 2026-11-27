@@ -15,7 +15,7 @@ impl RulesTxn {
                 .is_ok_and(|o| o.present_on_battlefield() && o.attached_to != Some(target))
             && source != target
             && self.attachment_target_type_valid(source, target)?
-            && !self.protected_from(target, self.color_layer(source)?.as_ref())
+            && !self.protected_from(target, self.color_layer(source)?.as_ref())?
         {
             Some(self.commit(
                 ProposedEvent::Attach {

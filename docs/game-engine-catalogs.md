@@ -11,8 +11,15 @@ The executable source is Archive R5. The full archive stays outside Git;
 or compiler test uses. `accepted-archives.json` pins the whole file, header,
 parser and corpus, and each `provenance.json` row pins its exact card line.
 R4 (same corpus, older parser) stays registered without record pins so its
-bulk IR can be rebuilt for comparison. The header records the generating Git
-revision, so only a byte-identical regenerated archive is accepted. Oracle parser tests own their pre-R4 records under
+bulk IR can be rebuilt for comparison. Exact registered headers choose the
+reader. R4/R5 use schema 4 and check the header's parser revision. R6 uses
+schema 5 and records only parser source identity in the header. Bulk v2 takes
+the R6 parser revision (the reviewed producer commit) from the external
+registry. A pending registration cannot authorize intake or provenance. A
+`candidate` registration is measured and authorizes intake and comparison but
+no record pins, so no tracked fixture or default consumer can select it. It
+fails closed only through those absent pins and default paths that name R5; a
+consumer explicitly pointed at a candidate file can load it. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
 Schema-5 R6 candidates carry printed evidence and retain the R5 row bytes
@@ -70,6 +77,23 @@ mismatches reject, and other origins are reported separately. Build inputs embed
 manifests, provenance, accepted headers/pins and records, excluding expected IR,
 policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
+
+At R6 promotion, extract the R5 origin's pinned identities with the R6 archive.
+Extraction stores its exact rows under `phase1-r6/` and appends a separate
+origin's record pins to the registry and provenance. Run `verify` on both
+archives before changing fixture manifests. The R5 rows stay available as
+controls. `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM
+--archives R5 R6` rehearses this in a scratch copy: it requires one R6 row per
+R5 identity, the same archive line, and the exact R5 bytes plus evidence.
+
+`scripts/compare-archive-cut.py d1 BEFORE AFTER` compares bulk payload bytes,
+coverage, blockers, four tier decisions from the compiler's
+`compare-archive-tiers` example, and native admission witnesses.
+`d2 BEFORE AFTER --archives R5 R6` also verifies the exact legacy row prefixes.
+D2 substitutes only the two definition archive/parser provenance digests
+(including back faces), the two independently verified index row digests on
+changed rows, and the manifest's archive/parser identities, catalog digest and
+payload hashes. The same producer, payload lengths and all decisions must agree.
 
 ## IR and build identity
 

@@ -12,7 +12,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{
-    Atom, Cmp, DamageEvent, DamageKindFilter, DamageModification, DamageRecipients, Pred,
+    Atom, Cmp, Cond, DamageEvent, DamageKindFilter, DamageModification, DamageRecipients, Pred,
     PreventionAmount, PreventionShield, PreventionSources, Ref, ResolvedPrevention, Scope,
     StaticRule,
 };
@@ -72,67 +72,70 @@ pub(super) fn modified_damage(change: &DamageModification, before: &Quantity) ->
 impl RulesTxn {
     /// The live static damage rule at `index` of a battlefield permanent's
     /// static abilities, if its condition holds (CR 604.1, 611.3a).
+    fn damage_rule(ability: &StaticAbility) -> Option<(&StaticRule, Option<&Cond>)> {
+        let StaticEffect::Rule { rule, condition } = &ability.effect else {
+            return None;
+        };
+        (ability.functioning_zone == FunctioningZone::Battlefield
+            && matches!(
+                rule,
+                StaticRule::PreventDamage { .. }
+                    | StaticRule::ModifyDamage { .. }
+                    | StaticRule::DamageCantBePrevented { .. }
+            ))
+        .then_some((rule, condition.as_ref()))
+    }
+
     pub(super) fn live_damage_rule(
         &self,
         source: ObjectId,
         index: u32,
-    ) -> Option<(&Object, &StaticRule)> {
-        let holder = self
+    ) -> Result<Option<(&Object, &StaticRule)>, String> {
+        let Some(holder) = self
             .battlefield_static_sources(None)
-            .find(|o| o.id == source)?;
-        self.held_damage_rule(holder, index)
-            .map(|rule| (holder, rule))
-    }
-
-    fn held_damage_rule<'a>(&'a self, holder: &Object, index: u32) -> Option<&'a StaticRule> {
-        // CR 113.10, 305.7: a holder without its abilities holds no rule.
-        if self.printed_abilities_lost(holder.id) {
-            return None;
-        }
-        let ability = self
-            .copiable_definition(holder.id)
-            .ok()?
-            .static_abilities
-            .get(index as usize)?;
-        if ability.functioning_zone != FunctioningZone::Battlefield {
-            return None;
-        }
-        let StaticEffect::Rule { rule, condition } = &ability.effect else {
-            return None;
+            .find(|o| o.id == source)
+        else {
+            return Ok(None);
         };
-        if condition
-            .as_ref()
-            .is_some_and(|c| !self.static_condition(holder, c))
-        {
-            return None;
-        }
-        matches!(
-            rule,
-            StaticRule::PreventDamage { .. }
-                | StaticRule::ModifyDamage { .. }
-                | StaticRule::DamageCantBePrevented { .. }
-        )
-        .then_some(rule)
+        let Some((rule, condition)) = self
+            .copiable_definition(source)?
+            .static_abilities
+            .get(index as usize)
+            .and_then(Self::damage_rule)
+        else {
+            return Ok(None);
+        };
+        Ok((!self.printed_abilities_lost(source)?
+            && condition.is_none_or(|c| self.static_condition(holder, c)))
+        .then_some((holder, rule)))
     }
 
-    fn live_damage_rules(&self) -> impl Iterator<Item = (ObjectId, u32, &Object, &StaticRule)> {
-        self.battlefield_static_sources(None)
-            .flat_map(move |holder| {
-                let count = self
-                    .copiable_definition(holder.id)
-                    .map(|d| d.static_abilities.len())
-                    .unwrap_or(0);
-                (0..count as u32).filter_map(move |index| {
-                    self.held_damage_rule(holder, index)
-                        .map(|rule| (holder.id, index, holder, rule))
-                })
-            })
+    fn live_damage_rules(&self) -> Result<Vec<(ObjectId, u32, &Object, &StaticRule)>, String> {
+        let mut rules = Vec::new();
+        for holder in self.battlefield_static_sources(None) {
+            for (index, ability) in self
+                .copiable_definition(holder.id)?
+                .static_abilities
+                .iter()
+                .enumerate()
+            {
+                if let Some((rule, condition)) = Self::damage_rule(ability)
+                    && !self.printed_abilities_lost(holder.id)?
+                    && condition.is_none_or(|c| self.static_condition(holder, c))
+                {
+                    rules.push((holder.id, index as u32, holder, rule));
+                }
+            }
+        }
+        Ok(rules)
     }
 
     /// The candidate keys of live static preventions and damage
     /// replacements (CR 616.1).
-    pub(super) fn static_damage_keys(&self) -> Vec<EffectKey> {
-        self.live_damage_rules()
+    pub(super) fn static_damage_keys(&self) -> Result<Vec<EffectKey>, String> {
+        Ok(self
+            .live_damage_rules()?
+            .into_iter()
             .filter(|(.., rule)| {
                 matches!(
                     rule,
@@ -140,7 +143,7 @@ impl RulesTxn {
                 )
             })
             .map(|(source, ability, ..)| EffectKey::StaticAbility { source, ability })
-            .collect()
+            .collect())
     }
 
     /// CR 609.7a: a damage source's damage-time facts against a filter
@@ -240,16 +243,16 @@ impl RulesTxn {
         recipients: &DamageRecipients,
         holder: &Object,
         recipient: &DamageRecipient,
-    ) -> bool {
+    ) -> Result<bool, String> {
         match *recipient {
-            DamageRecipient::Player { player } => recipients
+            DamageRecipient::Player { player } => Ok(recipients
                 .players
                 .as_ref()
-                .is_some_and(|who| self.static_player(who, holder.controller, player)),
-            DamageRecipient::Permanent { object } => recipients
-                .permanents
-                .as_ref()
-                .is_some_and(|scope| self.declaration_scope(scope, holder, object)),
+                .is_some_and(|who| self.static_player(who, holder.controller, player))),
+            DamageRecipient::Permanent { object } => match &recipients.permanents {
+                Some(scope) => self.declaration_scope(scope, holder, object),
+                None => Ok(false),
+            },
         }
     }
 
@@ -271,13 +274,17 @@ impl RulesTxn {
             return Ok(false);
         }
         if let Some(to) = &event.to
-            && !self.recipient_in(to, holder, &d.recipient)
+            && !self.recipient_in(to, holder, &d.recipient)?
         {
             return Ok(false);
         }
         if let Some(scope) = &event.involving {
-            let to = matches!(d.recipient, DamageRecipient::Permanent { object }
-                if self.declaration_scope(scope, holder, object));
+            let to = match d.recipient {
+                DamageRecipient::Permanent { object } => {
+                    self.declaration_scope(scope, holder, object)?
+                }
+                DamageRecipient::Player { .. } => false,
+            };
             if !to && !self.damage_source_in(scope, holder, d)? {
                 return Ok(false);
             }
@@ -291,7 +298,7 @@ impl RulesTxn {
         kind: DamageKind,
         d: &PreparedDamage,
     ) -> Result<bool, String> {
-        for (.., holder, rule) in self.live_damage_rules() {
+        for (.., holder, rule) in self.live_damage_rules()? {
             if let StaticRule::DamageCantBePrevented { event } = rule
                 && self.damage_event_matches(event, holder, kind, d)?
             {
@@ -311,7 +318,7 @@ impl RulesTxn {
         ability: u32,
     ) -> Result<(Quantity, Quantity), String> {
         let (holder, rule) = self
-            .live_damage_rule(source, ability)
+            .live_damage_rule(source, ability)?
             .ok_or("static damage rule no longer applies")?;
         let event = match rule {
             StaticRule::PreventDamage { event, .. } | StaticRule::ModifyDamage { event, .. } => {

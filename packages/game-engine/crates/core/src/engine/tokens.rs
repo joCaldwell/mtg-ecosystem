@@ -268,18 +268,12 @@ impl RulesTxn {
         }
         Ok(card)
     }
-    pub(super) fn insert_token_identity(
+    pub(super) fn insert_token_definition(
         &mut self,
         card: CardId,
         controller: PlayerId,
-        zone: Zone,
         identity: TokenIdentity,
-    ) -> ObjectId {
-        let id = ObjectId {
-            face: CardFace::Front,
-            card,
-            incarnation: 0,
-        };
+    ) {
         Arc::make_mut(&mut self.rules_mut().cards).insert(
             card,
             Card {
@@ -288,52 +282,37 @@ impl RulesTxn {
             },
         );
         Arc::make_mut(&mut self.rules_mut().tokens).insert(card, identity);
-        let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
-        let control_upkeeps = (zone == Zone::Battlefield)
-            .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
-        let keyword_rank = self.apnap_rank(controller);
-        self.rules_mut().objects.insert(
-            card,
-            Object {
-                control_upkeeps,
-                hideaway: None,
-                phased_out: None,
-                attached_to: None,
-                attachment_timestamp: None,
-                battlefield_entry_turn: (zone == Zone::Battlefield).then_some(turn),
-                keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
-                keyword_rank,
-                plus_one_counters: Quantity::zero(),
-                loyalty_counters: Quantity::zero(),
-                loyalty_used_turn: None,
-                counters: vec![],
-                transforms: 0,
-                adventure_player: None,
-                face_down: false,
-                marked_damage: Quantity::zero(),
-                deathtouch_damage: false,
-                unearthed: false,
-                dashed: false,
-                attack_ready: false,
-                id,
-                controller,
-                default_controller: controller,
-                zone,
-                tapped: false,
-            },
-        );
-        id
     }
-    /// CR 614.1c: a token created tapped is tapped as it enters.
-    fn enter_token_tapped(&mut self, card: CardId, tapped: bool) -> Result<(), String> {
-        if tapped {
-            self.rules_mut()
-                .objects
-                .get_mut(&card)
-                .ok_or("missing created token")?
-                .tapped = true;
-        }
-        Ok(())
+
+    fn enter_token(
+        &mut self,
+        (prior, timestamp): (&Self, u64),
+        card: CardId,
+        controller: PlayerId,
+        identity: TokenIdentity,
+        tapped: bool,
+    ) -> Result<ObjectId, String> {
+        let id = ObjectId {
+            face: CardFace::Front,
+            card,
+            incarnation: 0,
+        };
+        let modifiers = battlefield_entry::EntryModifiers {
+            tapped,
+            ..Default::default()
+        };
+        let mut entrant = prior.new_zone_object(
+            id,
+            controller,
+            Zone::Battlefield,
+            false,
+            Some(timestamp),
+            &modifiers,
+        );
+        prior.apply_entry_replacements(id, &mut entrant, &modifiers, Some(&identity))?;
+        self.insert_token_definition(card, controller, identity);
+        self.rules_mut().objects.insert(card, entrant);
+        Ok(id)
     }
     // CR 111.7, 704.5d/e: a permanent spell copy is still a spell on the
     // stack. Off it, only its resolved battlefield incarnation survives.
@@ -423,7 +402,26 @@ impl RulesTxn {
     pub(super) fn apply_token_event(
         &mut self,
         event: &ProposedEvent,
+        common: Option<&Self>,
     ) -> Result<EventOutcome, String> {
+        // Keep all tokens in one creation on the same prior and timestamp.
+        let local;
+        let entry = if matches!(
+            event,
+            ProposedEvent::CeaseToken { .. } | ProposedEvent::CeaseSpellCopy { .. }
+        ) {
+            None
+        } else {
+            let timestamp = self.allocate_timestamp(common)?;
+            let prior = match common {
+                Some(prior) => prior,
+                None => {
+                    local = self.fork();
+                    &local
+                }
+            };
+            Some((prior, timestamp))
+        };
         match event {
             ProposedEvent::CreateTokenCopy {
                 controller,
@@ -438,10 +436,10 @@ impl RulesTxn {
                 self.check_token_capacity(1)?;
                 let card = self.next_token_card()?;
                 let definition = token_copy_definition(self.copiable_definition(*original)?, card);
-                let object = self.insert_token_identity(
+                let object = self.enter_token(
+                    entry.ok_or("missing token entry prior")?,
                     card,
                     *controller,
-                    Zone::Battlefield,
                     TokenIdentity {
                         source: *source,
                         spec: TokenTemplate::TokenCopy {
@@ -449,19 +447,8 @@ impl RulesTxn {
                         },
                         definition,
                     },
-                );
-                let batch = self
-                    .state
-                    .rules
-                    .next_batch_id
-                    .checked_sub(1)
-                    .ok_or("missing token entry batch")?;
-                let counters = self.entry_lore_counters(object, batch)?;
-                self.rules_mut()
-                    .objects
-                    .get_mut(&card)
-                    .ok_or("missing copied token")?
-                    .counters = counters;
+                    false,
+                )?;
                 Ok(EventOutcome::TokenCopied {
                     object,
                     controller: *controller,
@@ -499,12 +486,13 @@ impl RulesTxn {
                         },
                         definition: token_copy_definition(&original, card),
                     };
-                    objects.push(self.insert_token_identity(
+                    objects.push(self.enter_token(
+                        entry.ok_or("missing token entry prior")?,
                         card,
                         *controller,
-                        Zone::Battlefield,
                         identity,
-                    ));
+                        false,
+                    )?);
                 }
                 Ok(EventOutcome::EncoreTokensCreated {
                     objects,
@@ -543,10 +531,10 @@ impl RulesTxn {
                 let (mut objects, mut attacking) = (vec![], vec![]);
                 for defender in defenders {
                     let card = self.next_token_card()?;
-                    let object = self.insert_token_identity(
+                    let object = self.enter_token(
+                        entry.ok_or("missing token entry prior")?,
                         card,
                         *controller,
-                        Zone::Battlefield,
                         TokenIdentity {
                             source: *source,
                             spec: TokenTemplate::MyriadCopy {
@@ -555,8 +543,8 @@ impl RulesTxn {
                             },
                             definition: token_copy_definition(&original, card),
                         },
-                    );
-                    self.enter_token_tapped(card, true)?;
+                        true,
+                    )?;
                     let attacks = (in_combat
                         && defender.planeswalker.is_none_or(|target| {
                             self.is_battlefield_planeswalker(target)
@@ -609,13 +597,13 @@ impl RulesTxn {
                             *kind,
                         ),
                     };
-                    objects.push(self.insert_token_identity(
+                    objects.push(self.enter_token(
+                        entry.ok_or("missing token entry prior")?,
                         card,
                         *controller,
-                        Zone::Battlefield,
                         identity,
-                    ));
-                    self.enter_token_tapped(card, *tapped)?;
+                        *tapped,
+                    )?);
                 }
                 Ok(EventOutcome::PredefinedTokensCreated {
                     objects,
@@ -644,10 +632,13 @@ impl RulesTxn {
                         spec: TokenTemplate::Created(token.as_ref().clone()),
                         definition: token_definition(&source_definition, card, token),
                     };
-                    let id =
-                        self.insert_token_identity(card, *controller, Zone::Battlefield, identity);
-                    self.enter_token_tapped(card, *tapped)?;
-                    objects.push(id);
+                    objects.push(self.enter_token(
+                        entry.ok_or("missing token entry prior")?,
+                        card,
+                        *controller,
+                        identity,
+                        *tapped,
+                    )?);
                 }
                 Ok(EventOutcome::TokensCreated {
                     objects,
@@ -852,7 +843,8 @@ impl RulesTxn {
             }
             if !counter_stacks_valid(&o.counters)
                 || o.counters.iter().any(|stack| {
-                    o.zone != Zone::Battlefield || stack.timestamp >= self.state.rules.next_batch_id
+                    o.zone != Zone::Battlefield
+                        || !self.state.rules.timestamps.contains(stack.timestamp)
                 })
                 || (o
                     .counters

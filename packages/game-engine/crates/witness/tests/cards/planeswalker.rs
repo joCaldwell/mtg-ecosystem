@@ -87,6 +87,7 @@ fn planeswalker_defender_loses_loyalty_and_dies() {
             ("Jace Beleren", 1, Zone::Battlefield),
         ],
     );
+    let jace = Driver::object(&g, 2);
     let d = until(&mut g, &Reason::Attackers);
     let target = d
         .index(&Candidate::Object {
@@ -110,6 +111,34 @@ fn planeswalker_defender_loses_loyalty_and_dies() {
             o.oracle_id == "cc2b6e58-2d6f-495e-95f3-9496105c4cba"
                 && o.zone == (Zone::Graveyard { owner: PlayerId(1) })
         }) {
+            let cause = g
+                .trace()
+                .records
+                .iter()
+                .find_map(|record| {
+                    let EvidenceRecord::Batch { batch } = &record.record else {
+                        return None;
+                    };
+                    batch.occurrences.iter().find_map(|occurrence| {
+                        matches!(occurrence.actual, EventOutcome::DamageCommitted { .. })
+                            .then(|| {
+                                occurrence.counter_changes.iter().find(|change| {
+                                    change.holder
+                                        == (CounterHolder::Permanent {
+                                            object: jace,
+                                            controller: PlayerId(1),
+                                        })
+                                })
+                            })
+                            .flatten()
+                    })
+                })
+                .expect("combat damage loyalty removal");
+            assert_eq!(cause.counter, mtg_contracts::kir::CounterKind::Loyalty);
+            assert_eq!(
+                (cause.previous.clone(), cause.current.clone()),
+                (3.into(), 0.into())
+            );
             assert_eq!(view.players[1].life, 40.into());
             checked(&g);
             return;

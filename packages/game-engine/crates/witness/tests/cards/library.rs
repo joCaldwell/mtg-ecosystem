@@ -2110,7 +2110,15 @@ fn skyshroud_claim_collects_each_shockland_payment_before_one_entry() {
         }
         // One entry batch: no event separates the two entries.
         assert_eq!(batches[1].abs_diff(batches[0]), 1);
+        let timestamps = [5, 6].map(|card| {
+            g.object_before(Driver::object(&g, card))
+                .unwrap()
+                .keyword_timestamp
+        });
+        assert_eq!(timestamps[0], timestamps[1]);
+        assert!(timestamps[0].is_some());
         assert_eq!(shuffles(&g, 0), 1);
+        assert_recoverable((&g).into());
     }
 }
 

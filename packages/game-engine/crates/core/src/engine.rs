@@ -46,6 +46,8 @@ pub mod counter_placement;
 pub mod predefined_token_templates;
 pub mod resolution_payment;
 mod sagas;
+mod timestamps;
+use timestamps::TimestampAllocator;
 
 pub use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 pub mod staples;
@@ -183,8 +185,9 @@ pub mod actuals;
 pub mod events;
 pub mod trace;
 pub use actuals::{
-    Actual, ActualJournal, ActualRef, CostOf, Destination, EventId, Facet, FacetKind, GroupId,
-    LedgerDelta, Lineage, MoveKind, Origin, ReplacementKey, Root, SeatDelta, StepRef,
+    Actual, ActualJournal, ActualRef, CostOf, CounterChange, CounterHolder, Destination, EventId,
+    Facet, FacetKind, GroupId, LedgerDelta, Lineage, MoveKind, Origin, ReplacementKey, Root,
+    SeatDelta, StepRef,
 };
 pub use events::*;
 pub use trace::*;

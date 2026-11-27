@@ -124,6 +124,20 @@ Scryfall object and provenance), and one status:
 - `unsupported`: all face results/diagnostics, no complete-card hash; missing/null
   text stays explicit `missing-oracle-text`, distinct from empty.
 
+Schema 5 is the R6 same-corpus extension. Excluded rows retain exact schema-4
+bytes. In-scope rows append `printed` and the SHA-256 of its raw JSON subvalue.
+The header pins the R5 baseline, rules bytes, printed schema, vocabulary and
+generator, plus the name catalog and ordered evidence digest. The latter
+hashes source index, Oracle identity and evidence hash (or `excluded`) separated
+by tabs and terminated by LF, in source order.
+
+Rust verifies the sidecar before classifying a card. It replays typed edits
+from source Oracle text to legacy normalized lines, checks UTF-8 token spans
+and quote order, and verifies node locations, fact ownership, spelling, target
+scope and linked field values. These integrity failures abort archive intake.
+The inert reader passes the legacy parse to lowering. Family coverage and
+evidence consumption are separate obligations for migrated lowering.
+
 In-scope rows carry `resolution`/`resolutionSha256`, the compiler's authoritative
 contract ([resolution.ts](../packages/oracle-parser/src/semantic/resolution.ts)),
 per parsed face and block with block-relative paths:

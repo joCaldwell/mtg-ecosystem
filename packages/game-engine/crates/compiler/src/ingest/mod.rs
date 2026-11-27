@@ -3,7 +3,10 @@
 use super::*;
 
 mod mirror;
+mod printed;
+mod r6;
 pub(crate) use mirror::*;
+pub(crate) use r6::ArchiveEvidence;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -176,8 +179,11 @@ impl CardSource {
 /// CR 712.3, 712.8, 715.2: each face of a double-faced card, and each part
 /// of an adventurer, is an independent printed set of characteristics.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
-    let r: Record = decode(record, "record")?;
+pub(crate) fn read_card(archive: &AcceptedArchive, record: &str) -> Result<CardSource, Failure> {
+    let r: Record = match archive.cut {
+        ArchiveCut::R4 | ArchiveCut::R5 => decode(record, "record")?,
+        ArchiveCut::R6 => r6::RecordR6::read(record)?.into_legacy()?,
+    };
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
     }

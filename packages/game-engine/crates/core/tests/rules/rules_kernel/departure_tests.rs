@@ -335,15 +335,19 @@ fn control_provenance_restores_remaining_grants_and_ends_static_sources_only() {
         .get_mut(&CardId(2))
         .unwrap()
         .default_controller = PlayerId(1);
+    let control_time_0 = game.state.rules.timestamps.test_allocate();
+    let control_time_1 = game.state.rules.timestamps.test_allocate();
     game.state.rules.control_effects = vec![
         ControlEffect {
             id: 1,
+            timestamp: control_time_0,
             object: bear,
             controller: PlayerId(3),
             source: ControlSource::Persistent,
         },
         ControlEffect {
             id: 2,
+            timestamp: control_time_1,
             object: bear,
             controller: PlayerId(2),
             source: ControlSource::Persistent,
@@ -377,15 +381,19 @@ fn control_provenance_restores_remaining_grants_and_ends_static_sources_only() {
         .get_mut(&CardId(2))
         .unwrap()
         .controller = PlayerId(3);
+    let control_time_0 = static_game.state.rules.timestamps.test_allocate();
+    let control_time_1 = static_game.state.rules.timestamps.test_allocate();
     static_game.state.rules.control_effects = vec![
         ControlEffect {
             id: 1,
+            timestamp: control_time_0,
             object: bear,
             controller: PlayerId(2),
             source: ControlSource::Persistent,
         },
         ControlEffect {
             id: 2,
+            timestamp: control_time_1,
             object: bear,
             controller: PlayerId(3),
             source: ControlSource::Static {
@@ -833,8 +841,10 @@ fn departed_default_controller_is_safe_under_a_remaining_live_grant_until_it_end
         .get_mut(&CardId(2))
         .unwrap()
         .controller = PlayerId(3);
+    let control_time_0 = game.state.rules.timestamps.test_allocate();
     game.state.rules.control_effects.push(ControlEffect {
         id: 1,
+        timestamp: control_time_0,
         object: bear,
         controller: PlayerId(3),
         source: ControlSource::Persistent,

@@ -324,7 +324,9 @@ mod tests {
         value["ability_handles"] = serde_json::json!({"2":"ability2","10":"ability10"});
         value["next_ability_handle"] = 11.into();
         game.state.knowledge.visibility[0] = serde_json::from_value(value).unwrap();
+        let timestamp = game.rules_mut().timestamps.allocate().unwrap();
         game.state.rules.effects.push(ResolvedEffect {
+            timestamp,
             id: EffectId(2),
             origin: EffectOrigin {
                 activated_ability: None,

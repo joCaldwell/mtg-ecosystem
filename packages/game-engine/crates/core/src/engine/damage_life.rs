@@ -57,12 +57,13 @@ impl RulesTxn {
             transforms: o.transforms,
             face_down: o.face_down,
             battlefield_entry_turn: o.battlefield_entry_turn,
+            battlefield_entry_timestamp: o.battlefield_entry_timestamp,
             control_upkeeps: o.control_upkeeps,
             unearthed: o.unearthed,
             dashed: o.dashed,
             keyword_timestamp: o.keyword_timestamp,
             keyword_rank: o.keyword_rank,
-            keywords: { self.current_keywords(object) },
+            keywords: self.current_keywords(object)?,
             deathtouch_damage: o.deathtouch_damage,
             plus_one_counters: o.plus_one_counters.clone(),
             counters: o.counters.clone(),
@@ -190,33 +191,30 @@ impl RulesTxn {
             })
         })
     }
-    // CR 120.3c,e: planeswalkers lose loyalty; creatures mark damage.
+    // CR 120.3c,e: planeswalkers lose loyalty through the counter facet;
+    // marked damage keeps its damage receipt.
     pub(super) fn apply_permanent_damage(
         &mut self,
         object: ObjectId,
         amount: &Quantity,
-    ) -> Result<(Quantity, Quantity), String> {
+    ) -> Result<Option<DamageResult>, String> {
         let planeswalker = self.is_battlefield_planeswalker(object);
         let permanent = self
             .rules_mut()
             .objects
             .get_mut(&object.card)
             .ok_or("missing damage object")?;
-        let value = if planeswalker {
-            &mut permanent.loyalty_counters
-        } else {
-            &mut permanent.marked_damage
-        };
-        let previous = value.clone();
         if planeswalker {
-            value.subtract(amount);
-            if value.is_negative() {
-                *value = Quantity::zero();
-            }
-        } else {
-            value.add(amount);
+            permanent.remove_counters(&mtg_contracts::kir::CounterKind::Loyalty, amount);
+            return Ok(None);
         }
-        Ok((previous, value.clone()))
+        let previous = permanent.marked_damage.clone();
+        permanent.marked_damage.add(amount);
+        Ok(Some(DamageResult {
+            recipient: DamageRecipient::Permanent { object },
+            previous,
+            current: permanent.marked_damage.clone(),
+        }))
     }
 
     pub(crate) fn entity_legal(&self, target: TargetEntity) -> bool {
@@ -323,7 +321,16 @@ impl RulesTxn {
                 .clone()
             {
                 ActivationCost::Loyalty { change } => {
-                    self.pay_loyalty(entry.controller, entry.source, &change)?;
+                    self.pay_loyalty(
+                        BatchCause::AbilityActivation {
+                            stack_id: entry.id,
+                            player: entry.controller,
+                            source: entry.source,
+                            decision_id,
+                            ability,
+                        },
+                        &change,
+                    )?;
                     self.rules_mut()
                         .stack
                         .last_mut()
@@ -390,12 +397,14 @@ impl RulesTxn {
         // CR 602.2b/601.2c,h: announce targets before paying the tap cost;
         // there is no mana window when this cost contains no mana.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        let source_payable = self.current(entry.source).is_ok_and(|source| {
+        let source_payable = if let Ok(source) = self.current(entry.source) {
             source.present_on_battlefield()
                 && source.controller == entry.controller
                 && !source.tapped
-                && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
-        });
+                && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste)?)
+        } else {
+            false
+        };
         if !source_payable
             || self.stack_definition(&entry)?.activated[ability as usize].cost
                 != ActivationCost::TapSource
