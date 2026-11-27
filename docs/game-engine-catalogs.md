@@ -116,9 +116,16 @@ The opt-in check derives its obligation inventory from the verified block AST.
 P11 requires the resolver to discharge each field with a verified exact link,
 a production-specific check of the printed phrase and field value, or a closed
 default at its governing node. P12 requires an explicit checked meaning or
-structural role for every printed fact and token. Fact and token lookups leave
-coverage unchanged. This catches an omitted qualifier with either a null field
-link or an absent fact. Several checked fields may cite the same occurrence.
+structural role for every printed fact and token. Structural roles require a
+verified punctuation fact and a recorded production boundary. The current
+roles cover period-terminated sentences, trigger and for-each clause commas,
+activation cost list commas, and the activation cost/effect colon. These use
+the parser's [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
+and its sentence, clause and activation productions. Operators, including
+signs and the power/toughness slash, require a checked field meaning and a
+fact bound to that meaning. Fact and token lookups leave coverage unchanged.
+This catches an omitted qualifier with either a null field link or an absent
+fact. Several checked fields may cite the same occurrence.
 An undischarged field or unconsumed occurrence rejects the card with an original
 byte range.
 

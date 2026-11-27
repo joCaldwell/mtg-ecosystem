@@ -1,5 +1,5 @@
 use super::*;
-use crate::ingest::evidence::{Basis, Check, Coverage, EvidenceError};
+use crate::ingest::evidence::{Basis, Check, Coverage, EvidenceError, StructuralPunctuation::*};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
@@ -12,7 +12,9 @@ const RIDER: &str = "/effects/0/steps/0/riders/0";
 const ITERATION: &str = "/effects/1/steps/0/each/filter/relation";
 const CREATE: &str = "/effects/1/steps/0/effects/0/steps/0";
 
+const WYLULI_WOLF: usize = 15;
 const SAHEELI: usize = 35;
+const THROTTLE: usize = 252;
 const JUNK: usize = 1344;
 const TERA: usize = 3602;
 const SECRET: usize = 7870;
@@ -326,8 +328,24 @@ fn check_terastodon(
                 ("numeral", 31, &format!("{CREATE}/token/toughness/value")),
             ],
         )?;
-        for (index, expected) in [(4, ","), (14, "."), (24, ","), (30, "/"), (36, ".")] {
-            coverage.punctuation(0, index, expected)?;
+        let create = format!("{CREATE}/effect");
+        coverage.meaning(&create, [0, 29, 32], |value, text| {
+            value == "create-token" && text == "3/3"
+        })?;
+        let slash = block(row, 0)["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|fact| fact["fact"] == "punct" && fact["tok"] == json!([0, 30, 31]))
+            .unwrap();
+        coverage.bind_fact(slash, &create)?;
+        for (index, role) in [
+            (4, ClauseComma),
+            (14, SentenceTerminator),
+            (24, ClauseComma),
+            (36, SentenceTerminator),
+        ] {
+            coverage.punctuation(0, index, role)?;
         }
         // Exploratory reads of all facts and tokens must never close a claim.
         for index in 0..block(row, 0)["facts"].as_array().unwrap().len() {
@@ -610,7 +628,7 @@ fn check_mutations(rows: &BTreeMap<usize, String>) {
         card.block(0, 1, &field)
             .unwrap()
             .check_family(|coverage| {
-                coverage.punctuation(1, 1, ":")?;
+                coverage.punctuation(1, 1, CostEffectColon)?;
                 coverage.field(&format!("{RETURN}/mana/amount/value"))?;
                 coverage.meaning(&format!("{RETURN}/mana/mana"), [1, 4, 8], |value, text| {
                     value == "any-color" && text == "mana of any color"
@@ -628,7 +646,7 @@ fn check_mutations(rows: &BTreeMap<usize, String>) {
                         ("this", 10, &format!("{RETURN}/effect")),
                     ],
                 )?;
-                coverage.punctuation(1, 8, ".")?;
+                coverage.punctuation(1, 8, SentenceTerminator)?;
                 Ok(())
             })
             .unwrap_err(),
@@ -715,7 +733,7 @@ fn check_mutations(rows: &BTreeMap<usize, String>) {
                     coverage.meaning("/trigger/what/ref", [1, 1, 2], |value, text| {
                         value == "this" && text == "this"
                     })?;
-                    coverage.punctuation(1, 4, ",")?;
+                    coverage.punctuation(1, 4, ClauseComma)?;
                     bind_forms(&row, 1, coverage, &[("this", 1, "/trigger/what/ref")])?;
                     Ok(())
                 }),
@@ -813,6 +831,164 @@ fn check_mutations(rows: &BTreeMap<usize, String>) {
     expect_check("diverge Halfling alias", &mut row, "P6");
 }
 
+fn check_punctuation_mutations(rows: &BTreeMap<usize, String>) {
+    let mut throttle: Value = serde_json::from_str(&rows[&THROTTLE]).unwrap();
+    assert_eq!(throttle["source"]["name"], "Throttle");
+    assert_eq!(
+        throttle["source"]["oracle_text"],
+        "Target creature gets -4/-4 until end of turn."
+    );
+    ast_mut(&mut throttle, 0).pointer_mut(RETURN).unwrap()["toughness"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sign")
+        .unwrap();
+    let card = verified(&rehash(&mut throttle)).unwrap();
+    let block = card.block(0, 0, RETURN).unwrap();
+    let check = |claim_minus| {
+        block.check_family(|coverage| {
+            for (field, start, end, literal, expected) in [
+                ("/kind".to_owned(), 0, 1, "Target", json!("spell")),
+                (
+                    format!("{RETURN}/what/ref"),
+                    0,
+                    1,
+                    "Target",
+                    json!("target"),
+                ),
+                (
+                    format!("{FILTER}/types"),
+                    1,
+                    2,
+                    "creature",
+                    json!(["creature"]),
+                ),
+                (format!("{RETURN}/effect"), 2, 3, "gets", json!("pump")),
+                (format!("{RETURN}/power/sign"), 3, 4, "-", json!(-1)),
+                (
+                    format!("{RETURN}/power/amount/amount"),
+                    4,
+                    5,
+                    "4",
+                    json!("fixed"),
+                ),
+                (format!("{RETURN}/effect"), 4, 6, "4/", json!("pump")),
+                (
+                    format!("{RETURN}/toughness/amount/amount"),
+                    7,
+                    8,
+                    "4",
+                    json!("fixed"),
+                ),
+                (
+                    format!("{RETURN}/duration/duration"),
+                    8,
+                    12,
+                    "until end of turn",
+                    json!("end-of-turn"),
+                ),
+            ] {
+                coverage.meaning(&field, [0, start, end], |value, text| {
+                    value == &expected && text == literal
+                })?;
+            }
+            for field in [
+                format!("{RETURN}/what/selectionId"),
+                format!("{RETURN}/power/amount/value"),
+                format!("{RETURN}/toughness/amount/value"),
+            ] {
+                coverage.field(&field)?;
+            }
+            for property in ["amount", "value"] {
+                coverage.implicit(
+                    &format!("{COUNT}/{property}"),
+                    ImplicitReason::ImpliedSingularTarget,
+                )?;
+            }
+            bind_forms(
+                &throttle,
+                0,
+                coverage,
+                &[
+                    ("target", 0, &format!("{RETURN}/what/selectionId")),
+                    ("numeral", 4, &format!("{RETURN}/power/amount/value")),
+                    ("numeral", 7, &format!("{RETURN}/toughness/amount/value")),
+                ],
+            )?;
+            for (index, field) in [
+                (2, format!("{RETURN}/power/sign")),
+                (5, format!("{RETURN}/effect")),
+            ] {
+                coverage.bind_fact(index, &field)?;
+            }
+            coverage.punctuation(0, 12, SentenceTerminator)?;
+            if claim_minus {
+                coverage.punctuation(0, 6, SentenceTerminator)?;
+            }
+            Ok(())
+        })
+    };
+    expect_family(
+        "omit Throttle toughness sign",
+        check(false).unwrap_err(),
+        Check::P12,
+        [24, 25],
+    );
+    expect_family(
+        "claim Throttle minus as structural",
+        check(true).unwrap_err(),
+        Check::P11,
+        [24, 25],
+    );
+
+    let wolf: Value = serde_json::from_str(&rows[&WYLULI_WOLF]).unwrap();
+    assert_eq!(wolf["source"]["name"], "Wyluli Wolf");
+    assert_eq!(
+        wolf["source"]["oracle_text"],
+        "{T}: Target creature gets +1/+1 until end of turn."
+    );
+    let card = verified(&rows[&WYLULI_WOLF]).unwrap();
+    let block = card.block(0, 0, RETURN).unwrap();
+    for (label, index, role, range) in [
+        (
+            "claim Wyluli Wolf plus as structural",
+            8,
+            CostEffectColon,
+            [29, 30],
+        ),
+        (
+            "claim Wyluli Wolf P/T slash as structural",
+            7,
+            ClauseComma,
+            [28, 29],
+        ),
+    ] {
+        expect_family(
+            label,
+            block
+                .check_family(|coverage| coverage.punctuation(0, index, role))
+                .unwrap_err(),
+            Check::P11,
+            range,
+        );
+    }
+
+    let card = verified(&rows[&BOSEIJU]).unwrap();
+    let block = card.block(0, 1, "/costs/0").unwrap();
+    expect_family(
+        "claim Boseiju cost separator as a clause comma",
+        block
+            .check_family(|coverage| {
+                coverage.punctuation(1, 1, CostListComma)?;
+                coverage.punctuation(1, 5, CostEffectColon)?;
+                coverage.punctuation(1, 1, ClauseComma)
+            })
+            .unwrap_err(),
+        Check::P11,
+        [26, 27],
+    );
+}
+
 #[test]
 #[ignore = "opt-in frozen R6 candidate; set MTG_R6_VERIFIER_ROWS"]
 fn frozen_family_evidence() {
@@ -825,13 +1001,23 @@ fn frozen_family_evidence() {
         .filter_map(|(index, line)| {
             let number = index + 1;
             let line = line.unwrap();
-            [SAHEELI, JUNK, TERA, SECRET, BOSEIJU, HALFLING]
-                .contains(&number)
-                .then_some((number, line))
+            [
+                WYLULI_WOLF,
+                SAHEELI,
+                THROTTLE,
+                JUNK,
+                TERA,
+                SECRET,
+                BOSEIJU,
+                HALFLING,
+            ]
+            .contains(&number)
+            .then_some((number, line))
         })
         .collect();
     check_witnesses(&rows);
     check_mutations(&rows);
+    check_punctuation_mutations(&rows);
     check_source_edits(&rows);
 }
 

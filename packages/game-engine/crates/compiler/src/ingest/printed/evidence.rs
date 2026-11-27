@@ -21,6 +21,17 @@ pub(crate) enum Check {
     P12,
 }
 
+/// These boundaries come from the R6 punctuation facts
+/// (`oracle-parser/src/printed/facts.ts`) and the productions that consume them.
+/// See `docs/game-engine-catalogs.md#rust-printed-evidence`.
+#[derive(Clone, Copy)]
+pub(crate) enum StructuralPunctuation {
+    SentenceTerminator,
+    ClauseComma,
+    CostListComma,
+    CostEffectColon,
+}
+
 #[derive(Debug)]
 pub(crate) struct EvidenceError {
     pub check: Check,
@@ -346,6 +357,75 @@ impl<'a> BlockEvidence<'a> {
         })
     }
 
+    fn primary_span(&self, path: &str) -> &[TokenRun] {
+        match self.nodes.get(path) {
+            Some(PrintedNode::Recorded(node)) => &node.span,
+            _ => &[],
+        }
+    }
+
+    fn punctuation_boundary(&self, role: StructuralPunctuation, fact: &PrintedFactPunct) -> bool {
+        let [line, index, after] = fact.tok.0;
+        let ends_at = |path: &str, end| {
+            self.primary_span(path)
+                .last()
+                .is_some_and(|run| run.0[0] == line && run.0[2] == end)
+        };
+        let between = |left: &str, right: &str| {
+            ends_at(left, index)
+                && self
+                    .primary_span(right)
+                    .first()
+                    .is_some_and(|run| run.0[..2] == [line, after])
+        };
+        let owner = fact.at.as_str();
+        let cost_count = || {
+            self.ast["costs"]
+                .as_array()
+                .filter(|_| owner.is_empty() && self.ast["kind"] == "activated")
+                .map_or(0, Vec::len)
+        };
+        match role {
+            // parseSentences and SentenceRecorder delimit the primary sentence;
+            // a later folded continuation may have its own sentence boundary.
+            StructuralPunctuation::SentenceTerminator => {
+                fact.role == PrintedFactPunctRole::SentenceEnd
+                    && self
+                        .ast
+                        .pointer(owner)
+                        .is_some_and(|node| node["steps"].is_array())
+                    && ends_at(owner, after)
+            }
+            // parser/index.ts and parser/for-each.ts consume the comma between
+            // these heads and their effects.
+            StructuralPunctuation::ClauseComma => {
+                fact.role == PrintedFactPunctRole::Comma
+                    && (owner.is_empty()
+                        && self.ast["kind"] == "triggered"
+                        && between("/trigger", "/effects/0")
+                        || self
+                            .ast
+                            .pointer(owner)
+                            .is_some_and(|node| node["effect"] == "for-each")
+                            && between(&format!("{owner}/each"), &format!("{owner}/effects/0")))
+            }
+            // parseActivationCostList and the activated production in
+            // parser/index.ts separate adjacent costs and the cost from its effect.
+            StructuralPunctuation::CostListComma => {
+                fact.role == PrintedFactPunctRole::Comma
+                    && (1..cost_count()).any(|next| {
+                        between(&format!("/costs/{}", next - 1), &format!("/costs/{next}"))
+                    })
+            }
+            StructuralPunctuation::CostEffectColon => {
+                fact.role == PrintedFactPunctRole::Colon
+                    && cost_count()
+                        .checked_sub(1)
+                        .is_some_and(|last| between(&format!("/costs/{last}"), "/effects/0"))
+            }
+        }
+    }
+
     /// A family covers one printed block at a time. Multiple checked meanings
     /// may share a citation. Querying a node does not discharge its contents.
     pub(crate) fn check_family<T>(
@@ -525,28 +605,52 @@ impl<'a> Coverage<'_, 'a> {
         Ok(())
     }
 
-    /// Claim a punctuation token in a structural role at its exact occurrence.
+    /// Claim a delimiter at a verified production boundary. Operative
+    /// punctuation is covered with `meaning` and `bind_fact`.
     pub(crate) fn punctuation(
         &mut self,
         line: u32,
         index: u32,
-        spelling: &str,
+        role: StructuralPunctuation,
     ) -> Result<(), EvidenceError> {
         let proof = self.block.token(line, index)?;
-        let [start, end] = normalized_range(proof.value).map(|index| index as usize);
-        if !matches!(proof.value, PrintedToken::Punct(_))
-            || &self.block.normalized[start..end] != spelling
+        let missing = || {
+            self.block.error(
+                Check::P11,
+                format!("lines/{line}/tokens/{index}"),
+                proof.range,
+            )
+        };
+        let PrintedToken::Punct(token) = proof.value else {
+            return Err(missing());
+        };
+        let after = index + 1;
+        // Admit ordinary, separated delimiters. Quoted punctuation movement
+        // and punctuation embedded in a literal require their own productions.
+        if token.grammar_index != index
+            || self
+                .block
+                .tokens(line)
+                .get(after as usize)
+                .is_some_and(|next| normalized_range(next)[0] == token.n.0[1])
         {
-            return Err(self.block.error(Check::P11, spelling, proof.range));
+            return Err(missing());
+        }
+        let mut matching = self
+            .block
+            .facts()
+            .filter_map(|(fact_index, fact)| match fact {
+                PrintedFact::Punct(punct) if punct.tok.0 == [line, index, after] => {
+                    Some((fact_index, punct))
+                }
+                _ => None,
+            });
+        let (fact_index, fact) = matching.next().ok_or_else(missing)?;
+        if matching.next().is_some() || !self.block.punctuation_boundary(role, fact) {
+            return Err(missing());
         }
         self.tokens.insert((line, index));
-        for (fact_index, fact) in self.block.facts() {
-            if let PrintedFact::Punct(punct) = fact
-                && punct.tok.0 == [line, index, index + 1]
-            {
-                self.facts.insert(fact_index);
-            }
-        }
+        self.facts.insert(fact_index);
         Ok(())
     }
 
