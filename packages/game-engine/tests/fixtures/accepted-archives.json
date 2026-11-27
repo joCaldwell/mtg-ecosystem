@@ -747,7 +747,7 @@
     "manifest_file": "archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json",
     "manifest_sha256": "8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093",
     "file_sha256": "68cdd8cecb06e6132801426db9e79a44d9279461bf13ba5cb5a86cea27033571",
-    "parser_revision": "08f793d9576d128b9507515c70a348be9070d563",
+    "parser_revision": "6de8da715a39dffea36b9f9783a9f5cd2595cbb5",
     "parser_source_sha256": "d83686e769be9e20bfe3cc43760942930cef922ef6030499b75b8e4cd9a58158",
     "corpus_sha256": "f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738",
     "r6": {

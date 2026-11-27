@@ -87,7 +87,8 @@ impl RecordR6 {
                     status: "attempted".into(),
                     result,
                 }),
-                // Keep the R5 outcome for the missing-face legacy shape.
+                // Bridge-only: reproduces the R5 serde message for the missing-face
+                // legacy shape. Delete with the R5 bridge; do not reuse it.
                 _ => Err(invalid("record", "unknown field `name`")),
             })
             .collect::<Result<_, _>>()?;

@@ -277,6 +277,9 @@ impl<'a> BlockNodes<'a> {
         })
     }
 
+    /// Innermost node covering every token in `run`, or the root (`""`) when
+    /// none does, mirroring `printed/facts.ts`. A root-owned fact on tokens no
+    /// node covers is not located evidence; consumers must not count it as such.
     pub(super) fn owner(&self, run: [u32; 3]) -> &str {
         let [line, start, end] = run.map(|v| v as usize);
         self.nodes

@@ -17,7 +17,9 @@ schema 5 and records only parser source identity in the header. Bulk v2 takes
 the R6 parser revision (the reviewed producer commit) from the external
 registry. A pending registration cannot authorize intake or provenance. A
 `candidate` registration is measured and authorizes intake and comparison but
-no record pins, so no tracked fixture or default consumer can select it. Oracle parser tests own their pre-R4 records under
+no record pins, so no tracked fixture or default consumer can select it. It
+fails closed only through those absent pins and default paths that name R5; a
+consumer explicitly pointed at a candidate file can load it. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
 Schema-5 R6 candidates carry printed evidence and retain the R5 row bytes
