@@ -1039,25 +1039,25 @@ fn check_quoted_punctuation(rows: &BTreeMap<usize, String>) {
                 if path == "/effects/0" {
                     node["span"] = json!([[0, 4, 32]]);
                     node["folds"] = json!([[0, 32, 39]]);
-                } else if path.starts_with("/effects/0/") {
-                    if let Some(runs) = node.get_mut("span").and_then(Value::as_array_mut) {
-                        let mut clipped = Vec::new();
-                        for run in runs.iter() {
-                            let start = run[1].as_u64().unwrap();
-                            let end = run[2].as_u64().unwrap();
-                            if !(start <= 31 && 31 < end) {
-                                clipped.push(run.clone());
-                                continue;
-                            }
-                            if start < 31 {
-                                clipped.push(json!([0, start, 31]));
-                            }
-                            if 32 < end {
-                                clipped.push(json!([0, 32, end]));
-                            }
+                } else if path.starts_with("/effects/0/")
+                    && let Some(runs) = node.get_mut("span").and_then(Value::as_array_mut)
+                {
+                    let mut clipped = Vec::new();
+                    for run in runs.iter() {
+                        let start = run[1].as_u64().unwrap();
+                        let end = run[2].as_u64().unwrap();
+                        if !(start <= 31 && 31 < end) {
+                            clipped.push(run.clone());
+                            continue;
                         }
-                        *runs = clipped;
+                        if start < 31 {
+                            clipped.push(json!([0, start, 31]));
+                        }
+                        if 32 < end {
+                            clipped.push(json!([0, 32, end]));
+                        }
                     }
+                    *runs = clipped;
                 }
             } else {
                 const GRANT: &str = "/effects/0/steps/0/abilities/0";
