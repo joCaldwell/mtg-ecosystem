@@ -155,9 +155,8 @@ impl RulesTxn {
                         ManaProduction::Counted { .. } => {}
                         ManaProduction::ChooseDevotion {} => {
                             for color in self.mana_colors(player, &ability.production)? {
-                                if let Some(amount) = self.devotion(player, &[color])
-                                    && amount > Quantity::zero()
-                                {
+                                let amount = self.devotion(player, &[color])?;
+                                if amount > Quantity::zero() {
                                     options.push(vec![(color, amount)]);
                                 }
                             }

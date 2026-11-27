@@ -137,7 +137,7 @@ impl RulesTxn {
         entrant: &mut Object,
         modifiers: &EntryModifiers,
         token: Option<&tokens::TokenIdentity>,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<replacement::QuantityApplication>, String> {
         let definition = if entrant.face_down {
             face_down::face_down_definition()
         } else if let Some(token) = token {
@@ -145,10 +145,19 @@ impl RulesTxn {
         } else {
             self.face_definition(entrant.id.card, entrant.id.face)?
         };
+        let mut applied = vec![];
         // CR 306.5b: existing intrinsic loyalty placement uses the face's
         // printed starting loyalty.
         if let Some(loyalty) = &definition.characteristics.loyalty {
-            entrant.loyalty_counters = loyalty.clone();
+            let placed = self.entry_counters(
+                previous,
+                entrant,
+                token,
+                &mtg_contracts::kir::CounterKind::Loyalty,
+                loyalty,
+            )?;
+            entrant.loyalty_counters = placed.amount.clone();
+            applied.push(placed);
         }
         if !definition.characteristics.has_subtype("Saga")
             && !definition.static_abilities.iter().any(|ability| {
@@ -162,11 +171,11 @@ impl RulesTxn {
                 )
             })
         {
-            return Ok(());
+            return Ok(applied);
         }
         let prospective = self.prospective_entry(entrant, token)?;
         if prospective.printed_abilities_lost {
-            return Ok(());
+            return Ok(applied);
         }
         if !entrant.tapped {
             if let Some(choice) = Self::printed_entry_choice(definition) {
@@ -190,20 +199,80 @@ impl RulesTxn {
                 };
             }
         }
-        // CR 122.6, 614.1c, 714.3a: these counters are part of the entry.
+        // CR 122.6, 614.1c, 714.3a: these counters are part of the entry,
+        // one contained placement per kind.
+        let mut plus_one = Quantity::zero();
         for ability in &definition.static_abilities {
             if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
-                entrant.plus_one_counters.add(count);
+                plus_one.add(count);
             }
         }
+        if plus_one > Quantity::zero() {
+            let placed = self.entry_counters(
+                previous,
+                entrant,
+                token,
+                &mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+                &plus_one,
+            )?;
+            entrant.plus_one_counters.add(&placed.amount);
+            applied.push(placed);
+        }
         if prospective.characteristics.has_subtype("Saga") {
+            let placed = self.entry_counters(
+                previous,
+                entrant,
+                token,
+                &mtg_contracts::kir::CounterKind::Lore,
+                &1.into(),
+            )?;
             entrant.counters.push(CounterStack {
                 kind: mtg_contracts::kir::CounterKind::Lore,
-                count: 1.into(),
+                count: placed.amount.clone(),
                 timestamp: entrant.keyword_timestamp.ok_or("missing entry timestamp")?,
             });
+            applied.push(placed);
         }
-        Ok(())
+        Ok(applied)
+    }
+
+    /// CR 122.6, 614.12, 614.16: an entrant's own entry counters of one kind
+    /// as quantity replacements on this (pre-entry) battlefield modify them.
+    /// They are produced by a replacement, so effect-only clauses match. The
+    /// entrant is tested as it would exist under its incoming controller. A
+    /// replacement from the entrant itself applies only if it affects only
+    /// that permanent (CR 614.12); quantity statics affect a general set, so
+    /// its own never see its entry. Its controller sees the entering card
+    /// unless it comes from a hidden zone or is a token.
+    fn entry_counters(
+        &self,
+        previous: ObjectId,
+        entrant: &Object,
+        token: Option<&tokens::TokenIdentity>,
+        counter: &mtg_contracts::kir::CounterKind,
+        amount: &Quantity,
+    ) -> Result<replacement::QuantityApplication, String> {
+        let creature = self.has_quantity_rules()?
+            && self
+                .prospective_entry(entrant, token)?
+                .characteristics
+                .has_type(CardKind::Creature);
+        let shown = self.current(previous).ok().filter(|o| {
+            !o.face_down
+                && !matches!(o.zone, Zone::Hand { .. } | Zone::Library { .. })
+                && !self.state.rules.tokens.contains_key(&o.id.card)
+        });
+        self.replace_quantity(
+            replacement::QuantityMember::Counters {
+                holder: entrant.id,
+                controller: entrant.controller,
+                creature,
+                counter,
+                shown: shown.map(|o| o.id),
+            },
+            amount,
+            true,
+        )
     }
 
     pub(in crate::engine) fn entry_choice(

@@ -518,6 +518,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::DamagePreventionV1
         | C::DamageBudgetPreventionV1
         | C::StaticDamageReplacementV1
+        | C::QuantityReplacementV1
         | C::UnpreventableDamageV1
         | C::CharacteristicPowerToughnessV1
         | C::MinusOneCountersV1

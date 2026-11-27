@@ -156,7 +156,7 @@ impl RulesTxn {
             && let Some(modal) = self.modal_declaration(top)?
         {
             let source = self.targeting_characteristics(top)?;
-            return Ok(self.modal_has_selection(modal, top.controller, &source, Some(top.source)));
+            return self.modal_has_selection(modal, top.controller, &source, Some(top.source));
         }
         let program = self.program_for(top)?;
         let source = self.targeting_source(
@@ -166,7 +166,7 @@ impl RulesTxn {
                 .iter()
                 .any(mtg_contracts::TargetSpec::requires_source_power),
         )?;
-        Ok(self.has_target_domain(program, top.controller, &source, Some(top.source)))
+        self.has_target_domain(program, top.controller, &source, Some(top.source))
     }
 
     pub(crate) fn has_target_domain(
@@ -175,70 +175,71 @@ impl RulesTxn {
         player: PlayerId,
         source: &Characteristics,
         source_object: Option<ObjectId>,
-    ) -> bool {
+    ) -> Result<bool, String> {
         if program.optional_target || program.variable_target_count().is_some() {
-            return true;
+            return Ok(true);
         }
-        // CR 115.3, 601.2c: a counted occurrence needs that many distinct
-        // legal objects. Group domains are object domains only.
-        if let (Some(count), Some(spec)) = (program.target_group(), program.targets.first()) {
-            // The shared legality test the announcement and resolution use.
-            let eligible = self
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|o| {
-                    self.object_target_legal_by(
-                        o.id,
-                        player,
-                        source,
-                        source_object,
-                        spec,
-                        XBound::Unannounced,
-                    )
-                })
-                .count();
-            return eligible >= count;
-        }
-        program.targets.iter().all(|spec| match spec.domain {
-            TargetDomain::PlayerGraveyardCards { .. } => false,
-            TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => {
-                self.live_players()
-                    .into_iter()
-                    .any(|p| self.targetable_player(p))
-                    || self.state.rules.objects.values().any(|o| {
-                        self.object_target_legal_by(
-                            o.id,
-                            player,
-                            source,
-                            source_object,
-                            spec,
-                            XBound::Unannounced,
-                        )
-                    })
-            }
-            domain @ (TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer) => {
-                !self.eligible_players(domain, player).is_empty()
-            }
-            TargetDomain::StackSpell
-            | TargetDomain::ControlledCreatureSpell
-            | TargetDomain::StackActivatedOrTriggeredAbility => !self
-                .eligible_stack_targets_for(spec, player, None)
-                .is_empty(),
-            _ => self.state.rules.objects.values().any(|o| {
-                self.object_target_legal_by(
+        let legal_object = |spec| -> Result<bool, String> {
+            for o in self.state.rules.objects.values() {
+                if self.object_target_legal_by(
                     o.id,
                     player,
                     source,
                     source_object,
                     spec,
                     XBound::Unannounced,
-                )
-            }),
-        })
+                )? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        };
+        // CR 115.3, 601.2c: a counted occurrence needs that many distinct
+        // legal objects. Group domains are object domains only.
+        if let (Some(count), Some(spec)) = (program.target_group(), program.targets.first()) {
+            // The shared legality test the announcement and resolution use.
+            let mut eligible = 0usize;
+            for o in self.state.rules.objects.values() {
+                eligible += usize::from(self.object_target_legal_by(
+                    o.id,
+                    player,
+                    source,
+                    source_object,
+                    spec,
+                    XBound::Unannounced,
+                )?);
+            }
+            return Ok(eligible >= count);
+        }
+        for spec in &program.targets {
+            let present = match spec.domain {
+                TargetDomain::PlayerGraveyardCards { .. } => false,
+                TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => {
+                    self.live_players()
+                        .into_iter()
+                        .any(|p| self.targetable_player(p))
+                        || legal_object(spec)?
+                }
+                domain @ (TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer) => {
+                    !self.eligible_players(domain, player).is_empty()
+                }
+                TargetDomain::StackSpell
+                | TargetDomain::ControlledCreatureSpell
+                | TargetDomain::StackActivatedOrTriggeredAbility => !self
+                    .eligible_stack_targets_for(spec, player, None)
+                    .is_empty(),
+                _ => legal_object(spec)?,
+            };
+            if !present {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
-    pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
+    pub(crate) fn announced_target_legality(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<Vec<bool>, String> {
         if !entry.entity_targets.is_empty() {
             entry
                 .entity_targets
@@ -246,7 +247,7 @@ impl RulesTxn {
                 .map(|t| self.entity_target_legal(*t, entry))
                 .collect()
         } else if !entry.stack_targets.is_empty() {
-            entry
+            Ok(entry
                 .stack_targets
                 .iter()
                 .enumerate()
@@ -258,14 +259,14 @@ impl RulesTxn {
                         })
                     })
                 })
-                .collect()
+                .collect())
         } else if !entry.player_targets.is_empty() {
-            entry
+            Ok(entry
                 .player_targets
                 .iter()
                 .enumerate()
                 .map(|(slot, p)| self.player_target_legal(entry, slot, *p))
-                .collect()
+                .collect())
         } else {
             entry
                 .targets
@@ -275,13 +276,17 @@ impl RulesTxn {
                 .collect()
         }
     }
-    pub(crate) fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
+    pub(crate) fn controlled_creatures(&self, player: PlayerId) -> Result<Vec<ObjectId>, String> {
         self.state
             .rules
             .objects
             .values()
-            .filter(|o| o.controller == player && self.is_battlefield_creature(o.id))
-            .map(|o| o.id)
+            .filter(|o| o.controller == player)
+            .filter_map(|o| match self.is_battlefield_creature(o.id) {
+                Ok(true) => Some(Ok(o.id)),
+                Ok(false) => None,
+                Err(error) => Some(Err(error)),
+            })
             .collect()
     }
     // CR 603.3a/608.2c/701.9a-b/701.21a: the damaged player is frozen by the
@@ -392,8 +397,10 @@ impl RulesTxn {
         let source = self.color_layer(object)?;
         if !match &ability.modal {
             // CR 700.2a: a modal ability needs one selection with legal targets.
-            Some(modal) => self.modal_has_selection(modal, player, &source, Some(object)),
-            None => self.has_target_domain(&ability.program, player, source.as_ref(), Some(object)),
+            Some(modal) => self.modal_has_selection(modal, player, &source, Some(object))?,
+            None => {
+                self.has_target_domain(&ability.program, player, source.as_ref(), Some(object))?
+            }
         } {
             return Err("no eligible ability targets".into());
         }
@@ -439,7 +446,7 @@ impl RulesTxn {
                 ))
             }
             ResolutionChoice::TappedReturnPayment { player, .. } if self.is_live(*player) => {
-                let choices = self.controlled_creatures(*player);
+                let choices = self.controlled_creatures(*player)?;
                 (!choices.is_empty())
                     .then(|| self.pick_objects(*player, Reason::Sacrifice, choices, 1))
             }

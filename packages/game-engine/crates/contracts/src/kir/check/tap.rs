@@ -81,6 +81,6 @@ pub(super) fn untap_capabilities(what: &SetExpr, out: &mut BTreeSet<Capability>)
         SetExpr::Matching { .. } => {
             out.insert(Capability::UntapPermanentV1);
         }
-        SetExpr::Pool { .. } | SetExpr::Result { .. } => {}
+        SetExpr::Pool { .. } | SetExpr::Targets { .. } | SetExpr::Result { .. } => {}
     }
 }

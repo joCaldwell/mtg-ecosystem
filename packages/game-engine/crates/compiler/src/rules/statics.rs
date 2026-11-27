@@ -420,7 +420,12 @@ fn lower(
         S::SkipTime(_) => return Err(gap("skip-time")),
         S::LevelBand(_) => return Err(gap("level-band")),
         S::StationBand(_) => return Err(gap("station-band")),
-        S::Replacement(x) => damage_replacement(&x.replacement)?,
+        S::Replacement(x) => match &*x.replacement.event {
+            ast::ReplacementEvent::CreateToken(_) | ast::ReplacementEvent::PutCounters(_) => {
+                quantity_replacement(&x.replacement)?
+            }
+            _ => damage_replacement(&x.replacement)?,
+        },
         S::SpellAdditionalCost(_) => return Err(gap("spell-additional-cost")),
         S::AsEnters(_) => return Err(gap("entry-choice:as-enters")),
         S::AsTurnedFaceUp(_) => return Err(gap("as-turned-face-up")),
@@ -1844,6 +1849,121 @@ fn damage_replacement(r: &ast::ReplacementInstruction) -> Result<StaticAbility, 
             )?,
             change,
         },
+        None,
+    ))
+}
+
+/// CR 614.1a, 614.16: "If [an effect] would create one or more tokens under
+/// your control" or "If [an effect] would put one or more [kind] counters on
+/// a [permanent/creature] you control, [it does] [twice/that many plus N]
+/// instead." Every field of the archived event is accounted for; any other
+/// event shape, recipient, counter kind or change (such as "minus one")
+/// rejects by name.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn quantity_replacement(r: &ast::ReplacementInstruction) -> Result<StaticAbility, Failure> {
+    use ast::ReplacementEventCreateTokenCause as Cause;
+    let (verb, quantity, cause) = match &*r.event {
+        ast::ReplacementEvent::CreateToken(e) => ("create-token", &e.quantity, e.cause),
+        ast::ReplacementEvent::PutCounters(e) => ("put-counters", &e.quantity, e.cause),
+        _ => return Err(gap("replacement")),
+    };
+    let reject = |what: &str| gap(&format!("replacement:{verb}:{what}"));
+    if r.occurrence != ast::EffectCreateDelayedTriggerOccurrence::Each
+        || r.condition.is_some()
+        || r.optional.is_some()
+    {
+        return Err(reject("qualifier"));
+    }
+    // "one or more": the replacement watches every nonzero event.
+    if quantity.op != ast::ComparisonOp::Ge || !one(&quantity.value) {
+        return Err(reject("quantity"));
+    }
+    let origin = match cause {
+        Cause::Effect => kir::ReplacementOrigin::Effect,
+        Cause::Any => kir::ReplacementOrigin::Any,
+    };
+    let ast::ReplacementInstructionReplace::ModifyQuantity(modify) = &*r.replace else {
+        return Err(reject("replace"));
+    };
+    use ast::ReplacementInstructionReplaceModifyQuantityChange as M;
+    let change = match &*modify.change {
+        M::Multiply(x) if x.factor >= 2 => mtg_contracts::QuantityModification::Multiply {
+            factor: Quantity::from(x.factor),
+        },
+        M::Amount(x)
+            if x.operation
+                == ast::ReplacementInstructionReplaceModifyQuantityChangeAmountOperation::Add =>
+        {
+            mtg_contracts::QuantityModification::Add {
+                amount: fixed_positive_amount(&x.amount)?,
+            }
+        }
+        _ => return Err(reject("change")),
+    };
+    let event = match &*r.event {
+        ast::ReplacementEvent::CreateToken(e) => {
+            let tokens_only = e.tokens.as_deref().is_some_and(|f| {
+                present_fields(f) == ["cls"] && f.cls == Some(ast::ObjectFilterCls::Token)
+            });
+            if !tokens_only
+                || e.r#match != ast::ReplacementEventCreateTokenMatch::CreationEvent
+                || !matches!(e.under.as_deref(), Some(ast::PlayerRef::You(_)))
+            {
+                return Err(reject("event"));
+            }
+            // CR 614.1a: "that many plus one" token changes are not admitted.
+            if !matches!(change, mtg_contracts::QuantityModification::Multiply { .. }) {
+                return Err(reject("change"));
+            }
+            kir::QuantityEvent::CreateTokens { origin }
+        }
+        ast::ReplacementEvent::PutCounters(e) => {
+            if e.by.is_some() {
+                return Err(reject("by"));
+            }
+            let [ast::AmountCounterCountOn::ObjectRef(on)] = e.on.as_slice() else {
+                return Err(reject("on"));
+            };
+            let ast::ObjectRef::Filter(selection) = &**on else {
+                return Err(reject("on"));
+            };
+            if selection.up_to.is_some()
+                || selection.group_constraints.is_some()
+                || selection.random.is_some()
+                || !one(&selection.count)
+            {
+                return Err(reject("on"));
+            }
+            let filter = &*selection.filter;
+            let recipients = match (present_fields(filter).as_slice(), filter) {
+                (["cls", "control"], f) if f.cls == Some(ast::ObjectFilterCls::Permanent) => {
+                    kir::CounterRecipients::Permanents
+                }
+                (["types", "control"], f) if matches!(f.types.as_deref(), Some([t]) if t == "creature") => {
+                    kir::CounterRecipients::Creatures
+                }
+                _ => return Err(reject("on")),
+            };
+            if filter.control != Some(ast::ObjectFilterControl::You) {
+                return Err(reject("on"));
+            }
+            let counter = match &*e.counter {
+                ast::ObjectFilterCounterConstraintsItemCounter::Any => None,
+                ast::ObjectFilterCounterConstraintsItemCounter::CounterSpec(spec) => {
+                    Some(object_counter_kind(&spec.r#type).map_err(|_| reject("counter_kind"))?)
+                }
+            };
+            kir::QuantityEvent::PutCounters {
+                counter,
+                recipients,
+                origin,
+            }
+        }
+        _ => return Err(gap("replacement")),
+    };
+    Ok(rule(
+        FunctioningZone::Battlefield,
+        StaticRule::ModifyQuantity { event, change },
         None,
     ))
 }

@@ -7,8 +7,8 @@ impl RulesTxn {
         &self,
         player: PlayerId,
         object: ObjectId,
-    ) -> bool {
-        self.is_battlefield_creature(object)
+    ) -> Result<bool, String> {
+        Ok(self.is_battlefield_creature(object)?
             && self.current(object).is_ok_and(|o| {
                 o.controller == player
                     && self
@@ -17,7 +17,7 @@ impl RulesTxn {
                         .tokens
                         .get(&object.card)
                         .is_some_and(|t| t.is_token(o))
-            })
+            }))
     }
 
     pub(in crate::engine) fn keyword_action_request(
@@ -37,8 +37,10 @@ impl RulesTxn {
                     .rules
                     .objects
                     .values()
-                    .filter(|o| self.is_controlled_creature_token(player, o.id))
-                    .map(|o| Candidate::Object { object: o.id })
+                    .map(|o| Ok((o.id, self.is_controlled_creature_token(player, o.id)?)))
+                    .collect::<Result<Vec<_>, String>>()?
+                    .into_iter()
+                    .filter_map(|(object, token)| token.then_some(Candidate::Object { object }))
                     .collect::<Vec<_>>(),
             ),
             ResolutionChoice::Proliferate => (
@@ -117,7 +119,19 @@ impl RulesTxn {
                     },
                 )
             }
-            ResolutionChoice::Proliferate => self.proliferate(frame, input.entities()?, cause),
+            ResolutionChoice::Proliferate => {
+                // CR 800.4a: a departure during replacement ordering can
+                // remove a member of this already-selected placement.
+                let entities = input
+                    .entities()?
+                    .into_iter()
+                    .filter(|entity| match entity {
+                        TargetEntity::Object { object } => self.can_proliferate_permanent(*object),
+                        TargetEntity::Player { player } => self.can_proliferate_player(*player),
+                    })
+                    .collect();
+                self.proliferate(frame, entities, cause)
+            }
             _ => Err("not a keyword action choice".into()),
         }
     }

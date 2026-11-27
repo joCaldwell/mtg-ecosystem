@@ -78,6 +78,8 @@ impl Game {
             published: None,
             actual_journal: None,
             prospective_entry: None,
+            replacement_answers: Arc::new([]),
+            quantity_log: vec![],
         };
         game.validate_stack_links()?;
         game.rebuild_kernel_leaf()?;

@@ -187,8 +187,8 @@ impl RulesTxn {
         source: Option<ObjectId>,
         source_power: Option<&Quantity>,
         spec: &TargetSpec,
-    ) -> bool {
-        self.targetable_by(object, controller)
+    ) -> Result<bool, String> {
+        Ok(self.targetable_by(object, controller)?
             && (spec.domain != TargetDomain::ControlledBattlefieldPermanent
                 || self
                     .current(object)
@@ -206,7 +206,7 @@ impl RulesTxn {
                     )
                     .is_yes()
                 })
-            })
+            }))
     }
 
     pub(crate) fn eligible_stack_targets_for(
@@ -403,7 +403,7 @@ impl RulesTxn {
                         self.entry(frame.stack_id)?,
                         target_slot as usize,
                         target,
-                    )
+                    )?
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
@@ -505,7 +505,7 @@ impl RulesTxn {
         else {
             return Err("optional target instruction invariant".into());
         };
-        if self.object_target_legal(entry, slot as usize, target) {
+        if self.object_target_legal(entry, slot as usize, target)? {
             return self.complete_graveyard_group(
                 self.instruction_cause(&frame, block)?,
                 EventGroup::Occurrence {

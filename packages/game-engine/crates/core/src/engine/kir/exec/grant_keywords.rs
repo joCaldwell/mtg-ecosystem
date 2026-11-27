@@ -37,7 +37,7 @@ impl RulesTxn {
             _ => return Err("keyword grant has no audited recipient".into()),
         };
         Ok(self
-            .is_battlefield_creature(target)
+            .is_battlefield_creature(target)?
             .then(|| ResolvedEffectKind::GrantKeywords {
                 target,
                 modifier: None,

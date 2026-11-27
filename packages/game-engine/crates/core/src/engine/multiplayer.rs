@@ -187,7 +187,7 @@ impl RulesTxn {
         }
         let stack = self.top()?.clone();
         let condition_check = self.check_resolution_condition(&stack)?;
-        let legal_targets = self.announced_target_legality(&stack);
+        let legal_targets = self.announced_target_legality(&stack)?;
         self.rules_mut().frame = Frame::Resolve {
             frame: Resolving {
                 random_discard: None,
@@ -484,14 +484,13 @@ impl RulesTxn {
                     | Frame::StackTargets { .. }
                     | Frame::PlayerTargets { .. }
             );
-            let targets_bad = proposing
-                && self.state.rules.stack.last().is_some_and(|s| {
-                    self.bound_target_count(s) != 0
-                        && self
-                            .announced_target_legality(s)
-                            .iter()
-                            .any(|legal| !*legal)
-                });
+            let targets_bad = match self.state.rules.stack.last() {
+                Some(s) if proposing && self.bound_target_count(s) != 0 => self
+                    .announced_target_legality(s)?
+                    .iter()
+                    .any(|legal| !*legal),
+                _ => false,
+            };
             let pending_bad = proposing
                 && self
                     .state
@@ -559,6 +558,7 @@ impl RulesTxn {
         }
         self.revalidate_commander_departure()?;
         self.revalidate_actions_departure()?;
+        self.revalidate_replacement_departure()?;
 
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;

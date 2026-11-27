@@ -508,7 +508,7 @@ impl RulesTxn {
                             entry.source == *object && current.present_on_battlefield()
                         }
                         Some(mtg_contracts::kir::Ref::Target { slot }) => {
-                            self.object_target_legal(entry, *slot as usize, *object)
+                            self.object_target_legal(entry, *slot as usize, *object)?
                                 && entry.paid.as_ref() == Some(&entry.total_cost)
                                 && entry.targets.len() == program.targets.len()
                                 && frame.legal_targets.len() == program.targets.len()
