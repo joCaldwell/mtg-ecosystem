@@ -442,15 +442,47 @@ impl RulesTxn {
                     );
                 }
             }
-            // CR 702.116a: "If one or more tokens are created this way".
+            // CR 702.116a, 608.2f: create the copies the controller accepted,
+            // all at once; "if one or more tokens are created this way",
+            // their delayed exile.
             DelayedEvent::EndOfCombat => {
-                let creator = frame.stack_id;
-                if !self.state.rules.tokens.values().any(|t| {
-                    matches!(t.spec, TokenTemplate::MyriadCopy { creator: c, .. } if c == creator)
-                }) {
+                fn accepted(outcome: &InstructionOutcome, out: &mut Vec<PlayerId>) {
+                    match outcome {
+                        InstructionOutcome::MyriadAccepted { defender } => out.push(*defender),
+                        InstructionOutcome::Kernel { outcomes } => {
+                            outcomes.iter().for_each(|o| accepted(o, out));
+                        }
+                        _ => {}
+                    }
+                }
+                let entry = self.entry(frame.stack_id)?;
+                let (source, controller) = (entry.source, entry.controller);
+                let mut defenders = vec![];
+                frame
+                    .outcomes
+                    .iter()
+                    .for_each(|o| accepted(o, &mut defenders));
+                defenders.retain(|p| self.is_live(*p) && *p != controller);
+                if defenders.is_empty() || !self.is_live(controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
+                let actual = self.commit(
+                    ProposedEvent::CreateMyriadTokens {
+                        controller,
+                        source,
+                        defenders,
+                        creator: frame.stack_id,
+                    },
+                    self.instruction_cause(&frame, block)?,
+                )?;
+                self.register_resolution_trigger(&frame, None, None)?;
+                return self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    },
+                );
             }
             DelayedEvent::TargetLeavesAfterExilingSource { slot } => {
                 watched = self.resolving_creature(&frame, slot)?;

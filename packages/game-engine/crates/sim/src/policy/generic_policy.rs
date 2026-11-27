@@ -1613,13 +1613,21 @@ impl Strategy<'_> {
         if s.controller == v.viewer
             && p.instructions.iter().any(|instruction| {
                 let I::Kernel { node, source_block } = instruction;
+                // CR 702.116a: myriad's optional copy sits under its
+                // per-opponent iteration.
+                let node = match node {
+                    kir::Node::ForEach { body, .. } => body.as_ref(),
+                    node => node,
+                };
                 block == Some(*source_block)
                     && matches!(node, kir::Node::Optional { node, .. } if matches!(
                         node.as_ref(),
-                        kir::Node::Do(kir::Verb::CreateTokens { .. } | kir::Verb::PutCounters {
-                            on: kir::SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, .. },
-                            ..
-                        })
+                        kir::Node::Do(kir::Verb::CreateTokens { .. }
+                            | kir::Verb::CreateMyriadToken { .. }
+                            | kir::Verb::PutCounters {
+                                on: kir::SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, .. },
+                                ..
+                            })
                     ))
             })
         {

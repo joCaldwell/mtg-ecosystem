@@ -859,24 +859,13 @@ impl RulesTxn {
                 }
                 self.return_kernel(task.resume)?;
             }
-            // CR 702.116a, 508.4: one token copy of the source, tapped and
-            // attacking the bound opponent.
+            // CR 702.116a, 608.2d: record the accepted opponent; the
+            // delayed trigger's instruction creates every accepted copy at
+            // once (CR 608.2f).
             Node::Do(Verb::CreateMyriadToken { defender }) => {
                 if let Some(defender) = self.myriad_defender(&task, defender)? {
-                    let frame = self.kernel_root()?.clone();
-                    let entry = self.entry(frame.stack_id)?;
-                    let actual = self.commit(
-                        ProposedEvent::CreateMyriadToken {
-                            controller: entry.controller,
-                            source: entry.source,
-                            defender,
-                            creator: frame.stack_id,
-                        },
-                        self.instruction_cause(&frame, block)?,
-                    )?;
-                    self.kernel_results()?.push(InstructionOutcome::Effect {
-                        actual: Some(actual),
-                    });
+                    self.kernel_results()?
+                        .push(InstructionOutcome::MyriadAccepted { defender });
                 }
                 self.return_kernel(task.resume)?;
             }

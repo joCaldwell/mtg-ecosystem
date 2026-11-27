@@ -115,12 +115,13 @@ pub enum ProposedEvent {
         source: ObjectId,
         defenders: Vec<PlayerId>,
     },
-    /// CR 702.116a, 508.4: one token copy of the myriad source `source`,
-    /// tapped and attacking `defender`, for the invocation `creator`.
-    CreateMyriadToken {
+    /// CR 702.116a, 508.4, 608.2f: one token copy of the myriad source
+    /// `source` for each accepted defender, tapped and attacking that
+    /// player, all created at once for the invocation `creator`.
+    CreateMyriadTokens {
         controller: PlayerId,
         source: ObjectId,
-        defender: PlayerId,
+        defenders: Vec<PlayerId>,
         creator: StackId,
     },
     CreatePredefinedTokens {
@@ -351,6 +352,11 @@ pub enum EventOutcome {
     CounterPrevented {
         target: StackId,
     },
+    /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
+    /// opponent; the copies are created together afterwards (CR 608.2f).
+    MyriadAccepted {
+        defender: PlayerId,
+    },
     AttachmentChanged {
         object: ObjectId,
         previous: Option<ObjectId>,
@@ -381,13 +387,13 @@ pub enum EventOutcome {
         controller: PlayerId,
         original: ObjectId,
     },
-    MyriadTokenCreated {
-        object: ObjectId,
+    MyriadTokensCreated {
+        objects: Vec<ObjectId>,
         controller: PlayerId,
         original: ObjectId,
-        /// The player it is attacking, or `None` when it entered without
+        /// Each token's attacked player, or `None` when it entered without
         /// attacking (CR 506.3b, 508.4a).
-        attacking: Option<PlayerId>,
+        attacking: Vec<Option<PlayerId>>,
     },
     PredefinedTokensCreated {
         objects: Vec<ObjectId>,
@@ -579,6 +585,11 @@ pub enum InstructionOutcome {
     },
     CounterPrevented {
         target: StackId,
+    },
+    /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
+    /// opponent; the copies are created together afterwards (CR 608.2f).
+    MyriadAccepted {
+        defender: PlayerId,
     },
     SetMoved {
         movements: Vec<MoveOutcome>,

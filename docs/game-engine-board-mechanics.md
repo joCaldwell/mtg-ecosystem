@@ -263,7 +263,8 @@ also in last-known information (CR 603.4, 702.30a). Other echo costs reject.
 Combat keywords (CR 702.83, 702.91, 702.23, 702.25, 702.105, 702.116, 702.121,
 702.130, 702.149) read the declaration: the attack witness records whether its
 creature attacked alone, attacked with a greater-power creature and attacked the
-player with the most life, and the combat records its declared defenders.
+player with the most life (powers and life read once the attackers have tapped,
+CR 508.1m), and the combat records its declared defenders.
 Exalted, on any permanent, pumps the lone attacker +1/+1. Battle cry pumps each
 other attacking creature +1/+0. Rampage N pumps +N/+N per creature still blocking
 beyond the first; melee pumps +1/+1 per opponent declared attacked; both count
@@ -271,9 +272,9 @@ on resolution. Flanking shrinks each blocker without the flanking marker by
 -1/-1; marker and trigger are admitted only together. Dethrone and training add a
 +1/+1 counter. Afflict N makes the blocked attacker's defending player lose N.
 Myriad (a single-faced creature card without entry replacements) offers its
-controller a copy for each other live opponent, entering tapped and attacking
-that player (CR 508.4); the copies never attacked, and that invocation's delayed
-trigger exiles them at end of combat.
+controller a copy for each other live opponent; the accepted copies enter
+together, tapped and attacking those players (CR 508.4, 608.2f). They never
+attacked, and that invocation's delayed trigger exiles them at end of combat.
 The keyword line must print each N, and the source keyword list must
 name each keyword. X amounts reject. So do the remaining triggered keywords, such as
 mentor (a relative-power target), undying/persist (counter memory and entry

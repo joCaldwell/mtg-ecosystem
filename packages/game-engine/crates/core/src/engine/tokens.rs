@@ -563,50 +563,62 @@ impl RulesTxn {
                     original: *source,
                 })
             }
-            // CR 702.116a, 707.2: one token copy of the myriad source's
-            // copiable values, tapped and attacking `defender` as it enters
-            // (CR 508.4). It is attacking only under an attacking player and
-            // against a defender still in the game (CR 506.3b, 508.4a).
-            ProposedEvent::CreateMyriadToken {
+            // CR 702.116a, 707.2, 608.2f: one token copy of the myriad
+            // source's copiable values for each accepted defender, all
+            // entering at once, tapped and attacking that player (CR 508.4).
+            // A token is attacking only under an attacking player and against
+            // a defender still in the game (CR 506.3b, 508.4a).
+            ProposedEvent::CreateMyriadTokens {
                 controller,
                 source,
-                defender,
+                defenders,
                 creator,
             } => {
-                if !self.is_live(*controller) || *defender == *controller {
+                if !self.is_live(*controller)
+                    || defenders.is_empty()
+                    || defenders
+                        .iter()
+                        .enumerate()
+                        .any(|(i, d)| *d == *controller || defenders[..i].contains(d))
+                {
                     return Err("invalid myriad token creation".into());
                 }
-                self.check_token_capacity(1)?;
-                let card = self.next_token_card()?;
-                let definition = token_copy_definition(self.copiable_definition(source)?, card);
-                let object = self.insert_token_identity(
-                    card,
-                    *controller,
-                    Zone::Battlefield,
-                    TokenIdentity {
-                        source: *source,
-                        spec: TokenTemplate::MyriadCopy {
-                            attacks: *defender,
-                            creator: *creator,
+                let count = u32::try_from(defenders.len()).map_err(|_| "myriad token count")?;
+                self.check_token_capacity(count)?;
+                let original = self.copiable_definition(source)?.clone();
+                let in_combat = self.state.rules.active == Some(*controller)
+                    && self.state.rules.turn.step.phase() == Phase::Combat;
+                let (mut objects, mut attacking) = (vec![], vec![]);
+                for defender in defenders {
+                    let card = self.next_token_card()?;
+                    let object = self.insert_token_identity(
+                        card,
+                        *controller,
+                        Zone::Battlefield,
+                        TokenIdentity {
+                            source: *source,
+                            spec: TokenTemplate::MyriadCopy {
+                                attacks: *defender,
+                                creator: *creator,
+                            },
+                            definition: token_copy_definition(&original, card),
                         },
-                        definition,
-                    },
-                );
-                self.enter_token_tapped(card, true)?;
-                let attacking = (self.state.rules.active == Some(*controller)
-                    && self.is_live(*defender)
-                    && self.state.rules.turn.step.phase() == Phase::Combat)
-                    .then_some(*defender);
-                if let Some(defender) = attacking {
-                    self.rules_mut().combat.push(combat::Attacker {
-                        attacker: object,
-                        defender,
-                        blocked: false,
-                        blockers: vec![],
-                    });
+                    );
+                    self.enter_token_tapped(card, true)?;
+                    let attacks = (in_combat && self.is_live(*defender)).then_some(*defender);
+                    if let Some(defender) = attacks {
+                        self.rules_mut().combat.push(combat::Attacker {
+                            attacker: object,
+                            defender,
+                            blocked: false,
+                            blockers: vec![],
+                        });
+                    }
+                    objects.push(object);
+                    attacking.push(attacks);
                 }
-                Ok(EventOutcome::MyriadTokenCreated {
-                    object,
+                Ok(EventOutcome::MyriadTokensCreated {
+                    objects,
                     controller: *controller,
                     original: *source,
                     attacking,

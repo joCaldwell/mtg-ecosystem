@@ -21,6 +21,9 @@ const DEPUTIZED_PROTESTER: &str = record!("09947592-1730-4c1c-bfa5-be53a68d6919"
 const ACCORDER_PALADIN: &str = record!("6891c8b7-7112-40dc-8b94-b84ad1885e5e");
 const BENALISH_CAVALRY: &str = record!("0bf619f9-4b19-404c-995f-f23a4b859dd4");
 const ALLEY_GRIFTERS: &str = record!("399af8ea-7a6f-4f43-bd39-dc29a6e75e06");
+const GARRUKS_UPRISING: &str = record!("3127ae9b-a7a7-43ec-89d7-688f8445b33d");
+const SUMALA_RUMBLERS: &str = record!("09189f67-b33f-4775-bfd5-862154da7526");
+const MARAXUS_OF_KELD: &str = record!("af4b67c5-53dc-4e4d-9ec4-fa51cc3cd49a");
 
 fn power_toughness(g: &Game, object: ObjectId) -> (Option<Quantity>, Option<Quantity>) {
     let c = g.characteristics(object).unwrap();
@@ -623,5 +626,78 @@ fn becomes_blocked_defending_player_discards() {
     assert_eq!(zone(held), Zone::Graveyard { owner: PlayerId(2) });
     assert_eq!(zone(other), Zone::Hand { owner: PlayerId(1) });
     checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// Four seats. Sumala Rumblers (power = creatures you control) attacks with
+/// Grizzly Bears beside it and Garruk's Uprising out. Myriad's two accepted
+/// copies enter together (CR 608.2f, 702.116a), each seeing four creatures,
+/// so each is a 4-power creature entering and the Uprising triggers twice.
+/// Copies made one at a time would leave the first at 3 power.
+#[test]
+fn myriad_copies_enter_simultaneously() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(
+                &[SUMALA_RUMBLERS, GARRUKS_UPRISING],
+                TurnStep::BeginningCombat,
+            )
+            .seats(4)
+            .permanent_or_hand("Sumala Rumblers", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Garruk's Uprising", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let [rumblers, _, uprising] = [0, 1, 2].map(|i| Driver::object(&g, i));
+    let mut accept = std::collections::VecDeque::from([true, true]);
+    combat(&mut g, &[(rumblers, PlayerId(1))], &mut accept, |g| {
+        myriad_tokens(g).len() == 2 && !g.state.rules.pending_triggers.is_empty()
+            || myriad_tokens(g).len() == 2 && triggered(g)
+    });
+    let pending = g
+        .state
+        .rules
+        .pending_triggers
+        .iter()
+        .filter(|t| t.source == uprising)
+        .count()
+        + triggers_of(&g, uprising);
+    assert_eq!(pending, 2, "one draw trigger per 4-power copy");
+    for (token, _) in myriad_tokens(&g) {
+        assert_eq!(power_toughness(&g, token), pt(4, 4));
+    }
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// Apprentice Sharpshooter (1/4) attacks with Maraxus of Keld (power =
+/// untapped artifacts, creatures and lands you control) beside one Forest.
+/// Maraxus is 3 power before the declaration but 1 once both attackers have
+/// tapped, tying the Sharpshooter, so training does not trigger (CR 508.1m,
+/// 603.10, 702.149a).
+#[test]
+fn training_reads_power_after_the_attackers_tap() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(
+                &[APPRENTICE_SHARPSHOOTER, MARAXUS_OF_KELD],
+                TurnStep::BeginningCombat,
+            )
+            .permanent_or_hand("Apprentice Sharpshooter", 0, 0, false)
+            .permanent_or_hand("Maraxus of Keld", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let [sharpshooter, maraxus] = [0, 1].map(|i| Driver::object(&g, i));
+    assert_eq!(power_toughness(&g, maraxus), pt(3, 3));
+    declare(
+        &mut g,
+        &[(sharpshooter, PlayerId(1)), (maraxus, PlayerId(1))],
+    );
+    assert_eq!(power_toughness(&g, maraxus), pt(1, 1));
+    assert_eq!(triggers_of(&g, sharpshooter), 0);
+    assert!(g.state.rules.stack.is_empty());
     assert_recoverable((&g).into());
 }

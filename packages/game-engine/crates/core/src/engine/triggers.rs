@@ -861,7 +861,8 @@ impl RulesTxn {
                 EventOutcome::TokenCopied { object, .. } => std::slice::from_ref(object),
                 EventOutcome::TokensCreated { objects, .. }
                 | EventOutcome::PredefinedTokensCreated { objects, .. }
-                | EventOutcome::EncoreTokensCreated { objects, .. } => objects,
+                | EventOutcome::EncoreTokensCreated { objects, .. }
+                | EventOutcome::MyriadTokensCreated { objects, .. } => objects,
                 actual => movement(actual)
                     .filter(|m| m.from != Zone::Battlefield && m.destination == Zone::Battlefield)
                     .map_or(&[][..], |m| std::slice::from_ref(&m.successor)),
@@ -1058,23 +1059,27 @@ impl RulesTxn {
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 EventOutcome::AttackersDeclared { attacks } => {
                     let mut witnesses = Vec::new();
+                    // CR 508.1m, 603.10, 702.149a, 702.105a: training and
+                    // dethrone read the completed declaration, with the
+                    // continuous effects that apply once the attackers have
+                    // tapped; the attack itself is matched on prior facts.
                     let power = |object: ObjectId| -> Result<Option<Quantity>, String> {
-                        Ok(before.object_before(object)?.characteristics.power)
+                        Ok(self.characteristics(object)?.power)
                     };
-                    let life = |p: PlayerId| &before.state.rules.players[p.0 as usize].life;
-                    let most = before.apnap_players().into_iter().map(life).max().cloned();
+                    let life = |p: PlayerId| &self.state.rules.players[p.0 as usize].life;
+                    let most = self.apnap_players().into_iter().map(life).max().cloned();
                     for (attacker, defender) in attacks {
                         let prior = before.object_before(*attacker)?;
                         let mut outpowered = false;
-                        if let Some(own) = &prior.characteristics.power {
+                        if let Some(own) = power(*attacker)? {
                             for (other, _) in attacks {
-                                if other != attacker && power(*other)?.is_some_and(|p| p > *own) {
+                                if other != attacker && power(*other)?.is_some_and(|p| p > own) {
                                     outpowered = true;
                                 }
                             }
                         }
                         let most_life =
-                            before.is_live(*defender) && most.as_ref() == Some(life(*defender));
+                            self.is_live(*defender) && most.as_ref() == Some(life(*defender));
                         // The declaration leaf applies its taps internally
                         // (508.1f). Vigilance leaves the source untapped.
                         if !prior.tapped
@@ -1120,12 +1125,12 @@ impl RulesTxn {
                 EventOutcome::TurnedFaceUp { object, .. } => {
                     self.source_face_up_witness(*object)?.into_iter().collect()
                 }
-                EventOutcome::TokenCopied { object, .. }
-                | EventOutcome::MyriadTokenCreated { object, .. } => {
+                EventOutcome::TokenCopied { object, .. } => {
                     vec![TriggerEventWitness::TokenEntered { object: *object }]
                 }
                 EventOutcome::TokensCreated { objects, .. }
                 | EventOutcome::EncoreTokensCreated { objects, .. }
+                | EventOutcome::MyriadTokensCreated { objects, .. }
                 | EventOutcome::PredefinedTokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })
