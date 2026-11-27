@@ -15,6 +15,12 @@ bulk IR can be rebuilt for comparison. The header records the generating Git
 revision, so only a byte-identical regenerated archive is accepted. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
+Schema-5 R6 candidates carry printed evidence and retain the R5 row bytes
+projected by the [D0 archive check](oracle_parser.md#ast-archive). The writer
+reports a draft registry entry outside `accepted-archives.json`. Promotion
+requires the Rust evidence and parity checks, measured bulk catalog and index
+within their caps, and re-extraction of the registered fixtures.
+
 From repository root (`engine:dev` builds `mtg-sim` under the target lock):
 
 ```sh
