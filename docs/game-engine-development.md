@@ -255,6 +255,8 @@ npm run engine:decks -- play "Jo's Cascade" 0
 npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --pod-decks A.json --swap SLOT:REMOVE:ADD --blocks 8 --out generated/NEW
 ```
 
+Use [rework-sweep.py](../scripts/rework-sweep.py) to compare fixed rework cohorts and source guardrails.
+
 The script docstring (`scripts/engine-decks.py`) owns options and report
 contents. `coverage` joins `catalog coverage` receipts to the deck snapshot
 (`--all`: the whole archive) and ranks blockers by family, counting the deck

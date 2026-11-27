@@ -176,8 +176,8 @@ pub fn encode(
             g[19 + color(c)] = int(&q);
         }
     } else if let Some(p) = v.players.iter().find(|p| p.player == v.viewer) {
-        for (&c, q) in &p.mana {
-            g[19 + color(c)] = int(q);
+        for (c, q) in p.mana_total() {
+            g[19 + color(c)] = int(&q);
         }
     }
     g[26] = v.setup.as_ref().map_or(0, |s| match s.phase {
@@ -192,9 +192,16 @@ pub fn encode(
             p.library_count as i32,
             p.library_shuffles.min(i32::MAX as u64) as i32,
         ]);
-        for (&c, q) in &p.mana {
-            row[4 + color(c)] = int(q);
+        // CR 106.4a-b, 106.6: columns 4-9 hold the whole public pool and column
+        // 20 the part of it that is restricted.
+        for (c, q) in p.mana_total() {
+            row[4 + color(c)] = int(&q);
         }
+        let mut restricted = Quantity::zero();
+        for unit in &p.restricted_mana {
+            restricted.add(&unit.amount);
+        }
+        row[20] = int(&restricted);
         row[10] = p.status as i32;
         row[11] = p.life_frozen_until_next_turn as i32;
         for cmd in &v.commanders {

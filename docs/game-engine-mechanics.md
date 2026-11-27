@@ -234,7 +234,10 @@ kept with every activation of that attempt.
 
 CR 106.6 spending predicates distinguish spells, activated abilities and
 resolution payments. The spend decision offers only eligible buckets and
-validates the exact unrestricted and bucket allocation. The finite rows
+validates the exact unrestricted and bucket allocation. Pools are public
+(CR 106.4a–b): every seat sees the unrestricted row and the canonical restricted
+buckets, and the encoded player row counts both, its restricted part in
+column 20. The finite rows
 cover spell types, colorless spells, artifact spells and battlefield artifact
 abilities, colorless Eldrazi spells and battlefield colorless Eldrazi
 abilities, and activated abilities generally. Mana with an uncounterable

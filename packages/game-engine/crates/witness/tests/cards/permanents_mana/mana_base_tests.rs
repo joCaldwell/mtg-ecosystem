@@ -861,8 +861,9 @@ fn unsupported_named_mana_riders_and_restrictions_reject() {
     }
 }
 
-#[test]
-fn activation_only_mana_pays_the_signet_and_leaves_the_other_unit() {
+/// The witness catalog plus Omen Hawker ("{T}: Add {C}{U}. Spend this mana
+/// only to activate abilities.").
+fn hawker_catalog() -> Catalog {
     let mut catalog = catalog();
     let raw = include_str!(
         "../../../../../tests/fixtures/phase1-r5/215fd0b4-5817-4335-a0ed-1694e44bde41.json"
@@ -875,8 +876,13 @@ fn activation_only_mana_pays_the_signet_and_leaves_the_other_unit() {
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+}
+
+#[test]
+fn activation_only_mana_pays_the_signet_and_leaves_the_other_unit() {
     let mut game = Game::new(
-        Board::new(catalog, "nested restricted mana")
+        Board::new(hawker_catalog(), "nested restricted mana")
             .step(TurnStep::PrecombatMain)
             .permanent_or_hand("Omen Hawker", 0, 0, false)
             .permanent_or_hand("Izzet Signet", 0, 0, false)
@@ -931,4 +937,122 @@ fn activation_only_mana_pays_the_signet_and_leaves_the_other_unit() {
         Color::U
     );
     checked(&game);
+}
+
+fn observed(g: &Game, seat: u8) -> Observation {
+    let QueryResult::Complete(QueryValue::Observation(o)) =
+        g.observe(PlayerId(seat), Budget::unlimited())
+    else {
+        panic!("missing observation for seat {seat}");
+    };
+    o
+}
+
+fn encoded(g: &Game, o: &Observation) -> mtg_observe::Row {
+    let catalog = mtg_observe::catalog::ObservationCatalog::new(g.prepared.catalog.clone());
+    let mtg_observe::action::Step::Choose(choices) =
+        mtg_observe::action::Composer::compose(o.decision.as_ref().unwrap(), &[], None).unwrap()
+    else {
+        panic!("the viewer has a choice")
+    };
+    mtg_observe::encode(&catalog, o, 0, &choices, false).unwrap()
+}
+
+/// Every seat sees seat 0's restricted buckets exactly as the rules hold
+/// them, beside an unchanged unrestricted row (CR 106.4a-b, 106.6).
+fn public_restricted_pool(g: &Game) -> Vec<RestrictedMana> {
+    let held = g.state.rules.players[0].restricted_mana.clone();
+    let rows: Vec<_> = (0..g.state.rules.players.len() as u8)
+        .map(|seat| observed(g, seat).view.players[0].clone())
+        .collect();
+    for row in &rows {
+        assert_eq!(row, &rows[0], "the pool row is public");
+        assert_eq!(row.restricted_mana, held);
+        assert_eq!(row.mana, g.state.rules.players[0].mana);
+    }
+    held
+}
+
+/// Omen Hawker's activation-only {C}{U} is public pool content for every
+/// seat and the encoded total, but never offered to a spell. A failed cast
+/// that reverses its receipt removes the units from every view; keeping the
+/// mana leaves them visible, and both branches recover exactly.
+#[test]
+fn activation_only_mana_is_visible_to_every_seat_and_reverses_with_its_receipt() {
+    let mut game = Game::new(
+        Board::new(hawker_catalog(), "visible restricted mana")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Omen Hawker", 0, 0, false)
+            .permanent_or_hand("Colossal Dreadmaw", 0, 0, true)
+            .libraries("Forest", 4)
+            .prepare(),
+    );
+    Driver::request(&mut game, u64::MAX);
+    assert!(public_restricted_pool(&game).is_empty());
+    let idle = observed(&game, 1).view;
+    Driver::cast(&mut game, CardId(1));
+    activate(&mut game, 0);
+    Driver::request(&mut game, u64::MAX);
+    let held = public_restricted_pool(&game);
+    let units: BTreeMap<_, _> = held.iter().map(|u| (u.color, u.amount.clone())).collect();
+    assert_eq!(
+        units,
+        BTreeMap::from([(Color::U, 1.into()), (Color::C, 1.into())])
+    );
+    assert!(
+        held.iter()
+            .all(|u| u.restriction == ManaSpendRestriction::ActivatedAbility)
+    );
+    let own = observed(&game, 0);
+    let Some(Decision {
+        shape: Shape::Pay { pool, .. },
+        ..
+    }) = &own.decision
+    else {
+        panic!("expected the Dreadmaw payment window")
+    };
+    assert!(pool.restricted.is_empty(), "a spell is never offered it");
+    let row = encoded(&game, &own);
+    // Columns 4-9 hold the whole public pool, column 20 its restricted part;
+    // the payment globals count only mana this spell may spend.
+    assert_eq!(row.players[0][4 + mtg_observe::color(Color::U)], 1);
+    assert_eq!(row.players[0][4 + mtg_observe::color(Color::C)], 1);
+    assert_eq!(row.players[0][20], 2);
+    assert_eq!(row.globals[19 + mtg_observe::color(Color::U)], 0);
+    assert_eq!(row.globals[19 + mtg_observe::color(Color::C)], 0);
+    checked(&game);
+    for undo_on_failure in [true, false] {
+        let mut branch = game.fork();
+        Driver::answer(
+            &mut branch,
+            u64::MAX,
+            Answer::Pay {
+                pay: PayAnswer::Finish { undo_on_failure },
+            },
+        );
+        let d = Driver::request(&mut branch, u64::MAX);
+        assert!(matches!(d.reason, Reason::Priority), "{:?}", d.reason);
+        let after = public_restricted_pool(&branch);
+        if undo_on_failure {
+            assert!(after.is_empty(), "the reversed receipt removes the units");
+            assert_eq!(observed(&branch, 1).view, idle);
+        } else {
+            assert_eq!(after, held, "kept restricted mana stays visible");
+            let own = observed(&branch, 0);
+            let row = encoded(&branch, &own);
+            assert_eq!(row.players[0][20], 2);
+            assert_eq!(row.globals[19 + mtg_observe::color(Color::U)], 1);
+            assert_eq!(row.globals[19 + mtg_observe::color(Color::C)], 1);
+        }
+        checked(&branch);
+        let restored = Game::restore(
+            branch.prepared.as_ref().clone(),
+            &branch.snapshot().unwrap(),
+        )
+        .unwrap();
+        for seat in 0..branch.state.rules.players.len() as u8 {
+            assert_eq!(observed(&restored, seat), observed(&branch, seat));
+        }
+        assert_recoverable((&branch).into());
+    }
 }
