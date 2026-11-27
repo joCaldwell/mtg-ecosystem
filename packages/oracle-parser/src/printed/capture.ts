@@ -6,16 +6,28 @@ export interface Occurrence { line: number; index: number }
 export type Origin =
   | { basis: "recorded"; tokens: Occurrence[]; folds?: Occurrence[] }
   | { basis: "hull"; tokens: Occurrence[] }
-  | { basis: "alias"; target: object }
+  | { basis: "alias"; target: object; fallback?: ImplicitReason }
   | { basis: "implicit"; reason: ImplicitReason };
 
 // Own keys and primitives survive the parser's deep-copy finalization.
-// Each object-valued slot has its own evidence and mutation check.
+// Each object-valued slot has its own evidence and mutation check. An
+// array's primitive elements ("types") are own values; its objects are slots.
 const childSlot = Symbol("AST child");
 type OwnFields = Map<string, unknown>;
 
+class PrimitiveArray {
+  readonly key: string;
+  constructor(key: string) { this.key = key; }
+}
+
 function ownValue(value: unknown): unknown {
+  if (Array.isArray(value)) return new PrimitiveArray(JSON.stringify(value.flatMap(item =>
+    item !== null && typeof item === "object" ? [] : [[typeof item, item]])));
   return value !== null && typeof value === "object" ? childSlot : value;
+}
+
+function sameOwn(a: unknown, b: unknown): boolean {
+  return a instanceof PrimitiveArray ? b instanceof PrimitiveArray && a.key === b.key : Object.is(a, b);
 }
 
 function ownFields(node: object): OwnFields {
@@ -104,12 +116,19 @@ export class PrintedCapture {
     return this.entries.get(node)?.identity;
   }
 
+  /** The recorded occurrences proving a node, through an alias to its canonical entry. */
+  proof(node: object): Occurrence[] | undefined {
+    let origin = this.origin(node);
+    if (origin?.basis === "alias") origin = this.origin(origin.target);
+    return origin?.basis === "recorded" ? origin.tokens : undefined;
+  }
+
   changedSinceMark(node: object): boolean {
     const fields = this.entries.get(node)?.fields;
     if (!fields) return false;
     const current = Object.entries(node);
     return current.length !== fields.size || current.some(([key, value]) =>
-      !fields.has(key) || !Object.is(fields.get(key), ownValue(value)));
+      !fields.has(key) || !sameOwn(fields.get(key), ownValue(value)));
   }
 
   mark(node: object, tokens: readonly Token[], mode?: "complete-production"): void {
@@ -153,13 +172,24 @@ export class PrintedCapture {
 
   /** Reuse one lexical occurrence in a second AST slot. The canonical
    * occurrence keeps its marks, and only the alias copy inherits them. */
-  alias<T extends object>(node: T): T {
-    const entry = this.entries.get(node);
-    if (!entry) return node;
+  alias<T extends object>(node: T, fallback?: ImplicitReason): T {
+    const target = this.canonical(node);
+    if (!target) return node;
     const alias = structuredClone(node);
-    const target = entry.origin.basis === "alias" ? entry.origin.target : entry.identity;
-    this.write(alias, { basis: "alias", target });
+    this.write(alias, { basis: "alias", target, ...(fallback ? { fallback } : {}) });
     return alias;
+  }
+
+  /** Re-origin a node as an alias in place. Its identity is kept, so aliases
+   * already made of it resolve through it to the canonical occurrence. */
+  realias(node: object, of: object): void {
+    const target = this.canonical(of);
+    if (target && this.entries.has(node)) this.write(node, { basis: "alias", target }, true);
+  }
+
+  private canonical(node: object): object | undefined {
+    const entry = this.entries.get(node);
+    return entry && (entry.origin.basis === "alias" ? entry.origin.target : entry.identity);
   }
 
   implicit(node: object, reason: ImplicitReason): void {

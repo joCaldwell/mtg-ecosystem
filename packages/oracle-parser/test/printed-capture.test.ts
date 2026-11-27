@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCardNameCatalog, parseOracleTextWithPrintedEvidence } from "../src/index.ts";
+import { buildCardNameCatalog, parseOracleText, parseOracleTextWithPrintedEvidence } from "../src/index.ts";
 import { lex } from "../src/lexer.ts";
 import { Cursor } from "../src/parser/cursor.ts";
 import { finalizeCharacteristicDefinitions } from "../src/parser/characteristic-origin.ts";
@@ -333,6 +333,20 @@ test("the mutation guard keeps only child or folded spans after an uncovered sca
   const defects = { nesting: 0, overlap: 0, conflict: 0, unlocatedSelections: 0, mutationGuardDemotions: 0 };
   assert.deepEqual(locateNodes(amount, capture, [0, 1], defects)[0].node, { path: "", basis: "unlocated" });
   assert.equal(defects.mutationGuardDemotions, 1);
+
+  // A primitive array is an own value: an in-place push is a change, while
+  // an equal replacement and an object-array push remain child slots.
+  const located = (node: object) => {
+    const found = { nesting: 0, overlap: 0, conflict: 0, unlocatedSelections: 0, mutationGuardDemotions: 0 };
+    return { node: locateNodes(node, capture, [0, 1], found)[0].node, demotions: found.mutationGuardDemotions };
+  };
+  const filter = { types: ["creature"], allOf: [] as object[] };
+  c.mark(filter, 2, 3);
+  filter.types = ["creature"];
+  filter.allOf.push({ ref: "target" });
+  assert.deepEqual(located(filter), { node: { path: "", basis: "recorded", span: [[0, 2, 3]] }, demotions: 0 });
+  filter.types.push("artifact");
+  assert.deepEqual(located(filter), { node: { path: "", basis: "unlocated" }, demotions: 1 });
 });
 
 test("Polymorph and Pongify attach the regeneration sentence to the destruction", () => {
@@ -393,6 +407,47 @@ test("coordinated characteristic modifiers keep their own spans and one shared d
     { path: step + "/duration", basis: "alias", of: second + "/duration" });
 });
 
+
+test("an omitted actor aliases a printed you in its sentence, and a you-may group shares its you", () => {
+  const who = (found: ReadBlock, path: string) => found.nodes.find(node => node.path === path);
+  const second = "/effects/0/steps/1/who";
+  const actors = (text: string) => {
+    const report = parseOracleTextWithPrintedEvidence(text, "Test", { typeLine: "Sorcery" });
+    assert.deepEqual(report.result, parseOracleText(text, "Test", { typeLine: "Sorcery", includeSourceProvenance: true }));
+    assert.equal(report.printed.status, "read");
+    return block(report.printed);
+  };
+  const stated = actors("You draw a card and lose 1 life.");
+  assert.deepEqual(who(stated, step + "/who"), { path: step + "/who", basis: "recorded", span: [[0, 0, 1]] });
+  assert.deepEqual(who(stated, second), { path: second, basis: "alias", of: step + "/who" });
+  const imperative = actors("Draw a card and lose 1 life.");
+  for (const path of [step + "/who", second])
+    assert.deepEqual(who(imperative, path), { path, basis: "implicit", reason: "imperative-controller" });
+  const player = actors("Target player draws a card and loses 1 life.");
+  assert.deepEqual(who(player, second), { path: second, basis: "alias", of: step + "/who" });
+  const separate = actors("You draw a card. Draw a card.");
+  assert.deepEqual(who(separate, "/effects/1/steps/0/who"),
+    { path: "/effects/1/steps/0/who", basis: "implicit", reason: "imperative-controller" });
+  // Return keeps no actor, so the elided draw has no printed subject in the AST.
+  const dropped = actors("You return target creature card from your graveyard to your hand and draw a card.");
+  assert.deepEqual(who(dropped, second), { path: second, basis: "implicit", reason: "imperative-controller" });
+
+  const optional = actors("You may draw a card and lose 1 life.");
+  assert.deepEqual(who(optional, step + "/who"), { path: step + "/who", basis: "recorded", span: [[0, 0, 1]] });
+  for (const member of [0, 1]) {
+    const path = `${step}/steps/${member}/who`;
+    assert.deepEqual(who(optional, path), { path, basis: "alias", of: step + "/who" });
+  }
+  // A shuffle's library owner aliases its actor, and so the group's "you".
+  const search = actors("You may search your library for a basic land card, reveal it, put it into your hand, then shuffle.");
+  const owner = `${step}/steps/3/library/owner`;
+  assert.deepEqual(who(search, `${step}/steps/3/who`), { path: `${step}/steps/3/who`, basis: "alias", of: step + "/who" });
+  assert.deepEqual(who(search, owner), { path: owner, basis: "alias", of: step + "/who" });
+  const wish = "You may reveal a sorcery card you own from outside the game and put it into your hand. Exile Burning Wish.";
+  const burning = block(read(wish, "Burning Wish", "Sorcery"));
+  assert.deepEqual(who(burning, step + "/steps/0/who"), { path: step + "/steps/0/who", basis: "alias", of: step + "/who" });
+  assert.equal(spelling(read(wish, "Burning Wish", "Sorcery"), wish, span(burning, step + "/who")), "You");
+});
 
 test("printed actors and zones have local spans while a bare shuffle records both defaults", () => {
   const implicit = block(read("Shuffle.", "Test", "Sorcery"));

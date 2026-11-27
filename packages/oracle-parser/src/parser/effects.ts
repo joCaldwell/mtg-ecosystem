@@ -1160,12 +1160,16 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
         if (step) foldOptional(c, step, group.prefix, group.body, group.limit, group.who);
         continue;
       }
+      const who = group.who ?? c.mark({ player: "you" }, group.prefix, group.prefix + 1);
+      // Members of "you may A and B" share the group's printed "you".
+      const shared = !group.who && c.printed?.origin(who) ? who : undefined;
       const children = steps.slice(group.start, group.end).map(original => {
         const { optional: _optional, decidedBy: _decidedBy, ...step } = original;
         if (group.who && "who" in step && step.who === group.who) step.who = c.alias(group.who);
+        else if (shared && "who" in step && step.who?.player === "you" && Object.keys(step.who).length === 1 &&
+          c.printed!.origin(step.who)?.basis === "implicit") c.realias(step.who, shared);
         return carryPrintedOrigin(original, step);
       });
-      const who = group.who ?? c.mark({ player: "you" }, group.prefix, group.prefix + 1);
       steps.splice(group.start, group.end - group.start,
         c.mark({ effect: "optional-group", who, steps: children }, group.prefix, group.limit));
     }
@@ -1569,7 +1573,7 @@ function parseActor(c: Cursor, ctx: EffectContext, imperative: string, conjugate
     const retainsPluralActor = ctx.lastPlayer?.player === "they" || ctx.lastPlayer?.player === "group" || ctx.lastPlayer?.player === "those-players"
       || (!!ctx.lastPlayer && isPluralTargetPlayers(ctx.lastPlayer));
     const who = explicit ?? (verb === imperative && ctx.impliedActor ? ctx.impliedActor
-      : verb === imperative && !retainsPluralActor ? c.imperativeController() : ctx.lastPlayer && c.alias(ctx.lastPlayer));
+      : verb === imperative && !retainsPluralActor ? c.elidedController(ctx.lastPlayer) : ctx.lastPlayer && c.alias(ctx.lastPlayer));
     if (!who) return c.fail("actor of conjugated effect");
     if (who.player === "group" && !allowGroup) return c.fail("supported grouped-player action");
     if (who.player === "group" && verb !== imperative) return c.fail("plural grouped-player verb");
@@ -2776,8 +2780,9 @@ const parseLook: StepParser = transactionalStep((c, ctx) => {
     if (!c.words("the", "top")) return null;
     const stated = c.attempt(parseAmount);
     const noun = c.word("card", "cards");
+    // A bare plural "cards" prints no count; that node stays unlocated.
     const topN = stated ?? (noun === "card" ? c.mark({ amount: "fixed", value: 1 }, c.pos - 1)
-      : c.implicit({ amount: "fixed", value: 1 }, "implied-singular-count"));
+      : { amount: "fixed" as const, value: 1 });
     if (c.word("of") === null) return null;
     const of = parseZoneRef(c);
     if (!of) return null;
