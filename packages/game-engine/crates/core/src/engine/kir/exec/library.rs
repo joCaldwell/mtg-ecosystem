@@ -15,7 +15,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 use crate::engine::battlefield_entry::EntryChoice;
-use mtg_contracts::kir::{self, Destination, Node, PlayerExpr, SearchSpec};
+use mtg_contracts::kir::{self, Destination, Node, PlayerExpr, SearchSpec, SelectionZone};
 
 /// The bounds of a search: the cards that may be found, in object order, and
 /// how many must and may be found (CR 701.23b, d).
@@ -23,15 +23,23 @@ pub(in crate::engine) struct SearchBounds {
     pub candidates: Vec<ObjectId>,
     pub minimum: usize,
     pub maximum: usize,
-    /// The number of cards in the searched library.
+    /// The number of cards in the searched library or chosen-from hand.
     pub library: usize,
+    /// The zone is public, so only an open choice is asked.
+    pub public: bool,
 }
 
 impl SearchBounds {
     /// CR 701.23a: the searcher looks at every card of a non-empty library,
     /// even when none matches. Only a search that must find every card,
-    /// including an empty library, has nothing to decide.
+    /// including an empty library, has nothing to decide. A hand choice is
+    /// likewise asked whenever the hand holds a card the choice may leave,
+    /// so no other seat learns whether a card matched (CR 402.3). A
+    /// graveyard choice is asked only when it leaves something to decide.
     pub fn needs_choice(&self) -> bool {
+        if self.public {
+            return self.minimum < self.candidates.len();
+        }
         self.library > 0
             && (self.minimum < self.candidates.len() || self.candidates.len() < self.library)
     }
@@ -93,15 +101,28 @@ impl RulesTxn {
         player: PlayerId,
         search: &SearchSpec,
     ) -> Result<SearchBounds, String> {
-        let mut candidates = self
-            .state
-            .rules
-            .libraries
-            .get(&player)
-            .into_iter()
-            .flatten()
-            .map(|card| self.object_id(*card).ok_or("missing library card"))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut candidates = match search.from {
+            SelectionZone::Library => self
+                .state
+                .rules
+                .libraries
+                .get(&player)
+                .into_iter()
+                .flatten()
+                .map(|card| self.object_id(*card).ok_or("missing library card"))
+                .collect::<Result<Vec<_>, _>>()?,
+            // CR 400.1: the chooser's own hand or graveyard, in object order.
+            SelectionZone::Hand | SelectionZone::Graveyard => {
+                let zone = Self::selection_zone(search.from, player);
+                self.state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|object| object.zone == zone)
+                    .map(|object| object.id)
+                    .collect()
+            }
+        };
         let library = candidates.len();
         candidates.retain(|id| {
             self.current(*id).is_ok_and(|object| {
@@ -116,17 +137,43 @@ impl RulesTxn {
             .as_fixed()
             .and_then(Quantity::to_u32)
             .ok_or("search maximum has no audited evaluation")? as usize;
-        let minimum = if search.filter.0.is_empty() {
-            maximum.min(candidates.len())
-        } else {
-            0
+        // CR 701.23b, d: a library search for a stated quality may fail to
+        // find. A hand or graveyard choice takes as many as it can unless
+        // it is optional (CR 608.2d).
+        let minimum = match search.from {
+            SelectionZone::Library if !search.filter.0.is_empty() => 0,
+            SelectionZone::Hand | SelectionZone::Graveyard if search.optional => 0,
+            _ => maximum.min(candidates.len()),
         };
         Ok(SearchBounds {
             maximum: maximum.min(candidates.len()),
             candidates,
             minimum,
             library,
+            public: search.from == SelectionZone::Graveyard,
         })
+    }
+
+    /// The zone of `player` a search or card choice selects from.
+    fn selection_zone(from: SelectionZone, player: PlayerId) -> Zone {
+        match from {
+            SelectionZone::Library => Zone::Library { owner: player },
+            SelectionZone::Hand => Zone::Hand { owner: player },
+            SelectionZone::Graveyard => Zone::Graveyard { owner: player },
+        }
+    }
+
+    /// The zone the search or card choice at this frame's cursor selects
+    /// `player`'s cards from.
+    pub(in crate::engine) fn search_source(
+        &self,
+        frame: &Resolving,
+        player: PlayerId,
+    ) -> Result<Zone, String> {
+        let (Verb::Search { search, .. }, _) = self.library_verb(frame)? else {
+            return Err("search continuation lost its instruction".into());
+        };
+        Ok(Self::selection_zone(search.from, player))
     }
 
     pub(in crate::engine) fn kernel_library(
@@ -144,6 +191,11 @@ impl RulesTxn {
             | Verb::Surveil { player, .. } => player.clone(),
             _ => return Err("not a library verb".into()),
         };
+        // CR 608.2d: sampled with the seeded match randomness; the sampler
+        // owns its progress and the departure of its controller.
+        if matches!(&verb, Verb::Search { search, .. } if search.random) {
+            return self.random_discard_step(frame);
+        }
         let Some(actor) = self.library_actor(&frame, &player)? else {
             let outcome = match self.kernel_players(&frame, &player)? {
                 Players::One(player) => InstructionOutcome::PlayerActionSkipped { player },
@@ -313,7 +365,7 @@ impl RulesTxn {
     /// CR 701.23a, e, 903.9b: reveal printed found cards once, still in the
     /// library, then ask each found commander's owner where it goes before
     /// the found cards move together.
-    fn complete_search(
+    pub(in crate::engine) fn complete_search(
         &mut self,
         frame: Resolving,
         player: PlayerId,
@@ -1064,7 +1116,11 @@ impl RulesTxn {
                 let bounds = self.search_bounds(*player, &search)?;
                 Some(self.pick(
                     *player,
-                    Reason::SearchLibrary,
+                    if search.from == SelectionZone::Library {
+                        Reason::SearchLibrary
+                    } else {
+                        Reason::ResolveCardChoice
+                    },
                     objects(&bounds.candidates),
                     bounds.minimum as u32,
                     bounds.maximum as u32,
@@ -1815,7 +1871,8 @@ impl RulesTxn {
         // The choice variant must be this verb's own, and its partial
         // answers well formed, before the departure fast path accepts it.
         let staged = match (choice, &verb) {
-            (ResolutionChoice::Search { .. }, Verb::Search { .. }) => true,
+            // CR 608.2d: a random selection never waits on its chooser.
+            (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => !search.random,
             (ResolutionChoice::SearchSplit { found, .. }, Verb::Search { search, .. }) => {
                 search.to == Destination::OneTappedRestOwnerHand
                     && found[0].card < found[1].card

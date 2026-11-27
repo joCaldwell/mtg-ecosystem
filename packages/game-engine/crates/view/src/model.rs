@@ -234,6 +234,9 @@ pub enum Reason<S: Space> {
     SearchSplitBattlefield,
     /// CR 701.20e: choose a looked-at card to put into hand.
     LookChooseHand,
+    /// CR 608.2c-d: choose cards of the decider's own hand or graveyard while
+    /// applying an instruction. The shape's bounds say how many must be chosen.
+    ResolveCardChoice,
 }
 
 impl<S: Space> Reason<S> {
@@ -278,6 +281,7 @@ impl<S: Space> Reason<S> {
             Self::ResolveObjectChoice => 35,
             Self::SearchSplitBattlefield => 36,
             Self::LookChooseHand => 37,
+            Self::ResolveCardChoice => 38,
         }
     }
 }
