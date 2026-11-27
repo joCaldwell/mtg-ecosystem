@@ -829,7 +829,7 @@ impl RulesTxn {
                 cast.spending = Some(BTreeMap::new());
                 // The announcement stage ends before the costs are paid.
                 self.rules_mut().frame = Frame::Payment { cast: cast.clone() };
-                return Ok(self.payment_step(cast)?);
+                return self.payment_step(cast);
             } else {
                 Frame::Mana { cast }
             };
