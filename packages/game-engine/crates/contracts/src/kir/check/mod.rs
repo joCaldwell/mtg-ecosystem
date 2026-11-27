@@ -2014,12 +2014,12 @@ fn event_supplies(event: &TriggerCondition, role: EventPlayerRole) -> bool {
 /// CR 603.2, 608.2h: the events whose number "that much" can read: damage
 /// dealt and life gained.
 pub fn event_supplies_amount(event: &TriggerCondition) -> bool {
-    match event.pattern() {
+    matches!(
+        event.pattern(),
         EventPattern::DealsDamage { .. }
-        | EventPattern::IsDealtDamage { .. }
-        | EventPattern::GainsLife { .. } => true,
-        _ => false,
-    }
+            | EventPattern::IsDealtDamage { .. }
+            | EventPattern::GainsLife { .. }
+    )
 }
 
 /// The event-player role an event supplies, for lowerers of "that player".

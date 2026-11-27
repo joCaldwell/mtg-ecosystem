@@ -279,19 +279,15 @@ impl RulesTxn {
                 return Err("snapshot fixed sacrifice cost facts".into());
             }
         }
-        match &self.state.rules.frame {
-            Frame::SacrificeCost { cast } => {
-                if self.invocation_sacrifice(self.top()?).is_none()
-                    || cast.spending.is_none()
-                    || (!cast.sacrifices.is_empty()
-                        && self
-                            .next_sacrifices(self.top()?, &cast.sacrifices)?
-                            .is_empty())
-                {
-                    return Err("snapshot sacrifice cost frame invariant".into());
-                }
-            }
-            _ => {}
+        if let Frame::SacrificeCost { cast } = &self.state.rules.frame
+            && (self.invocation_sacrifice(self.top()?).is_none()
+                || cast.spending.is_none()
+                || (!cast.sacrifices.is_empty()
+                    && self
+                        .next_sacrifices(self.top()?, &cast.sacrifices)?
+                        .is_empty()))
+        {
+            return Err("snapshot sacrifice cost frame invariant".into());
         }
         Ok(())
     }

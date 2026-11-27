@@ -45,7 +45,7 @@ pub(super) fn lower(
         pilot_amount(cx, count)?
     };
     let on = on.as_ref();
-    let on = if is_set(&on) {
+    let on = if is_set(on) {
         pilot_board_set(cx, on)?
     } else if is_this_creature(on) || (!counter.needs_creature() && is_this_permanent(on)) {
         kir::SetExpr::source()
