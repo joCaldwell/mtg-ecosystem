@@ -18,18 +18,18 @@
     "sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca"
   },
   "reader": {
-    "revision": "6de8da715a39dffea36b9f9783a9f5cd2595cbb5",
-    "sourceSha256": "d83686e769be9e20bfe3cc43760942930cef922ef6030499b75b8e4cd9a58158"
+    "revision": "c3d2815ca599e91f7852c16cf3ef42379a2cdd02",
+    "sourceSha256": "9fa9dd672858102bf79c3a8ddbd78d9fd672f80ac253d1d2fb60b0e6e7043f5a"
   },
   "archive": {
-    "file": "oracle-ast-phase1-r6-candidate.jsonl",
+    "file": "oracle-ast-phase1-r6-candidate.v4.jsonl",
     "schemaVersion": 5,
-    "bytes": 656458521,
-    "sha256": "68cdd8cecb06e6132801426db9e79a44d9279461bf13ba5cb5a86cea27033571",
-    "headerSha256": "8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093"
+    "bytes": 656512163,
+    "sha256": "0548e7bbefc7a8944d398a683f662926a92bec1944c21062b02318ccdf1ce774",
+    "headerSha256": "6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37"
   },
   "r6": {
-    "archiveManifest": "archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json",
+    "archiveManifest": "archive-manifest-r6-candidate-6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37.json",
     "legacyArchive": "../../../../generated/oracle-ast-phase1-r5.jsonl",
     "rulesPath": "../../../../.scryfall-cache/ComprehensiveRules-20260925.txt",
     "printed": {
@@ -37,7 +37,7 @@
       "schemaSha256": "372726596d541248b2b2caf0bfe2797b8b98ab19d513ec4a251044e0585dcf35",
       "vocabularySha256": "b6e23112217e523e273629d2ac8cf4dd481873c342c1c3421b756c56559c943c",
       "generatorSha256": "436b1b172a982c79711de3e6479451431e5645a9ee897fbe45af0f216f2dfa9e",
-      "recordsSha256": "d6c3eae5df33c36cdd8db09c1cf20180f7b3224f62e8303d30c849edcc7dbd00"
+      "recordsSha256": "698f93ab350936ee8f1445ffa63623661c4351ee99f524d418fda39d821477d2"
     },
     "nameCatalog": {
       "sha256": "101b11ae52b305afab73cca17cd884552f03ad76cbce0c23e54a15195087b193",

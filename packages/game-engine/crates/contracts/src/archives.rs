@@ -237,7 +237,7 @@ mod tests {
             .unwrap();
         assert!(!r6.candidate && !r6.pending && !r6.record_sha256.is_empty());
         let header = include_str!(
-            "../../../tests/fixtures/archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json"
+            "../../../tests/fixtures/archive-manifest-r6-candidate-6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37.json"
         );
         assert_eq!(accepted_manifest(header).unwrap(), r6);
         assert!(accepted_provenance(
