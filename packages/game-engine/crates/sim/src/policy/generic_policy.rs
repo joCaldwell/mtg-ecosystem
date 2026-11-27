@@ -828,23 +828,32 @@ impl Strategy<'_> {
             .iter()
             .any(|c| c.oracle_id == o.oracle_id && c.history.owner == v.viewer)
     }
-    pub(super) fn sacrifice_choice(
+    pub(super) fn sacrifice_choices(
         &self,
         v: &PermittedView,
         candidates: &[ObjectHandle],
-    ) -> Result<ObjectHandle, String> {
-        v.objects
+        count: usize,
+    ) -> Result<Vec<ObjectHandle>, String> {
+        let mut choices = v
+            .objects
             .iter()
             .filter(|o| candidates.contains(&o.handle))
-            .min_by_key(|o| {
-                (
-                    self.top_program(v)
-                        .is_some_and(|(_, p)| !self.sacrifice_worthwhile(v, p, o)),
-                    self.sacrifice_rank(v, o),
-                )
-            })
+            .collect::<Vec<_>>();
+        if choices.len() < count {
+            return Err("sacrifice candidates missing from view".into());
+        }
+        let program = self.top_program(v).map(|(_, program)| program);
+        choices.sort_by_cached_key(|o| {
+            (
+                program.is_some_and(|p| !self.sacrifice_worthwhile(v, p, o)),
+                self.sacrifice_rank(v, o),
+            )
+        });
+        Ok(choices
+            .into_iter()
+            .take(count)
             .map(|o| o.handle.clone())
-            .ok_or("empty sacrifice candidates".into())
+            .collect())
     }
     fn expendable(&self, o: &VisibleObject) -> bool {
         o.token.is_some()

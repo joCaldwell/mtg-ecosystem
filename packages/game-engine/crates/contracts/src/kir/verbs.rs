@@ -594,6 +594,10 @@ pub enum Verb {
         player: PlayerExpr,
         count: Amount,
         filter: Pred,
+        /// CR 608.2h: only the highest-power members of each chooser's
+        /// controlled set are eligible, including every tied member.
+        #[serde(default, skip_serializing_if = "is_false")]
+        greatest_power: bool,
     },
     /// CR 106.4.
     AddMana {
