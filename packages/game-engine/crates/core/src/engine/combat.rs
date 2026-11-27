@@ -412,16 +412,15 @@ impl RulesTxn {
                         })
                         .collect::<Result<Vec<_>, String>>()?;
                     walkers.sort_by(|a, b| a.0.cmp(&b.0));
-                    if !walkers.is_empty() {
-                        let mut keyed = subjects
-                            .iter()
-                            .map(|&object| {
-                                Ok((self.object_handle_id(player, object)?.clone(), object))
-                            })
-                            .collect::<Result<Vec<_>, String>>()?;
-                        keyed.sort_by(|a, b| a.0.cmp(&b.0));
-                        subjects = keyed.into_iter().map(|(_, object)| object).collect();
-                    }
+                    // The first attacker eligible to attack a player sets
+                    // that player's candidate position. Visit attackers in
+                    // handle order so those positions are public as well.
+                    let mut keyed = subjects
+                        .iter()
+                        .map(|&object| Ok((self.object_handle_id(player, object)?, object)))
+                        .collect::<Result<Vec<_>, String>>()?;
+                    keyed.sort_by_key(|(handle, _)| *handle);
+                    subjects = keyed.into_iter().map(|(_, object)| object).collect();
                     walkers
                 } else {
                     vec![]
