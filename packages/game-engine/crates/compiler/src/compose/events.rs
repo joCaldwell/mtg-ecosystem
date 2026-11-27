@@ -278,6 +278,9 @@ pub(super) fn general(
                 Some("enters") => (Kind::Enters, &[]),
                 Some("dies") => (Kind::Dies, &[]),
                 Some("attacks") => (Kind::Attacks, &[]),
+                // CR 702.134c observes a mentor ability resolving.
+                Some("mentors") => return Err(unsupported("trigger", "trigger:mentors")),
+
                 // CR 603.6c, 509.3a: an alternative of an any-of event; the
                 // single events lower in their own rows below.
                 Some("leaves") if object.get("withoutDying") == Some(&serde_json::json!(true)) => (

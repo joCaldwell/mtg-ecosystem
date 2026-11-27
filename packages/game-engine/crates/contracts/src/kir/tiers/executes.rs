@@ -491,6 +491,16 @@ fn validate_target_bindings(
     {
         return cell("target", "another_requires_one_ability_occurrence");
     }
+    // CR 702.134a, 608.2b: "power less than this creature's power" reads
+    // the source of a triggered ability with one target occurrence.
+    if p.targets.iter().any(TargetSpec::requires_source_power)
+        && !(context == Some(Context::Triggered) && p.targets.len() == 1 && !modal)
+    {
+        return cell(
+            "target",
+            "source_relative_power_requires_one_trigger_occurrence",
+        );
+    }
     let mut ids = BTreeSet::new();
     for (index, target) in p.targets.iter().enumerate() {
         if usize::try_from(target.slot).ok() != Some(index)
@@ -559,7 +569,11 @@ fn validate_target_bindings(
                             [kir::Atom::ManaValue { value: kir::Amount::Fixed { value }, .. }]
                                 if !value.is_negative())
                     } else {
-                        f.power.is_some()
+                        // CR 702.134a: a source-relative power bound is
+                        // independent of the predicate's fixed terms.
+                        f.power
+                            .as_ref()
+                            .is_some_and(|power| *power != CreaturePowerFilter::LessThanSource {})
                             || kir::audit_target_predicate(
                                 predicate,
                                 matches!(

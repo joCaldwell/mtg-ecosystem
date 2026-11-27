@@ -247,6 +247,21 @@ fn event_rows_only_add_self_entry_for_the_cards_own_type() {
 }
 
 #[test]
+fn mentors_event_rejects_by_name() {
+    let raw = include_str!(
+        "../../../../tests/fixtures/phase1-r5/99eb05eb-11ef-456f-9132-166a0691dd04.json"
+    );
+    let row: serde_json::Value = serde_json::from_str(raw).unwrap();
+    let event = &row["faces"][0]["result"]["abilities"][1]["trigger"];
+    let failure = trigger_event(&card(CardKind::Artifact), event, vec![], None, 1).unwrap_err();
+    assert_eq!(failure.reason, "trigger:mentors");
+    assert!(matches!(
+        compile(R5, raw),
+        CompileResult::Unsupported { .. }
+    ));
+}
+
+#[test]
 fn keyword_rows_reject_parameters_and_unknown_keywords() {
     let keywords =
         |raw: serde_json::Value| -> Vec<SourceKeyword> { serde_json::from_value(raw).unwrap() };
@@ -1998,13 +2013,35 @@ const HAMMER_DROPPER: &str =
 
 /// CR 702.83a: exalted on a creature or a land lowers to "whenever a creature
 /// you control attacks alone, that creature gets +1/+1 until end of turn".
-/// CR 702.134a: mentor's relative-power target is unsupported and rejects by
-/// name.
+/// CR 702.134a: mentor targets an attacking creature with power below its source.
 #[test]
 fn combat_keywords_lower_their_defining_triggers() {
     let lowers = |raw: &str| lower(accepted_manifest(R5).unwrap(), raw);
-    let mentor = lowers(HAMMER_DROPPER).unwrap_err();
-    assert!(mentor.reason.contains("mentor"), "{mentor:?}");
+    let dropper = lowers(HAMMER_DROPPER).unwrap();
+    let [mentor] = dropper.triggered.as_slice() else {
+        panic!("one mentor trigger");
+    };
+    assert_eq!(
+        *mentor.condition.pattern(),
+        EventPattern::Attacks {
+            attacker: kir::Pred::source()
+        }
+    );
+    let [target] = mentor.program.targets.as_slice() else {
+        panic!("one mentor target");
+    };
+    let filter = target.filter.as_ref().unwrap();
+    assert_eq!(filter.types, [CardKind::Creature]);
+    assert_eq!(
+        filter.predicate,
+        Some(kir::Pred(vec![kir::Atom::Attacking]))
+    );
+    assert!(target.requires_source_power());
+    assert!(
+        matches!(sole_node(mentor).verb(), Some(kir::Verb::PutCounters {
+        on, counter: kir::CounterKind::PlusOnePlusOne, amount,
+    }) if *on == kir::SetExpr::target(target.slot) && *amount == kir::Amount::fixed(1))
+    );
     let you = kir::Atom::ControlledBy {
         player: kir::PlayerExpr::you(kir::Context::Triggered),
     };

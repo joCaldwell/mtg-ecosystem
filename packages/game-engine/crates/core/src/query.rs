@@ -107,13 +107,25 @@ pub fn matches_permanent_filter(
     matches_permanent_filter_with_source(object, you, filter, None)
 }
 
-/// The caller can bind the source-identity fact for a targeting invocation.
+/// The targeting invocation's source facts a permanent filter can read.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TargetSource<'a> {
+    /// The candidate is the targeting object itself (CR 201.5).
+    pub is_source: bool,
+    /// CR 702.134a, 608.2b: the source's derived power, current or last
+    /// known; `None` when it has no power.
+    pub power: Option<&'a Quantity>,
+}
+
+/// The caller can bind the source facts for a targeting invocation; without
+/// them, source-relative terms are unknown.
 pub(crate) fn matches_permanent_filter_with_source(
     object: &impl ObjectFacts,
     you: PlayerId,
     filter: &PermanentFilter,
-    is_source: Option<bool>,
+    source: Option<TargetSource<'_>>,
 ) -> Tri {
+    let is_source = source.map(|source| source.is_source);
     if !present(object)
         || (filter.opponent && object.controller() == you)
         || (filter.tapped && !object.tapped())
@@ -149,11 +161,20 @@ pub(crate) fn matches_permanent_filter_with_source(
     let Some(bound) = &filter.power else {
         return typed;
     };
+    let source_power = match (bound, source) {
+        (CreaturePowerFilter::LessThanSource {}, None) => return typed.and(Tri::Unknown),
+        (_, source) => source.and_then(|source| source.power),
+    };
     typed.and(known(object.derived(), |c| {
         c.has_type(CardKind::Creature)
             && c.power.as_ref().is_some_and(|power| match bound {
                 CreaturePowerFilter::AtLeast { value } => power >= value,
                 CreaturePowerFilter::AtMost { value } => power <= value,
+                CreaturePowerFilter::LessThanSource {} => {
+                    // CR 107.2, 208.3: a known source that stopped being
+                    // a creature has no power. Use zero for that number.
+                    source_power.map_or_else(|| power.is_negative(), |source| power < source)
+                }
             })
     }))
 }
