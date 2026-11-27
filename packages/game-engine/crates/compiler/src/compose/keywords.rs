@@ -724,13 +724,14 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
-/// (CR 702.108b, 702.45b, 702.135b, 702.46b). The `bool` states
+/// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
     ("bushido", true),
     ("afterlife", true),
     ("soulshift", true),
+    ("exalted", false),
 ];
 
 pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
@@ -1227,6 +1228,33 @@ pub(super) fn triggered(
             ));
             EventPattern::Dies {
                 object: Pred::source(),
+            }
+        }
+        // CR 702.83a: "Whenever a creature you control attacks alone, that
+        // creature gets +1/+1 until end of turn." CR 506.5: it attacks alone
+        // when it is the only creature declared as an attacker.
+        "exalted" if permanent => {
+            program.instructions.push(kernel(
+                pump(
+                    SetExpr::One {
+                        object: Ref::EventObject {
+                            role: kir::EventObjectRole::Attacked,
+                        },
+                    },
+                    1,
+                    1,
+                ),
+                block,
+            ));
+            EventPattern::AttacksAlone {
+                attacker: Pred(vec![
+                    Atom::Type {
+                        kind: CardKind::Creature,
+                    },
+                    Atom::ControlledBy {
+                        player: PlayerExpr::you(Context::Triggered),
+                    },
+                ]),
             }
         }
         _ => return Err(source()),

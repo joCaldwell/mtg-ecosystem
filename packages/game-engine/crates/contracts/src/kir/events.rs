@@ -65,6 +65,9 @@ pub enum EventPattern {
     /// CR 508.3a: a creature is declared as an attacker. It is matched on its
     /// facts immediately before the declaration.
     Attacks { attacker: Pred },
+    /// CR 506.5, 508.3a: a creature is the only creature declared as an
+    /// attacker in its declaration. Matched like [`Self::Attacks`].
+    AttacksAlone { attacker: Pred },
     /// CR 509.1h, 509.3g: no blockers were declared for this attacker.
     AttacksUnblocked { attacker: Pred },
     /// CR 601.2i: a player casts a spell. The spell is matched on its frozen
@@ -156,6 +159,7 @@ impl EventPattern {
             Self::BecomesTapped { .. } => "becomes_tapped",
             Self::TurnedFaceUp { .. } => "turned_face_up",
             Self::Attacks { .. } => "attacks",
+            Self::AttacksAlone { .. } => "attacks_alone",
             Self::AttacksUnblocked { .. } => "attacks_unblocked",
             Self::Cast { .. } => "cast",
             Self::BecomesTarget { .. } => "becomes_target",
@@ -176,7 +180,7 @@ impl EventPattern {
     pub fn object_role(&self) -> Option<EventObjectRole> {
         match self {
             Self::Enters { .. } => Some(EventObjectRole::Entered),
-            Self::Attacks { .. } => Some(EventObjectRole::Attacked),
+            Self::Attacks { .. } | Self::AttacksAlone { .. } => Some(EventObjectRole::Attacked),
             _ => None,
         }
     }
@@ -194,7 +198,9 @@ impl EventPattern {
             | Self::IsDealtDamage { object, .. } => Some(object),
             Self::Blocks { blocker } => Some(blocker),
             Self::BecomesBlocked { attacker } => Some(attacker),
-            Self::Attacks { attacker } | Self::AttacksUnblocked { attacker } => Some(attacker),
+            Self::Attacks { attacker }
+            | Self::AttacksAlone { attacker }
+            | Self::AttacksUnblocked { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
             Self::StepBegins { .. }
@@ -469,6 +475,7 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             pattern,
             EventPattern::Cast { .. }
                 | EventPattern::Attacks { .. }
+                | EventPattern::AttacksAlone { .. }
                 | EventPattern::Blocks { .. }
                 | EventPattern::BecomesBlocked { .. }
         ) && any_atom(object, &|a| matches!(a, Atom::Tapped | Atom::Untapped))

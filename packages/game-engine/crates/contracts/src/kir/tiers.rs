@@ -215,6 +215,8 @@ pub enum Cell {
     // CR 611.2c, 613: until end of turn.
     PumpSource,
     PumpTarget,
+    /// CR 603.10, 611.2c: the creature an attack event names.
+    PumpEventObject,
     PumpSet,
     PumpAnnouncedX,
     /// CR 608.2h: a P/T change by a resolution count, read once.
@@ -433,6 +435,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::CountedTokens
         | C::PlusOneCountersSet
         | C::PlusOneCountersEventObject
+        | C::PumpEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
         | C::PumpCounted

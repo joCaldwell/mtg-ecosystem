@@ -208,6 +208,9 @@ pub enum TriggerEventWitness {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         binding: Option<ObservedObject>,
         defender_player_id: PlayerId,
+        /// CR 506.5: the only creature declared as an attacker.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        alone: bool,
     },
     AttackerUnblocked {
         attacker: Box<ObjectBefore>,
@@ -390,7 +393,10 @@ impl TriggerEventWitness {
         }
         match (&**second, self) {
             (EventPattern::Dies { .. }, witness) if witness.dies() => Some(second),
-            (EventPattern::Attacks { .. }, Self::CreatureAttacked { .. })
+            (
+                EventPattern::Attacks { .. } | EventPattern::AttacksAlone { .. },
+                Self::CreatureAttacked { .. },
+            )
             | (EventPattern::Cast { .. }, Self::SpellCast { .. })
             | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. }) => Some(second),
             (_, Self::Blocked { .. }) if matches!(**first, EventPattern::Blocks { .. }) => {
@@ -593,6 +599,11 @@ fn binds_observed_object(ability: &TriggeredAbility) -> bool {
                         ..
                     } | kir::Verb::PutCounters {
                         on: kir::SetExpr::One {
+                            object: Ref::EventObject { .. }
+                        },
+                        ..
+                    } | kir::Verb::ModifyUntil {
+                        what: kir::SetExpr::One {
                             object: Ref::EventObject { .. }
                         },
                         ..
@@ -866,6 +877,8 @@ impl RulesTxn {
                             attacker: Box::new(prior),
                             binding: None,
                             defender_player_id: *defender,
+                            // CR 506.5: only the declaration's sole attacker.
+                            alone: attacks.len() == 1,
                         });
                     }
                     witnesses
@@ -1330,6 +1343,15 @@ impl RulesTxn {
                     }
                     EventPattern::Attacks { attacker: pred } => {
                         matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts: attacker,
+                                token: token(attacker.object),
+                                live: observers.is_live(attacker.controller),
+                            }), you, attacker.object, &identity))
+                    }
+                    // CR 506.5, 702.83a: "attacks alone".
+                    EventPattern::AttacksAlone { attacker: pred } => {
+                        matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, alone: true, .. }
                             if holds(pred, Some(&Frozen {
                                 facts: attacker,
                                 token: token(attacker.object),
@@ -2501,6 +2523,7 @@ impl RulesTxn {
             TriggerEventWitness::CreatureAttacked {
                 attacker,
                 defender_player_id,
+                alone,
                 ..
             } => {
                 // CR 603.3a: the controller of the attacking source at the
@@ -2524,9 +2547,26 @@ impl RulesTxn {
                         .get(&attacker.object.card)
                         .is_some_and(|c| c.owner == attacker.owner)
                     && attacker.characteristics.has_type(CardKind::Creature)
-                    && matches!(pattern, EventPattern::Attacks { attacker: pred }
-                        if holds(pred, Some(&frozen(attacker)), controller, attacker.object,
-                            &identity(attacker.object)))
+                    && match pattern {
+                        EventPattern::Attacks { attacker: pred } => holds(
+                            pred,
+                            Some(&frozen(attacker)),
+                            controller,
+                            attacker.object,
+                            &identity(attacker.object),
+                        ),
+                        EventPattern::AttacksAlone { attacker: pred } => {
+                            *alone
+                                && holds(
+                                    pred,
+                                    Some(&frozen(attacker)),
+                                    controller,
+                                    attacker.object,
+                                    &identity(attacker.object),
+                                )
+                        }
+                        _ => false,
+                    }
                     && death_controller.is_none()
                 // Deliberately no current combat/player-liveness requirement:
                 // CR 113.7a/800.4 preserve a surviving controller's invocation.
