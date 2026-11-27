@@ -320,6 +320,9 @@ pub enum Capability {
     DamageBudgetPreventionV1,
     /// CR 614.1a: static damage-amount replacement.
     StaticDamageReplacementV1,
+    /// CR 614.1a, 614.16, 616.1: static token-creation and counter-placement
+    /// quantity replacements.
+    QuantityReplacementV1,
     /// CR 615.12: damage that can't be prevented.
     UnpreventableDamageV1,
     /// CR 604.3, 613.4a: a characteristic-defining ability that defines the
@@ -1044,21 +1047,24 @@ pub struct SacrificeFilter {
 pub enum Duration {
     UntilEndOfTurn,
 }
-/// CR 614.1a/614.5: positive placement quantities only; removal is a cost.
+/// CR 614.1a, 614.5: a positive quantity change a replacement makes to the
+/// number of tokens created or counters put; removal never matches.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
-pub enum CounterPlacementModification {
+pub enum QuantityModification {
+    /// "that many plus N"
     Add { amount: Quantity },
+    /// "twice/three times that many"
     Multiply { factor: Quantity },
 }
-impl CounterPlacementModification {
+impl QuantityModification {
     pub fn validate(&self) -> Result<(), String> {
-        let value = match self {
-            Self::Add { amount } => amount,
-            Self::Multiply { factor } => factor,
+        let valid = match self {
+            Self::Add { amount } => *amount > Quantity::zero(),
+            Self::Multiply { factor } => *factor >= Quantity::from(2),
         };
-        if *value <= Quantity::zero() {
-            return Err("counter placement parameter must be positive".into());
+        if !valid {
+            return Err("quantity modification parameter out of range".into());
         }
         Ok(())
     }
@@ -1069,6 +1075,13 @@ impl CounterPlacementModification {
             Self::Multiply { factor } => result.multiply(factor),
         }
         result
+    }
+    /// Two changes commute exactly when they are of the same kind.
+    pub fn commutes_with(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Add { .. }, Self::Add { .. }) | (Self::Multiply { .. }, Self::Multiply { .. })
+        )
     }
 }
 

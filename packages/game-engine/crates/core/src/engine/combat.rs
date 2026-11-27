@@ -253,8 +253,8 @@ impl RulesTxn {
                 .is_ok_and(|c| c.has_type(CardKind::Planeswalker))
     }
 
-    pub(super) fn is_permanent_damage_recipient(&self, object: ObjectId) -> bool {
-        self.is_battlefield_creature(object) || self.is_battlefield_planeswalker(object)
+    pub(super) fn is_permanent_damage_recipient(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(self.is_battlefield_creature(object)? || self.is_battlefield_planeswalker(object))
     }
 
     // CR 508.1d: static and resolved "attacks each combat/this turn if able".
@@ -803,9 +803,9 @@ impl RulesTxn {
         self.rules_mut().damage_choices.remove(&object);
         self.rules_mut().defender_damage_choices.remove(&object);
     }
-    pub(crate) fn is_blocking_creature(&self, object: ObjectId) -> bool {
-        self.state.rules.blocking_creatures.contains(&object)
-            && self.is_battlefield_creature(object)
+    pub(crate) fn is_blocking_creature(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(self.state.rules.blocking_creatures.contains(&object)
+            && self.is_battlefield_creature(object)?)
     }
     pub(super) fn clear_combat(&mut self) {
         self.rules_mut().combat.clear();
@@ -1585,8 +1585,12 @@ impl RulesTxn {
         // CR509.1g/506.4: an orphan blocker may have no damage link, but every
         // retained member is the exact creature still in combat. Declaration
         // provenance (including coherent extra members) is proved by replay.
+        let mut creatures = BTreeMap::new();
+        for object in self.state.rules.blocking_creatures.iter() {
+            creatures.insert(*object, self.is_battlefield_creature(*object)?);
+        }
         if self.state.rules.blocking_creatures.iter().any(|object| {
-            !self.is_battlefield_creature(*object)
+            !creatures[object]
                 || !self
                     .current(*object)
                     .is_ok_and(|o| self.is_live(o.controller))

@@ -99,11 +99,15 @@ impl RulesTxn {
             .filter(|o| o.id == id)
             .ok_or_else(|| "stale or absent object incarnation".into())
     }
-    pub(crate) fn is_battlefield_creature(&self, id: ObjectId) -> bool {
-        self.current(id).is_ok_and(|o| o.present_on_battlefield())
-            && self
-                .structural_characteristics(id)
-                .is_ok_and(|c| c.has_type(CardKind::Creature))
+    /// A present battlefield creature now. A missing or departed object is
+    /// not one; a failed layer calculation is an error, never a "no".
+    pub(crate) fn is_battlefield_creature(&self, id: ObjectId) -> Result<bool, String> {
+        if !self.current(id).is_ok_and(|o| o.present_on_battlefield()) {
+            return Ok(false);
+        }
+        Ok(self
+            .structural_characteristics(id)?
+            .has_type(CardKind::Creature))
     }
     pub(crate) fn top(&self) -> Result<&StackInstance, RuleError> {
         self.state

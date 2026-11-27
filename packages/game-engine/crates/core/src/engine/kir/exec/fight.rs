@@ -49,10 +49,10 @@ impl RulesTxn {
         block: u32,
     ) -> Result<(), String> {
         let current_creature = |fighter| {
-            Ok::<_, String>(
-                self.fight_participant(&frame, fighter)?
-                    .filter(|object| self.is_battlefield_creature(*object)),
-            )
+            Ok::<_, String>(match self.fight_participant(&frame, fighter)? {
+                Some(object) if self.is_battlefield_creature(object)? => Some(object),
+                _ => None,
+            })
         };
         let (Some(first), Some(second)) = (current_creature(first)?, current_creature(second)?)
         else {

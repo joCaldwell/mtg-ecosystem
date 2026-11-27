@@ -260,7 +260,7 @@ impl RulesTxn {
         // CR 611.2c/613.1f/400.7: resolved effects affect only the captured
         // incarnation; source departure does not end an already resolved
         // EOT grant.
-        let battlefield_creature = self.is_battlefield_creature(object);
+        let battlefield_creature = self.is_battlefield_creature(object)?;
         let on_battlefield = self
             .current(object)
             .is_ok_and(|o| o.present_on_battlefield());
@@ -346,22 +346,32 @@ impl RulesTxn {
             }))
     }
 
-    pub(crate) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
+    /// A failed layer calculation is an error, never "untargetable".
+    pub(crate) fn targetable_by(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+    ) -> Result<bool, String> {
         // CR 702.11b/18a apply only while the ability functions on battlefield.
-        if self.current(object).is_ok_and(|o| o.phased_out.is_some()) {
-            return false;
-        }
         let Ok(o) = self.current(object) else {
-            return false;
+            return Ok(false);
         };
-        !o.present_on_battlefield()
-            || self.current_keywords(object).is_ok_and(|keywords| {
-                !keywords.contains(&KeywordAbility::Shroud)
-                    && (o.controller == controller || !keywords.contains(&KeywordAbility::Hexproof))
-            })
+        if o.phased_out.is_some() {
+            return Ok(false);
+        }
+        if !o.present_on_battlefield() {
+            return Ok(true);
+        }
+        let keywords = self.current_keywords(object)?;
+        Ok(!keywords.contains(&KeywordAbility::Shroud)
+            && (o.controller == controller || !keywords.contains(&KeywordAbility::Hexproof)))
     }
-    pub(super) fn entity_target_legal(&self, target: TargetEntity, entry: &StackInstance) -> bool {
-        self.entity_legal(target)
+    pub(super) fn entity_target_legal(
+        &self,
+        target: TargetEntity,
+        entry: &StackInstance,
+    ) -> Result<bool, String> {
+        Ok(self.entity_legal(target)?
             && match target {
                 TargetEntity::Player { .. } => true,
                 TargetEntity::Object { object } => {
@@ -371,13 +381,13 @@ impl RulesTxn {
                             .first()
                             .is_none_or(|spec| spec.domain != TargetDomain::PlayerOrPlaneswalker)
                     }) || self.is_battlefield_planeswalker(object))
-                        && self.targetable_by(object, entry.controller)
+                        && self.targetable_by(object, entry.controller)?
                         && self
                             .targeting_characteristics(entry)
                             .and_then(|source| self.protected_from(object, &source))
                             .is_ok_and(|protected| !protected)
                 }
-            }
+            })
     }
     pub(crate) fn attachment_sbas(
         &self,

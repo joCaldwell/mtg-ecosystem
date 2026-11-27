@@ -15,11 +15,13 @@ impl RulesTxn {
         player: PlayerId,
         source: &Characteristics,
         source_object: Option<ObjectId>,
-    ) -> bool {
-        modal
-            .selections
-            .values()
-            .any(|program| self.has_target_domain(program, player, source, source_object))
+    ) -> Result<bool, String> {
+        for program in modal.selections.values() {
+            if self.has_target_domain(program, player, source, source_object)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// The printed mode declaration of this stack occurrence's spell or
@@ -68,12 +70,17 @@ impl RulesTxn {
             .modal_declaration(entry)?
             .ok_or("missing modal declaration")?;
         let source = self.targeting_characteristics(entry)?;
+        let mut legal = BTreeMap::new();
+        for (mask, program) in &modal.selections {
+            legal.insert(
+                *mask,
+                self.has_target_domain(program, entry.controller, &source, Some(entry.source))?,
+            );
+        }
         let candidates: Vec<_> = modal
             .selections
             .iter()
-            .filter(|(_, program)| {
-                self.has_target_domain(program, entry.controller, &source, Some(entry.source))
-            })
+            .filter(|(mask, _)| legal[*mask])
             .map(|(&mask, _)| Candidate::Modes {
                 mask,
                 labels: if mask == 0 {

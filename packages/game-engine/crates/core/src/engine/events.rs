@@ -364,6 +364,10 @@ pub struct OccurrenceResult {
     pub actual: EventOutcome,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub counter_changes: Vec<CounterChange>,
+    /// CR 614.5, 614.16: the members a quantity replacement modified, with
+    /// their original counts and the instances applied in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quantities: Vec<replacement::QuantityApplication>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1905,12 +1909,19 @@ impl RulesTxn {
                 let common = self.fork();
                 let offset = out.len();
                 let mut facts = vec![];
+                let mut orders = BTreeMap::new();
                 for event in occurrences {
                     let before = common.facts(&[event])?;
                     let mut validation = common.fork();
                     if let Err(error) =
                         validation.apply_prepared_occurrence(event, Some(&before), authority)
                     {
+                        if let Some(request) = replacement::requested_order(&error) {
+                            // CR 616.1, 101.4: pick the next chooser in APNAP
+                            // order, keeping the first member for each player.
+                            orders.entry(request.chooser).or_insert(error);
+                            continue;
+                        }
                         // The validation branch is discarded, but its typed
                         // resource failure must reach the enclosing atomic
                         // transaction just as an application failure does.
@@ -1918,6 +1929,12 @@ impl RulesTxn {
                         return Err(error);
                     }
                     facts.push(before);
+                }
+                if !orders.is_empty() {
+                    return Err(common
+                        .apnap_seats()
+                        .find_map(|player| orders.remove(&player))
+                        .ok_or("replacement order chooser outside turn order")?);
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
@@ -1958,8 +1975,11 @@ impl RulesTxn {
         authority: BatchAuthority<'_>,
         (prior, common): (&Self, Option<&Self>),
     ) -> Result<(), String> {
+        // A procedure outside a batch (setup) records no lineage.
+        self.quantity_log.clear();
         let actual =
             self.apply_occurrence_with_entry_state(proposed, Some(&before), authority, common)?;
+        let quantities = std::mem::take(&mut self.quantity_log);
         let id = OccurrenceId {
             batch,
             path: path.to_vec(),
@@ -1984,6 +2004,7 @@ impl RulesTxn {
             proposed: proposed.clone(),
             actual,
             counter_changes,
+            quantities,
         });
         Ok(())
     }
@@ -2178,7 +2199,11 @@ impl RulesTxn {
             &modifiers,
         );
         if *destination == Zone::Battlefield {
-            prior.apply_entry_replacements(*object, &mut entering, &modifiers, None)?;
+            for placed in
+                prior.apply_entry_replacements(*object, &mut entering, &modifiers, None)?
+            {
+                self.record_quantity(placed);
+            }
         }
         self.remove_from_combat(*object);
         self.remove_regeneration_shields(*object);
@@ -2421,7 +2446,7 @@ impl RulesTxn {
                         || !prior.current(*target).is_ok_and(|o| {
                             o.present_on_battlefield() && prior.is_live(o.controller)
                         })
-                        || (!chosen && !prior.targetable_by(*target, source.controller))
+                        || (!chosen && !prior.targetable_by(*target, source.controller)?)
                         || prior.protected_from(*target, &characteristics)?
                     {
                         return Err("invalid attached Aura entry".into());
@@ -2539,7 +2564,7 @@ impl RulesTxn {
                 )?
             }
             ProposedEvent::DestroyCreature { object } => {
-                if !self.is_battlefield_creature(*object) {
+                if !self.is_battlefield_creature(*object)? {
                     return Err("invalid destroy creature event".into());
                 }
                 // CR 702.12b, 701.8b, 614.17c: a forbidden destruction
@@ -2595,6 +2620,27 @@ impl RulesTxn {
                 {
                     return Err("invalid counter placement".into());
                 }
+                // CR 614.1a, 614.16: each kind is one member a quantity
+                // replacement may modify; a resolving effect's placement is
+                // produced by an effect, precombat-main lore is not.
+                let prior = entry_state.unwrap_or(self);
+                let effect = matches!(authority, BatchAuthority::PlaceCounters);
+                let recipient = prior.current(*object)?;
+                let creature = prior.is_battlefield_creature(*object)?;
+                let mut placed = vec![];
+                for c in counters {
+                    placed.push(prior.replace_quantity(
+                        replacement::QuantityMember::Counters {
+                            holder: *object,
+                            controller: recipient.controller,
+                            creature,
+                            counter: &c.counter,
+                            shown: Some(*object),
+                        },
+                        &c.amount,
+                        effect,
+                    )?);
+                }
                 // CR 613.7c: existing counters of the same kind share the
                 // timestamp of the new placement.
                 let timestamp = self.allocate_timestamp(entry_state)?;
@@ -2603,8 +2649,11 @@ impl RulesTxn {
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing counter recipient")?;
-                for c in counters {
-                    o.add_counters(&c.counter, &c.amount, timestamp);
+                for (c, application) in counters.iter().zip(&placed) {
+                    o.add_counters(&c.counter, &application.amount, timestamp);
+                }
+                for application in placed {
+                    self.record_quantity(application);
                 }
                 EventOutcome::CounterAction
             }
@@ -3226,6 +3275,33 @@ impl RulesTxn {
                     return Err("invalid turn face up event".into());
                 }
                 let counter = face_down.kind == FaceDownKind::Megamorph;
+                // CR 614.1e, 614.16: the megamorph counter is put by a
+                // replacement as the permanent is turned face up, so quantity
+                // replacements see it as it would exist face up. The
+                // permanent's own abilities do not yet function.
+                let application = if counter {
+                    let mut face_up = self.fork();
+                    face_up
+                        .rules_mut()
+                        .objects
+                        .get_mut(&object.card)
+                        .ok_or("missing face-down object")?
+                        .face_down = false;
+                    let creature = face_up.is_battlefield_creature(*object)?;
+                    Some(self.replace_quantity(
+                        replacement::QuantityMember::Counters {
+                            holder: *object,
+                            controller: o.controller,
+                            creature,
+                            counter: &mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+                            shown: Some(*object),
+                        },
+                        &Quantity::from(1),
+                        true,
+                    )?)
+                } else {
+                    None
+                };
                 // CR 613.7f, 613.7m: a new timestamp, ordered by APNAP.
                 let rank = self.apnap_rank(o.controller);
                 let timestamp = self.allocate_timestamp(entry_state)?;
@@ -3237,12 +3313,13 @@ impl RulesTxn {
                 o.face_down = false;
                 o.keyword_timestamp = Some(timestamp);
                 o.keyword_rank = rank;
-                if counter {
-                    o.plus_one_counters.add(&Quantity::from(1));
+                if let Some(application) = application {
+                    o.plus_one_counters.add(&application.amount);
+                    self.record_quantity(application);
                 }
                 // CR 506.4: a permanent that stops being a creature, such as
                 // a land or enchantment card with morph, is removed from combat.
-                if !self.is_battlefield_creature(*object) {
+                if !self.is_battlefield_creature(*object)? {
                     self.remove_from_combat(*object);
                 }
                 EventOutcome::TurnedFaceUp { object: *object }

@@ -454,10 +454,16 @@ fn validate_target_bindings(
                         && group_leaf_shape(node) == shape
                 })
             });
+        // CR 608.2f, 603.2c: counters on each legal member are one
+        // simultaneous placement over the whole group.
+        let placement = battlefield
+            && matches!(targeted.as_slice(),
+                [kir::Node::Do(kir::Verb::PutCounters { on: kir::SetExpr::Targets { slots }, .. })]
+                    if slots.iter().copied().eq(0..count as u32));
         let sacrifice_return = !p.optional_target
             && matches!(targeted.as_slice(),
             [kir::Node::SacrificeForTappedReturn { count: c }] if *c as usize == count);
-        if !(batch || leaves || sacrifice_return) {
+        if !(batch || leaves || placement || sacrifice_return) {
             return cell("target", "group_requires_batch_or_order_free_leaves");
         }
     } else if p.targets.len() > 1 && p.optional_target {
@@ -1954,6 +1960,34 @@ mod tests {
             },
             0,
         )
+    }
+
+    #[test]
+    fn conditional_counter_quantity_replacements_do_not_execute() {
+        let definition = |condition| {
+            with(|d| {
+                d.static_abilities.push(crate::StaticAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    effect: kir::StaticEffect::Rule {
+                        rule: kir::StaticRule::ModifyQuantity {
+                            event: kir::QuantityEvent::PutCounters {
+                                counter: None,
+                                recipients: kir::CounterRecipients::Permanents,
+                                origin: kir::ReplacementOrigin::Effect,
+                            },
+                            change: crate::QuantityModification::Multiply { factor: 2.into() },
+                        },
+                        condition,
+                    },
+                });
+            })
+        };
+        assert!(kir::definition_tiers(&definition(None)).is_ok());
+        let on_your_turn = kir::Cond::ActivePlayer {
+            player: kir::PlayerExpr::static_controller(),
+        };
+        let error = kir::definition_tiers(&definition(Some(on_your_turn))).unwrap_err();
+        assert!(error.to_string().contains("rule-scope"), "{error}");
     }
 
     /// CR 118.3, 119.4: a life payment is a mana-ability cost only. A

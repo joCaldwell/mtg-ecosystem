@@ -87,7 +87,7 @@ impl RulesTxn {
             && o.controller == player
             && !o.tapped
             && (o.attack_ready
-                || !self.is_battlefield_creature(source)
+                || !self.is_battlefield_creature(source)?
                 || self.has_keyword(source, KeywordAbility::Haste)?))
     }
 

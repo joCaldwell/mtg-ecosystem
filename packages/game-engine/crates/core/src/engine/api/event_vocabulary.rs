@@ -382,8 +382,10 @@ pub enum EventOutcome {
         selected: Option<u32>,
         position: OpenStream,
     },
+    /// CR 701.36a: the populated copies, more than one when a quantity
+    /// replacement modified the creation (CR 614.1a).
     TokenCopied {
-        object: ObjectId,
+        objects: Vec<ObjectId>,
         controller: PlayerId,
         original: ObjectId,
     },

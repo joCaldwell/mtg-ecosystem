@@ -527,9 +527,9 @@ impl RulesTxn {
                 Ok(value)
             }
             // CR 700.5: the controller's devotion as the verb reads it.
-            Amount::Devotion { player, colors } if player.is_you() => self
-                .devotion(self.entry(frame.stack_id)?.controller, colors)
-                .ok_or_else(|| "missing devotion definition".into()),
+            Amount::Devotion { player, colors } if player.is_you() => {
+                self.devotion(self.entry(frame.stack_id)?.controller, colors)
+            }
             Amount::OtherCastsManaValue { caster } if caster.is_you() => {
                 self.other_casts_mana_value(self.entry(frame.stack_id)?)
             }
