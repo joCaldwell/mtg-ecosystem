@@ -37,7 +37,8 @@ impl StackKind {
                     witness @ (TriggerEventWitness::StepBegan { .. }
                     | TriggerEventWitness::SpellCast { .. }
                     | TriggerEventWitness::CardDrawn { .. }
-                    | TriggerEventWitness::AttackerUnblocked { .. }),
+                    | TriggerEventWitness::AttackerUnblocked { .. }
+                    | TriggerEventWitness::BecameBlocked { .. }),
                 ..
             } => Ok(witness.event_player()),
             _ => Err("unbound event-player recipient".into()),
@@ -305,7 +306,8 @@ impl RulesTxn {
                             Err("action event requires a player damage recipient".into())
                         }
                     },
-                    TriggerEventWitness::AttackerUnblocked { defender, .. } => Ok(*defender),
+                    TriggerEventWitness::AttackerUnblocked { defender, .. }
+                    | TriggerEventWitness::BecameBlocked { defender, .. } => Ok(*defender),
                     _ => Err("unbound damage-recipient action".into()),
                 }
             }

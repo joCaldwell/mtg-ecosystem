@@ -1974,3 +1974,53 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
         assert!(serde_json::from_value::<SourceKeyword>(missing).is_err());
     }
 }
+
+const IGNOBLE_HIERARCH: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/c8de43a3-ebd3-4000-b343-a6ffed11d34d.json");
+const CATHEDRAL_OF_WAR: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/5ff647e4-730a-498f-8f2c-5bd64d5a9780.json");
+
+const HAMMER_DROPPER: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/088c9fa7-65ec-48c6-90cc-9087bc9df43e.json");
+
+/// CR 702.83a: exalted on a creature or a land lowers to "whenever a creature
+/// you control attacks alone, that creature gets +1/+1 until end of turn".
+/// CR 702.134a: mentor's relative-power target is unsupported and rejects by
+/// name.
+#[test]
+fn combat_keywords_lower_their_defining_triggers() {
+    let lowers = |raw: &str| lower(accepted_manifest(R5).unwrap(), raw);
+    let mentor = lowers(HAMMER_DROPPER).unwrap_err();
+    assert!(mentor.reason.contains("mentor"), "{mentor:?}");
+    let you = kir::Atom::ControlledBy {
+        player: kir::PlayerExpr::you(kir::Context::Triggered),
+    };
+    let creature = kir::Atom::Type {
+        kind: CardKind::Creature,
+    };
+    for raw in [IGNOBLE_HIERARCH, CATHEDRAL_OF_WAR] {
+        let card = lowers(raw).unwrap();
+        let [exalted] = card.triggered.as_slice() else {
+            panic!("one exalted trigger");
+        };
+        assert_eq!(
+            *exalted.condition.pattern(),
+            EventPattern::AttacksAlone {
+                attacker: kir::Pred(vec![creature.clone(), you.clone()])
+            }
+        );
+        assert!(matches!(
+            sole_node(exalted).verb(),
+            Some(kir::Verb::ModifyUntil {
+                what: kir::SetExpr::One {
+                    object: kir::Ref::EventObject {
+                        role: kir::EventObjectRole::Attacked
+                    }
+                },
+                change: kir::Change::PowerToughness { power, toughness },
+                until: kir::Until::EndOfTurn,
+                ..
+            }) if *power == kir::Amount::fixed(1) && *toughness == kir::Amount::fixed(1)
+        ));
+    }
+}

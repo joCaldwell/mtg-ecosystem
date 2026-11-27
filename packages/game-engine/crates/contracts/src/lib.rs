@@ -430,6 +430,10 @@ pub enum Capability {
     MenaceV1,
     FightV1,
     PopulateV1,
+    /// CR 702.116a: myriad's attacking token copies and their exile.
+    MyriadV1,
+    /// CR 702.25a: the flanking marker and its block-pair trigger.
+    FlankingV1,
     PlayerCountersV1,
     ProliferateV1,
     CreatureTokensV1,
@@ -796,6 +800,8 @@ impl CreatureToken {
                 .any(|k| k.basic_landwalk_type().is_some() || k.fixed_protection_color().is_some())
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
+            // CR 702.25a: a token recipe carries no flanking trigger.
+            || self.keywords.contains(&KeywordAbility::Flanking)
             || self.colors.contains(&Color::C)
             || self.colors.iter().collect::<BTreeSet<_>>().len() != self.colors.len()
             || self.subtypes.is_empty()
@@ -1789,6 +1795,10 @@ pub enum KeywordAbility {
     Horsemanship,
     Fear,
     Skulk,
+    // CR 702.25a: flanking is a triggered ability; this marker is what "a
+    // creature without flanking" reads. Each printed instance is its own
+    // trigger, and nothing grants or removes the marker alone.
+    Flanking,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -1827,6 +1837,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "horsemanship" => Ok(Self::Horsemanship),
             "fear" => Ok(Self::Fear),
             "skulk" => Ok(Self::Skulk),
+            "flanking" => Ok(Self::Flanking),
 
             other => Err(de::Error::unknown_variant(
                 other,
@@ -1863,6 +1874,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "horsemanship",
                     "fear",
                     "skulk",
+                    "flanking",
                 ],
             )),
         }
@@ -2281,7 +2293,10 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
         E::BecomesTapped { .. } if *pattern == E::self_becomes_tapped() => {
             Capability::SourceTapTriggerV1
         }
-        E::Attacks { .. } => Capability::AttackTriggerV1,
+        E::Attacks { .. }
+        | E::AttacksAlone { .. }
+        | E::AttacksWithGreaterPower { .. }
+        | E::AttacksPlayerWithMostLife { .. } => Capability::AttackTriggerV1,
         E::Cast { spell, .. } => {
             if matches!(spell.0.as_slice(), [Atom::Color { .. }]) {
                 caps.push(Capability::CastColorPredicateV1);
@@ -2435,6 +2450,7 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
         | KeywordAbility::Horsemanship
         | KeywordAbility::Fear
         | KeywordAbility::Skulk => Capability::EvasionKeywordsV1,
+        KeywordAbility::Flanking => Capability::FlankingV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
     })
 }

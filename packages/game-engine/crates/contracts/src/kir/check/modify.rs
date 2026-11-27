@@ -215,6 +215,11 @@ impl Walk<'_, '_> {
                 SetExpr::One {
                     object: Ref::Source,
                 } => Ok(Cell::PumpSource),
+                // CR 702.83a, 603.10: the creature an attack event names
+                // ("that creature"), bound to the exact declared incarnation.
+                SetExpr::One {
+                    object: Ref::EventObject { .. },
+                } if !self.plain_leaf => Ok(Cell::PumpEventObject),
                 SetExpr::One {
                     object: Ref::Target { slot },
                 } => match self.domain(*slot)? {
@@ -233,7 +238,18 @@ impl Walk<'_, '_> {
                     kind: CardKind::Creature,
                 }) =>
                 {
-                    Self::audited_filter(&ZoneExpr::Battlefield, filter).map(|()| Cell::PumpSet)
+                    // CR 702.91a, 109.1: "each other": a permanent's own
+                    // ability may exclude its exact source from the set.
+                    let other = Atom::IsNot {
+                        object: Ref::Source,
+                    };
+                    let rest = Pred(filter.0.iter().filter(|a| **a != other).cloned().collect());
+                    if rest.0.len() + 1 < filter.0.len()
+                        || (rest.0.len() < filter.0.len() && self.env.context == Context::Spell)
+                    {
+                        return unaudited("pump set exclusion");
+                    }
+                    Self::audited_filter(&ZoneExpr::Battlefield, &rest).map(|()| Cell::PumpSet)
                 }
                 _ => unaudited("pump set"),
             },
@@ -336,7 +352,7 @@ pub(super) fn capabilities(what: &SetExpr, change: &Change, out: &mut BTreeSet<C
     match (what, change) {
         (
             SetExpr::One {
-                object: Ref::Target { .. },
+                object: Ref::Target { .. } | Ref::EventObject { .. },
             },
             Change::PowerToughness { .. },
         ) => {

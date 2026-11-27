@@ -159,6 +159,7 @@ impl RulesTxn {
                 libraries: prepared.config.initial_libraries().into(),
                 combat: vec![],
                 combat_declared: false,
+                combat_defenders: vec![],
                 damage_choices: BTreeMap::new(),
                 player_damage_choices: BTreeMap::new(),
                 first_strike_participants: BTreeSet::new(),
