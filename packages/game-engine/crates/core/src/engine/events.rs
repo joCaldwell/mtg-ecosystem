@@ -391,7 +391,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::PlayerCounters(*player)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutPlusOneCounters { object, .. } => {
+        ProposedEvent::PutCounters { object, .. } | ProposedEvent::AnnihilateCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -940,7 +940,8 @@ impl RulesTxn {
                 ProposedEvent::GivePlayerCounters { player, .. } => {
                     players.insert(*player);
                 }
-                ProposedEvent::PutPlusOneCounters { object, .. } => {
+                ProposedEvent::PutCounters { object, .. }
+                | ProposedEvent::AnnihilateCounters { object, .. } => {
                     objects.insert(*object);
                 }
                 ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
@@ -1608,7 +1609,7 @@ impl RulesTxn {
             || events.iter().any(|e| {
                 matches!(
                     e,
-                    ProposedEvent::PutPlusOneCounters { .. }
+                    ProposedEvent::PutCounters { .. }
                         | ProposedEvent::GivePlayerCounters { .. }
                 )
             })
@@ -2088,6 +2089,7 @@ impl RulesTxn {
                 control_upkeeps,
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 plus_one_counters,
+                counters: vec![],
                 transforms: 0,
                 adventure_player: None,
                 marked_damage: Quantity::zero(),
@@ -2485,7 +2487,11 @@ impl RulesTxn {
                     previous_energy,
                 }
             }
-            ProposedEvent::PutPlusOneCounters { object, amount } => {
+            ProposedEvent::PutCounters {
+                object,
+                counter,
+                amount,
+            } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {
                     return Err("counter placement requires complete batch authority".into());
                 }
@@ -2494,18 +2500,45 @@ impl RulesTxn {
                 if !self.current(*object)?.present_on_battlefield() || *amount <= Quantity::zero() {
                     return Err("invalid counter placement".into());
                 }
+                // CR 613.7c: the placement's batch timestamps every counter
+                // of that kind on the permanent.
+                let timestamp = self.state.rules.next_batch_id;
                 let o = self
                     .rules_mut()
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing counter recipient")?;
-                let previous = o.plus_one_counters.clone();
-                o.plus_one_counters.add(amount);
-                EventOutcome::PlusOneCountersPlaced {
+                let previous = o.add_counters(counter, amount, timestamp);
+                EventOutcome::CountersPlaced {
                     object: *object,
+                    counter: counter.clone(),
                     amount: amount.clone(),
                     previous,
-                    current: o.plus_one_counters.clone(),
+                    current: o.counter_count(counter),
+                }
+            }
+            ProposedEvent::AnnihilateCounters { object, amount } => {
+                // CR 122.3, 704.5q: exactly the smaller of the two counts,
+                // only as a state-based action.
+                let o = self.current(*object)?;
+                let plus = o.plus_one_counters.clone();
+                let minus = o.counter_count(&mtg_contracts::kir::CounterKind::MinusOneMinusOne);
+                if !o.present_on_battlefield()
+                    || *amount <= Quantity::zero()
+                    || *amount != std::cmp::min(plus, minus)
+                {
+                    return Err("invalid counter annihilation".into());
+                }
+                let o = self
+                    .rules_mut()
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing annihilation object")?;
+                o.remove_counters(&mtg_contracts::kir::CounterKind::PlusOnePlusOne, amount);
+                o.remove_counters(&mtg_contracts::kir::CounterKind::MinusOneMinusOne, amount);
+                EventOutcome::CountersAnnihilated {
+                    object: *object,
+                    amount: amount.clone(),
                 }
             }
             event @ (ProposedEvent::CreateTokenCopy { .. }

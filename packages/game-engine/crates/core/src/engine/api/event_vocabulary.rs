@@ -133,7 +133,13 @@ pub enum ProposedEvent {
         poison: Quantity,
         energy: Quantity,
     },
-    PutPlusOneCounters {
+    PutCounters {
+        object: ObjectId,
+        counter: mtg_contracts::kir::CounterKind,
+        amount: Quantity,
+    },
+    /// CR 122.3, 704.5q: remove `amount` +1/+1 and `amount` -1/-1 counters.
+    AnnihilateCounters {
         object: ObjectId,
         amount: Quantity,
     },
@@ -381,11 +387,16 @@ pub enum EventOutcome {
         previous_poison: Quantity,
         previous_energy: Quantity,
     },
-    PlusOneCountersPlaced {
+    CountersPlaced {
         object: ObjectId,
+        counter: mtg_contracts::kir::CounterKind,
         amount: Quantity,
         previous: Quantity,
         current: Quantity,
+    },
+    CountersAnnihilated {
+        object: ObjectId,
+        amount: Quantity,
     },
     SpellCopyCeased {
         object: ObjectId,

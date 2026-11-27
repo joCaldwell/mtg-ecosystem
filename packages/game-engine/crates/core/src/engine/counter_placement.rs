@@ -3,12 +3,13 @@
 //! Freeze instruction allocations, then place all surviving amounts in one
 //! batch. Costs and their reversal are separate.
 use super::*;
-use mtg_contracts::kir::{PlayerCounterKind, PlayerExpr};
+use mtg_contracts::kir::{CounterKind, PlayerCounterKind, PlayerExpr};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CounterPlacementMember {
     pub object: ObjectId,
+    pub counter: CounterKind,
     pub amount: Quantity,
 }
 
@@ -34,6 +35,7 @@ impl RulesTxn {
         &mut self,
         frame: Resolving,
         object: ObjectId,
+        counter: CounterKind,
         amount: Quantity,
         cause: BatchCause,
     ) -> Result<(), String> {
@@ -43,17 +45,22 @@ impl RulesTxn {
         if amount == Quantity::zero() || !self.is_battlefield_creature(object) {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        self.begin_counter_placements(frame, vec![(object, amount)], cause)
+        self.begin_counter_placements(frame, counter, vec![(object, amount)], cause)
     }
     pub(super) fn begin_counter_placements(
         &mut self,
         frame: Resolving,
+        counter: CounterKind,
         allocations: Vec<(ObjectId, Quantity)>,
         cause: BatchCause,
     ) -> Result<(), String> {
         let members = allocations
             .into_iter()
-            .map(|(object, amount)| CounterPlacementMember { object, amount })
+            .map(|(object, amount)| CounterPlacementMember {
+                object,
+                counter: counter.clone(),
+                amount,
+            })
             .collect();
         self.begin_counter_transaction(frame, members, vec![], cause)
     }
@@ -84,7 +91,40 @@ impl RulesTxn {
 
     pub(super) fn can_proliferate_permanent(&self, object: ObjectId) -> bool {
         self.current(object)
-            .is_ok_and(|o| o.present_on_battlefield() && o.plus_one_counters > Quantity::zero())
+            .is_ok_and(|o| o.present_on_battlefield() && o.counter_kinds().next().is_some())
+    }
+
+    /// CR 701.34a: one more counter of each kind the permanent has.
+    fn proliferate_permanent(
+        &self,
+        object: ObjectId,
+    ) -> Result<Vec<CounterPlacementMember>, String> {
+        if !self.can_proliferate_permanent(object) {
+            return Err("proliferate selected a permanent without counters".into());
+        }
+        Ok(self
+            .current(object)?
+            .counter_kinds()
+            .map(|counter| CounterPlacementMember {
+                object,
+                counter,
+                amount: Quantity::from(1),
+            })
+            .collect())
+    }
+
+    /// CR 122.3, 704.5q: the annihilation a permanent with both +1/+1 and
+    /// -1/-1 counters undergoes at the next state-based check.
+    pub(super) fn annihilation(o: &Object) -> Option<ProposedEvent> {
+        let amount = std::cmp::min(
+            o.plus_one_counters.clone(),
+            o.counter_count(&CounterKind::MinusOneMinusOne),
+        );
+        (o.present_on_battlefield() && amount > Quantity::zero())
+            .then_some(ProposedEvent::AnnihilateCounters {
+                object: o.id,
+                amount,
+            })
     }
 
     pub(super) fn can_proliferate_player(&self, player: PlayerId) -> bool {
@@ -117,10 +157,9 @@ impl RulesTxn {
         let mut players = vec![];
         for recipient in entities {
             match recipient {
-                TargetEntity::Object { object } => members.push(CounterPlacementMember {
-                    object,
-                    amount: Quantity::from(1),
-                }),
+                TargetEntity::Object { object } => {
+                    members.extend(self.proliferate_permanent(object)?);
+                }
                 TargetEntity::Player { player } => players.push(
                     self.proliferate_player(player)
                         .ok_or("proliferate selected a player without counters")?,
@@ -204,9 +243,13 @@ impl RulesTxn {
         let block = match self.counter_instruction(frame)? {
             kernel!(PutCounters {
                 on,
-                counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
-                amount: fixed!(amount),
+                counter,
+                amount,
             } @ source_block) => {
+                let amount = &self.kernel_amount(frame, amount)?;
+                if members.iter().any(|m| m.counter != *counter) {
+                    return Err("counter placement kind mismatch".into());
+                }
                 let matches = match on {
                     mtg_contracts::kir::SetExpr::Matching { zone, filter } => {
                         let expected = self.kernel_set(frame, zone, filter)?.0;
@@ -251,16 +294,18 @@ impl RulesTxn {
                 source_block
             }
             kernel!(Proliferate { .. } @ source_block) => {
+                let mut objects: Vec<_> = members.iter().map(|m| m.object).collect();
+                objects.dedup();
+                let expected = objects
+                    .iter()
+                    .map(|object| self.proliferate_permanent(*object))
+                    .collect::<Result<Vec<_>, _>>();
                 if !self.is_live(self.entry(frame.stack_id)?.controller)
-                    || members
-                        .windows(2)
-                        .any(|pair| pair[0].object >= pair[1].object)
+                    || objects.windows(2).any(|pair| pair[0] >= pair[1])
                     || players
                         .windows(2)
                         .any(|pair| pair[0].player >= pair[1].player)
-                    || members.iter().any(|m| {
-                        m.amount != Quantity::from(1) || !self.can_proliferate_permanent(m.object)
-                    })
+                    || expected.map_or(true, |e| e.concat() != *members)
                     || players
                         .iter()
                         .any(|m| self.proliferate_player(m.player).as_ref() != Some(m))
@@ -311,8 +356,9 @@ impl RulesTxn {
                     self.is_battlefield_creature(m.object)
                 }
             })
-            .map(|m| ProposedEvent::PutPlusOneCounters {
+            .map(|m| ProposedEvent::PutCounters {
                 object: m.object,
+                counter: m.counter.clone(),
                 amount: m.amount.clone(),
             })
             .collect();

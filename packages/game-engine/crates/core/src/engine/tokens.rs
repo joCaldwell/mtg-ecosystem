@@ -295,6 +295,7 @@ impl RulesTxn {
                 battlefield_entry_turn: (zone == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
                 plus_one_counters: Quantity::zero(),
+                counters: vec![],
                 transforms: 0,
                 adventure_player: None,
                 marked_damage: Quantity::zero(),
@@ -392,9 +393,14 @@ impl RulesTxn {
 
             kernel!(PutCounters {
                 on,
-                counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
-                amount: fixed!(amount),
+                counter,
+                amount,
             } @ source_block) => {
+                // CR 107.3, 608.2h: the announced X is fixed for the spell.
+                let amount = self.kernel_amount(&frame, &amount)?;
+                if amount == Quantity::zero() {
+                    return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
                 if let mtg_contracts::kir::SetExpr::Matching { zone, filter } = on {
                     let objects = self.kernel_set(&frame, &zone, &filter)?.0;
                     let cause = self.instruction_cause(&frame, source_block)?;
@@ -402,7 +408,7 @@ impl RulesTxn {
                         .into_iter()
                         .map(|object| (object, amount.clone()))
                         .collect();
-                    return self.begin_counter_placements(frame, allocations, cause);
+                    return self.begin_counter_placements(frame, counter, allocations, cause);
                 }
                 if let mtg_contracts::kir::SetExpr::One {
                     object: mtg_contracts::kir::Ref::EventObject { .. },
@@ -424,7 +430,12 @@ impl RulesTxn {
                         );
                     }
                     let cause = self.instruction_cause(&frame, source_block)?;
-                    return self.begin_counter_placements(frame, vec![(object, amount)], cause);
+                    return self.begin_counter_placements(
+                        frame,
+                        counter,
+                        vec![(object, amount)],
+                        cause,
+                    );
                 }
                 let target = match on {
                     source_object!() => self.entry(frame.stack_id)?.source,
@@ -446,8 +457,9 @@ impl RulesTxn {
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 (
-                    ProposedEvent::PutPlusOneCounters {
+                    ProposedEvent::PutCounters {
                         object: target,
+                        counter,
                         amount,
                     },
                     source_block,
@@ -462,8 +474,13 @@ impl RulesTxn {
             cursor: frame.cursor,
             source_block: block,
         };
-        if let ProposedEvent::PutPlusOneCounters { object, amount } = event {
-            return self.begin_counter_placement(frame, object, amount, cause);
+        if let ProposedEvent::PutCounters {
+            object,
+            counter,
+            amount,
+        } = event
+        {
+            return self.begin_counter_placement(frame, object, counter, amount, cause);
         }
         let actual = self.commit(event, cause)?;
         self.finish_instruction(
@@ -801,6 +818,23 @@ impl RulesTxn {
                         || !self.historical_creature_possible(
                             &self.copiable_definition(o.id)?.characteristics,
                         )))
+            {
+                return Err("snapshot counter invariant".into());
+            }
+            // CR 122.1, 122.2: other kinds are positive, in kind order, and
+            // exist only on the battlefield; P/T counters need a creature.
+            if o.counters.windows(2).any(|w| w[0].kind >= w[1].kind)
+                || o.counters.iter().any(|stack| {
+                    stack.count <= Quantity::zero()
+                        || stack.kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne
+                        || o.zone != Zone::Battlefield
+                        || stack.timestamp > self.state.rules.next_batch_id
+                })
+                || (o.counters.iter().any(|stack| {
+                    stack.kind == mtg_contracts::kir::CounterKind::MinusOneMinusOne
+                }) && !self.historical_creature_possible(
+                    &self.copiable_definition(o.id)?.characteristics,
+                ))
             {
                 return Err("snapshot counter invariant".into());
             }

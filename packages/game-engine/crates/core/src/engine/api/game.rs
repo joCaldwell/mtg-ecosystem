@@ -106,6 +106,7 @@ impl RulesTxn {
                         control_upkeeps: (c.zone == Zone::Battlefield).then_some(0),
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
+                        counters: vec![],
                         transforms: 0,
                         adventure_player: None,
                         marked_damage: Quantity::zero(),

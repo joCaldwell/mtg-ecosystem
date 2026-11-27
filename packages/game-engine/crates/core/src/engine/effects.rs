@@ -1249,11 +1249,14 @@ impl RulesTxn {
         }
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
+            let minus = o.counter_count(&mtg_contracts::kir::CounterKind::MinusOneMinusOne);
             if let Some(p) = c.power.as_mut() {
                 p.add(&o.plus_one_counters);
+                p.subtract(&minus);
             }
             if let Some(t) = c.toughness.as_mut() {
                 t.add(&o.plus_one_counters);
+                t.subtract(&minus);
             }
         }
         for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources) {

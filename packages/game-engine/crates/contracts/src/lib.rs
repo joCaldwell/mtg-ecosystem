@@ -432,6 +432,8 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    /// CR 122.1a, 122.3, 704.5q: -1/-1 counters and their annihilation.
+    MinusOneCountersV1,
 
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -942,11 +944,25 @@ impl Instruction {
     }
     /// CR 122.1: put `amount` +1/+1 counters on `on`.
     pub fn plus_one_counters(on: kir::SetExpr, amount: Quantity, source_block: u32) -> Self {
+        Self::counters(
+            on,
+            kir::CounterKind::PlusOnePlusOne,
+            kir::Amount::Fixed { value: amount },
+            source_block,
+        )
+    }
+    /// CR 122.1: put `amount` counters of `counter` on `on`.
+    pub fn counters(
+        on: kir::SetExpr,
+        counter: kir::CounterKind,
+        amount: kir::Amount,
+        source_block: u32,
+    ) -> Self {
         Self::act(
             kir::Verb::PutCounters {
                 on,
-                counter: kir::CounterKind::PlusOnePlusOne,
-                amount: kir::Amount::Fixed { value: amount },
+                counter,
+                amount,
             },
             source_block,
         )

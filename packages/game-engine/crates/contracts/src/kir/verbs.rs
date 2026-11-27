@@ -64,7 +64,9 @@ pub enum Destination {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(tag = "counter", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CounterKind {
     /// CR 122.1a.

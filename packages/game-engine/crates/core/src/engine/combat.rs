@@ -861,6 +861,24 @@ impl RulesTxn {
             }
         }
         self.attachment_sbas(&mut occurrences)?;
+        // CR 704.3, 704.5q: annihilation is part of the same wave; a
+        // permanent leaving in it loses its counters anyway (CR 122.2).
+        let leaving: BTreeSet<_> = occurrences
+            .iter()
+            .filter_map(|e| match e {
+                ProposedEvent::StateBasedGraveyard { object, .. }
+                | ProposedEvent::Move { object, .. } => Some(*object),
+                _ => None,
+            })
+            .collect();
+        occurrences.extend(
+            self.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| !leaving.contains(&o.id))
+                .filter_map(Self::annihilation),
+        );
         // CR 704.5j: put the unchosen legends into their owners' graveyards.
         // This is neither destruction nor sacrifice (CR 701.8/701.21).
         for group in &groups {

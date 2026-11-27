@@ -74,6 +74,11 @@ pub struct Object {
     pub(in crate::engine) control_upkeeps: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    /// CR 122.1, 613.7c: the other counter kinds on this permanent, each
+    /// positive, in kind order. A zone change starts a new object without
+    /// them (CR 122.2, 400.7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counters: Vec<CounterStack>,
     /// CR 701.27a, 712.18: how many times this permanent has transformed
     /// since it entered; an odd count has its other face up. A zone change
     /// starts a new object at zero (CR 400.7).
@@ -111,7 +116,91 @@ impl StackInstance {
         }
     }
 }
+/// CR 122.1, 613.7c: every counter of one kind other than +1/+1 on a
+/// permanent shares the timestamp of the latest one put on it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CounterStack {
+    pub kind: mtg_contracts::kir::CounterKind,
+    pub count: Quantity,
+    pub timestamp: u64,
+}
 impl Object {
+    /// CR 122.1: how many counters of `kind` this object has.
+    pub fn counter_count(&self, kind: &mtg_contracts::kir::CounterKind) -> Quantity {
+        if *kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
+            return self.plus_one_counters.clone();
+        }
+        self.counters
+            .iter()
+            .find(|stack| stack.kind == *kind)
+            .map_or_else(Quantity::zero, |stack| stack.count.clone())
+    }
+    /// CR 122.1: the kinds of counters this object has, in kind order.
+    pub fn counter_kinds(&self) -> impl Iterator<Item = mtg_contracts::kir::CounterKind> + '_ {
+        (self.plus_one_counters > Quantity::zero())
+            .then_some(mtg_contracts::kir::CounterKind::PlusOnePlusOne)
+            .into_iter()
+            .chain(self.counters.iter().map(|stack| stack.kind.clone()))
+    }
+    /// CR 122.1, 613.7c: add `amount` counters of `kind`; every counter of
+    /// that kind takes `timestamp`. Returns the previous count.
+    pub(in crate::engine) fn add_counters(
+        &mut self,
+        kind: &mtg_contracts::kir::CounterKind,
+        amount: &Quantity,
+        timestamp: u64,
+    ) -> Quantity {
+        if *kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
+            let previous = self.plus_one_counters.clone();
+            self.plus_one_counters.add(amount);
+            return previous;
+        }
+        match self.counters.binary_search_by(|stack| stack.kind.cmp(kind)) {
+            Ok(i) => {
+                let stack = &mut self.counters[i];
+                let previous = stack.count.clone();
+                stack.count.add(amount);
+                stack.timestamp = timestamp;
+                previous
+            }
+            Err(i) => {
+                self.counters.insert(
+                    i,
+                    CounterStack {
+                        kind: kind.clone(),
+                        count: amount.clone(),
+                        timestamp,
+                    },
+                );
+                Quantity::zero()
+            }
+        }
+    }
+    /// CR 122.1: remove up to `amount` counters of `kind`; returns the
+    /// previous count.
+    pub(in crate::engine) fn remove_counters(
+        &mut self,
+        kind: &mtg_contracts::kir::CounterKind,
+        amount: &Quantity,
+    ) -> Quantity {
+        if *kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
+            let previous = self.plus_one_counters.clone();
+            let removed = std::cmp::min(previous.clone(), amount.clone());
+            self.plus_one_counters.subtract(&removed);
+            return previous;
+        }
+        let Ok(i) = self.counters.binary_search_by(|stack| stack.kind.cmp(kind)) else {
+            return Quantity::zero();
+        };
+        let previous = self.counters[i].count.clone();
+        if previous <= *amount {
+            self.counters.remove(i);
+        } else {
+            self.counters[i].count.subtract(amount);
+        }
+        previous
+    }
     pub fn present_on_battlefield(&self) -> bool {
         self.zone == Zone::Battlefield && self.phased_out.is_none()
     }

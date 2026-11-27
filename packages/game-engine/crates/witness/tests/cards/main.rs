@@ -5,6 +5,7 @@ mod characteristic_pt;
 mod continuous;
 mod control;
 mod costs;
+mod counters;
 mod counter_regeneration;
 mod damage_triggers;
 mod evasion;

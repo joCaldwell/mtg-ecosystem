@@ -1772,7 +1772,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         Verb::Untap { what } => tap::untap_capabilities(what, out),
         Verb::CreateTokens { token, .. } => tokens::capabilities(token, out),
-        Verb::PutCounters { counter, .. } => counters::capabilities(counter, out),
+        Verb::PutCounters {
+            counter, amount, ..
+        } => counters::capabilities(counter, amount, out),
         Verb::ModifyUntil { what, change, .. } => modify::capabilities(what, change, out),
         Verb::GainControl { .. } => {
             out.insert(Capability::ResolvedControlV1);
