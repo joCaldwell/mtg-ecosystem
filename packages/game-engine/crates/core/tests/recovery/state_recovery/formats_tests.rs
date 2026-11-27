@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    97,
-    "7cddcd166178cf4280eabdb08f62030367adcd9d627fd553dd84ace40cccd18d",
+    98,
+    "e5a7ad7adba9eb00ceda5601be50504e7439c47ea857e5fb50c131729c23007e",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    127,
-    "f269c9cec0bb3e7a929e3ce72869f07aafa78339026a151f7b680213006b26eb",
+    128,
+    "f26ccc3e861131390e5ab28526e2505dfeedfa7587626a778414d3908f2295e3",
 );
 const WORK_PIN: (u32, &str) = (
     63,
@@ -605,6 +605,7 @@ fn activation_condition_shapes() -> Vec<Game> {
                 restriction: Some(ActivationRestriction {
                     window: None,
                     once_each_turn: false,
+                    times_each_turn: None,
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,
@@ -693,8 +694,7 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
         },
     ])
     .map(move |check| {
-        sample["state"]["rules"]["frame"]["frame"]["condition_check"] =
-            serde_json::to_value(check).unwrap();
+        sample["state"]["frame"]["frame"]["condition_check"] = serde_json::to_value(check).unwrap();
         serde_json::to_string(&sample).unwrap()
     })
 }
@@ -927,6 +927,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             history["creature_died"] = true.into();
             history["permanent_left"] = true.into();
             history["hand_casts"] = 1.into();
+            history["tokens_created"] = 1.into();
             for field in ["artifacts_entered", "creatures_entered", "nonlands_entered"] {
                 history[field] = serde_json::to_value(Quantity::from(1)).unwrap();
             }

@@ -785,9 +785,15 @@ impl Strategy<'_> {
                     .copied()
                     .map(object)
                     .collect::<Result<Vec<_>, _>>()?;
-                d.pick_one(&Candidate::Object {
-                    object: self.sacrifice_choice(v, &candidates)?,
-                })?
+                let picks = self
+                    .sacrifice_choices(v, &candidates, slots[0].min as usize)?
+                    .into_iter()
+                    .map(|object| {
+                        d.index(&Candidate::Object { object })
+                            .ok_or("sacrifice candidate missing")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Answer::Pick { picks: vec![picks] }
             }
             (Reason::HybridCost, Shape::Pick { slots, .. }) => {
                 let mut choices = std::mem::take(&mut self.memory.hybrid_choices);

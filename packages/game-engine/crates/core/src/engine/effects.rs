@@ -646,6 +646,7 @@ impl RulesTxn {
             | Cond::OpponentControlsMore { .. }
             | Cond::EventOpponentControlsMore { .. }
             | Cond::ControllerCreatureTotalPower { .. }
+            | Cond::Measured { .. }
             | Cond::ControlledSinceLastUpkeep {} => false,
         }
     }

@@ -673,6 +673,10 @@ pub enum TurnFact {
     CreaturesEnteredUnderYourControl,
     CreaturesEnteredUnderOpponentsControl,
     NonlandPermanentsEnteredUnderYourControl,
+    /// CR 111.2: tokens this player created this turn.
+    TokensCreated,
+    /// CR 601.2i: instant and sorcery spells this player cast this turn.
+    InstantOrSorcerySpellsCast,
 }
 
 /// The intervening "if" clauses a triggered ability can check (CR 603.4).
@@ -1039,13 +1043,17 @@ impl Intervening {
                 }),
                 _ => false,
             },
-            Self::ControllerComparison { .. } => match pattern {
-                EventPattern::Enters { .. }
-                | EventPattern::Attacks { .. }
-                | EventPattern::StepBegins { .. } => true,
-                EventPattern::AnyOf { first, second } => self.admits(first) && self.admits(second),
-                _ => false,
-            },
+            Self::ControllerComparison { .. } | Self::ControllerCreatureTotalPower { .. } => {
+                match pattern {
+                    EventPattern::Enters { .. }
+                    | EventPattern::Attacks { .. }
+                    | EventPattern::StepBegins { .. } => true,
+                    EventPattern::AnyOf { first, second } => {
+                        self.admits(first) && self.admits(second)
+                    }
+                    _ => false,
+                }
+            }
             _ => true,
         }
     }

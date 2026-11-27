@@ -2,14 +2,26 @@
 use super::*;
 
 impl Walk<'_, '_> {
-    /// CR 701.21a: the damaged player, one announced opponent, each player
-    /// or each opponent sacrifices one creature.
+    /// CR 701.21a: the controller, each player or each opponent sacrifices
+    /// a fixed count. Other audited recipients sacrifice one.
     pub(super) fn audit_sacrifice(
         &self,
         player: &PlayerExpr,
         count: &Amount,
         filter: &Pred,
+        greatest_power: bool,
     ) -> Result<Cell, KirError> {
+        if greatest_power {
+            return if self.env.context == Context::Spell
+                && *player == PlayerExpr::EachOpponent
+                && count.as_fixed() == Some(&Quantity::from(1))
+                && *filter == Pred::creatures()
+            {
+                Ok(Cell::SacrificeEachOpponentGreatestPower)
+            } else {
+                unaudited("sacrifice greatest power")
+            };
+        }
         // CR 701.21a, 702.74a, 702.30a: "its controller sacrifices it" or
         // "sacrifice it": one exact source permanent, by its current
         // controller or by the ability's controller.
@@ -25,21 +37,49 @@ impl Walk<'_, '_> {
                 _ => unaudited("sacrifice recipient"),
             };
         }
-        if *filter != Pred::creatures() || count.as_fixed() != Some(&Quantity::from(1)) {
-            return unaudited("verb");
+        let Some(count) = count.as_fixed().and_then(Quantity::to_u32) else {
+            return unaudited("sacrifice count");
+        };
+        let fixed_count = matches!(
+            player,
+            PlayerExpr::EachPlayer
+                | PlayerExpr::EachOpponent
+                | PlayerExpr::Is {
+                    who: Ref::Controller { .. }
+                }
+        );
+        if count == 0 || (!fixed_count && count != 1) {
+            return unaudited("sacrifice count");
+        }
+        for atom in &filter.0 {
+            // Top-level source exclusion is evaluated by exact object ID.
+            battlefield_target_atom(atom, true)?;
         }
         match player {
+            PlayerExpr::Is {
+                who: Ref::Controller { .. },
+            } => Ok(Cell::SacrificeController),
             PlayerExpr::Is {
                 who:
                     Ref::EventPlayer {
                         role: EventPlayerRole::DamagedPlayer,
                     },
             } => Ok(Cell::SacrificeDamagedPlayer),
+            PlayerExpr::Is {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::ActivePlayer,
+                    },
+            } => Ok(Cell::SacrificeActivePlayer),
             PlayerExpr::EachPlayer => Ok(Cell::SacrificeEachPlayer),
             PlayerExpr::EachOpponent => Ok(Cell::SacrificeEachOpponent),
             PlayerExpr::Is {
                 who: Ref::Target { .. },
-            } if self.player_target(player)? == Some(TargetDomain::OpponentPlayer) => {
+            } if matches!(
+                self.player_target(player)?,
+                Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer)
+            ) =>
+            {
                 Ok(Cell::SacrificeTargetOpponent)
             }
             _ => unaudited("sacrifice recipient"),
@@ -56,7 +96,10 @@ pub(super) fn capabilities(player: &PlayerExpr, filter: &Pred, out: &mut BTreeSe
     }
     out.insert(match player {
         PlayerExpr::EachPlayer => Capability::BoardWipesV1,
-        PlayerExpr::EachOpponent => Capability::SacrificeV1,
+        PlayerExpr::EachOpponent
+        | PlayerExpr::Is {
+            who: Ref::Controller { .. },
+        } => Capability::SacrificeV1,
         PlayerExpr::Is {
             who: Ref::Target { .. },
         } => Capability::TargetPlayerSacrificeCreatureV1,

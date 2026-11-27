@@ -609,6 +609,7 @@ fn condition_supported(condition: &Cond) -> bool {
         | Cond::OpponentControlsMore { .. }
         | Cond::EventOpponentControlsMore { .. }
         | Cond::ControllerCreatureTotalPower { .. }
+        | Cond::Measured { .. }
         | Cond::ControlledSinceLastUpkeep {} => false,
     }
 }

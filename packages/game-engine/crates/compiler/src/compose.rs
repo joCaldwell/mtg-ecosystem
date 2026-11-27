@@ -1519,7 +1519,9 @@ fn compose_face(
                     if let Some(mut mana) = mana {
                         if spell_kind
                             || timing != SpellTiming::Instant
-                            || restriction.as_ref().is_some_and(|r| r.window.is_some())
+                            || restriction
+                                .as_ref()
+                                .is_some_and(|r| r.window.is_some() || r.times_each_turn.is_some())
                         {
                             return Err(unsupported(
                                 "restriction",

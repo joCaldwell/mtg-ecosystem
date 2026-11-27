@@ -462,46 +462,8 @@ impl RulesTxn {
         let (witness, cast) = event;
         Ok(match condition {
             Intervening::TurnHistory { fact, cmp, value } => {
-                use mtg_contracts::kir::TurnFact::*;
-                let row = &history[controller.0 as usize];
-                let quantity = |n: u32| Quantity::from(i64::from(n));
-                let spell_count = |n| {
-                    u32::try_from(n)
-                        .map(quantity)
-                        .map_err(|_| "turn history count limit")
-                };
-                let observed = match fact {
-                    Attacked => quantity(u32::from(row.attacked)),
-                    CreatureDied => {
-                        quantity(u32::from(history.iter().any(|seat| seat.creature_died)))
-                    }
-                    CreatureDiedUnderYourControl => quantity(u32::from(row.creature_died)),
-                    PermanentLeftUnderYourControl => quantity(u32::from(row.permanent_left)),
-                    SpellsCast => spell_count(row.spells.len())?,
-                    NoncreatureSpellsCast => spell_count(
-                        row.spells
-                            .iter()
-                            .filter(|spell| !spell.characteristics.has_type(CardKind::Creature))
-                            .count(),
-                    )?,
-                    SpellsCastFromHand => quantity(row.hand_casts),
-                    CardsDrawn => quantity(row.draws),
-                    LifeGained => row.life_gained.clone(),
-                    ArtifactsEnteredUnderYourControl => row.artifacts_entered.clone(),
-                    CreaturesEnteredUnderYourControl => row.creatures_entered.clone(),
-                    NonlandPermanentsEnteredUnderYourControl => row.nonlands_entered.clone(),
-                    CreaturesEnteredUnderOpponentsControl => {
-                        let mut total = Quantity::zero();
-                        // CR 102.3: this is turn history, including a physical
-                        // opponent seat whose player has since left the game.
-                        for (seat, row) in history.iter().enumerate() {
-                            if seat != controller.0 as usize {
-                                total.add(&row.creatures_entered);
-                            }
-                        }
-                        total
-                    }
-                };
+                let observed =
+                    super::triggers::TurnCastHistory::measure(history, controller, *fact)?;
                 let passed = compare(&observed, *cmp, value);
                 InterveningCheck::TurnHistory {
                     controller,
@@ -713,7 +675,7 @@ impl RulesTxn {
                     .rules
                     .objects
                     .values()
-                    .filter(|o| o.zone == Zone::Battlefield && o.controller == controller)
+                    .filter(|o| o.present_on_battlefield() && o.controller == controller)
                 {
                     let characteristics = self.characteristics(object.id)?;
                     if characteristics.has_type(CardKind::Creature) {
