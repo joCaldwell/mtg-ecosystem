@@ -199,6 +199,8 @@ mod tests {
                 player_binding: PlayerBinding::Unbound,
                 event_is_source: false,
                 event_types: 0,
+                source_named: false,
+                floor: Default::default(),
                 prior: Introduced::default(),
                 pending: Introduced::default(),
                 subject: None,

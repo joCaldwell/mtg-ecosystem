@@ -253,7 +253,8 @@ fn mentors_event_rejects_by_name() {
     );
     let row: serde_json::Value = serde_json::from_str(raw).unwrap();
     let event = &row["faces"][0]["result"]["abilities"][1]["trigger"];
-    let failure = trigger_event(&card(CardKind::Artifact), event, vec![], None, 1).unwrap_err();
+    let failure =
+        trigger_event(&card(CardKind::Artifact), event, vec![], None, 1, false).unwrap_err();
     assert_eq!(failure.reason, "trigger:mentors");
     assert!(matches!(
         compile(R5, raw),

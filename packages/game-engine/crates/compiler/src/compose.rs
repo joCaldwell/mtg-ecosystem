@@ -15,6 +15,8 @@
 use super::*;
 
 mod activation_restrictions;
+#[cfg(test)]
+mod antecedent_tests;
 mod control;
 mod costs;
 mod events;
@@ -473,6 +475,20 @@ fn trigger(
     condition: Option<&serde_json::Value>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
+    trigger_in(card, raw, parts, condition, block, false)
+}
+
+/// [`trigger`], where `names_source` records that a clause already stripped
+/// from `raw` names the source apart from the event object (CR 201.5), so
+/// the effects lower with the source as a candidate antecedent.
+fn trigger_in(
+    card: &Card<'_>,
+    raw: &serde_json::Value,
+    parts: Vec<Part>,
+    condition: Option<&serde_json::Value>,
+    block: usize,
+    names_source: bool,
+) -> Result<TriggeredAbility, Failure> {
     if raw["trigger"] == "final-chapter-ability" {
         return Err(unsupported(
             "compose.block",
@@ -489,7 +505,7 @@ fn trigger(
         if let Some(fields) = stripped.as_object_mut() {
             fields.remove("during");
         }
-        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let mut ability = trigger_in(card, &stripped, parts, condition, block, names_source)?;
         let TriggerCondition::Event { your_turn, .. } = &mut ability.condition;
         *your_turn = true;
         return Ok(ability);
@@ -509,7 +525,7 @@ fn trigger(
         if let Some(what) = stripped["what"].as_object_mut() {
             what.remove("targets");
         }
-        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let mut ability = trigger_in(card, &stripped, parts, condition, block, true)?;
         let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
         let EventPattern::Cast { targets_source, .. } = pattern else {
             return Err(unsupported("compose.block", "trigger:targets:event"));
@@ -532,7 +548,7 @@ fn trigger(
         if let Some(what) = stripped["what"].as_object_mut() {
             what.remove("targets");
         }
-        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let mut ability = trigger_in(card, &stripped, parts, condition, block, names_source)?;
         let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
         let EventPattern::Cast { target: slot, .. } = pattern else {
             return Err(unsupported("compose.block", "trigger:targets:event"));
@@ -541,7 +557,7 @@ fn trigger(
         return Ok(ability);
     }
     let Some(occurrence) = raw.get("occurrence") else {
-        return trigger_event(card, raw, parts, condition, block);
+        return trigger_event(card, raw, parts, condition, block, names_source);
     };
     let reject =
         |detail: &str| unsupported("compose.block", format!("trigger:occurrence:{detail}"));
@@ -568,7 +584,7 @@ fn trigger(
     if let Some(object) = stripped.as_object_mut() {
         object.remove("occurrence");
     }
-    let mut ability = trigger_event(card, &stripped, parts, condition, block)?;
+    let mut ability = trigger_event(card, &stripped, parts, condition, block, names_source)?;
     let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
     // "your Nth" and "their Nth" count the event player's own events; only
     // "the Nth spell of a turn" (each player, no per-player count) counts
@@ -609,6 +625,7 @@ fn trigger_event(
     parts: Vec<Part>,
     condition: Option<&serde_json::Value>,
     block: usize,
+    names_source: bool,
 ) -> Result<TriggeredAbility, Failure> {
     // The reviewed lowerers decode the narrow trigger mirror. The event table
     // only adds self events the shared lowerer keys to one card type; the
@@ -646,7 +663,7 @@ fn trigger_event(
             .into_iter()
             .map(reviewed_sentence)
             .collect::<Result<_, _>>()?;
-        match lower_trigger(t, &typed, c.as_ref(), block) {
+        match lower_trigger(t, &typed, c.as_ref(), block, names_source) {
             Ok(ability) => return Ok(ability),
             Err(failure) => reviewed = Some(failure),
         }
@@ -665,7 +682,7 @@ fn trigger_event(
             .into_iter()
             .map(reviewed_sentence)
             .collect::<Result<_, _>>()?;
-        match lower_trigger(t, &typed, None, block) {
+        match lower_trigger(t, &typed, None, block, names_source) {
             Ok(mut ability) => {
                 let intervening = events::intervening(raw_condition, ability.condition.pattern())?;
                 let TriggerCondition::Event { intervening_if, .. } = &mut ability.condition;
@@ -745,7 +762,7 @@ fn trigger_event(
             &mut BTreeMap::new(),
             Context::Triggered,
             |typed| validate_trigger_damage_sources(&condition, typed),
-            trigger_scope(&condition),
+            trigger_scope_naming_source(&condition, names_source),
         )?;
     }
     // CR 702.29c: a discard of this card triggers from the graveyard.

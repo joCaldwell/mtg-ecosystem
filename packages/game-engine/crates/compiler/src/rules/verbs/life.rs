@@ -83,7 +83,8 @@ fn wrap(cx: &StepCx<'_>, verb: Verb, optional: bool) -> Instruction {
 
 // R5 prints the polarity and "this way" but supplies no explicit reference
 // edge. Only the immediately preceding unguarded life action of that
-// polarity in the same block supplies this projection.
+// polarity in the same block, and in the same chosen mode (CR 700.2),
+// supplies this projection.
 fn linked_change(
     cx: &mut StepCx<'_>,
     gain: bool,
@@ -95,7 +96,8 @@ fn linked_change(
     let producer = cx
         .program
         .instructions
-        .last()
+        .get(cx.floor.instructions..)
+        .and_then(<[Instruction]>::last)
         .filter(|previous| previous.source_block() == cx.source_block);
     if optional
         || change.scope != ThisWay
