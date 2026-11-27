@@ -38,6 +38,14 @@ pub(crate) fn object_counter_kind(counter: &SourceCounter) -> Result<kir::Counte
     match counter.r#type.as_str() {
         "+1/+1" => Ok(kir::CounterKind::PlusOnePlusOne),
         "-1/-1" => Ok(kir::CounterKind::MinusOneMinusOne),
+        // CR 122.1b: a keyword counter grants exactly its keyword; the
+        // kernel check admits only keywords whose grant the runtime executes.
+        name @ ("flying" | "first strike" | "double strike" | "deathtouch" | "haste"
+        | "hexproof" | "indestructible" | "lifelink" | "menace" | "reach" | "trample"
+        | "vigilance") => Ok(kir::CounterKind::Keyword {
+            keyword: serde_json::from_value(serde_json::Value::String(name.into()))
+                .map_err(|_| step("put-counters", "counter_kind"))?,
+        }),
         _ => Err(step("put-counters", "counter_kind")),
     }
 }

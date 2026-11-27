@@ -223,6 +223,23 @@ impl RulesTxn {
                 }
             }
         }
+        // CR 122.1b, 613.1f, 613.7c: a keyword counter grants its keyword in
+        // layer 6 at the timestamp its kind last received.
+        if present && let Ok(o) = self.current(object) {
+            for stack in &o.counters {
+                let mtg_contracts::kir::CounterKind::Keyword { keyword } = &stack.kind else {
+                    continue;
+                };
+                if *keyword == KeywordAbility::Indestructible
+                    && latest_removal.is_some_and(|(_, removed_at)| stack.timestamp <= removed_at)
+                {
+                    continue;
+                }
+                if !keywords.contains(keyword) {
+                    keywords.push(*keyword);
+                }
+            }
+        }
         // CR 702.84a, 611.2c: an unearthed incarnation gains haste for as
         // long as it remains that object.
         // CR 702.141a: so does an encore token.

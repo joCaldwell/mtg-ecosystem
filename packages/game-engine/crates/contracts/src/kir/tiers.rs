@@ -561,7 +561,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::StaticDamageReplacementV1
         | C::UnpreventableDamageV1
         | C::CharacteristicPowerToughnessV1
-        | C::MinusOneCountersV1 => Tiers::EXECUTES,
+        | C::MinusOneCountersV1
+        | C::KeywordCountersV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1

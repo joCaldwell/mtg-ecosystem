@@ -74,6 +74,10 @@ pub enum CounterKind {
     PlusOnePlusOne,
     #[serde(deserialize_with = "no_operands")]
     MinusOneMinusOne,
+    /// CR 122.1b: the permanent has this keyword.
+    Keyword {
+        keyword: crate::KeywordAbility,
+    },
     Named {
         name: String,
     },

@@ -434,6 +434,8 @@ pub enum Capability {
     PlusOneCountersV1,
     /// CR 122.1a, 122.3, 704.5q: -1/-1 counters and their annihilation.
     MinusOneCountersV1,
+    /// CR 122.1b, 613.1f, 613.7c: keyword counters in layer 6.
+    KeywordCountersV1,
 
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -1731,7 +1733,7 @@ pub struct SourceLabels {
     pub statics: Vec<u32>,
     pub spell_modes: Vec<String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum KeywordAbility {
     Flash,
@@ -2342,7 +2344,7 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|i| i.controller_discard().is_some())
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
-fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
+pub(crate) fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
         KeywordAbility::ProtectionFromEachColor => return None,
         KeywordAbility::ProtectionFromEverything => Capability::ProtectionFromEverythingV1,

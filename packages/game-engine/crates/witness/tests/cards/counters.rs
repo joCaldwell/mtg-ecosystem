@@ -1,9 +1,9 @@
 //! Lane COUNTERS: counter kinds beyond +1/+1 from exact frozen R5 source on
 //! private boards: -1/-1 counters and their state-based death and
 //! annihilation, proliferate across kinds, and removal costs after
-//! annihilation. Every decision is checked for state validity and an exact
+//! annihilation, keyword counters in layer 6. Every decision is checked for state validity and an exact
 //! snapshot round trip; every finished resolution replays from its journal.
-//! Pinned CR 107.3, 122.1a, 122.3, 602.2b, 701.34a, 704.5f, 704.5q:
+//! Pinned CR 107.3, 122.1a-b, 122.3, 613.1f, 613.7c, 602.2b, 701.34a, 704.5f, 704.5q:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::HybridPayment;
 use mtg_contracts::kir::{Cell, CounterKind, Tiers, definition_cells, definition_tiers};
@@ -23,6 +23,8 @@ const BLACK_SUNS_ZENITH: &str = record!("038c0165-32b6-4e81-8180-604b49905207");
 const CONTAGION_CLASP: &str = record!("43f2d81e-aa01-4fa9-9046-6a27a05dbd2d");
 const SCAR: &str = record!("4eafe158-abff-43e9-aeae-596430c5ce21");
 const SPIKE_FEEDER: &str = record!("5b147eab-39dd-4c2a-8f59-d778037788aa");
+const SPONTANEOUS_FLIGHT: &str = record!("04da8c46-9703-47f2-974b-c144464ec380");
+const DARING_FIENDBONDER: &str = record!("0a746c49-cc44-467a-85b7-3c498559aea7");
 
 /// A two-seat main-phase board whose catalog adds `cards`, each compiled
 /// from frozen source and occupying the named cells; a new counter cell
@@ -309,4 +311,113 @@ fn scar_annihilates_with_plus_one_counters_and_bounds_their_removal_cost() {
     Driver::action(&mut g, gain);
     settle(&mut g);
     assert_eq!(zone(&g, 0), Zone::Graveyard { owner: PlayerId(0) });
+}
+
+fn next_turn(g: &mut Game) {
+    let turn = g.state.rules.turn.number;
+    for _ in 0..100 {
+        let r = Driver::request(g, u64::MAX);
+        if g.state.rules.turn.number > turn {
+            checked(g);
+            return;
+        }
+        let answer = match r.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::Attackers => r.attack(vec![]),
+            ref reason => panic!("unexpected turn boundary {reason:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    panic!("cleanup did not finish");
+}
+
+/// Spontaneous Flight: "Target creature gets +2/+2 until end of turn. Put
+/// a flying counter on it." The pump ends at cleanup; the flying counter
+/// keeps granting flying in later turns (CR 122.1b, 514.2, 613.1f).
+#[test]
+fn spontaneous_flight_flying_counter_outlasts_its_pump() {
+    let prepared = board(&[(SPONTANEOUS_FLIGHT, &[Cell::KindCountersTarget])])
+        .permanent_or_hand("Spontaneous Flight", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .libraries("Island", 4)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let bears = Driver::object(&g, 4);
+    Driver::cast(&mut g, CardId(0));
+    let d = targets(&mut g, 0);
+    answer(&mut g, &d, &[Candidate::Object { object: bears }]);
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    assert!(g.current_keywords(bears).contains(&KeywordAbility::Flying));
+    assert_eq!(toughness(&g, 4), Quantity::from(4));
+    next_turn(&mut g);
+    assert!(g.state.rules.effects.is_empty());
+    assert!(g.current_keywords(bears).contains(&KeywordAbility::Flying));
+    assert_eq!(toughness(&g, 4), Quantity::from(2));
+    assert_eq!(
+        g.current(bears)
+            .unwrap()
+            .counter_count(&CounterKind::Keyword {
+                keyword: KeywordAbility::Flying
+            }),
+        Quantity::from(1)
+    );
+}
+
+/// Daring Fiendbonder: "{1}{B}, Exile this card from your graveyard: Put an
+/// indestructible counter on target creature. Activate only as a sorcery."
+/// The counter makes the creature survive Murder (CR 122.1b, 702.12b).
+#[test]
+fn daring_fiendbonder_indestructible_counter_survives_destruction() {
+    let prepared = board(&[(DARING_FIENDBONDER, &[Cell::KindCountersTarget])])
+        .card(
+            "Daring Fiendbonder",
+            0,
+            0,
+            Zone::Graveyard { owner: PlayerId(0) },
+        )
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Murder", 1, 1, true)
+        .permanent_or_hand("Swamp", 1, 1, false)
+        .permanent_or_hand("Swamp", 1, 1, false)
+        .permanent_or_hand("Swamp", 1, 1, false)
+        .libraries("Island", 4)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let bears = Driver::object(&g, 3);
+    let fiendbonder = Driver::object(&g, 0);
+    let activate = Action::ActivateAbility {
+        object: fiendbonder,
+        ability: 0,
+    };
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(
+        d.candidates.contains(&Candidate::Action {
+            action: activate.clone()
+        }),
+        "{d:?}"
+    );
+    Driver::action(&mut g, activate);
+    let d = targets(&mut g, 0);
+    answer(&mut g, &d, &[Candidate::Object { object: bears }]);
+    Driver::pay(&mut g, &[1, 2]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 0), Zone::Exile);
+    assert!(
+        g.current_keywords(bears)
+            .contains(&KeywordAbility::Indestructible)
+    );
+    Driver::pass(&mut g);
+    Driver::cast(&mut g, CardId(4));
+    let d = targets(&mut g, 1);
+    answer(&mut g, &d, &[Candidate::Object { object: bears }]);
+    Driver::pay(&mut g, &[5, 6, 7]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 3), Zone::Battlefield);
+    assert_eq!(zone(&g, 4), Zone::Graveyard { owner: PlayerId(1) });
 }

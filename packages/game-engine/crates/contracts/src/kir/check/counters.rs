@@ -32,7 +32,14 @@ impl Walk<'_, '_> {
                 Self::fixed_or_announced_x(amount, 1, "counter amount")?;
                 false
             }
-            CounterKind::Named { .. } => return unaudited("verb"),
+            // CR 122.1b: only keywords whose granted runtime is reviewed.
+            CounterKind::Keyword { keyword }
+                if crate::supported_temporary_keywords(std::slice::from_ref(keyword)) =>
+            {
+                Self::fixed_at_least(amount, 1, "counter amount")?;
+                false
+            }
+            CounterKind::Keyword { .. } | CounterKind::Named { .. } => return unaudited("verb"),
         };
         let cell = |plus: Cell, kind: Cell| Ok(if plus_one { plus } else { kind });
         // CR 122.6, 608.2h: a single simultaneous placement on the
@@ -80,6 +87,10 @@ pub(super) fn capabilities(counter: &CounterKind, amount: &Amount, out: &mut BTr
         }
         CounterKind::MinusOneMinusOne => {
             out.insert(Capability::MinusOneCountersV1);
+        }
+        CounterKind::Keyword { keyword } => {
+            out.insert(Capability::KeywordCountersV1);
+            out.extend(crate::intrinsic_keyword_capability(*keyword));
         }
         CounterKind::Named { .. } => {}
     }
