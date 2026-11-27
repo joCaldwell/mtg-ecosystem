@@ -322,8 +322,9 @@ fn append_effects(
     slots: &mut BTreeMap<String, u32>,
     context: Context,
     damage: impl Fn(&[Sentence]) -> Result<(), Failure>,
-    player_binding: PlayerBinding,
+    scope: impl Into<Scope>,
 ) -> Result<(), Failure> {
+    let mut scope = scope.into();
     if parts.iter().all(|p| matches!(p, Part::Typed(_))) {
         let typed: Vec<Sentence> = parts
             .into_iter()
@@ -336,20 +337,17 @@ fn append_effects(
             .collect();
         plain_sentences(&typed)?;
         damage(&typed)?;
-        return append_spell_effects(program, &typed, block, slots, player_binding, context);
+        return append_spell_effects(program, &typed, block, slots, scope, context);
     }
     let label = source_block(block)?;
     for part in parts {
         match part {
             Part::Typed(sentence) => {
                 if sentence.steps.iter().any(|step| {
-                    matches!(
-                        step,
-                        Step::Damage {
-                            source: DamageSource::It {},
-                            ..
-                        } | Step::Modal { .. }
-                    )
+                    matches!(step, Step::Modal { .. })
+                        || step.damage().is_some_and(|damage| {
+                            matches!(damage.source.as_ref(), ast::ObjectRef::It(_))
+                        })
                 }) {
                     return Err(unsupported(
                         "compose.effects",
@@ -359,10 +357,14 @@ fn append_effects(
                 let sentence = [sentence];
                 plain_sentences(&sentence)?;
                 damage(&sentence)?;
-                append_spell_effects(program, &sentence, block, slots, player_binding, context)?;
+                append_spell_effects(program, &sentence, block, slots, scope, context)?;
+                for introduced in &sentence[0].introduces {
+                    scope.prior = scope.prior.join(*introduced);
+                }
             }
             Part::Table(steps) => {
                 for step in &steps {
+                    scope.prior = scope.prior.join(crate::ingest::Introduced::of_step(step));
                     let instruction = if resolution_triggers::is_delayed(step) {
                         resolution_triggers::delayed(step, program, context, label)?
                     } else {
@@ -410,24 +412,6 @@ fn activation(
         &mut BTreeMap::new(),
         Context::Activated,
         |typed| {
-            // The newly audited activated source form covers choosing objects
-            // to pay a cost (including sacrificing the damage source itself).
-            // Simple tap/mana pingers share previously qualified tier rows.
-            if !matches!(
-                cost,
-                ActivationCost::ChooseObjects(_) | ActivationCost::SacrificePermanent { .. }
-            ) && typed.iter().flat_map(|s| &s.steps).any(|step| {
-                matches!(
-                    step,
-                    Step::Damage {
-                        source: DamageSource::This { .. } | DamageSource::It {},
-                        to: DamageDestination::AnyTarget { .. },
-                        ..
-                    }
-                )
-            }) {
-                return Err(unsupported("effects.steps", "verb:damage:source:directed"));
-            }
             validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self })
         },
         PlayerBinding::Unbound,
@@ -726,7 +710,7 @@ fn trigger_event(
             &mut BTreeMap::new(),
             Context::Triggered,
             |typed| validate_trigger_damage_sources(&condition, typed),
-            trigger_player_binding(&condition),
+            trigger_scope(&condition),
         )?;
     }
     // CR 702.29c: a discard of this card triggers from the graveyard.
@@ -852,6 +836,7 @@ fn control_env<'a>(
         targets,
         event,
         announced_x: true,
+        single_sacrifice_cost: false,
     }
 }
 

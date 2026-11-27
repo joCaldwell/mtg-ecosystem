@@ -310,6 +310,31 @@ pub(crate) fn bind_target(
     Ok(slot)
 }
 
+/// What an ability's resolving instructions may refer back to besides their
+/// own steps: the trigger's event bindings (CR 603.2, 608.2h), whether the
+/// event object is the source itself (CR 201.5), and what earlier steps of
+/// the same block, lowered outside this call, already introduced.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Scope {
+    pub(crate) player: PlayerBinding,
+    pub(crate) event_is_source: bool,
+    /// The card types the trigger's event object pattern names, as
+    /// [`CardKind::CARD_TYPES`] bits; zero names none.
+    pub(crate) event_types: u8,
+    pub(crate) prior: crate::ingest::Introduced,
+}
+
+impl From<PlayerBinding> for Scope {
+    fn from(player: PlayerBinding) -> Self {
+        Self {
+            player,
+            event_is_source: false,
+            event_types: 0,
+            prior: Default::default(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlayerBinding {
     Unbound,
@@ -318,14 +343,25 @@ pub(crate) enum PlayerBinding {
     EventObject(kir::EventObjectRole),
     DamageRecipient,
     DeathController,
+    LifeGain,
 }
 
 impl PlayerBinding {
     pub(crate) fn event_role(self) -> Option<kir::EventPlayerRole> {
         match self {
             Self::EventPlayer(role, _) => Some(role),
+            Self::DamageRecipient => Some(kir::EventPlayerRole::DamagedPlayer),
             _ => None,
         }
+    }
+
+    pub(crate) fn supplies_amount(self) -> bool {
+        matches!(
+            self,
+            Self::DamageRecipient
+                | Self::LifeGain
+                | Self::EventObject(kir::EventObjectRole::Damaged)
+        )
     }
 
     pub(crate) fn event_object_role(self) -> Option<kir::EventObjectRole> {
@@ -334,7 +370,7 @@ impl PlayerBinding {
             Self::EventObject(role) => Some(role),
             Self::DeathController => Some(kir::EventObjectRole::Died),
             Self::DamageRecipient => Some(kir::EventObjectRole::DealtDamage),
-            Self::Unbound => None,
+            Self::Unbound | Self::LifeGain => None,
         }
     }
 }
@@ -1947,36 +1983,55 @@ pub(crate) fn signed_fixed(value: &ast::SignedAmount) -> Result<Quantity, Failur
     }))
 }
 
-/// CR 120.3, 107.3, 608.2h: the quantity of a damage step: a positive fixed
-/// number, the announced X (or the sentence's bound X), or the total mana
-/// value of the other spells you cast this turn.
-pub(crate) fn lower_damage_amount(
-    amount: &ast::Amount,
-    bound_x: Option<&kir::Amount>,
+pub(crate) fn lower_other_casts_mana_value(
+    sum: &ast::AmountCastManaValueSum,
     context: Context,
-) -> Result<kir::Amount, Failure> {
-    match amount {
-        ast::Amount::X(_) if bound_x.is_some() => Ok(bound_x.expect("guarded").clone()),
-        ast::Amount::X(_) => Ok(kir::Amount::announced_x()),
-        ast::Amount::CastManaValueSum(sum) => match (&*sum.who, &*sum.excluding) {
-            (ast::PlayerRef::You(_), ast::ObjectRef::This(this)) if this.noun == "spell" => {
-                Ok(kir::Amount::OtherCastsManaValue {
-                    caster: PlayerExpr::you(context),
-                })
-            }
-            _ => Err(operand("amount", "cast_mana_value_sum:scope")),
-        },
-        ast::Amount::Count(count) => lower_count(count, context),
-        other => Ok(kir::Amount::Fixed {
-            value: fixed_positive_amount(other)?,
-        }),
+) -> Result<Amount, Failure> {
+    match (&*sum.who, &*sum.excluding) {
+        (ast::PlayerRef::You(_), ast::ObjectRef::This(this)) if this.noun == "spell" => {
+            Ok(kir::Amount::OtherCastsManaValue {
+                caster: PlayerExpr::you(context),
+            })
+        }
+        _ => Err(operand("amount", "cast_mana_value_sum:scope")),
     }
+}
+
+pub(crate) fn fixed_product(factors: Vec<Amount>) -> Result<Amount, Failure> {
+    if factors.len() < 2 {
+        return Err(operand("amount", "product:arity"));
+    }
+    let mut factor = Quantity::from(1);
+    let mut of = None;
+    for value in factors {
+        match value {
+            Amount::Fixed { value } if !value.is_negative() => factor.multiply(&value),
+            value if of.is_none() => of = Some(value),
+            _ => return Err(operand("amount", "product:several_dynamic_factors")),
+        }
+    }
+    Ok(match of {
+        Some(of) if factor == Quantity::from(1) => of,
+        Some(of) if factor > Quantity::zero() => Amount::Times {
+            factor,
+            of: Box::new(of),
+        },
+        _ => Amount::Fixed { value: factor },
+    })
 }
 
 /// CR 400.2, 402.3, 608.2h: count objects matching a public filter, or the
 /// size of your hand. The engine never counts filtered hidden cards.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(crate) fn lower_count(count: &ast::AmountCount, context: Context) -> Result<Amount, Failure> {
+    lower_count_with(count, context, |filter| lower_filter(filter, context))
+}
+
+pub(crate) fn lower_count_with(
+    count: &ast::AmountCount,
+    context: Context,
+    lower: impl FnOnce(&ast::ObjectFilter) -> Result<Pred, Failure>,
+) -> Result<Amount, Failure> {
     use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
     let mut filter = (*count.of).clone();
     let zone = match filter.zone.take().as_deref() {
@@ -2020,7 +2075,7 @@ pub(crate) fn lower_count(count: &ast::AmountCount, context: Context) -> Result<
     Ok(Amount::Count {
         set: SetExpr::Matching {
             zone,
-            filter: lower_filter(&filter, context)?,
+            filter: lower(&filter)?,
         },
     })
 }
@@ -2117,26 +2172,30 @@ pub(crate) fn lower_x_binding(
                 },
             }))
         }
-        ast::Amount::Devotion(devotion) => {
-            if !matches!(*devotion.who, ast::PlayerRef::You(_)) {
-                return Err(operand("bindings", "devotion:player"));
-            }
-            let colors = match &*devotion.colors {
-                ast::AmountDevotionColors::Array((a,)) => vec![color(a)],
-                ast::AmountDevotionColors::Array2((a, b)) => vec![color(a), color(b)],
-                ast::AmountDevotionColors::Choice(_) => {
-                    return Err(operand("bindings", "devotion:chosen"));
-                }
-            };
-            Ok(Some(Amount::Devotion {
-                player: PlayerExpr::you(context),
-                colors,
-            }))
-        }
+        ast::Amount::Devotion(devotion) => lower_devotion(devotion, context).map(Some),
         other => Err(operand("bindings", variant(other))),
     }
 }
 
+pub(crate) fn lower_devotion(
+    devotion: &ast::AmountDevotion,
+    context: Context,
+) -> Result<Amount, Failure> {
+    if !matches!(*devotion.who, ast::PlayerRef::You(_)) {
+        return Err(operand("bindings", "devotion:player"));
+    }
+    let colors = match &*devotion.colors {
+        ast::AmountDevotionColors::Array((a,)) => vec![color(a)],
+        ast::AmountDevotionColors::Array2((a, b)) => vec![color(a), color(b)],
+        ast::AmountDevotionColors::Choice(_) => {
+            return Err(operand("bindings", "devotion:chosen"));
+        }
+    };
+    Ok(Amount::Devotion {
+        player: PlayerExpr::you(context),
+        colors,
+    })
+}
 /// CR 109.5, 119.3: the player a step names. "You" is the controller of
 /// this kind of stack object; "that player" is the trigger's event player.
 pub(crate) fn lower_player_ref(
@@ -2170,54 +2229,6 @@ pub(crate) fn lower_player_ref(
             _ => Err(operand("player", "target_player:qualified")),
         },
         other => Err(operand("player", variant(&other))),
-    }
-}
-
-/// CR 608.2b-c, 608.2h: the preceding removal's sole announced target.
-/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub(crate) fn preceding_target(
-    program: &SpellProgram,
-    block: u32,
-    reference: &ast::ObjectRef,
-) -> Result<u32, Failure> {
-    let ([target], Some(previous)) = (program.targets.as_slice(), program.instructions.last())
-    else {
-        return Err(operand("player", "controller:missing_single_target"));
-    };
-    let pronoun = match reference {
-        ast::ObjectRef::It(_) => true,
-        ast::ObjectRef::That(that) => {
-            that.plural.is_none()
-                && present_fields(&that.filter) == ["types"]
-                && that
-                    .filter
-                    .types
-                    .as_deref()
-                    .is_some_and(|types| types == ["creature"])
-                && target
-                    .filter
-                    .as_ref()
-                    .is_some_and(|filter| filter.types == [CardKind::Creature])
-        }
-        other => return Err(operand("target", format!("ref_{}", variant(other)))),
-    };
-    let reads_target = match previous.verb() {
-        Some(
-            Verb::Destroy {
-                what: SetExpr::One { object },
-                ..
-            }
-            | Verb::Move {
-                what: SetExpr::One { object },
-                ..
-            },
-        ) => *object == (kir::Ref::Target { slot: target.slot }),
-        _ => false,
-    };
-    if pronoun && reads_target && previous.source_block() == block && target.filter.is_some() {
-        Ok(target.slot)
-    } else {
-        Err(operand("player", "controller:unbound_target"))
     }
 }
 

@@ -53,14 +53,14 @@ pub use engine::{
     InputProcessingFact, InterveningCheck, InterveningStage, JointRule, KnownHandMemory,
     KnownLibraryPosition, LedgerDelta, LibraryBefore, LifelinkGain, Lineage, MATCH_PROFILES,
     ManaAbilityIdentity, ManaPool, MatchAdmissionError, MatchConfig, MatchProfile, MatchRandom,
-    MatchState, Mode, MoveKind, MoveOutcome, NoncombatDamageOccurrence, ObjectBefore, ObjectHandle,
-    ObjectId, Observation, OccurrenceId, OccurrenceResult, OpenDecklist, OpenStream, OpeningPlayer,
-    OpeningSetup, Origin, OwnKnowledgeAction, PayAnswer, PayStep, PermanentManaUndo,
-    PermittedHistory, PermittedView, Phase, PhaseReturn, PhasingSchedule, PlayerBefore, PlayerId,
-    PlayerLossReason, PlayerSession, PlayerStatus, PlayerTargetEntity, PreEventFacts, Prepared,
-    PreparedDamage, ProfileError, ProposedEvent, PublicSearchProfile, QualifyingCreature,
-    QueryRejection, QueryResult, QueryValue, Reason, RememberedCard, ReplacementKey, ReplayJournal,
-    ResolvedEffect, ResolvedEffectKind, Root, RootHandleMap, RuleFault, Rules, SEARCH_INFORMATION,
+    MatchState, Mode, MoveKind, MoveOutcome, ObjectBefore, ObjectHandle, ObjectId, Observation,
+    OccurrenceId, OccurrenceResult, OpenDecklist, OpenStream, OpeningPlayer, OpeningSetup, Origin,
+    OwnKnowledgeAction, PayAnswer, PayStep, PermanentManaUndo, PermittedHistory, PermittedView,
+    Phase, PhaseReturn, PhasingSchedule, PlayerBefore, PlayerId, PlayerLossReason, PlayerSession,
+    PlayerStatus, PlayerTargetEntity, PreEventFacts, Prepared, PreparedDamage, ProfileError,
+    ProposedEvent, PublicSearchProfile, QualifyingCreature, QueryRejection, QueryResult,
+    QueryValue, Reason, RememberedCard, ReplacementKey, ReplayJournal, ResolvedEffect,
+    ResolvedEffectKind, Root, RootHandleMap, RuleFault, Rules, SEARCH_INFORMATION,
     SEARCH_RECONSTRUCTION, SEARCH_SAMPLER, SampleBuildOutcome, SampleBuildWork,
     SampleRestoreOutcome, SampleRestoreWork, SampledGame, ScenarioConfig, ScenarioInitial,
     SearchCapture, SearchCaptureData, SearchContext, SearchRejection, SeatDelta, SeatHypothesis,
@@ -76,4 +76,5 @@ pub use engine::{
     WorldProposal, Zone, admit_dynamic_pod, distinct_payment_choices, inspect_dynamic_deck,
     match_profile, payment_choice_minimum, policy_digest, validate_pod,
 };
+pub use engine::{CounterChange, CounterCost, CounterHolder};
 pub use mtg_view::combat_allocation_to_blockers;

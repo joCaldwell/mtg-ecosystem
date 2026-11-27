@@ -144,6 +144,34 @@ impl RulesTxn {
                     self.validate_counter_outcome(frame, outcome)?;
                 }
             }
+            InstructionOutcome::CounterPlacements { events } => {
+                let Some((first, last)) = events.first().zip(events.last()) else {
+                    return Ok(());
+                };
+                let batch = first.occurrence.batch;
+                let simultaneous = first.occurrence != last.occurrence;
+                // Proliferate may put multiple counter kinds on one recipient.
+                // Each recipient has one occurrence and consecutive members.
+                let occurrences = events.chunk_by(|a, b| a.occurrence == b.occurrence);
+                if batch >= self.state.rules.next_batch_id
+                    || occurrences.enumerate().any(|(index, members)| {
+                        let occurrence = &members[0].occurrence;
+                        index >= self.event_group_limit()
+                            || occurrence.batch != batch
+                            || if simultaneous {
+                                occurrence.path != [index as u32]
+                            } else {
+                                !occurrence.path.is_empty()
+                            }
+                            || members
+                                .iter()
+                                .enumerate()
+                                .any(|(member, event)| usize::try_from(event.member) != Ok(member))
+                    })
+                {
+                    return Err("snapshot counter placement event invariant".into());
+                }
+            }
             InstructionOutcome::Countered { target, movement } => {
                 let (bound, domain) = self.counter_target(frame, 0)?;
                 if *target != bound

@@ -29,30 +29,20 @@ pub struct CounterPlacementTransaction {
     players: Vec<PlayerCounterPlacement>,
     pub cause: BatchCause,
     pub frame: Box<Resolving>,
+    /// The saved kernel task an evaluated placement resumes, whose resolving
+    /// invocation `frame` copies for its cause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kernel: Option<FrameLink>,
 }
 impl RulesTxn {
-    pub(super) fn begin_counter_placement(
-        &mut self,
-        frame: Resolving,
-        object: ObjectId,
-        counter: CounterKind,
-        amount: Quantity,
-        cause: BatchCause,
-    ) -> Result<(), String> {
-        if amount.is_negative() {
-            return Err("negative counter placement".into());
-        }
-        if amount == Quantity::zero() || !self.counter_recipient(object, &counter) {
-            return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-        }
-        self.begin_counter_placements(frame, counter, vec![(object, amount)], cause)
-    }
-    pub(super) fn begin_counter_placements(
+    /// CR 122.6: an evaluated kernel step's placement, which resumes `kernel`.
+    pub(super) fn begin_kernel_counter_placements(
         &mut self,
         frame: Resolving,
         counter: CounterKind,
         allocations: Vec<(ObjectId, Quantity)>,
         cause: BatchCause,
+        kernel: FrameLink,
     ) -> Result<(), String> {
         let members = allocations
             .into_iter()
@@ -62,7 +52,7 @@ impl RulesTxn {
                 amount,
             })
             .collect();
-        self.begin_counter_transaction(frame, members, vec![], cause)
+        self.begin_counter_transaction(frame, members, vec![], cause, Some(kernel))
     }
 
     fn begin_counter_transaction(
@@ -71,19 +61,18 @@ impl RulesTxn {
         members: Vec<CounterPlacementMember>,
         players: Vec<PlayerCounterPlacement>,
         cause: BatchCause,
+        kernel: Option<FrameLink>,
     ) -> Result<(), String> {
         let transaction = CounterPlacementTransaction {
             members,
             players,
             cause,
             frame: Box::new(frame),
+            kernel,
         };
         self.validate_counter_allocations(&transaction)?;
         if transaction.members.is_empty() && transaction.players.is_empty() {
-            return self.finish_instruction(
-                *transaction.frame,
-                InstructionOutcome::CounterPlacements { actual: vec![] },
-            );
+            return self.finish_counter_placement(*transaction.frame, kernel, std::iter::empty());
         }
         self.rules_mut().frame = Frame::CounterPlacement { transaction };
         self.counter_placement_step()
@@ -96,7 +85,7 @@ impl RulesTxn {
 
     /// CR 122.1: P/T and keyword counters go on battlefield creatures here;
     /// other kinds on any present permanent.
-    fn counter_recipient(&self, object: ObjectId, counter: &CounterKind) -> bool {
+    pub(super) fn counter_recipient(&self, object: ObjectId, counter: &CounterKind) -> bool {
         if counter.needs_creature() {
             self.is_battlefield_creature(object)
         } else {
@@ -178,7 +167,7 @@ impl RulesTxn {
                 ),
             }
         }
-        self.begin_counter_transaction(frame, members, players, cause)
+        self.begin_counter_transaction(frame, members, players, cause, None)
     }
 
     pub(super) fn give_counters(
@@ -196,7 +185,7 @@ impl RulesTxn {
             amount.as_fixed().ok_or("missing fixed player counters")?,
         )?;
         let cause = self.instruction_cause(&frame, source_block)?;
-        self.begin_counter_transaction(frame, vec![], players, cause)
+        self.begin_counter_transaction(frame, vec![], players, cause, None)
     }
 
     fn player_counter_recipients(
@@ -252,50 +241,13 @@ impl RulesTxn {
         if members.iter().any(|m| m.amount <= Quantity::zero()) {
             return Err("invalid counter placement members".into());
         }
-        let block = match self.counter_instruction(frame)? {
-            kernel!(PutCounters {
-                on,
-                counter,
-                amount,
-            } @ source_block) => {
-                let amount = &self.kernel_amount(frame, amount)?;
-                if members.iter().any(|m| m.counter != *counter) {
-                    return Err("counter placement kind mismatch".into());
-                }
-                let matches = match on {
-                    mtg_contracts::kir::SetExpr::Matching { zone, filter } => {
-                        let expected = self.kernel_set(frame, zone, filter)?.0;
-                        expected.len() == members.len()
-                            && expected
-                                .iter()
-                                .zip(members)
-                                .all(|(id, m)| *id == m.object && &m.amount == amount)
-                    }
-                    mtg_contracts::kir::SetExpr::One {
-                        object: mtg_contracts::kir::Ref::EventObject { .. },
-                    } => {
-                        let object = self
-                            .entry(frame.stack_id)?
-                            .kind
-                            .observed_object()?
-                            .last_known
-                            .object;
-                        matches!(members.as_slice(), [m] if m.object == object && &m.amount == amount)
-                    }
-                    source_object!() => {
-                        matches!(members.as_slice(), [m] if m.object == self.entry(frame.stack_id)?.source && &m.amount == amount)
-                    }
-                    target_object!(slot) => {
-                        frame.legal_targets.get(*slot as usize) == Some(&true)
-                            && matches!(members.as_slice(), [m] if Some(&m.object) == self.bound_object_target(self.entry(frame.stack_id)?, *slot as usize) && &m.amount == amount)
-                    }
-                    _ => false,
-                };
-                if !matches || !players.is_empty() {
-                    return Err("fixed counter allocation mismatch".into());
-                }
-                source_block
+        if let Some(kernel) = tx.kernel {
+            if !players.is_empty() || **frame != *self.kernel_root()? {
+                return Err("kernel counter placement outside its invocation".into());
             }
+            return self.validate_kernel_counters(members, cause, kernel);
+        }
+        let block = match self.counter_instruction(frame)? {
             kernel!(GiveCounters { player, counter, amount: fixed!(amount) } @ source_block) => {
                 if !members.is_empty()
                     || *players
@@ -344,26 +296,17 @@ impl RulesTxn {
         &self,
         tx: &CounterPlacementTransaction,
     ) -> Result<Option<EventGroup>, String> {
-        let instruction = self.counter_instruction(&tx.frame)?;
-        let proliferating = matches!(instruction, kernel!(Proliferate { .. }));
-        let event_object = matches!(
-            instruction,
-            kernel!(PutCounters {
-                on: mtg_contracts::kir::SetExpr::One {
-                    object: mtg_contracts::kir::Ref::EventObject { .. }
-                },
-                ..
-            })
-        );
+        let proliferating = tx.kernel.is_none()
+            && matches!(
+                self.counter_instruction(&tx.frame)?,
+                kernel!(Proliferate { .. })
+            );
         // CR 701.34a: one atomic placement per permanent carries every kind
         // it receives; members are grouped by object in allocation order.
         let mut leaves: Vec<ProposedEvent> = vec![];
         for m in tx.members.iter().filter(|m| {
             if proliferating {
                 self.can_proliferate_permanent(m.object)
-            } else if event_object {
-                self.current(m.object)
-                    .is_ok_and(Object::present_on_battlefield)
             } else {
                 self.counter_recipient(m.object, &m.counter)
             }
@@ -418,39 +361,42 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn finish_counter_batch(&mut self, batch: &CommittedBatch) -> Result<(), String> {
-        let frame = self.counter_transaction()?.frame.as_ref().clone();
-        let outcome = match &batch.group {
-            EventGroup::Occurrence { .. } => InstructionOutcome::Effect {
-                actual: Some(
-                    batch
-                        .result(&[])
-                        .ok_or("missing counter placement outcome")?
-                        .clone(),
-                ),
-            },
-            EventGroup::Simultaneous { .. } => InstructionOutcome::CounterPlacements {
-                actual: batch
-                    .occurrences
-                    .iter()
-                    .map(|leaf| leaf.actual.clone())
-                    .collect(),
-            },
-            _ => return Err("unexpected counter placement group".into()),
-        };
-        self.finish_instruction(frame, outcome)
+    pub(super) fn finish_counter_batch<'a>(
+        &mut self,
+        actuals: impl IntoIterator<Item = &'a Actual>,
+    ) -> Result<(), String> {
+        let tx = self.counter_transaction()?;
+        self.finish_counter_placement(tx.frame.as_ref().clone(), tx.kernel, actuals)
     }
+
+    fn finish_counter_placement<'a>(
+        &mut self,
+        frame: Resolving,
+        kernel: Option<FrameLink>,
+        actuals: impl IntoIterator<Item = &'a Actual>,
+    ) -> Result<(), String> {
+        match kernel {
+            Some(resume) => self.finish_kernel_counters(resume, actuals),
+            None => self.finish_instruction(
+                frame,
+                InstructionOutcome::CounterPlacements {
+                    events: actuals
+                        .into_iter()
+                        .map(|actual| actual.id.clone())
+                        .collect(),
+                },
+            ),
+        }
+    }
+
     pub(super) fn counter_placement_step(&mut self) -> Result<(), String> {
-        let cause = self.counter_transaction()?.cause.clone();
         // A recipient may have departed; never recreate a departed incarnation.
         let tx = self.counter_transaction()?;
         if let Some(group) = self.counter_placement_group(tx)? {
-            self.commit_batch(cause, group)?;
+            self.commit_batch(tx.cause.clone(), group)?;
             Ok(())
         } else {
-            let outcome = { InstructionOutcome::Effect { actual: None } };
-            let frame = tx.frame.as_ref().clone();
-            self.finish_instruction(frame, outcome)
+            self.finish_counter_batch(std::iter::empty())
         }
     }
     pub(super) fn validate_counter_placement_state(&self) -> Result<(), String> {

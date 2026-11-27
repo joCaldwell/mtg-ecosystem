@@ -595,6 +595,7 @@ fn cda_amount(amount: &Amount) -> bool {
         | Amount::LifeOf { .. }
         | Amount::BlockersOf { .. }
         | Amount::OpponentsAttacked {}
+        | Amount::Difference { .. }
         | Amount::OtherCastsManaValue { .. } => false,
     }
 }

@@ -242,11 +242,6 @@ pub trait GameTestkit {
     fn entity_legal(&self, target: TargetEntity) -> bool;
 
     fn event_group_limit(&self) -> usize;
-    fn execute_damage_life_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String>;
     fn execute_kernel_instruction(
         &mut self,
         frame: Resolving,
@@ -360,12 +355,6 @@ pub trait GameTestkit {
     fn player_protected(&self, player: PlayerId) -> bool;
     fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String>;
     fn prepare_combat_damage(&mut self, damage: Vec<DamageOccurrence>) -> Result<(), String>;
-    fn prepare_noncombat_damage(
-        &mut self,
-        frame: Resolving,
-        damage: NoncombatDamageOccurrence,
-        block: u32,
-    ) -> Result<(), String>;
     fn program(&self) -> Result<&SpellProgram, String>;
     fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String>;
     fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool;
@@ -750,7 +739,8 @@ impl GameTestkit for Game {
         RulesTxn::damage_effect_request(self)
     }
     fn damage_effect_step(&mut self) -> Result<(), String> {
-        RulesTxn::damage_effect_step(self)
+        RulesTxn::damage_effect_step(self)?;
+        RulesTxn::retire_returned_frames(self)
     }
     fn damage_limit(&self) -> usize {
         RulesTxn::damage_limit(self)
@@ -800,19 +790,6 @@ impl GameTestkit for Game {
 
     fn event_group_limit(&self) -> usize {
         RulesTxn::event_group_limit(self)
-    }
-    fn execute_damage_life_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String> {
-        let mtg_contracts::kernel!(
-            Damage { source, to: mtg_contracts::kir::DamageTo::Ref { who }, amount } @ source_block
-        ) = instruction
-        else {
-            return Err("expected a directed damage instruction".into());
-        };
-        RulesTxn::execute_directed_damage(self, frame, source, who, &amount, source_block)
     }
     fn execute_kernel_instruction(
         &mut self,
@@ -1038,14 +1015,6 @@ impl GameTestkit for Game {
     }
     fn prepare_combat_damage(&mut self, damage: Vec<DamageOccurrence>) -> Result<(), String> {
         RulesTxn::prepare_combat_damage(self, damage)
-    }
-    fn prepare_noncombat_damage(
-        &mut self,
-        frame: Resolving,
-        damage: NoncombatDamageOccurrence,
-        block: u32,
-    ) -> Result<(), String> {
-        RulesTxn::prepare_noncombat_damage(self, frame, damage, block)
     }
     fn program(&self) -> Result<&SpellProgram, String> {
         Ok(RulesTxn::program(self)?)

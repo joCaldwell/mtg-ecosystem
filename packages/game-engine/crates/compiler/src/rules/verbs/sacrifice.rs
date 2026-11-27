@@ -1,75 +1,71 @@
 //! "Sacrifice" (CR 701.21).
 use super::*;
 
-/// CR 701.21a: the controller, each player or each opponent sacrifices a
-/// fixed number of qualifying permanents. A damaged or announced player
-/// can be instructed to sacrifice one.
+/// CR 701.21a: one designated permanent, or a choice among the
+/// qualifying permanents each instructed player controls.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
-    who: &PlayerSelector,
-    what: &FilterObject<Count, ast::ObjectFilter>,
-    chosen_by: Option<&PlayerSelector>,
+    sacrifice: &ast::EffectSacrifice,
 ) -> Result<Instruction, Failure> {
-    uncounted(cx)?;
-    // When no chooser is printed, CR 701.21a still requires the
-    // player instructed to sacrifice to choose the permanents they control.
-    if chosen_by.is_some_and(|chooser| chooser != who)
-        || who.of.is_some()
-        || what.reference != "filter"
-        || what.count.amount != "fixed"
-        || what.count.value == 0
-        || (!matches!(who.player.as_str(), "you" | "each-player" | "each-opponent")
-            && !fixed_one(&what.count))
+    let ast::EffectSacrifice {
+        optional,
+        decided_by,
+        starting_with,
+        for_each,
+        for_each_beyond,
+        for_each_vote,
+        duration,
+        who,
+        what,
+        chosen_by,
+    } = sacrifice;
+    if starting_with.is_some()
+        || for_each.is_some()
+        || for_each_beyond.is_some()
+        || for_each_vote.is_some()
+        || duration.is_some()
+        || chosen_by
+            .as_deref()
+            .is_some_and(|chooser| chooser != who.as_ref())
     {
-        return Err(step("sacrifice", "chooser_or_cardinality"));
+        return Err(step("sacrifice", "chooser_or_distribution"));
     }
-    let player = match typed::<ast::PlayerRef>(who, "player")? {
-        ast::PlayerRef::ThatPlayer(_) if cx.player_binding == PlayerBinding::DamageRecipient => {
-            PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer)
+    check_optional_chooser("sacrifice", optional.is_some(), who, decided_by.as_deref())?;
+    let player = pilot_player(cx, who)?;
+    let ast::ObjectRef::Filter(selection) = what.as_ref() else {
+        if !matches!(
+            what.as_ref(),
+            ast::ObjectRef::It(_)
+                | ast::ObjectRef::That(_)
+                | ast::ObjectRef::SelfObject(_)
+                | ast::ObjectRef::This(_)
+        ) {
+            return Err(step("sacrifice", "subject"));
         }
-        ast::PlayerRef::ThatPlayer(_)
-            if cx.player_binding.event_role() == Some(kir::EventPlayerRole::ActivePlayer) =>
-        {
-            PlayerExpr::event(kir::EventPlayerRole::ActivePlayer)
-        }
-        ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
-        ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
-        ast::PlayerRef::EachOpponent(_) => PlayerExpr::EachOpponent,
-        // CR 601.2c / 608.2d / 701.21: the opponent target is bound at
-        // announcement; that player selects a controlled creature only when
-        // the sacrifice instruction resolves.
-        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        ast::PlayerRef::TargetOpponent(target) => match *target {
-            ast::PlayerRefTargetOpponent {
-                count: None,
-                up_to: None,
-                random: None,
-                selection_id,
-            } => PlayerExpr::target(bind_target(
-                cx.program,
-                cx.slots,
-                selection_id.as_deref().unwrap_or(""),
-                TargetDomain::OpponentPlayer,
-            )?),
-            _ => return Err(operand("player", "target_opponent:qualified")),
-        },
-        ast::PlayerRef::TargetPlayer(target) => match *target {
-            ast::PlayerRefTargetPlayer {
-                count: None,
-                up_to: None,
-                random: None,
-                selection_id: Some(id),
-            } if !id.is_empty() => PlayerExpr::target(bind_target(
-                cx.program,
-                cx.slots,
-                &id,
-                TargetDomain::AnyPlayer,
-            )?),
-            _ => return Err(operand("player", "target_player:qualified")),
-        },
-        other => return Err(operand("player", variant(&other))),
+        let object = match what.as_ref() {
+            ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => antecedent::permanent(cx, what)?,
+            _ => pilot_object(cx, what)?,
+        };
+        return Ok(wrap(
+            cx,
+            Verb::Sacrifice {
+                player,
+                count: Amount::fixed(1),
+                filter: Pred(vec![Atom::Is { object }]),
+                greatest_power: false,
+            },
+            optional.is_some(),
+        ));
     };
-    let mut source_filter = what.filter.clone();
+    if selection.up_to.is_some()
+        || selection.group_constraints.is_some()
+        || selection.random.is_some()
+    {
+        return Err(step("sacrifice", "choice"));
+    }
+    let count = pilot_amount(cx, &selection.count)?;
+    let mut source_filter = (*selection.filter).clone();
     let other = source_filter.other.take();
     let greatest_power = greatest_power_filter(&mut source_filter)?;
     let mut filter = lower_sacrifice_filter(&source_filter, cx.context)?;
@@ -80,12 +76,30 @@ pub(super) fn lower(
         Some(false) => return Err(operand("sacrifice_filter", "other:false")),
         None => {}
     }
-    Ok(cx.act(Verb::Sacrifice {
-        player,
-        count: Amount::fixed(i64::from(what.count.value)),
-        filter,
-        greatest_power,
-    }))
+    Ok(wrap(
+        cx,
+        Verb::Sacrifice {
+            player,
+            count,
+            filter,
+            greatest_power,
+        },
+        optional.is_some(),
+    ))
+}
+
+fn wrap(cx: &StepCx<'_>, verb: Verb, optional: bool) -> Instruction {
+    if optional {
+        Instruction::Kernel {
+            node: kir::Node::Optional {
+                chooser: PlayerExpr::you(cx.context),
+                node: Box::new(kir::Node::Do(verb)),
+            },
+            source_block: cx.source_block,
+        }
+    } else {
+        cx.act(verb)
+    }
 }
 
 // CR 506.4 and 509.1g: a disjunction of combat statuses is tested on

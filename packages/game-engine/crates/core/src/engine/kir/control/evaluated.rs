@@ -1,9 +1,10 @@
 //! Evaluate the checked operands once, then apply the verb's distribution.
 use super::*;
 use mtg_contracts::kir::{
-    self, Absent, AbsentReason, Distribution, EvaluatedVerb, OperandSlot, QuantityDomain, Resolved,
-    Stat, StepRole,
+    self, Absent, AbsentReason, Atom, DamageTo, Distribution, Evaluated, EvaluatedVerb,
+    OperandSlot, QuantityDomain, Resolved, Stat, StepRole,
 };
+mod perform;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct StepInstance {
@@ -17,7 +18,7 @@ type StepKey = (Vec<u32>, Vec<u32>);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ResultObject {
+pub(super) struct ResultObject {
     prior: ObjectId,
     successor: Option<ObjectId>,
     controller_before: PlayerId,
@@ -67,6 +68,27 @@ pub(super) enum StepProgress {
         result: StepResult,
         last: Option<InstructionOutcome>,
     },
+    /// CR 120.3: the step's one damage event is resolving in its damage
+    /// transaction. The recipients and amount were read once at first read.
+    Damage {
+        recipients: Vec<TargetEntity>,
+        amount: Quantity,
+    },
+    /// CR 122.6: the step's one counter placement is being committed.
+    Counters {
+        recipients: Vec<ObjectId>,
+        amount: Quantity,
+    },
+    /// CR 101.4, 701.21a: sacrifice choices collected in APNAP order. The
+    /// count was read once when collection began.
+    Collect {
+        remaining: Vec<PlayerId>,
+        chosen: Vec<(PlayerId, ObjectId)>,
+        count: Quantity,
+    },
+    /// CR 701.21a: the collected or designated permanents are being
+    /// sacrificed in one simultaneous event.
+    Sacrifice { chosen: Vec<(PlayerId, ObjectId)> },
 }
 
 impl RulesTxn {
@@ -180,6 +202,17 @@ impl RulesTxn {
                 vec![player]
             }
             PlayerExpr::Is {
+                who: Ref::CostResult {
+                    role: StepRole::Player,
+                },
+            } => {
+                let facts = entry
+                    .sacrificed
+                    .as_ref()
+                    .ok_or("missing sacrifice cost result")?;
+                vec![facts.controller]
+            }
+            PlayerExpr::Is {
                 who: Ref::StepResult { step, .. },
             } => {
                 let Some(result) = self.read_step_result(task, *step)? else {
@@ -225,9 +258,35 @@ impl RulesTxn {
         let entry = self.entry(self.kernel_root()?.stack_id)?;
         match object {
             Ref::Source => self.source_facts(entry).map(Some),
-            // This is the occurrence's immutable subject, including death
-            // look-back facts (CR 603.10a), never its new incarnation.
-            Ref::EventObject { .. } => Ok(entry.kind.event_binding()?.object.as_deref().cloned()),
+            Ref::CostResult {
+                role: StepRole::Objects,
+            } => entry
+                .sacrificed
+                .clone()
+                .map(Some)
+                .ok_or_else(|| "missing sacrifice cost result".into()),
+            Ref::EventObject { role } => {
+                let binding = entry.kind.event_binding()?;
+                let Some(object) = binding.object.as_deref() else {
+                    return Ok(None);
+                };
+                if matches!(
+                    role,
+                    kir::EventObjectRole::Entered | kir::EventObjectRole::Attacked
+                ) {
+                    // CR 608.2h: an entrant or attacker may have changed
+                    // power before resolving, including before leaving.
+                    Ok(Some(
+                        self.current_source_facts(object.object)
+                            .unwrap_or_else(|_| {
+                                binding.last_known.as_deref().unwrap_or(object).clone()
+                            }),
+                    ))
+                } else {
+                    // CR 603.10a: a death reads the common prior battlefield.
+                    Ok(Some(object.clone()))
+                }
+            }
             Ref::BoundVar { id } => {
                 let Some(Binding::Objects(ids)) = task.bindings.get(id) else {
                     return Err("missing measured binding".into());
@@ -244,9 +303,182 @@ impl RulesTxn {
         }
     }
 
+    /// The object a reference names: the exact incarnation, never a new one
+    /// (CR 400.7). An illegal or unchosen target names nothing (CR 608.2b).
+    pub(super) fn evaluated_object(
+        &self,
+        task: &Task,
+        object: &Ref,
+    ) -> Result<Resolved<ObjectId>, String> {
+        let frame = self.kernel_root()?;
+        let entry = self.entry(frame.stack_id)?;
+        Ok(Resolved::Present(match object {
+            Ref::Source => entry.source,
+            Ref::CostResult {
+                role: StepRole::Objects,
+            } => {
+                entry
+                    .sacrificed
+                    .as_ref()
+                    .ok_or("missing sacrifice cost result")?
+                    .object
+            }
+            Ref::Target { slot } => {
+                if frame.legal_targets.get(*slot as usize) != Some(&true) {
+                    return Ok(Resolved::Absent(AbsentReason::IllegalTarget));
+                }
+                match self.bound_object_target(entry, *slot as usize) {
+                    Some(id) => *id,
+                    None => return Ok(Resolved::Absent(AbsentReason::NotChosen)),
+                }
+            }
+            Ref::EventObject { .. } => match entry.kind.event_binding()?.object.as_deref() {
+                Some(facts) => facts.object,
+                None => return Ok(Resolved::Absent(AbsentReason::NoEventMember)),
+            },
+            Ref::BoundVar { id } => match task.bindings.get(id) {
+                Some(Binding::Objects(ids)) if ids.len() == 1 => ids[0],
+                _ => return Err("expected one bound object".into()),
+            },
+            _ => return Err("unsupported evaluated object".into()),
+        }))
+    }
+
+    /// CR 608.2h, 109.5: the members of a set as the step is performed. A
+    /// controller term may name any one player the step denotes.
+    pub(super) fn evaluated_objects(
+        &self,
+        task: &Task,
+        set: &SetExpr,
+    ) -> Result<Resolved<Vec<ObjectId>>, String> {
+        Ok(Resolved::Present(match set {
+            SetExpr::One { object } => match self.evaluated_object(task, object)? {
+                Resolved::Present(id) => vec![id],
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
+            SetExpr::Matching { zone, filter } => self.evaluated_set(task, zone, filter)?,
+            SetExpr::Pool {
+                pool:
+                    Ref::StepResult {
+                        step,
+                        role: StepRole::Objects,
+                    },
+            } => {
+                let Some(result) = self.read_step_result(task, *step)? else {
+                    return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+                };
+                result.objects.iter().map(|object| object.prior).collect()
+            }
+            SetExpr::Pool { .. } => self.control_objects(task, set)?,
+        }))
+    }
+
+    fn evaluated_set(
+        &self,
+        task: &Task,
+        zone: &ZoneExpr,
+        filter: &Pred,
+    ) -> Result<Vec<ObjectId>, String> {
+        let mut controllers: Option<Vec<PlayerId>> = None;
+        let mut rest = Vec::new();
+        for atom in &filter.0 {
+            match atom {
+                Atom::ControlledBy { player }
+                    if !player.is_you()
+                        && !matches!(player, PlayerExpr::EachOpponent | PlayerExpr::EachPlayer) =>
+                {
+                    let players = match self.evaluated_players(task, player)? {
+                        Resolved::Present(players) => players,
+                        Resolved::Absent(_) => vec![],
+                    };
+                    controllers = Some(match controllers {
+                        Some(seen) => seen.into_iter().filter(|p| players.contains(p)).collect(),
+                        None => players,
+                    });
+                }
+                atom => rest.push(atom.clone()),
+            }
+        }
+        let (objects, _) = self.kernel_set(self.kernel_root()?, zone, &Pred(rest))?;
+        Ok(match controllers {
+            Some(players) => objects
+                .into_iter()
+                .filter(|id| {
+                    self.current(*id)
+                        .is_ok_and(|object| players.contains(&object.controller))
+                })
+                .collect(),
+            None => objects,
+        })
+    }
+
     fn evaluated_amount(&self, task: &Task, amount: &Amount) -> Result<Resolved<Quantity>, String> {
         let frame = self.kernel_root()?;
         let value = match amount {
+            Amount::Var {
+                of: Ref::CostResult {
+                    role: StepRole::Amount,
+                },
+            } => {
+                self.entry(frame.stack_id)?
+                    .sacrificed
+                    .as_ref()
+                    .ok_or("missing sacrifice cost result")?;
+                Quantity::from(1)
+            }
+            Amount::Count {
+                set:
+                    set @ SetExpr::Pool {
+                        pool: Ref::StepResult { .. },
+                    },
+            } => match self.evaluated_objects(task, set)? {
+                Resolved::Present(objects) => Quantity::from(objects.len() as i64),
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
+            Amount::Var {
+                of: Ref::EventAmount,
+            } => match &self.entry(frame.stack_id)?.kind.event_binding()?.amount {
+                Some(amount) => amount.clone(),
+                None => return Ok(Resolved::Absent(AbsentReason::NoEventMember)),
+            },
+            Amount::Count {
+                set:
+                    SetExpr::Matching {
+                        zone: zone @ ZoneExpr::Battlefield,
+                        filter,
+                    },
+            } => Quantity::from(self.evaluated_set(task, zone, filter)?.len() as i64),
+            // CR 107.1b: arithmetic stays signed until the verb reads it.
+            Amount::Sum { terms } => {
+                let mut sum = Quantity::zero();
+                for term in terms {
+                    let Resolved::Present(value) = self.evaluated_amount(task, term)? else {
+                        return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+                    };
+                    sum.add(&value);
+                }
+                sum
+            }
+            Amount::Difference {
+                minuend,
+                subtrahend,
+            } => {
+                let (Resolved::Present(mut left), Resolved::Present(right)) = (
+                    self.evaluated_amount(task, minuend)?,
+                    self.evaluated_amount(task, subtrahend)?,
+                ) else {
+                    return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+                };
+                left.subtract(&right);
+                left
+            }
+            Amount::Times { factor, of } => {
+                let Resolved::Present(mut value) = self.evaluated_amount(task, of)? else {
+                    return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+                };
+                value.multiply(factor);
+                value
+            }
             Amount::Var {
                 of:
                     Ref::StepResult {
@@ -276,6 +508,14 @@ impl RulesTxn {
                     Stat::Toughness => facts.toughness().cloned().unwrap_or_default(),
                 }
             }
+            // CR 202.3e: a spell's mana value counts its X while on the stack.
+            Amount::StatOf {
+                object:
+                    Ref::EventObject {
+                        role: kir::EventObjectRole::CastSpell,
+                    },
+                stat: Stat::ManaValue,
+            } => self.entry(frame.stack_id)?.kind.cast_mana_value()?,
             Amount::StatOf { object, stat } => {
                 let Some(facts) = self.measured_object(task, object)? else {
                     return Ok(Resolved::Absent(AbsentReason::NoEventMember));
@@ -312,11 +552,35 @@ impl RulesTxn {
     }
 
     pub(super) fn evaluated_performable(&self, task: &Task, verb: &Verb) -> Result<bool, String> {
-        let (_, player, amount) = verb.evaluated_operands().ok_or("missing verb signature")?;
-        Ok(
-            matches!(self.evaluated_players(task, player)?, Resolved::Present(players) if !players.is_empty())
-                && matches!(self.evaluated_amount(task, amount)?, Resolved::Present(amount) if amount > Quantity::zero()),
-        )
+        let (_, operands) = verb.evaluated().ok_or("missing verb signature")?;
+        if !matches!(self.evaluated_amount(task, operands.amount())?, Resolved::Present(amount) if amount > Quantity::zero())
+        {
+            return Ok(false);
+        }
+        Ok(match operands {
+            Evaluated::PlayerAmount { player, .. } => {
+                matches!(self.evaluated_players(task, player)?, Resolved::Present(players) if !players.is_empty())
+            }
+            Evaluated::Damage { source, to, .. } => {
+                self.damage_source_facts(task, source)?.is_some()
+                    && !self.evaluated_recipients(task, to)?.is_empty()
+            }
+            Evaluated::Counters { on, counter, .. } => {
+                !self.counter_recipients(task, on, counter)?.is_empty()
+            }
+            Evaluated::Sacrifice { player, .. } => {
+                let Resolved::Present(players) = self.evaluated_players(task, player)? else {
+                    return Ok(false);
+                };
+                let mut any = false;
+                for player in players {
+                    any |= !self
+                        .kernel_sacrifice_candidates(task, &operands, player)?
+                        .is_empty();
+                }
+                any
+            }
+        })
     }
 
     pub(super) fn evaluate_step(
@@ -325,28 +589,39 @@ impl RulesTxn {
         verb: &Verb,
         block: u32,
     ) -> Result<(), String> {
-        let (signature, player, amount) =
-            verb.evaluated_operands().ok_or("missing verb signature")?;
-        let [recipient, quantity] = signature.slots else {
-            return Err("invalid evaluated signature".into());
-        };
+        let (signature, operands) = verb.evaluated().ok_or("missing verb signature")?;
+        let quantity = signature
+            .slots
+            .iter()
+            .find(|slot| slot.quantity.is_some())
+            .ok_or("invalid evaluated signature")?;
         let empty_outcome = match signature.verb {
-            EvaluatedVerb::Draw => InstructionOutcome::Effect { actual: None },
-            _ => InstructionOutcome::Life { actual: None },
+            EvaluatedVerb::GainLife | EvaluatedVerb::LoseLife => {
+                InstructionOutcome::Life { actual: None }
+            }
+            EvaluatedVerb::Damage => InstructionOutcome::Damage { actual: None },
+            _ => InstructionOutcome::Effect { actual: None },
         };
-        let Some(players) =
-            Self::present_operand(recipient, self.evaluated_players(&task, player)?)?
-        else {
-            return self.complete_evaluated(&task, None, [empty_outcome]);
-        };
-        let Some(amount) = Self::present_operand(quantity, self.evaluated_amount(&task, amount)?)?
+        let Some(amount) =
+            Self::present_operand(quantity, self.evaluated_amount(&task, operands.amount())?)?
         else {
             return self.complete_evaluated(&task, None, [empty_outcome]);
         };
         // CR 107.1b: read a signed statistic and apply the quantity rule at use.
         let amount = match quantity.quantity {
-            Some(QuantityDomain::NonNegative) => amount.max(Quantity::zero()),
+            Some(QuantityDomain::NonNegative | QuantityDomain::Positive) => {
+                amount.max(Quantity::zero())
+            }
             _ => return Err("invalid evaluated quantity policy".into()),
+        };
+        let Evaluated::PlayerAmount { player, .. } = operands else {
+            return self.perform_step(task, signature, &operands, amount, block, empty_outcome);
+        };
+        let recipient = &signature.slots[0];
+        let Some(players) =
+            Self::present_operand(recipient, self.evaluated_players(&task, player)?)?
+        else {
+            return self.complete_evaluated(&task, None, [empty_outcome]);
         };
         let result = StepResult {
             amount: Some(Quantity::zero()),
@@ -579,7 +854,8 @@ impl RulesTxn {
             *at += 1;
             if *at == players.len() {
                 let (verb, _) = self.node_at(&task)?;
-                let Some((_, player, amount)) = verb.verb().and_then(Verb::evaluated_operands)
+                let Some((_, Evaluated::PlayerAmount { player, amount })) =
+                    verb.verb().and_then(Verb::evaluated)
                 else {
                     return Err("missing admitted draw".into());
                 };
@@ -627,10 +903,20 @@ impl RulesTxn {
             remaining,
             result,
             last,
-        } = progress;
-        let (_, operand, amount) = verb
-            .evaluated_operands()
-            .ok_or("missing sequence signature")?;
+        } = progress
+        else {
+            return Err("missing draw sequence progress".into());
+        };
+        let Some((
+            _,
+            Evaluated::PlayerAmount {
+                player: operand,
+                amount,
+            },
+        )) = verb.evaluated()
+        else {
+            return Err("missing sequence signature".into());
+        };
         let row = players.get(*at).ok_or("invalid draw sequence position")?;
         let mut total_at = row.attempted.clone();
         total_at.add(remaining);
@@ -686,7 +972,38 @@ impl RulesTxn {
         {
             return Err("draw sequence events overlap completed work".into());
         }
-        self.validate_result(result, first_batch)
+        self.validate_result(result, first_batch, EvaluatedVerb::Draw)
+    }
+
+    /// The saved task a suspended draw or specialist transaction resumes.
+    fn specialist_resume(&self, frame: &Frame) -> Option<FrameLink> {
+        match frame {
+            Frame::CommanderReturn {
+                continuation: CommanderContinuation::ResolutionDraw { resume },
+                ..
+            }
+            | Frame::DamageEffects {
+                transaction:
+                    DamageTransaction {
+                        continuation: DamageContinuation::Kernel { resume },
+                        ..
+                    },
+            } => Some(*resume),
+            Frame::GraveyardGroup { tx } => match tx.finish {
+                GroupFinish::Kernel { resume } => Some(resume),
+                _ => None,
+            },
+            Frame::CounterPlacement { transaction } => transaction.kernel,
+            _ => None,
+        }
+    }
+
+    /// The current frame is the specialist transaction that resumes the task
+    /// saved at `depth`.
+    pub(super) fn specialist_resumes(&self, depth: usize) -> bool {
+        self.specialist_resume(&self.state.rules.frame)
+            .is_some_and(|resume| resume.0 == depth)
+            && !matches!(self.state.rules.frame, Frame::CommanderReturn { .. })
     }
 
     fn step_order(&self, task: &Task) -> Result<Vec<(u32, u32)>, String> {
@@ -772,14 +1089,13 @@ impl RulesTxn {
         let mut events = BTreeSet::new();
         let active = match &self.state.rules.frame {
             Frame::Kernel { task } => Some(task.as_ref()),
-            Frame::CommanderReturn {
-                continuation: CommanderContinuation::ResolutionDraw { resume },
-                ..
-            } => match self.saved_frame(*resume)? {
-                Frame::Kernel { task } => Some(task.as_ref()),
-                _ => return Err("missing saved draw sequence".into()),
+            frame => match self.specialist_resume(frame) {
+                Some(resume) => match self.saved_frame(resume)? {
+                    Frame::Kernel { task } => Some(task.as_ref()),
+                    _ => return Err("missing saved kernel step".into()),
+                },
+                None => None,
             },
-            _ => None,
         };
         self.validate_saved_step_results(root, results, *first_batch, &mut events, active)
     }
@@ -797,9 +1113,9 @@ impl RulesTxn {
             address.path.clone_from(path);
             address.iterations.clone_from(iterations);
             let node = self.node_at(&address)?.0;
-            let (signature, _, _) = node
+            let (signature, _) = node
                 .verb()
-                .and_then(Verb::evaluated_operands)
+                .and_then(Verb::evaluated)
                 .ok_or("result does not name an evaluated step")?;
             let order = self.step_order(&address)?;
             if let Some(active) = active
@@ -807,8 +1123,8 @@ impl RulesTxn {
             {
                 return Err("step result does not precede current work".into());
             }
-            if signature.verb != EvaluatedVerb::Draw && !result.objects.is_empty() {
-                return Err("life result has objects".into());
+            if !signature.projections.contains(&StepRole::Objects) && !result.objects.is_empty() {
+                return Err("step result has objects outside its projection".into());
             }
             if result
                 .events
@@ -817,12 +1133,20 @@ impl RulesTxn {
             {
                 return Err("duplicate step event".into());
             }
-            self.validate_result(result, first_batch)?;
+            self.validate_result(result, first_batch, signature.verb)?;
         }
         Ok(())
     }
 
-    fn validate_result(&self, result: &StepResult, first_batch: u64) -> Result<(), String> {
+    fn validate_result(
+        &self,
+        result: &StepResult,
+        first_batch: u64,
+        verb: EvaluatedVerb,
+    ) -> Result<(), String> {
+        // CR 400.7: drawn and sacrificed objects are new incarnations; a
+        // damaged permanent or a counter recipient stays the same object.
+        let moved = matches!(verb, EvaluatedVerb::Draw | EvaluatedVerb::Sacrifice);
         let rules = &self.state.rules;
         if result
             .events
@@ -840,10 +1164,14 @@ impl RulesTxn {
                 .any(|p| !rules.original_seating.contains(p))
             || result.objects.iter().any(|object| {
                 !rules.original_seating.contains(&object.controller_before)
-                    || object.successor.is_none_or(|next| {
-                        next.card != object.prior.card
-                            || object.prior.incarnation.checked_add(1) != Some(next.incarnation)
-                    })
+                    || match (moved, object.successor) {
+                        (true, Some(next)) => {
+                            next.card != object.prior.card
+                                || object.prior.incarnation.checked_add(1) != Some(next.incarnation)
+                        }
+                        (false, None) => false,
+                        _ => true,
+                    }
                     || !rules.cards.contains_key(&object.prior.card)
             })
         {

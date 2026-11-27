@@ -6,37 +6,69 @@ use super::*;
 /// one announced creature or a matching creature set.
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
-    on: &serde_json::Value,
-    counter: &SourceCounter,
-    count: &serde_json::Value,
+    counters: &ast::EffectPutCounters,
 ) -> Result<Instruction, Failure> {
-    uncounted(cx)?;
+    let ast::EffectPutCounters {
+        optional,
+        decided_by,
+        starting_with,
+        for_each,
+        for_each_beyond,
+        for_each_vote,
+        duration,
+        counter,
+        count,
+        on,
+        who,
+        up_to,
+        max_total,
+    } = counters;
+    if starting_with.is_some()
+        || for_each_beyond.is_some()
+        || for_each_vote.is_some()
+        || duration.is_some()
+        || up_to.is_some()
+        || max_total.is_some()
+        || who
+            .as_deref()
+            .is_some_and(|who| !matches!(who, ast::PlayerRef::You(_)))
+        || (decided_by.is_some()
+            && !(optional.is_some()
+                && matches!(decided_by.as_deref(), Some(ast::PlayerRef::You(_)))))
+    {
+        return Err(step("put-counters", "qualified"));
+    }
     let counter = object_counter_kind(&counter.r#type)?;
-    let amount = match typed(count, "amount")? {
-        ast::Amount::X(_) if counter == kir::CounterKind::MinusOneMinusOne => {
-            kir::Amount::announced_x()
-        }
-        amount => kir::Amount::Fixed {
-            value: fixed_positive_amount(&amount)?,
-        },
+    let amount = if let Some(filter) = for_each {
+        pilot_each_filter(cx, filter, count)?
+    } else {
+        pilot_amount(cx, count)?
     };
-    let on = object(on)?;
-    let on = if is_set(&on) {
-        lower_board_set(&on, cx.context)?
-    } else if is_this_creature(&on) || (!counter.needs_creature() && is_this_permanent(&on)) {
+    let on = on.as_ref();
+    let on = if is_set(on) {
+        pilot_board_set(cx, on)?
+    } else if is_this_creature(on) || (!counter.needs_creature() && is_this_permanent(on)) {
         kir::SetExpr::source()
-    } else if let Some(slot) = continuous::followup_target(cx, &on) {
-        SetExpr::target(slot)
+    } else if matches!(on, ast::ObjectRef::It(_) | ast::ObjectRef::That(_)) {
+        // CR 608.2c: the one permanent the pronoun names.
+        match antecedent::permanent(cx, on)? {
+            Ref::Target { slot } => SetExpr::target(slot),
+            object => SetExpr::One { object },
+        }
     } else if counter.needs_creature() {
-        kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, &on)?)
+        kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, on)?)
     } else {
         // CR 122.1: other kinds go on any permanent the target admits.
         kir::SetExpr::target(
-            bind_creature_target(cx.program, cx.slots, &on)
-                .or_else(|_| bind_permanent_target(cx.program, cx.slots, &on))?,
+            bind_creature_target(cx.program, cx.slots, on)
+                .or_else(|_| bind_permanent_target(cx.program, cx.slots, on))?,
         )
     };
-    Ok(Instruction::counters(on, counter, amount, cx.source_block))
+    Ok(cx.act(Verb::PutCounters {
+        on,
+        counter,
+        amount,
+    }))
 }
 
 /// CR 107.14, 122.1f, 704.5c: a fixed award to you or to each opponent.

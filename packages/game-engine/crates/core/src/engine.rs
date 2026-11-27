@@ -139,7 +139,7 @@ use std::{
 // Reviewed canonical definition digests, independent of compiler success.
 pub mod damage_life;
 mod kir;
-pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
+pub use damage_life::TargetEntity;
 
 pub use triggers::EffectiveTriggerAbility;
 mod resolution_triggers;
@@ -183,8 +183,9 @@ pub mod actuals;
 pub mod events;
 pub mod trace;
 pub use actuals::{
-    Actual, ActualJournal, ActualRef, CostOf, Destination, EventId, Facet, FacetKind, GroupId,
-    LedgerDelta, Lineage, MoveKind, Origin, ReplacementKey, Root, SeatDelta, StepRef,
+    Actual, ActualJournal, ActualRef, CostOf, CounterChange, CounterHolder, Destination, EventId,
+    Facet, FacetKind, GroupId, LedgerDelta, Lineage, MoveKind, Origin, ReplacementKey, Root,
+    SeatDelta, StepRef,
 };
 pub use events::*;
 pub use trace::*;

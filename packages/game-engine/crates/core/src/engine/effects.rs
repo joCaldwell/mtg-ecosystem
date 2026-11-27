@@ -257,6 +257,11 @@ pub enum DamageContinuation {
     Mana {
         activation: Box<ManaActivation>,
     },
+    /// CR 608.2c: an evaluated kernel step; its saved task resumes with the
+    /// damage actually dealt.
+    Kernel {
+        resume: FrameLink,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1546,98 +1551,6 @@ impl RulesTxn {
             DamageContinuation::Combat { toughness_sources },
         )
     }
-    pub(crate) fn prepare_noncombat_damage(
-        &mut self,
-        frame: Resolving,
-        damage: NoncombatDamageOccurrence,
-        block: u32,
-    ) -> Result<(), String> {
-        let cause = BatchCause::Instruction {
-            stack_id: frame.stack_id,
-            player: self.entry(frame.stack_id)?.controller,
-            source: self.entry(frame.stack_id)?.source,
-            cursor: frame.cursor,
-            source_block: block,
-        };
-        let entry = self.entry(frame.stack_id)?;
-        let handles = match &entry.kind {
-            StackKind::Triggered { witness, .. } if damage.source.object != entry.source => witness
-                .observed_object()
-                .ok_or("missing damage object handles")?
-                .handles
-                .clone(),
-            StackKind::Activated { source_handles, .. }
-            | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
-            StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
-        };
-        let entries = vec![PreparedDamage {
-            source_appearance: None,
-            source_handles: handles,
-            id: DamageId(0),
-            source: damage.source,
-            controller: damage.controller,
-            recipient: damage.recipient,
-            original_amount: damage.amount.clone(),
-            amount: damage.amount,
-            applied: vec![],
-        }];
-        self.begin_damage(
-            DamageKind::Noncombat,
-            entries,
-            cause,
-            DamageContinuation::Instruction {
-                frame: Box::new(frame),
-            },
-        )
-    }
-    pub(super) fn prepare_noncombat_set_damage(
-        &mut self,
-        frame: Resolving,
-        amount: Quantity,
-        block: u32,
-        targets: Vec<TargetEntity>,
-    ) -> Result<(), String> {
-        let cause = BatchCause::Instruction {
-            stack_id: frame.stack_id,
-            player: self.entry(frame.stack_id)?.controller,
-            source: self.entry(frame.stack_id)?.source,
-            cursor: frame.cursor,
-            source_block: block,
-        };
-        let handles = match &self.entry(frame.stack_id)?.kind {
-            StackKind::Activated { source_handles, .. }
-            | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
-            StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
-        };
-        let source = self.source_facts(self.entry(frame.stack_id)?)?;
-        let controller = self.entry(frame.stack_id)?.controller;
-        let entries = targets
-            .into_iter()
-            .enumerate()
-            .map(|(n, t)| PreparedDamage {
-                source_appearance: None,
-                source_handles: handles.clone(),
-                id: DamageId(n as u32),
-                source: source.clone(),
-                controller,
-                recipient: match t {
-                    TargetEntity::Player { player } => DamageRecipient::Player { player },
-                    TargetEntity::Object { object } => DamageRecipient::Permanent { object },
-                },
-                original_amount: amount.clone(),
-                amount: amount.clone(),
-                applied: vec![],
-            })
-            .collect();
-        self.begin_damage(
-            DamageKind::Noncombat,
-            entries,
-            cause,
-            DamageContinuation::Instruction {
-                frame: Box::new(frame),
-            },
-        )
-    }
     pub(super) fn begin_damage(
         &mut self,
         kind: DamageKind,
@@ -1997,9 +1910,19 @@ impl RulesTxn {
             )?;
         } else {
             let tx = self.damage_transaction()?.clone();
+            if let DamageContinuation::Kernel { resume } = tx.continuation {
+                let batch = self.commit_batch(
+                    tx.cause,
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::CommitDamage { transaction: tx.id },
+                    },
+                )?;
+                return self.finish_kernel_damage(resume, &batch);
+            }
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match tx.continuation {
+                DamageContinuation::Kernel { .. } => unreachable!("kernel damage continuation"),
                 DamageContinuation::Combat { .. } => self.grant_turn_priority()?,
                 DamageContinuation::Mana { activation } => self.resume_mana_riders(*activation)?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
@@ -2406,11 +2329,15 @@ impl RulesTxn {
         // The entire group was validated above, before any recipient/history write.
         let mut results = vec![];
         for ((kind, id), amount) in totals {
-            let (recipient, previous, current) = if kind == 0 {
+            if kind == 0 {
                 let player = PlayerId(id as u8);
-                let (before, after) =
+                let (previous, current) =
                     self.rules_mut().players[player.0 as usize].lose_life(&amount);
-                (DamageRecipient::Player { player }, before, after)
+                results.push(DamageResult {
+                    recipient: DamageRecipient::Player { player },
+                    previous,
+                    current,
+                });
             } else {
                 let object = self
                     .state
@@ -2419,14 +2346,10 @@ impl RulesTxn {
                     .get(&CardId(id))
                     .ok_or("missing final damage object")?
                     .id;
-                let (before, after) = self.apply_permanent_damage(object, &amount)?;
-                (DamageRecipient::Permanent { object }, before, after)
-            };
-            results.push(DamageResult {
-                recipient,
-                previous,
-                current,
-            });
+                if let Some(result) = self.apply_permanent_damage(object, &amount)? {
+                    results.push(result);
+                }
+            }
         }
         let mut commander_damage = vec![];
         for ((commander, recipient), amount) in commanders {
@@ -3919,6 +3842,9 @@ impl RulesTxn {
             (DamageKind::Noncombat, DamageContinuation::Mana { activation }) => {
                 self.validate_mana_rider_damage(tx, activation)?;
             }
+            (DamageKind::Noncombat, DamageContinuation::Kernel { resume }) => {
+                self.validate_kernel_damage(tx, *resume)?;
+            }
             (DamageKind::Noncombat, DamageContinuation::Instruction { frame }) => {
                 self.validate_resolving(frame)?;
                 let instruction = self
@@ -3926,60 +3852,10 @@ impl RulesTxn {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                if let kernel!(Fight { first, second } @ source_block) = instruction {
-                    self.validate_fight_damage(tx, frame, first, second, *source_block)?;
-                } else if frame.fight.is_some() {
-                    return Err("fight facts outside a fight transaction".into());
-                } else if instruction.set_damage().is_some() {
-                    self.validate_wipe_damage_transaction(tx, frame)?;
-                } else {
-                    use mtg_contracts::kir::{DamageTo, Ref};
-                    let kernel!(Damage { source, to: DamageTo::Ref { who }, amount } @ source_block) =
-                        instruction
-                    else {
-                        return Err("damage continuation not damage instruction".into());
-                    };
-                    let entry = self.entry(frame.stack_id)?;
-                    let (target_slot, recipient) = match who {
-                        Ref::Target { slot } => {
-                            (Some(*slot), self.directed_damage_target(entry, *slot)?)
-                        }
-                        Ref::Controller { .. } => (
-                            None,
-                            TargetEntity::Player {
-                                player: entry.controller,
-                            },
-                        ),
-                        _ => return Err("unexpected directed damage recipient".into()),
-                    };
-                    let (current_source, _) = self.damage_source(entry, *source)?;
-                    let expected = BatchCause::Instruction {
-                        stack_id: frame.stack_id,
-                        player: self.entry(frame.stack_id)?.controller,
-                        source: self.entry(frame.stack_id)?.source,
-                        cursor: frame.cursor,
-                        source_block: *source_block,
-                    };
-                    let d = tx.entries.first().ok_or("empty noncombat damage")?;
-                    let controller = if matches!(source, Ref::EventObject { .. }) {
-                        d.source.controller
-                    } else {
-                        entry.controller
-                    };
-                    let amount = Self::directed_damage_amount(entry, amount, &d.source)?;
-                    if tx.entries.len() != 1
-                        || tx.cause != expected
-                        || d.original_amount != amount
-                        || recipient != d.recipient.entity()
-                        || target_slot.is_some_and(|slot| {
-                            frame.legal_targets.get(slot as usize) != Some(&true)
-                        })
-                        || d.controller != controller
-                        || !self.prepared_damage_source_matches(d, current_source)
-                    {
-                        return Err("unbound noncombat damage transaction".into());
-                    }
-                }
+                let kernel!(Fight { first, second } @ source_block) = instruction else {
+                    return Err("damage continuation does not name a fight".into());
+                };
+                self.validate_fight_damage(tx, frame, first, second, *source_block)?;
             }
             _ => return Err("wrong damage continuation kind".into()),
         }

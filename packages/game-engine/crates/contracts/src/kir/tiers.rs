@@ -111,11 +111,7 @@ pub enum Cell {
     DrawTargetPlayer,
     // CR 120: damage.
     DamageTarget,
-    DamageTargetX,
-    DamageEventObject,
     DamageController,
-    DamageSet,
-    DamageSelectedPlayers,
     // CR 701.8: destroy.
     DestroyTargetPermanent,
     DestroyTargetCreature,
@@ -174,18 +170,10 @@ pub enum Cell {
     DiscardTargetRandom,
     DiscardGroup,
     // CR 701.21: sacrifice.
-    SacrificeController,
-    SacrificeDamagedPlayer,
-    SacrificeActivePlayer,
     /// CR 702.86a, 508.5: an attack trigger's defending player sacrifices N
     /// permanents of their choice, or every one they control if fewer.
-    SacrificeDefendingPlayer,
-    SacrificeEachPlayer,
-    SacrificeEachOpponent,
-    SacrificeEachOpponentGreatestPower,
     /// CR 701.21a: the source's current controller, or the ability's
     /// controller, sacrifices that exact permanent if they control it.
-    SacrificeSource,
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
@@ -202,14 +190,9 @@ pub enum Cell {
     CountedTokens,
     // CR 122: counters.
     PlusOneCountersSource,
-    PlusOneCountersEventObject,
     PlusOneCountersTarget,
-    PlusOneCountersSet,
     /// CR 122.1: counters of another kind on the same recipients.
-    KindCountersSource,
     KindCountersEventObject,
-    KindCountersTarget,
-    KindCountersSet,
     // CR 611.2c, 613: until end of turn.
     PumpSource,
     PumpTarget,
@@ -375,10 +358,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::PlusOneCountersSource
         | C::PlusOneCountersTarget => Tiers::HOSTING,
         C::Evaluated(_)
-        | C::DamageTargetX
-        | C::DamageEventObject
-        | C::DamageSet
-        | C::DamageSelectedPlayers
         | C::DestroyTargetPermanent
         | C::OptionalTargetDestroy
         | C::DestroySet
@@ -419,13 +398,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DiscardTarget
         | C::DiscardTargetRandom
         | C::DiscardGroup
-        | C::SacrificeController
-        | C::SacrificeDamagedPlayer
-        | C::SacrificeActivePlayer
-        | C::SacrificeDefendingPlayer
-        | C::SacrificeEachPlayer
-        | C::SacrificeEachOpponent
-        | C::SacrificeEachOpponentGreatestPower
         | C::PredefinedTokens
         | C::Fight
         | C::Populate
@@ -435,8 +407,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::CountedTokens
-        | C::PlusOneCountersSet
-        | C::PlusOneCountersEventObject
         | C::PumpEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
@@ -506,11 +476,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Encore
         | C::Dash
         | C::Myriad
-        | C::SacrificeSource
-        | C::KindCountersSource
-        | C::KindCountersEventObject
-        | C::KindCountersTarget
-        | C::KindCountersSet => Tiers::EXECUTES,
+        | C::KindCountersEventObject => Tiers::EXECUTES,
     }
 }
 
@@ -715,7 +681,8 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     let mut add = |p: &SpellProgram,
                    context: Context,
                    event: Option<&TriggerCondition>,
-                   announced_x: bool|
+                   announced_x: bool,
+                   single_sacrifice_cost: bool|
      -> Result<(), KirError> {
         let env = Env {
             context,
@@ -724,6 +691,7 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             // CR 107.3a, 602.2b: a spell or an activated ability announces
             // its own X.
             announced_x,
+            single_sacrifice_cost,
         };
         for Instruction::Kernel { node, .. } in &p.instructions {
             cells.extend(check(node, &env)?.cells);
@@ -731,16 +699,22 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         Ok(())
     };
     for p in d.spell_programs() {
-        add(p, Context::Spell, None, d.x_mana_cost)?;
+        add(p, Context::Spell, None, d.x_mana_cost, false)?;
     }
     for a in &d.activated {
         for p in a.programs() {
-            add(p, Context::Activated, None, a.x_mana_cost)?;
+            add(
+                p,
+                Context::Activated,
+                None,
+                a.x_mana_cost,
+                matches!(a.cost, ActivationCost::SacrificePermanent { count: 1, .. }),
+            )?;
         }
     }
     for a in &d.triggered {
         for p in a.programs() {
-            add(p, Context::Triggered, Some(&a.condition), false)?;
+            add(p, Context::Triggered, Some(&a.condition), false, false)?;
         }
     }
     for a in &d.mana_abilities {

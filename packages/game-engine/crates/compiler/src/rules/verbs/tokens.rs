@@ -24,9 +24,7 @@ pub(super) fn lower(
     {
         None | Some(ast::PlayerRef::You(_)) => PlayerExpr::you(cx.context),
         Some(ast::PlayerRef::Controller(reference)) => PlayerExpr::ControllerOf {
-            object: kir::Ref::Target {
-                slot: preceding_target(cx.program, cx.source_block, &reference.of)?,
-            },
+            object: antecedent::target(cx, &reference.of)?,
         },
         Some(other) => return Err(operand("token_controller", variant(&other))),
     };

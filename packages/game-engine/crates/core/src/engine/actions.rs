@@ -62,7 +62,7 @@ pub enum ResolutionChoice {
         source_block: u32,
     },
 
-    Sacrifice {
+    TappedReturnPayment {
         player: PlayerId,
         source_block: u32,
     },
@@ -512,11 +512,10 @@ impl RulesTxn {
                     &[Flag::Accept, Flag::Decline],
                 ))
             }
-            ResolutionChoice::Sacrifice { player, .. } if self.is_live(*player) => {
-                let choices = self.sacrifice_options(frame, *player)?;
-                // CR 609.3: during resolution do as much as possible.
-                let count = self.resolving_sacrifice_count(frame)?.min(choices.len());
-                (count != 0).then(|| self.pick_objects(*player, Reason::Sacrifice, choices, count))
+            ResolutionChoice::TappedReturnPayment { player, .. } if self.is_live(*player) => {
+                let choices = self.controlled_creatures(*player);
+                (!choices.is_empty())
+                    .then(|| self.pick_objects(*player, Reason::Sacrifice, choices, 1))
             }
             ResolutionChoice::Discard { player, count, .. } if self.is_live(*player) => {
                 let hand = self.action_hand(*player);
@@ -597,7 +596,7 @@ impl RulesTxn {
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::SearchEntry { .. } => unreachable!(),
-                        ResolutionChoice::Sacrifice { player, .. } => {
+                        ResolutionChoice::TappedReturnPayment { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
                                 movement: None,
@@ -630,7 +629,7 @@ impl RulesTxn {
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::SearchEntry { .. } => unreachable!(),
-                    ResolutionChoice::Sacrifice { source_block, .. }
+                    ResolutionChoice::TappedReturnPayment { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
                 let cause = BatchCause::Instruction {
@@ -641,33 +640,19 @@ impl RulesTxn {
                     source_block,
                 };
                 match choice {
-                    ResolutionChoice::Sacrifice { .. } => {
+                    ResolutionChoice::TappedReturnPayment { .. } => {
                         let player = request.player;
-                        let mut occurrences = input
-                            .objects()?
-                            .into_iter()
-                            .map(|object| ProposedEvent::Sacrifice { object, player });
-                        let (group, result) = if self.resolving_sacrifice_count(&frame)? == 1 {
-                            (
-                                EventGroup::Occurrence {
-                                    proposed: occurrences
-                                        .next()
-                                        .ok_or("missing sacrifice choice")?,
-                                },
-                                GroupResult::Sacrifice { player },
-                            )
-                        } else {
-                            (
-                                EventGroup::Simultaneous {
-                                    occurrences: occurrences.collect(),
-                                },
-                                GroupResult::Effect,
-                            )
+                        let proposed = ProposedEvent::Sacrifice {
+                            player,
+                            object: input.object()?,
                         };
                         return self.complete_graveyard_group(
                             cause,
-                            group,
-                            GroupFinish::Instruction { frame, result },
+                            EventGroup::Occurrence { proposed },
+                            GroupFinish::Instruction {
+                                frame,
+                                result: GroupResult::Sacrifice { player },
+                            },
                         );
                     }
                     ResolutionChoice::Discard { .. } => {
@@ -779,68 +764,6 @@ impl RulesTxn {
                     _ => return Err("kernel mill amount has no audited executor".into()),
                 };
                 self.execute_mill(frame, recipient, count, source_block)
-            }
-            op @ kernel!(Sacrifice {
-                player: mtg_contracts::kir::PlayerExpr::EachPlayer,
-                ..
-            }) => self.execute_wipes_instruction(frame, op),
-            op @ kernel!(Sacrifice {
-                player: mtg_contracts::kir::PlayerExpr::EachOpponent,
-                ..
-            }) => self.execute_sacrifice_instruction(frame, op),
-            kernel!(Sacrifice { player: player @ (you!() | event_player!()), .. } @ source_block) =>
-            {
-                let actor = self.resolving_sacrifice_player(&frame, &player)?;
-                if !self.is_live(actor) || self.sacrifice_options(&frame, actor)?.is_empty() {
-                    self.finish_instruction(
-                        frame,
-                        InstructionOutcome::Sacrificed {
-                            player: actor,
-                            movement: None,
-                        },
-                    )
-                } else {
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        frame,
-                        choice: ResolutionChoice::Sacrifice {
-                            player: actor,
-                            source_block,
-                        },
-                    };
-                    Ok(())
-                }
-            }
-            kernel!(Sacrifice { player: target_player!(target_slot), .. } @ source_block) => {
-                let target = *self
-                    .entry(frame.stack_id)?
-                    .player_targets
-                    .get(target_slot as usize)
-                    .ok_or("missing player target binding")?;
-                if !frame
-                    .legal_targets
-                    .get(target_slot as usize)
-                    .copied()
-                    .unwrap_or(false)
-                    || !self.is_live(target)
-                    || self.sacrifice_options(&frame, target)?.is_empty()
-                {
-                    self.finish_instruction(
-                        frame,
-                        InstructionOutcome::Sacrificed {
-                            player: target,
-                            movement: None,
-                        },
-                    )
-                } else {
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        frame,
-                        choice: ResolutionChoice::Sacrifice {
-                            player: target,
-                            source_block,
-                        },
-                    };
-                    Ok(())
-                }
             }
             kernel!(Discard { player: player @ (mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent), amount: fixed!(count), random: false } @ source_block) =>
             {
@@ -973,7 +896,6 @@ impl RulesTxn {
         self.validate_additional_cost_entry(self.entry(frame.stack_id)?)?;
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
-        self.validate_set_damage_facts(frame)?;
         self.validate_random_discard_progress(frame)?;
         self.validate_group_discard_progress(frame)?;
         let entry = self.entry(frame.stack_id)?;
@@ -1039,9 +961,7 @@ impl RulesTxn {
     pub(super) fn revalidate_actions_departure(&mut self) -> Result<(), String> {
         if matches!(
             self.state.rules.frame,
-            Frame::ResolutionChoice { .. }
-                | Frame::ForcedSacrifice { .. }
-                | Frame::SacrificeCost { .. }
+            Frame::ResolutionChoice { .. } | Frame::SacrificeCost { .. }
         ) && self
             .state
             .rules
@@ -1122,7 +1042,7 @@ impl RulesTxn {
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
                 (
-                    ResolutionChoice::Sacrifice {
+                    ResolutionChoice::TappedReturnPayment {
                         player,
                         source_block,
                     },
@@ -1132,32 +1052,6 @@ impl RulesTxn {
                     },
                 ) => source_block == expected && *player == self.entry(frame.stack_id)?.controller,
                 (ResolutionChoice::Object {}, _) => self.object_choice_spec(frame).is_ok(),
-                (
-                    ResolutionChoice::Sacrifice {
-                        player,
-                        source_block,
-                    },
-                    kernel!(Sacrifice { player: recipient @ (you!() | event_player!()), .. } @ expected),
-                ) => {
-                    source_block == expected
-                        && self
-                            .resolving_sacrifice_player(frame, recipient)
-                            .is_ok_and(|actor| actor == *player)
-                }
-                (
-                    ResolutionChoice::Sacrifice {
-                        player,
-                        source_block,
-                    },
-                    kernel!(Sacrifice { player: target_player!(target_slot), .. } @ expected),
-                ) => {
-                    *source_block == *expected
-                        && self
-                            .entry(frame.stack_id)?
-                            .player_targets
-                            .get(*target_slot as usize)
-                            == Some(player)
-                }
                 (
                     ResolutionChoice::Discard {
                         player,

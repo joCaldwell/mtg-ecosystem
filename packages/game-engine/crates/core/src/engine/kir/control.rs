@@ -88,6 +88,13 @@ where
 }
 
 impl Task {
+    pub(in crate::engine) fn sacrifice_choices(&self) -> &[(PlayerId, ObjectId)] {
+        match &self.stage {
+            Stage::Step(StepProgress::Collect { chosen, .. }) => chosen,
+            _ => &[],
+        }
+    }
+
     fn child(&self, index: u32) -> Self {
         let mut path = self.path.clone();
         path.push(index);
@@ -114,6 +121,7 @@ impl Task {
 
     fn chooser(&self) -> Option<PlayerId> {
         match self.stage {
+            Stage::Step(StepProgress::Collect { ref remaining, .. }) => remaining.first().copied(),
             Stage::Run | Stage::Leaf | Stage::Complete { .. } | Stage::Step(_) => None,
             Stage::Ask(AskKind::Optional { chooser })
             | Stage::MyriadDefender { chooser }
@@ -147,7 +155,7 @@ impl RulesTxn {
             task: Box::new(root),
         });
         if let (Node::Do(verb), block) = self.node_at(&task)?
-            && verb.evaluated_operands().is_some()
+            && verb.is_evaluated()
         {
             return self.evaluate_step(task, &verb.clone(), block);
         }
@@ -440,6 +448,9 @@ impl RulesTxn {
         if !self.still_offered(task)? {
             return Ok(None);
         }
+        if matches!(task.stage, Stage::Step(StepProgress::Collect { .. })) {
+            return self.collect_request(task);
+        }
         if matches!(task.stage, Stage::MyriadDefender { .. }) {
             let candidates = self.myriad_candidates(task, player)?;
             return Ok((candidates.len() > 1)
@@ -494,10 +505,10 @@ impl RulesTxn {
         matches!(
             node,
             Node::IfPays {
-                payment: Payment::SacrificeCreature {},
+                payment: Payment::Sacrifice { .. },
                 ..
             } | Node::UnlessPays {
-                payment: Payment::SacrificeCreature {},
+                payment: Payment::Sacrifice { .. },
                 ..
             }
         )
@@ -577,6 +588,19 @@ impl RulesTxn {
             {
                 self.validate_sequence(task, progress, verb)
             }
+            (
+                Stage::Step(progress @ StepProgress::Collect { .. }),
+                Node::Do(Verb::Sacrifice { .. }),
+            ) if depth == self.state.rules.frames.len() => self.validate_collect(task, progress),
+            // A specialist transaction holds this saved task as its parent.
+            (
+                Stage::Step(
+                    StepProgress::Damage { .. }
+                    | StepProgress::Counters { .. }
+                    | StepProgress::Sacrifice { .. },
+                ),
+                Node::Do(_),
+            ) if self.specialist_resumes(depth) => Ok(()),
 
             (Stage::Complete { outcomes, .. }, _)
                 if task.resume == FrameLink(0)
@@ -594,7 +618,7 @@ impl RulesTxn {
                 }
                 Ok(())
             }
-            (Stage::Leaf, Node::Do(verb)) if verb.evaluated_operands().is_none() => Ok(()),
+            (Stage::Leaf, Node::Do(verb)) if !verb.is_evaluated() => Ok(()),
             (Stage::Run, _) => Ok(()),
             (Stage::MyriadDefender { chooser }, Node::Do(Verb::CreateMyriadToken { defender })) => {
                 self.myriad_defender(task, defender)?;
@@ -624,7 +648,7 @@ impl RulesTxn {
                 },
             ) if matches!(
                 payment,
-                Payment::SacrificeCreature {} | Payment::DiscardArtifact {}
+                Payment::Sacrifice { .. } | Payment::DiscardArtifact {}
             ) =>
             {
                 if self.control_players(task, named)? != [*payer] {
@@ -685,8 +709,11 @@ impl RulesTxn {
     pub(in crate::engine) fn step_kernel_task(&mut self, mut task: Task) -> Result<(), String> {
         let (node, block) = self.node_at(&task)?;
         let node = node.clone();
-        if matches!(task.stage, Stage::Step(_)) {
-            return self.step_sequence(task);
+        match &task.stage {
+            Stage::Step(StepProgress::Sequence { .. }) => return self.step_sequence(task),
+            Stage::Step(StepProgress::Collect { .. }) => return self.step_collect(task),
+            Stage::Step(_) => return Err("a specialist transaction resumes this step".into()),
+            _ => {}
         }
         if let Stage::MyriadDefender { chooser } = task.stage {
             let candidates = self.myriad_candidates(&task, chooser)?;
@@ -912,7 +939,7 @@ impl RulesTxn {
                 match payment {
                     // Keep a private discard offer even with no matching card.
                     // CR 400.2: only the payer may see the eligible hand objects.
-                    Payment::SacrificeCreature {} | Payment::DiscardArtifact {} => {
+                    Payment::Sacrifice { .. } | Payment::DiscardArtifact {} => {
                         task.stage = Stage::Ask(AskKind::ObjectPayment { payer: player });
                         self.install_kernel(task);
                     }
@@ -958,7 +985,7 @@ impl RulesTxn {
                     }
                 }
             }
-            Node::Do(verb) if verb.evaluated_operands().is_some() => {
+            Node::Do(verb) if verb.is_evaluated() => {
                 self.evaluate_step(task, verb, block)?;
             }
             // CR 702.116a: choose a defender for each accepted copy before
@@ -1029,7 +1056,6 @@ impl RulesTxn {
             }
             Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
             Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
-            Node::Do(Verb::PutCounters { on, .. }) => present(on, &|_| true)?,
             Node::Do(Verb::CreateTokens {
                 controller, count, ..
             }) => {
@@ -1064,9 +1090,7 @@ impl RulesTxn {
                 .control_objects(task, what)?
                 .into_iter()
                 .any(|id| self.current(id).is_ok()),
-            Node::Do(verb) if verb.evaluated_operands().is_some() => {
-                self.evaluated_performable(task, verb)?
-            }
+            Node::Do(verb) if verb.is_evaluated() => self.evaluated_performable(task, verb)?,
             Node::Do(Verb::Mill { player, amount }) => {
                 let amount = self.control_amount(task, amount)?;
                 amount > Quantity::zero()
@@ -1178,7 +1202,7 @@ impl RulesTxn {
                     },
                     Payment::Mana { mana: cost } => cost.clone(),
                     Payment::Life { .. }
-                    | Payment::SacrificeCreature {}
+                    | Payment::Sacrifice { .. }
                     | Payment::DiscardArtifact {} => {
                         return Err("invalid kernel mana payment".into());
                     }

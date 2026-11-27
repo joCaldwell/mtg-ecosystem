@@ -323,17 +323,8 @@ impl Resolution {
             let RefEntry::Ref(r) = entry else { continue };
             let expression = ability.pointer(&r.path);
             let ResolvedRef::Target(t) = &*r.r#ref else {
-                if let ResolvedRef::EventObject(event) = &*r.r#ref
-                    && (Site {
-                        kind: BlockKind::of(ability),
-                        ability,
-                        block,
-                        path: &r.path,
-                        scope: r.scope.as_deref(),
-                        operand: expression,
-                    })
-                    .observed_object(&event.role)
-                {
+                // The typed operand check already authenticated the event subject.
+                if matches!(&*r.r#ref, ResolvedRef::EventObject(_)) {
                     continue;
                 }
                 // CR 608.2b-c: other singular follow-up object effects
@@ -862,26 +853,6 @@ impl Site<'_> {
     fn selection(&self) -> bool {
         self.operand.is_some_and(|e| e.get("selectionId").is_some())
     }
-    /// CR 603.2, 608.2h: these resolving operands read the event's object.
-    /// Share the exact row with the later announcement-slot validation.
-    fn observed_object(&self, role: &str) -> bool {
-        self.kind == BlockKind::Triggered
-            && self.scope.is_none()
-            && self.word() == Some("it")
-            && matches!(role, "enters" | "attacks")
-            && self.ability["trigger"]["trigger"] == role
-            && matches!(
-                (
-                    self.ability["effects"][0]["steps"][0]["effect"].as_str(),
-                    self.path
-                ),
-                (
-                    Some("damage"),
-                    "/effects/0/steps/0/source" | "/effects/0/steps/0/amount/of"
-                ) | (Some("put-counters"), "/effects/0/steps/0/on")
-                    | (Some("pump"), "/effects/0/steps/0/what")
-            )
-    }
     /// The bare printed player "you".
     fn you(&self) -> bool {
         self.operand.is_some_and(|e| {
@@ -895,6 +866,7 @@ impl Site<'_> {
 enum SiteKind<'a> {
     Player(&'a ast::PlayerRef),
     Object(&'a ast::ObjectRef),
+    Amount(&'a ast::Amount),
 }
 
 fn evaluated_site<'a>(block: &'a ast::Ability, path: &str) -> Option<SiteKind<'a>> {
@@ -906,29 +878,93 @@ fn evaluated_site<'a>(block: &'a ast::Ability, path: &str) -> Option<SiteKind<'a
     };
     let mut parts = path.strip_prefix("/effects/")?.split('/');
     let sentence = effects.get(parts.next()?.parse::<usize>().ok()?)?;
-    if parts.next()? != "steps" {
-        return None;
+    match parts.next()? {
+        "steps" => {}
+        "bindings" => {
+            let binding = sentence
+                .bindings
+                .as_ref()?
+                .get(parts.next()?.parse::<usize>().ok()?)?;
+            if parts.next()? != "value" {
+                return None;
+            };
+            return operand_site(SiteKind::Amount(&binding.value), &mut parts);
+        }
+        _ => return None,
     }
     let action = sentence.steps.get(parts.next()?.parse::<usize>().ok()?)?;
-    let (who, amount) = match action {
-        ast::Effect::Draw(draw) => (&*draw.who, &*draw.amount),
-        ast::Effect::Variant99(life) => (&*life.who, &*life.amount),
+    let field = parts.next()?;
+    let site = match (action, field) {
+        (ast::Effect::Draw(draw), "who") => SiteKind::Player(&draw.who),
+        (ast::Effect::Variant99(life), "who") => SiteKind::Player(&life.who),
+        (ast::Effect::Sacrifice(sacrifice), "who" | "chosenBy") => {
+            SiteKind::Player(if field == "who" {
+                &sacrifice.who
+            } else {
+                sacrifice.chosen_by.as_deref()?
+            })
+        }
+        (ast::Effect::Sacrifice(sacrifice), "what") => SiteKind::Object(&sacrifice.what),
+        (ast::Effect::Draw(draw), "amount") => SiteKind::Amount(&draw.amount),
+        (ast::Effect::Variant99(life), "amount") => SiteKind::Amount(&life.amount),
+        (ast::Effect::PutCounters(counters), "on") => SiteKind::Object(&counters.on),
+        (ast::Effect::PutCounters(counters), "count") => SiteKind::Amount(&counters.count),
+        (ast::Effect::Damage(damage), "source") => SiteKind::Object(&damage.source),
+        (ast::Effect::Damage(damage), "amount") => SiteKind::Amount(&damage.amount),
+        (ast::Effect::Damage(damage), "to") => match (&*damage.to, parts.next()) {
+            (ast::DamageTarget::Player(to), Some("ref")) => SiteKind::Player(&to.r#ref),
+            (ast::DamageTarget::Object(to), Some("ref")) => SiteKind::Object(&to.r#ref),
+            (ast::DamageTarget::Attacked(to), Some("by")) => SiteKind::Object(&to.by),
+            (ast::DamageTarget::Each(to), Some("refs")) => {
+                match to.refs.get(parts.next()?.parse::<usize>().ok()?)? {
+                    ast::AmountCounterCountOn::PlayerRef(player) => SiteKind::Player(player),
+                    ast::AmountCounterCountOn::ObjectRef(object) => SiteKind::Object(object),
+                }
+            }
+            _ => return None,
+        },
         _ => return None,
     };
-    match parts.collect::<Vec<_>>().as_slice() {
-        ["who"] => Some(SiteKind::Player(who)),
-        ["who", "of"] => match who {
-            ast::PlayerRef::Owner(who) => Some(SiteKind::Object(&who.of)),
-            ast::PlayerRef::Controller(who) => Some(SiteKind::Object(&who.of)),
-            _ => None,
-        },
-        ["amount", "of"] => match amount {
-            ast::Amount::Attribute(amount) => Some(SiteKind::Object(&amount.of)),
-            ast::Amount::LifeTotal(amount) => Some(SiteKind::Player(&amount.of)),
-            _ => None,
-        },
-        _ => None,
-    }
+    operand_site(site, &mut parts)
+}
+
+fn operand_site<'a>(
+    site: SiteKind<'a>,
+    parts: &mut std::str::Split<'_, char>,
+) -> Option<SiteKind<'a>> {
+    let Some(field) = parts.next() else {
+        return Some(site);
+    };
+    let child = match (site, field) {
+        (SiteKind::Player(ast::PlayerRef::Owner(who)), "of") => SiteKind::Object(&who.of),
+        (SiteKind::Player(ast::PlayerRef::Controller(who)), "of") => SiteKind::Object(&who.of),
+        (SiteKind::Amount(ast::Amount::Attribute(amount)), "of") => SiteKind::Object(&amount.of),
+        (SiteKind::Amount(ast::Amount::LifeTotal(amount)), "of") => SiteKind::Player(&amount.of),
+        (SiteKind::Amount(ast::Amount::Plus(amount)), "a") => SiteKind::Amount(&amount.a),
+        (SiteKind::Amount(ast::Amount::Plus(amount)), "b") => SiteKind::Amount(&amount.b),
+        (SiteKind::Amount(ast::Amount::Minus(amount)), "a") => SiteKind::Amount(&amount.a),
+        (SiteKind::Amount(ast::Amount::Minus(amount)), "b") => SiteKind::Amount(&amount.b),
+        (SiteKind::Amount(ast::Amount::Twice(amount)), "of") => SiteKind::Amount(&amount.of),
+        (SiteKind::Amount(ast::Amount::Product(amount)), "factors") => {
+            SiteKind::Amount(amount.factors.get(parts.next()?.parse::<usize>().ok()?)?)
+        }
+        _ => return None,
+    };
+    operand_site(child, parts)
+}
+
+pub(crate) fn sacrifice_cost_object(related: &ast::ObjectRefRelated) -> bool {
+    related.number == ast::ObjectRefCopyResultNumber::Singular
+        && matches!(related.relation.as_ref(), ast::ObjectRelation::EventResult(event)
+            if event.event == ast::ObjectRelationEventResultEvent::Sacrifice
+                && event.scope == ast::ObjectRelationEventResultScope::Contextual
+                && event.period.is_none() && event.who.is_none())
+        && present_fields(&related.filter) == ["types"]
+        && related
+            .filter
+            .types
+            .as_deref()
+            .is_some_and(|types| types == ["creature"])
 }
 
 fn class_of(reference: &ResolvedRef, site: SiteKind<'_>) -> Option<kir::OperandClass> {
@@ -939,7 +975,12 @@ fn class_of(reference: &ResolvedRef, site: SiteKind<'_>) -> Option<kir::OperandC
         }
         (
             ResolvedRef::EventPlayer(_),
-            SiteKind::Player(ast::PlayerRef::ThatPlayer(_) | ast::PlayerRef::They(_)),
+            SiteKind::Player(
+                ast::PlayerRef::ThatPlayer(_)
+                | ast::PlayerRef::They(_)
+                | ast::PlayerRef::DefendingPlayer(_)
+                | ast::PlayerRef::ActivePlayer(_),
+            ),
         ) => Some(Class::EventPlayer),
         (
             ResolvedRef::Target(_),
@@ -947,7 +988,9 @@ fn class_of(reference: &ResolvedRef, site: SiteKind<'_>) -> Option<kir::OperandC
         ) => Some(Class::Target),
         (
             ResolvedRef::Source(_),
-            SiteKind::Object(ast::ObjectRef::This(_) | ast::ObjectRef::SelfObject(_)),
+            SiteKind::Object(
+                ast::ObjectRef::This(_) | ast::ObjectRef::SelfObject(_) | ast::ObjectRef::It(_),
+            ),
         ) => Some(Class::Source),
         (
             ResolvedRef::Target(_),
@@ -959,32 +1002,78 @@ fn class_of(reference: &ResolvedRef, site: SiteKind<'_>) -> Option<kir::OperandC
             ResolvedRef::EventObject(_),
             SiteKind::Object(ast::ObjectRef::It(_) | ast::ObjectRef::That(_)),
         ) => Some(Class::EventObject),
+        (ResolvedRef::AnnouncedX(_), SiteKind::Amount(ast::Amount::X(_))) => {
+            Some(Class::AnnouncedX)
+        }
+        (ResolvedRef::BoundVar(_), SiteKind::Amount(ast::Amount::X(_))) => Some(Class::Bound),
+        (ResolvedRef::StepResult(step), SiteKind::Amount(ast::Amount::ThatMuch(_)))
+            if step.step == "/trigger" && step.role.as_str() == "quantity" =>
+        {
+            Some(Class::EventAmount)
+        }
+        (ResolvedRef::StepResult(step), SiteKind::Object(ast::ObjectRef::Related(related)))
+            if step.role.as_str() == "selection" && sacrifice_cost_object(related) =>
+        {
+            Some(Class::CostResult)
+        }
         _ => None,
     }
 }
 
 fn evaluated_reference(reference: &ResolvedRef, kind: SiteKind<'_>, at: &Site<'_>) -> bool {
     use kir::OperandClass as Class;
-    match class_of(reference, kind) {
-        Some(Class::Controller) => controller_row(Some(reference), at),
-        Some(Class::EventPlayer) => match reference {
-            ResolvedRef::EventPlayer(event) => kernel_event_player(&event.role).is_some_and(|(_, trigger)| {
-                at.scope.is_none() && at.kind == BlockKind::Triggered && at.ability["trigger"]["trigger"] == trigger
-            }),
-            _ => false,
-        },
-        Some(Class::EventObject) => match reference {
-            ResolvedRef::EventObject(event) => {
-                at.scope.is_none() && at.kind == BlockKind::Triggered
-                    && event.role == at.ability["trigger"]["trigger"].as_str().unwrap_or_default()
-                    && !at.block.refs.iter().any(|entry| {
-                        matches!(entry, RefEntry::Ref(r) if matches!(r.r#ref.as_ref(), ResolvedRef::Target(_)))
+    if at.scope.is_some() {
+        return false;
+    }
+    let trigger = at.ability["trigger"]["trigger"].as_str();
+    match (class_of(reference, kind), reference) {
+        (Some(Class::Controller), _) => controller_row(Some(reference), at),
+        (Some(Class::EventPlayer), ResolvedRef::EventPlayer(event)) => {
+            at.kind == BlockKind::Triggered
+                && (kernel_event_player(&event.role)
+                    .is_some_and(|(_, event)| trigger == Some(event))
+                    || trigger == Some(event.role.as_str())
+                    || (event.role == "defending-player"
+                        && matches!(
+                            trigger,
+                            Some("attacks" | "attacks-unblocked" | "becomes-blocked")
+                        )))
+        }
+        (Some(Class::EventObject), ResolvedRef::EventObject(event)) => {
+            at.kind == BlockKind::Triggered && trigger == Some(event.role.as_str())
+        }
+        (Some(Class::CostResult), ResolvedRef::StepResult(step)) => {
+            at.kind == BlockKind::Activated
+                && step
+                    .step
+                    .strip_prefix("/costs/")
+                    .and_then(|cost| cost.strip_suffix("/what"))
+                    .and_then(|index| index.parse::<usize>().ok())
+                    .is_some_and(|index| {
+                        let costs = at.ability["costs"].as_array();
+                        costs.is_some_and(|costs| {
+                            costs
+                                .get(index)
+                                .is_some_and(|cost| cost["cost"] == "sacrifice")
+                                && costs
+                                    .iter()
+                                    .filter(|cost| cost["cost"] == "sacrifice")
+                                    .count()
+                                    == 1
+                        })
                     })
-            }
-            _ => false,
-        },
-        Some(Class::Source | Class::Target) => reference_row(Role::Resolved(reference), at),
-        _ => false,
+        }
+        (Some(Class::EventAmount), _) => {
+            at.kind == BlockKind::Triggered
+                && matches!(
+                    trigger,
+                    Some("deals-damage" | "is-dealt-damage" | "gains-life")
+                )
+        }
+        (Some(Class::Source | Class::Target | Class::AnnouncedX), _) => true,
+        (Some(Class::Bound), ResolvedRef::BoundVar(var)) => var.id.starts_with("/effects/"),
+        _ if matches!(kind, SiteKind::Amount(ast::Amount::ThatMuch(_))) => false,
+        _ => reference_row(Role::Resolved(reference), at),
     }
 }
 
@@ -1042,7 +1131,15 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
     let reflexive = at.ability.pointer("/effects/1/steps/0/effect")
         == Some(&Value::from("create-reflexive-trigger"));
     if let Some(ResolvedRef::EventObject(event)) = resolved {
-        if at.observed_object(&event.role) {
+        // The unmigrated pump reads the exact invocation source.
+        if at.kind == BlockKind::Triggered
+            && at.scope.is_none()
+            && word == Some("it")
+            && matches!(event.role.as_str(), "enters" | "attacks")
+            && at.ability["trigger"]["trigger"] == event.role
+            && at.path == "/effects/0/steps/0/what"
+            && at.ability["effects"][0]["steps"][0]["effect"] == "pump"
+        {
             return true;
         }
         let self_event = at

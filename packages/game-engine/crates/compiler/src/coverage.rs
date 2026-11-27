@@ -682,6 +682,60 @@ fn publish_receipts(
     result
 }
 
+/// Transition differential input (see [`crate::reference_trace`]): one JSON
+/// line per lowered definition with the pronoun antecedents the Rust binder
+/// chose. It reads the same pinned archive as coverage and lowers nothing
+/// differently.
+pub fn reference_trace(archive: &Path, out: &Path) -> Result<Value, CoverageError> {
+    let bytes = fs::read(archive).map_err(io)?;
+    let text = std::str::from_utf8(&bytes).map_err(|e| CoverageError::InvalidRecord {
+        line: 1,
+        reason: e.to_string(),
+    })?;
+    let header = text
+        .lines()
+        .next()
+        .ok_or_else(|| CoverageError::UnknownArchive {
+            reason: "empty archive".into(),
+        })?;
+    let accepted =
+        accepted_manifest(header).map_err(|reason| CoverageError::UnknownArchive { reason })?;
+    let hash = sha256(&bytes);
+    if accepted.file_sha256.as_deref() != Some(hash.as_str()) {
+        return Err(CoverageError::ArchiveHashMismatch);
+    }
+    let mut lines = String::new();
+    let (mut lowered, mut bound) = (0usize, 0usize);
+    for (i, raw) in text.lines().skip(1).enumerate() {
+        let row: Value = strict_read(raw).map_err(|reason| CoverageError::InvalidRecord {
+            line: i + 2,
+            reason,
+        })?;
+        let (result, trace) = crate::reference_trace::traced(|| assess_record(accepted, raw, &row));
+        if !matches!(result, RecordAssessment::Definition(_)) {
+            continue;
+        }
+        lowered += 1;
+        bound += trace.len();
+        let line = serde_json::json!({
+            "oracle_id": row["oracleIdentity"],
+            "bound": trace,
+        });
+        lines.push_str(
+            &serde_json::to_string(&line).map_err(|e| CoverageError::Io {
+                reason: e.to_string(),
+            })?,
+        );
+        lines.push('\n');
+    }
+    fs::write(out, lines).map_err(io)?;
+    Ok(serde_json::json!({
+        "archive_sha256": hash,
+        "lowered": lowered,
+        "bound_pronouns": bound,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

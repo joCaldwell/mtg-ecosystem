@@ -20,6 +20,12 @@ registry. A pending registration cannot authorize intake or provenance. A
 no record pins, so no tracked fixture or default consumer can select it. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
+Schema-5 R6 candidates carry printed evidence and retain the R5 row bytes
+projected by the [D0 archive check](oracle_parser.md#ast-archive). The writer
+reports a draft registry entry outside `accepted-archives.json`. Promotion
+requires the Rust evidence and parity checks, measured bulk catalog and index
+within their caps, and re-extraction of the registered fixtures.
+
 From repository root (`engine:dev` builds `mtg-sim` under the target lock):
 
 ```sh
@@ -212,13 +218,14 @@ tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Stage 1 [rework](game-engine-rework.md) contract. Life and Draw use
-`kir::signatures`. Damage, counters and sacrifice still use their audited
-legacy cells. `kir::Verb` remains the sole action representation on the wire.
+Stage 1 [rework](game-engine-rework.md) contract. Draw, life, damage, permanent
+counter placement and sacrifice use `kir::signatures`. `kir::Verb` remains
+the action representation on the wire. Damage prevention and commit, counter
+placement and graveyard moves retain their transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env`
-(`context`, `targets`, `event`, `announced_x`); lexical bindings live in checker
+(context, announced targets, triggering event, X and the checked cost); lexical bindings live in checker
 scope, not `Env`. Sorts must match. One verb-independent classifier maps a
 resolved reference and its typed AST site to a class. Required capabilities are
 the union over the verb, its operand classes, distribution and projections.
@@ -238,6 +245,30 @@ Each slot declares:
 
 Last-known information answers a read and never authorizes acting on a new
 incarnation (CR 400.7, 608.2h).
+
+A triggered invocation stores an `EventBinding` for the event's player, object
+and quantity when supplied. Death reads the common prior battlefield. An
+entrant or attacker whose power is read at resolution uses the exact live
+incarnation or its departure facts. A later incarnation cannot receive an
+action for the original one. A cast spell's mana value is its stack value with
+the announced X that the cast witness recorded, which stays its last known value
+after the spell leaves (CR 202.3e).
+
+**Pronoun antecedents** (`rules/verbs/antecedent.rs`, CR 608.2c). An
+operand's `it` or `that <noun>` names one object the block already introduced.
+Inside a step performed by an object, `its` means that performer ("this creature
+deals damage equal to its power"). Otherwise the antecedent is the one announced
+target whose domain the noun admits: a battlefield permanent of the noun's type,
+a card outside the battlefield for `that card`, or a stack spell for `that spell`.
+Failing that, it is the trigger's event object when its pattern's types admit
+the noun and it is not the source. `It` in a trigger on the source itself means
+that event object. Two admissible targets, a player-or-object target, or an
+untargeted object an earlier printed step named (chosen, created, revealed or
+set) reject as `operand:object:ambiguous_antecedent`. No candidate rejects as
+`unbound_antecedent`. A step that acts on the pronoun also rejects when it names
+a card or spell target, or a target an earlier instruction moved (CR 400.7). The
+frozen R5 resolution is not consulted for this choice.
+`scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write. One
@@ -266,6 +297,11 @@ wait for Stage 2. **Absent is not zero.** A producer that did not run yields
 `Resolved::Absent` with its reason (illegal target, not chosen, departed player,
 no event member or not performed); one that ran and affected nothing yields an
 empty result.
+
+A `CostResult` for an activated ability is scoped to a mandatory cost that
+sacrifices one selected permanent. It exposes the paid object's last-known
+facts, the payer and the number paid. A sacrifice action exposes the actual
+number, objects and players through the ordinary step collector.
 
 **Tier preservation.** The 17 previously qualified higher-tier shapes in
 `kir::tiers` keep their legacy cells and tiers; every other evaluator-admitted
@@ -331,8 +367,11 @@ resolve to a target or step result, never an evaluated or derived entry. A step
 result names the nearest earlier producer of its role (a search's selection or
 objects, a look's objects) or, for `rest` only, the remainder of its own member
 of a simultaneous step after an earlier sibling took from the pool. A printed
-target's block-relative slot must be the one announced for its selection; a
-pronoun resolved to a target must name the block's sole announced target.
+target's block-relative slot must be the one announced for its selection.
+Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
+target bind through the [antecedent rule](#verb-signatures). Counters on each of
+several targets reject as `operand:target:<count|up_to>:counters`, because
+per-member leaves would split one simultaneous placement (CR 122.6).
 
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.

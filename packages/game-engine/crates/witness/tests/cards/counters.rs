@@ -163,16 +163,21 @@ fn toughness(g: &Game, card: u32) -> Quantity {
 /// 122.1a, 704.5f).
 #[test]
 fn black_suns_zenith_puts_x_minus_one_counters_on_each_creature() {
-    let prepared = board(&[(BLACK_SUNS_ZENITH, &[Cell::KindCountersSet])])
-        .permanent_or_hand("Black Sun's Zenith", 0, 0, true)
-        .permanent_or_hand("Swamp", 0, 0, false)
-        .permanent_or_hand("Swamp", 0, 0, false)
-        .permanent_or_hand("Swamp", 0, 0, false)
-        .permanent_or_hand("Swamp", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .permanent_or_hand("Colossal Dreadmaw", 1, 1, false)
-        .libraries("Island", 2)
-        .prepare();
+    let prepared = board(&[(
+        BLACK_SUNS_ZENITH,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Black Sun's Zenith", 0, 0, true)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Colossal Dreadmaw", 1, 1, false)
+    .libraries("Island", 2)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     Driver::cast(&mut g, CardId(0));
     let d = expect(&mut g, 0, &Reason::AnnounceX);
@@ -219,9 +224,14 @@ fn black_suns_zenith_puts_x_minus_one_counters_on_each_creature() {
 /// chosen permanent has (CR 122.1a, 701.34a).
 #[test]
 fn contagion_clasp_proliferates_minus_one_counters() {
-    let mut scenario = board(&[(CONTAGION_CLASP, &[Cell::KindCountersTarget])])
-        .permanent_or_hand("Contagion Clasp", 0, 0, true)
-        .permanent_or_hand("Colossal Dreadmaw", 1, 1, false);
+    let mut scenario = board(&[(
+        CONTAGION_CLASP,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Contagion Clasp", 0, 0, true)
+    .permanent_or_hand("Colossal Dreadmaw", 1, 1, false);
     for _ in 0..6 {
         scenario = scenario.permanent_or_hand("Island", 0, 0, false);
     }
@@ -259,15 +269,23 @@ fn contagion_clasp_proliferates_minus_one_counters() {
 /// a 0/0 that dies (CR 122.3, 602.2b, 704.5f, 704.5q).
 #[test]
 fn scar_annihilates_with_plus_one_counters_and_bounds_their_removal_cost() {
-    let prepared = board(&[(SCAR, &[Cell::KindCountersTarget]), (SPIKE_FEEDER, &[])])
-        .permanent_or_hand("Spike Feeder", 0, 0, true)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Scar", 1, 1, true)
-        .permanent_or_hand("Swamp", 1, 1, false)
-        .libraries("Island", 2)
-        .prepare();
+    let prepared = board(&[
+        (
+            SCAR,
+            &[Cell::Evaluated(
+                mtg_contracts::kir::EvaluatedVerb::PutCounters,
+            )],
+        ),
+        (SPIKE_FEEDER, &[]),
+    ])
+    .permanent_or_hand("Spike Feeder", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Scar", 1, 1, true)
+    .permanent_or_hand("Swamp", 1, 1, false)
+    .libraries("Island", 2)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     Driver::cast(&mut g, CardId(0));
     Driver::pay(&mut g, &[1, 2, 3]);
@@ -336,14 +354,19 @@ fn next_turn(g: &mut Game) {
 /// keeps granting flying in later turns (CR 122.1b, 514.2, 613.1f).
 #[test]
 fn spontaneous_flight_flying_counter_outlasts_its_pump() {
-    let prepared = board(&[(SPONTANEOUS_FLIGHT, &[Cell::KindCountersTarget])])
-        .permanent_or_hand("Spontaneous Flight", 0, 0, true)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .libraries("Island", 4)
-        .prepare();
+    let prepared = board(&[(
+        SPONTANEOUS_FLIGHT,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Spontaneous Flight", 0, 0, true)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .libraries("Island", 4)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let bears = Driver::object(&g, 4);
     Driver::cast(&mut g, CardId(0));
@@ -372,22 +395,27 @@ fn spontaneous_flight_flying_counter_outlasts_its_pump() {
 /// The counter makes the creature survive Murder (CR 122.1b, 702.12b).
 #[test]
 fn daring_fiendbonder_indestructible_counter_survives_destruction() {
-    let prepared = board(&[(DARING_FIENDBONDER, &[Cell::KindCountersTarget])])
-        .card(
-            "Daring Fiendbonder",
-            0,
-            0,
-            Zone::Graveyard { owner: PlayerId(0) },
-        )
-        .permanent_or_hand("Swamp", 0, 0, false)
-        .permanent_or_hand("Swamp", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .permanent_or_hand("Murder", 1, 1, true)
-        .permanent_or_hand("Swamp", 1, 1, false)
-        .permanent_or_hand("Swamp", 1, 1, false)
-        .permanent_or_hand("Swamp", 1, 1, false)
-        .libraries("Island", 4)
-        .prepare();
+    let prepared = board(&[(
+        DARING_FIENDBONDER,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .card(
+        "Daring Fiendbonder",
+        0,
+        0,
+        Zone::Graveyard { owner: PlayerId(0) },
+    )
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Murder", 1, 1, true)
+    .permanent_or_hand("Swamp", 1, 1, false)
+    .permanent_or_hand("Swamp", 1, 1, false)
+    .permanent_or_hand("Swamp", 1, 1, false)
+    .libraries("Island", 4)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let bears = Driver::object(&g, 3);
     let fiendbonder = Driver::object(&g, 0);
@@ -430,14 +458,19 @@ const TRANQUILIZE: &str = record!("1133633a-b717-42cb-b477-4e18584d876f");
 /// counter instead; with none left it untaps (CR 122.1d, 502.3, 614.1a).
 #[test]
 fn tranquilize_stun_counters_replace_each_untap() {
-    let prepared = board(&[(TRANQUILIZE, &[Cell::KindCountersTarget])])
-        .permanent_or_hand("Tranquilize", 0, 0, true)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Seeker of Skybreak", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 1, 1, false)
-        .libraries("Island", 8)
-        .prepare();
+    let prepared = board(&[(
+        TRANQUILIZE,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Tranquilize", 0, 0, true)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Seeker of Skybreak", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .libraries("Island", 8)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let bears = Driver::object(&g, 4);
     let stun = |g: &Game| g.current(bears).unwrap().counter_count(&CounterKind::Stun);
@@ -529,7 +562,10 @@ fn tokens(g: &Game) -> usize {
 fn assemble_the_legion_counts_its_own_muster_counters() {
     let prepared = board(&[(
         ASSEMBLE_THE_LEGION,
-        &[Cell::KindCountersSource, Cell::CountedTokens],
+        &[
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::PutCounters),
+            Cell::CountedTokens,
+        ],
     )])
     .permanent_or_hand("Assemble the Legion", 0, 0, false)
     .libraries("Island", 12)
@@ -560,12 +596,13 @@ fn assemble_the_legion_counts_its_own_muster_counters() {
 /// counters are read as it last existed (CR 122.1, 608.2h).
 #[test]
 fn barrins_codex_reads_its_last_known_page_counters() {
-    let mut scenario = board(&[(BARRINS_CODEX, &[Cell::KindCountersSource])]).permanent_or_hand(
-        "Barrin's Codex",
-        0,
-        0,
-        false,
-    );
+    let mut scenario = board(&[(
+        BARRINS_CODEX,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Barrin's Codex", 0, 0, false);
     for _ in 0..4 {
         scenario = scenario.permanent_or_hand("Island", 0, 0, false);
     }
@@ -615,7 +652,12 @@ const HUMILITY: &str = record!("ed7bdb3e-5c51-4547-9266-76a791e0b2b0");
 #[test]
 fn grim_affliction_proliferates_both_kinds_on_one_permanent() {
     let prepared = board(&[
-        (GRIM_AFFLICTION, &[Cell::KindCountersTarget]),
+        (
+            GRIM_AFFLICTION,
+            &[Cell::Evaluated(
+                mtg_contracts::kir::EvaluatedVerb::PutCounters,
+            )],
+        ),
         (SPIKE_FEEDER, &[]),
     ])
     .permanent_or_hand("Spike Feeder", 0, 0, true)
@@ -638,44 +680,57 @@ fn grim_affliction_proliferates_both_kinds_on_one_permanent() {
     answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
     Driver::pay(&mut g, &[5, 6, 7]);
     let d = expect(&mut g, 0, &Reason::Proliferate);
-    let before = g.events().len();
+    let before = g.trace().records.len();
     answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
-    // Exactly one atomic placement on the Feeder carries both kinds, and it
-    // precedes the state-based annihilation.
     settle(&mut g);
-    let after = &g.events()[before..];
-    let placements: Vec<_> = after
+    let changes: Vec<_> = g
+        .trace()
+        .records
         .iter()
-        .enumerate()
-        .filter_map(|(i, e)| match e {
-            Event::Committed {
-                actual: EventOutcome::CountersPlaced { object, placed },
-                ..
-            } if *object == feeder => Some((i, placed.clone())),
+        .skip(before)
+        .filter_map(|record| match &record.record {
+            EvidenceRecord::Batch { batch } => Some(batch),
             _ => None,
         })
+        .flat_map(|batch| &batch.occurrences)
+        .filter(|occurrence| !occurrence.counter_changes.is_empty())
         .collect();
-    let change = |counter: CounterKind, amount: i64, previous: i64, current: i64| CounterChange {
-        counter,
-        amount: amount.into(),
-        previous: previous.into(),
-        current: current.into(),
+    let [placement, annihilation] = changes.as_slice() else {
+        panic!("expected one placement followed by the state-based action");
     };
-    let [(placed_at, placed)] = placements.as_slice() else {
-        panic!("expected one placement on the Feeder: {placements:?}");
+    assert!(
+        matches!(placement.proposed, ProposedEvent::PutCounters { object, .. } if object == feeder)
+    );
+    assert!(
+        matches!(annihilation.proposed, ProposedEvent::AnnihilateCounters { object, .. } if object == feeder)
+    );
+    let changes = |occurrence: &OccurrenceResult| {
+        occurrence
+            .counter_changes
+            .iter()
+            .map(|change| {
+                (
+                    change.counter.clone(),
+                    change.previous.clone(),
+                    change.current.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
     };
     assert_eq!(
-        placed,
-        &vec![
-            change(CounterKind::PlusOnePlusOne, 1, 2, 3),
-            change(CounterKind::MinusOneMinusOne, 1, 1, 2),
+        changes(placement),
+        [
+            (CounterKind::PlusOnePlusOne, 2.into(), 3.into()),
+            (CounterKind::MinusOneMinusOne, 1.into(), 2.into()),
         ]
     );
-    let annihilated_at = after
-        .iter()
-        .position(|e| format!("{e:?}").contains("CountersAnnihilated"))
-        .expect("state-based annihilation");
-    assert!(placed_at < &annihilated_at);
+    assert_eq!(
+        changes(annihilation),
+        [
+            (CounterKind::PlusOnePlusOne, 3.into(), 1.into()),
+            (CounterKind::MinusOneMinusOne, 2.into(), 0.into()),
+        ]
+    );
     let o = g.current(feeder).unwrap();
     assert_eq!(o.plus_one_counters, Quantity::from(1));
     assert!(o.counters.is_empty(), "{:?}", o.counters);
@@ -710,13 +765,18 @@ fn forged_kinds() -> Vec<CounterKind> {
 /// validation and by restore, both on counter-kind admission.
 #[test]
 fn reserved_counter_names_are_rejected_in_state_and_restore() {
-    let prepared = board(&[(TRANQUILIZE, &[Cell::KindCountersTarget])])
-        .permanent_or_hand("Tranquilize", 0, 0, true)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 1, 1, false)
-        .libraries("Island", 4)
-        .prepare();
+    let prepared = board(&[(
+        TRANQUILIZE,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Tranquilize", 0, 0, true)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .libraries("Island", 4)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let bears = Driver::object(&g, 3);
     Driver::cast(&mut g, CardId(0));
@@ -761,12 +821,13 @@ fn reserved_counter_names_are_rejected_in_state_and_restore() {
 /// reserved or unexecuted one is rejected by state validation and restore.
 #[test]
 fn retained_source_counter_facts_are_admitted() {
-    let mut scenario = board(&[(BARRINS_CODEX, &[Cell::KindCountersSource])]).permanent_or_hand(
-        "Barrin's Codex",
-        0,
-        0,
-        false,
-    );
+    let mut scenario = board(&[(
+        BARRINS_CODEX,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Barrin's Codex", 0, 0, false);
     for _ in 0..4 {
         scenario = scenario.permanent_or_hand("Island", 0, 0, false);
     }
@@ -828,7 +889,12 @@ fn retained_source_counter_facts_are_admitted() {
 #[test]
 fn keyword_counter_timestamps_order_against_ability_loss() {
     let mut scenario = board(&[
-        (SPONTANEOUS_FLIGHT, &[Cell::KindCountersTarget]),
+        (
+            SPONTANEOUS_FLIGHT,
+            &[Cell::Evaluated(
+                mtg_contracts::kir::EvaluatedVerb::PutCounters,
+            )],
+        ),
         (HUMILITY, &[]),
     ])
     .permanent_or_hand("Spontaneous Flight", 0, 0, true)
@@ -876,14 +942,19 @@ fn keyword_counter_timestamps_order_against_ability_loss() {
 /// may come from its keyword counters.
 #[test]
 fn flying_counter_creature_deals_combat_damage() {
-    let prepared = board(&[(SPONTANEOUS_FLIGHT, &[Cell::KindCountersTarget])])
-        .permanent_or_hand("Spontaneous Flight", 0, 0, true)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .libraries("Island", 4)
-        .prepare();
+    let prepared = board(&[(
+        SPONTANEOUS_FLIGHT,
+        &[Cell::Evaluated(
+            mtg_contracts::kir::EvaluatedVerb::PutCounters,
+        )],
+    )])
+    .permanent_or_hand("Spontaneous Flight", 0, 0, true)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .libraries("Island", 4)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let bears = Driver::object(&g, 4);
     Driver::cast(&mut g, CardId(0));
@@ -973,8 +1044,7 @@ fn mana_undo_receipt_counter_kinds_are_admitted() {
         let mut forged = g.fork();
         if let Frame::Mana { cast } | Frame::Payment { cast } = &mut forged.state.rules.frame {
             let p = cast.mana_activations[index].permanent.as_mut().unwrap();
-            p.source.counters = vec![stack.clone()];
-            p.other_counters = vec![stack.clone()];
+            p.source.counters = vec![stack];
         }
         let err = forged.validate_state().unwrap_err();
         assert!(err.contains("counter kind admission"), "{kind:?}: {err}");

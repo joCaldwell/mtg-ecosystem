@@ -53,6 +53,7 @@ macro_rules! frame_walk {
                 DamageContinuation::Combat { .. } => {}
                 DamageContinuation::Mana { activation: _ } => {}
                 DamageContinuation::Instruction { frame } => visit($Held::Invocation(frame.stack_id)),
+                DamageContinuation::Kernel { resume: _ } => {}
             }
         }
 
@@ -66,6 +67,7 @@ macro_rules! frame_walk {
                     GroupFinish::Instruction { frame, result: _ } => visit($Held::Invocation(frame.stack_id)),
                     GroupFinish::Cleanup => {}
                     GroupFinish::Payment { resume: _ } => {},
+                    GroupFinish::Kernel { resume: _ } => {},
                     GroupFinish::StateBased {
                         resume: _,
                         checked: _,
@@ -96,12 +98,6 @@ macro_rules! frame_walk {
                 | Frame::Targets { cast: _ }
                 | Frame::Mana { cast: _ }
                 | Frame::Payment { cast: _ } => {},
-                Frame::ForcedSacrifice {
-                    frame,
-                    remaining: _,
-                    choices: _,
-                    source_block: _,
-                } => visit($Held::Invocation(frame.stack_id)),
                 Frame::ResolutionPayment { frame, payment: _ } => visit($Held::Invocation(frame.stack_id)),
                 Frame::ManaAbility { activation: _ } => {}
                 Frame::TurnFaceUp { payment: _ } => {}
@@ -192,7 +188,7 @@ macro_rules! frame_parent {
             Self::ManaAbility { activation } => Some(&$($mutable)? activation.resume),
             Self::GraveyardGroup { tx } => match &$($mutable)? tx.finish {
                 GroupFinish::StateBased { resume, .. } => Some(resume),
-                GroupFinish::Payment { resume } => Some(resume),
+                GroupFinish::Payment { resume } | GroupFinish::Kernel { resume } => Some(resume),
                 GroupFinish::Cleanup | GroupFinish::Instruction { .. } => None,
             },
             Self::CommanderReturn {
@@ -210,9 +206,14 @@ macro_rules! frame_parent {
                     DamageContinuation::Mana { activation } => {
                         Some(&$($mutable)? activation.resume)
                     }
+                    DamageContinuation::Kernel { resume } => Some(resume),
                     DamageContinuation::Combat { .. } | DamageContinuation::Instruction { .. } => None,
                 }
             }
+            Self::CounterPlacement { transaction } => match &$($mutable)? transaction.kernel {
+                Some(resume) => Some(resume),
+                None => None,
+            },
             Self::CommanderReturn { continuation: CommanderContinuation::BoardReturn { .. }
                 | CommanderContinuation::SpellMove { .. }
                 | CommanderContinuation::Search { .. }
@@ -229,9 +230,7 @@ macro_rules! frame_parent {
             | Self::SacrificeCost { .. }
             | Self::ChosenObjectCost { .. }
             | Self::TurnFaceUp { .. }
-            | Self::ForcedSacrifice { .. }
             | Self::Setup
-            | Self::CounterPlacement { .. }
             | Self::EntityTargets { .. }
             | Self::StackTargets { .. }
             | Self::PlayerTargets { .. }
@@ -320,12 +319,6 @@ impl Frame {
                 resume: _,
                 groups: _,
                 kept: _,
-            }
-            | Frame::ForcedSacrifice {
-                frame: _,
-                remaining: _,
-                choices: _,
-                source_block: _,
             }
             | Frame::ResolutionPayment {
                 frame: _,
@@ -469,7 +462,7 @@ impl RulesTxn {
 
     /// Rule routines may still read the installed frame while preparing its
     /// successor. Drop abandoned branches only once that successor is installed.
-    pub(in crate::engine) fn retire_returned_frames(&mut self) -> Result<(), String> {
+    pub(crate) fn retire_returned_frames(&mut self) -> Result<(), String> {
         let base = self
             .kernel_leaf
             .as_ref()
@@ -526,7 +519,9 @@ pub fn retained_effect_frame<'a>(frames: &'a [Frame], mut frame: &'a Frame) -> &
             Frame::ManaAbility { activation } => &frames[activation.resume.0],
             Frame::DamageEffects { transaction } => match &transaction.continuation {
                 DamageContinuation::Mana { activation } => &frames[activation.resume.0],
-                DamageContinuation::Combat { .. } | DamageContinuation::Instruction { .. } => {
+                DamageContinuation::Combat { .. }
+                | DamageContinuation::Instruction { .. }
+                | DamageContinuation::Kernel { .. } => {
                     return frame;
                 }
             },

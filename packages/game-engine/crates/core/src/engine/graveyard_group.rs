@@ -15,6 +15,11 @@ pub enum GroupFinish {
     Payment {
         resume: FrameLink,
     },
+    /// CR 701.21a: an evaluated kernel sacrifice; its saved task resumes
+    /// with the permanents actually sacrificed.
+    Kernel {
+        resume: FrameLink,
+    },
     StateBased {
         resume: FrameLink,
         checked: Vec<ObjectId>,
@@ -91,6 +96,7 @@ impl GroupFinish {
                 return Err("payment completion belongs to its announcement".into());
             }
             Self::Cleanup => game.rules_mut().frame = Frame::CleanupClear,
+            Self::Kernel { resume } => return game.finish_kernel_sacrifice(resume, batch),
             Self::StateBased {
                 resume, checked, ..
             } => {
@@ -376,13 +382,13 @@ impl GraveyardGroup {
             return Err("regeneration wave member invariant".into());
         }
         let producing = match &self.finish {
+            GroupFinish::Kernel { resume } => game.validate_kernel_sacrifice(&self.cause, leaves, *resume)?,
             GroupFinish::Instruction { frame, result } => {
                 game.validate_resolving(frame)?;
                 let entry = game.entry(frame.stack_id)?;
                 let i = game.program_for(entry)?.instructions.get(frame.cursor as usize).ok_or("missing retained instruction")?;
                 let kind = match result {
-                    GroupResult::Effect if matches!(i, kernel!(Sacrifice { player: you!() | event_player!(), count: fixed!(count), .. }) if *count > Quantity::from(1)) => true,
-                    GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature) || matches!(i, kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. })),
+                    GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature) || matches!(i, kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false })),
                     GroupResult::ActualEffect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldPermanent),
                     GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}) | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. }),
                     GroupResult::Discard { player } if matches!(i, kernel!(Discard {
@@ -392,10 +398,7 @@ impl GraveyardGroup {
                     }),
                     GroupResult::Discard {..} => matches!(i, kernel!(Discard { player: you!() | event_player!(), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), random: true, .. })),
                     GroupResult::Sacrifice {player} if matches!(i, Instruction::Kernel { node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. }, .. }) => *player == entry.controller,
-                    GroupResult::Sacrifice {player} if matches!(i, kernel!(Sacrifice { player: you!(), .. })) => *player == entry.controller,
-                    GroupResult::Sacrifice { player } if let kernel!(Sacrifice { player: recipient @ event_player!(), .. }) = i =>
-                        game.resolving_sacrifice_player(frame, recipient).is_ok_and(|actor| actor == *player),
-                    GroupResult::Sacrifice {..} => matches!(i, kernel!(Sacrifice { player: target_player!(_), .. })),
+                    GroupResult::Sacrifice {..} => false,
                 };
                 kind && self.cause == game.instruction_cause(frame,i.source_block())? && leaves.iter().all(|e| match (i,e) {
                     (i,ProposedEvent::DestroyPermanent {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| game.bound_object_target(entry,slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),
@@ -405,8 +408,6 @@ impl GraveyardGroup {
                     (Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. },ProposedEvent::DestroyPermanent {object}) => entry.targets.iter().zip(&frame.legal_targets).any(|(target, legal)| target == object && *legal),
                     (kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false }),ProposedEvent::DiscardCard {..}) => true,
                     (_,ProposedEvent::DiscardCard {player,..}) => matches!(result, GroupResult::Discard {player:p} if p == player),
-                    (kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. })|kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. }),ProposedEvent::Sacrifice {..}) => true,
-                    (kernel!(Sacrifice { player: you!(), .. }), ProposedEvent::Sacrifice { player, .. }) => *player == entry.controller,
                     (_,ProposedEvent::Sacrifice {player,..}) => matches!(result, GroupResult::Sacrifice {player:p} if p == player),
                     _ => false,
                 })

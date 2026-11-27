@@ -50,7 +50,7 @@ impl RulesTxn {
             | Frame::Blockers { .. }
             | Frame::DamageChoice { .. }
             | Frame::Discard { .. } => return self.combat_request(),
-            Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. } => {
+            Frame::SacrificeCost { .. } => {
                 return self.sacrifice_request();
             }
             Frame::ChosenObjectCost { selected, .. } => return self.chosen_cost_request(selected),

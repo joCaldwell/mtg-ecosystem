@@ -53,11 +53,14 @@ fn field(step: &mut Step) -> Option<Field<'_>> {
         | Step::Regenerate { what }
         | Step::Tap { what }
         | Step::Untap { what } => Field::Json(what),
-        Step::PutCounters { on, .. } => Field::Json(on),
-        Step::Damage {
-            to: DamageDestination::Object { reference },
-            ..
-        } => Field::Json(reference),
+        Step::Evaluated(effect) => match effect.as_mut() {
+            ast::Effect::PutCounters(counters) => Field::Typed(&mut counters.on),
+            ast::Effect::Damage(damage) => match damage.to.as_mut() {
+                ast::DamageTarget::Object(to) => Field::Typed(&mut to.r#ref),
+                _ => return None,
+            },
+            _ => return None,
+        },
         Step::Cant { what, .. }
         | Step::Become { what, .. }
         | Step::GainControl { what, .. }
@@ -210,8 +213,14 @@ pub(super) fn lower(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instr
     };
     // A spell deals its damage to each member; another source's damage
     // events would be observable one at a time (CR 120.3).
-    if matches!(step, Step::Damage { .. }) && cx.context != Context::Spell {
+    if step.damage().is_some() && cx.context != Context::Spell {
         return Err(operand("target", format!("{}:damage_source", group.code())));
+    }
+    // CR 122.6, 608.2c: counters put on each of several targets are one
+    // simultaneous placement event. Per-member leaves would place them one
+    // event at a time, and no set names several announced targets.
+    if matches!(step.effect(), Some(ast::Effect::PutCounters(_))) {
+        return Err(operand("target", format!("{}:counters", group.code())));
     }
     if group.count > MAX_GROUP {
         return Err(operand(

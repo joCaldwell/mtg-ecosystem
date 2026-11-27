@@ -403,85 +403,6 @@ impl RulesTxn {
                 )
             }
 
-            kernel!(PutCounters {
-                on,
-                counter,
-                amount,
-            } @ source_block) => {
-                // CR 107.3, 608.2h: the announced X is fixed for the spell.
-                let amount = self.kernel_amount(&frame, &amount)?;
-                if amount == Quantity::zero() {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                if let mtg_contracts::kir::SetExpr::Matching { zone, filter } = on {
-                    let objects = self.kernel_set(&frame, &zone, &filter)?.0;
-                    let cause = self.instruction_cause(&frame, source_block)?;
-                    let allocations = objects
-                        .into_iter()
-                        .map(|object| (object, amount.clone()))
-                        .collect();
-                    return self.begin_counter_placements(frame, counter, allocations, cause);
-                }
-                if let mtg_contracts::kir::SetExpr::One {
-                    object: mtg_contracts::kir::Ref::EventObject { .. },
-                } = on
-                {
-                    let object = self
-                        .entry(frame.stack_id)?
-                        .kind
-                        .observed_object()?
-                        .last_known
-                        .object;
-                    if !self
-                        .current(object)
-                        .is_ok_and(Object::present_on_battlefield)
-                    {
-                        return self.finish_instruction(
-                            frame,
-                            InstructionOutcome::Effect { actual: None },
-                        );
-                    }
-                    let cause = self.instruction_cause(&frame, source_block)?;
-                    return self.begin_counter_placements(
-                        frame,
-                        counter,
-                        vec![(object, amount)],
-                        cause,
-                    );
-                }
-                let target = match on {
-                    source_object!() => self.entry(frame.stack_id)?.source,
-                    target_object!(target_slot) => {
-                        if frame.legal_targets.get(target_slot as usize) != Some(&true) {
-                            return self.finish_instruction(
-                                frame,
-                                InstructionOutcome::Effect { actual: None },
-                            );
-                        }
-                        *self
-                            .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
-                            .ok_or("missing counter target")?
-                    }
-                    _ => return Err("kernel counter recipient has no audited executor".into()),
-                };
-                if !self.is_battlefield_creature(target)
-                    && (counter.needs_creature()
-                        || !self
-                            .current(target)
-                            .is_ok_and(Object::present_on_battlefield))
-                {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ProposedEvent::PutCounters {
-                        object: target,
-                        counters: vec![CounterAmount { counter, amount }],
-                    },
-                    source_block,
-                )
-            }
             _ => return Err("unexpected token instruction".into()),
         };
         let cause = BatchCause::Instruction {
@@ -491,15 +412,6 @@ impl RulesTxn {
             cursor: frame.cursor,
             source_block: block,
         };
-        if let ProposedEvent::PutCounters {
-            object,
-            mut counters,
-        } = event
-        {
-            let CounterAmount { counter, amount } =
-                counters.pop().ok_or("missing counter placement")?;
-            return self.begin_counter_placement(frame, object, counter, amount, cause);
-        }
         let actual = self.commit(event, cause)?;
         self.finish_instruction(
             frame,

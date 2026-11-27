@@ -93,9 +93,7 @@ pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<EventPat
     }
 }
 
-/// CR 120.2b, 122.6, 608.2h: a standalone instruction refers to the
-/// permanent named by its entry or attack event.
-/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+/// CR 608.2h: a standalone pump on the invocation's exact event source.
 pub(super) fn object_effect(
     card: &Card<'_>,
     trigger: &serde_json::Value,
@@ -110,20 +108,19 @@ pub(super) fn object_effect(
     {
         return Ok(None);
     }
-    let [step] = sentence.steps.as_slice() else {
+    let [
+        Step::Pump {
+            what,
+            power,
+            toughness,
+            duration,
+            for_each: None,
+        },
+    ] = sentence.steps.as_slice()
+    else {
         return Ok(None);
     };
-    let pronoun = serde_json::json!({"ref": "it"});
-    if !matches!(
-        step,
-        Step::Damage {
-            source: DamageSource::It {},
-            optional: None,
-            ..
-        }
-    ) && !matches!(step, Step::PutCounters { on, .. } if *on == pronoun)
-        && !matches!(step, Step::Pump { what, .. } if *what == pronoun)
-    {
+    if *what != serde_json::json!({"ref":"it"}) {
         return Ok(None);
     }
     let reviewed = serde_json::from_value::<SourceTrigger>(trigger.clone())
@@ -136,76 +133,17 @@ pub(super) fn object_effect(
             None => return Ok(None),
         },
     };
-    let Some(role) = pattern.object_role() else {
+    if pattern.object() != Some(&Pred::source()) {
         return Ok(None);
-    };
-    let source = Ref::EventObject { role };
+    }
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
-    let source_block = source_block(block)?;
-    let scope = kir::SetExpr::One { object: source };
-    let instruction = match step {
-        Step::Damage { amount, to, .. } => {
-            let mut slots = BTreeMap::new();
-            let slot = match to {
-                DamageDestination::AnyTarget { selection_id } => bind_target(
-                    &mut program,
-                    &mut slots,
-                    selection_id,
-                    TargetDomain::AnyDamageTarget,
-                )?,
-                DamageDestination::Object { reference } if reference["ref"] == "target" => {
-                    bind_damage_object_target(&mut program, &mut slots, &object(reference)?)?
-                }
-                _ => return Ok(None),
-            };
-            let amount = if *amount
-                == serde_json::json!({
-                    "amount": "attribute", "of": pronoun, "attribute": "power"
-                }) {
-                kir::Amount::StatOf {
-                    object: source,
-                    stat: kir::Stat::Power,
-                }
-            } else {
-                kir::Amount::fixed(fixed_positive_amount(&typed(amount, "amount")?)?)
-            };
-            Instruction::act(
-                Verb::Damage {
-                    source,
-                    to: kir::DamageTo::Ref {
-                        who: Ref::Target { slot },
-                    },
-                    amount,
-                },
-                source_block,
-            )
-        }
-        Step::PutCounters { counter, count, .. } if counter.r#type == "+1/+1" => {
-            Instruction::plus_one_counters(
-                scope,
-                fixed_positive_amount(&typed(count, "amount")?)?,
-                source_block,
-            )
-        }
-        // This identity is already the invocation's exact source (CR 400.7).
-        // A general attacking-object continuous effect needs its own cell.
-        Step::Pump {
-            power,
-            toughness,
-            duration,
-            for_each: None,
-            ..
-        } if pattern.object() == Some(&Pred::source()) => {
-            until_end_of_turn(duration)?;
-            Instruction::pump(
-                kir::SetExpr::source(),
-                signed_fixed(power)?,
-                signed_fixed(toughness)?,
-                source_block,
-            )
-        }
-        _ => return Ok(None),
-    };
+    until_end_of_turn(duration)?;
+    let instruction = Instruction::pump(
+        kir::SetExpr::source(),
+        signed_fixed(power)?,
+        signed_fixed(toughness)?,
+        source_block(block)?,
+    );
     let condition = TriggerCondition::Event {
         intervening_if: condition
             .map(|raw| intervening(raw, &pattern))

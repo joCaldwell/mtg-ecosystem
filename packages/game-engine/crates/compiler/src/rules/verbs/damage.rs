@@ -1,124 +1,149 @@
-//! "Deals N damage" (CR 120).
+//! Damage recipients and sources (CR 120.2b, 120.3, 608.2h).
 use super::*;
 
-/// CR 120.2b: the resolving object's source deals noncombat damage to one
-/// announced "any target", or (CR 608.2h) to every creature of reviewed
-/// board sets and optionally players.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
-    source: &DamageSource,
-    amount: &serde_json::Value,
-    to: &DamageDestination,
-    optional: Option<bool>,
+    damage: &ast::EffectDamage,
 ) -> Result<Instruction, Failure> {
-    if optional.is_some() {
-        return Err(step("damage", "optional"));
+    let ast::EffectDamage {
+        optional,
+        decided_by,
+        starting_with,
+        for_each,
+        for_each_beyond,
+        for_each_vote,
+        duration,
+        source,
+        amount,
+        to,
+        unpreventable,
+        excess_to,
+    } = damage;
+    if starting_with.is_some()
+        || for_each_beyond.is_some()
+        || for_each_vote.is_some()
+        || duration.is_some()
+        || unpreventable.is_some()
+        || excess_to.is_some()
+        || (decided_by.is_some()
+            && !(optional.is_some()
+                && matches!(decided_by.as_deref(), Some(ast::PlayerRef::You(_)))))
+    {
+        return Err(step("damage", "qualified"));
     }
-    // The block validator has proved a first-step "it" refers to this
-    // invocation's source. Other pronouns and named objects stay rejected.
-    match source {
-        DamageSource::SelfReference {} => {}
-        DamageSource::It {} if cx.context != Context::Spell => {}
-        DamageSource::This { noun }
+    // CR 608.2c: a pronoun source is the first step's event object, which
+    // the trigger validator proved; an activation's is its sacrificed self.
+    let source = match source.as_ref() {
+        ast::ObjectRef::SelfObject(_) => Ref::Source,
+        ast::ObjectRef::It(_) if cx.context == Context::Triggered => {
+            match antecedent::resolve(cx, source) {
+                Ok(event @ Ref::EventObject { .. }) => event,
+                _ => return Err(step("damage", "unbound source")),
+            }
+        }
+        ast::ObjectRef::It(_) if cx.context == Context::Activated => {
+            antecedent::record(cx, "it", Ref::Source)
+        }
+        ast::ObjectRef::This(this)
             if cx.context != Context::Spell
                 && matches!(
-                    noun.as_str(),
+                    this.noun.as_str(),
                     "creature" | "artifact" | "enchantment" | "land" | "permanent" | "planeswalker"
-                ) => {}
-        DamageSource::It {} | DamageSource::This { .. } => return Err(step("damage", "source")),
-    }
-    let amount: ast::Amount = typed(amount, "amount")?;
-    let refs = match to {
-        DamageDestination::AnyTarget { selection_id } => {
-            uncounted(cx)?;
-            return Ok(Instruction::damage_target(
-                bind_target(
+                ) =>
+        {
+            Ref::Source
+        }
+        _ => return Err(step("damage", "source")),
+    };
+    // CR 608.2c: "its" in the amount is the object dealing the damage.
+    cx.subject = Some(source);
+    let amount = if let Some(filter) = for_each {
+        pilot_each_filter(cx, filter, amount)
+    } else {
+        pilot_amount(cx, amount)
+    };
+    cx.subject = None;
+    let amount = amount?;
+    let to = match to.as_ref() {
+        ast::DamageTarget::AnyTarget(target) if target.random.is_none() => kir::DamageTo::Ref {
+            who: Ref::Target {
+                slot: bind_target(
                     cx.program,
                     cx.slots,
-                    selection_id,
+                    target.selection_id.as_deref().unwrap_or(""),
                     TargetDomain::AnyDamageTarget,
                 )?,
-                // CR 107.3a, 602.2b: X is the value announced for the spell or
-                // ability; definition admission scopes X to a cost that has it.
-                match amount {
-                    ast::Amount::X(_)
-                        if matches!(cx.context, Context::Spell | Context::Activated) =>
-                    {
-                        kir::Amount::announced_x()
-                    }
-                    _ => kir::Amount::Fixed {
-                        value: fixed_positive_amount(&amount)?,
-                    },
-                },
-                cx.source_block,
-            ));
-        }
-        DamageDestination::Object { reference } => {
-            if reference["ref"] == "target" {
-                let what = object(reference)?;
-                uncounted(cx)?;
-                let amount = match amount {
-                    ast::Amount::X(_)
-                        if matches!(cx.context, Context::Spell | Context::Activated) =>
-                    {
-                        kir::Amount::announced_x()
-                    }
-                    _ => kir::Amount::Fixed {
-                        value: fixed_positive_amount(&amount)?,
-                    },
-                };
-                let slot = bind_damage_object_target(cx.program, cx.slots, &what)?;
-                return Ok(Instruction::damage_target(slot, amount, cx.source_block));
+            },
+        },
+        ast::DamageTarget::Object(to) => recipient_object(cx, &to.r#ref)?,
+        ast::DamageTarget::Player(to) => recipient_player(cx, &to.r#ref)?,
+        ast::DamageTarget::Them(_) => kir::DamageTo::Players {
+            players: cx
+                .player_binding
+                .event_role()
+                .map(PlayerExpr::event)
+                .ok_or_else(|| operand("damage_recipient", "unbound event player"))?,
+        },
+        ast::DamageTarget::Each(to) => {
+            let mut parts = to
+                .refs
+                .iter()
+                .map(|part| match part {
+                    ast::AmountCounterCountOn::PlayerRef(player) => recipient_player(cx, player),
+                    ast::AmountCounterCountOn::ObjectRef(object) => recipient_object(cx, object),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if parts.len() == 1 {
+                parts.pop().expect("one damage recipient")
+            } else {
+                kir::DamageTo::All { parts }
             }
-            std::slice::from_ref(reference)
         }
-        DamageDestination::Each { refs } => refs.as_slice(),
-        DamageDestination::Player { reference } => {
-            let players = match typed::<ast::PlayerRef>(reference, "damage_recipient")? {
-                ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
-                ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
-                ast::PlayerRef::EachOpponent(_) => PlayerExpr::EachOpponent,
-                ast::PlayerRef::ThatPlayer(_) => cx
-                    .player_binding
-                    .event_role()
-                    .map(PlayerExpr::event)
-                    .ok_or_else(|| operand("damage_recipient", "unbound_event_player"))?,
-                other => return Err(operand("damage_recipient", variant(&other))),
-            };
-            let bound = cx.bound_x();
-            let amount = lower_damage_amount(&amount, bound.as_ref(), cx.context)?;
-            return Ok(Instruction::damage(
-                kir::DamageTo::Players { players },
-                amount,
-                cx.source_block,
-            ));
-        }
+        to => return Err(operand("damage_recipient", variant(to))),
     };
-    let recipients: Vec<ast::AmountCounterCountOn> = typed(&refs, "damage_recipient")?;
-    let mut sets = vec![];
-    let mut each_player = false;
-    for recipient in &recipients {
-        match recipient {
-            ast::AmountCounterCountOn::PlayerRef(player)
-                if matches!(**player, ast::PlayerRef::EachPlayer(_)) && !each_player =>
-            {
-                each_player = true;
-            }
-            ast::AmountCounterCountOn::ObjectRef(set) => {
-                sets.push(lower_board_set(set, cx.context)?);
-            }
-            ast::AmountCounterCountOn::PlayerRef(other) => {
-                return Err(operand("damage_recipient", variant(&**other)));
-            }
-        }
+    let verb = Verb::Damage { source, to, amount };
+    if optional.is_some() {
+        Ok(Instruction::Kernel {
+            node: kir::Node::Optional {
+                chooser: PlayerExpr::you(cx.context),
+                node: Box::new(kir::Node::Do(verb)),
+            },
+            source_block: cx.source_block,
+        })
+    } else {
+        Ok(cx.act(verb))
     }
-    let bound = cx.bound_x();
-    let amount = lower_damage_amount(&amount, bound.as_ref(), cx.context)?;
-    Ok(SetDamage::instruction(
-        sets,
-        each_player,
-        amount,
-        cx.source_block,
-    ))
+}
+
+fn recipient_object(
+    cx: &mut StepCx<'_>,
+    object: &ast::ObjectRef,
+) -> Result<kir::DamageTo, Failure> {
+    if is_set(object) {
+        return Ok(kir::DamageTo::Objects {
+            set: pilot_board_set(cx, object)?,
+        });
+    }
+    let who = match object {
+        ast::ObjectRef::Target(_) => Ref::Target {
+            slot: bind_damage_object_target(cx.program, cx.slots, object)?,
+        },
+        ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => antecedent::permanent(cx, object)?,
+        _ => pilot_object(cx, object)?,
+    };
+    Ok(kir::DamageTo::Ref { who })
+}
+
+fn recipient_player(
+    cx: &mut StepCx<'_>,
+    player: &ast::PlayerRef,
+) -> Result<kir::DamageTo, Failure> {
+    let players = pilot_player(cx, player)?;
+    Ok(match players {
+        PlayerExpr::Is {
+            who: who @ Ref::Target { .. },
+        } => kir::DamageTo::Ref { who },
+        players => kir::DamageTo::Players { players },
+    })
 }

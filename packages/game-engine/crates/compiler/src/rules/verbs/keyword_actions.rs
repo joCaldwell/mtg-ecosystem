@@ -34,15 +34,12 @@ pub(super) fn fight(
 ) -> Result<Instruction, Failure> {
     let a = object(a)?;
     let b = object(b)?;
-    let first = if matches!(&a, ast::ObjectRef::It(_))
-        || matches!(&a, ast::ObjectRef::That(that) if that.plural.is_none()
-            && present_fields(&that.filter) == ["types"]
-            && that.filter.types.as_deref().is_some_and(|types| types == ["creature"]))
-    {
-        let [sole] = cx.program.targets.as_slice() else {
-            return Err(step("fight", "ambiguous first participant"));
+    let first = if matches!(&a, ast::ObjectRef::It(_) | ast::ObjectRef::That(_)) {
+        // CR 608.2c, 701.14a: the announced creature the pronoun names.
+        let object = match antecedent::permanent(cx, &a) {
+            Ok(object @ kir::Ref::Target { .. }) => object,
+            _ => return Err(step("fight", "ambiguous first participant")),
         };
-        let object = kir::Ref::Target { slot: sole.slot };
         let previous = cx
             .program
             .instructions

@@ -119,7 +119,7 @@ export function evaluateCorpus(cards: ScryfallCard[], options: { parser?: typeof
   };
 }
 
-export function sourceIdentity() {
+export function sourceDigest(extraFiles: readonly string[] = []): string {
   const files = ["packages/oracle-parser/package.json", "scripts/validate-parser.ts", "scripts/archive-parser.ts", "scripts/ingest-scryfall.ts", "scripts/lib/scryfall.ts", "scripts/lib/paper-evidence.ts", "scripts/build-paper-evidence.ts"];
   function walk(directory: string) {
     for (const entry of fs.readdirSync(path.join(ROOT, directory), { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name))) {
@@ -128,9 +128,14 @@ export function sourceIdentity() {
     }
   }
   walk("packages/oracle-parser/src");
+  files.push(...extraFiles);
+  return sha256(files.sort().map(name => `${name}\0${fs.readFileSync(path.join(ROOT, name), "utf8")}`).join("\0"));
+}
+
+export function sourceIdentity() {
   let revision: string | null = null;
   try { revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* source archives have no git */ }
-  return { revision, sourceSha256: sha256(files.sort().map(name => `${name}\0${fs.readFileSync(path.join(ROOT, name), "utf8")}`).join("\0")) };
+  return { revision, sourceSha256: sourceDigest() };
 }
 
 export function buildReport(cacheFile = CACHE_FILE, paperEvidence = loadPaperEvidence()) {

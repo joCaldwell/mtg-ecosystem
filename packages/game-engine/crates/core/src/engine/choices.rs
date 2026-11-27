@@ -804,7 +804,6 @@ impl RulesTxn {
             | InterveningCheck::OpponentControlsMore { passed: false, .. },
         ) = &frame.condition_check
             && (frame.cursor != 0
-                || frame.set_damage.is_some()
                 || frame.random_discard.is_some()
                 || frame.group_discard.is_some())
         {
