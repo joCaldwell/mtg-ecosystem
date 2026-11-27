@@ -1290,7 +1290,10 @@ fn hybrid_symbol(symbol: &ColorHybridSymbol) -> bool {
         [HybridPayment::Mana(a), HybridPayment::Mana(b)] => {
             a != b && a != Color::C && b != Color::C
         }
-        [HybridPayment::Mana(a), HybridPayment::PayTwoLife] => a != Color::C,
+        [
+            HybridPayment::Mana(a),
+            HybridPayment::PayTwoLife | HybridPayment::PayTwoGeneric,
+        ] => a != Color::C,
         _ => false,
     }
 }

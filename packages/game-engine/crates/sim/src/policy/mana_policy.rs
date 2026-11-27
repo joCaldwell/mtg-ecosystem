@@ -742,6 +742,16 @@ pub(super) fn hybrid_plan_reserved(
         {
             choices.push(HybridPayment::Mana(color));
             cost.colored.push(color);
+        } else if symbol.colors.contains(&HybridPayment::PayTwoGeneric) && {
+            // CR 107.4e: {2} pays a monocolored hybrid symbol.
+            cost.generic.add(&2.into());
+            let payable =
+                plan_with_reservations(catalog, view, &cost, None, &[], reserved).is_some();
+            cost.generic.subtract(&2.into());
+            payable
+        } {
+            choices.push(HybridPayment::PayTwoGeneric);
+            cost.generic.add(&2.into());
         } else if symbol.colors.contains(&HybridPayment::PayTwoLife)
             && !payer.life_frozen_until_next_turn
             && life >= 2.into()

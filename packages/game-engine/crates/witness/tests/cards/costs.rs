@@ -25,6 +25,7 @@ mod activation_history;
 mod alternative_costs;
 mod announced_activations;
 mod chosen_objects;
+mod monocolored_hybrid;
 
 const BLAZE: &str = record!("0596920f-9946-42f4-a03b-24aab67f9f1b");
 const BOROS_RECRUIT: &str = record!("00abb43b-550f-42d2-9049-61ac56ff5d8d");

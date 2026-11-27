@@ -313,6 +313,7 @@ impl RulesTxn {
             Candidate::HybridPayment { payment } => match payment {
                 HybridPayment::Mana(color) => format!("{{{color:?}}}"),
                 HybridPayment::PayTwoLife => "Pay 2 life".into(),
+                HybridPayment::PayTwoGeneric => "{2}".into(),
             },
             Candidate::Flag { flag } => match flag {
                 Flag::Accept => "Accept",

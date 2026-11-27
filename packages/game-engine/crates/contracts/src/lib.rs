@@ -173,9 +173,10 @@ impl Characteristics {
             return value.clone();
         }
         let mut value = self.mana_cost.generic.clone();
-        value.add(&Quantity::from(
-            (self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64,
-        ));
+        value.add(&Quantity::from(self.mana_cost.colored.len() as i64));
+        for symbol in &self.hybrid_mana {
+            value.add(&symbol.mana_value());
+        }
         value
     }
 
@@ -1633,9 +1634,9 @@ impl ActivatedAbility {
     /// Phyrexian payment adds none) and its announced X.
     pub fn announced_cost(&self, hybrid: &[HybridPayment], x: Option<&Quantity>) -> ManaCost {
         let mut total = self.cost.fixed_mana();
-        total
-            .colored
-            .extend(hybrid.iter().filter_map(|payment| payment.color()));
+        for payment in hybrid {
+            payment.add_to(&mut total);
+        }
         if let Some(x) = x {
             total.generic.add(x);
         }

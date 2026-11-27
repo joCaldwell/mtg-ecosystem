@@ -383,6 +383,7 @@ pub fn encode(
                 match payment {
                     HybridPayment::Mana(c) => color(*c) as i32,
                     HybridPayment::PayTwoLife => 6,
+                    HybridPayment::PayTwoGeneric => 7,
                 },
                 0,
             ),

@@ -229,8 +229,9 @@ impl RulesTxn {
                 };
                 if let Some(colors) = hybrid {
                     self.validate_hybrid_colors(source, colors)?;
-                    cost.colored
-                        .extend(colors.iter().filter_map(|choice| choice.color()));
+                    for choice in colors {
+                        choice.add_to(&mut cost);
+                    }
                 }
                 cost
             },
