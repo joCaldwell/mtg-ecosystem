@@ -630,9 +630,6 @@ pub(crate) enum Step {
         #[serde(default, deserialize_with = "present_json_operand")]
         riders: Option<serde_json::Value>,
     },
-    Exile {
-        what: serde_json::Value,
-    },
     Untap {
         what: serde_json::Value,
     },
@@ -743,12 +740,6 @@ pub(crate) enum Step {
     },
     #[serde(skip)]
     Evaluated(Box<ast::Effect>),
-    ReturnToHand {
-        what: serde_json::Value,
-        to: String,
-        #[serde(default, deserialize_with = "present_bool_field")]
-        optional: Option<bool>,
-    },
     MoveZone {
         what: serde_json::Value,
         to: serde_json::Value,
@@ -778,6 +769,9 @@ impl<'de> Deserialize<'de> for Step {
                     | "sacrifice"
                     | "discard"
                     | "mill"
+                    | "exile"
+                    | "exile-until"
+                    | "return-to-hand"
             )
         ) {
             if raw

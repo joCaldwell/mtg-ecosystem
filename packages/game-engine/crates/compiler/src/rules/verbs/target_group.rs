@@ -44,9 +44,7 @@ enum Field<'a> {
 /// Tap and untap keep their reviewed up-to batch node.
 fn field(step: &mut Step) -> Option<Field<'_>> {
     Some(match step {
-        Step::Exile { what }
-        | Step::Destroy { what, .. }
-        | Step::ReturnToHand { what, .. }
+        Step::Destroy { what, .. }
         | Step::MoveZone { what, .. }
         | Step::Pump { what, .. }
         | Step::GainAbilities { what, .. }
@@ -55,6 +53,8 @@ fn field(step: &mut Step) -> Option<Field<'_>> {
         | Step::Untap { what } => Field::Json(what),
         Step::Evaluated(effect) => match effect.as_mut() {
             ast::Effect::PutCounters(counters) => Field::Typed(&mut counters.on),
+            ast::Effect::Exile(exile) => Field::Typed(&mut exile.what),
+            ast::Effect::ReturnToHand(movement) => Field::Typed(&mut movement.what),
             ast::Effect::Damage(damage) => match damage.to.as_mut() {
                 ast::DamageTarget::Object(to) => Field::Typed(&mut to.r#ref),
                 _ => return None,
@@ -148,23 +148,26 @@ fn variable_batch(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instruc
     use kir::VariableTargetCount::*;
     if !matches!(
         step,
-        Step::Tap { .. }
-            | Step::Untap { .. }
-            | Step::Destroy { .. }
-            | Step::Exile { .. }
-            | Step::ReturnToHand { .. }
+        Step::Tap { .. } | Step::Untap { .. } | Step::Destroy { .. }
+    ) && !matches!(
+        step.effect(),
+        Some(ast::Effect::Exile(_) | ast::Effect::ReturnToHand(_))
     ) {
         return Ok(None);
     }
     let mut step = step.clone();
-    let Some(Field::Json(value)) = field(&mut step) else {
-        return Ok(None);
-    };
-    if value["ref"] != "target" || value["count"]["amount"] == "fixed" {
-        return Ok(None);
-    }
-    let ast::ObjectRef::Target(target) = object(value)? else {
-        return Ok(None);
+    let target = match field(&mut step) {
+        Some(Field::Json(value)) => {
+            if value["ref"] != "target" || value["count"]["amount"] == "fixed" {
+                return Ok(None);
+            }
+            let ast::ObjectRef::Target(target) = object(value)? else {
+                return Ok(None);
+            };
+            target
+        }
+        Some(Field::Typed(ast::ObjectRef::Target(target))) => target.clone(),
+        _ => return Ok(None),
     };
     let variable = match (&*target.count, target.up_to) {
         (ast::Amount::X(_), None) => ExactlyX,
@@ -179,7 +182,7 @@ fn variable_batch(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instruc
         return Ok(None);
     };
     member(
-        Field::Json(value),
+        field(&mut step).ok_or_else(|| operand("target", "count"))?,
         &Group {
             count: 1,
             up_to: false,

@@ -529,7 +529,6 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             rule,
             duration,
         } => combat::lower_rule(cx, what, rule, duration),
-        Step::Exile { what } => exile::lower(cx, what),
         Step::Untap { what } => tap::untap(cx, what),
         Step::Tap { what } => tap::tap(cx, what),
         Step::Transform {
@@ -577,9 +576,13 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             ast::Effect::Sacrifice(action) => sacrifice::lower(cx, action),
             ast::Effect::Damage(action) => damage::lower(cx, action),
             ast::Effect::PutCounters(action) => counters::lower(cx, action),
+            ast::Effect::Exile(action) => exile::lower(cx, action),
+            ast::Effect::ReturnToHand(action) => return_to_hand::lower(cx, action),
+            // CR 610.3: a return linked to a duration has no executable
+            // delayed form yet.
+            ast::Effect::ExileUntil(_) => Err(step("exile-until", "linked_return")),
             _ => unreachable!("evaluated AST effect"),
         },
-        Step::ReturnToHand { what, to, optional } => return_to_hand::lower(cx, what, to, *optional),
         Step::MoveZone {
             what,
             to,

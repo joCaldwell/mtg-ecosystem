@@ -2,16 +2,44 @@
 use super::*;
 
 /// Every member of an "all"/"each" set, or one announced permanent or
-/// creature, to its owner's hand.
+/// creature, to its owner's hand; or a card from your graveyard to your
+/// hand.
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
-    what: &serde_json::Value,
-    to: &str,
-    optional: Option<bool>,
+    movement: &ast::EffectReturnToHand,
 ) -> Result<Instruction, Failure> {
+    let ast::EffectReturnToHand {
+        optional,
+        decided_by,
+        starting_with,
+        for_each,
+        for_each_beyond,
+        for_each_vote,
+        duration,
+        what,
+        to,
+        from,
+        who,
+    } = movement;
+    if starting_with.is_some()
+        || for_each.is_some()
+        || for_each_beyond.is_some()
+        || for_each_vote.is_some()
+        || duration.is_some()
+    {
+        return Err(step("return-to-hand", "qualified"));
+    }
+    if who.is_some() || decided_by.is_some() {
+        return Err(step("return-to-hand", "mover"));
+    }
+    if from.is_some() {
+        return Err(step("return-to-hand", "from"));
+    }
+    let optional = optional.is_some().then_some(true);
+    let to = to.as_str();
     uncounted(cx)?;
     if to == "your" {
-        let what = object(what)?;
+        let what = what.as_ref().clone();
         if let Some(choice) = super::move_zone::chosen(cx, &what, Destination::OwnerHand)? {
             return match (optional, choice) {
                 (None, choice) => Ok(choice),
@@ -56,7 +84,7 @@ pub(super) fn lower(
     if to != "owner" {
         return Err(step("return-to-hand", "destination"));
     }
-    let what = object(what)?;
+    let what = what.as_ref().clone();
     // CR 109.5, 115.1d, 400.3, 608.2c-d: choose the permanent when returning it.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if let ast::ObjectRef::Filter(selection) = &what
