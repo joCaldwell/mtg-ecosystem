@@ -310,6 +310,31 @@ pub(crate) fn bind_target(
     Ok(slot)
 }
 
+/// What an ability's resolving instructions may refer back to besides their
+/// own steps: the trigger's event bindings (CR 603.2, 608.2h), whether the
+/// event object is the source itself (CR 201.5), and what earlier steps of
+/// the same block, lowered outside this call, already introduced.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Scope {
+    pub(crate) player: PlayerBinding,
+    pub(crate) event_is_source: bool,
+    /// The card types the trigger's event object pattern names, as
+    /// [`CardKind::CARD_TYPES`] bits; zero names none.
+    pub(crate) event_types: u8,
+    pub(crate) prior: crate::ingest::Introduced,
+}
+
+impl From<PlayerBinding> for Scope {
+    fn from(player: PlayerBinding) -> Self {
+        Self {
+            player,
+            event_is_source: false,
+            event_types: 0,
+            prior: Default::default(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlayerBinding {
     Unbound,
@@ -2204,54 +2229,6 @@ pub(crate) fn lower_player_ref(
             _ => Err(operand("player", "target_player:qualified")),
         },
         other => Err(operand("player", variant(&other))),
-    }
-}
-
-/// CR 608.2b-c, 608.2h: the preceding removal's sole announced target.
-/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub(crate) fn preceding_target(
-    program: &SpellProgram,
-    block: u32,
-    reference: &ast::ObjectRef,
-) -> Result<u32, Failure> {
-    let ([target], Some(previous)) = (program.targets.as_slice(), program.instructions.last())
-    else {
-        return Err(operand("player", "controller:missing_single_target"));
-    };
-    let pronoun = match reference {
-        ast::ObjectRef::It(_) => true,
-        ast::ObjectRef::That(that) => {
-            that.plural.is_none()
-                && present_fields(&that.filter) == ["types"]
-                && that
-                    .filter
-                    .types
-                    .as_deref()
-                    .is_some_and(|types| types == ["creature"])
-                && target
-                    .filter
-                    .as_ref()
-                    .is_some_and(|filter| filter.types == [CardKind::Creature])
-        }
-        other => return Err(operand("target", format!("ref_{}", variant(other)))),
-    };
-    let reads_target = match previous.verb() {
-        Some(
-            Verb::Destroy {
-                what: SetExpr::One { object },
-                ..
-            }
-            | Verb::Move {
-                what: SetExpr::One { object },
-                ..
-            },
-        ) => *object == (kir::Ref::Target { slot: target.slot }),
-        _ => false,
-    };
-    if pronoun && reads_target && previous.source_block() == block && target.filter.is_some() {
-        Ok(target.slot)
-    } else {
-        Err(operand("player", "controller:unbound_target"))
     }
 }
 

@@ -329,13 +329,21 @@ impl Walk<'_, '_> {
                     unaudited("damage target domain")
                 }
             }
+            // CR 120.1, 608.2c: a step or cost result is a recipient only as
+            // the player who acted, or the one object a cost sacrificed;
+            // an amount or a step's object set names no recipient.
             Ref::Source
             | Ref::Controller { .. }
             | Ref::EventPlayer { .. }
             | Ref::EventObject { .. }
             | Ref::BoundVar { .. }
-            | Ref::StepResult { .. }
-            | Ref::CostResult { .. } => Ok(()),
+            | Ref::StepResult {
+                role: StepRole::Player,
+                ..
+            }
+            | Ref::CostResult {
+                role: StepRole::Player | StepRole::Objects,
+            } => Ok(()),
             _ => unaudited("damage recipient"),
         }
     }

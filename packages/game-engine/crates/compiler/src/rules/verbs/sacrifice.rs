@@ -43,7 +43,10 @@ pub(super) fn lower(
         ) {
             return Err(step("sacrifice", "subject"));
         }
-        let object = pilot_object(cx, what)?;
+        let object = match what.as_ref() {
+            ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => antecedent::permanent(cx, what)?,
+            _ => pilot_object(cx, what)?,
+        };
         return Ok(wrap(
             cx,
             Verb::Sacrifice {
