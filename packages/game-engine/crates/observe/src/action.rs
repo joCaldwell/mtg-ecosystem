@@ -364,6 +364,43 @@ fn allocation_ranges(
 mod tests {
     use super::*;
     #[test]
+    fn myriad_defender_encodes_a_player_and_a_planeswalker() {
+        let d = Decision {
+            id: DecisionToken("myriad".into()),
+            player: PlayerId(0),
+            reason: Reason::MyriadDefender,
+            candidates: vec![
+                Candidate::Player {
+                    player: PlayerId(1),
+                },
+                Candidate::Object {
+                    object: ObjectHandle("v0-o1".into()),
+                },
+            ],
+            shape: Shape::Pick {
+                slots: vec![Slot {
+                    role: SlotRole::Choice,
+                    subject: None,
+                    allowed: vec![0, 1],
+                    min: 1,
+                    max: 1,
+                    repeat: false,
+                }],
+                rules: vec![],
+            },
+        };
+        let Step::Choose(choices) = Composer::compose(&d, &[], None).unwrap() else {
+            panic!("expected defender choice");
+        };
+        assert_eq!(&choices.pointer[..2], &[1, 1]);
+        assert_eq!(choices.pointer[STOP], 0);
+        for candidate in 0..2 {
+            assert!(matches!(Composer::compose(&d, &[candidate], None).unwrap(),
+                Step::Answer(Answer::Pick { picks }) if picks == vec![vec![candidate as u32]]));
+        }
+    }
+
+    #[test]
     fn gate_and_forced_last_bucket() {
         let d = Decision {
             id: DecisionToken("test".into()),

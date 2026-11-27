@@ -183,9 +183,8 @@ state_layout! {
         libraries: Shared<BTreeMap<PlayerId, Vec<CardId>>>,
         combat: Vec<Attacker>,
         combat_declared: bool,
-        /// CR 508.1, 702.121a: the players declared attacked this combat, in
-        /// seat order. A creature put onto the battlefield attacking never
-        /// attacked (CR 508.4).
+        /// CR 508.6, 702.121a: the players attacked directly by declared
+        /// attackers this combat, in seat order.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         combat_defenders: Vec<PlayerId>,
         damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,

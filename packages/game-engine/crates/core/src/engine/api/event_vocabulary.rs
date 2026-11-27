@@ -116,12 +116,12 @@ pub enum ProposedEvent {
         defenders: Vec<PlayerId>,
     },
     /// CR 702.116a, 508.4, 608.2f: one token copy of the myriad source
-    /// `source` for each accepted defender, tapped and attacking that
-    /// player, all created at once for the invocation `creator`.
+    /// `source` for each accepted defender, tapped and attacking that player
+    /// or their chosen planeswalker, all created at once for `creator`.
     CreateMyriadTokens {
         controller: PlayerId,
         source: ObjectId,
-        defenders: Vec<PlayerId>,
+        defenders: Vec<MyriadDefender>,
         creator: StackId,
     },
     CreatePredefinedTokens {
@@ -362,7 +362,7 @@ pub enum EventOutcome {
     /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
     /// opponent; the copies are created together afterwards (CR 608.2f).
     MyriadAccepted {
-        defender: PlayerId,
+        defender: MyriadDefender,
     },
     AttachmentChanged {
         object: ObjectId,
@@ -398,9 +398,9 @@ pub enum EventOutcome {
         objects: Vec<ObjectId>,
         controller: PlayerId,
         original: ObjectId,
-        /// Each token's attacked player, or `None` when it entered without
-        /// attacking (CR 506.3b, 508.4a).
-        attacking: Vec<Option<PlayerId>>,
+        /// Each token's defender, or `None` when it entered without attacking
+        /// (CR 506.3b, 508.4a).
+        attacking: Vec<Option<MyriadDefender>>,
     },
     PredefinedTokensCreated {
         objects: Vec<ObjectId>,
@@ -603,7 +603,7 @@ pub enum InstructionOutcome {
     /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
     /// opponent; the copies are created together afterwards (CR 608.2f).
     MyriadAccepted {
-        defender: PlayerId,
+        defender: MyriadDefender,
     },
     SetMoved {
         movements: Vec<MoveOutcome>,
@@ -799,4 +799,13 @@ pub struct CounterChange {
     pub amount: Quantity,
     pub previous: Quantity,
     pub current: Quantity,
+}
+
+/// CR 702.116a: an opponent, or a chosen planeswalker they control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MyriadDefender {
+    pub player: PlayerId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planeswalker: Option<ObjectId>,
 }

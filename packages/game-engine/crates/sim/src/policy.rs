@@ -371,6 +371,15 @@ impl Strategy<'_> {
                     Flag::Decline
                 },
             )?,
+            (Reason::MyriadDefender, _) => {
+                let defender = d
+                    .candidates
+                    .iter()
+                    .find(|candidate| matches!(candidate, Candidate::Object { .. }))
+                    .or_else(|| d.candidates.first())
+                    .ok_or("missing myriad defender")?;
+                d.pick_one(defender)?
+            }
             (Reason::GraveyardReplacementOrder { .. }, _) => flag(d, Flag::Accept)?,
             // CR 601.2b-c: the announced X stays within the rules bounds
             // that the spell's targets impose.

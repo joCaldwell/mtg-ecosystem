@@ -590,9 +590,9 @@ impl RulesTxn {
             }
             // CR 702.116a, 707.2, 608.2f: one token copy of the myriad
             // source's copiable values for each accepted defender, all
-            // entering at once, tapped and attacking that player (CR 508.4).
-            // A token is attacking only under an attacking player and against
-            // a defender still in the game (CR 506.3b, 508.4a).
+            // entering at once, tapped and attacking the selected defender.
+            // A missing or ineligible defender means the token enters without
+            // attacking (CR 506.3b, 508.4a).
             ProposedEvent::CreateMyriadTokens {
                 controller,
                 source,
@@ -601,10 +601,13 @@ impl RulesTxn {
             } => {
                 if !self.is_live(*controller)
                     || defenders.is_empty()
-                    || defenders
-                        .iter()
-                        .enumerate()
-                        .any(|(i, d)| *d == *controller || defenders[..i].contains(d))
+                    || defenders.iter().enumerate().any(|(i, d)| {
+                        !self.is_live(d.player)
+                            || d.player == *controller
+                            || defenders[..i]
+                                .iter()
+                                .any(|earlier| earlier.player == d.player)
+                    })
                 {
                     return Err("invalid myriad token creation".into());
                 }
@@ -623,20 +626,27 @@ impl RulesTxn {
                         TokenIdentity {
                             source: *source,
                             spec: TokenTemplate::MyriadCopy {
-                                attacks: *defender,
+                                attacks: defender.player,
                                 creator: *creator,
                             },
                             definition: token_copy_definition(&original, card),
                         },
                     );
                     self.enter_token_tapped(card, true)?;
-                    let attacks = (in_combat && self.is_live(*defender)).then_some(*defender);
+                    let attacks = (in_combat
+                        && defender.planeswalker.is_none_or(|target| {
+                            self.is_battlefield_planeswalker(target)
+                                && self
+                                    .current(target)
+                                    .is_ok_and(|o| o.controller == defender.player)
+                        }))
+                    .then_some(*defender);
                     if let Some(defender) = attacks {
                         self.rules_mut().combat.push(combat::Attacker {
-                            planeswalker: None,
+                            planeswalker: defender.planeswalker,
                             defender_removed: false,
                             attacker: object,
-                            defender,
+                            defender: defender.player,
                             blocked: false,
                             blockers: vec![],
                         });

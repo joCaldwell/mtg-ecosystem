@@ -1307,6 +1307,7 @@ impl RulesTxn {
             self.validate_library_reorder_outcome(frame, Some(instruction), outcome)?;
             self.validate_look_selection_outcome(frame, instruction, outcome)?;
             self.validate_counter_outcome(frame, outcome)?;
+            self.validate_myriad_outcome(frame, outcome)?;
         }
         if self
             .state

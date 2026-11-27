@@ -703,3 +703,144 @@ fn training_reads_power_after_the_attackers_tap() {
     assert!(g.state.rules.stack.is_empty());
     assert_recoverable((&g).into());
 }
+
+// CR 508.6, 702.121a: attacking Jace still triggers melee. Only the optional
+// direct attack on another opponent adds to its bonus.
+#[test]
+fn melee_counts_players_and_not_their_planeswalkers() {
+    let jace = crate::planeswalker::JACE;
+    for direct_attack in [false, true] {
+        let mut g = Game::with_trace(
+            prepare(
+                board(&[DEPUTIZED_PROTESTER, jace], TurnStep::BeginningCombat)
+                    .seats(3)
+                    .permanent_or_hand("Deputized Protester", 0, 0, false)
+                    .permanent_or_hand("Jace Beleren", 1, 1, false)
+                    .permanent_or_hand("Grizzly Bears", 0, 0, false),
+            ),
+            TraceMode::Detailed,
+        );
+        let d = crate::evasion::until(&mut g, &Reason::Attackers);
+        let protester = Driver::object(&g, 0);
+        let defender = Candidate::Object {
+            object: Driver::object(&g, 1),
+        };
+        let bear = Driver::object(&g, 2);
+        let Shape::Pick { slots, .. } = &d.shape else {
+            panic!("expected attack slots")
+        };
+        let picks = slots
+            .iter()
+            .map(|slot| {
+                if slot.subject == d.index(&Candidate::Object { object: protester }) {
+                    vec![d.index(&defender).unwrap()]
+                } else if direct_attack
+                    && slot.subject == d.index(&Candidate::Object { object: bear })
+                {
+                    vec![
+                        d.index(&Candidate::Player {
+                            player: PlayerId(2),
+                        })
+                        .unwrap(),
+                    ]
+                } else {
+                    vec![]
+                }
+            })
+            .collect();
+        g.respond(d.player, d.id, Answer::Pick { picks }).unwrap();
+        Driver::request(&mut g, u64::MAX);
+        assert_eq!(triggers_of(&g, protester), 1);
+        settle(&mut g);
+        let bonus = i64::from(direct_attack);
+        assert_eq!(power_toughness(&g, protester), pt(2 + bonus, 1 + bonus));
+        checked(&g);
+    }
+}
+
+// CR 702.116a, 508.4: two accepted copies enter together. One attacks
+// Jace rather than his controller, and both leave at end of combat.
+#[test]
+fn myriad_copies_can_enter_attacking_a_planeswalker() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(
+                &[BANSHEE_OF_THE_DREAD_CHOIR, crate::planeswalker::JACE],
+                TurnStep::BeginningCombat,
+            )
+            .seats(4)
+            .permanent_or_hand("Banshee of the Dread Choir", 0, 0, false)
+            .permanent_or_hand("Jace Beleren", 2, 2, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let banshee = Driver::object(&g, 0);
+    let jace = Driver::object(&g, 1);
+    declare(&mut g, &[(banshee, PlayerId(1))]);
+    let accept = Candidate::Flag { flag: Flag::Accept };
+    let d = crate::evasion::until(&mut g, &Reason::OptionalEffect);
+    g.respond(d.player, d.id, d.pick_one(&accept).unwrap())
+        .unwrap();
+    let d = Driver::request(&mut g, u64::MAX);
+    assert_eq!(d.reason, Reason::MyriadDefender);
+    assert_eq!(
+        d.candidates,
+        vec![
+            Candidate::Player {
+                player: PlayerId(2)
+            },
+            Candidate::Object { object: jace }
+        ]
+    );
+    checked(&g);
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Object { object: jace }).unwrap(),
+    )
+    .unwrap();
+
+    let d = Driver::request(&mut g, u64::MAX);
+    assert_eq!(d.reason, Reason::OptionalEffect);
+    assert!(
+        myriad_tokens(&g).is_empty(),
+        "all copies enter after the choices"
+    );
+    checked(&g);
+    g.respond(d.player, d.id, d.pick_one(&accept).unwrap())
+        .unwrap();
+    let mut choices = std::collections::VecDeque::new();
+    combat(&mut g, &[], &mut choices, |g| {
+        myriad_tokens(g).len() == 2 && g.state.rules.stack.is_empty()
+    });
+    let tokens = myriad_tokens(&g);
+    for (token, defender) in &tokens {
+        assert!(g.current(*token).unwrap().tapped);
+        let attack = g
+            .state
+            .rules
+            .combat
+            .iter()
+            .find(|a| a.attacker == *token)
+            .unwrap();
+        assert_eq!(
+            attack.planeswalker,
+            (*defender == Some(PlayerId(2))).then_some(jace)
+        );
+    }
+    checked(&g);
+    combat(&mut g, &[], &mut choices, |g| {
+        g.state.rules.turn.step == TurnStep::EndCombat && triggered(g)
+    });
+    assert_eq!(
+        g.state.rules.objects[&jace.card].zone,
+        Zone::Graveyard { owner: PlayerId(2) }
+    );
+    assert_eq!(g.state.rules.players[2].life, 40.into());
+    assert_eq!(g.state.rules.players[3].life, 36.into());
+    combat(&mut g, &[], &mut choices, |g| {
+        g.state.rules.turn.step == TurnStep::EndCombat && g.state.rules.stack.is_empty()
+    });
+    assert!(myriad_tokens(&g).is_empty());
+    checked(&g);
+}

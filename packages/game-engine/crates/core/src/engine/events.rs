@@ -2904,7 +2904,12 @@ impl RulesTxn {
                     self.rules_mut().cast_history[player.0 as usize].attacked = true;
                 }
                 self.rules_mut().combat_declared = !attacks.is_empty();
-                let mut defenders: Vec<_> = attacks.iter().map(|(_, d, _)| *d).collect();
+                let mut defenders: Vec<_> = attacks
+                    .iter()
+                    .filter_map(|(_, defender, planeswalker)| {
+                        planeswalker.is_none().then_some(*defender)
+                    })
+                    .collect();
                 defenders.sort();
                 defenders.dedup();
                 self.rules_mut().combat_defenders = defenders;

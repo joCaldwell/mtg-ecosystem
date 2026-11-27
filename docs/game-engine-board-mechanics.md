@@ -298,8 +298,9 @@ on resolution. Flanking shrinks each blocker without the flanking marker by
 -1/-1; marker and trigger are admitted only together. Dethrone and training add a
 +1/+1 counter. Afflict N makes the blocked attacker's defending player lose N.
 Myriad (a single-faced creature card without entry replacements) offers its
-controller a copy for each other live opponent; the accepted copies enter
-together, tapped and attacking those players (CR 508.4, 608.2f). They never
+controller a copy for each other live opponent. For each accepted copy, the
+controller chooses that opponent or a planeswalker they control. The copies
+enter together, tapped and attacking the chosen defenders (CR 508.4, 608.2f). They never
 attacked, and that invocation's delayed trigger exiles them at end of combat.
 The keyword line must print each N, and the source keyword list must
 name each keyword. X amounts reject. So do the remaining triggered keywords, such as

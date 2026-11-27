@@ -1514,8 +1514,9 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
-        // CR 508.1: declared defenders exist only after a declaration this
-        // combat, in seat order, never the attacking player.
+        // CR 508.6, 702.121a: this is the historical set of players attacked
+        // directly by declared attackers, in seat order. Neither attackers
+        // removed later nor tokens created attacking change that set.
         let defenders = &self.state.rules.combat_defenders;
         if (!defenders.is_empty()
             && (!self.state.rules.combat_declared
