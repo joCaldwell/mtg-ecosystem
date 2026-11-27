@@ -220,6 +220,26 @@ export function decisionSurface(
       });
     case 'number':
       return supported({ ...base, kind: 'quantity', maxDigits: 65536 });
+    case 'combat_distribute': {
+      const fields = shape.groups.flatMap((group) => {
+        const source = option(group.source);
+        return group.recipients.map((candidate) => {
+          const recipient = option(candidate);
+          return {
+            ...recipient,
+            label: `${source.label} → ${recipient.label}`,
+            detail: `Assign ${group.total} from ${source.label} · ${recipient.detail}`,
+            maximum: group.total,
+          };
+        });
+      });
+      return supported({
+        ...base,
+        kind: 'quantities',
+        maxDigits: 65536,
+        fields: fields.map((field, i) => ({ ...field, id: String(i) })),
+      });
+    }
     case 'distribute':
       return supported({
         ...base,
@@ -405,6 +425,11 @@ function answerFor(control: LocalControl, draft: LocalDraft): Answer {
       return { answer: 'number', value: draft.quantity };
     case 'order':
       return { answer: 'order', order: draft.selected.map(Number) };
+    case 'combat_distribute':
+      return {
+        answer: 'distribute',
+        amounts: shape.groups.flatMap((group) => group.recipients).map((_, i) => draftValue(draft, String(i))),
+      };
     case 'distribute':
       return { answer: 'distribute', amounts: shape.buckets.map((_, i) => draftValue(draft, String(i))) };
     case 'pay': {
@@ -472,6 +497,21 @@ export function draftError(control: LocalControl, draft: LocalDraft): string | n
     (BigInt(answer.value) < BigInt(shape.min) || (shape.max != null && BigInt(answer.value) > BigInt(shape.max)))
   )
     return 'Number is outside the supplied range.';
+  if (shape.shape === 'combat_distribute' && answer.answer === 'distribute') {
+    const amounts = answer.amounts.map(BigInt);
+    let start = 0;
+    for (const group of shape.groups) {
+      const end = start + group.recipients.length;
+      if (amounts.slice(start, end).reduce((sum, amount) => sum + amount, 0n) !== BigInt(group.total))
+        return `Assign exactly ${group.total} damage from each source that requires that total.`;
+      start = end;
+    }
+    for (const gate of shape.lethal) {
+      if (amounts[gate.player_bucket]! === 0n || gate.deathtouch_buckets.some((i) => amounts[i]! > 0n)) continue;
+      if (gate.damage_buckets.reduce((sum, i) => sum + amounts[i]!, 0n) < BigInt(gate.remaining))
+        return 'Assign lethal damage to each blocker before assigning trample damage to the defender.';
+    }
+  }
   if (shape.shape === 'distribute' && answer.answer === 'distribute') {
     if (shape.buckets.some((b, i) => BigInt(answer.amounts[i]!) < BigInt(b.min)))
       return 'An allocation is below its minimum.';

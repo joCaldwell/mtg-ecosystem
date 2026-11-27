@@ -923,6 +923,31 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                 qualified_condition(x.condition.as_deref(), x.condition_kind)?,
             )
         }
+        C::BlockCapacity(x) => {
+            use ast::CombatRuleBlockCapacityCapacity as Capacity;
+            let requirement = match x.capacity.as_ref() {
+                Capacity::Additional(extra) => {
+                    let count = u32::try_from(fixed_value(&extra.additional)?)
+                        .ok()
+                        .filter(|count| *count > 0)
+                        .ok_or_else(|| gap("combat-rule:block-capacity:amount"))?;
+                    CombatRequirement::AdditionalBlocks(count)
+                }
+                Capacity::Maximum(maximum)
+                    if matches!(
+                        maximum.maximum.as_ref(),
+                        ast::LandPlayAllowanceAdditional::Unlimited
+                    ) =>
+                {
+                    CombatRequirement::UnlimitedBlocks
+                }
+                _ => return Err(gap("combat-rule:block-capacity:maximum")),
+            };
+            (
+                requirement,
+                qualified_condition(x.condition.as_deref(), x.condition_kind)?,
+            )
+        }
         C::DamageAssignmentValue(x)
             if x.value == ast::CombatRuleDamageAssignmentValueValue::Toughness =>
         {

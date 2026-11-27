@@ -337,7 +337,9 @@ impl RulesTxn {
                 R::CanBlockOnlyFlying => Some(CreatureRestriction::CanBlockOnlyFlying),
                 R::AttackEachCombat
                 | R::AttackAsThoughNoDefender
-                | R::AssignCombatDamageWithToughness => None,
+                | R::AssignCombatDamageWithToughness
+                | R::AdditionalBlocks(_)
+                | R::UnlimitedBlocks => None,
             })
     }
 

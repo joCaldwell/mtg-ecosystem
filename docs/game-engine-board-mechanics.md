@@ -32,7 +32,12 @@ you" removes that defender; with no attackable planeswalker or battle kinds,
 combat if able must attack only while a defender remains (CR 508.1d). Relative
 powers and ambiguous "X and/or Y with Z" filters reject. Static toughness-based
 combat damage assignment uses current toughness for both attackers and blockers
-(CR 101.1, 510.1a).
+(CR 101.1, 510.1a). Additional blocking capacity stacks and unlimited capacity
+allows every legal attacker to be selected once per blocker (CR 509.1a).
+A blocker divides one damage total across its attackers (CR 510.1d). When
+a shared blocker connects variable assignments and trample, the attacker
+controller assigns the source totals together and each trample allocation
+checks combined lethal damage (CR 510.1e, 702.19b).
 
 Simultaneous damage is validated before life/history writes. Combat source
 validation reads the captured creature type and keywords from resolved and

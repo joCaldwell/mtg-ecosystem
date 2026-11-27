@@ -535,3 +535,123 @@ fn toughness_assignment_survives_pending_damage_replacement() {
     }
     panic!("never reached damage replacement");
 }
+
+const BRAVE_THE_SANDS: &str = record!("4e89bd75-f59d-4f08-be51-5660fbbba3c2");
+const PALACE_GUARD: &str = record!("5c92f375-ae6a-4be5-a499-ab87d6bdc49b");
+
+#[test]
+fn block_capacity_adds_slots_and_blocker_divides_its_damage() {
+    let mut g = game(
+        &[BRAVE_THE_SANDS],
+        &[
+            ("Storm Crow", 0, B),
+            ("Grizzly Bears", 0, B),
+            ("Royal Assassin", 0, B),
+            ("Brave the Sands", 1, B),
+            ("Grizzly Bears", 1, B),
+            ("Grizzly Bears", 1, B),
+            ("Grizzly Bears", 0, B),
+        ],
+    );
+    let d = attack(&mut g, &[0, 1, 2, 6]);
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("block declaration must be a pick");
+    };
+    assert_eq!(slots.iter().map(|s| s.max).collect::<Vec<_>>(), [2, 2]);
+    assert_eq!(offered(&g, &d)[&4], [1, 2, 6]);
+    refuses(&mut g, &d, &[(4, 1), (4, 1)]);
+    refuses(&mut g, &d, &[(4, 0)]);
+    refuses(&mut g, &d, &[(4, 1), (4, 2), (4, 6)]);
+    accepts(&mut g, &d, &[(4, 1), (4, 2)]);
+    let source = Driver::object(&g, 4);
+    let d = until(
+        &mut g,
+        &Reason::CombatDamage {
+            source,
+            power: 2.into(),
+        },
+    );
+    checked(&g);
+    let first = Driver::object(&g, 1);
+    let second = Driver::object(&g, 2);
+    assert!(
+        g.respond(
+            d.player,
+            d.id,
+            d.damage_to(vec![(first, 2.into()), (second, 2.into())])
+        )
+        .is_err()
+    );
+    g.respond(
+        d.player,
+        d.id,
+        d.damage_to(vec![(first, 2.into()), (second, 0.into())]),
+    )
+    .unwrap();
+    let _ = until(&mut g, &Reason::Priority);
+    assert_eq!(
+        g.state.rules.objects[&CardId(1)].zone,
+        Zone::Graveyard { owner: PlayerId(0) }
+    );
+    assert_eq!(g.state.rules.objects[&CardId(2)].zone, B);
+    checked(&g);
+}
+
+#[test]
+fn unlimited_blocking_allows_joint_lethal_assignments_from_two_tramplers() {
+    let mut g = game(
+        &[PALACE_GUARD],
+        &[
+            ("Colossal Dreadmaw", 0, B),
+            ("Colossal Dreadmaw", 0, B),
+            ("Grizzly Bears", 0, B),
+            ("Palace Guard", 1, B),
+        ],
+    );
+    let d = attack(&mut g, &[0, 1, 2]);
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("block declaration must be a pick");
+    };
+    assert_eq!(slots[0].max, 3);
+    refuses(&mut g, &d, &[(3, 0), (3, 0)]);
+    // Leave the Bears unblocked so only the two chosen sources contribute
+    // to the shared blocker. Joint assignments can divide lethal 2 + 2.
+    accepts(&mut g, &d, &[(3, 0), (3, 1)]);
+    let source = Driver::object(&g, 0);
+    let d = until(
+        &mut g,
+        &Reason::CombatDamage {
+            source,
+            power: 6.into(),
+        },
+    );
+    let Shape::CombatDistribute { groups, lethal } = &d.shape else {
+        panic!("shared blockers require joint trample validation");
+    };
+    assert_eq!(groups.len(), 2);
+    assert_eq!(lethal.len(), 2);
+    checked(&g);
+    let answer = |amounts: [i64; 4]| Answer::Distribute {
+        amounts: amounts.into_iter().map(Quantity::from).collect(),
+    };
+    assert!(g.respond(d.player, d.id, answer([1, 5, 2, 4])).is_err());
+    g.respond(d.player, d.id, answer([2, 4, 2, 4])).unwrap();
+    let source = Driver::object(&g, 3);
+    let d = until(
+        &mut g,
+        &Reason::CombatDamage {
+            source,
+            power: 1.into(),
+        },
+    );
+    let targets = [Driver::object(&g, 0), Driver::object(&g, 1)];
+    g.respond(
+        d.player,
+        d.id,
+        d.damage_to(vec![(targets[0], 0.into()), (targets[1], 1.into())]),
+    )
+    .unwrap();
+    let _ = until(&mut g, &Reason::Priority);
+    assert_eq!(g.state.rules.players[1].life, 30.into());
+    checked(&g);
+}

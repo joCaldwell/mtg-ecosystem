@@ -140,6 +140,7 @@ impl Composer {
                     value: decode_number(action, &upper),
                 }
             }
+            Shape::CombatDistribute { groups, .. } => combat_allocation_to_blockers(groups),
             Shape::Distribute {
                 total,
                 buckets,

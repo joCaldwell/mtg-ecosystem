@@ -98,6 +98,7 @@ fn sample(shape: &Shape, seed: &mut u64) -> Answer {
             assert_eq!(remaining, Quantity::zero());
             Answer::Distribute { amounts }
         }
+        Shape::CombatDistribute { groups, .. } => combat_allocation_to_blockers(groups),
         Shape::Pay { cost, pool, step } => Answer::Pay {
             pay: match step {
                 PayStep::Produce { sources } => match sources.get(next(seed, sources.len() + 1)) {
