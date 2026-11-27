@@ -334,6 +334,22 @@ impl Site<'_> {
                     Some(path) => self.player(path)?,
                     None => PlayerExpr::you(self.context),
                 };
+                // CR 608.2d, 402.3: "you may put/return [cards] from your
+                // hand or graveyard" is the one choice of those cards, where
+                // choosing none declines. A separate yes/no question would
+                // tell other seats whether a hidden card matched.
+                if let Node::Do(Verb::Search { player, search }) = &*node
+                    && search.from != kir::SelectionZone::Library
+                    && !search.random
+                    && chooser == *player
+                {
+                    let mut search = search.clone();
+                    search.optional = true;
+                    return Ok(Node::Do(Verb::Search {
+                        player: player.clone(),
+                        search,
+                    }));
+                }
                 // CR 800.4a, 800.4g: a departed chooser who would search
                 // or shuffle only their own library has none left, so any
                 // reassigned choice performs nothing.

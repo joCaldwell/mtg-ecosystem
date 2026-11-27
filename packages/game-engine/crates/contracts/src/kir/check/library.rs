@@ -65,6 +65,12 @@ impl Walk<'_, '_> {
         player: &PlayerExpr,
         search: &SearchSpec,
     ) -> Result<Cell, KirError> {
+        if search.from != SelectionZone::Library {
+            return self.audit_selection(player, search);
+        }
+        if search.optional || search.random {
+            return unaudited("optional or random library search");
+        }
         let target_controller = self.library_player(player)?;
         Self::library_card_filter(&search.filter)?;
         Self::fixed_at_least(&search.maximum, 1, "search maximum")?;
@@ -116,6 +122,57 @@ impl Walk<'_, '_> {
         } else {
             Cell::SearchController
         })
+    }
+
+    /// CR 608.2c-d, 400.7: the controller chooses up to `maximum` cards of
+    /// their own hand or graveyard with printed qualities while resolving
+    /// and moves them together. A hand card goes only onto the battlefield
+    /// under its owner's control; a graveyard card onto the battlefield or
+    /// into its owner's hand. Nothing is revealed, and only a "may" or "up
+    /// to" choice may choose fewer than it can.
+    fn audit_selection(&self, player: &PlayerExpr, search: &SearchSpec) -> Result<Cell, KirError> {
+        if self.library_player(player)? || search.reveal {
+            return unaudited("resolution card choice player");
+        }
+        // CR 608.2d: a random selection takes as many as it can from a
+        // public graveyard; nobody chooses.
+        if search.random {
+            if search.from != SelectionZone::Graveyard || search.optional {
+                return unaudited("random card selection");
+            }
+            Self::library_card_filter(&search.filter)?;
+            Self::fixed_at_least(&search.maximum, 1, "random selection maximum")?;
+            return match &search.to {
+                Destination::OwnerHand => Ok(Cell::RandomGraveyardCards),
+                Destination::Battlefield { controller, .. } if controller == player => {
+                    Ok(Cell::RandomGraveyardCards)
+                }
+                _ => unaudited("random card selection destination"),
+            };
+        }
+        Self::library_card_filter(&search.filter)?;
+        Self::fixed_at_least(&search.maximum, 1, "card choice maximum")?;
+        if search
+            .maximum
+            .as_fixed()
+            .is_none_or(|max| max.to_u32().is_none_or(|max| max > 7))
+        {
+            return kind("card choice maximum exceeds its bound");
+        }
+        match (search.from, &search.to) {
+            (SelectionZone::Hand, Destination::Battlefield { controller, .. })
+                if controller == player =>
+            {
+                Ok(Cell::ChooseHandCards)
+            }
+            (SelectionZone::Graveyard, Destination::Battlefield { controller, .. })
+                if controller == player =>
+            {
+                Ok(Cell::ChooseGraveyardCards)
+            }
+            (SelectionZone::Graveyard, Destination::OwnerHand) => Ok(Cell::ChooseGraveyardCards),
+            _ => unaudited("resolution card choice destination"),
+        }
     }
 
     /// CR 701.24a: a player shuffles their own library.

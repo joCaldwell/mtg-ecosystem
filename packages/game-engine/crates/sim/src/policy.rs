@@ -867,10 +867,13 @@ impl Strategy<'_> {
                         .collect(),
                 }
             }
-            // CR 701.23a: find as many of the offered library cards as
-            // allowed, in the offered order.
+            // CR 701.23a, 608.2d: find or choose as many of the offered
+            // cards as allowed, in the offered order.
             (
-                Reason::SearchLibrary | Reason::SearchSplitBattlefield | Reason::LookChooseHand,
+                Reason::SearchLibrary
+                | Reason::SearchSplitBattlefield
+                | Reason::LookChooseHand
+                | Reason::ResolveCardChoice,
                 Shape::Pick { slots, .. },
             ) => Answer::Pick {
                 picks: slots

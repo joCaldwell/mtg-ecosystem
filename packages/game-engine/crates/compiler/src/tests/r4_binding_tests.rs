@@ -44,6 +44,7 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
                 spell: Pred::default(),
                 nth: None,
                 targets_source: false,
+                target: Pred::default(),
             }),
         ),
         (

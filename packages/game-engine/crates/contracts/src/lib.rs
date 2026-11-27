@@ -447,6 +447,8 @@ pub enum Capability {
     OwnerLibraryBottomMoveV1,
     OwnerLibraryShuffleMoveV1,
     PrivateLibrarySelectionV1,
+    /// CR 608.2c-d: choose cards of your hand or graveyard while resolving.
+    ResolutionCardChoiceV1,
     BasicLandSearchV1,
 
     CreatureAnthemV1,
@@ -1544,6 +1546,10 @@ pub struct ActivationRestriction {
     pub window: Option<ActivationWindow>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub once_each_turn: bool,
+    /// CR 602.5b: "Activate no more than [N] times each turn", N of at
+    /// least two; once is `once_each_turn`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub times_each_turn: Option<u32>,
     /// CR 602.1b, 602.5: "Activate only if"; one
     /// [`kir::ActivationCondition`] read as the activation begins.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1576,6 +1582,17 @@ pub struct ActivatedAbility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modal: Option<ModalSpell>,
 }
+impl ActivationRestriction {
+    /// CR 602.5b: how many times each turn one object may activate the
+    /// ability, when limited.
+    pub fn each_turn_limit(&self) -> Option<u32> {
+        if self.once_each_turn {
+            Some(1)
+        } else {
+            self.times_each_turn
+        }
+    }
+}
 impl ActivatedAbility {
     /// Executable versions of this ability's program: its selections when
     /// modal, otherwise the program itself.
@@ -1603,6 +1620,10 @@ pub enum TriggerCondition {
         /// the source triggers this ability at most once per turn (CR 400.7).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         once_each_turn: bool,
+        /// "[Event] during your turn": the event occurs while the ability's
+        /// controller is the active player (CR 102.1, 500.1).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        your_turn: bool,
     },
 }
 impl TriggerCondition {
@@ -1612,6 +1633,12 @@ impl TriggerCondition {
             pattern,
             intervening_if: None,
             once_each_turn: false,
+            your_turn: false,
+        }
+    }
+    pub fn your_turn(&self) -> bool {
+        match self {
+            Self::Event { your_turn, .. } => *your_turn,
         }
     }
     pub fn once_each_turn(&self) -> bool {
@@ -2180,7 +2207,10 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
     if ability.condition.intervening_if().is_some() {
         caps.push(Capability::InterveningIfV1);
     }
-    if ability.condition.once_each_turn() || pattern.nth().is_some() {
+    if ability.condition.once_each_turn()
+        || ability.condition.your_turn()
+        || pattern.nth().is_some()
+    {
         caps.push(Capability::TriggerTurnHistoryV1);
     }
     // CR 700.4: a creature you control (optionally another, nontoken or

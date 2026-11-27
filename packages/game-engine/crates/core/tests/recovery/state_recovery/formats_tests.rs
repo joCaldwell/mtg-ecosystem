@@ -20,11 +20,11 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    94,
-    "e8073ac02baaecb2a0d3f873302d418d59b50122ae61710aaf9d8b192484ddd3",
+    96,
+    "9ea7675f758c1651954551a26fd0ec432d43f55b7e9f2342d5d1915d5e28ca76",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    123,
+    125,
     "c9ef7e67e6ed915b0294c2edb8f1af018cbda8cc1505985523383bec7c7b77b1",
 );
 const WORK_PIN: (u32, &str) = (
@@ -605,6 +605,7 @@ fn activation_condition_shapes() -> Vec<Game> {
                 restriction: Some(ActivationRestriction {
                     window: None,
                     once_each_turn: false,
+                    times_each_turn: None,
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,

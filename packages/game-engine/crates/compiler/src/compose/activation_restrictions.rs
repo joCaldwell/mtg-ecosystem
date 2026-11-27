@@ -37,6 +37,30 @@ pub(super) fn lower(
             Ok((SpellTiming::Instant, None))
         };
     };
+    // CR 602.5b: "Activate no more than twice/N times each turn." alone.
+    if source.get("restriction") == Some(&json!("activation-limit")) {
+        let n = source["maximum"].as_u64().filter(|n| (2..=12).contains(n));
+        let (Some(n), true) = (
+            n,
+            source.as_object().map(Map::len) == Some(3) && source["period"] == "turn",
+        ) else {
+            return Err(reject());
+        };
+        let times = match n {
+            2 => "twice".to_owned(),
+            n => format!("{} times", number(&Quantity::from(n as i64))?),
+        };
+        if !line.ends_with(&format!("Activate no more than {times} each turn.")) {
+            return Err(reject());
+        }
+        let restriction = ActivationRestriction {
+            window: None,
+            once_each_turn: false,
+            times_each_turn: Some(n as u32),
+            condition: None,
+        };
+        return Ok((SpellTiming::Instant, Some(restriction)));
+    }
     let parts: Vec<(String, &Value)> = if source.get("restriction") == Some(&json!("all-of")) {
         let terms = source
             .get("restrictions")
@@ -57,7 +81,12 @@ pub(super) fn lower(
     for (path, term) in &parts {
         phrases.push(term_phrases(path, term, &mut terms, player)?);
     }
-    let line = line.replace('\u{2019}', "'");
+    // CR 700.2: a modal ability's restriction ends its header line.
+    let line = line
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .replace('\u{2019}', "'");
     let printed = combinations(&phrases)
         .into_iter()
         .any(|joined| line.ends_with(&format!("Activate only {joined}.")));
@@ -69,6 +98,7 @@ pub(super) fn lower(
         .then_some(ActivationRestriction {
             window: terms.window,
             once_each_turn: terms.once_each_turn,
+            times_each_turn: None,
             condition: terms.condition,
         });
     Ok((timing, restriction))
@@ -172,7 +202,7 @@ fn condition(
     };
     let (cond, phrases) = match value["condition"].as_str() {
         // "if you control a [filter]": at least one such permanent.
-        Some("control") if fields == 3 => {
+        Some("control") if fields == 3 && value["who"] == json!({"player": "you"}) => {
             activator("who")?;
             let what = &value["what"];
             if what.as_object().map(Map::len) != Some(3)
@@ -186,7 +216,7 @@ fn condition(
             (controlled(filter, Cmp::AtLeast, 1.into())?, phrases)
         }
         // "if you control N or more [filter]" / "no [filter]".
-        Some("control-count") if fields == 4 => {
+        Some("control-count") if fields == 4 && value["who"] == json!({"player": "you"}) => {
             activator("who")?;
             let (cmp, n) = control::comparison(&value["comparison"])?;
             let noun = plural(&value["of"], false)?;
@@ -199,6 +229,245 @@ fn condition(
                 _ => return Err(reject()),
             };
             (controlled(&value["of"], cmp, n)?, phrases)
+        }
+        // CR 500, 601.2i, 111.2: the activator's own facts this turn.
+        Some("player-action-history" | "cast-count" | "attacked" | "life-change")
+            if value.get("who").is_some() =>
+        {
+            activator("who")?;
+            let (fact, cmp, n, phrase) = turn_fact(value)?;
+            let cond = Cond::TurnHistory {
+                fact,
+                cmp,
+                value: n,
+            };
+            (cond, vec![phrase])
+        }
+        // CR 700.4: "if a creature died this turn" reads every player.
+        Some("zone-change-history")
+            if *value
+                == json!({
+                    "condition": "zone-change-history", "event": "dies",
+                    "subject": {"match": "filter", "filter": {"types": ["creature"]},
+                        "comparison": {"op": "ge", "value": {"amount": "fixed", "value": 1}}},
+                    "from": {"zone": "battlefield"}, "to": {"zone": "graveyard"},
+                    "during": "this-turn"
+                }) =>
+        {
+            let cond = Cond::TurnHistory {
+                fact: kir::TurnFact::CreatureDied,
+                cmp: Cmp::AtLeast,
+                value: 1.into(),
+            };
+            (cond, vec!["a creature died this turn".into()])
+        }
+        // CR 400.7: "if this land entered this turn", the source itself.
+        Some("zone-change-history")
+            if fields == 5
+                && value["event"] == "enters"
+                && value["to"] == json!({"zone": "battlefield"})
+                && value["during"] == "this-turn"
+                && value["subject"]["match"] == "object"
+                && value["subject"].as_object().map(Map::len) == Some(2)
+                && value["subject"]["what"]["ref"] == "this"
+                && value["subject"]["what"].as_object().map(Map::len) == Some(2) =>
+        {
+            let noun = match value["subject"]["what"]["noun"].as_str() {
+                Some(n @ ("land" | "creature" | "artifact" | "enchantment" | "permanent")) => n,
+                _ => return Err(reject()),
+            };
+            let cond = Cond::Measured {
+                measure: kir::Measure::SourceEnteredThisTurn {},
+                cmp: Cmp::AtLeast,
+                value: 1.into(),
+            };
+            (cond, vec![format!("this {noun} entered this turn")])
+        }
+        // CR 208.1, 107.1b: "if creatures you control have total power N or
+        // greater".
+        Some("compare")
+            if fields == 3
+                && value["value"]["amount"] == "attribute-sum"
+                && value["value"]["attribute"] == "power"
+                && value["value"].as_object().map(Map::len) == Some(3)
+                && value["value"]["among"]["ref"] == "each"
+                && value["value"]["among"].as_object().map(Map::len) == Some(2)
+                && value["value"]["among"]["filter"]["control"] == "you" =>
+        {
+            let (cmp, n) = control::comparison(&value["comparison"])?;
+            let bound = (1..=40)
+                .find(|&i| n == Quantity::from(i))
+                .ok_or_else(reject)?;
+            if cmp != Cmp::AtLeast {
+                return Err(reject());
+            }
+            let mut filter = value["value"]["among"]["filter"].clone();
+            filter.as_object_mut().ok_or_else(reject)?.remove("control");
+            let noun = plural(&filter, false)?;
+            let Cond::Compare {
+                left:
+                    kir::Amount::Count {
+                        set: kir::SetExpr::Matching { filter: pred, .. },
+                    },
+                ..
+            } = controlled(&filter, Cmp::AtLeast, n.clone())?
+            else {
+                return Err(reject());
+            };
+            let cond = Cond::Measured {
+                measure: kir::Measure::TotalPower { filter: pred },
+                cmp: Cmp::AtLeast,
+                value: n,
+            };
+            let phrase = format!("{noun} you control have total power {bound} or greater");
+            (cond, vec![phrase])
+        }
+        // CR 102.2-102.3: "if an opponent controls more lands than you".
+        Some("control-count")
+            if fields == 4
+                && value["who"] == json!({"player": "an-opponent"})
+                && value["comparison"]["op"] == "gt"
+                && value["comparison"]["value"]["amount"] == "count" =>
+        {
+            let kind = match &value["of"] {
+                of if *of == json!({"types": ["land"]}) => (CardKind::Land, "lands"),
+                of if *of == json!({"types": ["creature"]}) => (CardKind::Creature, "creatures"),
+                _ => return Err(reject()),
+            };
+            let mut mine = value["of"].clone();
+            mine["control"] = json!("you");
+            if value["comparison"] != json!({"op": "gt", "value": {"amount": "count", "of": mine}})
+            {
+                return Err(reject());
+            }
+            let phrase = format!("an opponent controls more {} than you", kind.1);
+            (Cond::OpponentControlsMore { kind: kind.0 }, vec![phrase])
+        }
+        // CR 102.2-102.3, 109.5: "if an opponent controls N or more
+        // [filter]", one opponent's permanents.
+        Some("control-count")
+            if fields == 4 && value["who"] == json!({"player": "an-opponent"}) =>
+        {
+            let (cmp, n) = control::comparison(&value["comparison"])?;
+            let noun = plural(&value["of"], false)?;
+            let word = number(&n)?;
+            if cmp != Cmp::AtLeast || n < 2.into() {
+                return Err(reject());
+            }
+            let phrases = vec![
+                format!("an opponent controls {word} or more {noun}"),
+                format!("an opponent controls at least {word} {noun}"),
+            ];
+            (opponent_controls(&value["of"], n)?, phrases)
+        }
+        // "if an opponent controls a [filter]".
+        Some("control") if fields == 3 && value["who"] == json!({"player": "an-opponent"}) => {
+            let what = &value["what"];
+            if what.as_object().map(Map::len) != Some(3)
+                || what["ref"] != "filter"
+                || what["count"] != json!({"amount": "fixed", "value": 1})
+            {
+                return Err(reject());
+            }
+            let filter = &what["filter"];
+            let phrases = vec![format!("an opponent controls {}", singular(filter, false)?)];
+            (opponent_controls(filter, 1.into())?, phrases)
+        }
+        // CR 201.2: "if you control N or more [filter] with the same name".
+        Some("controls-subset") if fields == 5 => {
+            activator("who")?;
+            if value["groupConstraints"]
+                != json!([{"constraint": "shared-value", "characteristic": "name"}])
+            {
+                return Err(reject());
+            }
+            let minimum = &value["minimum"];
+            let n = (minimum.as_object().map(Map::len) == Some(2) && minimum["amount"] == "fixed")
+                .then(|| minimum["value"].as_i64())
+                .flatten()
+                .filter(|n| *n >= 2)
+                .map(Quantity::from)
+                .ok_or_else(reject)?;
+            let noun = plural(&value["of"], false)?;
+            let phrase = format!(
+                "you control {} or more {noun} with the same name",
+                number(&n)?
+            );
+            let Cond::Compare {
+                left:
+                    kir::Amount::Count {
+                        set: kir::SetExpr::Matching { filter, .. },
+                    },
+                ..
+            } = controlled(&value["of"], Cmp::AtLeast, n.clone())?
+            else {
+                return Err(reject());
+            };
+            let cond = Cond::Measured {
+                measure: kir::Measure::SharedName { filter },
+                cmp: Cmp::AtLeast,
+                value: n,
+            };
+            (cond, vec![phrase])
+        }
+        // CR 205.2a: "if there are N or more card types among cards in your
+        // graveyard".
+        Some("compare")
+            if fields == 3
+                && value["value"]
+                    == json!({
+                        "amount": "distinct-count", "characteristic": "card-type",
+                        "among": {"ref": "each", "filter": {
+                            "cls": "card", "zone": {"zone": "graveyard", "owner": "your"}
+                        }}
+                    }) =>
+        {
+            let (cmp, n) = control::comparison(&value["comparison"])?;
+            if cmp != Cmp::AtLeast || n < 1.into() {
+                return Err(reject());
+            }
+            let phrase = format!(
+                "there are {} or more card types among cards in your graveyard",
+                number(&n)?
+            );
+            let cond = Cond::Compare {
+                left: kir::Amount::Distinct {
+                    set: kir::SetExpr::Matching {
+                        zone: kir::ZoneExpr::Graveyard { of: you() },
+                        filter: kir::Pred::default(),
+                    },
+                    characteristic: kir::DistinctCharacteristic::CardType,
+                },
+                cmp,
+                right: kir::Amount::fixed(n),
+            };
+            (cond, vec![phrase])
+        }
+        // CR 103.4: "if you have at least N life more than your starting
+        // life total".
+        Some("life-total") if fields == 3 => {
+            activator("who")?;
+            let comparison = &value["comparison"];
+            let b = &comparison["value"]["b"];
+            if comparison.as_object().map(Map::len) != Some(2)
+                || comparison["op"] != "ge"
+                || comparison["value"].as_object().map(Map::len) != Some(3)
+                || comparison["value"]["amount"] != "plus"
+                || comparison["value"]["a"]
+                    != json!({"amount": "starting-life-total", "of": {"player": "you"}})
+                || b.as_object().map(Map::len) != Some(2)
+                || b["amount"] != "fixed"
+            {
+                return Err(reject());
+            }
+            let n = b["value"].as_i64().filter(|n| *n >= 1).ok_or_else(reject)?;
+            let cond = Cond::Measured {
+                measure: kir::Measure::LifeAboveStarting {},
+                cmp: Cmp::AtLeast,
+                value: n.into(),
+            };
+            let phrase = format!("you have at least {n} life more than your starting life total");
+            (cond, vec![phrase])
         }
         // "if there are N or more [type] cards in your graveyard".
         Some("count") if fields == 3 => {
@@ -265,10 +534,12 @@ fn condition(
         Some("compare") if fields == 3 => {
             let measured = &value["value"];
             let stat = measured["attribute"].as_str();
-            if measured.as_object().map(Map::len) != Some(3)
-                || measured["amount"] != "attribute"
-                || measured["of"] != json!({"noun": "creature", "ref": "this"})
+            if measured["of"] != json!({"noun": "creature", "ref": "this"})
+                && measured["of"] != json!({"ref": "self"})
             {
+                return Err(reject());
+            }
+            if measured.as_object().map(Map::len) != Some(3) || measured["amount"] != "attribute" {
                 return Err(reject());
             }
             let (cmp, n) = control::comparison(&value["comparison"])?;
@@ -284,8 +555,11 @@ fn condition(
                 Some("toughness") => (Atom::Toughness { cmp, value }, "toughness"),
                 _ => return Err(reject()),
             };
-            let phrase = format!("this creature's {stat} is {bound} or greater");
-            (source(kir::Pred(vec![atom])), vec![phrase])
+            // "~" is the source's own printed name (CR 201.4b).
+            let phrases = ["this creature", "~"]
+                .map(|subject| format!("{subject}'s {stat} is {bound} or greater"))
+                .to_vec();
+            (source(kir::Pred(vec![atom])), phrases)
         }
         // "if this creature is attacking or blocking": one fact of the source.
         Some("any-of")
@@ -328,11 +602,12 @@ fn condition(
             let joined = phrases.iter().fold(vec![String::new()], |done, options| {
                 done.iter()
                     .flat_map(|head| {
-                        options.iter().map(move |o| {
+                        // "A or B" and "A or if B".
+                        options.iter().flat_map(move |o| {
                             if head.is_empty() {
-                                o.clone()
+                                vec![o.clone()]
                             } else {
-                                format!("{head} or {o}")
+                                vec![format!("{head} or {o}"), format!("{head} or if {o}")]
                             }
                         })
                     })
@@ -347,6 +622,95 @@ fn condition(
     };
     kir::ActivationCondition::of(&cond).map_err(|_| reject())?;
     Ok((cond, phrases))
+}
+
+/// CR 500, 601.2i, 111.2, 119.9: one admitted turn fact of the activator,
+/// its comparison and its printed phrase. Any other qualifier rejects.
+fn turn_fact(value: &Value) -> Result<(kir::TurnFact, Cmp, Quantity, String), Failure> {
+    use kir::TurnFact::*;
+    let you = json!({"player": "you"});
+    let comparison = &value["comparison"];
+    let with = |what: Value| {
+        json!({
+            "condition": value["condition"], "who": you, "what": what,
+            "comparison": comparison, "during": "this-turn"
+        })
+    };
+    if *value == json!({"condition": "attacked", "who": you, "during": "this-turn"}) {
+        return Ok((
+            Attacked,
+            Cmp::AtLeast,
+            1.into(),
+            "you attacked this turn".into(),
+        ));
+    }
+    let (cmp, n) = control::comparison(comparison).map_err(|_| reject())?;
+    let at_least_one = cmp == Cmp::AtLeast && n == 1.into();
+    if *value
+        == json!({
+            "condition": "player-action-history", "who": you,
+            "action": {"action": "create-token", "what": {"cls": "token"}},
+            "comparison": comparison, "during": "this-turn"
+        })
+        && at_least_one
+    {
+        return Ok((
+            TokensCreated,
+            cmp,
+            n,
+            "you created a token this turn".into(),
+        ));
+    }
+    if *value
+        == json!({
+            "condition": "life-change", "who": you, "change": "gained",
+            "comparison": comparison, "during": "this-turn"
+        })
+        && at_least_one
+    {
+        return Ok((LifeGained, cmp, n, "you gained life this turn".into()));
+    }
+    let spells = [
+        (json!({"cls": "spell"}), SpellsCast, "", "spells"),
+        (
+            json!({"cls": "spell", "nonTypes": ["creature"]}),
+            NoncreatureSpellsCast,
+            "a noncreature",
+            "noncreature spells",
+        ),
+        (
+            json!({"cls": "spell", "allOf": [{"anyOf": [{"types": ["instant"]}, {"types": ["sorcery"]}]}]}),
+            InstantOrSorcerySpellsCast,
+            "an instant or sorcery",
+            "instant and/or sorcery spells",
+        ),
+    ];
+    for (what, fact, one, many) in spells {
+        if *value != with(what) || cmp != Cmp::AtLeast {
+            continue;
+        }
+        let phrase = match number(&n)? {
+            "one" if !one.is_empty() => format!("you've cast {one} spell this turn"),
+            "one" | "zero" => return Err(reject()),
+            word => format!("you've cast {word} or more {many} this turn"),
+        };
+        return Ok((fact, cmp, n, phrase));
+    }
+    Err(reject())
+}
+
+/// "an opponent controls ... [filter]": the filter names no controller.
+fn opponent_controls(filter: &Value, n: Quantity) -> Result<Cond, Failure> {
+    if filter.get("control").is_some() || filter.get("zone").is_some() {
+        return Err(reject());
+    }
+    Ok(Cond::Measured {
+        measure: kir::Measure::OpponentControls {
+            filter: predicate(filter)?,
+        },
+        cmp: Cmp::AtLeast,
+        value: n,
+    })
 }
 
 fn source(filter: kir::Pred) -> Cond {
@@ -567,7 +931,13 @@ fn plural(filter: &Value, card: bool) -> Result<String, Failure> {
         "permanent",
         "card",
     ];
-    if !REGULAR.contains(&head.as_str()) {
+    // A subtype head pluralizes regularly ("Vampires"); the printed
+    // sentence check rejects any irregular plural.
+    let subtype = filter.get("subtypes").is_some_and(|s| {
+        s.as_array()
+            .is_some_and(|a| a.len() == 1 && a[0] == head.as_str())
+    });
+    if !REGULAR.contains(&head.as_str()) && !subtype {
         return Err(reject());
     }
     let words: Vec<_> = lead.iter().map(String::as_str).collect();

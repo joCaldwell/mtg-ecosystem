@@ -269,6 +269,12 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
             "../../../../../tests/fixtures/phase1-r5/9167998d-5cac-47d7-99f2-f38122f7b8e7.json"
         ),
     );
+    add(
+        &mut catalog,
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/9ae669dd-7e60-4649-b96e-35da28be641a.json"
+        ),
+    );
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -284,6 +290,7 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
         ("Vampire Nighthawk", 1),
         ("Grizzly Bears", 1),
         ("Grizzly Bears", 3),
+        ("Korvold, Fae-Cursed King", 1),
     ] {
         board = board.permanent_or_hand(name, player, player, false);
     }
@@ -299,7 +306,7 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
     let b = Driver::request(&mut game, u64::MAX);
     assert_eq!(b.player, PlayerId(1));
     assert_eq!(b.required_count(), 2);
-    let offers = [6, 7, 8].map(|card| Driver::object(&game, card));
+    let offers = [6, 7, 8, 10].map(|card| Driver::object(&game, card));
     assert_eq!(b.objects_offered(), offers);
     Driver::answer(&mut game, u64::MAX, b.pick_objects(offers[..2].to_vec()));
     let c = Driver::request(&mut game, u64::MAX);
@@ -320,13 +327,34 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
         assert_eq!(restored.current(object).unwrap().zone, Zone::Battlefield);
     }
     Driver::answer(&mut restored, u64::MAX, c.pick_object(last));
-    // CR 603.10a: the Highborn looks back and sees itself and the other dying Vampire.
+    // CR 603.10a: the Highborn sees both deaths, and Korvold sees both sacrifices.
     let triggers = Driver::request(&mut restored, u64::MAX);
     assert_eq!(
         (triggers.player, &triggers.reason),
         (PlayerId(1), &Reason::OrderTriggers)
     );
-    assert_eq!(triggers.required_count(), 2);
+    assert_eq!(triggers.required_count(), 4);
+    let mut witnessed = restored
+        .state
+        .rules
+        .pending_triggers
+        .iter()
+        .map(|trigger| match &trigger.witness {
+            TriggerEventWitness::Moved { movement } => (trigger.source.card, movement.previous),
+            TriggerEventWitness::Sacrificed { object, .. } => (trigger.source.card, object.object),
+            other => panic!("unexpected sacrifice-batch trigger {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    witnessed.sort();
+    assert_eq!(
+        witnessed,
+        vec![
+            (CardId(6), offers[0]),
+            (CardId(6), offers[1]),
+            (CardId(10), offers[0]),
+            (CardId(10), offers[1]),
+        ]
+    );
     for (player, object) in previous.into_iter().chain([(PlayerId(3), last)]) {
         let current = Driver::object(&restored, object.card.0);
         assert_eq!(

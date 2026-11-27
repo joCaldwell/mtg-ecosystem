@@ -128,6 +128,17 @@ found cards to the searcher and shows revealed identities to everyone without
 library handles or positions (CR 608.2c–f, 701.20a, 701.23b–e). Other search
 partitions and ordering several cards after shuffling remain unsupported.
 
+**Hand and graveyard choices** are untargeted (CR 115.10, 608.2c–d): the
+controller chooses up to a fixed number of cards with printed qualities from
+their own hand (onto the battlefield, optionally tapped) or graveyard (onto the
+battlefield or into hand), sharing search's entry questions and commander
+returns; a chosen Aura enchants a chosen host or stays put (CR 303.4f–g). "May" or "up to" allows none and is that one choice, never a separate
+yes/no; otherwise as many as possible are chosen. A hand choice is private and
+is asked whenever the hand could hide a match, even with none (CR 402.3). "At
+random" from the graveyard draws from the seat's seeded stream at top level
+only. Random hand moves, counts of X or "any number", computed qualities and
+other players' zones reject.
+
 **Library placement and shuffle** can put a single announced permanent on the
 bottom of its owner's library, retain the existing single-creature top
 placement, or shuffle a single announced permanent into its owner's library.
@@ -405,15 +416,16 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 | `AttacksUnblocked` | an attacker left unblocked at its defender's declaration (CR 509.3g, 802.4) |
 | `Draws` | one successful draw and its player (CR 121.2, 603.2g) |
 | `BecomesTarget` | the targeted permanent and announcing spell or ability, captured at choice and committed after costs. Trigger-generated matches wait for the next APNAP wave (CR 601.2c/i, 602.2b, 603.3d, 733.1) |
-| `Cast` | the spell's frozen stack characteristics, with the caster in a player set and type or subtype predicates (CR 601.2i); `targets_source` requires the source among its targets as it became cast (heroic, CR 601.2c) |
+| `Cast` | the spell's frozen stack characteristics, with the caster in a player set and type or subtype predicates (CR 601.2i); `targets_source` requires the source among its targets as it became cast (heroic, CR 601.2c), and `target` some targeted permanent matching a predicate, frozen for recovery (Repartee) |
 | `DealsDamage` | the source's battlefield appearance as positive damage is dealt to a player (CR 120.3, 510.2) |
 | `StepBegins` | upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503-513) |
 | `BecomesTapped` | only the source itself (CR 701.26a) |
 | `TurnedFaceUp` | only the source itself, as it is turned face up (CR 702.37e, 708.8) |
-| `GainsLife`, `Discards` | the gaining or discarding player; each source's positive gain is one event (CR 119.9, 701.9a) |
+| `GainsLife`, `Discards` | the gaining or discarding player; each source's positive gain is one event (CR 119.9, 701.9a). `Discards` reads the card where it was put (CR 603.10); `cycled` requires a discard paying its own cycling or typecycling cost, and "cycles or discards" is one discard (CR 702.29a, d, f) |
 | `Sacrifices` | the sacrificing player and the permanent on the battlefield just before the move (CR 701.21a, 603.10a) |
-| `LeavesBattlefield` | a move off the battlefield or a phased-in permanent leaving the game with its owner, read as for `Dies` (CR 603.6c, 603.10a) |
+| `LeavesBattlefield` | a move off the battlefield or a phased-in permanent leaving the game with its owner, read as for `Dies` (CR 603.6c, 603.10a); `without_dying` excludes a move to a graveyard (CR 700.4) |
 | `Blocks`, `BecomesBlocked` | each declared blocker once, and each attacker unblocked until that declaration, before it (CR 509.3a, 509.3c) |
+| `BlocksCreature`, `BlockedByCreature` | each declared blocking pair once from each side, both creatures as declared; an Aura or Equipment host can be the attacker (CR 509.3b, 509.3d, 509.3f) |
 | `IsDealtDamage` | a creature dealt positive damage, once per simultaneous damage event (CR 120.3, 603.2c) |
 
 Intervening comparisons can read this turn’s declared attacks, creature deaths
@@ -424,7 +436,8 @@ its start, including the event that caused the trigger (CR 603.4, 603.10a).
 
 A per-turn player ledger (spells as frozen stack facts, draws, life-gain
 events) counts from the turn's start, whether or not the source was present,
-and resets with the turn. A `TurnOrdinal` on cast, draw or life gain triggers
+and resets with the turn. A `TurnOrdinal` on cast, draw, life gain or an
+unfiltered cycle (the ledger counts cycles) triggers
 only on the Nth matching event of the event player, or of every player for
 "the Nth spell of a turn"; a filtered ordinal counts only spells that matched
 as cast. "This ability triggers only once each turn" records a use per source
@@ -434,9 +447,14 @@ limit lowers as the per-object form when nothing reads the event. Witnesses
 carry the matched count; other ordinals, periods and limits reject as
 `trigger:occurrence:*` or `trigger:limit:*` (`TriggerTurnHistoryV1`).
 
-Same-kind alternatives use one predicate. Mixed entry/death, entry/attack,
-entry/cast and block/becomes-blocked pairs use one ability index without common event operands
-(CR 603.2c). Recovery rejects duplicate occurrence members and repeated
+Same-kind alternatives (including one player's sacrifices) use one predicate.
+Mixed entry/death, entry/attack, entry/departure, entry/cast, entry/life-gain,
+attack/block, block/becomes-blocked and blocking-pair pairs use one ability
+index without common event operands (CR 603.2c). "When you discard (or cycle)
+this card" triggers from the graveyard the card was put into, under its owner's
+control (CR 702.29c); it is the only non-battlefield observer and no supported
+replacement diverts a discard. "During your turn" requires the controller to be
+active when the event occurs (CR 500.1); recovery rechecks it. Recovery rejects duplicate occurrence members and repeated
 entry or death of one incarnation. Event filters read frozen facts. Cast and
 attack filters omit tapped status (CR 508.1f). Host exclusions reject. A bound
 entrant or attacker can take fixed counters or deal directed damage. Entrant

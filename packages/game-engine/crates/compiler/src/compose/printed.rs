@@ -11,7 +11,7 @@
 //!   choose the same mode more than once" and "you may choose both instead"
 //!   of a modal step (CR 700.2d); "any player may activate" (CR 602.2).
 //! * "if": a sentence condition of kind `if`, an intervening-if (CR 603.4)
-//!   or restriction (CR 602.5b) condition, a conditional mode count, the
+//!   or restriction (CR 602.5b) condition ("if A or if B" is one), a conditional mode count, the
 //!   conditional replacement of a countered spell (CR 701.6), a created
 //!   replacement (CR 614.1) and an "if able" requirement (CR 508.1d,
 //!   509.1c), a static replacement (CR 614.1a) and a per-event static
@@ -105,7 +105,10 @@ fn printed(text: &str, statics: bool) -> Counts {
         .sum::<usize>();
     Counts {
         may: words("may"),
-        condition: (words("if") + static_conditions).saturating_sub(would),
+        // "if A or if B" is one disjunctive condition (CR 602.5b).
+        condition: (words("if") + static_conditions)
+            .saturating_sub(would)
+            .saturating_sub(phrases(&["or", "if"])),
         would,
         unless: words("unless"),
         limit: phrases(&["up", "to"]),

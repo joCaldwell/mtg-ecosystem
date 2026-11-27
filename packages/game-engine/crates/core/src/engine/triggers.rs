@@ -121,8 +121,54 @@ pub struct TurnCastHistory {
     /// CR 119.9: life-gain events of this player this turn.
     #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub life_gains: u32,
+    /// CR 111.2: tokens this player created this turn.
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
+    pub tokens_created: u32,
+    /// CR 702.29a: cards this player cycled this turn.
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
+    pub cycles: u32,
 }
 impl TurnCastHistory {
+    /// CR 500, 601.2i: the exact measurement of `fact` for `player`; the
+    /// one reading shared by intervening "if" clauses and activation
+    /// conditions. "A creature died" reads every seat.
+    pub(super) fn measure(
+        history: &[TurnCastHistory; 4],
+        player: PlayerId,
+        fact: mtg_contracts::kir::TurnFact,
+    ) -> Result<Quantity, String> {
+        use mtg_contracts::kir::TurnFact::*;
+        let row = history
+            .get(player.0 as usize)
+            .ok_or("invalid turn history seat")?;
+        let quantity = |n: u32| Quantity::from(i64::from(n));
+        let spells = |keep: &dyn Fn(&Characteristics) -> bool| {
+            u32::try_from(
+                row.spells
+                    .iter()
+                    .filter(|spell| keep(&spell.characteristics))
+                    .count(),
+            )
+            .map(quantity)
+            .map_err(|_| "turn history count limit".to_string())
+        };
+        Ok(match fact {
+            Attacked => quantity(u32::from(row.attacked)),
+            CreatureDied => quantity(u32::from(history.iter().any(|seat| seat.creature_died))),
+            CreatureDiedUnderYourControl => quantity(u32::from(row.creature_died)),
+            PermanentLeftUnderYourControl => quantity(u32::from(row.permanent_left)),
+            SpellsCast => spells(&|_| true)?,
+            NoncreatureSpellsCast => spells(&|c| !c.has_type(CardKind::Creature))?,
+            // CR 304.1, 307.1: a spell with either card type counts once.
+            InstantOrSorcerySpellsCast => {
+                spells(&|c| c.has_type(CardKind::Instant) || c.has_type(CardKind::Sorcery))?
+            }
+            SpellsCastFromHand => quantity(row.hand_casts),
+            CardsDrawn => quantity(row.draws),
+            LifeGained => row.life_gained.clone(),
+            TokensCreated => quantity(row.tokens_created),
+        })
+    }
     fn quantity_is_zero(value: &Quantity) -> bool {
         *value == Quantity::zero()
     }
@@ -167,6 +213,10 @@ testkit_fields! {
         /// CR 601.2c: the permanents the spell targets as it becomes cast.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub targets: Vec<ObjectId>,
+        /// Those permanents' facts as the spell became cast, recorded only
+        /// for an observer whose pattern reads them.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub(crate) target_facts: Vec<ObjectBefore>,
     }
 }
 /// The event subject's resolving binding (CR 400.7, 608.2h).
@@ -241,6 +291,17 @@ pub enum TriggerEventWitness {
         player: PlayerId,
         movement: MoveOutcome,
         controller_at_match: PlayerId,
+        /// CR 702.29a, 702.29f: discarded to pay its own cycling or
+        /// typecycling cost.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cycled: bool,
+        /// CR 603.10: the discarded card where it was put, retained only
+        /// when the pattern read its characteristics.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        card: Option<Box<ObjectBefore>>,
+        /// The cycle's count this turn, recorded for a turn-ordinal observer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<u32>,
     },
     /// CR 509.3a: a declared blocker, as it was before the declaration.
     Blocked {
@@ -250,6 +311,19 @@ pub enum TriggerEventWitness {
     /// CR 509.3c: an attacker that became blocked, as it was before.
     BecameBlocked {
         attacker: Box<ObjectBefore>,
+        controller_at_match: PlayerId,
+    },
+    /// CR 509.3b, 509.3f: one declared blocking pair, both as they were
+    /// before the declaration, observed from the blocker's side.
+    BlockedCreature {
+        blocker: Box<ObjectBefore>,
+        attacker: Box<ObjectBefore>,
+        controller_at_match: PlayerId,
+    },
+    /// CR 509.3d, 509.3f: the same pair observed from the attacker's side.
+    BlockedByCreature {
+        attacker: Box<ObjectBefore>,
+        blocker: Box<ObjectBefore>,
         controller_at_match: PlayerId,
     },
     /// CR 120.3, 603.2c: a permanent dealt positive damage by one
@@ -339,8 +413,12 @@ impl TriggerEventWitness {
             }
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::Sacrificed { object, .. } => Some(object.object),
+            // CR 509.3b, 509.3d: a pair's subject is the other creature,
+            // so each pair is a distinct occurrence member for the source.
             Self::Blocked { blocker: o, .. }
             | Self::BecameBlocked { attacker: o, .. }
+            | Self::BlockedCreature { attacker: o, .. }
+            | Self::BlockedByCreature { blocker: o, .. }
             | Self::PermanentDamaged { recipient: o, .. } => Some(o.object),
             Self::Discarded { movement, .. } => Some(movement.previous),
             Self::LifeGained { .. }
@@ -390,10 +468,26 @@ impl TriggerEventWitness {
         }
         match (&**second, self) {
             (EventPattern::Dies { .. }, witness) if witness.dies() => Some(second),
+            (EventPattern::LeavesBattlefield { .. }, witness) if witness.leaves() => Some(second),
             (EventPattern::Attacks { .. }, Self::CreatureAttacked { .. })
             | (EventPattern::Cast { .. }, Self::SpellCast { .. })
-            | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. }) => Some(second),
+            | (EventPattern::Blocks { .. }, Self::Blocked { .. })
+            | (EventPattern::GainsLife { .. }, Self::LifeGained { .. })
+            | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. })
+            | (EventPattern::BlockedByCreature { .. }, Self::BlockedByCreature { .. }) => {
+                Some(second)
+            }
+            (_, Self::BlockedCreature { .. })
+                if matches!(**first, EventPattern::BlocksCreature { .. }) =>
+            {
+                Some(first)
+            }
             (_, Self::Blocked { .. }) if matches!(**first, EventPattern::Blocks { .. }) => {
+                Some(first)
+            }
+            (_, Self::CreatureAttacked { .. })
+                if matches!(**first, EventPattern::Attacks { .. }) =>
+            {
                 Some(first)
             }
             _ => None,
@@ -721,6 +815,34 @@ impl RulesTxn {
                 row.creature_died |=
                     to_graveyard && prior.characteristics.has_type(CardKind::Creature);
             }
+            // CR 111.2: the creating player, once per token.
+            let created = match &occurrence.actual {
+                EventOutcome::TokenCopied { controller, .. } => Some((*controller, 1)),
+                EventOutcome::TokensCreated {
+                    objects,
+                    controller,
+                    ..
+                }
+                | EventOutcome::EncoreTokensCreated {
+                    objects,
+                    controller,
+                    ..
+                }
+                | EventOutcome::PredefinedTokensCreated {
+                    objects,
+                    controller,
+                    ..
+                } => Some((*controller, objects.len())),
+                _ => None,
+            };
+            if let Some((player, n)) = created {
+                let n = u32::try_from(n).map_err(|_| "token history count limit")?;
+                let row = &mut self.rules_mut().cast_history[player.0 as usize];
+                row.tokens_created = row
+                    .tokens_created
+                    .checked_add(n)
+                    .ok_or("token history count limit")?;
+            }
             match &occurrence.actual {
                 EventOutcome::LifeGained { player, amount, .. } => {
                     self.rules_mut().cast_history[player.0 as usize]
@@ -977,6 +1099,21 @@ impl RulesTxn {
             if let EventOutcome::BlockersDeclared { blocks, .. } = &occurrence.actual {
                 let (mut blockers, mut attackers) = (BTreeSet::new(), BTreeSet::new());
                 for (blocker, attacker) in blocks {
+                    // CR 509.3b, 509.3d: every pair, from each side.
+                    let (b, a) = (
+                        Box::new(before.object_before(*blocker)?),
+                        Box::new(before.object_before(*attacker)?),
+                    );
+                    witnesses.push(TriggerEventWitness::BlockedCreature {
+                        controller_at_match: b.controller,
+                        blocker: b.clone(),
+                        attacker: a.clone(),
+                    });
+                    witnesses.push(TriggerEventWitness::BlockedByCreature {
+                        controller_at_match: a.controller,
+                        attacker: a,
+                        blocker: b,
+                    });
                     if blockers.insert(*blocker) {
                         let facts = before.object_before(*blocker)?;
                         witnesses.push(TriggerEventWitness::Blocked {
@@ -1066,10 +1203,25 @@ impl RulesTxn {
                     });
                 }
                 EventOutcome::CardDiscarded { player, movement } => {
+                    // CR 702.29a, 702.29c, 702.29f: the card was discarded to
+                    // pay its own cycling or typecycling cost.
+                    let cycled = match cause {
+                        BatchCause::AbilityActivation {
+                            source, ability, ..
+                        } if *source == movement.previous => before
+                            .copiable_definition(*source)?
+                            .activated
+                            .get(*ability as usize)
+                            .is_some_and(mtg_contracts::hand_discard_activation),
+                        _ => false,
+                    };
                     witnesses.push(TriggerEventWitness::Discarded {
                         player: *player,
                         movement: movement.clone(),
                         controller_at_match: *player,
+                        cycled,
+                        card: None,
+                        nth: None,
                     });
                 }
                 _ => {}
@@ -1091,6 +1243,8 @@ impl RulesTxn {
                             | TriggerEventWitness::Discarded { .. }
                             | TriggerEventWitness::Sacrificed { .. }
                             | TriggerEventWitness::Blocked { .. }
+                            | TriggerEventWitness::BlockedCreature { .. }
+                            | TriggerEventWitness::BlockedByCreature { .. }
                             | TriggerEventWitness::BecameBlocked { .. }
                             | TriggerEventWitness::PermanentDamaged { .. }
                     )
@@ -1109,6 +1263,13 @@ impl RulesTxn {
     // CR 601.2i/603.2g/603.3: only the complete successful casting path calls
     // this, after every cost and the real SpellCast event, before priority/SBAs.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    /// CR 115.9b, 601.2c: the cast spell's announced targets that are
+    /// permanents still on the battlefield, in announcement order.
+    fn present_targets<'a>(&'a self, cast: &'a CastOccurrence) -> impl Iterator<Item = &'a Object> {
+        cast.targets
+            .iter()
+            .filter_map(|t| self.current(*t).ok().filter(|o| o.present_on_battlefield()))
+    }
     pub(crate) fn collect_cast_triggers(&mut self, entry: &StackInstance) -> Result<(), String> {
         let completed = self.top()?;
         if completed.id != entry.id || !completed.kind.is_spell() || completed.paid.is_none() {
@@ -1135,6 +1296,7 @@ impl RulesTxn {
                 spell: self.object_before(entry.source)?,
                 nth: None,
                 targets: Self::targeted_permanents(entry).into_iter().collect(),
+                target_facts: vec![],
             }),
         };
         self.collect_trigger_witness(
@@ -1209,6 +1371,23 @@ impl RulesTxn {
             };
             *count = count.checked_add(1).ok_or("turn history count limit")?;
         }
+        // CR 702.29a: count the turn's cycles.
+        if let TriggerEventWitness::Discarded {
+            player,
+            cycled: true,
+            ..
+        } = &witness
+        {
+            let row = self
+                .rules_mut()
+                .cast_history
+                .get_mut(player.0 as usize)
+                .ok_or("invalid turn history seat")?;
+            row.cycles = row
+                .cycles
+                .checked_add(1)
+                .ok_or("turn history count limit")?;
+        }
         let dies = witness.dies();
         let enters = witness.enters();
 
@@ -1249,12 +1428,22 @@ impl RulesTxn {
         let mut matched = vec![];
         // Filled once per actual entry, only for observers that need its characteristics.
         let mut entry_facts = None;
+        // CR 702.29c: the discarded card observes its own discard from the
+        // graveyard it was put into.
+        let discarded = match &witness {
+            TriggerEventWitness::Discarded { movement, .. }
+                if matches!(movement.destination, Zone::Graveyard { .. }) =>
+            {
+                Some(movement.successor)
+            }
+            _ => None,
+        };
         for object in observers
             .state
             .rules
             .objects
             .values()
-            .filter(|o| o.present_on_battlefield())
+            .filter(|o| o.present_on_battlefield() || Some(o.id) == discarded)
             .filter(|o| {
                 !matches!(&witness, TriggerEventWitness::Tapped { object, .. }
                 | TriggerEventWitness::TurnedFaceUp { object, .. } if o.id != *object)
@@ -1340,11 +1529,18 @@ impl RulesTxn {
                         caster,
                         spell,
                         targets_source,
+                        target,
                         ..
                     } => {
                         matches!(&witness, TriggerEventWitness::SpellCast { cast }
                             if player_in(caster, Some(cast.caster), you)
                                 && (!*targets_source || cast.targets.contains(&object.id))
+                                // CR 601.2c, 115.9b: a targeted permanent as
+                                // cast; a card in another zone, or a target
+                                // that left while costs were paid, is none.
+                                && (target.is_empty() || observers.present_targets(cast).any(|o| {
+                                    holds(target, Some(&observers.object_facts(o)), you, o.id, &identity)
+                                }))
                                 && holds(spell, Some(&Frozen {
                                     facts: &cast.spell,
                                     token: false,
@@ -1403,9 +1599,27 @@ impl RulesTxn {
                         matches!(&witness, TriggerEventWitness::LifeGained { player: gaining, .. }
                             if player_in(player, Some(*gaining), you))
                     }
-                    EventPattern::Discards { player } => {
-                        matches!(&witness, TriggerEventWitness::Discarded { player: discarding, .. }
-                            if player_in(player, Some(*discarding), you))
+                    // CR 603.10, 702.29d: the discarded card as it is now;
+                    // a cycle is a discard.
+                    EventPattern::Discards {
+                        player,
+                        card,
+                        cycled,
+                        ..
+                    } => {
+                        matches!(&witness, TriggerEventWitness::Discarded {
+                            player: discarding, movement, cycled: was_cycled, ..
+                        }
+                        if player_in(player, Some(*discarding), you)
+                            && (!*cycled || *was_cycled)
+                            && if card.reads_characteristics() {
+                                observers.current(movement.successor).is_ok_and(|c| {
+                                    holds(card, Some(&observers.object_facts(c)), you,
+                                        movement.successor, &identity)
+                                })
+                            } else {
+                                identity_holds(card, movement.successor, &identity)
+                            })
                     }
                     // CR 603.10a: the sacrificed permanent as it last
                     // existed on the battlefield.
@@ -1422,8 +1636,12 @@ impl RulesTxn {
                                     live: observers.is_live(sacrificed.controller),
                                 }), you, sacrificed.object, &identity))
                     }
-                    EventPattern::LeavesBattlefield { object: pred } => {
+                    EventPattern::LeavesBattlefield {
+                        object: pred,
+                        without_dying,
+                    } => {
                         witness.leaves()
+                            && !(*without_dying && witness.dies())
                             && dying.is_some_and(|leaving| {
                                 holds(
                                     pred,
@@ -1441,6 +1659,40 @@ impl RulesTxn {
                                 token: token(facts.object),
                                 live: observers.is_live(facts.controller),
                             }), you, facts.object, &identity))
+                    }
+                    // CR 509.3b, 509.3d, 509.3f: one pair, both creatures as
+                    // they were declared.
+                    EventPattern::BlocksCreature {
+                        blocker: pred,
+                        attacker: other,
+                    } => {
+                        matches!(&witness, TriggerEventWitness::BlockedCreature { blocker, attacker, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts: blocker,
+                                token: token(blocker.object),
+                                live: observers.is_live(blocker.controller),
+                            }), you, blocker.object, &identity)
+                                && holds(other, Some(&Frozen {
+                                    facts: attacker,
+                                    token: token(attacker.object),
+                                    live: observers.is_live(attacker.controller),
+                                }), you, attacker.object, &identity))
+                    }
+                    EventPattern::BlockedByCreature {
+                        attacker: pred,
+                        blocker: other,
+                    } => {
+                        matches!(&witness, TriggerEventWitness::BlockedByCreature { blocker, attacker, .. }
+                            if holds(pred, Some(&Frozen {
+                                facts: attacker,
+                                token: token(attacker.object),
+                                live: observers.is_live(attacker.controller),
+                            }), you, attacker.object, &identity)
+                                && holds(other, Some(&Frozen {
+                                    facts: blocker,
+                                    token: token(blocker.object),
+                                    live: observers.is_live(blocker.controller),
+                                }), you, blocker.object, &identity))
                     }
                     EventPattern::BecomesBlocked { attacker: pred } => {
                         matches!(&witness, TriggerEventWitness::BecameBlocked { attacker: facts, .. }
@@ -1482,10 +1734,13 @@ impl RulesTxn {
                 if matches
                     && (pattern.nth().is_none() || nth.is_some())
                     && use_key.is_none_or(|key| !self.state.rules.trigger_uses.contains(&key))
+                    // CR 102.1, 500.1: "during your turn".
+                    && (!definition.condition.your_turn() || self.state.rules.active == Some(you))
                     && matches!(
                         (definition.functioning_zone, object.zone),
                         (FunctioningZone::Battlefield, Zone::Battlefield)
                             | (FunctioningZone::Stack, Zone::Stack)
+                            | (FunctioningZone::Graveyard, Zone::Graveyard { .. })
                     )
                     && observers.is_live(object.controller)
                 {
@@ -1514,6 +1769,14 @@ impl RulesTxn {
                         controller_at_match,
                         ..
                     }
+                    | TriggerEventWitness::BlockedCreature {
+                        controller_at_match,
+                        ..
+                    }
+                    | TriggerEventWitness::BlockedByCreature {
+                        controller_at_match,
+                        ..
+                    }
                     | TriggerEventWitness::BecameBlocked {
                         controller_at_match,
                         ..
@@ -1527,9 +1790,27 @@ impl RulesTxn {
                     }
                     match &mut matched_witness {
                         TriggerEventWitness::CardDrawn { nth: slot, .. }
-                        | TriggerEventWitness::LifeGained { nth: slot, .. } => *slot = nth,
+                        | TriggerEventWitness::LifeGained { nth: slot, .. }
+                        | TriggerEventWitness::Discarded { nth: slot, .. } => *slot = nth,
                         TriggerEventWitness::SpellCast { cast } => cast.nth = nth,
                         _ => {}
+                    }
+                    if let TriggerEventWitness::SpellCast { cast } = &mut matched_witness
+                        && matches!(pattern, EventPattern::Cast { target, .. } if !target.is_empty())
+                    {
+                        let facts = observers
+                            .present_targets(cast)
+                            .map(|o| observers.object_before(o.id))
+                            .collect::<Result<_, _>>()?;
+                        cast.target_facts = facts;
+                    }
+                    // The discarded card is evidence only when the pattern
+                    // read its characteristics.
+                    if let TriggerEventWitness::Discarded { movement, card, .. } =
+                        &mut matched_witness
+                        && pattern.object().is_some_and(Pred::reads_characteristics)
+                    {
+                        *card = Some(Box::new(observers.object_before(movement.successor)?));
                     }
                     if let TriggerEventWitness::DamageDealt { match_source, .. } =
                         &mut matched_witness
@@ -1766,6 +2047,14 @@ impl RulesTxn {
             (EventPattern::GainsLife { .. }, TriggerEventWitness::LifeGained { player, .. }) => {
                 Some(row(*player)?.life_gains)
             }
+            (
+                EventPattern::Discards { cycled: true, .. },
+                TriggerEventWitness::Discarded {
+                    player,
+                    cycled: true,
+                    ..
+                },
+            ) => Some(row(*player)?.cycles),
             _ => None,
         })
     }
@@ -2241,8 +2530,20 @@ impl RulesTxn {
             || fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || intrinsic.is_some_and(|definition| {
-                definition.functioning_zone != FunctioningZone::Battlefield
-                    || fact.zone != Zone::Battlefield
+                // CR 702.29c: a discard of this card triggers from the
+                // graveyard it was put into, under its owner's control.
+                let graveyard = definition.condition.pattern().discards_source();
+                let expected = if graveyard {
+                    FunctioningZone::Graveyard
+                } else {
+                    FunctioningZone::Battlefield
+                };
+                definition.functioning_zone != expected
+                    || (graveyard
+                        && (fact.zone != (Zone::Graveyard { owner: fact.owner })
+                            || fact.controller != fact.owner
+                            || controller != fact.owner))
+                    || (!graveyard && fact.zone != Zone::Battlefield)
                     || (*definition.condition.pattern() == EventPattern::self_enters()
                         && !binds_observed_object(&definition)
                         && fact.controller != controller)
@@ -2355,6 +2656,11 @@ impl RulesTxn {
         let pattern = witness
             .branch(definition.condition.pattern())
             .ok_or("snapshot trigger witness has no matching alternative")?;
+        // CR 500.1: no turn ends while the ability waits or is on the stack,
+        // so "during your turn" still names the current active player.
+        if definition.condition.your_turn() && self.state.rules.active != Some(controller) {
+            return Err("snapshot your-turn trigger outside its controller's turn".into());
+        }
         // The accepted-input journal authenticates the historical attachment;
         // an observer can move to another creature before its ability resolves,
         // so a host is any object other than the source itself.
@@ -2429,7 +2735,7 @@ impl RulesTxn {
                     .get(&object.card)
                     .is_some_and(|card| card.owner == *owner)
                     && !self.is_live(*owner)
-                    && matches!(pattern, EventPattern::LeavesBattlefield { object: pred }
+                    && matches!(pattern, EventPattern::LeavesBattlefield { object: pred, .. }
                         if identity_holds(pred, *object, &identity(*object)))
             }
             TriggerEventWitness::DamageDealt {
@@ -2613,13 +2919,100 @@ impl RulesTxn {
                 player,
                 movement,
                 controller_at_match,
+                cycled,
+                card,
+                nth,
             } => {
+                if let Some(facts) = card {
+                    self.validate_fact_identity(facts)?;
+                }
                 *controller_at_match == controller
                     && self.state.rules.original_seating.contains(player)
                     && movement.from == (Zone::Hand { owner: *player })
                     && matches!(movement.destination, Zone::Graveyard { .. })
-                    && matches!(pattern, EventPattern::Discards { player: expected }
-                        if player_in(expected, Some(*player), controller))
+                    && ordinal_evidence(pattern, *nth)
+                    && (nth.is_none() || *cycled)
+                    && matches!(pattern, EventPattern::Discards { player: expected, card: pred, cycled: cycle, .. }
+                    if player_in(expected, Some(*player), controller)
+                        && (!*cycle || *cycled)
+                        // Accepted-input replay proves the cost that
+                        // discarded it and the frozen card facts.
+                        && match card {
+                            Some(facts) => pred.reads_characteristics()
+                                && facts.object == movement.successor
+                                && facts.owner == *player
+                                && holds(pred, Some(&frozen(facts)), controller,
+                                    facts.object, &identity(facts.object)),
+                            None => !pred.reads_characteristics()
+                                && identity_holds(pred, movement.successor,
+                                    &identity(movement.successor)),
+                        })
+                    && death_controller.is_none()
+            }
+            TriggerEventWitness::BlockedCreature {
+                blocker,
+                attacker,
+                controller_at_match,
+            }
+            | TriggerEventWitness::BlockedByCreature {
+                blocker,
+                attacker,
+                controller_at_match,
+            } => {
+                self.validate_fact_identity(blocker)?;
+                self.validate_fact_identity(attacker)?;
+                let blocker_side = matches!(witness, TriggerEventWitness::BlockedCreature { .. });
+                let (source_facts, other_facts, pred, other) = match pattern {
+                    EventPattern::BlocksCreature {
+                        blocker: pred,
+                        attacker: other,
+                    } if blocker_side => (blocker, attacker, pred, other),
+                    EventPattern::BlockedByCreature {
+                        attacker: pred,
+                        blocker: other,
+                    } if !blocker_side => (attacker, blocker, pred, other),
+                    _ => return Err("snapshot blocking pair witness mismatch".into()),
+                };
+                let seated = |facts: &ObjectBefore| {
+                    facts.zone == Zone::Battlefield
+                        && facts.characteristics.has_type(CardKind::Creature)
+                        && self
+                            .state
+                            .rules
+                            .original_seating
+                            .contains(&facts.controller)
+                        && self
+                            .state
+                            .rules
+                            .original_seating
+                            .contains(&facts.default_controller)
+                        && self
+                            .state
+                            .rules
+                            .cards
+                            .get(&facts.object.card)
+                            .is_some_and(|card| card.owner == facts.owner)
+                };
+                // Accepted-input replay proves the declaration itself.
+                *controller_at_match == controller
+                    && seated(blocker)
+                    && seated(attacker)
+                    && blocker.object != attacker.object
+                    && blocker.controller != attacker.controller
+                    && holds(
+                        pred,
+                        Some(&frozen(source_facts)),
+                        controller,
+                        source_facts.object,
+                        &identity(source_facts.object),
+                    )
+                    && holds(
+                        other,
+                        Some(&frozen(other_facts)),
+                        controller,
+                        other_facts.object,
+                        &identity(other_facts.object),
+                    )
                     && death_controller.is_none()
             }
             TriggerEventWitness::Blocked {
@@ -2711,11 +3104,30 @@ impl RulesTxn {
                     && death_controller.is_none()
             }
             TriggerEventWitness::SpellCast { cast } => {
+                for facts in &cast.target_facts {
+                    self.validate_fact_identity(facts)?;
+                }
+                // The recorded facts are the announced targets still on the
+                // battlefield as the spell became cast, in order (CR 115.9b),
+                // and only for an observer that read them.
+                let reads_targets =
+                    matches!(pattern, EventPattern::Cast { target, .. } if !target.is_empty());
+                let mut announced = cast.targets.iter();
                 self.valid_cast_facts(cast)?
                     && ordinal_evidence(pattern, cast.nth)
-                    && matches!(pattern, EventPattern::Cast { caster, spell, targets_source, .. }
+                    && (reads_targets || cast.target_facts.is_empty())
+                    && cast
+                        .target_facts
+                        .iter()
+                        .all(|f| f.zone == Zone::Battlefield && announced.any(|t| *t == f.object))
+                    && matches!(pattern, EventPattern::Cast { caster, spell, targets_source, target, .. }
                         if player_in(caster, Some(cast.caster), controller)
                             && (!*targets_source || cast.targets.contains(&source))
+                            && (target.is_empty() || cast.target_facts.iter().any(|f| {
+                                f.zone == Zone::Battlefield
+                                    && holds(target, Some(&frozen(f)), controller, f.object,
+                                        &identity(f.object))
+                            }))
                             && holds(spell, Some(&Frozen { facts: &cast.spell, token: false,
                                 live: true }), controller,
                                 cast.spell.object, &identity(cast.spell.object)))
@@ -2803,8 +3215,13 @@ impl RulesTxn {
                                 && creature_card(pred, subject)?
                         }
                         // CR 603.6c: replay proves the departed facts.
-                        EventPattern::LeavesBattlefield { object: pred } => {
-                            witness.leaves() && identity_holds(pred, subject, &identity(subject))
+                        EventPattern::LeavesBattlefield {
+                            object: pred,
+                            without_dying,
+                        } => {
+                            witness.leaves()
+                                && !(*without_dying && witness.dies())
+                                && identity_holds(pred, subject, &identity(subject))
                         }
                         // An entry whose pattern read characteristics
                         // retains them as `Entered`.
