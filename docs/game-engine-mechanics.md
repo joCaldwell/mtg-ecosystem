@@ -281,11 +281,17 @@ in cleanup of the beneficiary's next actual turn (CR 400.7j, 514.2, 611.2a).
 
 Cost keywords with dedicated announcement or payment cells are `Executes`-only.
 
-- **Spell mana symbols**: one leading `{X}`, announced nonnegative before targets
-  and frozen (CR 107.3a, 601.2b); two-color hybrid, announced as one alternative;
-  single-color Phyrexian, payable with 2 life unless below 2 life (CR 107.4e–f,
-  119.4). Several X, monocolored hybrid, colorless or hybrid Phyrexian symbols
-  reject, as do hybrid, Phyrexian, X and special symbols in activation costs.
+- **Mana symbols**: one leading `{X}`, announced nonnegative before targets
+  and frozen (CR 107.3a, 601.2b); two-color or monocolored `{2/C}` hybrid,
+  announced as one alternative; single-color Phyrexian, payable with 2 life
+  unless below 2 life (CR 107.4e–f, 119.4). Mana value counts each hybrid
+  symbol's largest component (CR 202.3f–g). Battlefield activated abilities
+  announce the same symbols, hybrid then X, before targets (CR 602.2b);
+  `ActivatedAbility::announced_cost` is the one total the engine locks and
+  Develop plans. Mana abilities admit only two-color hybrid, announced before
+  their nested payment (CR 605.3a). Several X, colorless or hybrid Phyrexian
+  and snow symbols reject, as do announcements on modal, chosen-object,
+  sacrifice-choice or off-battlefield activations.
 - **Affinity** counts the caster's matching phased-in permanents at CR 601.2f
   and reduces generic mana by that count (CR 702.41). Each instance uses the
   stack-static cost lock. Admitted parameters cover artifact, creature,
