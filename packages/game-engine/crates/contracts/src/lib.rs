@@ -1016,6 +1016,7 @@ impl Instruction {
                 player,
                 count: kir::Amount::fixed(1),
                 filter: kir::Pred::creatures(),
+                greatest_power: false,
             },
             source_block,
         )

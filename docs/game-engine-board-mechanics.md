@@ -81,7 +81,20 @@ at resolution. A commander bound for hand still offers the command zone.
 
 **Sacrifice** is not destruction. Fling-like effects use paid LKI power. Forced
 sacrifices choose in APNAP order with earlier choices visible, then move
-simultaneously.
+simultaneously through the replacement and leaves-the-battlefield pipeline
+(CR 101.4, 603.10a, 701.21a). Each player, each opponent, or an announced
+player chooses qualifying permanents they currently control. The choice reads
+the permanent's derived battlefield characteristics and status, including
+type alternatives, nontoken and combat status. Phased-out permanents are
+excluded (CR 702.26b). A mandatory instruction to the controller, each
+player, or each opponent can require a fixed number per player, taking
+all eligible permanents when there are fewer (CR 609.3). “Another”
+excludes the exact source permanent (CR 400.7). A spell can ask each
+opponent for a creature with the greatest
+power among creatures they control. Each opponent sees every tied creature
+at their own maximum, using current power (CR 107.1b, 608.2h). In a
+step-begin trigger, “that player” uses the active player from the
+original event (CR 500.1, 603.2).
 
 **Board-wide sets** include granted keywords at execution. Destruction, exile,
 bounce and all-recipient damage commit atomically; temporary P/T sets capture
