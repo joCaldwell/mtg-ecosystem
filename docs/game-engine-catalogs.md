@@ -14,8 +14,10 @@ R4 (same corpus, older parser) stays registered without record pins so its
 bulk IR can be rebuilt for comparison. Exact registered headers choose the
 reader. R4/R5 use schema 4 and check the header's parser revision. R6 uses
 schema 5 and records only parser source identity in the header. Bulk v2 takes
-the R6 parser revision from the external registry. A pending registration
-cannot authorize intake or provenance. Oracle parser tests own their pre-R4 records under
+the R6 parser revision (the reviewed producer commit) from the external
+registry. A pending registration cannot authorize intake or provenance. A
+`candidate` registration is measured and authorizes intake and comparison but
+no record pins, so no tracked fixture or default consumer can select it. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
 From repository root (`engine:dev` builds `mtg-sim` under the target lock):
@@ -72,7 +74,9 @@ At R6 promotion, extract the R5 origin's pinned identities with the R6 archive.
 Extraction stores its exact rows under `phase1-r6/` and appends a separate
 origin's record pins to the registry and provenance. Run `verify` on both
 archives before changing fixture manifests. The R5 rows stay available as
-controls.
+controls. `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM
+--archives R5 R6` rehearses this in a scratch copy: it requires one R6 row per
+R5 identity, the same archive line, and the exact R5 bytes plus evidence.
 
 `scripts/compare-archive-cut.py d1 BEFORE AFTER` compares bulk payload bytes,
 coverage, blockers, four tier decisions from the compiler's

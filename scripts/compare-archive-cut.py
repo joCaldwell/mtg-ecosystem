@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""D1/D2 archive comparison. Each run supplies bulk/, coverage/, tiers.json and admission.json."""
+"""D1/D2 archive comparison and the R6 fixture re-extraction check.
+
+Each D1/D2 run supplies bulk/, coverage/, tiers.json and admission.json.
+`fixtures` re-extracts every R5-origin fixture identity from R6 in a scratch
+copy, verifies both archives there, and never touches the tracked fixtures."""
 
 import argparse
 import csv
 import hashlib
 import json
+import shutil
+import subprocess
 from itertools import zip_longest
 from pathlib import Path
 
@@ -156,15 +162,77 @@ def compare(mode, before, after, archives=None):
     }
 
 
+def fixtures(sim, source, out, archives):
+    """Re-extract all R5-origin fixture rows from R6 into OUT and verify both origins there."""
+    require(not out.exists(), f'{out} already exists')
+    registry = json.loads((source / 'accepted-archives.json').read_bytes())
+    origins = {origin['cut']: origin for origin in registry}
+    r5, r6 = origins['r5'], origins['r6']
+    out.mkdir(parents=True)
+    for name in ('accepted-archives.json', 'provenance.json', r5['manifest_file'], r6['manifest_file']):
+        shutil.copyfile(source / name, out / name)
+    provenance = json.loads((source / 'provenance.json').read_bytes())
+    rows = [row for row in provenance['records'] if row['archive'] == r5['manifest_file']]
+    require(len(rows) == len(r5['record_sha256']) and all(r['record_sha256'] in r5['record_sha256'] for r in rows),
+            'R5 provenance rows and origin pins differ')
+    for row in rows:
+        (out / row['file']).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / row['file'], out / row['file'])
+
+    def sim_json(*args):
+        done = subprocess.run([str(sim), 'catalog', *map(str, args)], capture_output=True, check=False)
+        require(done.returncode == 0, f'{args[0]} failed: {done.stderr.decode(errors="replace").strip()}')
+        return json.loads(done.stdout)
+
+    extracted = sim_json('extract', archives[1], out / 'provenance.json', *(row['oracle_id'] for row in rows))
+    verified = {cut: sim_json('verify', archive, out / 'provenance.json') for cut, archive in zip(('r5', 'r6'), archives)}
+    after = json.loads((out / 'provenance.json').read_bytes())
+    new_rows = {row['oracle_id']: row for row in after['records'] if row['archive'] == r6['manifest_file']}
+    require(after['records'][:len(provenance['records'])] == provenance['records'], 'existing provenance rows changed')
+    require(len(new_rows) == len(rows) == len(extracted['extracted']), 'R6 extraction is not one row per R5 identity')
+    registry_after = {origin['cut']: origin for origin in json.loads((out / 'accepted-archives.json').read_bytes())}
+    require(registry_after['r5'] == r5, 'R5 origin pins changed')
+    require(sorted(registry_after['r6']['record_sha256']) == sorted({row['record_sha256'] for row in new_rows.values()}),
+            'R6 origin pins differ from extracted rows')
+    kinds = {'excluded': 0, 'extended': 0}
+    for old in rows:
+        new = new_rows[old['oracle_id']]
+        legacy, current = (out / old['file']).read_bytes(), (out / new['file']).read_bytes()
+        require(new['file'].startswith('phase1-r6/') and new['archive_line'] == old['archive_line']
+                and new['source_sha256'] == old['source_sha256'] and new['ast_sha256'] == old['ast_sha256'],
+                f'{old["oracle_id"]}: R6 provenance identity differs')
+        require(old['record_sha256'] == sha(legacy.rstrip()) and new['record_sha256'] == sha(current.rstrip()),
+                f'{old["oracle_id"]}: fixture bytes differ from their pins')
+        if json.loads(legacy)['status'] == 'excluded':
+            require(current == legacy, f'{old["oracle_id"]}: excluded row changed')
+            kinds['excluded'] += 1
+        else:
+            prefix = legacy[:-2]
+            suffix = json.loads(b'{' + current[len(prefix) + 1:])
+            require(current.startswith(prefix + b',"printed":') and list(suffix) == ['printed', 'printedSha256']
+                    and current == prefix + b',' + json_bytes(suffix)[1:] + b'\n'
+                    and sha(json_bytes(suffix['printed'])) == suffix['printedSha256'],
+                    f'{old["oracle_id"]}: R6 fixture is not the R5 row plus evidence')
+            kinds['extended'] += 1
+    return {'comparison': 'fixtures', 'identities': len(rows), **kinds,
+            'verified': {cut: report['verified_records'] for cut, report in verified.items()}}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('d1', 'd2'))
-    parser.add_argument('before', type=Path)
-    parser.add_argument('after', type=Path)
+    parser.add_argument('mode', choices=('d1', 'd2', 'fixtures'))
+    parser.add_argument('before', type=Path, help='D1/D2 earlier run, or the fixtures directory')
+    parser.add_argument('after', type=Path, help='D1/D2 later run, or a new scratch directory')
     parser.add_argument('--archives', nargs=2, type=Path, metavar=('R5', 'R6'))
+    parser.add_argument('--sim', type=Path, help='mtg-sim binary for fixtures')
     args = parser.parse_args()
     try:
-        print(json.dumps(compare(args.mode, args.before, args.after, args.archives), indent=2))
+        if args.mode == 'fixtures':
+            require(args.sim is not None and args.archives is not None, 'fixtures requires --sim and --archives')
+            result = fixtures(args.sim, args.before, args.after, args.archives)
+        else:
+            result = compare(args.mode, args.before, args.after, args.archives)
+        print(json.dumps(result, indent=2))
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.exit(1, f'{error}\n')
 
