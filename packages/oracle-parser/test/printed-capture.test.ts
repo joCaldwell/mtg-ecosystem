@@ -6,6 +6,7 @@ import { Cursor } from "../src/parser/cursor.ts";
 import { finalizeCharacteristicDefinitions } from "../src/parser/characteristic-origin.ts";
 import { locateNodes } from "../src/printed/nodes.ts";
 import { PrintedCapture } from "../src/printed/capture.ts";
+import { quoteChecks } from "./support/printed-quotes.ts";
 import type { ByteRange, PrintedBlock, PrintedFace, PrintedFact, TokenRun } from "../src/printed/schema.ts";
 
 type ReadBlock = Extract<PrintedBlock, { status: "read" }>;
@@ -288,6 +289,95 @@ test("target numbering separates quoted abilities and continues across modal opt
   assert.deepEqual(modal.facts.filter(fact => fact.fact === "target").map(target => [target.targetIndex, target.selectionId]),
     [[0, "line:1:2"], [1, "line:2:2"]]);
   assert.deepEqual(span(modal, step), [0, 0, 3]);
+});
+
+test("printed grants keep their enclosure and own inner punctuation after AST rebuilding", () => {
+  const examples = [
+    { name: "Anavolver", typeLine: "Creature — Volver",
+      text: 'If this creature was kicked with its {B} kicker, it enters with a +1/+1 counter on it and with "Pay 3 life: Regenerate this creature."',
+      ability: "Pay 3 life: Regenerate this creature.", separator: "colon",
+      grant: "/effect/effect/effects/1/abilities/0" },
+    { name: "Sugar Coat", typeLine: "Enchantment — Aura",
+      text: 'Enchanted permanent is a colorless Food artifact with "{2}, {T}, Sacrifice this artifact: You gain 3 life" and loses all other card types and abilities.',
+      ability: "{2}, {T}, Sacrifice this artifact: You gain 3 life", separator: "colon",
+      grant: "/effect/modifiers/2/abilities/0" },
+    { name: "Falcon, Winged Wonder", typeLine: "Legendary Creature — Human Hero", token: "Redwing",
+      text: 'Avian Telepathy — When Falcon enters, create Redwing, a legendary 1/1 blue Bird Scout creature token with flying and "Whenever Redwing attacks, surveil 1." (Look at the top card of your library. You may put it into your graveyard.)',
+      ability: "Whenever Redwing attacks, surveil 1.", separator: "comma",
+      grant: step + "/token/abilities/0" },
+    { name: "Ka-Zar of the Savage Land", typeLine: "Legendary Creature — Human Barbarian Hero", token: "Zabu",
+      text: 'When Ka-Zar enters, create Zabu, a legendary 2/2 green Cat creature token with "Landfall — Whenever a land you control enters, put a +1/+1 counter on Zabu."',
+      ability: "Landfall — Whenever a land you control enters, put a +1/+1 counter on Zabu.", separator: "dash",
+      grant: step + "/token/abilities/0" },
+  ] as const;
+  for (const example of examples) {
+    const { name, typeLine, text, ability, grant, separator } = example;
+    const cardNames = buildCardNameCatalog("token" in example ? [{ name: example.token, layout: "token" }] : []);
+    const parse = (text: string) => parseOracleTextWithPrintedEvidence(text, name, { typeLine, cardNames });
+    const { result, printed } = parse(text);
+    assert.equal(printed.status, "read", name);
+    assert.ok(result.ok, name);
+    const found = block(printed);
+    const verify = quoteChecks(printed, result.lines[0].text);
+    assert.deepEqual(verify(found, result.abilities[0]), [], name);
+    const body = grant + "/ability";
+    const bodyText = spelling(printed, text, span(found, body));
+    assert.ok(ability === bodyText || ability === bodyText + ".", name);
+    assert.deepEqual(found.facts.flatMap(f => f.fact === "punct" && f.role === "quote" ? [f.at] : []), [grant, grant], name);
+    const delimiter = fact(found, "punct", f => f.role === separator && f.at === body);
+    const moved = structuredClone(found);
+    moved.facts[found.facts.indexOf(delimiter)] = { ...delimiter, at: grant };
+    assert.ok(verify(moved, result.abilities[0]).some(error => error.startsWith("fact ")), name);
+    const split = structuredClone(found);
+    const grantNode = split.nodes.find(node => node.path === grant);
+    assert.equal(grantNode?.basis, "recorded", name);
+    grantNode.span[0][1]++;
+    assert.ok(verify(split, result.abilities[0]).some(error => error.startsWith("invalid quote enclosure")), name);
+    assert.equal(parse(text.replace(ability, "Unreadable nonsense.")).result.ok, false, name);
+  }
+});
+
+test("quoted rule and keyword-family terms retain evidence in the enclosing ability", () => {
+  const examples = [
+    { name: "The Master, Multiplied", typeLine: "Legendary Creature — Time Lord Rogue",
+      text: 'The "legend rule" doesn\'t apply to creature tokens you control.', term: "legend rule" },
+    { name: "Shelkin Brownie", typeLine: "Creature — Ouphe",
+      text: '{T}: Target creature loses all "bands with other" abilities until end of turn.', term: "bands with other" },
+  ];
+  for (const { name, typeLine, text, term } of examples) {
+    const parse = (text: string) => parseOracleTextWithPrintedEvidence(text, name, { typeLine });
+    const { result, printed } = parse(text);
+    assert.equal(printed.status, "read");
+    assert.ok(result.ok, name);
+    const found = block(printed);
+    const verify = quoteChecks(printed, result.lines[0].text);
+    assert.deepEqual(verify(found, result.abilities[0]), [], name);
+    assert.ok(found.nodes.every(node => !node.path.endsWith("/ability")), name);
+    assert.ok(verify(found, {}).some(error => error.startsWith("span ")), name);
+    assert.equal(parse(text.replace(term, "unrecognized term")).result.ok, false, name);
+    assert.equal(parse(text.replaceAll('"', "")).result.ok, false, name);
+  }
+});
+
+test("a coordinated grant has one enclosure, and separately printed nested grants have their own", () => {
+  const radiance = 'Radiance — Until end of turn, target creature and each other creature that shares a color with it gain "This creature can\'t block."';
+  const first = step + "/steps/0/abilities/0";
+  const second = step + "/steps/1/abilities/0";
+  const found = block(read(radiance, "Incite Hysteria", "Sorcery"));
+  assert.deepEqual(found.nodes.find(node => node.path === second), { path: second, basis: "alias", of: first });
+  assert.equal(fact(found, "polarity", f => f.form === "can't").at.startsWith(first + "/ability"), true);
+
+  const nested = `-6: You get an emblem with "Islands you control have haste, '{T}: Draw a card' and '{T}: Draw a card.'"`;
+  const { result, printed } = parseOracleTextWithPrintedEvidence(nested, "Test", { typeLine: "Legendary Planeswalker — Test" });
+  assert.ok(result.ok);
+  assert.equal(printed.status, "read");
+  const emblem = block(printed);
+  assert.deepEqual(quoteChecks(printed, result.lines[0].text)(emblem, result.abilities[0]), []);
+  const inner = step + "/abilities/0/ability/effect/modifiers/0/abilities/";
+  assert.deepEqual(emblem.facts.flatMap(f => f.fact === "punct" && f.role === "colon" ? [f.at] : []),
+    ["", inner + "1/ability", inner + "2/ability"]);
+  const movedPeriod = fact(emblem, "punct", f => f.role === "sentence-end");
+  assert.equal(movedPeriod.at.startsWith(inner), false);
 });
 
 test("quote settling preserves physical punctuation order and failed blocks keep byte diagnostics", () => {

@@ -64,6 +64,21 @@ punctuation canonicalization. A quoted slice must parse as one JSON string
 literal. A literal token's original range remains the
 whole edit hull. Lexical and parse failures retain their diagnostic and range.
 
+Each quoted grant has a located wrapper that includes both delimiters. Its
+ability body accounts for the interior tokens in grammar order, including
+punctuation, even when parsing rewrites a named token's self-reference. A
+comma or period moved past a closing delimiter by the lexer belongs to the
+enclosing production. Facts inside an ability quote belong to the innermost
+located node in that ability. A single grant shared by several AST branches
+has one printed enclosure. Other branches can alias the grant wrapper.
+
+Quoted terms keep their enclosing ability's scope. The replayed words
+`"legend rule"` are an operand of a legend-rule exemption, and
+`"bands with other"` names the keyword family in an ability removal. Both
+delimiters must be in the span or attributed clause that covers the term.
+Facts inside the term retain their printed location and enclosing owner.
+The lexer treats literal names as single tokens in recognized name slots.
+
 ## Responsibilities and invariants
 
 - Normalize punctuation, reminder text and exact-case self-references, preserving
