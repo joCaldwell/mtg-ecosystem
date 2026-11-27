@@ -133,9 +133,7 @@ fn implicit(value: &Value, reason: &ImplicitReason) -> bool {
             matches!(value["zone"].as_str(), Some("battlefield" | "library"))
         }
         ImplicitReason::ImperativeController => value["player"] == "you",
-        ImplicitReason::ImpliedSingularCount | ImplicitReason::ImpliedSingularTarget => {
-            value["amount"] == "fixed" && value["value"] == 1
-        }
+        ImplicitReason::ImpliedSingularTarget => value["amount"] == "fixed" && value["value"] == 1,
     }
 }
 
