@@ -165,8 +165,8 @@ pub mod mana_permanents;
 pub mod mill;
 pub mod object_facts;
 pub mod scry;
+pub use mana_permanents::PermanentManaUndo;
 pub use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
-pub use mana_permanents::{PermanentManaUndo, TurnHistoryUndo};
 pub mod stack_costs;
 pub use actions::{ResolutionChoice, StackKind};
 pub use stack_costs::AnnouncementOrigin;
@@ -179,8 +179,13 @@ pub mod scenarios;
 pub use combat::*;
 pub mod turns;
 
+pub mod actuals;
 pub mod events;
 pub mod trace;
+pub use actuals::{
+    Actual, ActualJournal, ActualRef, CostOf, Destination, EventId, Facet, FacetKind, GroupId,
+    LedgerDelta, Lineage, MoveKind, Origin, ReplacementKey, Root, SeatDelta, StepRef,
+};
 pub use events::*;
 pub use trace::*;
 mod battlefield_entry;

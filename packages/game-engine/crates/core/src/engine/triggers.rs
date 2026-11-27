@@ -32,6 +32,14 @@ pub struct PendingTrigger {
     pub witness: TriggerEventWitness,
     binding: EventBinding,
 }
+impl PendingTrigger {
+    /// CR 733.1: whether this trigger came from one of these members'
+    /// occurrences; a reversed cost reverses every member of each.
+    pub(super) fn caused_by_any(&self, events: &[EventId]) -> bool {
+        matches!(&self.event, TriggerOccurrenceId::Batch(id)
+            if events.iter().any(|event| event.occurrence == *id))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -878,18 +886,6 @@ fn entry_witness(
     })
 }
 
-pub(super) fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
-    match outcome {
-        EventOutcome::EnteredAttached { movement, .. }
-        | EventOutcome::Moved { movement }
-        | EventOutcome::Sacrificed { movement, .. }
-        | EventOutcome::CardDiscarded { movement, .. }
-        | EventOutcome::StateBasedMoved { movement, .. }
-        | EventOutcome::LibraryTopMoved { movement, .. } => Some(movement),
-        EventOutcome::StackObjectCountered { movement, .. } => movement.as_ref(),
-        _ => None,
-    }
-}
 impl RulesTxn {
     pub(crate) fn stack_limit(&self) -> usize {
         capacities::STACK_LIMIT
@@ -944,92 +940,13 @@ impl RulesTxn {
         }))
     }
 
-    pub(super) fn record_turn_occurrences(
+    /// CR 119.9, 120.3f: the life-gain ledger, still on its `EventOutcome`
+    /// boundary until life migrates to actuals (E3).
+    pub(super) fn record_unmigrated_history(
         &mut self,
-        before: &RulesTxn,
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
-        // CR 603.2c, 603.10a: every member of a simultaneous occurrence
-        // contributes before any member is checked. Departures use LKI.
         for occurrence in occurrences {
-            // CR 733.1: supported mana costs only change or remove existing
-            // permanents, and mana effects add mana, gain life, or deal damage.
-            // None causes an entry that a mana receipt must reverse.
-            let entering = match &occurrence.actual {
-                EventOutcome::TokenCopied { object, .. } => std::slice::from_ref(object),
-                EventOutcome::TokensCreated { objects, .. }
-                | EventOutcome::PredefinedTokensCreated { objects, .. }
-                | EventOutcome::EncoreTokensCreated { objects, .. }
-                | EventOutcome::MyriadTokensCreated { objects, .. } => objects,
-                actual => movement(actual)
-                    .filter(|m| m.from != Zone::Battlefield && m.destination == Zone::Battlefield)
-                    .map_or(&[][..], |m| std::slice::from_ref(&m.successor)),
-            };
-            for &entrant in entering {
-                let controller = self.current(entrant)?.controller;
-                let types = self.characteristics(entrant)?;
-                let row = &mut self.rules_mut().cast_history[controller.0 as usize];
-                let one = Quantity::from(1);
-                if types.has_type(CardKind::Artifact) {
-                    row.artifacts_entered.add(&one);
-                }
-                if types.has_type(CardKind::Creature) {
-                    row.creatures_entered.add(&one);
-                }
-                if !types.has_type(CardKind::Land) {
-                    row.nonlands_entered.add(&one);
-                }
-            }
-            let departure = match &occurrence.actual {
-                EventOutcome::LeftGame { object, .. } => Some((*object, false)),
-                actual => movement(actual)
-                    .filter(|m| m.from == Zone::Battlefield && m.destination != Zone::Battlefield)
-                    .map(|m| (m.previous, matches!(m.destination, Zone::Graveyard { .. }))),
-            };
-            if let Some((object, to_graveyard)) = departure
-                && before
-                    .current(object)
-                    .is_ok_and(|o| o.present_on_battlefield())
-            {
-                let prior = before.object_before(object)?;
-                let row = &mut self.rules_mut().cast_history[prior.controller.0 as usize];
-                row.permanent_left = true;
-                row.creature_died |=
-                    to_graveyard && prior.characteristics.has_type(CardKind::Creature);
-            }
-            // CR 111.2: the creating player, once per token.
-            let created = match &occurrence.actual {
-                EventOutcome::TokenCopied { controller, .. } => Some((*controller, 1)),
-                EventOutcome::TokensCreated {
-                    objects,
-                    controller,
-                    ..
-                }
-                | EventOutcome::EncoreTokensCreated {
-                    objects,
-                    controller,
-                    ..
-                }
-                | EventOutcome::PredefinedTokensCreated {
-                    objects,
-                    controller,
-                    ..
-                }
-                | EventOutcome::MyriadTokensCreated {
-                    objects,
-                    controller,
-                    ..
-                } => Some((*controller, objects.len())),
-                _ => None,
-            };
-            if let Some((player, n)) = created {
-                let n = u32::try_from(n).map_err(|_| "token history count limit")?;
-                let row = &mut self.rules_mut().cast_history[player.0 as usize];
-                row.tokens_created = row
-                    .tokens_created
-                    .checked_add(n)
-                    .ok_or("token history count limit")?;
-            }
             match &occurrence.actual {
                 EventOutcome::LifeGained { player, amount, .. } => {
                     self.rules_mut().cast_history[player.0 as usize]
@@ -1049,6 +966,31 @@ impl RulesTxn {
         Ok(())
     }
 
+    /// The witness a creation, entry or movement member offers matching:
+    /// a zone change, a token entering without a move, or a permanent
+    /// leaving the game (CR 603.6a, 603.6c, 111.13).
+    fn actual_witness(actual: &Actual) -> Option<TriggerEventWitness> {
+        if let Some(movement) = actual.movement() {
+            return Some(TriggerEventWitness::Moved { movement });
+        }
+        match actual.facet(FacetKind::Moved) {
+            Some(Facet::Moved {
+                object,
+                prior: Some(_),
+                from: Zone::Battlefield,
+                to: Destination::LeftGame { owner },
+                ..
+            }) => Some(TriggerEventWitness::PermanentLeftGame {
+                object: *object,
+                owner: *owner,
+            }),
+            Some(_) => None,
+            None => actual
+                .entrant()
+                .map(|object| TriggerEventWitness::TokenEntered { object }),
+        }
+    }
+
     // CR 603.2c/603.3a/603.10a: one match per actual occurrence, with
     // pre-event lookback for dies and post-event observers for enters. An
     // atomic simultaneous group shares one observer view, including sources
@@ -1059,10 +1001,14 @@ impl RulesTxn {
         cause: &BatchCause,
         before: &RulesTxn,
         occurrences: &[OccurrenceResult],
+        actuals: &[Vec<Actual>],
     ) -> Result<(), String> {
-        for occurrence in occurrences {
+        if occurrences.len() != actuals.len() {
+            return Err("trigger collection actual invariant".into());
+        }
+        for (occurrence, members) in occurrences.iter().zip(actuals) {
             if !self.state.rules.resolution_triggers.is_empty() {
-                self.collect_resolution_departure(occurrence, before)?;
+                self.collect_resolution_departure(before, &occurrence.id, members)?;
             }
             let mut witnesses = match &occurrence.actual {
                 // CR 120.4b/120.8, 510.2, 603.2c/g, 615.6: match actual
@@ -1193,16 +1139,6 @@ impl RulesTxn {
                         current: c.current.clone(),
                     })
                     .collect(),
-                EventOutcome::TokenCopied { object, .. } => {
-                    vec![TriggerEventWitness::TokenEntered { object: *object }]
-                }
-                EventOutcome::TokensCreated { objects, .. }
-                | EventOutcome::EncoreTokensCreated { objects, .. }
-                | EventOutcome::MyriadTokensCreated { objects, .. }
-                | EventOutcome::PredefinedTokensCreated { objects, .. } => objects
-                    .iter()
-                    .map(|object| TriggerEventWitness::TokenEntered { object: *object })
-                    .collect(),
                 // CR 603.2b/503.1a/504.1/117.5: collect at the actual
                 // boundary; EnterStep still owns the normal draw/replacement.
                 // Stabilization/APNAP placement follows those entry actions.
@@ -1232,21 +1168,11 @@ impl RulesTxn {
                         nth: None,
                     }]
                 }
-                EventOutcome::Milled { movements, .. }
-                | EventOutcome::Surveilled { movements, .. } => movements
-                    .iter()
-                    .map(|movement| TriggerEventWitness::Moved {
-                        movement: movement.clone(),
-                    })
-                    .collect(),
-                actual => movement(actual)
-                    .map(|m| {
-                        vec![TriggerEventWitness::Moved {
-                            movement: m.clone(),
-                        }]
-                    })
-                    .unwrap_or_default(),
+                _ => vec![],
             };
+            // Creation, entry and movement match their facets, never the
+            // outcome or batch cause.
+            witnesses.extend(members.iter().filter_map(Self::actual_witness));
             // CR 119.9, 120.3f: each source's positive life gain is its own
             // life-gain event; lifelink gains arrive grouped by source.
             let gains: Vec<(PlayerId, &Quantity)> = match &occurrence.actual {
@@ -1347,16 +1273,6 @@ impl RulesTxn {
             // CR 603.6c, 701.9a, 701.21a: departures and the discard or
             // sacrifice itself, beside any zone change.
             match &occurrence.actual {
-                EventOutcome::LeftGame { object, owner }
-                    if before
-                        .current(*object)
-                        .is_ok_and(|o| o.present_on_battlefield()) =>
-                {
-                    witnesses.push(TriggerEventWitness::PermanentLeftGame {
-                        object: *object,
-                        owner: *owner,
-                    });
-                }
                 EventOutcome::Sacrificed { player, movement } => {
                     witnesses.push(TriggerEventWitness::Sacrificed {
                         player: *player,
@@ -1431,7 +1347,7 @@ impl RulesTxn {
                     || witness.leaves()
                 {
                     self.collect_trigger_witness(
-                        Some((before, cause)),
+                        Some((before, members)),
                         TriggerOccurrenceId::Batch(occurrence.id.clone()),
                         witness,
                     )?;
@@ -1487,7 +1403,7 @@ impl RulesTxn {
     }
     pub(super) fn collect_trigger_witness(
         &mut self,
-        before: Option<(&RulesTxn, &BatchCause)>,
+        before: Option<(&RulesTxn, &[Actual])>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -1508,7 +1424,7 @@ impl RulesTxn {
     }
     fn collect_trigger_witness_staged(
         &mut self,
-        before: Option<(&RulesTxn, &BatchCause)>,
+        before: Option<(&RulesTxn, &[Actual])>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -2083,8 +1999,8 @@ impl RulesTxn {
                                             kir::Intervening::SourceCastByController
                                                 | kir::Intervening::SourceCostPaid { .. }
                                         ) {
-                                            before.and_then(|(prior, cause)| {
-                                                prior.completed_entry_cast(cause, &witness)
+                                            before.and_then(|(prior, actuals)| {
+                                                prior.completed_entry_cast(actuals, &witness)
                                             })
                                         } else {
                                             None
