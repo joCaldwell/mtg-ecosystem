@@ -25,9 +25,11 @@ function fieldFor(fact: LexicalFact, path: string, value: Record<string, unknown
     if (form === "up-to" && value.upTo === true) return path + "/upTo";
     if (form !== "up-to" && value.optional === true) return path + "/optional";
   }
-  if (fact.fact === "exception" && ["another", "other"].includes(fact.form) &&
-      typeof value.filter === "object" && value.filter !== null && "other" in value.filter && value.filter.other === true)
-    return path + "/filter/other";
+  if (fact.fact === "exception" && ["another", "other"].includes(fact.form)) {
+    if (value.other === true) return path + "/other";
+    if (typeof value.filter === "object" && value.filter !== null && "other" in value.filter && value.filter.other === true)
+      return path + "/filter/other";
+  }
   if (fact.fact === "polarity" && fact.form === "only" && value.restriction === "only")
     return path + "/restriction";
   if (fact.fact === "polarity" && fact.form === "can't" && value.effect === "cant") return path + "/effect";

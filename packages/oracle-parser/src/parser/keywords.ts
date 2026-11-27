@@ -518,8 +518,12 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
       if (!kw) return null;
       // "Firebending X, where X is ~'s power": the definition of the keyword's X.
       if (kw.amount === "x" && keywords.length === 0 && !kw.cost) {
+        const clause = c.pos;
         const value = c.attempt(c => (c.punct(",") && c.words("where", "x", "is") ? parseAmount(c) : null));
-        if (value) kw.bindings = [{ variable: "x", value }];
+        if (value) {
+          kw.bindings = [{ variable: "x", value }];
+          c.fold(kw, clause);
+        }
       }
       keywords.push(c.mark(kw, start));
       if (c.isPunct(",") || c.isPunct(";")) {
@@ -535,6 +539,7 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
     }
     const sentenceEnd = c.punct(".");
     if (sentenceEnd && !c.done()) {
+      const clause = c.pos;
       // CR 602.1b and 702.6: Plate Armor's second sentence modifies this
       // equip ability's payment. A list has no single unambiguous antecedent.
       // CR 107.3a/d: "Suspend X—{X}{R}. X can't be 0." limits that keyword's X.
@@ -542,12 +547,14 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
       if (constraints) {
         if (!c.done()) return null;
         keywords[0].variableConstraints = constraints;
+        c.fold(keywords[0], clause);
         return keywords;
       }
       if (keywords.length === 1 && keywords[0].keyword === "flashback") {
         const modifications = parseKeywordCastCostModifications(c);
         if (!modifications || !c.done()) return null;
         keywords[0].costModifications = modifications;
+        c.fold(keywords[0], clause);
         return keywords;
       }
       if (keywords.length !== 1 || !["equip", "crew"].includes(keywords[0].keyword)) return null;
@@ -558,6 +565,7 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
       const rules = c.done() ? null : parseActivationRules(c);
       if (rules?.restriction && !rules.permission) keywords[0].restriction = rules.restriction;
       else if (rules || !costModifications || !c.done()) return null;
+      c.fold(keywords[0], clause);
     }
     if (!c.done()) return null;
     return keywords;

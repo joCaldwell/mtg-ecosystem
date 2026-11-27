@@ -53,7 +53,7 @@ export class Cursor {
   }
 
   /** Run fn; if it returns null, rewind to where we started. */
-  attempt<T>(fn: (c: this) => T | null): T | null {
+  attempt<T>(fn: (c: this) => T | null, origin: "record" | "preserve" = "record"): T | null {
     const start = this.pos;
     const checkpoint = this.printed?.checkpoint();
     const previousWrites = this.writes.length;
@@ -66,7 +66,7 @@ export class Cursor {
         while (this.writes.length > previousWrites) this.writes.pop();
       }
     } else if (checkpoint !== undefined) {
-      if (result && typeof result === "object" && !Array.isArray(result))
+      if (origin === "record" && result && typeof result === "object" && !Array.isArray(result))
         this.printed!.mark(result, this.tokens.slice(start, this.pos));
       this.noteWrite(checkpoint);
     }
@@ -101,6 +101,35 @@ export class Cursor {
       this.printed.fold(node, tokens);
       this.noteWrite(checkpoint);
     }
+  }
+
+  foldOrigin(node: object, clause: object): void {
+    if (this.printed) {
+      const checkpoint = this.printed.checkpoint();
+      this.printed.foldOrigin(node, clause);
+      this.noteWrite(checkpoint);
+    }
+  }
+
+  hull<const T extends object>(node: T, start = this.pos, end = this.pos): T {
+    if (this.printed) {
+      const checkpoint = this.printed.checkpoint();
+      this.printed.hull(node, this.tokens.slice(start, end));
+      this.noteWrite(checkpoint);
+    }
+    return node;
+  }
+
+  imperativeController(): { player: "you" } {
+    return this.implicit({ player: "you" }, "imperative-controller");
+  }
+
+  alias<T extends object>(node: T): T {
+    if (!this.printed) return node;
+    const checkpoint = this.printed.checkpoint();
+    const alias = this.printed.alias(node);
+    this.noteWrite(checkpoint);
+    return alias;
   }
 
   implicit<const T extends object>(node: T, reason: ImplicitReason): T {

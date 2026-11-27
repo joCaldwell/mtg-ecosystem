@@ -61,7 +61,7 @@ export function parseOracleTextWithPrintedEvidence(text: string, cardName?: stri
   { result: ParseCardResult; printed: FaceEvidence; defects: CaptureDefects } {
   const archiveContext: ParseContext = { ...context, includeSourceProvenance: true };
   const trace = normalizeOracleTextTracked(text, cardName, context.cardNames, context.typeLine);
-  const defects: CaptureDefects = { nesting: 0, overlap: 0, conflict: 0, unlocatedSelections: 0 };
+  const defects: CaptureDefects = { nesting: 0, overlap: 0, conflict: 0, unlocatedSelections: 0, mutationGuardDemotions: 0 };
   if (trace.status === "unmappable") return {
     result: parseNormalizedOracleText(trace.lines, text, cardName, archiveContext),
     printed: { sourceFaceIndex, status: "unmappable", reason: trace.reason },
@@ -89,6 +89,8 @@ export function parseOracleTextWithPrintedEvidence(text: string, cardName?: stri
   const readLine: typeof lex = (lineText, sourceId, catalog) => {
     const line = Number(sourceId?.slice("line:".length));
     const full = trace.lines[line];
+    // Parser cursors can share these arrays and token identities across reads.
+    // Productions that reorder or rewrite tokens work on their own copies.
     if (full === lineText && lines[line].status === "lexed") return bind(units[line], line, 0);
     const tokens = lex(lineText, sourceId, catalog);
     // Station and sticker bodies are explicit suffixes of a physical line.
@@ -96,12 +98,17 @@ export function parseOracleTextWithPrintedEvidence(text: string, cardName?: stri
     if (full?.endsWith(lineText)) return bind(tokens, line, full.length - lineText.length);
     return tokens;
   };
-  const result = capture.run(() => parseNormalizedOracleText(trace.lines, text, cardName, archiveContext, readLine, (line, start, end) => {
+  const result = capture.run(() => parseNormalizedOracleText(trace.lines, text, cardName, archiveContext, readLine, (line, start, end, creature) => {
     const o = new Utf8Index(text).range([start, end]);
     const reminderIndex = removedReminders.findIndex(reminder => reminder.o[0] <= o[0] && o[1] <= reminder.o[1]);
-    if (reminderIndex >= 0) stationReminders.set(line, {
-      fact: "reminder-citation", role: "station-creature-threshold", reminderIndex, o, field: "/effect/creature/basePT",
-    });
+    if (reminderIndex >= 0) {
+      // The matching threshold anchors the container; the reminder supplies
+      // the creature designation, which has no normalized token.
+      capture.hull(creature, bind(units[line].slice(0, 2), line, 0));
+      stationReminders.set(line, {
+        fact: "reminder-citation", role: "station-creature-threshold", reminderIndex, o, field: "/effect/creature/basePT",
+      });
+    }
   }));
 
   let first = 0;

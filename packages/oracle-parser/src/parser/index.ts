@@ -230,7 +230,7 @@ function tryLoyalty(tokens: Token[], options: Token[][], session: LineSession): 
   if (!block || block.triggerLimit || block.variableConstraints || block.paymentRestriction) return null;
   return {
     kind: "loyalty",
-    cost: { sign, amount: num.kind === "number" ? num.value : "x" },
+    cost: c.markTokens({ sign, amount: num.kind === "number" ? num.value : "x" }, tokens.slice(0, i + 1)),
     effects: block.sentences,
     ...(block.costModifications ? { costModifications: block.costModifications } : {}),
     ...(block.restriction ? { restriction: block.restriction } : {}),

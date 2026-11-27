@@ -39,12 +39,25 @@ keeps physical token order and grammar indices, committed production spans,
 folded clause ranges, and lexical facts. Target indices count introductions
 within the enclosing ability. Removed reminders have original byte ranges
 and may supply original-only citations. Hulls locate containers and
-unlocated nodes flag missing proof. Binding and resolution consume the
-existing parse result.
+unlocated nodes flag missing proof. Aliases point to the same printed
+operand when coordination shares one subject, duration, or destination.
+Binding and resolution consume the existing parse result.
+
+Implicit evidence identifies an unstated singular target
+(`implied-singular-target`), an unstated singular amount
+(`implied-singular-count`), an omitted imperative actor
+(`imperative-controller`), or an inferred zone (`default-zone`).
+Printed pronouns, zone names, and amounts retain their own token spans.
+When a later clause changes a recorded node, the parser folds that clause's
+tokens into the claim. At finalization the capture compares the node's own
+keys and scalar values with its last recorded snapshot. An uncovered change
+increments the mutation audit count and leaves only a hull of child or
+folded spans, or an unlocated node when those spans are absent.
 
 Wire version 1 omits `generatedQuotes`. Replay derives generated enclosure
-anchors from literal edits whose original slices were unquoted after
-punctuation canonicalization. A literal token's original range remains the
+anchors from literal edits whose original slices are unquoted after
+punctuation canonicalization. A quoted slice must parse as one JSON string
+literal. A literal token's original range remains the
 whole edit hull. Lexical and parse failures retain their diagnostic and range.
 
 ## Responsibilities and invariants

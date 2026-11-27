@@ -322,6 +322,7 @@ function parseCostModificationSentence(c: Cursor, mode: SentenceMode): ParsedSen
     }
     const direction = c.word("less", "more");
     if (!direction) return null;
+    const change = c.mark({ direction: direction === "less" ? "reduce" : "increase", symbols }, marker + 1);
     const action = c.attempt(c => c.word("to") !== null ? c.word("cast", "activate") : null);
     // "... to activate unless they're mana abilities": the same payments as
     // "abilities that aren't mana abilities" (CR 605.1a, 602.1).
@@ -375,8 +376,7 @@ function parseCostModificationSentence(c: Cursor, mode: SentenceMode): ParsedSen
     if (flash && (scope.action !== "cast" || !scope.occurrence || scope.spells.ref !== "each")) return null;
     if (uncounterable && !(scope.action === "cast" && scope.spells.ref === "each" && !scope.occurrence && !scope.from && !scope.notFrom))
       return null;
-    const effect: Modifier = { static: "cost-modification", scope,
-      change: { direction: direction === "less" ? "reduce" : "increase", symbols } };
+    const effect: Modifier = { static: "cost-modification", scope, change };
     for (;;) {
       if (!effect.multiplier && c.attempt(c => c.word("for") !== null && c.isWord("each") ? true : null)) {
         const multiplier = c.attempt(c => parseTargetedUnit(c, targetCountOwner(scope))) ?? parseEachMultiplier(c, targetCountOwner(scope), mode === "additional-cost");

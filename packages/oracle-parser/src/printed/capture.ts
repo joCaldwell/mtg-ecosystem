@@ -5,11 +5,29 @@ export interface Occurrence { line: number; index: number }
 
 export type Origin =
   | { basis: "recorded"; tokens: Occurrence[]; folds?: Occurrence[] }
+  | { basis: "hull"; tokens: Occurrence[] }
+  | { basis: "alias"; target: object }
   | { basis: "implicit"; reason: ImplicitReason };
+
+// Own keys and primitives survive the parser's deep-copy finalization.
+// Each object-valued slot has its own evidence and mutation check.
+const childSlot = Symbol("AST child");
+type OwnFields = Map<string, unknown>;
+
+function ownValue(value: unknown): unknown {
+  return value !== null && typeof value === "object" ? childSlot : value;
+}
+
+function ownFields(node: object): OwnFields {
+  return new Map(Object.entries(node).map(([key, value]) =>
+    [key, ownValue(value)]));
+}
 
 interface Entry {
   node: object;
   origin: Origin;
+  identity: object;
+  fields?: OwnFields;
   active: boolean;
   previous?: Entry;
 }
@@ -82,7 +100,23 @@ export class PrintedCapture {
     return this.entries.get(node)?.origin;
   }
 
+  identity(node: object): object | undefined {
+    return this.entries.get(node)?.identity;
+  }
+
+  changedSinceMark(node: object): boolean {
+    const fields = this.entries.get(node)?.fields;
+    if (!fields) return false;
+    const current = Object.entries(node);
+    return current.length !== fields.size || current.some(([key, value]) =>
+      !fields.has(key) || !Object.is(fields.get(key), ownValue(value)));
+  }
+
   mark(node: object, tokens: readonly Token[], mode?: "complete-production"): void {
+    // An imperative verb, connector, or inherited actor is no proof of a
+    // printed controller pronoun, even when a wrapper returns a PlayerRef.
+    if ("player" in node && node.player === "you" && !tokens.some(token =>
+      token.kind === "word" && /^you(?:r(?:s|self)?|'(?:re|ve|ll|d))?$/.test(token.value))) return;
     const occurrences = tokens.map(token => this.occurrence(token));
     if (occurrences.length && occurrences.every(occurrence => occurrence !== undefined)) {
       this.write(node, { basis: "recorded", tokens: occurrences }, mode === "complete-production");
@@ -90,10 +124,42 @@ export class PrintedCapture {
   }
 
   fold(node: object, tokens: readonly Token[]): void {
-    const origin = this.origin(node);
     const occurrences = tokens.map(token => this.occurrence(token));
-    if (origin?.basis === "recorded" && occurrences.length && occurrences.every(item => item !== undefined))
-      this.write(node, { ...origin, folds: [...(origin.folds ?? []), ...occurrences] }, true);
+    if (occurrences.length && occurrences.every(item => item !== undefined)) this.extend(node, occurrences);
+  }
+
+  foldOrigin(node: object, clause: object): void {
+    const origin = this.origin(clause);
+    if (origin?.basis === "recorded") this.extend(node, [...origin.tokens, ...(origin.folds ?? [])]);
+  }
+
+  private extend(node: object, clause: Occurrence[]): void {
+    const origin = this.origin(node);
+    if (origin?.basis !== "recorded" && origin?.basis !== "hull") return;
+    const earlier = [...origin.tokens, ...(origin.basis === "recorded" ? origin.folds ?? [] : [])];
+    const extra = clause.filter(({ line, index }) => !earlier.some(token => token.line === line && token.index === index));
+    if (origin.basis === "hull") this.write(node, { basis: "hull", tokens: [...earlier, ...extra] }, true);
+    else this.write(node, { ...origin, ...(extra.length ? { folds: [...(origin.folds ?? []), ...extra] } : {}) }, true);
+  }
+
+  hull(node: object, tokens: readonly Token[] = []): void {
+    const occurrences = tokens.map(token => this.occurrence(token));
+    if (!occurrences.every(item => item !== undefined)) return;
+    const origin = this.origin(node);
+    const prior = origin?.basis === "recorded" ? [...origin.tokens, ...(origin.folds ?? [])]
+      : origin?.basis === "hull" ? origin.tokens : [];
+    if (prior.length || occurrences.length) this.write(node, { basis: "hull", tokens: [...prior, ...occurrences] }, true);
+  }
+
+  /** Reuse one lexical occurrence in a second AST slot. The canonical
+   * occurrence keeps its marks, and only the alias copy inherits them. */
+  alias<T extends object>(node: T): T {
+    const entry = this.entries.get(node);
+    if (!entry) return node;
+    const alias = structuredClone(node);
+    const target = entry.origin.basis === "alias" ? entry.origin.target : entry.identity;
+    this.write(alias, { basis: "alias", target });
+    return alias;
   }
 
   implicit(node: object, reason: ImplicitReason): void {
@@ -101,16 +167,18 @@ export class PrintedCapture {
   }
 
   carry(from: object, to: object): void {
-    const origin = this.origin(from);
-    if (origin) this.write(to, origin);
+    const entry = this.entries.get(from);
+    if (entry) this.write(to, entry.origin, false, entry.fields, entry.identity);
   }
 
-  private write(node: object, origin: Origin, replace = false): void {
+  private write(node: object, origin: Origin, replace = false,
+    fields?: OwnFields, identity?: object): void {
     // The first committed production wins. Wrappers returning the same
     // object do not expand its lexical proof.
     const previous = this.entries.get(node);
     if (previous && !replace) return;
-    const entry: Entry = { node, origin, active: true, previous };
+    const entry: Entry = { node, origin, identity: identity ?? previous?.identity ?? node,
+      fields: origin.basis === "recorded" ? fields ?? ownFields(node) : undefined, active: true, previous };
     this.entries.set(node, entry);
     owners.set(node, this);
     this.journal.push(entry);

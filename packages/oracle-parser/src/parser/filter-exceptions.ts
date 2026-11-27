@@ -84,7 +84,19 @@ export function parseOtherThanDescriptions(c: Cursor, parseFilter: (c: Cursor) =
       if (last[key] === undefined) continue;
       if (items.some(item => item !== last && item[key] !== undefined)) return c.fail("one position for the whole selection");
       (result as Record<string, unknown>)[key] = last[key];
+      // The source now belongs to the enclosing selection. Preserve the
+      // exclusion's own words up to that source, with the shared context
+      // left to the parent.
+      const origin = c.printed?.origin(last);
+      const source = c.printed?.origin(last[key]);
       delete last[key];
+      if (origin?.basis === "recorded" && source?.basis === "recorded") {
+        const first = origin.tokens[0], split = source.tokens[0];
+        const start = c.tokens.findIndex(token => c.printed!.occurrence(token) === first);
+        const end = c.tokens.findIndex(token => c.printed!.occurrence(token) === split);
+        if (start >= 0 && end > start) c.mark(last, start, end, "complete-production");
+        else c.hull(last);
+      } else c.hull(last);
     }
     if (!items.every(item => Object.keys(item).every(key => PLAIN_KEYS.has(key)))) return c.fail("excluded kind without a scope of its own");
     for (const item of items) exclude(result, item);

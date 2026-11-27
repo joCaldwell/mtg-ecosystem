@@ -175,6 +175,7 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
     while (!c.done()) {
       recorder.step();
       const lastSentence = sentences.at(-1);
+      const clauseStart = c.pos;
       // Outcome clauses of a coin flip (CR 705.2) belong to that flip.
       const totalLimit = foldCounterTotalLimit(c, lastSentence);
       if (totalLimit === null) return null;
@@ -211,7 +212,7 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       // keyword granted by the directly preceding instruction.
       const costDefinition = lastSentence ? parseKeywordCostDefinition(c) : null;
       if (costDefinition) {
-        if (!attachKeywordCostDefinition(lastSentence!.steps, costDefinition)) return c.fail("one preceding grant of that cost keyword");
+        if (!attachKeywordCostDefinition(c, clauseStart, lastSentence!.steps, costDefinition)) return c.fail("one preceding grant of that cost keyword");
         if (!c.punct(".") && !c.done()) return null;
         continue;
       }
@@ -220,6 +221,7 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
         const permission = previousStep?.effect === "grant-play-permission" ? parsePermissionSpellAbilities(c, previousStep.permission) : null;
         if (permission && previousStep?.effect === "grant-play-permission") {
           previousStep.permission = permission;
+          c.fold(previousStep, clauseStart);
           continue;
         }
         if (previousStep && parseGrantRider(c, previousStep)) continue;
@@ -296,7 +298,11 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       const produced = previousSentence && !previousSentence.otherwise ? previousSentence.steps.filter(step => step.effect === "add-mana") : [];
       if (produced.length === 1 && produced[0].effect === "add-mana" && !produced[0].keptUntil) {
         const keptUntil = parseManaRetention(c, produced[0].who);
-        if (keptUntil) { produced[0].keptUntil = keptUntil; continue; }
+        if (keptUntil) {
+          produced[0].keptUntil = keptUntil;
+          c.fold(produced[0], clauseStart);
+          continue;
+        }
       }
       const ending = parseEndEffectAction(c, sentences);
       if (ending === false) return c.fail("open-ended continuous effect for 'this effect'");
@@ -318,9 +324,16 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
           !(previous.who && isPluralPlayerRef(previous.who)) &&
           !previousSentence.steps.slice(0, -1).some(step => containsEffect(step, "create-token"))) {
         const stats = parseTokenStatsSentence(c);
-        if (stats) { previous.token.power = stats.power; previous.token.toughness = stats.toughness; continue; }
+        if (stats) {
+          previous.token.power = stats.power;
+          previous.token.toughness = stats.toughness;
+          c.fold(previous.token, clauseStart);
+          c.fold(previous, clauseStart);
+          continue;
+        }
       }
       const tokenDefinition = containsEffect(sentences, "create-token") && hasTokenDefinitionSubject(c);
+      const from = c.pos;
       const beginsThen = c.isWord("then");
       const s = parseSentence(c, ctx)
         ?? (previousSentence && sentences.length === 1 ? parseCopyPairFollowup(c, previousSentence, { parseObjectRef, parsePtModifier }) : null);
@@ -362,7 +375,7 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       if (regeneration?.effect === "cant" && regeneration.action === "be-regenerated") {
         if (!regeneration.duration) {
           if (previousSentence?.otherwise || s.steps.length !== 1 || s.condition || s.otherwise || s.bindings ||
-              regeneration.optional || regeneration.forEach || !foldRegenerationRider(previous, regeneration.what))
+              regeneration.optional || regeneration.forEach || !foldRegenerationRider(c, previous, regeneration.what, from))
             return c.fail("unambiguous preceding destruction for regeneration rider");
           continue;
         }
@@ -390,15 +403,17 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
           if (ability.gained === "keyword" && !ability.protectionAttachmentException) previous.token.keywords.push(ability.keyword);
           else (previous.token.abilities ??= []).push(ability);
         }
+        c.fold(previous.token, from);
+        c.fold(previous, from);
         continue;
       }
       sentences.push(s);
     }
-    if (!forEachContinuationsScoped(sentences)) return c.fail("a fully scoped continuation after quantified instructions");
+    if (!forEachContinuationsScoped(c, sentences)) return c.fail("a fully scoped continuation after quantified instructions");
     if (!anyOneOfAnswered(sentences)) return c.fail("'if a player does' after an instruction any one player may perform");
     if (!labelsChosenFirst(sentences)) return c.fail("friend-or-foe labels chosen before they are used");
     if (!castCopiesAreCreated(sentences)) return c.fail("card copy made before 'the copy' is cast");
-    markConditionalContinuations(sentences);
+    markConditionalContinuations(c, sentences);
     if (grantsSuspendAfterCounterFilter(sentences)) return c.fail("exile with counters, not a counter filter, before a suspend grant");
     return sentences.length ? recorder.finish(sentences) : null;
   });
@@ -415,13 +430,16 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
  * indestructible.") or precedes it, so it never asserts either reading. A
  * sentence about "the rest" alone is the unconditional clean-up of an
  * earlier look or reveal and is not marked. */
-function markConditionalContinuations(sentences: Sentence[]): void {
+function markConditionalContinuations(c: Cursor, sentences: Sentence[]): void {
   const anaphor = /"ref":"(?:it|them|that|related|choice-result|copy-result)"|"to":"them"|"recipient":"they"/;
   for (let i = 1; i < sentences.length; i++) {
     const previous = sentences[i - 1], current = sentences[i];
     if (current.condition) continue;
     const governed = previous.afterConditional !== undefined || (previous.condition !== undefined && previous.conditionKind === "if");
-    if (governed && anaphor.test(JSON.stringify(current.steps))) current.afterConditional = "scope-unresolved";
+    if (governed && anaphor.test(JSON.stringify(current.steps))) {
+      current.afterConditional = "scope-unresolved";
+      c.hull(current);
+    }
   }
 }
 
@@ -575,7 +593,7 @@ function otherwiseScope(previous: Sentence, fallback: Effect[]): NonNullable<Sen
 /** CR 608.2c explicitly names this look-ahead interpretation. The ban applies
  * to the destruction event itself; it is not a later continuous effect.
  * https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt */
-function foldRegenerationRider(previous: Effect | undefined, what: ObjectRef): boolean {
+function foldRegenerationRider(c: Cursor, previous: Effect | undefined, what: ObjectRef, clause: number | Effect): boolean {
   if (!previous) return false;
   const steps = previous.effect === "simultaneous" ? previous.steps : [previous];
   if (!steps.length || steps.some(step => step.effect !== "destroy")) return false;
@@ -603,7 +621,12 @@ function foldRegenerationRider(previous: Effect | undefined, what: ObjectRef): b
       destroyed.filter.types?.includes(type) === true && !destroyed.filter.anyOf && !destroyed.filter.allOf);
   }
   if (!matches) return false;
-  for (const destroy of destroys) destroy.regenerationForbidden = true;
+  for (const destroy of destroys) {
+    destroy.regenerationForbidden = true;
+    if (destroy !== previous) c.hull(destroy);
+  }
+  if (typeof clause === "number") c.fold(previous, clause);
+  else c.foldOrigin(previous, clause);
   return true;
 }
 
@@ -612,14 +635,17 @@ function foldRegenerationRider(previous: Effect | undefined, what: ObjectRef): b
  * made in turn order from the stated player (CR 101.4). */
 function parseStartingWith(c: Cursor, parseBody: () => Effect[] | null): Effect[] | null {
   return c.attempt(c => {
+    const start = c.pos;
     if (!c.words("starting", "with")) return null;
     const first = parsePlayerRef(c);
     if (first?.player !== "you" || !c.punct(",")) return null;
+    const body = c.pos;
     const steps = parseBody();
     const step = steps?.length === 1 ? steps[0] : null;
     if (!step || !("who" in step) || !step.who || !("player" in step.who) || !isPluralPlayerRef(step.who)) return null;
     if (step.decidedBy && JSON.stringify(step.decidedBy) !== JSON.stringify(step.who)) return null;
     step.startingWith = first;
+    c.fold(step, start, body);
     return steps;
   });
 }
@@ -636,12 +662,14 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     const sentence: Sentence = { steps: [] };
 
     // Leading duration: "Until end of turn, target creature gains flying."
+    const durationStart = c.pos;
     const leadingDuration = c.attempt((c) => {
       const d = parseDuration(c);
       if (!d || !c.punct(",")) return null;
       return d;
     });
 
+    const durationEnd = c.pos;
     const prevention = parsePreventionSentence(c, ctx, parseSentences, { leadingDuration: leadingDuration ?? undefined });
     if (prevention) return prevention;
     const redirection = parseRedirectionSentence(c, { leadingDuration: leadingDuration ?? undefined });
@@ -691,6 +719,7 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     }
 
     // "For each A vote, <instruction>": the instruction repeats per vote.
+    const leadingRiderStart = c.pos;
     const leadingVote = c.attempt(c => {
       if (!c.words("for", "each")) return null;
       const choice = parseVoteRiderChoice(c);
@@ -710,20 +739,24 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     if (leadingUnit) {
       if (!steps.every(step => canScaleQuantity(step) && !step.forEach && !step.forEachVote && !step.optional)) return c.fail("a quantity scaled by the leading unit");
       steps.forEach(step => scaleQuantity(step, leadingUnit));
+      if (steps.length === 1) c.fold(steps[0], leadingRiderStart, stepsStart);
+      else for (const step of steps) c.hull(step);
     }
     // CR 608.2c: "destroy X and it can't be regenerated" is the same
     // destruction-event rider as the separate-sentence form, not a lasting effect.
     const ban = steps.at(-1);
     if (steps.length >= 2 && ban?.effect === "cant" && ban.action === "be-regenerated" && !ban.duration &&
-        !ban.optional && !ban.forEach && foldRegenerationRider(steps.at(-2), ban.what)) steps.pop();
+        !ban.optional && !ban.forEach && foldRegenerationRider(c, steps.at(-2), ban.what, ban)) steps.pop();
     if (leadingVote) {
       if (steps.length !== 1 || steps[0].forEach || steps[0].forEachVote) return c.fail("one instruction repeated per vote");
       applyVoteRider(steps, leadingVote);
+      c.fold(steps[0], leadingRiderStart, stepsStart);
     }
     if (steps.length === 1) {
       const payment = steps[0];
       if (payment.effect === "pay-cost" && payment.optional && !payment.times && payment.costs.length === 1
           && payment.costs[0].cost === "mana" && payment.costs[0].symbols.includes("X")) {
+        const maximumAt = c.pos;
         const maximum = c.attempt(c => c.punct(",") && c.words("where", "x", "is", "less", "than", "or", "equal", "to")
           ? parseAmount(c) : null);
         if (maximum) {
@@ -731,12 +764,16 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
             || maximum.scope !== "contextual" || maximum.who?.player !== "you" || payment.who.player !== "you")
             return c.fail("a bound from the amount of life gained");
           payment.variableConstraints = [{ variable: "x", maximum }];
+          c.fold(payment, maximumAt);
         }
       }
     }
     if (leadingDuration) {
-      for (const s of steps) {
-        if (!setDuration(s, leadingDuration)) return c.fail("duration on a continuous effect or permission");
+      for (const [index, step] of steps.entries()) {
+        if (!setDuration(step, index === 0 ? leadingDuration : c.alias(leadingDuration)))
+          return c.fail("duration on a continuous effect or permission");
+        if (index === 0) c.fold(step, durationStart, durationEnd);
+        else c.hull(step);
       }
     }
     sentence.steps = steps;
@@ -953,13 +990,23 @@ const COORDINATED_MODIFIERS = new Set<Effect["effect"]>(["pump", "gain-abilities
 /** The subject of another player's "may", including "any opponent may". */
 const anyOrPlayerRef = (c: Cursor): PlayerRef | null => parseAnyOnePlayerMay(c) ?? parsePlayerRef(c);
 
+function foldOptional(c: Cursor, step: Effect, prefix: number, body: number, limit: number, decider?: PlayerRef): void {
+  if (!c.printed || !step.optional) return;
+  if (decider && "who" in step && step.who === decider) step.who = c.alias(decider);
+  else if (!decider && "who" in step && step.who?.player === "you" && c.printed.origin(step.who)?.basis === "implicit")
+    c.mark(step.who, prefix, prefix + 1, "complete-production");
+  if (!c.printed.origin(step)) c.mark(step, body, limit);
+  c.fold(step, prefix, body);
+}
+
 function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): Effect[] | null {
   const previousSubject = ctx.lastSubject;
   const previousPlayer = ctx.lastPlayer;
   const result = c.attempt((c): Effect[] | null => {
     const steps: Effect[] = [];
-    const choices: { start: number; end: number; who?: PlayerRef }[] = [];
-    let choice: { start: number; end: number; who?: PlayerRef } | undefined;
+    type Choice = { start: number; end: number; prefix: number; body: number; limit: number; who?: PlayerRef };
+    const choices: Choice[] = [];
+    let choice: Choice | undefined;
     let modifierGroupStart = 0;
     // "[Player] may [instruction]": tried only where the instruction does
     // not parse otherwise, and every effect must then be that player's own.
@@ -972,6 +1019,9 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
       return performedBy(parsed, who) ? parsed : c.fail("instruction performed by the player who may");
     });
     for (;;) {
+      const from = c.pos;
+      let prefix = from;
+      let body = from;
       let sharedModifiers = false;
       let bareAnd = false;
       let sharesChoice = false;
@@ -980,11 +1030,13 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
       let decidedBy: PlayerRef | undefined;
       if (steps.length === 0) {
         optional = c.attempt((c) => (c.words("you", "may") ? true : null)) === true;
+        body = c.pos;
         parsed = parseStep(c, ctx, { optionalConsumed: optional, leadingDuration });
         if (parsed) parsed = parseStepAlternatives(c, ctx, parsed, leadingDuration);
         else if (!optional) {
           const other = c.attempt(c => {
             const who = parseOtherPlayerMay(c, anyOrPlayerRef);
+            body = c.pos;
             const parsed = otherMay(c, who);
             return who && parsed ? { who, parsed } : null;
           });
@@ -1004,7 +1056,9 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
             sharedModifiers = c.isWord(...ELIDED_MODIFIER_VERBS);
             bareAnd = !sharedModifiers;
           }
+          prefix = c.pos;
           const opt = c.attempt((c) => (c.words("you", "may") ? true : null)) === true;
+          body = c.pos;
           // A single "may" governs coordinated verbs with an elided actor.
           // A newly stated subject or another "may" begins a new instruction.
           sharesChoice = !opt && c.isWord("draw", "discard", "sacrifice", "pay", "gain", "lose", "create", "put", "return", "exile", "destroy", "counter", "tap", "untap", "search", "shuffle", "reveal", "add", "scry", "surveil", "mill", "transform", "convert", "attach", "unattach", "copy", "choose", "roll",
@@ -1019,6 +1073,7 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
           if (p) return { parsed: p, optional: opt };
           if (opt) return null;
           const who = parseOtherPlayerMay(c, anyOrPlayerRef);
+          body = c.pos;
           const other = otherMay(c, who);
           return who && other ? { parsed: other, optional: true, decidedBy: who } : null;
         });
@@ -1030,9 +1085,12 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
       // In a lasting permission, "may" describes the permitted action; the
       // creation of that permission is mandatory (CR 611.2a).
       if (parsed.every(effect => effect.effect === "grant-play-permission" || effect.effect === "grant-look-permission" || effect.effect === "additional-land-plays" || effect.effect === "loyalty-activation-limit"
-        || (effect.effect === "combat-rule" && effect.rule.rule === "assign-as-unblocked" && effect.rule.chooser !== undefined))) optional = false;
+        || (effect.effect === "combat-rule" && effect.rule.rule === "assign-as-unblocked" && effect.rule.chooser !== undefined))) {
+        if (optional && parsed.length === 1) c.fold(parsed[0], prefix, body);
+        optional = false;
+      }
       if (optional) {
-        choice = { start: steps.length, end: steps.length, ...(decidedBy ? { who: decidedBy } : {}) };
+        choice = { start: steps.length, end: steps.length, prefix, body, limit: body, ...(decidedBy ? { who: decidedBy } : {}) };
         choices.push(choice);
       } else if (!sharesChoice) choice = undefined;
       // "A get +2/+0 and B get +0/+2 until end of turn": modifiers with their
@@ -1048,7 +1106,7 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
       // "Destroy X and it can't be regenerated" modifies that destruction
       // (CR 608.2c), exactly like the separate-sentence rider.
       if (parsed.length === 1 && last.effect === "cant" && last.action === "be-regenerated" && !last.duration && steps.length > 0) {
-        if (optional || last.forEach || !foldRegenerationRider(steps[steps.length - 1], last.what))
+        if (optional || last.forEach || !foldRegenerationRider(c, steps[steps.length - 1], last.what, from))
           return c.fail("unambiguous preceding destruction for regeneration rider");
         continue;
       }
@@ -1058,15 +1116,16 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
       for (const e of parsed) {
         if (optional && e.effect !== "grant-play-permission" && e.effect !== "grant-look-permission") e.optional = true;
         if (decidedBy) e.decidedBy = decidedBy;
-        if (last.duration) e.duration = last.duration;
-        if (last.forEach) e.forEach = last.forEach;
+        if (last.duration) e.duration = e === last ? last.duration : c.alias(last.duration);
+        if (last.forEach) e.forEach = e === last ? last.forEach : c.alias(last.forEach);
         if (last.forEachBeyond) e.forEachBeyond = last.forEachBeyond;
         if (sharedModifiers && last.duration) {
           for (let i = steps.length - 1; i >= modifierGroupStart; i--) {
             const previous = steps[i];
             if (!COORDINATED_MODIFIERS.has(previous.effect)) break;
             if (previous.duration) break;
-            previous.duration = last.duration;
+            previous.duration = c.alias(last.duration);
+            c.hull(previous);
           }
         }
       }
@@ -1077,22 +1136,38 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
           const { optional: _optional, decidedBy: _decidedBy, ...step } = original;
           return carryPrintedOrigin(original, step);
         });
-        parsed = [{ effect: "simultaneous", steps: children, ...(optional ? { optional: true as const } : {}), ...(decidedBy ? { decidedBy } : {}) }];
+        parsed = [c.mark({ effect: "simultaneous", steps: children,
+          ...(optional ? { optional: true as const } : {}), ...(decidedBy ? { decidedBy } : {}) }, body)];
       }
       foldUnpreventableClause(c, parsed);
+      const actionEnd = c.pos;
       const delayed = parseDelayedSuffix(c, parsed);
-      if (delayed) parsed = delayed;
+      if (delayed) {
+        if (optional && choice && parsed.length === 1)
+          foldOptional(c, parsed[0], prefix, body, actionEnd, decidedBy);
+        parsed = delayed;
+      }
       steps.push(...parsed);
-      if (choice) choice.end = steps.length;
+      if (choice) {
+        choice.end = steps.length;
+        choice.limit = c.pos;
+      }
     }
     // Preserve one choice for "may A and B", not independent optional A/B.
     for (const group of choices.reverse()) {
-      if (group.end - group.start < 2) continue;
+      if (group.end - group.start < 2) {
+        const step = steps[group.start];
+        if (step) foldOptional(c, step, group.prefix, group.body, group.limit, group.who);
+        continue;
+      }
       const children = steps.slice(group.start, group.end).map(original => {
         const { optional: _optional, decidedBy: _decidedBy, ...step } = original;
+        if (group.who && "who" in step && step.who === group.who) step.who = c.alias(group.who);
         return carryPrintedOrigin(original, step);
       });
-      steps.splice(group.start, group.end - group.start, { effect: "optional-group", who: group.who ?? { player: "you" }, steps: children });
+      const who = group.who ?? c.mark({ player: "you" }, group.prefix, group.prefix + 1);
+      steps.splice(group.start, group.end - group.start,
+        c.mark({ effect: "optional-group", who, steps: children }, group.prefix, group.limit));
     }
     return steps.length ? steps : null;
   });
@@ -1123,12 +1198,12 @@ function parseStepAlternatives(c: Cursor, ctx: EffectContext, first: Effect[], l
     options.push(next);
   }
   if (options.length === 1) return first;
-  const actor = (e: Effect): PlayerRef => "who" in e && e.who ? e.who : { player: "you" };
-  const who = actor(options[0]);
+  const actor = (e: Effect): PlayerRef | undefined => "who" in e ? e.who : undefined;
+  const who = actor(options[0]) ?? c.imperativeController();
   if (isPluralPlayerRef(who) || options.some(option => !ALTERNATIVE_ACTIONS.has(option.effect) || option.optional ||
-      option.forEach || option.duration || JSON.stringify(actor(option)) !== JSON.stringify(who)))
+      option.forEach || option.duration || JSON.stringify(actor(option) ?? { player: "you" }) !== JSON.stringify(who)))
     return c.fail("alternative instructions of one actor");
-  return [{ effect: "choice", who, options }];
+  return [{ effect: "choice", who: actor(options[0]) ? c.alias(who) : who, options }];
 }
 
 /** An aggregate scales a quantity within the same event. It must never turn
@@ -1159,11 +1234,17 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
   const e = effects[effects.length - 1];
   let scaled = false;
   for (;;) {
+    const from = c.pos;
+    const fold = () => {
+      if (effects.length === 1) c.fold(e, from);
+      else for (const step of effects) c.hull(step);
+    };
     if (!scaled && !e.forEach && !e.forEachVote) {
       const choice = c.attempt(c => (c.words("for", "each") ? parseVoteRiderChoice(c) : null));
       if (choice) {
         applyVoteRider(effects, choice);
         scaled = true;
+        fold();
         continue;
       }
     }
@@ -1176,6 +1257,7 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
       if (unit) {
         e.count = { amount: "product", factors: [e.count, unit] };
         scaled = true;
+        fold();
         continue;
       }
     }
@@ -1188,6 +1270,7 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
       });
       if (unit) {
         scaled = true;
+        fold();
         continue;
       }
     }
@@ -1202,6 +1285,7 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
       });
       if (counted) {
         scaled = true;
+        fold();
         continue;
       }
     }
@@ -1214,6 +1298,7 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
       if (aggregate) {
         effects.forEach(effect => scaleQuantity(effect, aggregate));
         scaled = true;
+        fold();
         continue;
       }
     }
@@ -1226,6 +1311,7 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
       });
       if (aggregate) {
         scaled = true;
+        fold();
         continue;
       }
     }
@@ -1239,6 +1325,7 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
       if (forEach) {
         e.forEach = forEach.filter;
         if (forEach.beyond) e.forEachBeyond = 1;
+        fold();
         continue;
       }
     }
@@ -1249,6 +1336,7 @@ function attachRiders(c: Cursor, effects: Effect[]): void {
       });
       if (duration) {
         e.duration = duration;
+        fold();
         continue;
       }
     }
@@ -1329,13 +1417,13 @@ function transactionalStep(parser: StepParser): StepParser {
 }
 
 function parseStep(c: Cursor, ctx: EffectContext, options?: StepOptions): Effect[] | null {
-  const start = c.pos - (options?.optionalConsumed ? 2 : 0);
+  const start = c.pos;
   const previousSubject = ctx.lastSubject;
   const previousPlayer = ctx.lastPlayer;
   const previousImplied = ctx.impliedActor;
   ctx.impliedActor = options?.mayActor;
   const result = c.attempt((c): Effect[] | null => {
-    if (options?.optionalConsumed) ctx.lastPlayer = { player: "you" };
+    if (options?.optionalConsumed) ctx.lastPlayer = c.imperativeController();
     if (options?.mayActor) ctx.lastPlayer = options.mayActor;
     // Causative "may have [object] deal/become ..." has the same optional
     // resolution action; "have" is not a gained-ability instruction here.
@@ -1353,7 +1441,9 @@ function parseStep(c: Cursor, ctx: EffectContext, options?: StepOptions): Effect
       const r = withDeferredRounding(() => p(c, ctx, options));
       if (!r) continue;
       // CR 107.1a: "half X ..., rounded down" states its direction last.
+      const roundingAt = c.pos;
       if (!resolveDeferredRounding(c, r)) return c.fail("rounding direction");
+      if (r.length === 1) c.fold(r[0], roundingAt);
       // The named player must be the one performing every instruction; a
       // parse that put that player in any other role is not this sentence.
       if (causativeActor && !performedBy(r, causativeActor)) return c.fail("instruction performed by the player named after 'have'");
@@ -1447,7 +1537,10 @@ function shareTrailingCardSource(c: Cursor, refs: ObjectRef[], lastStart: number
   const tail = new Cursor(c.tokens.slice(from + 1, c.pos));
   const zone = parseZoneRef(tail);
   if (!zone || !tail.done() || JSON.stringify(zone) !== JSON.stringify(last.filter.zone)) return;
-  for (const ref of earlier) if (ref.ref === "target") ref.filter.zone = zone;
+  for (const ref of earlier) if (ref.ref === "target") {
+    ref.filter.zone = c.alias(last.filter.zone);
+    c.hull(ref.filter);
+  }
 }
 
 const PRONOUN_SUBJECT_VERBS = ["doesn't", "don't", "can't", "deals", "deal", "gets", "get", "gains", "gain",
@@ -1476,13 +1569,13 @@ function parseActor(c: Cursor, ctx: EffectContext, imperative: string, conjugate
     const retainsPluralActor = ctx.lastPlayer?.player === "they" || ctx.lastPlayer?.player === "group" || ctx.lastPlayer?.player === "those-players"
       || (!!ctx.lastPlayer && isPluralTargetPlayers(ctx.lastPlayer));
     const who = explicit ?? (verb === imperative && ctx.impliedActor ? ctx.impliedActor
-      : verb === imperative && !retainsPluralActor ? { player: "you" as const } : ctx.lastPlayer);
+      : verb === imperative && !retainsPluralActor ? c.imperativeController() : ctx.lastPlayer && c.alias(ctx.lastPlayer));
     if (!who) return c.fail("actor of conjugated effect");
     if (who.player === "group" && !allowGroup) return c.fail("supported grouped-player action");
     if (who.player === "group" && verb !== imperative) return c.fail("plural grouped-player verb");
     ctx.lastPlayer = who;
     return who;
-  });
+  }, "preserve");
 }
 
 const parseDraw: StepParser = transactionalStep((c, ctx) => {
@@ -1525,6 +1618,7 @@ const parseGet: StepParser = transactionalStep((c, ctx) => {
   const who = parseActor(c, ctx, "get", "gets");
   if (!who) return null;
   const symbolCounters = c.attempt((c): Effect[] | null => {
+    const start = c.pos;
     const symbol = c.symbol();
     if (symbol !== "E" && symbol !== "TK") return null;
     let count = 1;
@@ -1533,20 +1627,25 @@ const parseGet: StepParser = transactionalStep((c, ctx) => {
       if (next?.kind !== "symbol" || next.value !== symbol) break;
       c.pos++; count++;
     }
-    return [{ effect: "get-counters", who, counter: { type: symbol === "E" ? "energy" : "ticket" }, count: { amount: "fixed", value: count } }];
+    return [{ effect: "get-counters", who, counter: { type: symbol === "E" ? "energy" : "ticket" }, count: c.mark({ amount: "fixed", value: count }, start) }];
   });
   if (symbolCounters) return symbolCounters;
   // CR 107.14: with a stated number the {E} symbol is the unit: "six {E}",
   // "that many {E}", "an amount of {E} equal to its mana value".
   const energy = c.attempt((c): Effect[] | null => {
-    const unit = (c: Cursor) => { const symbol = c.peek(); return symbol?.kind === "symbol" && symbol.value === "E" && c.symbol() !== null; };
+    let unitAt = c.pos;
+    const unit = (c: Cursor) => {
+      unitAt = c.pos;
+      const symbol = c.peek();
+      return symbol?.kind === "symbol" && symbol.value === "E" && c.symbol() !== null;
+    };
     let count: Amount | null;
     if (c.words("an", "amount", "of")) count = unit(c) && c.words("equal", "to") ? parseAmount(c) : null;
     else {
       count = parseAmount(c);
       if (!unit(c)) return null;
     }
-    return count && [{ effect: "get-counters", who, counter: { type: "energy" }, count }];
+    return count && [{ effect: "get-counters", who, counter: c.mark({ type: "energy" }, unitAt, unitAt + 1), count }];
   });
   if (energy) return energy;
   if (c.words("an", "emblem", "with")) {
@@ -1815,18 +1914,22 @@ const parseReturn: StepParser = transactionalStep((c, ctx) => {
     if (narrowed) refs[0] = { ...refs[0], filter: narrowed };
   }
   if (toHand) return refs.map((what): Effect => ({ effect: "return-to-hand", what, to: toHand, ...(from ? { from } : {}), ...actor }));
+  const destinationStart = c.pos;
   if (implicitBattlefield || c.words("the", "battlefield")) {
+    const to = implicitBattlefield ? c.implicit({ zone: "battlefield" }, "default-zone")
+      : c.mark({ zone: "battlefield" }, destinationStart);
     const died = ctx.triggerScope === "dies-self" && refs.length === 1 && refs[0].ref === "it" ? refs[0] : undefined;
     const details = parseBattlefieldEntryDetails(c, died);
     if (!details || implicitBattlefield && !details.controller || details.from && (from || refs.some(hasExplicitSourceZone))) return null;
-    return refs.map((what): Effect => ({ effect: "move-zone", what, to: { zone: "battlefield" },
+    return refs.map((what, index): Effect => ({ effect: "move-zone", what, to: index === 0 ? to : c.alias(to),
       ...details, ...(from ? { from } : {}), ...actor }));
   }
   // "Return it to the command zone" / "to its owner's graveyard": the same
   // move as "put", to the stated zone (CR 400.3: always its owner's zone).
   const to = parseZoneRef(c);
   if (!to || to.position || !(to.zone === "command" || (to.zone === "graveyard" && to.owner === "its-owner"))) return null;
-  return refs.map((what): Effect => ({ effect: "move-zone", what, to, ...(from ? { from } : {}), ...actor }));
+  return refs.map((what, index): Effect => ({ effect: "move-zone", what, to: index === 0 ? to : c.alias(to),
+    ...(from ? { from: index === 0 ? from : c.alias(from) } : {}), ...actor }));
 });
 
 const parseCreateToken: StepParser = transactionalStep((c, ctx) => {
@@ -1835,6 +1938,7 @@ const parseCreateToken: StepParser = transactionalStep((c, ctx) => {
   // "Create your choice of A, B, or C": the same choice the creator makes
   // for "create A, B, or C" (CR 608.2d), printed explicitly.
   const yourChoice = who.player === "you" && c.words("your", "choice", "of");
+  const nameAt = c.pos;
   const literal = yourChoice ? undefined : c.peek()?.kind === "card-name" ? c.next() : undefined;
   if (literal && !c.punct(",")) return null;
   const dynamic = !yourChoice && c.words("a", "number", "of");
@@ -1846,6 +1950,7 @@ const parseCreateToken: StepParser = transactionalStep((c, ctx) => {
   if (literal?.kind === "card-name") {
     if (!("types" in token) || token.name) return null;
     token.name = literal.value;
+    c.fold(token, nameAt, nameAt + 1);
   }
   if (dynamic) count = parseEqualTo(c);
   if (!count) return null;
@@ -1905,16 +2010,17 @@ const parseSacrifice: StepParser = transactionalStep((c, ctx) => {
     const what = parseObjectRef(c);
     if (what?.ref !== "from-pool") return null;
     ctx.lastPlayer = chooser;
-    return [{ effect: "sacrifice", who: chooser, what, chosenBy: chooser }];
+    return [{ effect: "sacrifice", who: chooser, what, chosenBy: c.alias(chooser) }];
   }
   const who = parseActor(c, ctx, "sacrifice", "sacrifices");
   if (!who) return null;
   const greatest = who.player === "each-opponent" && c.attempt((c): ObjectRef | null => {
     // CR 701.21a: each player sacrifices their own permanent. The greatest
     // power is compared within each player's controlled creatures.
+    const start = c.pos;
     if (!c.words("a", "creature", "they", "control", "with", "the", "greatest", "power")) return null;
     const pool: ObjectFilter = { types: ["creature"], controlledBy: { player: "they" } };
-    return { ref: "filter", count: { amount: "fixed", value: 1 }, filter: { ...pool, properties: [{
+    return { ref: "filter", count: c.mark({ amount: "fixed", value: 1 }, start, start + 1), filter: { ...pool, properties: [{
       property: "power", comparison: { op: "eq", value: { amount: "attribute-extremum",
         attribute: "power", extremum: "maximum", among: { ...pool } } },
     }] } };
@@ -1928,9 +2034,10 @@ const parseSacrifice: StepParser = transactionalStep((c, ctx) => {
     // parseTargetChooser's "of an opponent's choice").
     if (c.attempt(c => c.word("an") !== null && c.possessive("opponent") !== null && c.word("choice") !== null ? true : null))
       return { player: "an-opponent" };
+    const start = c.pos;
     const whose = c.word("your", "their");
     if (!whose || c.word("choice") === null) return null;
-    return whose === "your" ? { player: "you" } : who;
+    return whose === "your" ? c.mark({ player: "you" }, start, start + 1) : c.alias(who);
   });
   // "a creature of their choice with flying": the same description as "a
   // creature with flying of their choice" (CR 701.21a).
@@ -1982,12 +2089,12 @@ const parseScrySurveil: StepParser = transactionalStep((c, ctx) => {
 const parseKeywordAction: StepParser = transactionalStep((c, ctx) => {
   // "Each opponent may investigate": the player whose "may" governs it acts.
   const plain = c.word("proliferate", "populate", "investigate");
-  if (plain) return [{ effect: "keyword-action", action: plain as "proliferate" | "populate" | "investigate", who: ctx.impliedActor ?? { player: "you" } }];
+  if (plain) return [{ effect: "keyword-action", action: plain as "proliferate" | "populate" | "investigate", who: ctx.impliedActor ?? c.imperativeController() }];
   const counted = c.word("discover", "adapt", "monstrosity", "bolster", "support");
   if (counted) {
     const amount = parseCount(c);
     if (!amount) return null;
-    if (counted === "discover") return [{ effect: "discover", who: ctx.impliedActor ?? { player: "you" }, amount }];
+    if (counted === "discover") return [{ effect: "discover", who: ctx.impliedActor ?? c.imperativeController(), amount }];
     return [{ effect: counted as "adapt" | "monstrosity" | "bolster" | "support", amount }];
   }
   if (c.word("amass") !== null) {
@@ -2005,7 +2112,7 @@ const parseKeywordAction: StepParser = transactionalStep((c, ctx) => {
 });
 
 const parsePay: StepParser = transactionalStep((c, ctx) => {
-  const who = c.attempt(parsePlayerRef) ?? ctx.impliedActor ?? { player: "you" as const };
+  const who = c.attempt(parsePlayerRef) ?? ctx.impliedActor ?? c.imperativeController();
   if (c.word("pay", "pays") === null) return null;
   const paid = parsePaidCosts(c);
   if (paid) return [{ effect: "pay-cost", who, costs: paid }];
@@ -2109,7 +2216,7 @@ function parseCounterGroup(c: Cursor): Extract<Effect, { effect: "put-counters" 
       // "Up to X counters": the player chooses how many, from zero to X.
       const upTo = c.words("up", "to");
       // "another counter" adds one counter; it is not another selected object.
-      const count: Amount | null = c.word("another") !== null ? { amount: "fixed", value: 1 } : parseAmount(c);
+      const count: Amount | null = c.word("another") !== null ? c.mark({ amount: "fixed", value: 1 }, c.pos - 1) : parseAmount(c);
       const counter = count && parseCounterSpec(c);
       return count && counter && c.word("counter", "counters") !== null ? { counter, count, ...(upTo ? { upTo: true as const } : {}) } : null;
     });
@@ -2181,12 +2288,15 @@ function parsePutGroup(c: Cursor, earlier: ZoneMove[] = [], who: PlayerRef = { p
     const origin = back || refs.some(hasExplicitSourceZone) ? null
       : c.attempt(c => c.word("from") !== null ? parseZoneRef(c) : null);
     if (c.word("onto", "into", "on", "in") === null) return null;
+    const destinationStart = c.pos;
     const stated = parseZoneRef(c);
-    const to = stated && (parseLibraryDepth(c, stated) ?? stated);
+    const depth = stated && parseLibraryDepth(c, stated);
+    const to = depth ? c.mark(depth, destinationStart, c.pos, "complete-production") : stated;
     if (!to || bounded && to.zone !== "battlefield" || (back && !(to.zone === "library" && to.position))) return null;
     const details = parseZoneMoveDetails(c, to);
     if (!details || (details.from && (origin || refs.some(hasExplicitSourceZone)))) return null;
-    return refs.map(what => ({ effect: "move-zone", what, to, ...details, ...(origin ? { from: origin } : {}) }));
+    return refs.map((what, index) => ({ effect: "move-zone", what, to: index === 0 ? to : c.alias(to), ...details,
+      ...(origin ? { from: index === 0 ? origin : c.alias(origin) } : {}) }));
   });
 }
 function parseZoneMoveDetails(c: Cursor, to: ZoneRef): Pick<ZoneMove, "tapped" | "controller" | "order" | "from" | "entry"> | null {
@@ -2211,7 +2321,7 @@ const parseAddMana: StepParser = transactionalStep((c, ctx) => {
     if (tapped ? !c.words("its", "controller", "adds") : ctx.triggerScope !== "adds-mana-chosen" || c.word("add") === null)
       return null;
     if (!c.words("an", "additional", "one", "mana", "of", "that", "color") || !c.isPunct(".")) return null;
-    const who: PlayerRef = tapped ? { player: "controller", of: { ref: "it" } } : { player: "you" };
+    const who: PlayerRef = tapped ? { player: "controller", of: { ref: "it" } } : c.imperativeController();
     return [{ effect: "add-mana", who, mana: { mana: "trigger-event-color", amount: { amount: "fixed", value: 1 } } }];
   });
   if (triggerMana) return triggerMana;
@@ -2264,7 +2374,7 @@ const parseShuffle: StepParser = transactionalStep((c, ctx) => {
     return { effect: "shuffle-into-library", who, what, library };
   });
   if (into) return [into];
-  const library = parseZoneRef(c) ?? { zone: "library" as const, owner: who };
+  const library: ZoneRef = parseZoneRef(c) ?? c.implicit({ zone: "library", owner: c.alias(who) }, "default-zone");
   if (library.zone !== "library" || library.position) return null;
   return [{ effect: "shuffle", who, library }];
 });
@@ -2287,11 +2397,13 @@ const parseTopOfShuffledLibrary: StepParser = transactionalStep((c, ctx) => {
   }
   const verb = c.word("exile", "reveal");
   if (!verb || c.word("the") === null || c.word("top") === null) return null;
-  const count: Amount = parseAmount(c) ?? { amount: "fixed", value: 1 };
+  const stated = parseAmount(c);
   const noun = c.word("card", "cards");
+  const count: Amount = stated ?? c.mark({ amount: "fixed", value: 1 }, c.pos - 1);
   if (!noun || (noun === "card") !== (count.amount === "fixed" && count.value === 1) || c.isWord("of")) return null;
-  const what: ObjectRef = { ref: "library-cards", position: "top", count, of: { zone: "library", owner: "your" } };
-  return [verb === "exile" ? { effect: "exile", what } : { effect: "reveal", who: { player: "you" }, what }];
+  const of = c.implicit({ zone: "library", owner: "your" }, "default-zone");
+  const what: ObjectRef = { ref: "library-cards", position: "top", count, of };
+  return [verb === "exile" ? { effect: "exile", what } : { effect: "reveal", who: c.imperativeController(), what }];
 });
 
 const parseLifeGainLoss: StepParser = transactionalStep((c, ctx) => {
@@ -2480,7 +2592,7 @@ const parsePumpOrGain: StepParser = transactionalStep((c, ctx) => {
   if (!what) {
     // elided subject: "…and gains flying until end of turn"
     if (!ctx.lastSubject) return null;
-    what = ctx.lastSubject;
+    what = c.alias(ctx.lastSubject);
   }
   // A floating "each" after a plural subject only marks that the modifier
   // applies to every member, which a pump/grant over a group already means.
@@ -2599,8 +2711,8 @@ function parseTokenSpecLike(c: Cursor): { types?: string[]; subtypes?: string[];
       if (p === null || !c.punct("/")) return null;
       const t = c.number();
       if (t === null) return null;
-      out.power = { amount: "fixed", value: p };
-      out.toughness = { amount: "fixed", value: t };
+      out.power = c.mark({ amount: "fixed", value: p }, c.pos - 3, c.pos - 2);
+      out.toughness = c.mark({ amount: "fixed", value: t }, c.pos - 1);
       return true;
     });
     let consumed = !!out.power;
@@ -2626,8 +2738,8 @@ function parseTokenSpecLike(c: Cursor): { types?: string[]; subtypes?: string[];
       if (p === null || !c.punct("/")) return null;
       const t = c.number();
       if (t === null) return null;
-      out.power = { amount: "fixed", value: p };
-      out.toughness = { amount: "fixed", value: t };
+      out.power = c.mark({ amount: "fixed", value: p }, c.pos - 3, c.pos - 2);
+      out.toughness = c.mark({ amount: "fixed", value: t }, c.pos - 1);
       return true;
     });
     if (!consumed) return null;
@@ -2662,8 +2774,10 @@ const parseLook: StepParser = transactionalStep((c, ctx) => {
   if (c.word("at") === null) return null;
   const top = c.attempt((c): Effect[] | null => {
     if (!c.words("the", "top")) return null;
-    const topN = c.attempt(parseAmount) ?? { amount: "fixed" as const, value: 1 };
-    c.word("card", "cards");
+    const stated = c.attempt(parseAmount);
+    const noun = c.word("card", "cards");
+    const topN = stated ?? (noun === "card" ? c.mark({ amount: "fixed", value: 1 }, c.pos - 1)
+      : c.implicit({ amount: "fixed", value: 1 }, "implied-singular-count"));
     if (c.word("of") === null) return null;
     const of = parseZoneRef(c);
     if (!of) return null;

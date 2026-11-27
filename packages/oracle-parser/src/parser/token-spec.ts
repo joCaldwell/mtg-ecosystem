@@ -84,6 +84,7 @@ function parseCopyModification(c: Cursor, parseAbilities: AbilityParser, parseCh
     c.word("a", "an");
     const spec = parseCharacteristics(c);
     if (!spec) return null;
+    const rider = c.pos;
     if (c.words("in", "addition", "to")) {
       if (c.word("its", "their") === null || c.word("other") === null) return null;
       const inAddition = c.word("types", "colors");
@@ -91,6 +92,7 @@ function parseCopyModification(c: Cursor, parseAbilities: AbilityParser, parseCh
       if (inAddition === "types" && !spec.types?.length && !spec.subtypes?.length) return null;
       if (inAddition === "colors" && !spec.colors?.length) return null;
       spec.inAddition = inAddition;
+      c.fold(spec, rider);
     }
     return { modification: "characteristics", spec };
   });

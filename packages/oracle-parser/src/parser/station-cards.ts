@@ -42,7 +42,7 @@ function creatureThreshold(rawText: string): { value: number; start: number; end
  * A recognized but malformed structure returns explicit failures, so that
  * ordinary line parsing cannot turn a striation's contents into
  * unconditional abilities or a dice results table. */
-export type StationReminderReader = (line: number, start: number, end: number) => void;
+export type StationReminderReader = (line: number, start: number, end: number, creature: NonNullable<StationBand["creature"]>) => void;
 
 export function parseStationCard(lines: readonly string[], parseBlocks: BlockParser, rawText: string,
   recordReminder?: StationReminderReader): ParsedLine[] | null {
@@ -77,7 +77,7 @@ export function parseStationCard(lines: readonly string[], parseBlocks: BlockPar
     }
     const effect: StationBand = { static: 'station-band', threshold: thresholds[band], abilities,
       ...(creatureAt?.value === thresholds[band] ? { creature: { basePT: 'printed-box' as const } } : {}) };
-    if (creatureAt?.value === thresholds[band]) recordReminder?.(start, creatureAt.start, creatureAt.end);
+    if (effect.creature && creatureAt) recordReminder?.(start, creatureAt.start, creatureAt.end, effect.creature);
     results.push({ text, ok: true, ability: finalizeCharacteristicDefinitions({ kind: 'static', effect }) });
   }
   return results;

@@ -7,6 +7,7 @@ export interface CaptureDefects {
   overlap: number;
   conflict: number;
   unlocatedSelections: number;
+  mutationGuardDemotions: number;
 }
 
 export interface LocatedNode {
@@ -68,6 +69,15 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
     for (const child of node.children) demote(child);
   };
 
+  const targets = new Map<object, { path: string; value: object }>();
+  function findAliasTargets(value: unknown, path: string): void {
+    if (!value || typeof value !== "object" || capture.origin(value)?.basis === "alias") return;
+    const identity = capture.identity(value);
+    if (identity && !targets.has(identity)) targets.set(identity, { path, value });
+    for (const [key, child] of Object.entries(value)) findAliasTargets(child, pointer(path, key));
+  }
+  findAliasTargets(ability, "");
+
   function visit(value: unknown, path: string, scope: string, depth: number, parent?: LocatedNode,
     aliasOf?: string): void {
     if (!value || typeof value !== "object") return;
@@ -79,10 +89,19 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
     const obj = value as Record<string, unknown>;
     if (abilityKinds.has(obj.kind as Ability["kind"])) scope = path;
     const origin = capture.origin(value);
+    const mutated = origin?.basis === "recorded" && capture.changedSinceMark(value);
+    if (mutated) {
+      defects.mutationGuardDemotions++;
+      aliasOf = undefined;
+    }
+    if (aliasOf === undefined && origin?.basis === "alias") {
+      const target = targets.get(origin.target);
+      if (target && JSON.stringify(target.value) === JSON.stringify(value)) aliasOf = target.path;
+    }
     // The Halfling production uses the same parsed spending purpose twice.
     // Carry preserves the exact origin through cloning; equality alone cannot establish reuse.
     const shared = /^(.*)\/riders\/0\/spentOn\/(\d+)$/.exec(path);
-    if (aliasOf === undefined && shared && obj.use === "cast" && origin?.basis === "recorded") {
+    if (!mutated && aliasOf === undefined && shared && obj.use === "cast" && origin?.basis === "recorded") {
       const candidate = `${shared[1]}/restriction/uses/${shared[2]}`;
       const original = byPath.get(candidate);
       if (original && capture.origin(original.value) === origin && JSON.stringify(original.value) === JSON.stringify(value)) aliasOf = candidate;
@@ -120,6 +139,12 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
     }
     for (const child of unclear) demote(child);
     const childSpans = union(located.children.flatMap(child => extent(child.node)));
+    if (mutated || origin?.basis === "hull") {
+      const clauses = origin.basis === "hull" ? origin.tokens : origin.folds ?? [];
+      const span = union([...childSpans, ...tokenRuns(clauses.filter(({ line }) => lines[0] <= line && line < lines[1]))]);
+      if (span.length) located.node = { path, basis: "hull", span };
+      return;
+    }
     if (origin?.basis === "recorded") {
       const span = tokenRuns(origin.tokens);
       const folds = origin.folds && tokenRuns(origin.folds);
@@ -144,8 +169,11 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
   visit(ability, "", "", 0);
   for (const located of ordered) {
     const node = located.node;
-    if (node.basis === "alias" && byPath.get(node.of)?.node.basis === "unlocated")
-      located.node = { path: node.path, basis: "unlocated" };
+    if (node.basis === "alias") {
+      const target = byPath.get(node.of)?.node;
+      if (!target || target.basis === "alias" || target.basis === "unlocated")
+        located.node = { path: node.path, basis: "unlocated" };
+    }
   }
   return ordered;
 }

@@ -4,6 +4,7 @@ import { buildCardNameCatalog, parseOracleTextWithPrintedEvidence } from "../src
 import { lex } from "../src/lexer.ts";
 import { Cursor } from "../src/parser/cursor.ts";
 import { finalizeCharacteristicDefinitions } from "../src/parser/characteristic-origin.ts";
+import { locateNodes } from "../src/printed/nodes.ts";
 import { PrintedCapture } from "../src/printed/capture.ts";
 import type { ByteRange, PrintedBlock, PrintedFace, PrintedFact, TokenRun } from "../src/printed/schema.ts";
 
@@ -47,6 +48,19 @@ function fact<K extends PrintedFact["fact"]>(found: ReadBlock, kind: K,
     candidate.fact === kind && match(candidate as Extract<PrintedFact, { fact: K }>));
   assert.ok(picked, kind);
   return picked;
+}
+
+function assertLocated(face: ReadFace): void {
+  for (const found of face.blocks) {
+    assert.equal(found.status, "read");
+    assert.deepEqual(found.nodes.filter(node => node.basis === "unlocated"), []);
+  }
+}
+
+function folds(face: ReadFace, text: string, found: ReadBlock, path: string): string[] {
+  const node = found.nodes.find(node => node.path === path);
+  assert.equal(node?.basis, "recorded", path);
+  return (node.folds ?? []).map(run => spelling(face, text, run));
 }
 
 const step = "/effects/0/steps/0";
@@ -98,6 +112,7 @@ test("R5:1344 Junk Diver records the dying creature, another target, and singula
   const text = "Flying\nWhen this creature dies, return another target artifact card from your graveyard to your hand.";
   const parse = (source: string) => read(source, "Junk Diver", "Artifact Creature — Bird");
   const face = parse(text);
+  assertLocated(face);
   const trigger = block(face, 1);
   assert.equal(spelling(face, text, span(block(face), "/keywords/0")), "Flying");
   assert.deepEqual(originalRange(face, span(trigger, "/trigger/what")), [12, 25]);
@@ -122,6 +137,7 @@ test("R5:3602 Terastodon keeps optionality, one bounded introduction, and result
   const text = "When this creature enters, you may destroy up to three target noncreature permanents. For each permanent put into a graveyard this way, its controller creates a 3/3 green Elephant creature token.";
   const parse = (source: string) => read(source, "Terastodon", "Creature — Elephant");
   const face = parse(text);
+  assertLocated(face);
   const body = block(face);
   const may = fact(body, "optional", f => f.form === "may");
   assert.deepEqual(originalRange(face, may.tok), [31, 34]);
@@ -156,6 +172,7 @@ test("R5:7870 Secret Rendezvous records the two recipient roles and the per-play
   const text = "You and target opponent each draw three cards.";
   const parse = (source: string) => read(source, "Secret Rendezvous", "Sorcery");
   const face = parse(text);
+  assertLocated(face);
   const body = block(face);
   assert.deepEqual(originalRange(face, span(body, step + "/who/members/0")), [0, 3]);
   assert.deepEqual(originalRange(face, span(body, step + "/who/members/1")), [8, 23]);
@@ -178,6 +195,7 @@ test("R5:8135 and :37759 keep mana production, restriction and rider spans disjo
   const riderPath = step + "/riders/0";
   const restrictionPath = step + "/restriction";
   for (const [source, face] of [[boseiju, land(boseiju)], [halfling, creature(halfling)]] as const) {
+    assertLocated(face);
     const activation = block(face, 1);
     const production = span(activation, "/effects/0");
     const rider = span(activation, riderPath, "hull");
@@ -190,6 +208,11 @@ test("R5:8135 and :37759 keep mana production, restriction and rider spans disjo
   const full = land(boseiju);
   assert.deepEqual(full.edits[0], { edit: "self-name", form: "before-comma", o: [0, 7], n: [0, 1] });
   const conditional = block(full, 1);
+  const filter = riderPath + "/spentOn/0/filter/allOf/0/anyOf/";
+  assert.equal(spelling(full, boseiju, span(conditional, filter + "0")), "instant");
+  assert.equal(spelling(full, boseiju, span(conditional, filter + "1")), "sorcery");
+  assert.deepEqual(conditional.nodes.find(node => node.path === step + "/who"),
+    { path: step + "/who", basis: "implicit", reason: "imperative-controller" });
   assert.equal(spelling(full, boseiju, span(conditional, riderPath, "hull")),
     "If that mana is spent on an instant or sorcery spell, that spell can't be countered.");
   const bare = block(land(boseiju.slice(0, boseiju.indexOf(" If"))), 1);
@@ -226,6 +249,7 @@ test("target introductions exclude a trigger mention and a removed reminder", ()
 test("R5:516 station suffix retains physical locations and cites the removed threshold", () => {
   const text = "When this Spacecraft enters, create a 2/2 colorless Robot artifact creature token.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)\n9+ | Flying, first strike";
   const face = read(text, "Wedgelight Rammer", "Artifact — Spacecraft");
+  assertLocated(face);
   const band = block(face, 2);
   const location = span(band, "/effect/abilities/0/keywords/0");
   assert.deepEqual(location, [2, 3, 4]);
@@ -280,4 +304,120 @@ test("quote settling preserves physical punctuation order and failed blocks keep
   assert.deepEqual(failed.n, [13, 14]);
   assert.equal(failed.at, 13);
   assert.equal(failed.location, "lex-error");
+});
+
+
+test("the mutation guard keeps only child or folded spans after an uncovered scalar change", () => {
+  const tokens = lex("Destroy target creature. It can't be regenerated.", "line:0");
+  const capture = new PrintedCapture();
+  tokens.forEach((token, index) => capture.register(token, { line: 0, index }));
+  const c = capture.run(() => new Cursor(tokens));
+  const what = c.mark({ ref: "target" }, 1, 3);
+  const destroy = { effect: "destroy", what, regenerationForbidden: false };
+  c.mark(destroy, 0, 3);
+  destroy.regenerationForbidden = true;
+
+  const audit = () => {
+    const defects = { nesting: 0, overlap: 0, conflict: 0, unlocatedSelections: 0, mutationGuardDemotions: 0 };
+    const nodes = locateNodes(destroy, capture, [0, 1], defects);
+    return { root: nodes[0].node, demotions: defects.mutationGuardDemotions };
+  };
+
+  assert.deepEqual(audit(), { root: { path: "", basis: "hull", span: [[0, 1, 3]] }, demotions: 1 });
+  c.fold(destroy, 4, tokens.length);
+  assert.deepEqual(audit(), { root: { path: "", basis: "recorded", span: [[0, 0, 3]], folds: [[0, 4, tokens.length]] }, demotions: 0 });
+
+  const amount = { amount: "fixed", value: 1 };
+  c.mark(amount, 1, 2);
+  amount.value = 2;
+  const defects = { nesting: 0, overlap: 0, conflict: 0, unlocatedSelections: 0, mutationGuardDemotions: 0 };
+  assert.deepEqual(locateNodes(amount, capture, [0, 1], defects)[0].node, { path: "", basis: "unlocated" });
+  assert.equal(defects.mutationGuardDemotions, 1);
+});
+
+test("Polymorph and Pongify attach the regeneration sentence to the destruction", () => {
+  const instruction = "Destroy target creature. It can't be regenerated.";
+  const examples = [
+    ["Polymorph", "Sorcery", instruction + " Its controller reveals cards from the top of their library until they reveal a creature card. The player puts that card onto the battlefield, then shuffles all other cards revealed this way into their library."],
+    ["Pongify", "Instant", instruction + " Its controller creates a 3/3 green Ape creature token."],
+  ];
+  for (const [name, type, text] of examples) {
+    const face = read(text, name, type);
+    const body = block(face);
+    assert.equal(spelling(face, text, span(body, step)), "Destroy target creature");
+    assert.deepEqual(folds(face, text, body, step), ["It can't be regenerated."]);
+  }
+  const clause = "Destroy target creature and it can't be regenerated.";
+  const face = read(clause, "Test", "Instant");
+  assert.deepEqual(folds(face, clause, block(face), step), ["and it can't be regenerated"]);
+});
+
+test("unpreventable damage folds supported riders and retains Banefire's failed paragraph", () => {
+  const combust = "This spell can't be countered.\nCombust deals 5 damage to target white or blue creature. The damage can't be prevented.";
+  const direct = read(combust, "Combust", "Instant");
+  assert.deepEqual(folds(direct, combust, block(direct, 1), step), ["The damage can't be prevented."]);
+
+  const rage = "Kicker {8}{R} (You may pay an additional {8}{R} as you cast this spell.)\nThis spell can't be countered.\nUrza's Rage deals 3 damage to any target. If this spell was kicked, instead it deals 10 damage to that permanent or player and the damage can't be prevented.";
+  const kicked = read(rage, "Urza's Rage", "Instant");
+  assert.deepEqual(folds(kicked, rage, block(kicked, 2), step + "/instead/0"), ["and the damage can't be prevented"]);
+
+  const banefire = "Banefire deals X damage to any target.\nIf X is 5 or more, this spell can't be countered and the damage can't be prevented.";
+  const unsupported = read(banefire, "Banefire", "Sorcery");
+  assert.deepEqual(folds(unsupported, banefire, block(unsupported), step), []);
+  assert.equal(unsupported.blocks[1].status, "failed");
+});
+
+test("an explicit optional prefix belongs to the action or to its enclosing group", () => {
+  const direct = "You may draw a card.";
+  const solo = read(direct, "Test", "Sorcery");
+  assert.deepEqual(folds(solo, direct, block(solo), step), ["You may"]);
+  assert.equal(spelling(solo, direct, span(block(solo), step + "/who")), "You");
+
+  const coordinated = "You may draw a card and discard a card.";
+  const group = read(coordinated, "Test", "Sorcery");
+  const body = block(group);
+  assert.equal(spelling(group, coordinated, span(body, step)), coordinated.slice(0, -1));
+  assert.equal(spelling(group, coordinated, span(body, step + "/steps/0")), "draw a card");
+  assert.equal(spelling(group, coordinated, span(body, step + "/steps/1")), "discard a card");
+});
+
+test("coordinated characteristic modifiers keep their own spans and one shared duration", () => {
+  const text = "Target creature gets +2/+2 and gains flying until end of turn.";
+  const face = read(text, "Test", "Instant");
+  const body = block(face);
+  const second = "/effects/0/steps/1";
+  assert.equal(spelling(face, text, span(body, step, "hull")), "Target creature gets +2/+2");
+  assert.equal(spelling(face, text, span(body, second)), "gains flying");
+  assert.deepEqual(folds(face, text, body, second), ["until end of turn"]);
+  assert.deepEqual(body.nodes.find(node => node.path === step + "/duration"),
+    { path: step + "/duration", basis: "alias", of: second + "/duration" });
+});
+
+
+test("printed actors and zones have local spans while a bare shuffle records both defaults", () => {
+  const implicit = block(read("Shuffle.", "Test", "Sorcery"));
+  assert.deepEqual(implicit.nodes.find(node => node.path === step + "/who"),
+    { path: step + "/who", basis: "implicit", reason: "imperative-controller" });
+  assert.deepEqual(implicit.nodes.find(node => node.path === step + "/library"),
+    { path: step + "/library", basis: "implicit", reason: "default-zone" });
+  const explicit = "You shuffle your library.";
+  const shuffle = read(explicit, "Test", "Sorcery");
+  assert.equal(spelling(shuffle, explicit, span(block(shuffle), step + "/who")), "You");
+  assert.equal(spelling(shuffle, explicit, span(block(shuffle), step + "/library")), "your library");
+});
+
+test("printed counts, zones, and cost adjustments retain their own token spans", () => {
+  for (const [text, typeLine, path, expected] of [
+    ["Return target creature card from your graveyard to the battlefield.", "Sorcery", step + "/what/filter/zone", "your graveyard"],
+    ["Return target creature card from your graveyard to the battlefield.", "Sorcery", step + "/to", "the battlefield"],
+    ["Look at the top card of your library.", "Sorcery", step + "/what/top", "card"],
+    ["Each opponent sacrifices a creature of their choice.", "Sorcery", step + "/who", "Each opponent"],
+    ["Each opponent sacrifices a creature of their choice.", "Sorcery", step + "/what/count", "a"],
+    ["You get {E}{E}.", "Sorcery", step + "/count", "{E}{E}"],
+    ["+1: Draw a card.", "Legendary Planeswalker — Test", "/cost", "+1"],
+    ["This spell costs {2} less to cast for each creature you control.", "Creature", "/effect/change", "{2} less"],
+  ]) {
+    const face = read(text, "Test", typeLine);
+    assert.equal(spelling(face, text, span(block(face), path)), expected, path);
+  }
 });

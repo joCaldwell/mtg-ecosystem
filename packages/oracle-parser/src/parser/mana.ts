@@ -152,6 +152,7 @@ export function parseSpendingUse(c: Cursor): ManaSpendingUse | null {
     if (c.word("cast") !== null) {
       if (c.words("your", "commander")) return { use: "cast-commander", whose: { player: "you" } };
       c.word("a", "an");
+      const filterAt = c.pos;
       const filter = parseFilter(c);
       if (!filter) return null;
       // The restricted purpose is casting from a zone, not casting a spell
@@ -161,7 +162,17 @@ export function parseSpendingUse(c: Cursor): ManaSpendingUse | null {
         (filter.allOf ?? []).some(nestedZone) || (filter.anyOf ?? []).some(nestedZone);
       if ([...(filter.allOf ?? []), ...(filter.anyOf ?? [])].some(nestedZone)) return null;
       const { zone: from, ...qualities } = filter;
-      return { use: "cast", filter: carryPrintedOrigin(filter, qualities), ...(from ? { from } : {}) };
+      if (from && c.printed) {
+        // The archive hoists the trailing zone into the spending purpose.
+        // Keep the remaining qualities on their own side of that qualifier.
+        const zone = c.printed.origin(from);
+        if (zone?.basis === "recorded") {
+          const first = zone.tokens[0];
+          const end = c.tokens.findIndex((token, index) => index >= filterAt && c.printed!.occurrence(token) === first);
+          if (end > filterAt && c.tokens[end - 1].kind === "word") c.hull(qualities, filterAt, end - 1);
+        }
+      } else carryPrintedOrigin(filter, qualities);
+      return { use: "cast", filter: qualities, ...(from ? { from } : {}) };
     }
     if (c.word("activate") === null) return null;
     c.word("an");
@@ -380,7 +391,7 @@ export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { eff
     const among = parseObjectRef(c);
     if (!among || !c.punct(",") || c.word("add") === null || previousPlayer?.player === "they"
       || !c.words("one", "mana", "of", "that", "color")) return null;
-    const actor: PlayerRef = { player: "you" };
+    const actor = c.imperativeController();
     return { actor, effects: [{ effect: "add-mana" as const, who: actor, mana: { mana: "each-color-among" as const, among } }] };
   });
   if (eachColor) return eachColor;
@@ -390,7 +401,7 @@ export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { eff
       ? { player: "player-of-choice", chooser: { player: "you" } } : null) ?? parsePlayerRef(c);
     const verb = c.word("add", "adds");
     if (!verb || explicit?.player === "player-of-choice" && verb !== "adds") return null;
-    const actor = explicit ?? (verb === "add" && previousPlayer?.player !== "they" ? { player: "you" as const } : previousPlayer);
+    const actor = explicit ?? (verb === "add" && previousPlayer?.player !== "they" ? c.imperativeController() : previousPlayer);
     if (!actor) return c.fail("actor of mana production");
     c.words("an", "additional");
     const mana = parseProduction(c);

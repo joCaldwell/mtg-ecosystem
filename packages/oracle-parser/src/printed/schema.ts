@@ -24,7 +24,7 @@ export type PrintedLine = { sourceId: string; n: ByteRange } & (
   | { status: "failed"; error: string; at: number }
 );
 
-export type ImplicitReason = "implied-singular-target";
+export type ImplicitReason = "implied-singular-target" | "imperative-controller" | "default-zone" | "implied-singular-count";
 
 export type PrintedNode = { path: string } & (
   | { basis: "recorded"; span: TokenRun[]; folds?: TokenRun[] }

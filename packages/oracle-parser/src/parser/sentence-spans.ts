@@ -79,6 +79,10 @@ export class SentenceRecorder {
         const sentence = this.c.mark(this.sentences[this.count], this.from);
         if (this.modalOptions.length && sentence.steps.some(step => step.effect === "modal"))
           this.c.foldTokens(sentence, this.modalOptions.flat());
+      } else if (this.c.printed && this.sentences.length === this.count && pointers.length === 1) {
+        const [, index] = pointers[0].split("/");
+        const sentence = this.sentences[Number(index)];
+        if (sentence) this.c.foldTokens(sentence, tokens);
       }
       if (sourceId !== undefined && tokens.every(token => token.provenance?.sourceId === sourceId))
         this.spans.push({ sourceId, tokens: tokens.map(token => token.provenance!.index), pointers });

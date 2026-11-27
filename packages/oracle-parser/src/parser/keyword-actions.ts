@@ -11,7 +11,6 @@ import { parseUnlockDoor } from "./rooms.ts";
 import { parseCount, parseDuration, parseEqualTo, isPluralPlayerRef, parseObjectRef, parsePlayerRef } from "./refs.ts";
 import { parseOpponentUnit } from "./player-counts.ts";
 
-const you: PlayerRef = { player: "you" };
 const ROLES: Readonly<Record<string, RoleName>> = {
   cursed: "Cursed", monster: "Monster", royal: "Royal", sorcerer: "Sorcerer",
   virtuous: "Virtuous", wicked: "Wicked", young: "Young Hero",
@@ -37,12 +36,13 @@ function parseActorPhrase(
     if (!explicit && explicitOnly) return null;
     const retainsPluralActor = ctx.lastPlayer?.player === "they" || ctx.lastPlayer?.player === "group";
     // "[Player] may investigate": the other player whose "may" governs it acts.
-    const who = explicit ?? (elided ? ctx.lastPlayer : ctx.impliedActor ?? (retainsPluralActor ? ctx.lastPlayer : you));
+    const who = explicit ?? (elided ? ctx.lastPlayer && c.alias(ctx.lastPlayer)
+      : ctx.impliedActor ?? (retainsPluralActor && ctx.lastPlayer ? c.alias(ctx.lastPlayer) : c.imperativeController()));
     if (!who) return c.fail("actor of keyword action");
     if (who.player === "group") return c.fail("supported grouped-player action");
     ctx.lastPlayer = who;
     return who;
-  });
+  }, "preserve");
 }
 
 /** Parameterless actions: the whole instruction is the phrase after the actor. */
@@ -343,5 +343,6 @@ export function clashOutcomeHasClash(previous: Sentence[], sentence: Sentence, c
 
 // CR 702.179f: "your speed" as a quantity.
 export function parseSpeedAmount(c: Cursor): Amount | null {
-  return c.attempt((c): Amount | null => (c.words("your", "speed") ? { amount: "speed", who: you } : null));
+  return c.attempt((c): Amount | null => (c.words("your", "speed")
+    ? { amount: "speed", who: c.mark({ player: "you" }, c.pos - 2, c.pos - 1) } : null));
 }
