@@ -871,3 +871,119 @@ fn g_source_block(prepared: &Prepared) -> u32 {
     };
     *source_block
 }
+
+/// Replaces every `found` set inside the saved frame; returns how many.
+fn replace_found(value: &mut serde_json::Value, found: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Object(fields) => {
+            let here = match fields.get_mut("found") {
+                Some(slot) => {
+                    *slot = found.clone();
+                    1
+                }
+                None => 0,
+            };
+            here + fields
+                .iter_mut()
+                .filter(|(key, _)| *key != "found")
+                .map(|(_, v)| replace_found(v, found))
+                .sum::<usize>()
+        }
+        serde_json::Value::Array(items) => items.iter_mut().map(|v| replace_found(v, found)).sum(),
+        _ => 0,
+    }
+}
+
+/// CR 608.2d, 903.9b: Haunted Fengraf's seeded draw samples the commander,
+/// so the selection pauses for its owner's command-zone choice with the
+/// sampled card saved in the continuation. A saved set naming another
+/// graveyard card, a non-creature, or more cards than the selection takes
+/// fails validation and never restores; replay proves the sample itself.
+#[test]
+fn a_paused_random_selection_keeps_exactly_its_sampled_card() {
+    for seed in 0..32u8 {
+        let mut catalog = board(&[(HAUNTED_FENGRAF, &[Cell::RandomGraveyardCards])]);
+        catalog = catalog.seed([seed; 32]);
+        let prepared = catalog
+            .permanent_or_hand("Haunted Fengraf", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .card("Isamaru, Hound of Konda", 0, 0, GRAVEYARD)
+            .card("Grizzly Bears", 0, 0, GRAVEYARD)
+            .card("Lightning Bolt", 0, 0, GRAVEYARD)
+            .library_card("Island", 0)
+            .library_card("Island", 1)
+            .commander(CardId(4))
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let fengraf = Driver::object(&g, 0);
+        Driver::action(
+            &mut g,
+            Action::ActivateAbility {
+                object: fengraf,
+                ability: 0,
+            },
+        );
+        Driver::pay(&mut g, &[1, 2, 3]);
+        let d = next_choice(&mut g);
+        if !matches!(d.reason, Reason::CommanderReturn { .. }) {
+            // The seed sampled the Bears: nothing pauses.
+            assert_eq!(d.reason, Reason::Priority);
+            continue;
+        }
+        checked(&g);
+        let [isamaru, bears, bolt] = [4, 5, 6].map(|id| Driver::object(&g, id));
+        let valid = g.snapshot().unwrap();
+        let forge = |found: &[ObjectId]| {
+            let mut forged: serde_json::Value = mtg_contracts::strict_read(&valid).unwrap();
+            assert_eq!(
+                replace_found(
+                    &mut forged["state"]["frame"],
+                    &serde_json::to_value(found).unwrap()
+                ),
+                1,
+                "one saved sample"
+            );
+            let mut forged: Snapshot =
+                mtg_contracts::strict_read(&serde_json::to_string(&forged).unwrap()).unwrap();
+            forged.state_sha256 = mtg_contracts::digest(&forged.state).unwrap();
+            let mut structural = g.fork();
+            structural.state = forged.state.clone();
+            let restored = Game::restore(
+                g.prepared.as_ref().clone(),
+                &serde_json::to_string(&forged).unwrap(),
+            );
+            (structural.validate_state(), restored.is_ok())
+        };
+        // The pipeline itself changes nothing: the true sample still restores.
+        assert_eq!(forge(&[isamaru]), (Ok(()), true));
+        for (found, what) in [
+            (vec![bears], "another creature card"),
+            (vec![bolt], "a card outside the filter"),
+            (vec![isamaru, bears], "more cards than the selection takes"),
+        ] {
+            let (structural, restored) = forge(&found);
+            assert_eq!(
+                structural.unwrap_err(),
+                "snapshot commander search continuation invariant",
+                "{what}"
+            );
+            assert!(!restored, "{what}");
+        }
+        g.respond(
+            d.player,
+            d.id,
+            d.pick_one(&Candidate::Flag {
+                flag: Flag::CommandZone,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        settle(&mut g);
+        assert_eq!(zone(&g, 4), Zone::Command { owner: PlayerId(0) });
+        assert_eq!(zone(&g, 5), GRAVEYARD);
+        return;
+    }
+    panic!("no seed sampled the commander");
+}
