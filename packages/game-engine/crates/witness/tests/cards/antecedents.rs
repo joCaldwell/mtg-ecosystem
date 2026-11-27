@@ -28,6 +28,7 @@ const QUAGMIRE_LAMPREY: &str = record!("f5b374d8-bf22-44f7-a18a-18c096a84640");
 const GLOOM_SOWER: &str = record!("e5cc1492-c9cc-48f0-8c11-02ead883675c");
 const GILDED_SCUTTLER: &str = record!("093f6123-6b1d-456f-a526-8740bc969b4e");
 const ICE_FLAN: &str = record!("3b7120a6-700b-4c61-bea4-a835f0cc0bcb");
+const HEROES_BANE: &str = record!("bccd722a-b610-4017-93bd-313f08448f5e");
 
 fn board(cards: &[&str]) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
@@ -348,4 +349,38 @@ fn stun_counter_follows_the_tapped_target() {
         assert!(!entered.tapped, "{name}");
         assert_eq!(entered.counter_count(&stun), 0.into(), "{name}");
     }
+}
+
+/// "{2}{G}{G}: Put X +1/+1 counters on this creature, where X is its
+/// power": "its" is this creature, which the same sentence's step names
+/// (CR 201.5, 608.2c), read as the step is performed (CR 608.2h). Entering
+/// with four counters as a 0/0, one activation doubles them to eight.
+#[test]
+fn heroes_bane_doubles_its_own_counters() {
+    let mut board = board(&[HEROES_BANE]).permanent_or_hand("Heroes' Bane", 0, 0, true);
+    for _ in 0..9 {
+        board = board.permanent_or_hand("Forest", 0, 0, false);
+    }
+    let mut game = Game::with_trace(board.libraries("Forest", 4).prepare(), TraceMode::Detailed);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1, 2, 3, 4, 5]);
+    drive(&mut game, |request| {
+        panic!("unexpected targets {request:?}")
+    });
+    let [bane] = game.creatures(PlayerId(0), false)[..] else {
+        panic!("Heroes' Bane did not enter");
+    };
+    assert_eq!(game.current(bane).unwrap().plus_one_counters, 4.into());
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: bane,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut game, &[6, 7, 8, 9]);
+    drive(&mut game, |request| {
+        panic!("unexpected targets {request:?}")
+    });
+    assert_eq!(game.current(bane).unwrap().plus_one_counters, 8.into());
 }

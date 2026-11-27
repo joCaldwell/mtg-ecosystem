@@ -535,7 +535,9 @@ creature card” instruction. A certified "it" or "that" can reuse the block's s
 
 One optional battlefield or own-graveyard target can bind independent destroy,
 tap, untap, move, counter and end-of-turn leaves; zero targets skips the
-instruction. A counted occurrence ("two target", "up to three target", two
+instruction. A life or draw step may read that target only as a whole operand
+("that creature's power", "its controller"), which skips the step when absent;
+the target inside a sum or product rejects (CR 608.2b, 608.2h). A counted occurrence ("two target", "up to three target", two
 through seven) is the program's only occurrence: one `Pick` of exactly or up to
 N distinct objects, needing N legal objects to cast or place (CR 115.3, 601.2c).
 Battlefield destroy, exile, bounce, tap and untap affect legal survivors in one
