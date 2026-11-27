@@ -111,6 +111,7 @@ fn event_players_exist_only_for_events_that_supply_the_role() {
         spell: Pred::default(),
         nth: None,
         targets_source: false,
+        target: Pred::default(),
     });
     let step = TriggerCondition::on(EventPattern::StepBegins {
         step: BeginningStep::Upkeep,
@@ -1581,6 +1582,7 @@ fn event_patterns_admit_only_what_collection_and_recovery_agree_on() {
                 spell: Pred(vec![status.clone()]),
                 nth: None,
                 targets_source: false,
+                target: Pred::default(),
             },
             false,
         );
