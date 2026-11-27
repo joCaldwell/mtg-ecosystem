@@ -246,8 +246,9 @@ batch: entering and attaching objects take the reserved next batch, counters
 the current one, and resolved effects their creation batch. Adjacent events can
 therefore tie falsely, and `latest_setter` faults on that tie. Transform does
 not yet refresh the timestamp (CR 613.7g). One rules timestamp allocator lands
-before E2 entry counters. It orders events within ordered batches and gives
-simultaneous objects a common time. Granted triggered abilities stay fenced at
+as a single change before E2 entry counters, so state digests re-pin once
+(Astra's placement; Fable had suggested earlier). It orders events within
+ordered batches and gives simultaneous objects a common time. Granted triggered abilities stay fenced at
 the observer boundary: `EffectiveTriggerAbility` has only `Intrinsic` and
 `Followup`. Stage 4 adds `Granted`, identified by recipient, grantor, granting
 ability and instance, with per-instance layer-6 membership and last-known

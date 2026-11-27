@@ -311,8 +311,8 @@ the inverse in reverse order, removes pending triggers and watchers by
 `EventId`, restores each prior row exactly and keeps existing history and
 triggers, creating no untap, gain or placement trigger. A loyalty cost is a
 `Counters` facet with a loyalty-cost root (CR 606.4). `pay_loyalty` today
-writes the balance and the use stamp together. They separate, so a
-zero-loyalty cost stamps the use and emits no facet.
+writes the balance and the use stamp together. They will separate before E1,
+so a zero-loyalty cost stamps the use and emits no facet.
 
 CR 106.6 spending predicates distinguish spells, activated abilities and
 resolution payments. The spend decision offers only eligible buckets and
