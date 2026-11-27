@@ -1,0 +1,492 @@
+[
+  {
+    "id": "boseiju",
+    "text": "Boseiju enters tapped.\n{T}, Pay 2 life: Add {C}. If that mana is spent on an instant or sorcery spell, that spell can't be countered.",
+    "name": "Boseiju, Who Shelters All",
+    "typeLine": "Legendary Land",
+    "normalized": "~ enters tapped.\n{T}, Pay 2 life: Add {C}. If that mana is spent on an instant or sorcery spell, that spell can't be countered.",
+    "edits": [
+      {"edit":"self-name","form":"before-comma","o":[0,7],"n":[0,1]}
+    ]
+  },
+  {
+    "id": "loyalty-minus",
+    "text": "−2: Target creature can’t block.",
+    "name": null,
+    "typeLine": null,
+    "normalized": "-2: Target creature can't block.",
+    "edits": [
+      {"edit":"punct","o":[0,3],"n":[0,1]},
+      {"edit":"punct","o":[25,28],"n":[23,24]}
+    ]
+  },
+  {
+    "id": "five-punctuation-folds",
+    "text": "“It’s a dash – not a minus −.”",
+    "name": null,
+    "typeLine": null,
+    "normalized": "\"It's a dash — not a minus -.\"",
+    "edits": [
+      {"edit":"punct","o":[0,3],"n":[0,1]},
+      {"edit":"punct","o":[5,8],"n":[3,4]},
+      {"edit":"punct","o":[17,20],"n":[13,16]},
+      {"edit":"punct","o":[33,36],"n":[29,30]},
+      {"edit":"punct","o":[37,40],"n":[31,32]}
+    ]
+  },
+  {
+    "id": "trailing-reminder",
+    "text": "Flying (a reminder (nested)). (another)",
+    "name": null,
+    "typeLine": null,
+    "normalized": "Flying .",
+    "edits": [
+      {"edit":"gap","reminder":[[7,28]],"o":[6,28],"n":[6,7]},
+      {"edit":"gap","reminder":[[30,39]],"o":[29,39],"n":[8,8]}
+    ]
+  },
+  {
+    "id": "mid-line-reminder",
+    "text": "fly(reminder)ing",
+    "name": null,
+    "typeLine": null,
+    "normalized": "fly ing",
+    "edits": [
+      {"edit":"gap","reminder":[[3,13]],"o":[3,13],"n":[3,4]}
+    ]
+  },
+  {
+    "id": "multiline-reminder",
+    "text": "Flying (one\n(nested)\nthree) Haste",
+    "name": null,
+    "typeLine": null,
+    "normalized": "Flying\nHaste",
+    "edits": [
+      {"edit":"gap","reminder":[[7,27]],"o":[6,28],"n":[6,7]}
+    ]
+  },
+  {
+    "id": "reminder-only",
+    "text": "(This is a reminder.)",
+    "name": null,
+    "typeLine": null,
+    "normalized": "",
+    "edits": [
+      {"edit":"gap","reminder":[[0,21]],"o":[0,21],"n":[0,0]}
+    ]
+  },
+  {
+    "id": "empty",
+    "text": "",
+    "name": null,
+    "typeLine": null,
+    "normalized": "",
+    "edits": []
+  },
+  {
+    "id": "malformed-reminder",
+    "text": "Flying (valid) (unterminated (valid)",
+    "name": null,
+    "typeLine": null,
+    "normalized": "Flying (unterminated (valid)",
+    "edits": [
+      {"edit":"gap","reminder":[[7,14]],"o":[6,15],"n":[6,7]}
+    ]
+  },
+  {
+    "id": "whitespace",
+    "text": "\t Flying    high\r\n\r\n\tHaste \t",
+    "name": null,
+    "typeLine": null,
+    "normalized": "Flying high\nHaste",
+    "edits": [
+      {"edit":"gap","reminder":[],"o":[0,3],"n":[0,0]},
+      {"edit":"gap","reminder":[],"o":[9,15],"n":[6,7]},
+      {"edit":"gap","reminder":[],"o":[19,24],"n":[11,12]},
+      {"edit":"gap","reminder":[],"o":[29,31],"n":[17,17]}
+    ]
+  },
+  {
+    "id": "station-reminder",
+    "text": "When this Spacecraft enters, create a 2/2 colorless Robot artifact creature token.\nStation (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 9+.)\n9+ | Flying, first strike",
+    "name": "Wedgelight Rammer",
+    "typeLine": "Artifact — Spacecraft",
+    "normalized": "When this Spacecraft enters, create a 2/2 colorless Robot artifact creature token.\nStation\n9+ | Flying, first strike",
+    "edits": [
+      {"edit":"gap","reminder":[[91,245]],"o":[90,246],"n":[90,91]}
+    ]
+  },
+  {
+    "id": "catalog-name",
+    "text": "named Squadron Hawk",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Squadron Hawk",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "named \"Squadron Hawk\"",
+    "edits": [
+      {"edit":"literal-name","slot":"named","via":"catalog","o":[6,19],"n":[6,21]}
+    ]
+  },
+  {
+    "id": "catalog-quoted-copy",
+    "text": "named \"Squadron Hawk\"",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Squadron Hawk",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "named \"Squadron Hawk\"",
+    "edits": [
+      {"edit":"literal-name","slot":"named","via":"catalog","o":[6,21],"n":[6,21]}
+    ]
+  },
+  {
+    "id": "unknown-name",
+    "text": "named Squadron Hawk",
+    "name": null,
+    "typeLine": null,
+    "normalized": "named Squadron Hawk",
+    "edits": []
+  },
+  {
+    "id": "own-literal-name",
+    "text": "named Squadron Hawk",
+    "name": "Squadron Hawk",
+    "typeLine": null,
+    "normalized": "named \"Squadron Hawk\"",
+    "edits": [
+      {"edit":"literal-name","slot":"named","via":"own-name","o":[6,19],"n":[6,21]}
+    ]
+  },
+  {
+    "id": "own-literal-quoted-copy",
+    "text": "named \"Squadron Hawk\"",
+    "name": "Squadron Hawk",
+    "typeLine": null,
+    "normalized": "named \"Squadron Hawk\"",
+    "edits": []
+  },
+  {
+    "id": "partner-with",
+    "text": "Partner with Test (One) (Reminder)",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Test (One)",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "Partner with \"Test (One)\"",
+    "edits": [
+      {"edit":"literal-name","slot":"partner-with","via":"catalog","o":[13,23],"n":[13,25]},
+      {"edit":"gap","reminder":[[24,34]],"o":[23,34],"n":[25,25]}
+    ]
+  },
+  {
+    "id": "create",
+    "text": "Create Example, a 1/1 token.",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Example",
+        "layout": "token"
+      }
+    ],
+    "normalized": "Create \"Example\", a 1/1 token.",
+    "edits": [
+      {"edit":"literal-name","slot":"create","via":"catalog","o":[7,14],"n":[7,16]}
+    ]
+  },
+  {
+    "id": "create-without-delimiter",
+    "text": "Create Example token.",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Example",
+        "layout": "token"
+      }
+    ],
+    "normalized": "Create Example token.",
+    "edits": []
+  },
+  {
+    "id": "literal-in-reminder",
+    "text": "Flying (named Test (One)).",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Test (One)",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "Flying .",
+    "edits": [
+      {"edit":"gap","reminder":[[7,25]],"o":[6,25],"n":[6,7]}
+    ]
+  },
+  {
+    "id": "catalog-ambiguity",
+    "text": "named Fiction’s Hero",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Fiction’s Hero",
+        "layout": "normal"
+      },
+      {
+        "name": "Fiction's Hero",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "named Fiction's Hero",
+    "edits": [
+      {"edit":"punct","o":[13,16],"n":[13,14]}
+    ]
+  },
+  {
+    "id": "escaped-quoted-literal",
+    "text": "named \"A \\\"quoted\\\" \\\\ Name\"",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "A \"quoted\" \\ Name",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "named \"A \\\"quoted\\\" \\\\ Name\"",
+    "edits": [
+      {"edit":"literal-name","slot":"named","via":"catalog","o":[6,28],"n":[6,28]}
+    ]
+  },
+  {
+    "id": "curly-self-name",
+    "text": "Sacrifice Urza’s Bauble.",
+    "name": "Urza’s Bauble",
+    "typeLine": null,
+    "normalized": "Sacrifice ~.",
+    "edits": [
+      {"edit":"self-name","form":"full","o":[10,25],"n":[10,11]}
+    ]
+  },
+  {
+    "id": "curly-literal-name",
+    "text": "named Urza’s Bauble",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Urza’s Bauble",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "named \"Urza’s Bauble\"",
+    "edits": [
+      {"edit":"literal-name","slot":"named","via":"catalog","o":[6,21],"n":[6,23]}
+    ]
+  },
+  {
+    "id": "possessive-name",
+    "text": "Urza's power",
+    "name": "Urza, Lord High Artificer",
+    "typeLine": null,
+    "normalized": "~'s power",
+    "edits": [
+      {"edit":"self-name","form":"before-comma","o":[0,4],"n":[0,1]}
+    ]
+  },
+  {
+    "id": "full-and-short-name",
+    "text": "Whenever Kara, Test Hero attacks, Kara draws a card. Tap a Kara creature.",
+    "name": "Kara, Test Hero",
+    "typeLine": "Legendary Creature — Human Hero",
+    "normalized": "Whenever ~ attacks, ~ draws a card. Tap a Kara creature.",
+    "edits": [
+      {"edit":"self-name","form":"full","o":[9,24],"n":[9,10]},
+      {"edit":"self-name","form":"before-comma","o":[34,38],"n":[20,21]}
+    ]
+  },
+  {
+    "id": "article-name",
+    "text": "Tap the Fixture Barge.",
+    "name": "The Fixture Barge",
+    "typeLine": null,
+    "normalized": "Tap ~.",
+    "edits": [
+      {"edit":"self-name","form":"article","o":[4,21],"n":[4,5]}
+    ]
+  },
+  {
+    "id": "planeswalker-name",
+    "text": "Tap Vraska.",
+    "name": "Vraska the Unseen",
+    "typeLine": "Legendary Planeswalker — Vraska",
+    "normalized": "Tap ~.",
+    "edits": [
+      {"edit":"self-name","form":"planeswalker-subtype","o":[4,10],"n":[4,5]}
+    ]
+  },
+  {
+    "id": "epithet-name",
+    "text": "Tap Fixture.",
+    "name": "Fixture the Hero",
+    "typeLine": "Legendary Creature — Human Hero",
+    "normalized": "Tap ~.",
+    "edits": [
+      {"edit":"self-name","form":"before-epithet","o":[4,11],"n":[4,5]}
+    ]
+  },
+  {
+    "id": "first-word-name",
+    "text": "When Fixture attacks, untap Fixture.",
+    "name": "Fixture Hero",
+    "typeLine": "Legendary Creature — Human Hero",
+    "normalized": "When ~ attacks, untap ~.",
+    "edits": [
+      {"edit":"self-name","form":"first-word","o":[5,12],"n":[5,6]},
+      {"edit":"self-name","form":"first-word","o":[28,35],"n":[22,23]}
+    ]
+  },
+  {
+    "id": "neuter-pronouns",
+    "text": "Kara attacks, he gets a bonus. Tap him. His power doubles. He's strong. He sees himself.",
+    "name": "Kara, Test Hero",
+    "typeLine": "Legendary Creature — Human Hero",
+    "normalized": "~ attacks, it gets a bonus. Tap it. Its power doubles. It's strong. It sees itself.",
+    "edits": [
+      {"edit":"self-name","form":"before-comma","o":[0,4],"n":[0,1]},
+      {"edit":"pronoun","role":"subject","as":"neuter","o":[14,16],"n":[11,13]},
+      {"edit":"pronoun","role":"object","as":"neuter","o":[35,38],"n":[32,34]},
+      {"edit":"pronoun","role":"possessive","as":"neuter","o":[40,43],"n":[36,39]},
+      {"edit":"pronoun","role":"contraction","as":"neuter","o":[59,63],"n":[55,59]},
+      {"edit":"pronoun","role":"subject","as":"neuter","o":[72,74],"n":[68,70]},
+      {"edit":"pronoun","role":"reflexive","as":"neuter","o":[80,87],"n":[76,82]}
+    ]
+  },
+  {
+    "id": "name-pronouns",
+    "text": "Kara attacks, he gets its bonus. Tap him. His power doubles. He's strong. He sees himself.",
+    "name": "Kara, Test Hero",
+    "typeLine": "Legendary Creature — Human Hero",
+    "normalized": "~ attacks, ~ gets its bonus. Tap ~. ~'s power doubles. ~ is strong. ~ sees ~.",
+    "edits": [
+      {"edit":"self-name","form":"before-comma","o":[0,4],"n":[0,1]},
+      {"edit":"pronoun","role":"subject","as":"name","o":[14,16],"n":[11,12]},
+      {"edit":"pronoun","role":"object","as":"name","o":[37,40],"n":[33,34]},
+      {"edit":"pronoun","role":"possessive","as":"name","o":[42,45],"n":[36,39]},
+      {"edit":"pronoun","role":"contraction","as":"name","o":[61,65],"n":[55,59]},
+      {"edit":"pronoun","role":"subject","as":"name","o":[74,76],"n":[68,69]},
+      {"edit":"pronoun","role":"reflexive","as":"name","o":[82,89],"n":[75,76]}
+    ]
+  },
+  {
+    "id": "pronoun-rollback-per-line",
+    "text": "Whenever Kara attacks, he taps her friend.\nWhenever Kara attacks, she wins.",
+    "name": "Kara, Test Hero",
+    "typeLine": "Legendary Creature — Human Hero",
+    "normalized": "Whenever ~ attacks, he taps her friend.\nWhenever ~ attacks, it wins.",
+    "edits": [
+      {"edit":"self-name","form":"before-comma","o":[9,13],"n":[9,10]},
+      {"edit":"self-name","form":"before-comma","o":[52,56],"n":[49,50]},
+      {"edit":"pronoun","role":"subject","as":"neuter","o":[66,69],"n":[60,62]}
+    ]
+  },
+  {
+    "id": "marker-spellings",
+    "text": "@@CATALOG_LITERAL@@0@@CATALOG_LITERAL@@ @@NAMED_CARD@@0@@NAMED_CARD@@ named Squad.\nnamed Fixture.",
+    "name": "Fixture",
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "Squad",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "@@CATALOG_LITERAL@@0@@CATALOG_LITERAL@@ @@NAMED_CARD@@0@@NAMED_CARD@@ named \"Squad\".\nnamed \"Fixture\".",
+    "edits": [
+      {"edit":"literal-name","slot":"named","via":"catalog","o":[76,81],"n":[76,83]},
+      {"edit":"literal-name","slot":"named","via":"own-name","o":[89,96],"n":[91,100]}
+    ]
+  },
+  {
+    "id": "astral-around-reminder",
+    "text": "A😀 (🦀 nested) B",
+    "name": null,
+    "typeLine": null,
+    "normalized": "A😀 B",
+    "edits": [
+      {"edit":"gap","reminder":[[6,19]],"o":[5,20],"n":[5,6]}
+    ]
+  },
+  {
+    "id": "raw-tilde",
+    "text": "~ enters, he wins.",
+    "name": "Kara",
+    "typeLine": "Legendary Creature — Human Hero",
+    "normalized": "~ enters, it wins.",
+    "reason": "raw-tilde",
+    "edits": null
+  },
+  {
+    "id": "raw-nul",
+    "text": "Flying\u0000Haste",
+    "name": null,
+    "typeLine": null,
+    "normalized": "Flying\u0000Haste",
+    "reason": "raw-nul",
+    "edits": null
+  },
+  {
+    "id": "name-spans-reminder",
+    "text": "Foo(x)Bar",
+    "name": "Foo Bar",
+    "typeLine": null,
+    "normalized": "~",
+    "reason": "composed-edit",
+    "edits": null
+  },
+  {
+    "id": "dollar-expansion",
+    "text": "named A$&B",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "A$&B",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "named \"A@@CATALOG_LITERAL@@0@@CATALOG_LITERAL@@B\"",
+    "reason": "composed-edit",
+    "edits": null
+  },
+  {
+    "id": "literal-whitespace-composition",
+    "text": "named A  B",
+    "name": null,
+    "typeLine": null,
+    "catalog": [
+      {
+        "name": "A  B",
+        "layout": "normal"
+      }
+    ],
+    "normalized": "named \"A B\"",
+    "reason": "composed-edit",
+    "edits": null
+  }
+]

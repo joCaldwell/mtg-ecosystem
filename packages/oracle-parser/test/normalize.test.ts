@@ -1,6 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeOracleText } from "../src/normalize.ts";
+import { normalizeOracleText as normalize, normalizeOracleTextTracked } from "../src/normalize.ts";
+import { normalizeOracleText as legacyNormalize } from "./support/legacy-normalize.ts";
+
+function normalizeOracleText(...args: Parameters<typeof normalize>): string[] {
+  const lines = normalize(...args);
+  assert.deepEqual(lines, legacyNormalize(...args));
+  assert.deepEqual(normalizeOracleTextTracked(...args).lines, lines);
+  return lines;
+}
 
 describe("normalizeOracleText", () => {
   it("preserves line boundaries", () => {
