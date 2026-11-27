@@ -10,7 +10,7 @@ import { frozenR5, readRows } from "./support/frozen-r5.ts";
 
 const archivePath = process.env.MTG_R5_ARCHIVE;
 
-function defectCount(block: Extract<PrintedBlock, { status: "read" }>) {
+function defectCount(block: Extract<PrintedBlock, { status: "read" }>, tokenCounts: readonly number[]) {
   const byPath = new Map(block.nodes.map(node => [node.path, node]));
   const regions = new Map<string, TokenRun[]>();
   let nesting = 0, overlap = 0, conflict = 0;
@@ -43,8 +43,82 @@ function defectCount(block: Extract<PrintedBlock, { status: "read" }>) {
     }
     regions.set(node.path, coverage);
   }
-  return { nesting, overlap, conflict };
+  return { nesting, overlap, conflict, hull: hullViolations(block, tokenCounts) };
 }
+
+/**
+ * Rust's P6 rule, made strict: a hull's clause runs are in bounds, inside the
+ * hull span, sorted, disjoint, maximal and disjoint from every child extent,
+ * and together with the child extents they recompute the hull span exactly.
+ * The runs are validated before any set union, so overlap, duplicate tokens
+ * and out-of-order runs cannot hide behind it. `tokenCounts[line]` is the
+ * lexed token count of each face line.
+ */
+function hullViolations(block: Extract<PrintedBlock, { status: "read" }>, tokenCounts: readonly number[]) {
+  const paths = new Set(block.nodes.map(node => node.path));
+  const tokens = new Map<string, Set<string>>();
+  const add = (path: string, runs: readonly TokenRun[]) => {
+    const set = tokens.get(path) ?? new Set<string>();
+    for (const [line, start, end] of runs) for (let i = start; i < end; i++) set.add(line + ":" + i);
+    tokens.set(path, set);
+  };
+  const childExtents = new Map<string, Set<string>>();
+  for (const node of block.nodes) {
+    if (node.basis === "recorded") add(node.path, [...node.span, ...(node.folds ?? [])]);
+    else if (node.basis === "hull") add(node.path, node.span);
+    if (!node.path) continue;
+    let parent = node.path.slice(0, node.path.lastIndexOf("/"));
+    while (parent && !paths.has(parent)) parent = parent.slice(0, parent.lastIndexOf("/"));
+    const own = childExtents.get(parent) ?? new Set<string>();
+    childExtents.set(parent, own);
+    if (node.basis === "recorded" || node.basis === "hull")
+      for (const token of tokens.get(node.path)!) own.add(token);
+  }
+  let violations = 0;
+  for (const node of block.nodes) {
+    if (node.basis !== "hull") continue;
+    const span = tokens.get(node.path)!;
+    const children = childExtents.get(node.path) ?? new Set<string>();
+    const clauses = node.clauses ?? [];
+    const valid = clauses.every(([line, start, end], index) => {
+      if (line < block.lines[0] || line >= block.lines[1] || start < 0 || end <= start || end > (tokenCounts[line] ?? 0))
+        return false;
+      const previous = clauses[index - 1];
+      if (previous && (previous[0] > line || previous[0] === line && previous[2] >= start)) return false;
+      for (let i = start; i < end; i++) {
+        const token = line + ":" + i;
+        if (!span.has(token) || children.has(token)) return false;
+      }
+      return true;
+    });
+    const expected = new Set(children);
+    for (const [line, start, end] of clauses) for (let i = start; i < end; i++) expected.add(line + ":" + i);
+    if (!valid || span.size !== expected.size || [...span].some(token => !expected.has(token))) violations++;
+  }
+  return violations;
+}
+
+test("the strict hull check rejects clause runs that overlap, duplicate or reorder", () => {
+  // "Forest or Plains": two recorded children around an attributed connector.
+  const hull = (clauses: TokenRun[], span: TokenRun[] = [[0, 5, 8]]): Extract<PrintedBlock, { status: "read" }> => ({
+    status: "read", lines: [0, 1], n: [0, 0], facts: [], nodes: [
+      { path: "/f", basis: "hull", span, clauses },
+      { path: "/f/anyOf/0", basis: "recorded", span: [[0, 5, 6]] },
+      { path: "/f/anyOf/1", basis: "recorded", span: [[0, 7, 8]] },
+    ] });
+  const counts = [20];
+  assert.equal(hullViolations(hull([[0, 6, 7]]), counts), 0);
+  // Each union equals the hull span; only the strict checks reject them.
+  assert.equal(hullViolations(hull([[0, 5, 8]]), counts), 1, "overlaps both children");
+  assert.equal(hullViolations(hull([[0, 6, 7], [0, 6, 7]]), counts), 1, "duplicate run");
+  const wide = (clauses: TokenRun[]) => hull(clauses, [[0, 3, 8]]);
+  assert.equal(hullViolations(wide([[0, 3, 4], [0, 6, 7]]), counts), 1, "missing token 4");
+  assert.equal(hullViolations(wide([[0, 3, 5], [0, 6, 7]]), counts), 0);
+  assert.equal(hullViolations(wide([[0, 6, 7], [0, 3, 5]]), counts), 1, "out of order");
+  assert.equal(hullViolations(wide([[0, 3, 4], [0, 4, 5], [0, 6, 7]]), counts), 1, "adjacent, not maximal");
+  assert.equal(hullViolations(hull([[0, 6, 7], [0, 9, 10]]), counts), 1, "outside the hull span");
+  assert.equal(hullViolations(hull([[0, 6, 7]]), [6]), 1, "past the line's tokens");
+});
 
 const familyNames = ["modify-characteristics", "gain-abilities", "get-counters", "sacrifice", "pump", "move-zone",
   "exile", "destroy", "search", "damage", "return-to-hand", "discard", "draw", "mill", "create-token"] as const;
@@ -91,7 +165,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
   const wrongSpans = { verbRecordedYou: 0, regenerationForbidden: 0, unpreventable: 0, optional: 0 };
   const families = familyNames.map(family => ({ family, roots: 0, unlocatedRoots: 0, nodes: 0, unlocated: 0 }));
   const witnesses = witnessGroups.map(names => ({ names, observed: new Set<string>(), failedBlocks: 0, unlocated: [] as string[] }));
-  const emitted = { nesting: 0, overlap: 0, conflict: 0 };
+  const emitted = { nesting: 0, overlap: 0, conflict: 0, hull: 0 };
   const failures: string[] = [];
   const digest = createHash("sha256");
   const check = (pass: boolean, key: "legacyDiffs" | "captureDiffs" | "bindingDiffs" | "resolutionDiffs", site: string) => {
@@ -123,6 +197,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
       else {
         counts.failedLexLines += read.printed.lines.filter(line => line.status === "failed").length;
         const sourceText = Buffer.from(source.oracle_text!);
+        const tokenCounts = read.printed.lines.map(line => line.status === "lexed" ? line.tokens.length : 0);
         const witness = witnesses.find(({ names }) => names.some(name => name === source.name));
         if (witness) witness.observed.add(source.name);
         for (const [index, block] of read.printed.blocks.entries()) {
@@ -168,7 +243,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
             if (value.effect === "damage" && value.unpreventable === true && !/\bprevented\b/iu.test(printed)) wrongSpans.unpreventable++;
             if (value.optional === true && !/\bmay\b/iu.test(printed)) wrongSpans.optional++;
           }
-          const defects = defectCount(block);
+          const defects = defectCount(block, tokenCounts);
           for (const key of Object.keys(emitted) as (keyof typeof emitted)[]) emitted[key] += defects[key];
         }
       }
@@ -196,7 +271,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
   assert.equal(counts.attempted, 34_464);
   assert.equal(counts.unmappable, 0);
   assert.deepEqual(failures, []);
-  assert.deepEqual(emitted, { nesting: 0, overlap: 0, conflict: 0 });
+  assert.deepEqual(emitted, { nesting: 0, overlap: 0, conflict: 0, hull: 0 });
   assert.deepEqual(wrongSpans, { verbRecordedYou: 0, regenerationForbidden: 0, unpreventable: 0, optional: 0 });
   assert.equal(candidates.mutationGuardDemotions, 0);
   assert.equal(candidates.unlocatedSelections, 0);
