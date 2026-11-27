@@ -603,7 +603,7 @@ impl RulesTxn {
                 } => {
                     self.validate_resolving(frame)?;
                     if *player != owner
-                        || current.zone != (Zone::Library { owner })
+                        || current.zone != self.search_source(frame, owner)?
                         || *destination != (Zone::Hand { owner })
                         || !self.valid_search_continuation(
                             *object,

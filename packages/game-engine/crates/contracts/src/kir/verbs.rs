@@ -316,6 +316,39 @@ pub struct SearchSpec {
     pub to: Destination,
     #[serde(default, skip_serializing_if = "is_false")]
     pub reveal: bool,
+    /// The searcher's zone the cards come from. Only a library choice is a
+    /// search; a hand or graveyard choice is the instruction's own choice
+    /// at resolution (CR 608.2c-d), which never fails to find.
+    #[serde(default, skip_serializing_if = "SelectionZone::is_library")]
+    pub from: SelectionZone,
+    /// Hand and graveyard only: "may" or "up to", so the chooser may choose
+    /// fewer than `maximum`, including none (CR 608.2d). Otherwise they
+    /// choose as many matching cards as they can up to `maximum`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub optional: bool,
+    /// Graveyard only: the cards are selected at random among the matching
+    /// cards rather than chosen (CR 608.2d), so no player decides.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub random: bool,
+}
+
+/// The zone of its chooser that a [`SearchSpec`] selects from (CR 400.1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionZone {
+    /// A hidden zone even from its owner (CR 401.2, 701.23).
+    #[default]
+    Library,
+    /// Hidden from every other player (CR 402.3).
+    Hand,
+    /// Public (CR 404.2).
+    Graveyard,
+}
+
+impl SelectionZone {
+    pub fn is_library(&self) -> bool {
+        *self == Self::Library
+    }
 }
 
 /// CR 603.7: when a delayed triggered ability triggers.
