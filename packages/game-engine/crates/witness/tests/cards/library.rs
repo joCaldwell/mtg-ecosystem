@@ -2178,16 +2178,23 @@ fn skyshroud_claim_asks_each_entry_reveal_after_the_payments() {
             let d = next_choice(&mut g);
             assert_eq!(d.reason, Reason::OptionalEffect);
             assert_eq!(offered_entrant(&d), pool);
-            let mut expected = vec![
-                Candidate::Flag {
-                    flag: Flag::Decline,
-                },
-                Candidate::Object { object: pool },
-            ];
+            let Shape::Pick { slots, .. } = &d.shape else {
+                panic!("expected the entry reveal choice");
+            };
+            let mut expected = vec![&Candidate::Flag {
+                flag: Flag::Decline,
+            }];
+            let reveal_card = Candidate::Object { object: card };
             if hand == "Llanowar Elves" {
-                expected.push(Candidate::Object { object: card });
+                expected.push(&reveal_card);
             }
-            assert_eq!(d.candidates, expected);
+            assert_eq!(d.candidates.len(), expected.len() + 1);
+            let allowed: Vec<_> = slots[0]
+                .allowed
+                .iter()
+                .map(|&i| d.candidate(i).unwrap())
+                .collect();
+            assert_eq!(allowed, expected);
             checked(&g);
             assert_recoverable((&g).into());
             // A forged reveal of a found card, or out of order, rejects.

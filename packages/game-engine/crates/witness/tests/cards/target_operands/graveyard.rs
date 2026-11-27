@@ -17,6 +17,71 @@ fn grave(owner: u8) -> Zone {
 }
 
 #[test]
+fn graveyard_target_order_uses_viewer_handles_in_both_hidden_worlds() {
+    let viewer = PlayerId(1);
+    let games = [
+        (["Giant Growth", "Unsummon", "Island"], [0, 1]),
+        (["Unsummon", "Forest", "Giant Growth"], [2, 0]),
+    ]
+    .map(|(hand, spells)| {
+        let mut b = board(&[(CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES)]).seats(4);
+        for name in hand {
+            b = b.permanent_or_hand(name, 0, 0, true);
+        }
+        let mut game = Game::new(
+            b.permanent_or_hand("Grizzly Bears", 0, 0, false)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Cremate", 1, 1, true)
+                .permanent_or_hand("Swamp", 1, 1, false)
+                .prepare(),
+        );
+        let bear = Driver::object(&game, 3);
+        // Cast the same spells in the same visible sequence from different
+        // physical slots, leaving a different unseen card in seat 0's hand.
+        for (spell, land) in spells.into_iter().zip([4, 5]) {
+            Driver::cast(&mut game, CardId(spell));
+            Driver::pick_object(&mut game, bear);
+            Driver::pay(&mut game, &[land]);
+            settle(&mut game);
+        }
+        Driver::pass(&mut game);
+        Driver::cast(&mut game, CardId(6));
+        let targets = Driver::request(&mut game, u64::MAX);
+        assert_eq!(targets.player, viewer);
+        assert!(matches!(targets.reason, Reason::Targets { .. }));
+        assert_eq!(targets.candidates.len(), 2);
+        assert_recoverable((&game).into());
+        game
+    });
+    assert_ne!(
+        games[0].state_digest().unwrap(),
+        games[1].state_digest().unwrap()
+    );
+    let observations = games.each_ref().map(|game| {
+        let QueryResult::Complete(QueryValue::Observation(o)) =
+            game.observe(viewer, Budget::unlimited())
+        else {
+            panic!("missing permitted graveyard decision");
+        };
+        o
+    });
+    assert_eq!(observations[0], observations[1]);
+    let candidates = &observations[0].decision.as_ref().unwrap().candidates;
+    let [
+        Candidate::Object { object: first },
+        Candidate::Object { object: second },
+    ] = candidates.as_slice()
+    else {
+        panic!("expected two object candidates");
+    };
+    assert!(
+        first.0 < second.0,
+        "same-zone targets follow issued handle order"
+    );
+}
+
+#[test]
 fn sun_titan_rechecks_own_permanent_and_resumes_its_entry_choice() {
     for aura in [false, true] {
         let mut b = board(&[

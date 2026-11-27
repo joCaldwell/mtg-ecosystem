@@ -103,9 +103,14 @@ impl ManaSpendRestriction {
     pub fn is_canonical(self) -> bool {
         match self {
             Self::SpellSubtypes { any_of } => any_of == SPELL_SUBTYPES,
-            Self::SpellType {
-                kind: CardKind::Land,
-            } => false,
+            Self::SpellType { kind } => matches!(
+                kind,
+                CardKind::Creature
+                    | CardKind::Artifact
+                    | CardKind::Enchantment
+                    | CardKind::Instant
+                    | CardKind::Sorcery
+            ),
             _ => true,
         }
     }
@@ -229,4 +234,20 @@ pub fn payment(cost: &ManaCost, available: &BTreeMap<Color, Quantity>) -> Option
         }
     }
     (rest == Quantity::zero()).then_some(used)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spell_type_restrictions_accept_only_supported_spell_types() {
+        for kind in CardKind::CARD_TYPES {
+            assert_eq!(
+                ManaSpendRestriction::SpellType { kind }.is_canonical(),
+                !matches!(kind, CardKind::Land | CardKind::Planeswalker),
+                "{kind:?}"
+            );
+        }
+    }
 }
