@@ -14,7 +14,7 @@ impl RulesTxn {
             .chain(std::iter::once(&rules.frame))
             .enumerate()
         {
-            if frame.parent().map(|(link, _)| link.0) != (!new_root).then(|| depth - 1) {
+            if frame.parent().map(|link| link.0) != (!new_root).then(|| depth - 1) {
                 return Err("invalid continuation stack link".into());
             }
             new_root = matches!(frame, Frame::Kernel { task } if task.is_leaf());
@@ -86,7 +86,7 @@ impl RulesTxn {
         }
         let mut unowned = false;
         s.rules.frame.for_each_held(&s.rules.frames, &mut |held| {
-            if let frame::Held::Invocation { hold: _, id } = held {
+            if let frame::Held::Invocation(id) = held {
                 unowned |= self.entry(id).is_err();
             }
         });

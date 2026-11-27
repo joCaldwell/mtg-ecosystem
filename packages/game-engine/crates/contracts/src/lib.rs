@@ -1250,26 +1250,6 @@ pub struct SacrificeFilter {
     pub types: Vec<CardKind>,
     pub subtypes: Vec<String>,
 }
-impl SacrificeFilter {
-    pub fn validate(&self) -> Result<(), String> {
-        if (self.types.is_empty() && self.subtypes.is_empty())
-            || self
-                .types
-                .iter()
-                .any(|k| !matches!(k, CardKind::Creature | CardKind::Artifact))
-            || self
-                .types
-                .iter()
-                .enumerate()
-                .any(|(n, k)| self.types[..n].contains(k))
-            || self.subtypes.iter().any(|s| s != "Goblin")
-            || self.subtypes.len() > 1
-        {
-            return Err("unsupported sacrifice permanent filter".into());
-        }
-        Ok(())
-    }
-}
 /// Fixed-turn effects expire in the atomic cleanup action (CR 514.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

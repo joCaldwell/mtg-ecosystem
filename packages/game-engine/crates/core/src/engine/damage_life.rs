@@ -53,7 +53,7 @@ impl RulesTxn {
             .frame
             .for_each_held_mut(&mut rules.frames, &mut |held| match held {
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
-                frame::HeldMut::Invocation { hold: _, id: _ } => {}
+                frame::HeldMut::Invocation(_) => {}
             });
     }
     pub(crate) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
@@ -138,7 +138,7 @@ impl RulesTxn {
         rules
             .frame
             .for_each_held_mut(&mut rules.frames, &mut |held| match held {
-                frame::HeldMut::Invocation { hold: _, id: _ } => {}
+                frame::HeldMut::Invocation(_) => {}
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
             });
     }
@@ -703,99 +703,5 @@ impl RulesTxn {
             },
             source_block,
         )
-    }
-    // CR 120.2b/120.3a,e/903.10a: spell/ability damage changes life or marks
-    // creature damage but never records Commander combat history. CR 119.3
-    // life changes use their separate events; damage does not destroy (120.5).
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(crate) fn apply_noncombat_damage(
-        &mut self,
-        damage: &NoncombatDamageOccurrence,
-    ) -> Result<EventOutcome, String> {
-        if damage.amount <= Quantity::zero()
-            || damage.controller.0 >= 4
-            || damage.source.controller.0 >= 4
-        {
-            return Err("invalid noncombat damage fact".into());
-        }
-        let source_card = self
-            .state
-            .rules
-            .cards
-            .get(&damage.source.object.card)
-            .ok_or("unknown damage source card")?;
-        if source_card.owner != damage.source.owner {
-            return Err("invalid noncombat source identity".into());
-        }
-        let bound = self
-            .state
-            .rules
-            .stack
-            .iter()
-            .chain(
-                self.state
-                    .rules
-                    .frame
-                    .resolving_invocation(&self.state.rules.frames)
-                    .and_then(|id| self.state.rules.detached.get(&id)),
-            )
-            .any(|entry| {
-                entry.source == damage.source.object
-                    && entry.controller == damage.controller
-                    && self.stack_entry_complete(entry)
-                    && self
-                        .source_facts(entry)
-                        .is_ok_and(|source| source == damage.source)
-            });
-        match self.current_source_facts(damage.source.object) {
-            Ok(current)
-                if current == damage.source
-                    && (damage.controller == damage.source.controller || bound) => {}
-            Ok(_) => return Err("noncombat source facts not current".into()),
-            Err(_) if bound => {}
-            Err(_) => return Err("unbound last-known noncombat source".into()),
-        }
-        if !matches!(damage.source.zone, Zone::Battlefield | Zone::Stack) {
-            return Err("invalid damage source functioning zone".into());
-        }
-        let (previous, current) = match damage.recipient {
-            DamageRecipient::Player { player } => {
-                if !self.is_live(player) {
-                    return Err("departed damage recipient".into());
-                }
-                if self.player_protected(player) {
-                    return Err("protection requires the damage transaction".into());
-                }
-                self.rules_mut().players[player.0 as usize].lose_life(&damage.amount)
-            }
-            DamageRecipient::Permanent { object } => {
-                if !self.is_permanent_damage_recipient(object) {
-                    return Err("invalid permanent damage recipient".into());
-                }
-                if self.protected_from(object, &damage.source.characteristics) {
-                    return Err("protection requires the damage transaction".into());
-                }
-                self.apply_permanent_damage(object, &damage.amount)?
-            }
-        };
-        let life_gains = self.damage_keywords(
-            &[ActualDamage {
-                id: DamageId(0),
-                source: damage.source.clone(),
-                controller: damage.controller,
-                recipient: damage.recipient,
-                amount: damage.amount.clone(),
-            }],
-            None,
-        )?;
-        Ok(EventOutcome::NoncombatDamageDealt {
-            life_gains,
-            damage: Box::new(damage.clone()),
-            result: DamageResult {
-                recipient: damage.recipient,
-                previous,
-                current,
-            },
-        })
     }
 }

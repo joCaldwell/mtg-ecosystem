@@ -193,6 +193,44 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
     }
 }
 #[test]
+fn damage_preparation_capacity_fault_rolls_back_everything_else() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut game = Game::with_trace(
+            FixtureCatalog::Base.admit(ScenarioConfig::land_return()),
+            mode,
+        );
+        let source = game.object_id(CardId(2)).unwrap();
+        let requested = game.damage_limit() + 1;
+        let damage = vec![
+            DamageOccurrence {
+                source,
+                controller: PlayerId(2),
+                recipient: DamageRecipient::Player {
+                    player: PlayerId(0)
+                },
+                amount: Quantity::from(1),
+            };
+            requested
+        ];
+        let mut expected_state = game.state.clone();
+        let expected_trace = game.trace.clone();
+        let token = game.state_token.clone();
+        let fault = RuleFault::DamageCapacityExceeded {
+            capacity: game.damage_limit(),
+            requested,
+        };
+        assert_eq!(
+            game.prepare_combat_damage(damage).unwrap_err(),
+            "damage capacity exceeded"
+        );
+        assert_eq!(game.typed_fault(), Some(&fault));
+        expected_state.rules.typed_fault = Some(fault);
+        assert_eq!(game.state, expected_state);
+        assert_eq!(game.trace, expected_trace);
+        assert!(Arc::ptr_eq(&token, &game.state_token));
+    }
+}
+#[test]
 fn simultaneous_prevalidation_preserves_typed_fault_and_rolls_back_everything_else() {
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
         for nested in [false, true] {
@@ -201,20 +239,15 @@ fn simultaneous_prevalidation_preserves_typed_fault_and_rolls_back_everything_el
                 mode,
             );
             let source = game.object_id(CardId(2)).unwrap();
-            let requested = game.damage_limit() + 1;
+            let capacity = game.token_capacity();
+            let requested = capacity + 1;
             let group = EventGroup::Simultaneous {
-                occurrences: vec![ProposedEvent::CombatDamage {
-                    damage: vec![
-                        DamageOccurrence {
-                            source,
-                            controller: PlayerId(2),
-                            recipient: DamageRecipient::Player {
-                                player: PlayerId(0)
-                            },
-                            amount: Quantity::from(1),
-                        };
-                        requested
-                    ],
+                occurrences: vec![ProposedEvent::CreatePredefinedTokens {
+                    source,
+                    controller: PlayerId(2),
+                    count: requested,
+                    kind: PredefinedToken::Treasure,
+                    tapped: false,
                 }],
             };
             let group = if nested {
@@ -227,13 +260,14 @@ fn simultaneous_prevalidation_preserves_typed_fault_and_rolls_back_everything_el
             let mut expected_state = game.state.clone();
             let expected_trace = game.trace.clone();
             let token = game.state_token.clone();
-            let fault = RuleFault::DamageCapacityExceeded {
-                capacity: game.damage_limit(),
+            let fault = RuleFault::TokenCapacityExceeded {
+                capacity,
                 requested,
+                created: 0,
             };
             assert_eq!(
                 game.commit_batch(BatchCause::Fixture, group).unwrap_err(),
-                "damage capacity exceeded"
+                "token capacity exceeded"
             );
             assert_eq!(game.typed_fault(), Some(&fault));
             expected_state.rules.typed_fault = Some(fault);

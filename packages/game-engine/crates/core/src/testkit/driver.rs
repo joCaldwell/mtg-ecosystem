@@ -47,6 +47,83 @@ impl Driver {
         Self::action(game, Action::Cast { card: object });
     }
 
+    /// Install a private fixture ability on a permanent whose identity the
+    /// test needs to keep as the damage source.
+    pub fn add_damage_activation(definition: &mut Definition, amount: Quantity) {
+        definition.activated.push(ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            x_mana_cost: false,
+            hybrid_mana: vec![],
+            restriction: None,
+            cost: ActivationCost::TapSource,
+            program: SpellProgram {
+                optional_additional_costs: vec![],
+                additional_sacrifice: None,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                optional_target: false,
+                targets: vec![TargetSpec {
+                    slot: 0,
+                    selection_id: "line:0:1".into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain: TargetDomain::AnyDamageTarget,
+                    filter: None,
+                }],
+                instructions: vec![Instruction::damage_target(
+                    0,
+                    Amount::Fixed { value: amount },
+                    0,
+                )],
+            },
+            modal: None,
+        });
+        definition.source_labels = None;
+        definition.capabilities = definition.requirements();
+    }
+
+    /// Drive a targeted damage activation to its pre-commit boundary.
+    pub fn prepare_damage_activation(
+        game: &mut Game,
+        source: ObjectId,
+        ability: u32,
+        recipient: DamageRecipient,
+    ) {
+        Self::action(
+            game,
+            Action::ActivateAbility {
+                object: source,
+                ability,
+            },
+        );
+        let request = Self::request(game, u64::MAX);
+        game.respond(
+            request.player,
+            request.id,
+            request.entity_targets(vec![match recipient {
+                DamageRecipient::Player { player } => TargetEntity::Player { player },
+                DamageRecipient::Permanent { object } => TargetEntity::Object { object },
+            }]),
+        )
+        .unwrap();
+        for _ in 0..game.live_players().len() {
+            Self::pass(game);
+        }
+        for _ in 0..64 {
+            if game.damage_transaction().is_ok() {
+                return;
+            }
+            assert_eq!(
+                game.advance(Budget::new(1)),
+                Advance::Suspended {
+                    required_minimum: 1
+                }
+            );
+        }
+        panic!("no prepared activation damage");
+    }
+
     pub fn pay(game: &mut Game, lands: &[u32]) {
         for id in lands {
             let object = Self::object(game, *id);

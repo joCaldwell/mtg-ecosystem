@@ -143,34 +143,39 @@ fn damage_aggregate_sums_shared_recipients_and_preserves_pre_state_facts() {
     let a = object(&g, 0);
     let b = object(&g, 3);
     let c = object(&g, 4);
+    for blocker in [b, c] {
+        g.state
+            .rules
+            .objects
+            .get_mut(&blocker.card)
+            .unwrap()
+            .counters = vec![CounterStack {
+            kind: mtg_contracts::kir::CounterKind::MinusOneMinusOne,
+            count: 1.into(),
+            timestamp: 0,
+        }];
+    }
     let batch = g
-        .commit_batch(
-            BatchCause::Combat,
-            EventGroup::Occurrence {
-                proposed: ProposedEvent::CombatDamage {
-                    damage: vec![
-                        DamageOccurrence {
-                            source: b,
-                            controller: PlayerId(1),
-                            recipient: DamageRecipient::Permanent { object: a },
-                            amount: Quantity::from(1),
-                        },
-                        DamageOccurrence {
-                            source: c,
-                            controller: PlayerId(1),
-                            recipient: DamageRecipient::Permanent { object: a },
-                            amount: Quantity::from(1),
-                        },
-                        DamageOccurrence {
-                            source: a,
-                            controller: PlayerId(0),
-                            recipient: DamageRecipient::Permanent { object: b },
-                            amount: Quantity::from(2),
-                        },
-                    ],
-                },
+        .commit_combat_damage(vec![
+            DamageOccurrence {
+                source: b,
+                controller: PlayerId(1),
+                recipient: DamageRecipient::Permanent { object: a },
+                amount: 1.into(),
             },
-        )
+            DamageOccurrence {
+                source: c,
+                controller: PlayerId(1),
+                recipient: DamageRecipient::Permanent { object: a },
+                amount: 1.into(),
+            },
+            DamageOccurrence {
+                source: a,
+                controller: PlayerId(0),
+                recipient: DamageRecipient::Permanent { object: b },
+                amount: 2.into(),
+            },
+        ])
         .unwrap();
     assert_eq!(g.current(a).unwrap().marked_damage, Quantity::from(2));
     assert_eq!(
@@ -185,7 +190,7 @@ fn damage_aggregate_sums_shared_recipients_and_preserves_pre_state_facts() {
             .all(|o| o.marked_damage == Quantity::zero())
     );
     assert!(
-        matches!(batch.result(&[]),Some(EventOutcome::DamageDealt {results,..}) if results.len()==2)
+        matches!(batch.result(&[]),Some(EventOutcome::DamageCommitted {results,..}) if results.len()==2)
     );
     g.stabilize().unwrap();
     g.advance(Budget::new(1));
@@ -203,18 +208,19 @@ fn overlapping_clear_damage_composition_and_invalid_aggregate_roll_back_atomical
     let mut g = game();
     let a = object(&g, 0);
     let b = object(&g, 3);
-    let damage = ProposedEvent::CombatDamage {
-        damage: vec![DamageOccurrence {
-            source: a,
-            controller: PlayerId(0),
-            recipient: DamageRecipient::Permanent { object: b },
-            amount: Quantity::from(1),
-        }],
-    };
+    g.prepare_combat_damage(vec![DamageOccurrence {
+        source: a,
+        controller: PlayerId(0),
+        recipient: DamageRecipient::Permanent { object: b },
+        amount: 2.into(),
+    }])
+    .unwrap();
+    let transaction = g.damage_transaction().unwrap().id;
+    let damage = ProposedEvent::CommitDamage { transaction };
     let before = g.snapshot().unwrap();
     assert!(
         g.commit_batch(
-            BatchCause::Fixture,
+            BatchCause::Combat,
             EventGroup::Simultaneous {
                 occurrences: vec![ProposedEvent::ClearDamage, damage.clone()]
             }
@@ -224,22 +230,31 @@ fn overlapping_clear_damage_composition_and_invalid_aggregate_roll_back_atomical
     assert_eq!(g.snapshot().unwrap(), before);
     assert!(
         g.commit_batch(
-            BatchCause::Fixture,
+            BatchCause::Combat,
             EventGroup::Ordered {
                 children: vec![
                     EventGroup::Occurrence { proposed: damage },
                     EventGroup::Occurrence {
-                        proposed: ProposedEvent::CombatDamage {
-                            damage: vec![DamageOccurrence {
-                                source: a,
-                                controller: PlayerId(3),
-                                recipient: DamageRecipient::Permanent { object: b },
-                                amount: Quantity::from(1)
-                            }]
+                        proposed: ProposedEvent::CommitDamage {
+                            transaction: DamageTransactionId(transaction.0 + 1)
                         }
                     }
                 ]
             }
+        )
+        .is_err()
+    );
+    assert_eq!(g.snapshot().unwrap(), before);
+    let Frame::DamageEffects { transaction } = &mut g.state.rules.frame else {
+        panic!("missing transaction")
+    };
+    transaction.entries[0].controller = PlayerId(3);
+    let transaction = transaction.id;
+    let before = g.snapshot().unwrap();
+    assert!(
+        g.commit(
+            ProposedEvent::CommitDamage { transaction },
+            BatchCause::Combat
         )
         .is_err()
     );
@@ -365,7 +380,7 @@ fn zero_power_has_no_positive_damage_occurrence_and_empty_attack_skips_damage() 
     assert!(!g.events().iter().any(|e| matches!(
         e,
         Event::Committed {
-            actual: EventOutcome::DamageDealt { .. },
+            actual: EventOutcome::DamageCommitted { .. },
             ..
         }
     )));
@@ -392,7 +407,7 @@ fn zero_power_has_no_positive_damage_occurrence_and_empty_attack_skips_damage() 
     assert!(!g.events().iter().any(|e| matches!(
         e,
         Event::Committed {
-            actual: EventOutcome::DamageDealt { .. },
+            actual: EventOutcome::DamageCommitted { .. },
             ..
         }
     )));

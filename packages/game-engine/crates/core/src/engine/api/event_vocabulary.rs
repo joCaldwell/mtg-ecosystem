@@ -182,9 +182,6 @@ pub enum ProposedEvent {
         transaction: DamageTransactionId,
     },
     CleanupEffects,
-    NoncombatDamage {
-        damage: Box<NoncombatDamageOccurrence>,
-    },
     GainLife {
         player: PlayerId,
         amount: Quantity,
@@ -227,9 +224,6 @@ pub enum ProposedEvent {
     DeclareBlockers {
         player: PlayerId,
         blocks: Vec<(ObjectId, ObjectId)>,
-    },
-    CombatDamage {
-        damage: Vec<DamageOccurrence>,
     },
     FailedDraw {
         player: PlayerId,
@@ -469,12 +463,6 @@ pub enum EventOutcome {
         expired: Vec<EffectId>,
         previous: Vec<(ObjectId, Quantity)>,
     },
-    NoncombatDamageDealt {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        life_gains: Vec<LifelinkGain>,
-        damage: Box<NoncombatDamageOccurrence>,
-        result: DamageResult,
-    },
     LifeGained {
         player: PlayerId,
         amount: Quantity,
@@ -522,14 +510,6 @@ pub enum EventOutcome {
     BlockersDeclared {
         player: PlayerId,
         blocks: Vec<(ObjectId, ObjectId)>,
-    },
-    DamageDealt {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        life_gains: Vec<LifelinkGain>,
-        damage: Vec<DamageOccurrence>,
-        results: Vec<DamageResult>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        commander_damage: Vec<CommanderDamageResult>,
     },
     DrawFailed {
         player: PlayerId,

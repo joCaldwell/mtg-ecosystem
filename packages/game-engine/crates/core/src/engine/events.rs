@@ -479,17 +479,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::Life(*player)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::NoncombatDamage { damage } => {
-            let read = BTreeSet::from([FactKey::Object(damage.source.object.card)]);
-            let mut write = BTreeSet::from([match damage.recipient {
-                DamageRecipient::Player { player } => FactKey::Life(player),
-                DamageRecipient::Permanent { object } => FactKey::Object(object.card),
-            }]);
-            if game.has_keyword(&damage.source, KeywordAbility::Lifelink) {
-                write.insert(FactKey::Life(damage.source.controller));
-            }
-            (read.union(&write).copied().collect(), write)
-        }
         ProposedEvent::CounterStackObject { target, .. } => {
             let keys = BTreeSet::from([FactKey::Stack(*target)]);
             (keys.clone(), keys)
@@ -511,25 +500,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             for (b, a) in blocks {
                 keys.insert(FactKey::Object(b.card));
                 keys.insert(FactKey::Object(a.card));
-            }
-            (keys.clone(), keys)
-        }
-        ProposedEvent::CombatDamage { damage } => {
-            let mut keys = BTreeSet::new();
-            for d in damage {
-                keys.insert(FactKey::Object(d.source.card));
-                if game.has_keyword(d.source, KeywordAbility::Lifelink) {
-                    keys.insert(FactKey::Life(d.controller));
-                }
-                match d.recipient {
-                    DamageRecipient::Player { player } => {
-                        keys.insert(FactKey::Life(player));
-                        keys.insert(FactKey::CommanderDamage(player));
-                    }
-                    DamageRecipient::Permanent { object } => {
-                        keys.insert(FactKey::Object(object.card));
-                    }
-                }
             }
             (keys.clone(), keys)
         }
@@ -1152,22 +1122,6 @@ impl RulesTxn {
                 ProposedEvent::GainLife { player, .. } | ProposedEvent::LoseLife { player, .. } => {
                     players.insert(*player);
                 }
-                ProposedEvent::NoncombatDamage { damage } => {
-                    damage_sources.push(damage.source.clone());
-                    if self.has_keyword(&damage.source, KeywordAbility::Lifelink)
-                        && self.is_live(damage.source.controller)
-                    {
-                        players.insert(damage.source.controller);
-                    }
-                    match damage.recipient {
-                        DamageRecipient::Player { player } => {
-                            players.insert(player);
-                        }
-                        DamageRecipient::Permanent { object } => {
-                            objects.insert(object);
-                        }
-                    }
-                }
                 ProposedEvent::CounterStackObject { target, .. } => {
                     let entry = self
                         .state
@@ -1224,26 +1178,6 @@ impl RulesTxn {
                     for (b, a) in blocks {
                         objects.insert(*b);
                         objects.insert(*a);
-                    }
-                }
-                ProposedEvent::CombatDamage { damage } => {
-                    for d in damage {
-                        objects.insert(d.source);
-                        players.insert(d.controller);
-                        match d.recipient {
-                            DamageRecipient::Player { player } => {
-                                players.insert(player);
-                                if self.player_protected(player) {
-                                    return Err("protection requires the damage transaction".into());
-                                }
-                                if self.state.rules.commanders.history(d.source.card).is_some() {
-                                    commander_damage.insert((d.source.card, player));
-                                }
-                            }
-                            DamageRecipient::Permanent { object } => {
-                                objects.insert(object);
-                            }
-                        }
                     }
                 }
                 ProposedEvent::FailedDraw { player } => {
@@ -2713,7 +2647,6 @@ impl RulesTxn {
             | ProposedEvent::ApplyDamageEffect { .. }
             | ProposedEvent::CommitDamage { .. }
             | ProposedEvent::CleanupEffects) => self.apply_effect_event(event)?,
-            ProposedEvent::NoncombatDamage { damage } => self.apply_noncombat_damage(damage)?,
             ProposedEvent::FreezeLifeUntilNextTurn { player } => {
                 if !self.is_live(*player) {
                     return Err("departed frozen life recipient".into());
@@ -3009,7 +2942,6 @@ impl RulesTxn {
                     blocks: blocks.clone(),
                 }
             }
-            ProposedEvent::CombatDamage { damage } => self.apply_damage(damage)?,
             ProposedEvent::FailedDraw { player } => {
                 if !self.is_live(*player) || self.top_library_card(*player).is_some() {
                     return Err("invalid failed draw".into());
@@ -3502,131 +3434,6 @@ impl RulesTxn {
         };
         self.update_library_position_memory(proposed, &actual);
         Ok(actual)
-    }
-}
-
-impl RulesTxn {
-    // CR 120.3 / 510.2: all sources and recipients are validated against the
-    // common pre-state. One typed aggregate owns overlapping recipient writes.
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    fn apply_damage(&mut self, damage: &[DamageOccurrence]) -> Result<EventOutcome, String> {
-        // This legacy typed leaf means combat damage. Preserve the same
-        // per-source/player occurrence invariant as transactional combat.
-        if damage.len() > self.damage_limit() {
-            return Err(self.capacity_error(RuleFault::DamageCapacityExceeded {
-                capacity: self.damage_limit(),
-                requested: damage.len(),
-            }));
-        }
-        Self::validate_combat_player_members(damage.iter().map(|d| (d.source, &d.recipient)))?;
-        let mut totals: BTreeMap<(u8, u32), Quantity> = BTreeMap::new();
-        let mut commander_totals: BTreeMap<(CardId, PlayerId), Quantity> = BTreeMap::new();
-        for d in damage {
-            if !self.is_battlefield_creature(d.source)
-                || self.current(d.source)?.controller != d.controller
-                || !self.is_live(d.controller)
-                || d.amount <= Quantity::zero()
-            {
-                return Err("invalid damage source/amount".into());
-            }
-            let key = match d.recipient {
-                DamageRecipient::Player { player } => {
-                    if !self.is_live(player) {
-                        return Err("departed damage recipient".into());
-                    }
-                    if self.state.rules.commanders.history(d.source.card).is_some() {
-                        commander_totals
-                            .entry((d.source.card, player))
-                            .or_default()
-                            .add(&d.amount);
-                    }
-                    (0, u32::from(player.0))
-                }
-                DamageRecipient::Permanent { object } => {
-                    if !self.is_permanent_damage_recipient(object) {
-                        return Err("invalid permanent damage recipient".into());
-                    }
-                    if self.protected_from(object, self.color_layer(d.source)?.as_ref()) {
-                        return Err("protection requires the damage transaction".into());
-                    }
-                    (1, object.card.0)
-                }
-            };
-            totals.entry(key).or_default().add(&d.amount);
-        }
-        let actual = damage
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                Ok(ActualDamage {
-                    id: DamageId(i as u32),
-                    source: self.object_before(d.source)?,
-                    controller: d.controller,
-                    recipient: d.recipient,
-                    amount: d.amount.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let mut results = vec![];
-        for ((kind, id), amount) in totals {
-            let (recipient, previous, current) = if kind == 0 {
-                let player = PlayerId(id as u8);
-                let (previous, current) =
-                    self.rules_mut().players[player.0 as usize].lose_life(&amount);
-                (DamageRecipient::Player { player }, previous, current)
-            } else {
-                let object = self
-                    .state
-                    .rules
-                    .objects
-                    .get(&CardId(id))
-                    .ok_or("missing damage object")?
-                    .id;
-                let (previous, current) = self.apply_permanent_damage(object, &amount)?;
-                (DamageRecipient::Permanent { object }, previous, current)
-            };
-            results.push(DamageResult {
-                recipient,
-                previous,
-                current,
-            });
-        }
-        let mut commander_damage = vec![];
-        for ((commander, recipient), amount) in commander_totals {
-            let previous = self
-                .state
-                .rules
-                .commanders
-                .history(commander)
-                .and_then(|history| history.combat_damage.get(&recipient))
-                .cloned()
-                .unwrap_or_default();
-            self.rules_mut()
-                .commanders
-                .record_damage(commander, recipient, true, &amount)?;
-            let current = self
-                .state
-                .rules
-                .commanders
-                .history(commander)
-                .and_then(|history| history.combat_damage.get(&recipient))
-                .cloned()
-                .ok_or("missing actual Commander damage")?;
-            commander_damage.push(CommanderDamageResult {
-                commander,
-                recipient,
-                amount,
-                previous,
-                current,
-            });
-        }
-        let life_gains = self.damage_keywords(&actual, None)?;
-        Ok(EventOutcome::DamageDealt {
-            life_gains,
-            damage: damage.to_vec(),
-            results,
-            commander_damage,
-        })
     }
 }
 
