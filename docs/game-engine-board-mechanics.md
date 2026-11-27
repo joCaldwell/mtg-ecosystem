@@ -444,8 +444,11 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 Intervening comparisons can read this turn’s declared attacks, creature deaths
 (any seat or under your control), departures under your control, spells cast
 (all, noncreature, or from your hand), draws and total life gained. Departures
-use the pre-move controller and types. Each check reads the current turn from
-its start, including the event that caused the trigger (CR 603.4, 603.10a).
+use the pre-move controller and types. Artifact, creature and nonland entries
+use the resulting battlefield types and controller, including token entries.
+Creature entry history can also ask whether any opponent had an entry. Each
+check reads the current turn from its start, including the event that caused
+the trigger (CR 603.4, 603.10a).
 
 A per-turn player ledger (spells as frozen stack facts, draws, life-gain
 events) counts from the turn's start, whether or not the source was present,
@@ -475,10 +478,13 @@ damage can use its power, measured when the effect resolves or from its last
 battlefield appearance (CR 400.7, 608.2h).
 
 `kir::Intervening::of` admits cast provenance, empty hand, source tapped
-status, own commander control, a creature power threshold and filtered
-battlefield counts. Relative counts compare lands or creatures against each
-opponent separately. Entry, attack and step triggers can compare the
-controller's life, hand or own graveyard card count. Both stages record
+status, own commander control, a creature power threshold, signed total
+power of your phased-in creatures and filtered battlefield counts including
+zero matching permanents. Relative counts compare lands or creatures against each opponent separately. “That player” instead binds the entering permanent’s
+controller or the opponent whose step began. Both checks count phased-in
+permanents and use the same opponent from the event witness. Entry, attack
+and step triggers can compare the controller's life, hand or own graveyard
+card count. Both stages record
 `InterveningCheck` evidence (CR 603.4). These rows earn `Executes`
 (`InterveningIfV1`, `EventTriggerV1`).
 

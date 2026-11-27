@@ -509,3 +509,162 @@ fn observed_events_countering_the_trigger_does_not_target_its_permanent() {
     );
     assert_recoverable((&g).into());
 }
+
+#[test]
+fn observed_events_keeper_compares_only_the_opponent_whose_step_began() {
+    const KEEPER: &str = record!("49b9a3ac-d245-431a-bf40-64d1b8dc2b91");
+    for ahead in [false, true] {
+        let mut setup = board_with(compiled(&[KEEPER], false), TurnStep::PrecombatMain)
+            .seats(3)
+            .permanent_or_hand("Keeper of the Accord", 1, 1, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 1, 1, false);
+        for _ in 0..3 {
+            setup = setup.permanent_or_hand("Grizzly Bears", 2, 2, false);
+        }
+        if ahead {
+            setup = setup.permanent_or_hand("Grizzly Bears", 0, 0, false);
+        }
+        let mut game = Game::with_trace(prepare(setup), TraceMode::Detailed);
+        let keeper = Driver::object(&game, 0);
+        let bear = Driver::object(&game, 1);
+        drive(&mut game, &[], |g| g.state.rules.turn.step == TurnStep::End);
+        assert_eq!(triggered(&game), ahead);
+        checked(&game);
+        if ahead {
+            Driver::cast(&mut game, CardId(2));
+            Driver::pick_object(&mut game, bear);
+            Driver::pay(&mut game, &[3]);
+            settle(&mut game);
+        }
+        assert_eq!(
+            intervening(&game, keeper)
+                .into_iter()
+                .filter(|&(at_match, passed)| !at_match || passed)
+                .collect::<Vec<_>>(),
+            if ahead {
+                vec![(true, true), (false, false)]
+            } else {
+                vec![]
+            }
+        );
+        assert!(game.state.rules.tokens.is_empty());
+    }
+}
+
+#[test]
+fn observed_events_map_compares_only_the_entering_lands_controller() {
+    const MAP: &str = record!("ef833546-f755-4ac5-867a-3926984e68a0");
+    let mut game = Game::with_trace(
+        prepare(
+            board_with(compiled(&[MAP], false), TurnStep::PrecombatMain)
+                .seats(3)
+                .permanent_or_hand("Archaeomancer's Map", 1, 1, false)
+                .permanent_or_hand("Island", 0, 0, true)
+                .permanent_or_hand("Island", 2, 2, false)
+                .permanent_or_hand("Plains", 2, 2, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let map = Driver::object(&game, 0);
+    let land = Driver::object(&game, 1);
+    Driver::action(&mut game, Action::PlayLand { object: land });
+    drive(&mut game, &[], triggered);
+    let mut forged: Snapshot = strict_read(&game.snapshot().unwrap()).unwrap();
+    let StackKind::Triggered {
+        match_condition: Some(InterveningCheck::OpponentControlsMore { opponents, .. }),
+        ..
+    } = &mut forged.state.rules.stack.last_mut().unwrap().kind
+    else {
+        panic!("missing entrant controller comparison");
+    };
+    assert_eq!(*opponents, [(PlayerId(0), 1)]);
+    opponents[0].0 = PlayerId(2);
+    assert_forgery_rejected(&game, forged, "invalid trigger match condition proof");
+    checked(&game);
+    settle(&mut game);
+    assert_eq!(intervening(&game, map), [(true, true), (false, true)]);
+}
+
+#[test]
+fn observed_events_surrak_rechecks_total_creature_power() {
+    const SURRAK: &str = record!("fa56a5fa-ef96-404c-8fb6-d1f5fcebb52e");
+    for enough_power in [false, true] {
+        let mut setup = board_with(compiled(&[SURRAK], false), TurnStep::PrecombatMain)
+            .permanent_or_hand("Surrak, the Hunt Caller", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false);
+        if enough_power {
+            setup = setup.permanent_or_hand("Grizzly Bears", 0, 0, false);
+        }
+        let mut game = Game::with_trace(prepare(setup), TraceMode::Detailed);
+        let surrak = Driver::object(&game, 0);
+        let target = Driver::object(&game, 1);
+        drive(&mut game, &[], |g| {
+            g.state.rules.turn.step == TurnStep::BeginningCombat
+        });
+        if enough_power {
+            Driver::pick_object(&mut game, target);
+            drive(&mut game, &[], triggered);
+            checked(&game);
+            let other = Driver::object(&game, 5);
+            Driver::cast(&mut game, CardId(2));
+            Driver::pick_object(&mut game, other);
+            Driver::pay(&mut game, &[3]);
+            settle(&mut game);
+        }
+        assert_eq!(
+            intervening(&game, surrak),
+            if enough_power {
+                vec![(true, true), (false, false)]
+            } else {
+                vec![(true, false)]
+            }
+        );
+        checked(&game);
+    }
+}
+
+#[test]
+fn observed_events_butterbur_requires_no_food() {
+    const BUTTERBUR: &str = record!("ec136f6f-015b-4200-97b6-a2c1bf39e135");
+    const SAVVY_HUNTER: &str = record!("602132c2-8ee8-41f8-bfac-cb17d32203f5");
+    for already_has_food in [false, true] {
+        let mut game = Game::with_trace(
+            prepare(
+                board_with(
+                    compiled(&[BUTTERBUR, SAVVY_HUNTER], false),
+                    TurnStep::PrecombatMain,
+                )
+                .permanent_or_hand("Butterbur, Bree Innkeeper", 0, 0, false)
+                .permanent_or_hand("Savvy Hunter", 0, 0, false),
+            ),
+            TraceMode::Detailed,
+        );
+        let butterbur = Driver::object(&game, 0);
+        let hunter = Driver::object(&game, 1);
+        let attackers = if already_has_food {
+            std::slice::from_ref(&hunter)
+        } else {
+            &[]
+        };
+        drive(&mut game, attackers, |g| {
+            g.state.rules.turn.step == TurnStep::End
+        });
+        assert_eq!(triggered(&game), !already_has_food);
+        settle(&mut game);
+        assert_eq!(
+            intervening(&game, butterbur),
+            if already_has_food {
+                vec![(true, false)]
+            } else {
+                vec![(true, true), (false, true)]
+            }
+        );
+        assert_eq!(game.state.rules.tokens.len(), 1);
+    }
+}
