@@ -49,8 +49,6 @@ pub struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entrant_draw: Option<Box<ObjectBefore>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group_discard: Option<group_discard::GroupDiscardProgress>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub random_discard: Option<random_discard::RandomDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fight: Option<Box<[ObjectBefore; 2]>>,

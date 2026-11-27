@@ -7,14 +7,12 @@ mod counter;
 mod counters;
 mod damage;
 mod destroy;
-mod discard;
 mod draw;
 mod evaluated;
 mod keyword_actions;
 mod library;
 mod life;
 mod mana;
-mod mill;
 mod modify;
 mod move_zone;
 mod sacrifice;
@@ -272,7 +270,7 @@ struct Walk<'a, 'e> {
     /// Variables bound by enclosing `ForEach`/`Choose` nodes, with their kind.
     bound: Vec<(u32, RefKind)>,
     /// Completed steps of the innermost enclosing `Seq`.
-    steps: Vec<&'static [StepRole]>,
+    steps: Vec<Option<&'static VerbSignature>>,
     direct_sequence_member: bool,
     out: DerivedRequirements,
 }
@@ -409,10 +407,10 @@ impl Walk<'_, '_> {
                 }
             }
             Ref::StepResult { step, role } => {
-                let Some(producer) = self.steps.get(*step as usize) else {
+                let Some(Some(producer)) = self.steps.get(*step as usize) else {
                     return scope(format!("step {step} has no dominating projection"));
                 };
-                if !self.direct_sequence_member || !producer.contains(role) {
+                if !self.direct_sequence_member || !producer.projections.contains(role) {
                     return scope(format!("step {step} does not supply {role:?} here"));
                 }
                 match role {
@@ -566,6 +564,28 @@ impl Walk<'_, '_> {
                 self.pred(filter)
             }
             SetExpr::Pool { pool } => self.expect(pool, &[RefKind::Pool], "pool").map(drop),
+            SetExpr::Result { step, filter } => {
+                self.expect(
+                    &Ref::StepResult {
+                        step: *step,
+                        role: StepRole::Objects,
+                    },
+                    &[RefKind::Pool],
+                    "result",
+                )?;
+                if !self.scan
+                    && !self
+                        .steps
+                        .get(*step as usize)
+                        .and_then(|entry| *entry)
+                        .is_some_and(|producer| {
+                            producer.object_result_read == ObjectUse::ReadCurrentOrLastKnown
+                        })
+                {
+                    return unaudited("result without public card characteristics");
+                }
+                Self::library_card_filter(filter)
+            }
         }
     }
 
@@ -726,6 +746,9 @@ impl Walk<'_, '_> {
             Amount::Var {
                 of: Ref::AnnouncedX,
             } => Ok(()),
+            Amount::Count {
+                set: SetExpr::Result { .. },
+            } => Ok(()),
             Amount::Count { set } => self.audit_control_set(set),
             // A life subject may be absent or have departed (CR 800.4i).
             // Cast-history amounts require a paid spell, including when a
@@ -748,6 +771,9 @@ impl Walk<'_, '_> {
                 self.control_amount(left)?;
                 self.control_amount(right)
             }
+            Cond::Exists {
+                set: set @ SetExpr::Result { .. },
+            } => self.set(set),
             Cond::Exists { set } => self.control_set(set),
             Cond::ActivePlayer { .. } => unaudited("active-player condition outside statics"),
             Cond::CostPaid { identity } => {
@@ -822,12 +848,18 @@ impl Walk<'_, '_> {
             | Verb::ExileMyriadTokens {}
             | Verb::ReturnDashedToHand {} => Ok(()),
             Verb::CreateMyriadToken { defender } => self.player(defender),
+            Verb::Discard { player, amount, .. } => {
+                self.player(player)?;
+                if let Some(amount) = amount {
+                    self.amount(amount)?;
+                }
+                Ok(())
+            }
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::GiveCounters { player, amount, .. }
             | Verb::LoseLife { player, amount }
             | Verb::Mill { player, amount }
-            | Verb::Discard { player, amount, .. }
             | Verb::ReorderLibraryTop { player, amount }
             | Verb::LookChooseHand { player, amount }
             | Verb::Scry { player, amount }
@@ -1103,11 +1135,10 @@ impl Walk<'_, '_> {
                 let steps = std::mem::take(&mut self.steps);
                 let direct = self.direct_sequence_member;
                 let result = nodes.iter().try_for_each(|node| {
-                    self.direct_sequence_member = matches!(node, Node::Do(_));
+                    self.direct_sequence_member = matches!(node, Node::Do(_) | Node::If { .. });
                     self.node(node, true)?;
-                    self.steps.push(
-                        step_producer(node).map_or(&[], |(signature, _)| signature.projections),
-                    );
+                    self.steps
+                        .push(step_producer(node).map(|(signature, _)| signature));
                     Ok(())
                 });
                 self.steps = steps;
@@ -1120,10 +1151,12 @@ impl Walk<'_, '_> {
                 otherwise,
             } => {
                 self.condition(condition)?;
+                let direct = std::mem::replace(&mut self.direct_sequence_member, false);
                 self.nested(then, true)?;
                 if let Some(otherwise) = otherwise {
                     self.nested(otherwise, true)?;
                 }
+                self.direct_sequence_member = direct;
                 Ok(())
             }
             Node::Optional {
@@ -1395,12 +1428,11 @@ impl Walk<'_, '_> {
                         if self.env.context == Context::Activated && program.targets.is_empty() => {
                         self.out.cells.insert(Cell::Encore);
                     }
-                    (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, amount, random: true }))
+                    (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, amount: Some(amount), random: true }))
                         if *of == PlayerExpr::you(self.env.context) && *player == PlayerExpr::you(Context::Triggered)
                             && amount.as_fixed().is_some_and(|n| *n > Quantity::zero())
                             && program.targets.is_empty() => {
-                        self.out.cells.insert(Cell::DiscardTargetRandom);
-                        self.out.capabilities.insert(Capability::RandomPlayerDiscardV1);
+                        self.resolution_trigger_child(program, child)?;
                     }
                     (DelayedEvent::NextEndStep | DelayedEvent::NextTurnUpkeep | DelayedEvent::NextUpkeep { .. },
                         Node::Do(Verb::Draw { player, amount }))
@@ -1565,8 +1597,6 @@ impl Walk<'_, '_> {
         }
     }
 
-    /// A fixed amount of at least `minimum`, or the announced X (CR 107.3).
-    /// Returns true for the announced X.
     /// The event-player roles whose player the life and draw executors read:
     /// a cast trigger's caster and a step trigger's active player.
     fn recipient_role(role: EventPlayerRole) -> bool {
@@ -1577,15 +1607,6 @@ impl Walk<'_, '_> {
                 | EventPlayerRole::DrawingPlayer
                 | EventPlayerRole::DefendingPlayer
         )
-    }
-
-    fn fixed_or_announced_x(amount: &Amount, minimum: i64, what: &str) -> Result<bool, KirError> {
-        match amount {
-            Amount::Var {
-                of: Ref::AnnouncedX,
-            } => Ok(true),
-            _ => Self::fixed_at_least(amount, minimum, what).map(|()| false),
-        }
     }
 
     /// The target domain of a player expression that names one target.
@@ -1675,7 +1696,9 @@ impl Walk<'_, '_> {
             | Verb::Draw { .. }
             | Verb::Damage { .. }
             | Verb::PutCounters { .. }
-            | Verb::Sacrifice { .. } => self.audit_evaluated(verb),
+            | Verb::Sacrifice { .. }
+            | Verb::Mill { .. }
+            | Verb::Discard { .. } => self.audit_evaluated(verb),
             Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
             Verb::Fight { first, second } => self.audit_fight(first, second),
             Verb::Populate { player } => Self::audit_keyword_player(player, Cell::Populate),
@@ -1689,12 +1712,6 @@ impl Walk<'_, '_> {
             Verb::Move { what, to } => self.audit_move(what, to),
             Verb::Tap { what } => self.audit_tap(what),
             Verb::Untap { what } => self.audit_untap(what),
-            Verb::Mill { player, amount } => self.audit_mill(player, amount),
-            Verb::Discard {
-                player,
-                amount,
-                random,
-            } => self.audit_discard(player, amount, *random),
             Verb::CreateTokens {
                 controller,
                 count,
@@ -1900,8 +1917,45 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
             out.insert(Capability::TemporaryCombatProhibitionV1);
         }
         Verb::PreventDamage { prevention, .. } => modify::prevention_capabilities(prevention, out),
-        Verb::Mill { amount, .. } => mill::capabilities(amount, out),
-        Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
+        Verb::Mill { amount, .. } => {
+            out.insert(if amount.is_announced_x() {
+                Capability::AnnouncedXEffectsV1
+            } else {
+                Capability::FixedMillProgramV1
+            });
+        }
+        Verb::Discard {
+            player,
+            amount,
+            random,
+        } => {
+            if *random {
+                out.insert(Capability::RandomPlayerDiscardV1);
+            }
+            match player {
+                PlayerExpr::EachPlayer | PlayerExpr::EachOpponent => {
+                    out.insert(Capability::GroupHandDiscardV1);
+                }
+                PlayerExpr::Is {
+                    who: Ref::Target { .. },
+                } if !random => {
+                    out.insert(Capability::TargetPlayerDiscardV1);
+                }
+                PlayerExpr::Is {
+                    who: Ref::EventPlayer { .. },
+                } if !random => {
+                    out.insert(Capability::EventPlayerDiscardV1);
+                }
+                // Only the existing controller's fixed choice earned review.
+                _ if !random
+                    && (!player.is_you()
+                        || !amount.as_ref().is_some_and(|a| a.as_fixed().is_some())) =>
+                {
+                    out.insert(Capability::KernelControlV1);
+                }
+                _ => {}
+            }
+        }
         Verb::Sacrifice { player, filter, .. } => sacrifice::capabilities(player, filter, out),
         Verb::Search { search, .. } if search.from != SelectionZone::Library => {
             out.insert(Capability::ResolutionCardChoiceV1);

@@ -1,7 +1,7 @@
 //! Frozen R5 card movement, discard and private library procedures.
 //! CR 101.4, 400.2, 400.7, 601.2c, 608.2b-d, 701.9, 701.20, 701.23, 701.24b:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-use mtg_contracts::kir::{Cell, definition_cells};
+use mtg_contracts::kir::{Cell, EvaluatedVerb, definition_cells};
 use mtg_core::testkit::*;
 
 macro_rules! record {
@@ -20,8 +20,12 @@ const CAREFUL_STUDY: &str = record!("32e9aa23-fc0a-4b82-82f9-1659c304428c");
 const DISENTOMB: &str = record!("e4ab986d-662c-4879-b6f1-6887a2ec4d7c");
 const ETERNAL_WITNESS: &str = record!("30b24e8e-3b0e-4d8e-90f3-f66eb7c1858c");
 const GRAVEWAKER: &str = record!("7ceec1c7-c1f9-4d47-a203-6ee98c5d30d2");
+const GORGING_VULTURE: &str = record!("67330f45-d08c-4fe2-8ae3-8d18939c512a");
+const SIBSIG_HOST: &str = record!("11776f73-f504-4f19-b5b6-2f58279f8b15");
+const WHEEL_OF_FORTUNE: &str = record!("a8abd966-de7b-46a3-8ac7-8747ab35653a");
 const HYMN: &str = record!("992d9a72-d34d-47d7-96fb-37f0efb515ef");
 const INDEX: &str = record!("613b824e-39d1-4c6e-a19c-c915abdc860b");
+const RECKLESS_HANDLING: &str = record!("f1ea7dc5-01cb-4780-947c-08ea9324c52f");
 const RESURRECTION: &str = record!("837417d8-8260-486d-a3ed-3b5711eaf34a");
 const VAMPIRIC_TUTOR: &str = record!("ededbdae-d9dc-4206-9335-d7158f2d7700");
 const WORLDLY_TUTOR: &str = record!("e8863518-0bfa-49c3-8c6e-6c9116a81051");
@@ -122,7 +126,7 @@ fn careful_study_draws_before_the_controller_discards() {
     let hand = Zone::Hand { owner: you };
     let graveyard = Zone::Graveyard { owner: you };
     let mut g = Game::new(
-        board(&[(CAREFUL_STUDY, Cell::DiscardController)])
+        board(&[(CAREFUL_STUDY, Cell::Evaluated(EvaluatedVerb::Discard))])
             .card("Careful Study", 0, 0, hand)
             .card("Island", 0, 0, Zone::Battlefield)
             .library_card("Forest", 0)
@@ -135,6 +139,8 @@ fn careful_study_draws_before_the_controller_discards() {
     assert_eq!((d.player, &d.reason), (you, &Reason::ResolveDiscard));
     assert_eq!(objects(&d), [Driver::object(&g, 2), Driver::object(&g, 3)]);
     assert_hidden(&g, 1, hand);
+    assert_recoverable((&g).into());
+    g = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     g.respond(
         d.player,
         d.id,
@@ -153,45 +159,65 @@ fn burglar_rat_keeps_apnap_discard_choices_private_until_the_group_moves() {
     let hand = |seat| Zone::Hand {
         owner: PlayerId(seat),
     };
-    let mut g = Game::new(
-        board(&[(BURGLAR_RAT, Cell::DiscardGroup)])
-            .seats(3)
+    let mut first = Game::new(
+        board(&[(BURGLAR_RAT, Cell::Evaluated(EvaluatedVerb::Discard))])
+            .seats(4)
             .card("Burglar Rat", 0, 0, hand(0))
             .card("Swamp", 0, 0, Zone::Battlefield)
             .card("Swamp", 0, 0, Zone::Battlefield)
             .card("Forest", 1, 1, hand(1))
+            .card("Plains", 1, 1, hand(1))
             .card("Island", 2, 2, hand(2))
             .prepare(),
     );
-    Driver::cast(&mut g, CardId(0));
-    Driver::pay(&mut g, &[1, 2]);
-    for (seat, id, other) in [(1, 3, 2), (2, 4, 1)] {
-        let d = next_choice(&mut g);
-        assert_eq!(
-            (d.player, &d.reason),
-            (PlayerId(seat), &Reason::ResolveDiscard)
-        );
-        assert_eq!(objects(&d), [Driver::object(&g, id)]);
-        assert_hidden(&g, other, hand(seat));
-        assert!(
-            view(&g, seat)
-                .view
-                .objects
-                .iter()
-                .all(|row| row.zone != hand(other))
-        );
-        assert_eq!(g.zone(Driver::object(&g, 3)), Some(hand(1)));
-        Driver::pick_object(&mut g, objects(&d)[0]);
+    Driver::cast(&mut first, CardId(0));
+    Driver::pay(&mut first, &[1, 2]);
+    let choice = next_choice(&mut first);
+    assert_eq!(
+        (choice.player, &choice.reason),
+        (PlayerId(1), &Reason::ResolveDiscard)
+    );
+    let mut second = first.fork();
+    let forest = Driver::object(&first, 3);
+    let plains = Driver::object(&second, 4);
+    Driver::pick_object(&mut first, forest);
+    Driver::pick_object(&mut second, plains);
+    let left = next_choice(&mut first);
+    let right = next_choice(&mut second);
+    assert_eq!(
+        (left.player, &left.reason),
+        (PlayerId(2), &Reason::ResolveDiscard)
+    );
+    assert_eq!(
+        (right.player, &right.reason),
+        (PlayerId(2), &Reason::ResolveDiscard)
+    );
+    for seat in [0, 2, 3] {
+        assert_eq!(view(&first, seat), view(&second, seat));
     }
-    settle(&mut g);
-    for (seat, id) in [(1, 3), (2, 4)] {
+    assert_eq!(first.zone(forest), Some(hand(1)));
+    assert_eq!(second.zone(plains), Some(hand(1)));
+    assert_hidden(&first, 3, hand(1));
+    for game in [&mut first, &mut second] {
+        assert_recoverable((&*game).into());
+        let island = Driver::object(game, 5);
+        Driver::pick_object(game, island);
+        // Seat 3 has an empty hand. It receives no choice and the other picks
+        // still commit simultaneously.
+        settle(game);
         assert_eq!(
-            g.zone(Driver::object(&g, id)),
-            Some(Zone::Graveyard {
-                owner: PlayerId(seat)
-            })
+            game.zone(Driver::object(game, 5)),
+            Some(Zone::Graveyard { owner: PlayerId(2) })
         );
     }
+    assert_eq!(
+        first.zone(Driver::object(&first, 3)),
+        Some(Zone::Graveyard { owner: PlayerId(1) })
+    );
+    assert_eq!(
+        second.zone(Driver::object(&second, 4)),
+        Some(Zone::Graveyard { owner: PlayerId(1) })
+    );
 }
 
 #[test]
@@ -200,7 +226,7 @@ fn hymn_discards_two_random_distinct_cards_and_replays() {
     let hand = Zone::Hand { owner: opponent };
     let graveyard = Zone::Graveyard { owner: opponent };
     let mut g = Game::new(
-        board(&[(HYMN, Cell::DiscardTargetRandom)])
+        board(&[(HYMN, Cell::Evaluated(EvaluatedVerb::Discard))])
             .permanent_or_hand("Hymn to Tourach", 0, 0, true)
             .permanent_or_hand("Swamp", 0, 0, false)
             .permanent_or_hand("Swamp", 0, 0, false)
@@ -216,10 +242,126 @@ fn hymn_discards_two_random_distinct_cards_and_replays() {
         .unwrap();
     g.respond(targets.player, targets.id, answer).unwrap();
     Driver::pay(&mut g, &[1, 2]);
+    let mut duplicate = g.fork();
+    settle(&mut duplicate);
     settle(&mut g);
     let zones: Vec<_> = (3..6).map(|id| g.zone(Driver::object(&g, id))).collect();
     assert_eq!(zones.iter().filter(|z| **z == Some(graveyard)).count(), 2);
     assert_eq!(zones.iter().filter(|z| **z == Some(hand)).count(), 1);
+    assert_eq!(
+        zones,
+        (3..6)
+            .map(|id| duplicate.zone(Driver::object(&duplicate, id)))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn gorging_vulture_counts_creatures_actually_milled_from_a_short_library() {
+    let graveyard = Zone::Graveyard { owner: PlayerId(0) };
+    let mut g = Game::new(
+        board(&[(GORGING_VULTURE, Cell::Evaluated(EvaluatedVerb::Mill))])
+            .permanent_or_hand("Gorging Vulture", 0, 0, true)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .library_card("Forest", 0)
+            .library_card("Grizzly Bears", 0)
+            .prepare(),
+    );
+    let life = g.state.rules.players[0].life.clone();
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    assert_eq!(g.zone(Driver::object(&g, 4)), Some(graveyard));
+    assert_eq!(g.zone(Driver::object(&g, 5)), Some(graveyard));
+    let mut expected = life;
+    expected.add(&1.into());
+    assert_eq!(g.state.rules.players[0].life, expected);
+}
+
+#[test]
+fn sibsig_host_mills_each_players_own_library() {
+    let mut g = Game::new(
+        board(&[(SIBSIG_HOST, Cell::Evaluated(EvaluatedVerb::Mill))])
+            .seats(4)
+            .permanent_or_hand("Sibsig Host", 0, 0, true)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .library_card("Forest", 0)
+            .library_card("Plains", 1)
+            .library_card("Island", 2)
+            .prepare(),
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3, 4, 5]);
+    settle(&mut g);
+    for seat in 0..3 {
+        assert_eq!(
+            g.zone(Driver::object(&g, 6 + u32::from(seat))),
+            Some(Zone::Graveyard {
+                owner: PlayerId(seat)
+            })
+        );
+    }
+}
+
+#[test]
+fn wheel_of_fortune_discards_the_whole_hand_without_a_choice() {
+    let hand = |seat| Zone::Hand {
+        owner: PlayerId(seat),
+    };
+    let mut setup = board(&[(WHEEL_OF_FORTUNE, Cell::Evaluated(EvaluatedVerb::Discard))])
+        .card("Wheel of Fortune", 0, 0, hand(0))
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .card("Plains", 0, 0, hand(0))
+        .card("Forest", 1, 1, hand(1))
+        .card("Island", 1, 1, hand(1));
+    for seat in 0..2 {
+        for _ in 0..7 {
+            setup = setup.library_card("Swamp", seat);
+        }
+    }
+    let mut g = Game::new(setup.prepare());
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    for (id, owner) in [(4, 0), (5, 1), (6, 1)] {
+        assert_eq!(
+            g.zone(Driver::object(&g, id)),
+            Some(Zone::Graveyard {
+                owner: PlayerId(owner)
+            })
+        );
+    }
+}
+
+#[test]
+fn reckless_handling_reads_the_type_actually_discarded_this_way() {
+    let hand = Zone::Hand { owner: PlayerId(0) };
+    let graveyard = Zone::Graveyard { owner: PlayerId(0) };
+    for (card, damage) in [("Sol Ring", 2), ("Forest", 0)] {
+        let mut g = Game::new(
+            board(&[(RECKLESS_HANDLING, Cell::Evaluated(EvaluatedVerb::Discard))])
+                .card("Reckless Handling", 0, 0, hand)
+                .permanent_or_hand("Mountain", 0, 0, false)
+                .permanent_or_hand("Mountain", 0, 0, false)
+                .card(card, 0, 0, hand)
+                .prepare(),
+        );
+        let mut expected = g.state.rules.players[1].life.clone();
+        expected.subtract(&damage.into());
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2]);
+        settle(&mut g);
+        assert_eq!(g.zone(Driver::object(&g, 3)), Some(graveyard));
+        assert_eq!(g.state.rules.players[1].life, expected);
+    }
 }
 
 #[test]

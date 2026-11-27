@@ -265,10 +265,10 @@ tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Stage 1 [rework](game-engine-rework.md) contract. Draw, life, damage, permanent
-counter placement and sacrifice use `kir::signatures`. `kir::Verb` remains
-the action representation on the wire. Damage prevention and commit, counter
-placement and graveyard moves retain their transaction authorities.
+Draw, life, damage, permanent counter placement, sacrifice, discard and mill
+use `kir::signatures`. `kir::Verb` remains the action representation on the
+wire. Damage prevention and commit, counter placement and graveyard moves
+retain their transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env`
@@ -324,6 +324,14 @@ object an earlier instruction moved, destroyed, sacrificed or countered
 targets and instructions (CR 700.2). The frozen R5 resolution is not consulted
 for this choice.
 `scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
+
+**Actual card results.** An unqualified “discarded this way” or “milled this
+way” in a count or condition names the unique earlier direct producer of that
+event in the same resolving block and chosen mode (CR 608.2c,h, 700.2). The
+checked sequence reads its actual object set and count. Type, subtype and other
+card predicates read the exact public successor or its known characteristics
+when it has left (CR 400.7, 701.9c, 701.17c). An unrevealed hidden destination supplies no
+characteristics. A missing or competing producer rejects at the linked operand.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write. One

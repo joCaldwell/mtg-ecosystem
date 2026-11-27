@@ -112,13 +112,6 @@ pub(super) fn delayed(
             node: Node::Do(Verb::ReturnCapturedExile {}),
             source_block,
         });
-    } else if let Some(count) = controller_random_discard(child) {
-        program.instructions.push(Instruction::discard(
-            kir::PlayerExpr::you(Context::Triggered),
-            kir::Amount::fixed(count),
-            true,
-            source_block,
-        ));
     } else {
         lower_body(&mut program, sentence, source_block, |typed| {
             validate_damage_sources(
@@ -136,16 +129,6 @@ pub(super) fn delayed(
         },
         source_block,
     })
-}
-
-fn controller_random_discard(step: &Value) -> Option<i64> {
-    let count = step.pointer("/what/count/value")?.as_i64()?;
-    (*step
-        == json!({"effect":"discard", "who":{"player":"you"}, "random":true,
-        "what":{"ref":"filter","filter":{"cls":"card"},"count":{"amount":"fixed","value":count}}})
-        && count > 0
-        && u32::try_from(count).is_ok())
-    .then_some(count)
 }
 
 pub(crate) fn is_owner_return(step: &Value) -> bool {

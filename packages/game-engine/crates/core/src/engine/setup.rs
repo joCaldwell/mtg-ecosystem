@@ -753,6 +753,7 @@ impl RulesTxn {
                                     .random_discard
                                     .as_ref()
                                     .is_some_and(|discard| discard.stream == p.stream),
+                                Frame::Kernel { task } => task.random_stream() == Some(p.stream),
                                 Frame::Fault { .. } => true,
                                 _ => false,
                             }

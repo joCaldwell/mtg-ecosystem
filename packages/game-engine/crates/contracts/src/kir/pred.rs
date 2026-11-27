@@ -153,6 +153,9 @@ pub enum SetExpr {
     Matching { zone: ZoneExpr, filter: Pred },
     /// The cards of a linked pool.
     Pool { pool: Ref },
+    /// Characteristic reads of the actual publicly moved cards (CR 608.2h).
+    /// Only count and existence readers accept this set.
+    Result { step: u32, filter: Pred },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

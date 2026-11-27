@@ -265,8 +265,10 @@ fn peel_step(
         }
         // Destroy and the evaluated verbs check their own optional rows.
         Some(effect)
-            if !matches!(effect, "destroy" | "draw" | "gain-life" | "lose-life")
-                && step.get("optional") == Some(&Value::Bool(true)) =>
+            if !matches!(
+                effect,
+                "destroy" | "draw" | "gain-life" | "lose-life" | "discard" | "mill"
+            ) && step.get("optional") == Some(&Value::Bool(true)) =>
         {
             let mut core = step.clone();
             let fields = core.as_object_mut().expect("step object");
@@ -310,7 +312,13 @@ impl Site<'_> {
             .ok_or_else(|| invalid("compose.control", "missing sentence"))
     }
 
-    fn node(&self, kind: &Kind, body: Node) -> Result<Node, Failure> {
+    fn node(
+        &self,
+        kind: &Kind,
+        body: Node,
+        siblings: &[Node],
+        uses_result: &mut bool,
+    ) -> Result<Node, Failure> {
         if let Kind::Instead { path } = kind {
             let Node::Seq(nodes) = body else {
                 return reject("self_replacement_instructions");
@@ -409,7 +417,31 @@ impl Site<'_> {
                         node,
                     });
                 }
-                let condition = self.condition(&format!("{path}/condition"), condition)?;
+                let condition = if condition["condition"] == "count"
+                    && condition
+                        .as_object()
+                        .is_some_and(|fields| fields.len() == 3)
+                {
+                    let filter = typed::<ast::ObjectFilter>(&condition["of"], "condition")?;
+                    let Some((family, filter)) = crate::rules::card_result::card_result(&filter)?
+                    else {
+                        return reject("count_condition");
+                    };
+                    let producer = crate::rules::card_result::producer(siblings, family)?;
+                    let step = u32::try_from(producer)
+                        .map_err(|_| invalid("compose.control", "step index overflow"))?;
+                    let (cmp, value) = comparison(&condition["comparison"])?;
+                    *uses_result = true;
+                    Cond::Compare {
+                        left: kir::Amount::Count {
+                            set: SetExpr::Result { step, filter },
+                        },
+                        cmp,
+                        right: kir::Amount::Fixed { value },
+                    }
+                } else {
+                    self.condition(&format!("{path}/condition"), condition)?
+                };
                 Node::If {
                     condition: if *unless {
                         Cond::Not {
@@ -725,7 +757,11 @@ pub(super) fn admitted(
     for Instruction::Kernel { node, .. } in instructions {
         if matches!(
             node,
-            Node::Optional { .. } | Node::UnlessPays { .. } | Node::IfPays { .. } | Node::If { .. }
+            Node::Optional { .. }
+                | Node::UnlessPays { .. }
+                | Node::IfPays { .. }
+                | Node::If { .. }
+                | Node::Seq(_)
         ) {
             kir::check(node, env)
                 .map_err(|e| unsupported("compose.control", format!("kir {e}")))?;
@@ -851,19 +887,21 @@ pub(super) fn apply(
         tree: &Tree<'_>,
         block: &[Instruction],
         site: &Site<'_>,
-    ) -> Result<Vec<Node>, Failure> {
+    ) -> Result<(Vec<Node>, bool), Failure> {
         let mut nodes = vec![];
+        let mut uses_result = false;
         let mut at = tree.start;
         let mut children = tree.children.iter().peekable();
         while at < tree.end {
             if let Some(child) = children.next_if(|c| c.start == at) {
-                let mut body = render(child, block, site)?;
-                let body = if body.len() == 1 {
+                let (mut body, linked) = render(child, block, site)?;
+                let body = if body.len() == 1 && !linked {
                     body.remove(0)
                 } else {
                     Node::Seq(body)
                 };
-                nodes.push(site.node(child.kind.expect("wrap"), body)?);
+                let node = site.node(child.kind.expect("wrap"), body, &nodes, &mut uses_result)?;
+                nodes.push(node);
                 at = child.end;
             } else {
                 let Instruction::Kernel { node, .. } = &block[at];
@@ -871,9 +909,13 @@ pub(super) fn apply(
                 at += 1;
             }
         }
-        Ok(nodes)
+        Ok((nodes, uses_result))
     }
-    for node in render(&root, &block, site)? {
+    let (mut nodes, linked) = render(&root, &block, site)?;
+    if linked {
+        nodes = vec![Node::Seq(nodes)];
+    }
+    for node in nodes {
         instructions.push(Instruction::Kernel { node, source_block });
     }
     Ok(())
