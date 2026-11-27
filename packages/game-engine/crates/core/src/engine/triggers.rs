@@ -916,6 +916,11 @@ impl RulesTxn {
                     objects,
                     controller,
                     ..
+                }
+                | EventOutcome::MyriadTokensCreated {
+                    objects,
+                    controller,
+                    ..
                 } => Some((*controller, objects.len())),
                 _ => None,
             };

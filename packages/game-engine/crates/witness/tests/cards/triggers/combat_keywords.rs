@@ -667,6 +667,8 @@ fn myriad_copies_enter_simultaneously() {
     for (token, _) in myriad_tokens(&g) {
         assert_eq!(power_toughness(&g, token), pt(4, 4));
     }
+    // CR 111.1: both copies count as tokens created this turn.
+    assert_eq!(g.state.rules.cast_history[0].tokens_created, 2);
     checked(&g);
     assert_recoverable((&g).into());
 }
