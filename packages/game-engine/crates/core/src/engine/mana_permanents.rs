@@ -674,7 +674,9 @@ impl RulesTxn {
                     DamageContinuation::Mana { activation } => {
                         self.saved_frame(activation.resume)?
                     }
-                    DamageContinuation::Combat { .. } | DamageContinuation::Instruction { .. } => {
+                    DamageContinuation::Combat { .. }
+                    | DamageContinuation::Instruction { .. }
+                    | DamageContinuation::Kernel { .. } => {
                         break;
                     }
                 },

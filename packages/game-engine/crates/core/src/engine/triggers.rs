@@ -413,6 +413,8 @@ pub enum TriggerEventWitness {
         kind: DamageKind,
         recipient: Box<ObjectBefore>,
         controller_at_match: PlayerId,
+        /// CR 120.3, 603.2c: the total damage this event dealt to it.
+        amount: Quantity,
     },
     /// CR 701.21a, 603.10a: a sacrificed permanent, with its battlefield
     /// facts immediately before the move.
@@ -551,6 +553,15 @@ impl TriggerEventWitness {
                 DamageRecipient::Permanent { .. } => None,
             },
             _ => self.event_player(),
+        }
+    }
+
+    /// CR 603.2, 608.2h: the number the event carried ("that much").
+    pub(super) fn event_amount(&self) -> Option<&Quantity> {
+        match self {
+            Self::DamageDealt { damage, .. } => Some(&damage.amount),
+            Self::PermanentDamaged { amount, .. } | Self::LifeGained { amount, .. } => Some(amount),
+            _ => None,
         }
     }
 
@@ -849,6 +860,15 @@ impl StackKind {
         match self {
             Self::Triggered { binding, .. } => Ok(binding),
             _ => Err("event binding outside a triggered invocation".into()),
+        }
+    }
+
+    /// CR 603.2, 608.2h: the triggering event's number, read from its
+    /// immutable evidence.
+    pub(super) fn event_amount(&self) -> Result<Option<&Quantity>, String> {
+        match self {
+            Self::Triggered { witness, .. } => Ok(witness.event_amount()),
+            _ => Err("event amount outside a triggered invocation".into()),
         }
     }
 
@@ -1315,32 +1335,38 @@ impl RulesTxn {
             }
             // CR 120.3, 603.2c: each permanent dealt positive damage by this
             // simultaneous event, once however many sources dealt it.
-            let damaged: Vec<(DamageKind, ObjectId)> = match &occurrence.actual {
+            let damaged: Vec<(DamageKind, ObjectId, &Quantity)> = match &occurrence.actual {
                 EventOutcome::DamageCommitted { actual, .. } => {
                     let kind = before.damage_transaction()?.kind;
                     actual
                         .iter()
                         .filter(|d| d.amount > Quantity::zero())
                         .filter_map(|d| match d.recipient {
-                            DamageRecipient::Permanent { object } => Some((kind, object)),
+                            DamageRecipient::Permanent { object } => Some((kind, object, &d.amount)),
                             DamageRecipient::Player { .. } => None,
                         })
                         .collect()
                 }
                 _ => vec![],
             };
-            let mut recipients = BTreeSet::new();
-            for (kind, object) in damaged {
-                if recipients.insert(object)
-                    && before
-                        .current(object)
-                        .is_ok_and(|o| o.present_on_battlefield())
+            let mut totals: Vec<(DamageKind, ObjectId, Quantity)> = Vec::new();
+            for (kind, object, amount) in damaged {
+                match totals.iter_mut().find(|(_, seen, _)| *seen == object) {
+                    Some((_, _, total)) => total.add(amount),
+                    None => totals.push((kind, object, amount.clone())),
+                }
+            }
+            for (kind, object, amount) in totals {
+                if before
+                    .current(object)
+                    .is_ok_and(|o| o.present_on_battlefield())
                 {
                     let facts = before.object_before(object)?;
                     witnesses.push(TriggerEventWitness::PermanentDamaged {
                         kind,
                         controller_at_match: facts.controller,
                         recipient: Box::new(facts),
+                        amount,
                     });
                 }
             }
@@ -3314,6 +3340,11 @@ impl RulesTxn {
                 ..
             } => {
                 self.validate_fact_identity(facts)?;
+                if let TriggerEventWitness::PermanentDamaged { amount, .. } = witness
+                    && *amount <= Quantity::zero()
+                {
+                    return Err("snapshot damaged permanent amount invariant".into());
+                }
                 if let TriggerEventWitness::BecameBlocked { defender, .. } = witness
                     && (!self.state.rules.original_seating.contains(defender)
                         || *defender == facts.controller)

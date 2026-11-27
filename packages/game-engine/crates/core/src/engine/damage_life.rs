@@ -591,48 +591,4 @@ impl RulesTxn {
         Ok(target)
     }
 
-    // CR 608.2b-c/704.4: execute the ordered program without an intervening
-    // SBA check. A self-targeted Soul Feast may reach zero then recover before
-    // the next priority checkpoint; an all-target-illegal spell never starts.
-    pub(crate) fn execute_directed_damage(
-        &mut self,
-        frame: Resolving,
-        source: mtg_contracts::kir::Ref,
-        who: mtg_contracts::kir::Ref,
-        amount: &mtg_contracts::kir::Amount,
-        source_block: u32,
-    ) -> Result<(), String> {
-        use mtg_contracts::kir::Ref;
-        let entry = self.entry(frame.stack_id)?;
-        let (source, controller) = self.damage_source(entry, source)?;
-        let amount = Self::directed_damage_amount(entry, amount, &source)?;
-        let target = match who {
-            Ref::Target { slot } if frame.legal_targets.get(slot as usize) == Some(&true) => {
-                let target = self.directed_damage_target(entry, slot)?;
-                self.entity_legal(target).then_some(target)
-            }
-            Ref::Target { .. } => None,
-            Ref::Controller { .. } => Some(TargetEntity::Player {
-                player: entry.controller,
-            }),
-            _ => return Err("unexpected directed damage recipient".into()),
-        };
-        let Some(target) = target.filter(|_| amount > Quantity::zero()) else {
-            return self.finish_instruction(frame, InstructionOutcome::Damage { actual: None });
-        };
-        let recipient = match target {
-            TargetEntity::Player { player } => DamageRecipient::Player { player },
-            TargetEntity::Object { object } => DamageRecipient::Permanent { object },
-        };
-        self.prepare_noncombat_damage(
-            frame,
-            NoncombatDamageOccurrence {
-                source,
-                controller,
-                recipient,
-                amount,
-            },
-            source_block,
-        )
-    }
 }

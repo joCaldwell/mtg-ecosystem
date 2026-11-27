@@ -257,6 +257,11 @@ pub enum DamageContinuation {
     Mana {
         activation: Box<ManaActivation>,
     },
+    /// CR 608.2c: an evaluated kernel step; its saved task resumes with the
+    /// damage actually dealt.
+    Kernel {
+        resume: FrameLink,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1590,54 +1595,6 @@ impl RulesTxn {
             },
         )
     }
-    pub(super) fn prepare_noncombat_set_damage(
-        &mut self,
-        frame: Resolving,
-        amount: Quantity,
-        block: u32,
-        targets: Vec<TargetEntity>,
-    ) -> Result<(), String> {
-        let cause = BatchCause::Instruction {
-            stack_id: frame.stack_id,
-            player: self.entry(frame.stack_id)?.controller,
-            source: self.entry(frame.stack_id)?.source,
-            cursor: frame.cursor,
-            source_block: block,
-        };
-        let handles = match &self.entry(frame.stack_id)?.kind {
-            StackKind::Activated { source_handles, .. }
-            | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
-            StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
-        };
-        let source = self.source_facts(self.entry(frame.stack_id)?)?;
-        let controller = self.entry(frame.stack_id)?.controller;
-        let entries = targets
-            .into_iter()
-            .enumerate()
-            .map(|(n, t)| PreparedDamage {
-                source_appearance: None,
-                source_handles: handles.clone(),
-                id: DamageId(n as u32),
-                source: source.clone(),
-                controller,
-                recipient: match t {
-                    TargetEntity::Player { player } => DamageRecipient::Player { player },
-                    TargetEntity::Object { object } => DamageRecipient::Permanent { object },
-                },
-                original_amount: amount.clone(),
-                amount: amount.clone(),
-                applied: vec![],
-            })
-            .collect();
-        self.begin_damage(
-            DamageKind::Noncombat,
-            entries,
-            cause,
-            DamageContinuation::Instruction {
-                frame: Box::new(frame),
-            },
-        )
-    }
     pub(super) fn begin_damage(
         &mut self,
         kind: DamageKind,
@@ -1997,9 +1954,19 @@ impl RulesTxn {
             )?;
         } else {
             let tx = self.damage_transaction()?.clone();
+            if let DamageContinuation::Kernel { resume } = tx.continuation {
+                let batch = self.commit_batch(
+                    tx.cause,
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::CommitDamage { transaction: tx.id },
+                    },
+                )?;
+                return self.finish_kernel_damage(resume, &batch);
+            }
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match tx.continuation {
+                DamageContinuation::Kernel { .. } => unreachable!("kernel damage continuation"),
                 DamageContinuation::Combat { .. } => self.grant_turn_priority()?,
                 DamageContinuation::Mana { activation } => self.resume_mana_riders(*activation)?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
@@ -3918,6 +3885,9 @@ impl RulesTxn {
             }
             (DamageKind::Noncombat, DamageContinuation::Mana { activation }) => {
                 self.validate_mana_rider_damage(tx, activation)?;
+            }
+            (DamageKind::Noncombat, DamageContinuation::Kernel { resume }) => {
+                self.validate_kernel_damage(tx, *resume)?;
             }
             (DamageKind::Noncombat, DamageContinuation::Instruction { frame }) => {
                 self.validate_resolving(frame)?;

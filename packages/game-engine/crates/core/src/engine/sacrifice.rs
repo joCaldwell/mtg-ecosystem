@@ -452,67 +452,6 @@ impl RulesTxn {
         self.rules_mut().frame = Frame::SacrificeCost { cast };
         Ok(())
     }
-    /// CR 701.21a, 702.74a, 702.30a: the source's current controller ("its
-    /// controller sacrifices it") or the ability's controller ("sacrifice
-    /// it") sacrifices the exact source permanent, if that player still
-    /// controls it on the battlefield. A new object is not "it" (CR 400.7).
-    pub(super) fn kernel_sacrifice_source(
-        &mut self,
-        frame: Resolving,
-        player: &mtg_contracts::kir::PlayerExpr,
-        source_block: u32,
-    ) -> Result<(), String> {
-        use mtg_contracts::kir::{PlayerExpr, Ref};
-        let entry = self.entry(frame.stack_id)?;
-        let (source, controller) = (entry.source, entry.controller);
-        let present = self
-            .state
-            .rules
-            .objects
-            .get(&source.card)
-            .filter(|o| o.id == source && o.present_on_battlefield())
-            .map(|o| o.controller);
-        let actor = match player {
-            PlayerExpr::ControllerOf {
-                object: Ref::Source,
-            } => present,
-            PlayerExpr::Is {
-                who: Ref::Controller { .. },
-            } => Some(controller),
-            _ => return Err("sacrifice-source player has no audited executor".into()),
-        };
-        match actor {
-            Some(actor) if present == Some(actor) && self.is_live(actor) => {
-                let cause = BatchCause::Instruction {
-                    stack_id: frame.stack_id,
-                    player: controller,
-                    source,
-                    cursor: frame.cursor,
-                    source_block,
-                };
-                self.complete_graveyard_group(
-                    cause,
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::Sacrifice {
-                            object: source,
-                            player: actor,
-                        },
-                    },
-                    GroupFinish::Instruction {
-                        frame,
-                        result: GroupResult::Sacrifice { player: actor },
-                    },
-                )
-            }
-            _ => self.finish_instruction(
-                frame,
-                InstructionOutcome::Sacrificed {
-                    player: actor.unwrap_or(controller),
-                    movement: None,
-                },
-            ),
-        }
-    }
     pub(super) fn execute_sacrifice_instruction(
         &mut self,
         frame: Resolving,

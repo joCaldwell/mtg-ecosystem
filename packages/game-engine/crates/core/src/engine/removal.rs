@@ -92,7 +92,15 @@ impl RulesTxn {
                     continuation: CommanderContinuation::ResolutionDraw { .. },
                     ..
                 }
-        ) {
+                | Frame::DamageEffects {
+                    transaction: DamageTransaction {
+                        continuation: DamageContinuation::Kernel { .. },
+                        ..
+                    }
+                }
+        ) || matches!(frame, Frame::CounterPlacement { transaction } if transaction.kernel.is_some())
+            || matches!(frame, Frame::GraveyardGroup { tx } if matches!(tx.finish, GroupFinish::Kernel { .. }))
+        {
             return match frames.first_mut() {
                 Some(Frame::Resolve { frame }) => Some(frame),
                 _ => None,
@@ -107,7 +115,9 @@ impl RulesTxn {
             Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } => match &mut transaction.continuation {
                 DamageContinuation::Instruction { frame } => Some(frame),
-                DamageContinuation::Combat { .. } | DamageContinuation::Mana { .. } => None,
+                DamageContinuation::Combat { .. }
+                | DamageContinuation::Mana { .. }
+                | DamageContinuation::Kernel { .. } => None,
             },
             Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::BoardReturn { frame, .. }

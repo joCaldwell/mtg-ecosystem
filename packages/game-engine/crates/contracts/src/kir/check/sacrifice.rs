@@ -1,108 +1,11 @@
-//! Sacrifice cells (CR 701.21).
+//! Sacrifice capabilities (CR 701.21).
 use super::*;
 
-impl Walk<'_, '_> {
-    /// CR 701.21a: the controller, defending player, each player or each opponent sacrifices
-    /// a fixed count. Other audited recipients sacrifice one.
-    pub(super) fn audit_sacrifice(
-        &self,
-        player: &PlayerExpr,
-        count: &Amount,
-        filter: &Pred,
-        greatest_power: bool,
-    ) -> Result<Cell, KirError> {
-        if greatest_power {
-            return if self.env.context == Context::Spell
-                && *player == PlayerExpr::EachOpponent
-                && count.as_fixed() == Some(&Quantity::from(1))
-                && *filter == Pred::creatures()
-            {
-                Ok(Cell::SacrificeEachOpponentGreatestPower)
-            } else {
-                unaudited("sacrifice greatest power")
-            };
-        }
-        // CR 701.21a, 702.74a, 702.30a: "its controller sacrifices it" or
-        // "sacrifice it": one exact source permanent, by its current
-        // controller or by the ability's controller.
-        if *filter == Pred::source() {
-            return match player {
-                _ if count.as_fixed() != Some(&Quantity::from(1)) => unaudited("verb"),
-                PlayerExpr::ControllerOf {
-                    object: Ref::Source,
-                } => Ok(Cell::SacrificeSource),
-                PlayerExpr::Is {
-                    who: Ref::Controller { .. },
-                } if self.env.context == Context::Triggered => Ok(Cell::SacrificeSource),
-                _ => unaudited("sacrifice recipient"),
-            };
-        }
-        let Some(count) = count.as_fixed().and_then(Quantity::to_u32) else {
-            return unaudited("sacrifice count");
-        };
-        // CR 702.86a: an attack trigger's defending player sacrifices N
-        // permanents of their choice.
-        let defending = *player == PlayerExpr::event(EventPlayerRole::DefendingPlayer);
-        let fixed_count = defending
-            || matches!(
-                player,
-                PlayerExpr::EachPlayer
-                    | PlayerExpr::EachOpponent
-                    | PlayerExpr::Is {
-                        who: Ref::Controller { .. }
-                    }
-            );
-        if count == 0 || (!fixed_count && count != 1) {
-            return unaudited("sacrifice count");
-        }
-        for atom in &filter.0 {
-            // Top-level source exclusion is evaluated by exact object ID.
-            battlefield_target_atom(atom, true)?;
-        }
-        match player {
-            PlayerExpr::Is {
-                who: Ref::Controller { .. },
-            } => Ok(Cell::SacrificeController),
-            PlayerExpr::Is {
-                who:
-                    Ref::EventPlayer {
-                        role: EventPlayerRole::DamagedPlayer,
-                    },
-            } => Ok(Cell::SacrificeDamagedPlayer),
-            PlayerExpr::Is {
-                who:
-                    Ref::EventPlayer {
-                        role: EventPlayerRole::ActivePlayer,
-                    },
-            } => Ok(Cell::SacrificeActivePlayer),
-            _ if defending
-                && self.env.context == Context::Triggered
-                && self.env.event.is_some_and(|event| {
-                    matches!(event.pattern(), EventPattern::Attacks { attacker } if *attacker == Pred::source())
-                }) =>
-            {
-                Ok(Cell::SacrificeDefendingPlayer)
-            }
-            PlayerExpr::EachPlayer => Ok(Cell::SacrificeEachPlayer),
-            PlayerExpr::EachOpponent => Ok(Cell::SacrificeEachOpponent),
-            PlayerExpr::Is {
-                who: Ref::Target { .. },
-            } if matches!(
-                self.player_target(player)?,
-                Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer)
-            ) =>
-            {
-                Ok(Cell::SacrificeTargetOpponent)
-            }
-            _ => unaudited("sacrifice recipient"),
-        }
-    }
-}
-
 /// CR 701.21a: "each player" shares the reviewed wipe surface and "each
-/// opponent" the reviewed group sacrifice surface.
+/// opponent" the reviewed group sacrifice surface. A designated permanent
+/// ("sacrifice it") uses the exact-object surface.
 pub(super) fn capabilities(player: &PlayerExpr, filter: &Pred, out: &mut BTreeSet<Capability>) {
-    if *filter == Pred::source() {
+    if matches!(filter.0.as_slice(), [Atom::Is { .. }]) {
         out.insert(Capability::SacrificeSourceV1);
         return;
     }

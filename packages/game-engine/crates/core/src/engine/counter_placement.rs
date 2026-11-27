@@ -29,6 +29,10 @@ pub struct CounterPlacementTransaction {
     players: Vec<PlayerCounterPlacement>,
     pub cause: BatchCause,
     pub frame: Box<Resolving>,
+    /// The saved kernel task an evaluated placement resumes, whose resolving
+    /// invocation `frame` copies for its cause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kernel: Option<FrameLink>,
 }
 impl RulesTxn {
     pub(super) fn begin_counter_placement(
@@ -62,7 +66,27 @@ impl RulesTxn {
                 amount,
             })
             .collect();
-        self.begin_counter_transaction(frame, members, vec![], cause)
+        self.begin_counter_transaction(frame, members, vec![], cause, None)
+    }
+
+    /// CR 122.6: an evaluated kernel step's placement, which resumes `kernel`.
+    pub(super) fn begin_kernel_counter_placements(
+        &mut self,
+        frame: Resolving,
+        counter: CounterKind,
+        allocations: Vec<(ObjectId, Quantity)>,
+        cause: BatchCause,
+        kernel: FrameLink,
+    ) -> Result<(), String> {
+        let members = allocations
+            .into_iter()
+            .map(|(object, amount)| CounterPlacementMember {
+                object,
+                counter: counter.clone(),
+                amount,
+            })
+            .collect();
+        self.begin_counter_transaction(frame, members, vec![], cause, Some(kernel))
     }
 
     fn begin_counter_transaction(
@@ -71,12 +95,14 @@ impl RulesTxn {
         members: Vec<CounterPlacementMember>,
         players: Vec<PlayerCounterPlacement>,
         cause: BatchCause,
+        kernel: Option<FrameLink>,
     ) -> Result<(), String> {
         let transaction = CounterPlacementTransaction {
             members,
             players,
             cause,
             frame: Box::new(frame),
+            kernel,
         };
         self.validate_counter_allocations(&transaction)?;
         if transaction.members.is_empty() && transaction.players.is_empty() {
@@ -96,7 +122,7 @@ impl RulesTxn {
 
     /// CR 122.1: P/T and keyword counters go on battlefield creatures here;
     /// other kinds on any present permanent.
-    fn counter_recipient(&self, object: ObjectId, counter: &CounterKind) -> bool {
+    pub(super) fn counter_recipient(&self, object: ObjectId, counter: &CounterKind) -> bool {
         if counter.needs_creature() {
             self.is_battlefield_creature(object)
         } else {
@@ -178,7 +204,7 @@ impl RulesTxn {
                 ),
             }
         }
-        self.begin_counter_transaction(frame, members, players, cause)
+        self.begin_counter_transaction(frame, members, players, cause, None)
     }
 
     pub(super) fn give_counters(
@@ -196,7 +222,7 @@ impl RulesTxn {
             amount.as_fixed().ok_or("missing fixed player counters")?,
         )?;
         let cause = self.instruction_cause(&frame, source_block)?;
-        self.begin_counter_transaction(frame, vec![], players, cause)
+        self.begin_counter_transaction(frame, vec![], players, cause, None)
     }
 
     fn player_counter_recipients(
@@ -251,6 +277,12 @@ impl RulesTxn {
         } = tx;
         if members.iter().any(|m| m.amount <= Quantity::zero()) {
             return Err("invalid counter placement members".into());
+        }
+        if let Some(kernel) = tx.kernel {
+            if !players.is_empty() || **frame != *self.kernel_root()? {
+                return Err("kernel counter placement outside its invocation".into());
+            }
+            return self.validate_kernel_counters(members, cause, kernel);
         }
         let block = match self.counter_instruction(frame)? {
             kernel!(PutCounters {
@@ -344,26 +376,17 @@ impl RulesTxn {
         &self,
         tx: &CounterPlacementTransaction,
     ) -> Result<Option<EventGroup>, String> {
-        let instruction = self.counter_instruction(&tx.frame)?;
-        let proliferating = matches!(instruction, kernel!(Proliferate { .. }));
-        let event_object = matches!(
-            instruction,
-            kernel!(PutCounters {
-                on: mtg_contracts::kir::SetExpr::One {
-                    object: mtg_contracts::kir::Ref::EventObject { .. }
-                },
-                ..
-            })
-        );
+        let proliferating = tx.kernel.is_none()
+            && matches!(
+                self.counter_instruction(&tx.frame)?,
+                kernel!(Proliferate { .. })
+            );
         // CR 701.34a: one atomic placement per permanent carries every kind
         // it receives; members are grouped by object in allocation order.
         let mut leaves: Vec<ProposedEvent> = vec![];
         for m in tx.members.iter().filter(|m| {
             if proliferating {
                 self.can_proliferate_permanent(m.object)
-            } else if event_object {
-                self.current(m.object)
-                    .is_ok_and(Object::present_on_battlefield)
             } else {
                 self.counter_recipient(m.object, &m.counter)
             }
@@ -420,6 +443,7 @@ impl RulesTxn {
 
     pub(super) fn finish_counter_batch(&mut self, batch: &CommittedBatch) -> Result<(), String> {
         let frame = self.counter_transaction()?.frame.as_ref().clone();
+        let kernel = self.counter_transaction()?.kernel;
         let outcome = match &batch.group {
             EventGroup::Occurrence { .. } => InstructionOutcome::Effect {
                 actual: Some(
@@ -438,7 +462,10 @@ impl RulesTxn {
             },
             _ => return Err("unexpected counter placement group".into()),
         };
-        self.finish_instruction(frame, outcome)
+        match kernel {
+            Some(resume) => self.finish_kernel_counters(resume, Some(batch), outcome),
+            None => self.finish_instruction(frame, outcome),
+        }
     }
     pub(super) fn counter_placement_step(&mut self) -> Result<(), String> {
         let cause = self.counter_transaction()?.cause.clone();
@@ -450,7 +477,10 @@ impl RulesTxn {
         } else {
             let outcome = { InstructionOutcome::Effect { actual: None } };
             let frame = tx.frame.as_ref().clone();
-            self.finish_instruction(frame, outcome)
+            match tx.kernel {
+                Some(resume) => self.finish_kernel_counters(resume, None, outcome),
+                None => self.finish_instruction(frame, outcome),
+            }
         }
     }
     pub(super) fn validate_counter_placement_state(&self) -> Result<(), String> {

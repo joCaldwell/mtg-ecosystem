@@ -15,6 +15,11 @@ pub enum GroupFinish {
     Payment {
         resume: FrameLink,
     },
+    /// CR 701.21a: an evaluated kernel sacrifice; its saved task resumes
+    /// with the permanents actually sacrificed.
+    Kernel {
+        resume: FrameLink,
+    },
     StateBased {
         resume: FrameLink,
         checked: Vec<ObjectId>,
@@ -91,6 +96,7 @@ impl GroupFinish {
                 return Err("payment completion belongs to its announcement".into());
             }
             Self::Cleanup => game.rules_mut().frame = Frame::CleanupClear,
+            Self::Kernel { resume } => return game.finish_kernel_sacrifice(resume, batch),
             Self::StateBased {
                 resume, checked, ..
             } => {
@@ -376,6 +382,7 @@ impl GraveyardGroup {
             return Err("regeneration wave member invariant".into());
         }
         let producing = match &self.finish {
+            GroupFinish::Kernel { resume } => game.validate_kernel_sacrifice(&self.cause, leaves, *resume)?,
             GroupFinish::Instruction { frame, result } => {
                 game.validate_resolving(frame)?;
                 let entry = game.entry(frame.stack_id)?;

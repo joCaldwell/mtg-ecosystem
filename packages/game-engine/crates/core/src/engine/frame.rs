@@ -53,6 +53,7 @@ macro_rules! frame_walk {
                 DamageContinuation::Combat { .. } => {}
                 DamageContinuation::Mana { activation: _ } => {}
                 DamageContinuation::Instruction { frame } => visit($Held::Invocation(frame.stack_id)),
+                DamageContinuation::Kernel { resume: _ } => {}
             }
         }
 
@@ -66,6 +67,7 @@ macro_rules! frame_walk {
                     GroupFinish::Instruction { frame, result: _ } => visit($Held::Invocation(frame.stack_id)),
                     GroupFinish::Cleanup => {}
                     GroupFinish::Payment { resume: _ } => {},
+                    GroupFinish::Kernel { resume: _ } => {},
                     GroupFinish::StateBased {
                         resume: _,
                         checked: _,
@@ -192,7 +194,7 @@ macro_rules! frame_parent {
             Self::ManaAbility { activation } => Some(&$($mutable)? activation.resume),
             Self::GraveyardGroup { tx } => match &$($mutable)? tx.finish {
                 GroupFinish::StateBased { resume, .. } => Some(resume),
-                GroupFinish::Payment { resume } => Some(resume),
+                GroupFinish::Payment { resume } | GroupFinish::Kernel { resume } => Some(resume),
                 GroupFinish::Cleanup | GroupFinish::Instruction { .. } => None,
             },
             Self::CommanderReturn {
@@ -210,9 +212,14 @@ macro_rules! frame_parent {
                     DamageContinuation::Mana { activation } => {
                         Some(&$($mutable)? activation.resume)
                     }
+                    DamageContinuation::Kernel { resume } => Some(resume),
                     DamageContinuation::Combat { .. } | DamageContinuation::Instruction { .. } => None,
                 }
             }
+            Self::CounterPlacement { transaction } => match &$($mutable)? transaction.kernel {
+                Some(resume) => Some(resume),
+                None => None,
+            },
             Self::CommanderReturn { continuation: CommanderContinuation::BoardReturn { .. }
                 | CommanderContinuation::SpellMove { .. }
                 | CommanderContinuation::Search { .. }
@@ -231,7 +238,6 @@ macro_rules! frame_parent {
             | Self::TurnFaceUp { .. }
             | Self::ForcedSacrifice { .. }
             | Self::Setup
-            | Self::CounterPlacement { .. }
             | Self::EntityTargets { .. }
             | Self::StackTargets { .. }
             | Self::PlayerTargets { .. }
@@ -526,7 +532,9 @@ pub fn retained_effect_frame<'a>(frames: &'a [Frame], mut frame: &'a Frame) -> &
             Frame::ManaAbility { activation } => &frames[activation.resume.0],
             Frame::DamageEffects { transaction } => match &transaction.continuation {
                 DamageContinuation::Mana { activation } => &frames[activation.resume.0],
-                DamageContinuation::Combat { .. } | DamageContinuation::Instruction { .. } => {
+                DamageContinuation::Combat { .. }
+                | DamageContinuation::Instruction { .. }
+                | DamageContinuation::Kernel { .. } => {
                     return frame;
                 }
             },

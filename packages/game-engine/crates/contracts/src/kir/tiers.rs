@@ -712,6 +712,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
 /// as one that earned a tier.
 pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     let mut cells = BTreeSet::new();
+    let mut pinger = false;
     let mut add = |p: &SpellProgram,
                    context: Context,
                    event: Option<&TriggerCondition>,
@@ -736,12 +737,35 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     for a in &d.activated {
         for p in a.programs() {
             add(p, Context::Activated, None, a.x_mana_cost)?;
+            // The reviewed directed-damage tiers covered an activated "any
+            // target" only behind a chosen or sacrificed object cost. A tap
+            // or mana pinger is a new composition and starts at `Executes`.
+            if !matches!(
+                a.cost,
+                ActivationCost::ChooseObjects(_) | ActivationCost::SacrificePermanent { .. }
+            ) && p.instructions.iter().any(|Instruction::Kernel { node, .. }| {
+                let mut found = false;
+                visit_verbs(node, &mut |verb| {
+                    found |= matches!(verb, Verb::Damage {
+                        source: Ref::Source,
+                        to: DamageTo::Ref { who: Ref::Target { slot } },
+                        ..
+                    } if p.targets.get(*slot as usize)
+                        .is_some_and(|t| t.domain == crate::TargetDomain::AnyDamageTarget));
+                });
+                found
+            }) {
+                pinger = true;
+            }
         }
     }
     for a in &d.triggered {
         for p in a.programs() {
             add(p, Context::Triggered, Some(&a.condition), false)?;
         }
+    }
+    if pinger {
+        cells.insert(Cell::Evaluated(EvaluatedVerb::Damage));
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);

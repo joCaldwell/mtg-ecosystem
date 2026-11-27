@@ -371,6 +371,19 @@ impl Walk<'_, '_> {
                 self.out.event_player = true;
                 RefKind::Player
             }
+            Ref::EventAmount => {
+                let Some(event) = self
+                    .env
+                    .event
+                    .filter(|_| self.env.context == Context::Triggered)
+                else {
+                    return scope("event amount outside a triggered ability");
+                };
+                if !event_supplies_amount(event) {
+                    return scope("event carries no amount");
+                }
+                RefKind::Number
+            }
             Ref::AnnouncedX => {
                 if !self.env.announced_x {
                     return scope("X is not announced for this object");
@@ -568,11 +581,19 @@ impl Walk<'_, '_> {
                 .map(drop),
             Amount::OpponentsAttacked {} => Ok(()),
             Amount::Times { of, .. } => self.amount(of),
+            Amount::Sum { terms } => terms.iter().try_for_each(|term| self.amount(term)),
+            Amount::Difference {
+                minuend,
+                subtrahend,
+            } => {
+                self.amount(minuend)?;
+                self.amount(subtrahend)
+            }
             Amount::Devotion { player, .. }
             | Amount::LifeOf { player }
             | Amount::OtherCastsManaValue { caster: player } => self.player(player),
             // CR 604.3: characteristic-defining values have no kernel reader.
-            Amount::Sum { .. } | Amount::Distinct { .. } => {
+            Amount::Distinct { .. } => {
                 kind("characteristic-defining amount outside its static")
             }
         }
@@ -868,11 +889,11 @@ impl Walk<'_, '_> {
             } => {
                 self.player(player)?;
                 self.amount(count)?;
-                // CR 701.21a: "sacrifice it" names the source itself, which
-                // must be a permanent's own ability (not a spell).
-                if *filter == Pred::source() {
+                // CR 701.21a: "sacrifice it" names one permanent, which a
+                // spell's own source never is.
+                if let [Atom::Is { object }] = filter.0.as_slice() {
                     return self
-                        .expect(&Ref::Source, &[RefKind::Object], "sacrificed source")
+                        .expect(object, &[RefKind::Object], "sacrificed object")
                         .map(|_| ());
                 }
                 self.pred(filter)
@@ -1048,7 +1069,7 @@ impl Walk<'_, '_> {
                     _ => {
                         let enclosing_leaf = std::mem::replace(
                             &mut self.plain_leaf,
-                            in_control && verb.evaluated_operands().is_none(),
+                            in_control && !verb.is_evaluated(),
                         );
                         let operands = self.operands(verb);
                         self.plain_leaf = enclosing_leaf;
@@ -1507,9 +1528,6 @@ impl Walk<'_, '_> {
             Verb::Counter { .. } => unaudited("counter requires a direct instruction or payment"),
             Verb::Regenerate { .. } => unaudited("regeneration needs persistent provenance"),
             Verb::RemoveLoreCounter { .. } => unaudited("lore removal needs a direct instruction"),
-            Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
-                unaudited("nested set damage leaves top-level cursor facts")
-            }
             // The completed reorder is validated against its own fixed
             // amount at the resolving instruction's cursor.
             Verb::ReorderLibraryTop { .. } | Verb::LookChooseHand { .. } => {
@@ -1637,14 +1655,16 @@ impl Walk<'_, '_> {
     /// audited cell.
     fn audit(&self, verb: &Verb) -> Result<Cell, KirError> {
         match verb {
-            Verb::GainLife { .. } | Verb::LoseLife { .. } | Verb::Draw { .. } => {
-                self.audit_evaluated(verb)
-            }
+            Verb::GainLife { .. }
+            | Verb::LoseLife { .. }
+            | Verb::Draw { .. }
+            | Verb::Damage { .. }
+            | Verb::PutCounters { .. }
+            | Verb::Sacrifice { .. } => self.audit_evaluated(verb),
             Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
             Verb::Fight { first, second } => self.audit_fight(first, second),
             Verb::Populate { player } => Self::audit_keyword_player(player, Cell::Populate),
             Verb::Proliferate { player } => Self::audit_keyword_player(player, Cell::Proliferate),
-            Verb::Damage { source, to, amount } => self.audit_damage(source, to, amount),
             Verb::Destroy {
                 what,
                 regeneration_forbidden,
@@ -1660,23 +1680,12 @@ impl Walk<'_, '_> {
                 amount,
                 random,
             } => self.audit_discard(player, amount, *random),
-            Verb::Sacrifice {
-                player,
-                count,
-                filter,
-                greatest_power,
-            } => self.audit_sacrifice(player, count, filter, *greatest_power),
             Verb::CreateTokens {
                 controller,
                 count,
                 token,
                 ..
             } => self.audit_tokens(controller, count, token),
-            Verb::PutCounters {
-                on,
-                counter,
-                amount,
-            } => self.audit_counters(on, counter, amount),
             Verb::RemoveLoreCounter { from } => match from {
                 Ref::Target { slot }
                     if matches!(
@@ -1999,6 +2008,17 @@ fn event_supplies(event: &TriggerCondition, role: EventPlayerRole) -> bool {
         // annihilator. An attack alone does not bind the pronoun "that player".
         || (role == EventPlayerRole::DefendingPlayer
             && matches!(event.pattern(), EventPattern::Attacks { .. }))
+}
+
+/// CR 603.2, 608.2h: the events whose number "that much" can read: damage
+/// dealt and life gained.
+pub fn event_supplies_amount(event: &TriggerCondition) -> bool {
+    match event.pattern() {
+        EventPattern::DealsDamage { .. }
+        | EventPattern::IsDealtDamage { .. }
+        | EventPattern::GainsLife { .. } => true,
+        _ => false,
+    }
 }
 
 /// The event-player role an event supplies, for lowerers of "that player".
