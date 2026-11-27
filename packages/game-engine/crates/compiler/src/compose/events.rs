@@ -1008,11 +1008,22 @@ fn unsupported_intervening() -> Failure {
     )
 }
 
-/// CR 603.4, 109.5: an intervening "if you control a [filter]" or "if you
-/// control N or more [filter]" clause, read when the event occurs and again
-/// as the ability resolves. The filter may say "other" (CR 201.5).
+/// CR 603.4, 109.5: compare the number of matching permanents "you"
+/// control, including a check that there are zero. The filter may say
+/// "other" (CR 201.5).
 fn board_intervening(condition: &serde_json::Value) -> Result<kir::Intervening, Failure> {
     let reject = unsupported_intervening;
+    let absent = condition["condition"] == "not";
+    let condition = if absent {
+        if condition.as_object().map(|o| o.len()) != Some(2)
+            || condition["of"]["condition"] != "control"
+        {
+            return Err(reject());
+        }
+        &condition["of"]
+    } else {
+        condition
+    };
     let fields = condition.as_object().map(|o| o.len()).unwrap_or(0);
     if condition.get("who") != Some(&serde_json::json!({"player": "you"})) {
         return Err(reject());
@@ -1026,7 +1037,11 @@ fn board_intervening(condition: &serde_json::Value) -> Result<kir::Intervening, 
             {
                 return Err(reject());
             }
-            (&what["filter"], Cmp::AtLeast, Quantity::from(1))
+            if absent {
+                (&what["filter"], Cmp::Exactly, Quantity::zero())
+            } else {
+                (&what["filter"], Cmp::AtLeast, Quantity::from(1))
+            }
         }
         Some("control-count") if fields == 4 => {
             let (cmp, value) = control::comparison(&condition["comparison"])?;

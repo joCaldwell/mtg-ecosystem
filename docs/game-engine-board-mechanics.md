@@ -453,8 +453,8 @@ battlefield appearance (CR 400.7, 608.2h).
 
 `kir::Intervening::of` admits cast provenance, empty hand, source tapped
 status, own commander control, a creature power threshold, signed total
-power of your phased-in creatures and filtered battlefield counts. Relative
-counts compare lands or creatures against each opponent separately. “That player” instead binds the entering permanent’s
+power of your phased-in creatures and filtered battlefield counts including
+zero matching permanents. Relative counts compare lands or creatures against each opponent separately. “That player” instead binds the entering permanent’s
 controller or the opponent whose step began. Both checks count phased-in
 permanents and use the same opponent from the event witness. Entry, attack
 and step triggers can compare the controller's life, hand or own graveyard

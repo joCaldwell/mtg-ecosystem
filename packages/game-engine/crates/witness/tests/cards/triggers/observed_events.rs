@@ -628,3 +628,43 @@ fn observed_events_surrak_rechecks_total_creature_power() {
         checked(&game);
     }
 }
+
+#[test]
+fn observed_events_butterbur_requires_no_food() {
+    const BUTTERBUR: &str = record!("ec136f6f-015b-4200-97b6-a2c1bf39e135");
+    const SAVVY_HUNTER: &str = record!("602132c2-8ee8-41f8-bfac-cb17d32203f5");
+    for already_has_food in [false, true] {
+        let mut game = Game::with_trace(
+            prepare(
+                board_with(
+                    compiled(&[BUTTERBUR, SAVVY_HUNTER], false),
+                    TurnStep::PrecombatMain,
+                )
+                .permanent_or_hand("Butterbur, Bree Innkeeper", 0, 0, false)
+                .permanent_or_hand("Savvy Hunter", 0, 0, false),
+            ),
+            TraceMode::Detailed,
+        );
+        let butterbur = Driver::object(&game, 0);
+        let hunter = Driver::object(&game, 1);
+        let attackers = if already_has_food {
+            std::slice::from_ref(&hunter)
+        } else {
+            &[]
+        };
+        drive(&mut game, attackers, |g| {
+            g.state.rules.turn.step == TurnStep::End
+        });
+        assert_eq!(triggered(&game), !already_has_food);
+        settle(&mut game);
+        assert_eq!(
+            intervening(&game, butterbur),
+            if already_has_food {
+                vec![(true, false)]
+            } else {
+                vec![(true, true), (false, true)]
+            }
+        );
+        assert_eq!(game.state.rules.tokens.len(), 1);
+    }
+}

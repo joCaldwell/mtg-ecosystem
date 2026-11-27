@@ -5839,6 +5839,15 @@
       "ast_sha256": "cbc85bbb1f952ea5f28bcf9face13c146600d7310b8f78f6392e69f6b013750c",
       "archive": "archive-manifest-phase1-r5.json",
       "archive_line": 37833
+    },
+    {
+      "file": "phase1-r5/ec136f6f-015b-4200-97b6-a2c1bf39e135.json",
+      "oracle_id": "ec136f6f-015b-4200-97b6-a2c1bf39e135",
+      "record_sha256": "95c01482c25d2253a208b43a48ac9a392e55060e33212fac3f91a5c5c050655d",
+      "source_sha256": "64e52b6b49328ef0aa0e45d9cc46c2f1056f9c72c63a7d08f3cc5c3e02031d4d",
+      "ast_sha256": "4b45f17eef5702110c69d35964ad1fac64fbe40d31c5bd2a8118b918c5a1eb13",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 35670
     }
   ]
 }
