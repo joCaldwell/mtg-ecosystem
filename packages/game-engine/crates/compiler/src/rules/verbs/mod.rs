@@ -313,7 +313,7 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             who,
             what,
             chosen_by,
-        } => sacrifice::lower(cx, who, what, chosen_by),
+        } => sacrifice::lower(cx, who, what, chosen_by.as_ref()),
         Step::CreateReplacement { .. } => Err(step("create-replacement", "replacement")),
         Step::LoseAbilities { .. } => Err(step("lose-abilities", "unlowered")),
         Step::PlayCard { .. } => Err(step("play-card", "unlowered")),

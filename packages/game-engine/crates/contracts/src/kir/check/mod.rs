@@ -750,6 +750,8 @@ impl Walk<'_, '_> {
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
+            | Cond::EventOpponentControlsMore { .. }
+            | Cond::ControllerCreatureTotalPower { .. }
             | Cond::Measured { .. }
             | Cond::ControlledSinceLastUpkeep {} => {
                 unaudited("intervening condition in a resolving node")
@@ -852,6 +854,7 @@ impl Walk<'_, '_> {
                 player,
                 count,
                 filter,
+                ..
             } => {
                 self.player(player)?;
                 self.amount(count)?;
@@ -1666,7 +1669,8 @@ impl Walk<'_, '_> {
                 player,
                 count,
                 filter,
-            } => self.audit_sacrifice(player, count, filter),
+                greatest_power,
+            } => self.audit_sacrifice(player, count, filter, *greatest_power),
             Verb::CreateTokens {
                 controller,
                 count,

@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    96,
-    "2bf4d79e77e1535226bad884ee4c759016e4891eb99790664afd8092fc965b60",
+    99,
+    "f957e3f7c33c68627a5e9aa8c81a59c1b8d5f79a62b91c44417f1d444db4c3b4",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    126,
-    "c9ef7e67e6ed915b0294c2edb8f1af018cbda8cc1505985523383bec7c7b77b1",
+    129,
+    "f26ccc3e861131390e5ab28526e2505dfeedfa7587626a778414d3908f2295e3",
 );
 const WORK_PIN: (u32, &str) = (
     63,
@@ -668,6 +668,7 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
         ControllerMeasurement::Life(5.into()),
         ControllerMeasurement::HandCount(7),
         ControllerMeasurement::GraveyardCount(3),
+        ControllerMeasurement::CreatureTotalPower(9.into()),
     ]
     .into_iter()
     .map(move |observed| InterveningCheck::ControllerComparison {
@@ -693,8 +694,7 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
         },
     ])
     .map(move |check| {
-        sample["state"]["rules"]["frame"]["frame"]["condition_check"] =
-            serde_json::to_value(check).unwrap();
+        sample["state"]["frame"]["frame"]["condition_check"] = serde_json::to_value(check).unwrap();
         serde_json::to_string(&sample).unwrap()
     })
 }
@@ -927,6 +927,10 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             history["creature_died"] = true.into();
             history["permanent_left"] = true.into();
             history["hand_casts"] = 1.into();
+            history["tokens_created"] = 1.into();
+            for field in ["artifacts_entered", "creatures_entered", "nonlands_entered"] {
+                history[field] = serde_json::to_value(Quantity::from(1)).unwrap();
+            }
             history["life_gained"] = serde_json::to_value(Quantity::from(2)).unwrap();
             sample["state"]["frame"]["frame"]["condition_check"] =
                 serde_json::to_value(InterveningCheck::TurnHistory {

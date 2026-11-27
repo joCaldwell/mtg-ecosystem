@@ -108,6 +108,13 @@ pub struct TurnCastHistory {
     pub hand_casts: u32,
     #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
     pub life_gained: Quantity,
+    /// CR 603.6a: each entry counts by its controller and resulting types.
+    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
+    pub artifacts_entered: Quantity,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
+    pub creatures_entered: Quantity,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
+    pub nonlands_entered: Quantity,
     pub any_cast: bool,
     pub exile_cast: bool,
     pub mana_value: Quantity,
@@ -167,6 +174,20 @@ impl TurnCastHistory {
             CardsDrawn => quantity(row.draws),
             LifeGained => row.life_gained.clone(),
             TokensCreated => quantity(row.tokens_created),
+            ArtifactsEnteredUnderYourControl => row.artifacts_entered.clone(),
+            CreaturesEnteredUnderYourControl => row.creatures_entered.clone(),
+            NonlandPermanentsEnteredUnderYourControl => row.nonlands_entered.clone(),
+            CreaturesEnteredUnderOpponentsControl => {
+                let mut total = Quantity::zero();
+                // CR 102.3: this is turn history, including a physical
+                // opponent seat whose player has since left the game.
+                for (seat, row) in history.iter().enumerate() {
+                    if seat != player.0 as usize {
+                        total.add(&row.creatures_entered);
+                    }
+                }
+                total
+            }
         })
     }
     fn quantity_is_zero(value: &Quantity) -> bool {
@@ -722,6 +743,16 @@ fn binds_observed_object(ability: &TriggeredAbility) -> bool {
     })
 }
 
+impl TriggerEventWitness {
+    pub(super) fn permanent_count_opponent(&self) -> Option<PlayerId> {
+        match self {
+            Self::Entered { entrant, .. } => Some(entrant.controller),
+            Self::StepBegan { active, .. } => *active,
+            _ => None,
+        }
+    }
+}
+
 impl StackKind {
     pub(super) fn observed_object(&self) -> Result<&ObservedObject, String> {
         match self {
@@ -823,6 +854,33 @@ impl RulesTxn {
         // CR 603.2c, 603.10a: every member of a simultaneous occurrence
         // contributes before any member is checked. Departures use LKI.
         for occurrence in occurrences {
+            // CR 733.1: supported mana costs only change or remove existing
+            // permanents, and mana effects add mana, gain life, or deal damage.
+            // None causes an entry that a mana receipt must reverse.
+            let entering = match &occurrence.actual {
+                EventOutcome::TokenCopied { object, .. } => std::slice::from_ref(object),
+                EventOutcome::TokensCreated { objects, .. }
+                | EventOutcome::PredefinedTokensCreated { objects, .. }
+                | EventOutcome::EncoreTokensCreated { objects, .. } => objects,
+                actual => movement(actual)
+                    .filter(|m| m.from != Zone::Battlefield && m.destination == Zone::Battlefield)
+                    .map_or(&[][..], |m| std::slice::from_ref(&m.successor)),
+            };
+            for &entrant in entering {
+                let controller = self.current(entrant)?.controller;
+                let types = self.characteristics(entrant)?;
+                let row = &mut self.rules_mut().cast_history[controller.0 as usize];
+                let one = Quantity::from(1);
+                if types.has_type(CardKind::Artifact) {
+                    row.artifacts_entered.add(&one);
+                }
+                if types.has_type(CardKind::Creature) {
+                    row.creatures_entered.add(&one);
+                }
+                if !types.has_type(CardKind::Land) {
+                    row.nonlands_entered.add(&one);
+                }
+            }
             let departure = match &occurrence.actual {
                 EventOutcome::LeftGame { object, .. } => Some((*object, false)),
                 actual => movement(actual)
@@ -1919,17 +1977,20 @@ impl RulesTxn {
                                     object.controller,
                                     object.id,
                                     &observers.object_before(object.id)?,
-                                    if matches!(
-                                        condition,
-                                        kir::Intervening::SourceCastByController
-                                            | kir::Intervening::SourceCostPaid { .. }
-                                    ) {
-                                        before.and_then(|(prior, cause)| {
-                                            prior.completed_entry_cast(cause, &witness)
-                                        })
-                                    } else {
-                                        None
-                                    },
+                                    (
+                                        &matched_witness,
+                                        if matches!(
+                                            condition,
+                                            kir::Intervening::SourceCastByController
+                                                | kir::Intervening::SourceCostPaid { .. }
+                                        ) {
+                                            before.and_then(|(prior, cause)| {
+                                                prior.completed_entry_cast(cause, &witness)
+                                            })
+                                        } else {
+                                            None
+                                        },
+                                    ),
                                 )
                             })
                             .transpose()?,
@@ -2025,6 +2086,9 @@ impl RulesTxn {
             if row.attacked && seat != self.state.rules.turn_owner.0 as usize
                 || row.hand_casts as usize > row.spells.len()
                 || row.creature_died && !row.permanent_left
+                || row.artifacts_entered.is_negative()
+                || row.creatures_entered.is_negative()
+                || row.nonlands_entered.is_negative()
                 || row.life_gained < Quantity::from(i64::from(row.life_gains))
                 || (row.life_gained == Quantity::zero()) != (row.life_gains == 0)
             {

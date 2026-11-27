@@ -118,6 +118,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
             | kir::Cond::TurnHistory { .. }
             | kir::Cond::ControlsOwnCommander { .. }
             | kir::Cond::OpponentControlsMore { .. }
+            | kir::Cond::EventOpponentControlsMore { .. }
+            | kir::Cond::ControllerCreatureTotalPower { .. }
             | kir::Cond::Measured { .. }
             | kir::Cond::ControlledSinceLastUpkeep {} => {}
         }

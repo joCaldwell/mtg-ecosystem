@@ -178,6 +178,142 @@ impl RulesTxn {
         Ok(())
     }
 
+    // CR 701.21a and 702.26b: only a present permanent controlled by
+    // the chooser qualifies. Read derived characteristics during resolution.
+    pub(super) fn sacrifice_options(
+        &self,
+        frame: &Resolving,
+        player: PlayerId,
+    ) -> Result<Vec<ObjectId>, String> {
+        let entry = self.entry(frame.stack_id)?;
+        let instruction = self
+            .program_for(entry)?
+            .instructions
+            .get(frame.cursor as usize);
+        match instruction {
+            Some(
+                kernel!(Sacrifice {
+                    filter,
+                    greatest_power,
+                    ..
+                }),
+            ) => {
+                use mtg_contracts::kir::{Atom, Ref};
+                let mut filter = filter.clone();
+                let exclude_source = filter.0.iter().any(|atom| {
+                    matches!(
+                        atom,
+                        Atom::IsNot {
+                            object: Ref::Source
+                        }
+                    )
+                });
+                filter.0.retain(|atom| {
+                    !matches!(
+                        atom,
+                        Atom::IsNot {
+                            object: Ref::Source
+                        }
+                    )
+                });
+                let options = self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|object| {
+                        object.controller == player
+                            && (!exclude_source || object.id != entry.source)
+                            && crate::query::matches_battlefield_pred(
+                                &self.object_facts(object),
+                                entry.controller,
+                                &filter,
+                            )
+                            .is_yes()
+                    })
+                    .map(|object| object.id)
+                    .collect::<Vec<_>>();
+                if !greatest_power {
+                    return Ok(options);
+                }
+                let powers = options
+                    .into_iter()
+                    .map(|object| {
+                        let power = self
+                            .characteristics(object)?
+                            .power
+                            .ok_or("missing creature power")?;
+                        Ok((object, power))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                // The comparison can rank negative power (CR 107.1b).
+                let greatest = powers.iter().map(|(_, power)| power).max();
+                Ok(powers
+                    .iter()
+                    .filter(|(_, power)| Some(power) == greatest)
+                    .map(|(object, _)| *object)
+                    .collect())
+            }
+            Some(Instruction::Kernel {
+                node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. },
+                ..
+            }) => Ok(self.controlled_creatures(player)),
+            _ => Err("missing sacrifice instruction".into()),
+        }
+    }
+
+    pub(super) fn resolving_sacrifice_player(
+        &self,
+        frame: &Resolving,
+        player: &mtg_contracts::kir::PlayerExpr,
+    ) -> Result<PlayerId, String> {
+        use mtg_contracts::kir::{EventPlayerRole, PlayerExpr, Ref};
+        match player {
+            you!() => Ok(self.entry(frame.stack_id)?.controller),
+            PlayerExpr::Is {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::DamagedPlayer,
+                    },
+            } => self.resolution_player(frame, Some(&ActionRecipient::EventPlayer)),
+            PlayerExpr::Is {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::ActivePlayer,
+                    },
+            } => self
+                .entry(frame.stack_id)?
+                .kind
+                .event_player()?
+                .ok_or_else(|| "missing original active player".into()),
+            _ => Err("unbound sacrifice player".into()),
+        }
+    }
+
+    pub(super) fn resolving_sacrifice_count(&self, frame: &Resolving) -> Result<usize, String> {
+        let entry = self.entry(frame.stack_id)?;
+        match self
+            .program_for(entry)?
+            .instructions
+            .get(frame.cursor as usize)
+        {
+            Some(
+                kernel!(Sacrifice {
+                    count: fixed!(count),
+                    ..
+                }),
+            ) => count
+                .to_u32()
+                .map(|count| count as usize)
+                .ok_or_else(|| "invalid fixed sacrifice count".into()),
+            Some(Instruction::Kernel {
+                node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. },
+                ..
+            }) => Ok(1),
+            _ => Err("missing sacrifice instruction".into()),
+        }
+    }
+
     pub(super) fn sacrifice_request(&self) -> Result<Option<Decision<Rules>>, String> {
         Ok(match &self.state.rules.frame {
             Frame::SacrificeCost { cast } => {
@@ -187,20 +323,27 @@ impl RulesTxn {
                     .then(|| self.pick_objects(stack.controller, Reason::SacrificeCost, choices, 1))
             }
             Frame::ForcedSacrifice {
-                remaining, choices, ..
-            } => remaining.first().and_then(|&p| {
-                let creatures = self.controlled_creatures(p);
-                (self.is_live(p) && !creatures.is_empty()).then(|| {
-                    self.pick_objects(
-                        p,
-                        Reason::ForcedSacrifice {
-                            previous: choices.clone(),
-                        },
-                        creatures,
-                        1,
-                    )
-                })
-            }),
+                frame,
+                remaining,
+                choices,
+                ..
+            } => match remaining.first().filter(|&&player| self.is_live(player)) {
+                Some(&player) => {
+                    let options = self.sacrifice_options(frame, player)?;
+                    let count = self.resolving_sacrifice_count(frame)?.min(options.len());
+                    (count != 0).then(|| {
+                        self.pick_objects(
+                            player,
+                            Reason::ForcedSacrifice {
+                                previous: choices.clone(),
+                            },
+                            options,
+                            count,
+                        )
+                    })
+                }
+                None => None,
+            },
             _ => None,
         })
     }
@@ -236,15 +379,14 @@ impl RulesTxn {
                 source_block,
             } => {
                 if let Some(player) = remaining.first().copied() {
-                    if self.is_live(player) && !self.controlled_creatures(player).is_empty() {
+                    if self.is_live(player) && !self.sacrifice_options(&frame, player)?.is_empty() {
                         let input = self
                             .rules_mut()
                             .pending
                             .take()
                             .ok_or("missing forced sacrifice input")?;
 
-                        let object = input.object()?;
-                        choices.push((player, object));
+                        choices.extend(input.objects()?.into_iter().map(|object| (player, object)));
                     }
                     remaining.remove(0);
                     self.rules_mut().frame = Frame::ForcedSacrifice {
@@ -478,12 +620,15 @@ impl RulesTxn {
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| includes_caster || *p != controller)
                     .collect::<Vec<_>>();
+                let count = self.resolving_sacrifice_count(frame)?;
+                let order = |player| all.iter().position(|p| p == player);
                 if !valid
-                    || remaining.len() > all.len()
-                    || choices.len() > all.len()
-                    || remaining.windows(2).any(|w| {
-                        all.iter().position(|p| p == &w[0]) >= all.iter().position(|p| p == &w[1])
-                    })
+                    || remaining.iter().any(|player| order(player).is_none())
+                    || remaining.windows(2).any(|w| order(&w[0]) >= order(&w[1]))
+                    || choices.windows(2).any(|w| order(&w[0].0) > order(&w[1].0))
+                    || choices
+                        .chunk_by(|a, b| a.0 == b.0)
+                        .any(|group| group.len() > count)
                     || choices.iter().any(|(p, o)| {
                         !all.contains(p)
                             || remaining.contains(p)
@@ -491,7 +636,7 @@ impl RulesTxn {
                     })
                     || choices
                         .iter()
-                        .map(|(p, _)| p)
+                        .map(|(_, object)| object)
                         .collect::<BTreeSet<_>>()
                         .len()
                         != choices.len()
