@@ -97,15 +97,17 @@ sh scripts/promote-archive-cut.sh /path/to/r6-candidate.jsonl /path/to/d0.json \
 ```
 
 D0 records the producer's source digest. Supply the reviewed 40-digit commit
-separately. The script stages the candidate registration and exact header with
+separately. The script reruns D0 and compares the receipt against the verified
+report before staging the candidate registration and exact header with
 empty R6 record pins and only the earlier fixture provenance. It runs
 `catalog extract` for every R5 identity and `catalog verify` against both full
 archives. The script checks matching archive line numbers and the exact R5
 row plus the two evidence fields before installing the R6 fixtures, registry,
 provenance, frozen inputs and registry test header reference. The scratch
 output retains the verified fixtures. Use a new scratch directory each time.
-Re-promoting the same candidate, receipt and producer commit reproduces the
-tracked bytes. The candidate basename becomes the frozen compile cache name.
+R6 provenance follows Oracle ID order after the existing R5 rows, so first
+promotion and re-promotion with the same inputs reproduce the same tracked
+bytes. The candidate basename becomes the frozen compile cache name.
 
 The script uses `--promotion` on the offline extraction and verification
 commands to verify the proposed R6 registration from scratch. Earlier origins
@@ -567,8 +569,9 @@ other files' proofs. Each run writes and syncs the five files in a uniquely
 named private sibling stage, verifies the proofs, and publishes via one
 atomic no-replace rename followed by a parent directory sync. An occupied
 destination succeeds only if it holds exactly those five regular files with
-identical bytes. A retry gets a new stage even if an interrupted run left
-its stage behind. The `.bulk-stage-` prefix is reserved for staging. Use
+identical bytes. Errors after staging and identical retries report the retained
+stage's path. Each retry creates a new stage. The `.bulk-stage-` prefix is
+reserved for staging. Use
 [`catalog stages`](game-engine-storage.md#abandoned-bundle-stages) to inspect or
 explicitly remove abandoned stages.
 

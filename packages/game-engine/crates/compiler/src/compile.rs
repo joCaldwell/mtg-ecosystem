@@ -5,7 +5,7 @@
 //! output bytes; manifest paths, the cache location and the checkout do not.
 use crate::bulk::{
     IntakeError, OUTCOMES_MAX_BYTES, OutcomePhase, OutcomeRow, PayloadError, PublishError,
-    StagedFiles, bulk_files, publish, read_archive, write_bulk, write_payload,
+    StagedFiles, bulk_files, publish, read_archive, retained_stage, write_bulk, write_payload,
 };
 use mtg_contracts::{bulk_catalog::*, *};
 use serde::{Deserialize, Serialize};
@@ -51,6 +51,17 @@ impl CompileError {
             | Self::Compiler(e)
             | Self::Destination(e) => e,
         }
+    }
+    fn with_retained_stage(mut self, stage: &Path) -> Self {
+        let reason = match &mut self {
+            Self::Input(e)
+            | Self::Registration(e)
+            | Self::Reader(e)
+            | Self::Compiler(e)
+            | Self::Destination(e) => e,
+        };
+        *reason = retained_stage(reason, stage);
+        self
     }
 }
 impl std::fmt::Display for CompileError {
@@ -961,7 +972,7 @@ pub fn compile_with_reader(
         ))
     })
     .map_err(|e| match e {
-        PublishError::Write(e) => e,
+        PublishError::Write(e, stage) => e.with_retained_stage(&stage),
         PublishError::Destination(e) => CompileError::Destination(e),
     })
 }

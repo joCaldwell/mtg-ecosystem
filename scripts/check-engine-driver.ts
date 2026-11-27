@@ -151,6 +151,7 @@ const harnessSelfTests: CheckPhase[] = [
   { label: "cache-tests", command: "python3", args: ["-B", "scripts/test-engine-cache.py"] },
   { label: "deck-harness-tests", command: "python3", args: ["-B", "scripts/test-engine-decks.py"] },
   { label: "rework-sweep-tests", command: "python3", args: ["-B", "scripts/test-rework-sweep.py"] },
+  { label: "archive-cut-tests", command: "python3", args: ["-B", "scripts/test-compare-archive-cut.py"] },
   { label: "stage-deck-tests", command: "python3", args: ["-B", "scripts/test-stage-deck.py"] },
   { label: "documentation-tests", command: "python3", args: ["-B", "scripts/test-check-docs.py"] },
 ];

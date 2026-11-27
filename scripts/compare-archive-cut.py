@@ -179,8 +179,6 @@ def fixtures(sim, source, out, archives, replacement=None):
     r6['record_sha256'] = []
     registry[registry.index(previous_r6)] = r6
     provenance = json.loads((source / 'provenance.json').read_bytes())
-    old_r6_order = {row['oracle_id']: index for index, row in enumerate(provenance['records'])
-                    if row['archive'] == previous_r6['manifest_file']}
     provenance['records'] = [row for row in provenance['records'] if row['archive'] != previous_r6['manifest_file']]
     rows = [row for row in provenance['records'] if row['archive'] == r5['manifest_file']]
     require(rows and {r['record_sha256'] for r in rows} == set(r5['record_sha256'])
@@ -208,10 +206,7 @@ def fixtures(sim, source, out, archives, replacement=None):
     after = json.loads(provenance_path.read_bytes())
     count = len(provenance['records'])
     require(after['records'][:count] == provenance['records'], 'existing provenance rows changed')
-    # Existing witnesses keep their positions. New R5 identities follow them in
-    # extraction order, matching the ordering of an incremental promotion.
-    after['records'][count:] = sorted(after['records'][count:],
-                                      key=lambda row: old_r6_order.get(row['oracle_id'], float('inf')))
+    after['records'][count:] = sorted(after['records'][count:], key=lambda row: row['oracle_id'])
     pretty(provenance_path, after)
     verified = {cut: sim_json('verify', archive, provenance_path) for cut, archive in zip(('r5', 'r6'), archives)}
     require(all(report['verified_records'] == len(rows) for report in verified.values()), 'verify omitted fixture rows')
@@ -245,24 +240,39 @@ def fixtures(sim, source, out, archives, replacement=None):
             'verified': {cut: report['verified_records'] for cut, report in verified.items()}}
 
 
-def promotion_inputs(candidate, receipt, revision):
-    require(receipt['status'] == 'candidate' and receipt['d0']['status'] == 'passed',
+def verify_promotion_d0(root, r5, candidate):
+    done = subprocess.run(
+        ['sh', root / 'scripts/engine-env.sh', 'node', root / 'scripts/archive-parser.ts',
+         '--legacy-baseline', r5.resolve(), '--verify-candidate', candidate.resolve()],
+        cwd=root, capture_output=True, check=False,
+    )
+    require(done.returncode == 0, f'D0 verification failed: {done.stderr.decode(errors="replace").strip()}')
+    return json.loads(done.stdout)
+
+
+def promotion_inputs(root, r5, candidate, receipt, revision):
+    d0 = receipt['d0']
+    require(receipt['status'] == 'candidate' and d0['status'] == 'passed',
             'promotion requires a passing D0 candidate receipt')
-    r6 = receipt['registryEntry']
-    require(r6['cut'] == 'r6' and not r6['record_sha256'] and not r6.get('pending') and not r6.get('candidate'),
-            'D0 receipt must supply an unpinned R6 registry entry')
-    require(re.fullmatch(r'[0-9a-f]{40}', revision) and r6['parser_revision'] in ('', revision),
+    require(type(d0['elapsedMs']) is int and d0['elapsedMs'] >= 0, 'invalid D0 elapsed time')
+    entry = receipt['registryEntry']
+    require(re.fullmatch(r'[0-9a-f]{40}', revision) and entry['parser_revision'] in ('', revision),
             'reviewed producer revision is missing or differs from the receipt')
-    r6['parser_revision'] = revision
+    verified = verify_promotion_d0(root, r5, candidate)
+    # Elapsed time varies across runs. The producer commit is supplied by review.
+    supplied = {**receipt, 'd0': {**d0, 'elapsedMs': verified['d0']['elapsedMs']},
+                'registryEntry': {**entry, 'parser_revision': ''}}
+    require(supplied.keys() == verified.keys(), 'D0 receipt fields differ from the verified report')
+    for field, expected in verified.items():
+        require(json.dumps(supplied[field], sort_keys=True, allow_nan=False)
+                == json.dumps(expected, sort_keys=True, allow_nan=False),
+                f'D0 receipt {field} differs from the verified report')
+
+    r6 = {**verified['registryEntry'], 'parser_revision': revision}
     with candidate.open('rb') as archive:
         raw = archive.readline(1024 * 1024 + 1)
-    require(raw.endswith(b'\n') and len(raw) <= 1024 * 1024 and sha(raw[:-1]) == r6['manifest_sha256']
-            and r6['manifest_file'] == f"archive-manifest-r6-candidate-{r6['manifest_sha256']}.json"
-            and candidate.stat().st_size == r6['r6']['file_bytes'], 'R6 header or byte length differs from D0')
-    header = json.loads(raw)
-    require(receipt['legacy'] == header['legacy'] and receipt['rulesSha256'] == header['rules']['sha256'],
-            'R5 control or rules hashes differ from D0')
-    return r6, raw, header
+    require(raw.endswith(b'\n') and sha(raw[:-1]) == r6['manifest_sha256'], 'R6 header changed after D0 verification')
+    return r6, raw, json.loads(raw)
 
 
 def pin_frozen_inputs(inputs, candidate, r6, header):
@@ -340,7 +350,8 @@ def promote(args):
     registry_tests = root / 'packages/game-engine/crates/contracts/src/archives.rs'
     registry = json.loads((source / 'accepted-archives.json').read_bytes())
     previous_r6 = next(a for a in registry if a['cut'] == 'r6')
-    r6, raw, header = promotion_inputs(args.candidate, json.loads(args.receipt.read_bytes()), args.producer_revision)
+    r6, raw, header = promotion_inputs(root, args.r5, args.candidate,
+                                       json.loads(args.receipt.read_bytes()), args.producer_revision)
     report = fixtures(args.sim, source, args.out, (args.r5, args.candidate), replacement=(r6, raw))
     inputs_name = 'compile-inputs-phase1-r6.json'
     inputs = json.loads((source / inputs_name).read_bytes())
