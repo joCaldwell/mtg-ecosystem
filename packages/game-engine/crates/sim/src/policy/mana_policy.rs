@@ -112,7 +112,11 @@ impl Planner<'_> {
         for c in &cost.colored {
             required.entry(*c).or_default().add(&1.into());
         }
-        for _ in 0..=self.sources.len() {
+        // A source whose own cost cannot be funded (one filter-land
+        // announcement) is skipped, and its object stays free for another
+        // announcement of the same ability (CR 107.4e, 605.3a).
+        let mut skipped = vec![false; self.sources.len()];
+        for _ in 0..=2 * self.sources.len() {
             if self.can_fund(cost, nested) {
                 return true;
             }
@@ -132,7 +136,7 @@ impl Planner<'_> {
                 .sources
                 .iter()
                 .enumerate()
-                .filter(|(_, source)| !self.used[source.object_index])
+                .filter(|(index, source)| !self.used[source.object_index] && !skipped[*index])
                 .filter(|(_, source)| deficit.is_none_or(|color| source.colors.contains(&color)))
                 .filter(|(_, source)| {
                     !matches!(source.production, ManaProduction::Counted { .. })
@@ -169,10 +173,19 @@ impl Planner<'_> {
                 })
                 .map(|(index, _)| index);
             let Some(i) = chosen else { return false };
+            let saved = (
+                self.used.clone(),
+                self.tapped.clone(),
+                self.pool.clone(),
+                self.plan.len(),
+            );
             self.used[self.sources[i].object_index] = true;
-            let Some(i) = self.fund_source_cost(i) else {
-                return false;
-            };
+            if self.fund_source_cost(i).is_none() {
+                (self.used, self.tapped, self.pool) = (saved.0, saved.1, saved.2);
+                self.plan.truncate(saved.3);
+                skipped[i] = true;
+                continue;
+            }
             let source = &self.sources[i];
             let colors = if matches!(source.production, ManaProduction::LandsCouldProduce { .. })
                 && (source.taps || self.tapped.iter().any(|tapped| *tapped))
@@ -716,56 +729,66 @@ pub(super) fn hybrid_plan(
 pub(super) fn hybrid_plan_reserved(
     catalog: &Catalog,
     view: &PermittedView,
-    mut cost: ManaCost,
+    cost: ManaCost,
     symbols: &[mtg_contracts::ColorHybridSymbol],
     reserved: &[&ObjectHandle],
 ) -> Option<(
     Vec<mtg_contracts::HybridPayment>,
     std::collections::VecDeque<PlannedMana>,
 )> {
+    hybrid_plan_with(catalog, view, symbols, reserved, &|choices| {
+        let mut total = cost.clone();
+        for choice in choices {
+            choice.add_to(&mut total);
+        }
+        Some(total)
+    })
+}
+
+/// CR 107.4e-f, 119.4, 601.2f: the first announcement, in candidate order
+/// (each symbol's colored alternative first), whose total `total` quotes
+/// and the view funds. `total` is the engine's lock order: announcements
+/// are added before increases and reductions apply. Phyrexian life must be
+/// payable in full.
+pub(super) fn hybrid_plan_with(
+    catalog: &Catalog,
+    view: &PermittedView,
+    symbols: &[mtg_contracts::ColorHybridSymbol],
+    reserved: &[&ObjectHandle],
+    total: &dyn Fn(&[mtg_contracts::HybridPayment]) -> Option<ManaCost>,
+) -> Option<(
+    Vec<mtg_contracts::HybridPayment>,
+    std::collections::VecDeque<PlannedMana>,
+)> {
     use mtg_contracts::HybridPayment;
     let payer = view.players.iter().find(|p| p.player == view.viewer)?;
-    let mut life = payer.life.clone();
-    let mut choices = Vec::with_capacity(symbols.len());
+    let mut announcements: Vec<Vec<HybridPayment>> = vec![vec![]];
     for symbol in symbols {
-        if let Some(color) = symbol
-            .colors
-            .iter()
-            .filter_map(|choice| choice.color())
-            .find(|color| {
-                cost.colored.push(*color);
-                let payable =
-                    plan_with_reservations(catalog, view, &cost, None, &[], reserved).is_some();
-                cost.colored.pop();
-                payable
+        announcements = announcements
+            .into_iter()
+            .flat_map(|prefix| {
+                symbol.colors.iter().map(move |choice| {
+                    let mut next = prefix.clone();
+                    next.push(*choice);
+                    next
+                })
             })
+            .collect();
+    }
+    announcements.into_iter().find_map(|choices| {
+        let life = choices
+            .iter()
+            .filter(|c| **c == HybridPayment::PayTwoLife)
+            .count();
+        if life > 0
+            && (payer.life_frozen_until_next_turn || payer.life < Quantity::from(2 * life as i64))
         {
-            choices.push(HybridPayment::Mana(color));
-            cost.colored.push(color);
-        } else if symbol.colors.contains(&HybridPayment::PayTwoGeneric) && {
-            // CR 107.4e: {2} pays a monocolored hybrid symbol.
-            cost.generic.add(&2.into());
-            let payable =
-                plan_with_reservations(catalog, view, &cost, None, &[], reserved).is_some();
-            cost.generic.subtract(&2.into());
-            payable
-        } {
-            choices.push(HybridPayment::PayTwoGeneric);
-            cost.generic.add(&2.into());
-        } else if symbol.colors.contains(&HybridPayment::PayTwoLife)
-            && !payer.life_frozen_until_next_turn
-            && life >= 2.into()
-        {
-            choices.push(HybridPayment::PayTwoLife);
-            life.subtract(&2.into());
-        } else {
             return None;
         }
-    }
-    Some((
-        choices,
-        plan_with_reservations(catalog, view, &cost, None, &[], reserved)?,
-    ))
+        let cost = total(&choices)?;
+        let plan = plan_with_reservations(catalog, view, &cost, None, &[], reserved)?;
+        Some((choices, plan))
+    })
 }
 #[cfg(test)]
 mod tests {
@@ -972,6 +995,46 @@ mod tests {
                 assert!(forests.iter().all(|p| p.source != v.objects[0].handle));
             }
         }
+    }
+
+    /// CR 107.4e, 605.3a: with an empty pool, Fetid Heath cannot pay its
+    /// white {W/B} input, but a Swamp pays the black one, which then filters
+    /// into {W}{W}.
+    #[test]
+    fn a_filter_land_tries_its_other_hybrid_input() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/42bf259d-4bb9-49c3-b4ec-223dca62f4d6.json"
+            ),
+        ) else {
+            panic!("frozen Fetid Heath must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects.push(land(&catalog, "Fetid Heath", 3));
+        view.objects.push(land(&catalog, "Swamp", 3));
+        let cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::W, Color::W],
+        };
+        let plan = plan_for(&catalog, &view, &cost, None).expect("Swamp feeds the Heath");
+        let steps: Vec<_> = plan
+            .iter()
+            .map(|p| (p.source.clone(), p.hybrid.clone(), p.bundle.clone()))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                (view.objects[1].handle.clone(), vec![], None),
+                (
+                    view.objects[0].handle.clone(),
+                    vec![mtg_contracts::HybridPayment::Mana(Color::B)],
+                    Some(vec![Color::W, Color::W])
+                ),
+            ]
+        );
     }
 
     #[test]

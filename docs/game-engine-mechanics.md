@@ -288,9 +288,12 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   symbol's largest component (CR 202.3f–g). Battlefield activated abilities
   announce the same symbols, hybrid then X, before targets (CR 602.2b);
   `ActivatedAbility::announced_cost` is the one total the engine locks and
-  Develop plans. Mana abilities admit only two-color hybrid, announced before
-  their nested payment (CR 605.3a). Several X, colorless or hybrid Phyrexian
-  and snow symbols reject, as do announcements on modal, chosen-object,
+  Develop plans; spell announcements are quoted in lock order, before
+  reductions. Announcements that leave no mana open no mana window (CR
+  601.2g). Printed mana abilities admit only two-color hybrid, announced
+  before their nested payment (CR 605.3a); granted ones admit none. Several
+  X, colorless or hybrid Phyrexian and snow symbols reject, as do Phyrexian
+  beside "Pay N life" and announcements on modal, chosen-object,
   sacrifice-choice or off-battlefield activations.
 - **Affinity** counts the caster's matching phased-in permanents at CR 601.2f
   and reduces generic mana by that count (CR 702.41). Each instance uses the

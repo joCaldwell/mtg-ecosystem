@@ -783,7 +783,13 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                 a.cost,
                 ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
             )
-            || !a.hybrid_mana.iter().all(hybrid_symbol))
+            || !a.hybrid_mana.iter().all(hybrid_symbol)
+            // CR 119.4, 601.2h: a Phyrexian life payment beside a printed
+            // "Pay N life" would need one combined life check.
+            || (a.hybrid_mana
+                .iter()
+                .any(|s| s.colors.contains(&HybridPayment::PayTwoLife))
+                && matches!(&a.cost, ActivationCost::Composite { costs } if costs.pay_life.is_some())))
     {
         return cell("activated", "announced_mana");
     }
@@ -2069,6 +2075,92 @@ mod tests {
             },
             0,
         )
+    }
+
+    /// CR 107.4e, 605.3a: printed mana abilities admit only two-color
+    /// hybrid; a granted mana ability admits no hybrid mana cost at all.
+    #[test]
+    fn mana_ability_hybrid_admits_only_two_color_pairs() {
+        use HybridPayment::{Mana, PayTwoGeneric, PayTwoLife};
+        let ability = |colors| ManaAbility {
+            restriction: None,
+            condition: None,
+            costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
+                tap: true,
+                mana: None,
+                sacrifice: false,
+                pay_life: None,
+            },
+            hybrid_mana: vec![ColorHybridSymbol { colors }],
+            production: ManaProduction::Fixed {
+                symbols: vec![Color::G, Color::G],
+            },
+            spend_restriction: None,
+            riders: vec![],
+            source_block: 0,
+        };
+        let printed = |colors| with(|d| d.mana_abilities.push(ability(colors)));
+        printed([Mana(Color::G), Mana(Color::U)])
+            .validate()
+            .unwrap();
+        for colors in [
+            [Mana(Color::W), PayTwoGeneric],
+            [Mana(Color::G), PayTwoLife],
+        ] {
+            assert!(
+                printed(colors)
+                    .validate()
+                    .unwrap_err()
+                    .contains("cell:mana:hybrid"),
+                "{colors:?}"
+            );
+        }
+        let scope = kir::Scope::Source;
+        for colors in [
+            [Mana(Color::W), PayTwoGeneric],
+            [Mana(Color::G), Mana(Color::U)],
+        ] {
+            assert!(!kir::granted_mana_supported(
+                &scope,
+                None,
+                &[ability(colors)]
+            ));
+        }
+        let mut plain = ability([Mana(Color::G), Mana(Color::U)]);
+        plain.hybrid_mana.clear();
+        assert!(kir::granted_mana_supported(&scope, None, &[plain]));
+    }
+
+    /// CR 119.4, 601.2h: a Phyrexian symbol beside a printed "Pay N life"
+    /// rejects at admission rather than checking the two life payments
+    /// separately.
+    #[test]
+    fn phyrexian_activation_with_a_printed_life_payment_rejects() {
+        let mut a = ability(
+            ActivationCost::Composite {
+                costs: PermanentActivationCosts {
+                    remove_source_plus_one_counters: None,
+                    tap: false,
+                    mana: Some(ManaCost {
+                        generic: Quantity::zero(),
+                        colored: vec![],
+                    }),
+                    sacrifice: false,
+                    pay_life: Some(2.into()),
+                },
+            },
+            SpellProgram::instructions(SpellTiming::Instant),
+        );
+        a.hybrid_mana = vec![ColorHybridSymbol {
+            colors: [HybridPayment::Mana(Color::G), HybridPayment::PayTwoLife],
+        }];
+        let d = with(|d| d.activated.push(a));
+        assert!(
+            surfaces(&d)
+                .unwrap_err()
+                .contains("cell:activated:announced_mana")
+        );
     }
 
     #[test]

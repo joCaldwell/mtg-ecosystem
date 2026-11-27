@@ -241,3 +241,42 @@ fn simulator_plans_a_filter_land_through_its_hybrid_announcement() {
     assert!(g.current(Driver::object(&g, 0)).unwrap().tapped);
     assert!(g.current(Driver::object(&g, 1)).unwrap().tapped);
 }
+
+/// Pegasus Refuge ("{2}, Discard a card") is offered only when its mana
+/// can be proven: Fetid Heath's filter needs {W/B} as input, so with an
+/// empty pool the Heath alone proves only {C}; with a Plains it proves two
+/// (CR 107.4e, 601.2g-h, 602.2b).
+#[test]
+fn filter_land_output_is_not_free_funding_for_a_chosen_cost() {
+    const REFUGE: &str = include_str!(
+        "../../../../../tests/fixtures/phase1-r5/07462467-e4a3-409e-bcef-9cc92ca4c299.json"
+    );
+    for (lands, offered) in [
+        (&["Fetid Heath"][..], false),
+        (&["Fetid Heath", "Plains"][..], true),
+    ] {
+        let mut catalog = FixtureCatalog::Witness.get().clone();
+        catalog
+            .definitions
+            .extend([lowered(FETID_HEATH), lowered(REFUGE)]);
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        let mut board = Board::new(catalog, "special-mana-chosen-funding")
+            .step(TurnStep::PrecombatMain)
+            .seats(2)
+            .permanent_or_hand("Pegasus Refuge", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, true);
+        for land in lands {
+            board = board.permanent_or_hand(land, 0, 0, false);
+        }
+        let mut g = Game::new(board.libraries("Forest", 4).prepare());
+        let refuge = Driver::object(&g, 0);
+        let d = Driver::request(&mut g, u64::MAX);
+        assert_eq!(d.reason, Reason::Priority);
+        let found = d.candidates.iter().any(|c| {
+            matches!(c, Candidate::Action { action: Action::ActivateAbility { object, .. } } if *object == refuge)
+        });
+        assert_eq!(found, offered, "{lands:?}");
+    }
+}

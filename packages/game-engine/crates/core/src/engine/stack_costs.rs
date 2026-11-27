@@ -647,7 +647,7 @@ impl RulesTxn {
                 undo_mana: false,
                 revealed_hand_consumed: false,
             };
-            self.rules_mut().frame = self.activated_announcement_frame(cast)?;
+            self.continue_announcement(cast)?;
         } else if targeted {
             if cost != ActivationCost::TapSource
                 && !matches!(
@@ -786,8 +786,11 @@ impl RulesTxn {
     }
     /// CR 107.3a, 107.4e-f, 601.2f, 602.2b: the next announcement stage of
     /// an activation whose cost has hybrid symbols or X, then its targets or
-    /// mana window. The total cost always includes what is announced.
-    pub(super) fn activated_announcement_frame(&mut self, cast: Casting) -> Result<Frame, String> {
+    /// mana window. The total cost always includes what is announced; with
+    /// no mana left to pay (2 life for every Phyrexian symbol, X of 0) there
+    /// is no mana window and the remaining costs are paid at once (CR
+    /// 601.2g-h).
+    fn activated_announcement(&mut self, cast: Casting) -> Result<(), String> {
         let entry = self.top()?;
         let StackKind::Activated { ability, .. } = entry.kind else {
             return Err("activation announcement binding invariant".into());
@@ -814,24 +817,46 @@ impl RulesTxn {
             .ok_or("missing announced activation")?
             .total_cost = total;
         let entry = self.top()?;
-        if !activated.hybrid_mana.is_empty() && entry.hybrid_colors.is_empty() {
-            return Ok(Frame::HybridCost { cast });
-        }
-        if activated.x_mana_cost && entry.x.is_none() {
-            return Ok(Frame::AnnounceX { cast });
-        }
-        Ok(match activated.program.targets.first() {
-            None => Frame::Mana { cast },
-            Some(target) => Self::activation_target_frame(target.domain, cast),
-        })
+        self.rules_mut().frame =
+            if !activated.hybrid_mana.is_empty() && entry.hybrid_colors.is_empty() {
+                Frame::HybridCost { cast }
+            } else if activated.x_mana_cost && entry.x.is_none() {
+                Frame::AnnounceX { cast }
+            } else if let Some(target) = activated.program.targets.first() {
+                Self::activation_target_frame(target.domain, cast)
+            } else if self.announced_without_mana(entry)? {
+                let mut cast = cast;
+                cast.spending = Some(BTreeMap::new());
+                // The announcement stage ends before the costs are paid.
+                self.rules_mut().frame = Frame::Payment { cast: cast.clone() };
+                return Ok(self.payment_step(cast)?);
+            } else {
+                Frame::Mana { cast }
+            };
+        Ok(())
+    }
+    /// CR 601.2g: an activation whose announcements leave no mana to pay
+    /// has no mana window.
+    pub(super) fn announced_without_mana(&self, entry: &StackInstance) -> Result<bool, String> {
+        let StackKind::Activated { ability, .. } = entry.kind else {
+            return Ok(false);
+        };
+        let activated = self
+            .stack_definition(entry)?
+            .activated
+            .get(ability as usize)
+            .ok_or("missing announced activated ability")?;
+        Ok((activated.x_mana_cost || !activated.hybrid_mana.is_empty())
+            && entry.total_cost == zero_mana_cost())
     }
     /// The spell or activation announcement stage after a hybrid or X
     /// choice.
-    pub(super) fn announcement_frame(&mut self, cast: Casting) -> Result<Frame, String> {
+    pub(super) fn continue_announcement(&mut self, cast: Casting) -> Result<(), String> {
         if cast.origin == AnnouncementOrigin::Activated {
-            self.activated_announcement_frame(cast)
+            self.activated_announcement(cast)
         } else {
-            self.spell_announcement_frame(cast)
+            self.rules_mut().frame = self.spell_announcement_frame(cast)?;
+            Ok(())
         }
     }
     pub(super) fn validate_activated_entry(
@@ -883,7 +908,9 @@ impl RulesTxn {
         let stage = self.underlying_mana_frame(&self.state.rules.frame)?;
         let announcing = match stage {
             Frame::HybridCost { cast } | Frame::AnnounceX { cast }
-                if !activated.x_mana_cost && activated.hybrid_mana.is_empty() =>
+                if cast.stack_id == entry.id
+                    && !activated.x_mana_cost
+                    && activated.hybrid_mana.is_empty() =>
             {
                 return Err("snapshot activation announcement invariant".into());
             }

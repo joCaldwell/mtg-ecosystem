@@ -1056,11 +1056,14 @@ impl Strategy<'_> {
             }
         })
     }
+    /// `quote` is the engine's cast quote (game, card, X); with it, each
+    /// hybrid announcement is quoted in the lock order (CR 601.2f).
     fn casting_mana_plan(
         &self,
         view: &PermittedView,
         definition: &Definition,
         cost: ManaCost,
+        quote: Option<(&mtg_core::Game, &ObjectHandle, Option<&Quantity>)>,
     ) -> Option<(
         Vec<mtg_contracts::HybridPayment>,
         std::collections::VecDeque<mana_policy::PlannedMana>,
@@ -1082,12 +1085,22 @@ impl Strategy<'_> {
                 return Some(plan);
             }
         }
-        mana_policy::hybrid_plan(
-            self.catalog,
-            view,
-            cost,
-            &definition.characteristics.hybrid_mana,
-        )
+        let symbols = &definition.characteristics.hybrid_mana;
+        match quote.filter(|_| !symbols.is_empty()) {
+            Some((game, card, x)) => {
+                mana_policy::hybrid_plan_with(self.catalog, view, symbols, &[], &|choices| {
+                    let total = game
+                        .quote_hybrid_cast_cost(view.viewer, card, x, choices)
+                        .ok()?;
+                    Some(if definition.delve {
+                        super::delve_mana_due(total, view, Some(card))
+                    } else {
+                        total
+                    })
+                })
+            }
+            None => mana_policy::hybrid_plan(self.catalog, view, cost, symbols),
+        }
     }
 
     pub(super) fn choose_x(
@@ -1200,7 +1213,10 @@ impl Strategy<'_> {
             } else {
                 cost
             };
-            if self.casting_mana_plan(v, d, cost).is_none() {
+            if self
+                .casting_mana_plan(v, d, cost, quote.map(|(game, card)| (game, card, Some(&x))))
+                .is_none()
+            {
                 break;
             }
             // The best card the announced X admits; the smallest such X wins.
@@ -1429,7 +1445,12 @@ impl Strategy<'_> {
             cost.clone()
         };
         let mut alternative = None;
-        let (choices, plan) = match self.casting_mana_plan(v, d, due) {
+        let (choices, plan) = match self.casting_mana_plan(
+            v,
+            d,
+            due,
+            quote.map(|(game, card)| (game, card, x.as_ref())),
+        ) {
             Some(plan) => plan,
             // CR 118.9, 702.74a: announce the printed alternative cost from
             // hand or the command zone when only it can be funded.
@@ -1453,7 +1474,7 @@ impl Strategy<'_> {
                 } else {
                     alt.clone()
                 };
-                let plan = self.casting_mana_plan(v, d, due)?;
+                let plan = self.casting_mana_plan(v, d, due, None)?;
                 alternative = Some(identity);
                 cost = alt;
                 plan
@@ -1685,12 +1706,8 @@ impl Strategy<'_> {
             || self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
                 matches!(failed, PaymentAction::Activate(handle, index) if handle == &o.handle && *index == ability)
             })
-            || !self.program_ready_with_x(
-                v,
-                d,
-                &a.program,
-                a.x_mana_cost.then(|| Quantity::from(1)).as_ref(),
-            )
+            // An X ability's readiness is judged at the X it announces.
+            || (!a.x_mana_cost && !self.program_ready(v, d, &a.program))
         {
             return None;
         }
@@ -1816,7 +1833,10 @@ impl Strategy<'_> {
         };
         let mut x = None;
         if a.x_mana_cost {
-            // The largest X this view can fund; an X of 0 does nothing.
+            // Among the X values this view funds (an X of 0 does nothing),
+            // the best-scoring ready one: a wipe's smallest best X, else the
+            // largest.
+            let mut best: Option<(Quantity, Quantity)> = None;
             for n in 1..=64i64 {
                 let n = Quantity::from(n);
                 if mana_policy::plan_for(
@@ -1829,11 +1849,17 @@ impl Strategy<'_> {
                 {
                     break;
                 }
-                x = Some(n);
+                if !self.program_ready_with_x(v, d, &a.program, Some(&n)) {
+                    continue;
+                }
+                let score = self
+                    .wipe_score(v, &a.program, &n)
+                    .unwrap_or_else(|| n.clone());
+                if best.as_ref().is_none_or(|(_, b)| score > *b) {
+                    best = Some((n, score));
+                }
             }
-            if !self.program_ready_with_x(v, d, &a.program, Some(x.as_ref()?)) {
-                return None;
-            }
+            x = Some(best?.0);
         }
         let cost = a.announced_cost(&hybrid, x.as_ref());
         self.memory.mana_plan = mana_policy::plan_for(self.catalog, v, &cost, exclude)?;

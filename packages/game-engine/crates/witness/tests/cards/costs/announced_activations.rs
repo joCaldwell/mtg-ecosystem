@@ -208,12 +208,12 @@ fn phyrexian_activation_pays_green_or_two_life() {
             ]
         );
         announce(&mut g, &[payment]);
-        let lands: &[u32] = if payment == HybridPayment::PayTwoLife {
-            &[]
-        } else {
-            &[1]
-        };
-        Driver::pay(&mut g, lands);
+        // CR 601.2g: 2 life for the whole cost leaves no mana to pay, so no
+        // mana window opens; the life is paid (or the activation reversed)
+        // at once.
+        if payment != HybridPayment::PayTwoLife {
+            Driver::pay(&mut g, &[1]);
+        }
         let d = Driver::request(&mut g, u64::MAX);
         assert_eq!(d.reason, Reason::Priority);
         checked(&g);
@@ -277,7 +277,7 @@ fn phyrexian_spell_and_ability_symbols_keep_their_mana_value() {
     // Untapped lands are gone; 2 life pays the ability's {R/P}.
     Driver::action(&mut g, activate(dragon, 0));
     announce(&mut g, &[HybridPayment::PayTwoLife]);
-    Driver::pay(&mut g, &[]);
+    assert_eq!(Driver::request(&mut g, u64::MAX).reason, Reason::Priority);
     settle(&mut g);
     assert_eq!(life(&g, 0), plus(&start, -6));
     assert_eq!(g.characteristics(dragon).unwrap().power, Some(5.into()));
@@ -392,4 +392,90 @@ fn simulator_announces_a_phyrexian_activation_from_its_plan() {
         }]
     );
     assert_eq!(life(&g, 0), plus(&start, -2));
+}
+
+/// CR 601.2g: the life-only route reaches priority with the ability paid and
+/// never offers a mana decision; a later snapshot restores it exactly.
+#[test]
+fn life_only_phyrexian_activation_opens_no_mana_window() {
+    let prepared = board(&[(INSATIABLE_SOULEATER, &[Cell::HybridManaCost])])
+        .permanent_or_hand("Insatiable Souleater", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .libraries("Island", 4)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let start = life(&g, 0);
+    let souleater = Driver::object(&g, 0);
+    Driver::action(&mut g, activate(souleater, 0));
+    announce(&mut g, &[HybridPayment::PayTwoLife]);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert_eq!(d.reason, Reason::Priority, "{d:?}");
+    let entry = g.state.rules.stack.last().unwrap();
+    assert_eq!(entry.paid.as_ref().unwrap().colored, []);
+    assert_eq!(life(&g, 0), plus(&start, -2));
+    assert!(!g.current(Driver::object(&g, 1)).unwrap().tapped);
+    checked(&g);
+    settle(&mut g);
+}
+
+/// A paid Icy Manipulator activation stays valid below a Kessig Wolf Run
+/// activation that is still announcing X: each entry is checked against its
+/// own announcement stage, through a snapshot round trip.
+#[test]
+fn announcing_activation_above_a_paid_one_keeps_both_valid() {
+    let prepared = board(&[(KESSIG_WOLF_RUN, &[Cell::XManaCost])])
+        .permanent_or_hand("Kessig Wolf Run", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Mountain", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Icy Manipulator", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .libraries("Island", 4)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let icy = Driver::object(&g, 6);
+    Driver::action(&mut g, activate(icy, 0));
+    let foe = Driver::object(&g, 7);
+    Driver::pick_object(&mut g, foe);
+    Driver::pay(&mut g, &[4]);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert_eq!((d.reason, d.player), (Reason::Priority, PlayerId(0)));
+    assert!(g.state.rules.stack.last().unwrap().paid.is_some());
+    let run = Driver::object(&g, 0);
+    Driver::action(&mut g, activate(run, 0));
+    let d = expect(&mut g, 0, Reason::AnnounceX);
+    assert_eq!(g.state.rules.stack.len(), 2);
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    restored.validate_state().unwrap();
+    g.respond(d.player, d.id, Answer::Number { value: 1.into() })
+        .unwrap();
+    let bears = Driver::object(&g, 5);
+    Driver::pick_object(&mut g, bears);
+    checked(&g);
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    assert_eq!(g.characteristics(bears).unwrap().power, Some(3.into()));
+    assert!(g.current(foe).unwrap().tapped);
+}
+
+/// Develop does not judge Silklash Spider at X = 1: against one 1/2 flier,
+/// only X = 2 kills it, and four Forests fund that X (CR 107.3a, 602.2b).
+#[test]
+fn simulator_searches_past_a_useless_small_x() {
+    let prepared = board(&[(SILKLASH_SPIDER, &[Cell::XManaCost])])
+        .permanent_or_hand("Silklash Spider", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Storm Crow", 1, 1, false)
+        .libraries("Island", 4)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let (_, x) = develop(&mut g);
+    assert_eq!(x, Some(2.into()));
+    settle(&mut g);
+    assert_eq!(zone(&g, 5), Some(Zone::Graveyard { owner: PlayerId(1) }));
 }

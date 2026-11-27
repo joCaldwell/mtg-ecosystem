@@ -182,3 +182,48 @@ fn simulator_plans_monocolored_hybrid_payments() {
         })
     );
 }
+
+/// Pearl Medallion reduces white spells by {1} after the announced {2}
+/// alternatives are added (CR 601.2f): {2}{2}{2} locks at {5}, which two
+/// Sol Rings and a Mountain pay. Develop quotes each announcement through
+/// the engine in that order.
+#[test]
+fn simulator_adds_announced_generic_before_cost_reductions() {
+    use mtg_sim::policy::{Policy, Strategy};
+    const PEARL_MEDALLION: &str = record!("19015380-1332-4960-8cc6-0732009525a2");
+    let prepared = board(&[
+        (SPECTRAL_PROCESSION, &[Cell::HybridManaCost]),
+        (PEARL_MEDALLION, &[]),
+    ])
+    .permanent_or_hand("Spectral Procession", 0, 0, true)
+    .permanent_or_hand("Pearl Medallion", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .libraries("Island", 4)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let prepared = g.prepared.clone();
+    let mut strategy = Strategy::new(&prepared.catalog, Policy::Develop, [0; 4]);
+    let mut announced = vec![];
+    for _ in 0..24 {
+        let d = Driver::request(&mut g, u64::MAX);
+        if d.reason == Reason::Priority && !g.state.rules.stack.is_empty() {
+            break;
+        }
+        let answer = strategy.choose_with_game(&observation(&g, 0), &g).unwrap();
+        if let (Reason::HybridCost, Answer::Pick { picks }) = (&d.reason, &answer) {
+            announced.extend(picks.iter().map(|p| d.candidates[p[0] as usize].clone()));
+        }
+        g.respond(d.player, d.id, answer).unwrap();
+        checked(&g);
+    }
+    assert_eq!(announced, vec![white_or_two()[1].clone(); 3]);
+    assert_eq!(
+        g.state.rules.stack.last().unwrap().paid,
+        Some(ManaCost {
+            generic: 5.into(),
+            colored: vec![],
+        })
+    );
+}

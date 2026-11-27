@@ -212,6 +212,34 @@ impl RulesTxn {
         self.casting_cost(source, viewer, proposal.cast_from, x)
     }
 
+    /// CR 107.4e-f, 601.2f: the same quote with one announced alternative
+    /// per hybrid symbol, which the lock adds before increases and
+    /// reductions apply.
+    pub fn quote_hybrid_cast_cost(
+        &self,
+        viewer: PlayerId,
+        card: &ObjectHandle,
+        x: Option<&Quantity>,
+        hybrid: &[HybridPayment],
+    ) -> Result<ManaCost, String> {
+        let object = self.resolve_handle(viewer, card)?;
+        let proposal =
+            self.priority_spell_announcement(viewer, object.card, CardFace::Front, false)?;
+        let source = ObjectId {
+            face: proposal.face,
+            ..proposal.original_object
+        };
+        let lock = self.cost_lock_inputs(source, viewer, proposal.cast_from)?;
+        self.construct_spell_cost(
+            source,
+            proposal.cast_from,
+            x,
+            &[],
+            (!hybrid.is_empty()).then_some(hybrid),
+            &lock,
+        )
+    }
+
     /// CR 118.9, 601.2f: quote the printed alternative cost (evoke, CR
     /// 702.74a, or dash, CR 702.109a) of the same front-face proposal from
     /// hand or the command zone, with the commander tax, increases and

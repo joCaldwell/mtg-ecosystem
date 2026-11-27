@@ -72,8 +72,9 @@ impl ManaActivation {
             .mana
             .clone()
             .unwrap_or_else(zero_mana_cost);
-        cost.colored
-            .extend(self.hybrid.iter().filter_map(|payment| payment.color()));
+        for payment in &self.hybrid {
+            payment.add_to(&mut cost);
+        }
         Some(cost)
     }
 
@@ -85,11 +86,14 @@ impl ManaActivation {
             return self.hybrid.is_empty()
                 && (self.stage == ManaStage::Hybrid) != symbols.is_empty();
         }
+        // CR 107.4e, 605.3a: only two-color hybrid is admitted on a mana
+        // ability; any other alternative is an invariant failure.
         symbols.len() == self.hybrid.len()
-            && symbols
-                .iter()
-                .zip(&self.hybrid)
-                .all(|(symbol, payment)| symbol.colors.contains(payment))
+            && symbols.iter().zip(&self.hybrid).all(|(symbol, payment)| {
+                payment.color().is_some()
+                    && symbol.colors.contains(payment)
+                    && symbol.colors.iter().all(|c| c.color().is_some())
+            })
     }
 
     /// The printed ability's index; none for a granted one.
