@@ -317,7 +317,7 @@ impl RulesTxn {
                 FunctioningZone::Battlefield => {
                     !source.present_on_battlefield()
                         || source.controller != player
-                        || self.printed_abilities_lost(object)
+                        || self.printed_abilities_lost(object)?
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
                 FunctioningZone::Graveyard => {
@@ -366,7 +366,7 @@ impl RulesTxn {
             && (source.tapped
                 || (self.characteristics(object)?.has_type(CardKind::Creature)
                     && !source.attack_ready
-                    && !self.has_keyword(source.id, KeywordAbility::Haste)))
+                    && !self.has_keyword(source.id, KeywordAbility::Haste)?))
         {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }

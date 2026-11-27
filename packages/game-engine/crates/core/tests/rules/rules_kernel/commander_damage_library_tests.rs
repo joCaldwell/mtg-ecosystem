@@ -415,8 +415,10 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
         .move_object(left.successor, Zone::Battlefield)
         .unwrap()
         .successor;
+    let control_time_0 = g.state.rules.timestamps.test_allocate();
     g.state.rules.control_effects.push(ControlEffect {
         id: 0,
+        timestamp: control_time_0,
         object: returned,
         controller: PlayerId(3),
         source: ControlSource::Persistent,

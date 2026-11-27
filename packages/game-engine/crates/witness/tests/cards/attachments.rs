@@ -427,8 +427,10 @@ fn equip_rechecks_control_and_keeps_its_previous_host() {
     g.respond(r.player, r.id, r.targets(vec![next])).unwrap();
     mtg_witness::equipped::pay_to_priority(&mut g, u64::MAX, vec![]);
     for (id, host) in [first, next].into_iter().enumerate() {
+        let timestamp = g.state.rules.timestamps.test_allocate();
         g.state.rules.control_effects.push(ControlEffect {
             id: u32::try_from(id).unwrap(),
+            timestamp,
             object: host,
             controller: PlayerId(1),
             source: ControlSource::Persistent,

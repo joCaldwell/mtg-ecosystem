@@ -601,14 +601,13 @@ impl RulesTxn {
         self.current(object)?;
         let kind = mtg_contracts::kir::CounterKind::Loyalty;
         // Loyalty is a balance with no stack timestamp.
-        let timestamp = self.state.rules.next_batch_id.saturating_sub(1);
         let source = self
             .rules_mut()
             .objects
             .get_mut(&object.card)
             .ok_or("missing loyalty source")?;
         if *change > zero {
-            source.add_counters(&kind, change, timestamp);
+            source.loyalty_counters.add(change);
         } else {
             let mut removed = zero;
             removed.subtract(change);

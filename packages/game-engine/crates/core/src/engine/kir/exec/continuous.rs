@@ -9,7 +9,6 @@ impl RulesTxn {
         &self,
         frame: &Resolving,
         verb: &Verb,
-        timestamp: u64,
     ) -> Result<Option<ResolvedEffectKind>, String> {
         let (Verb::GainControl { what, .. }
         | Verb::SetCharacteristics { what, .. }
@@ -70,7 +69,6 @@ impl RulesTxn {
             Verb::SetCharacteristics { values, .. } => ResolvedEffectKind::SetCharacteristics {
                 targets,
                 values: values.clone(),
-                timestamp,
             },
             Verb::ModifyUntil {
                 change: Change::PowerToughnessX { power, toughness },
@@ -111,7 +109,7 @@ impl RulesTxn {
         verb: &Verb,
         source_block: u32,
     ) -> Result<(), String> {
-        let Some(kind) = self.continuous_kind(&frame, verb, self.state.rules.next_batch_id)? else {
+        let Some(kind) = self.continuous_kind(&frame, verb)? else {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         };
         let (ResolvedEffectKind::PumpAnnouncedX { targets, .. }

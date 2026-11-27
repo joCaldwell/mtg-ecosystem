@@ -952,7 +952,7 @@ impl RulesTxn {
         let current = self.current(object)?;
         Ok((current.present_on_battlefield()
             && current.tapped
-            && !self.printed_abilities_lost(object)
+            && !self.printed_abilities_lost(object)?
             && self
                 .copiable_definition(object)?
                 .triggered
@@ -1597,10 +1597,12 @@ impl RulesTxn {
                         | TriggerEventWitness::LorePlaced { .. }
                 ) || Some(o.id) == subject
             })
-            // CR 113.10, 603.10: an object without its abilities, read when
-            // the observers are, has no triggered ability to trigger.
-            .filter(|o| !observers.printed_abilities_lost(o.id))
+        // CR 113.10, 603.10: an object without its abilities, read when
+        // the observers are, has no triggered ability to trigger.
         {
+            if observers.printed_abilities_lost(object.id)? {
+                continue;
+            }
             let you = object.controller;
             let identity = |r: &Ref| match r {
                 Ref::Source => Some(object.id),

@@ -28,7 +28,7 @@ const OBSERVATION_PIN: (u32, &str) = (
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     144,
-    "95c8db568aa875c6fbdd867eda7c658388d66cb03f48e303d3c37310a75259ed",
+    "946d581ef85b141f15b19e955a1e5398902a6a21da76c0c2c948ce156cab1cfb",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -896,6 +896,23 @@ fn stack_target_and_shields() -> Game {
     ));
     assert_eq!(game.state.rules.effects.len(), 2);
     game
+}
+
+#[test]
+fn simultaneous_effect_records_may_share_a_timestamp() {
+    let mut game = stack_target_and_shields();
+    let effects = &mut game.state.rules.effects;
+    assert!(effects[0].timestamp < effects[1].timestamp);
+    let later = effects[1].timestamp;
+    effects[1].timestamp = effects[0].timestamp;
+    game.validate_effect_state().unwrap();
+
+    let effects = &mut game.state.rules.effects;
+    effects[0].timestamp = later;
+    assert_eq!(
+        game.validate_effect_state().unwrap_err(),
+        "effect creation order invariant"
+    );
 }
 
 fn pending_stack_target() -> Game {

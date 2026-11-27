@@ -32,17 +32,6 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn next_attachment_allocation(&self) -> Result<(u64, u64), String> {
-        let timestamp = self.state.rules.next_attachment_timestamp;
-        if timestamp == 0 {
-            return Err("invalid attachment timestamp counter".into());
-        }
-        let next = timestamp
-            .checked_add(1)
-            .ok_or("attachment timestamp resource limit")?;
-        Ok((timestamp, next))
-    }
-
     /// CR 301.5/303.4/701.3: type/domain validity only. Exact incarnation,
     /// battlefield presence and spell targetability belong to the caller. In
     /// particular, gaining Hexproof/Shroud never ends an existing attachment.
@@ -84,19 +73,26 @@ impl RulesTxn {
     }
 
     pub(crate) fn validate_attachment_state(&self) -> Result<(), String> {
-        let next = self.state.rules.next_attachment_timestamp;
-        if next == 0 {
-            return Err("snapshot attachment counter invariant".into());
+        let timestamps = self.state.rules.timestamps;
+        if timestamps.next() == 0 {
+            return Err("snapshot timestamp counter invariant".into());
         }
-        let mut timestamps = BTreeSet::new();
         for o in self.state.rules.objects.values() {
             // CR 613.7m: an APNAP position among the game's seats.
             if usize::from(o.keyword_rank) >= self.state.rules.players.len() {
                 return Err("snapshot timestamp rank invariant".into());
             }
+            if o.keyword_timestamp.is_some() != (o.zone == Zone::Battlefield)
+                || o.keyword_timestamp.is_some_and(|t| !timestamps.contains(t))
+                || o.battlefield_entry_timestamp.is_some() != o.battlefield_entry_turn.is_some()
+                || o.battlefield_entry_timestamp
+                    .is_some_and(|t| !timestamps.contains(t) || Some(t) > o.keyword_timestamp)
+            {
+                return Err("snapshot battlefield timestamp invariant".into());
+            }
             if o.attached_to.is_some() != o.attachment_timestamp.is_some()
                 || o.attachment_timestamp
-                    .is_some_and(|t| t == 0 || t >= next || !timestamps.insert(t))
+                    .is_some_and(|t| !timestamps.contains(t) || Some(t) > o.keyword_timestamp)
             {
                 return Err("snapshot attachment timestamp invariant".into());
             }
@@ -174,7 +170,7 @@ impl RulesTxn {
             .filter(|object| object.present_on_battlefield())
     }
 
-    pub(crate) fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
+    pub(crate) fn current_keywords(&self, object: ObjectId) -> Result<Vec<KeywordAbility>, String> {
         self.current_keywords_with_sources(object, None)
     }
 
@@ -186,27 +182,24 @@ impl RulesTxn {
         &self,
         object: ObjectId,
         sources: Option<&[CardId]>,
-    ) -> Vec<KeywordAbility> {
+    ) -> Result<Vec<KeywordAbility>, String> {
         use mtg_contracts::kir::Change;
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
-            return vec![];
+            return Ok(vec![]);
         }
         let present = self
             .current(object)
             .is_ok_and(|o| o.zone == Zone::Battlefield);
-        let mut keywords = if present
-            && self
-                .printed_abilities_lost_with_sources(object, sources)
-                .unwrap_or(false)
-        {
-            vec![]
-        } else {
-            self.copiable_definition(object)
-                .map(|d| d.keywords.clone())
-                .unwrap_or_default()
-        };
+        let mut keywords =
+            if present && self.printed_abilities_lost_with_sources(object, sources)? {
+                vec![]
+            } else {
+                self.copiable_definition(object)
+                    .map(|d| d.keywords.clone())
+                    .unwrap_or_default()
+            };
         if !present {
-            return keywords;
+            return Ok(keywords);
         }
         enum Row<'a> {
             Grant(&'a [KeywordAbility]),
@@ -219,7 +212,7 @@ impl RulesTxn {
         let mut rows: Vec<((u64, u8, u64), Row<'_>)> = vec![];
         let mut forbidden: Vec<KeywordAbility> = vec![];
         for (timestamp, key, change) in
-            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources)
+            self.static_changes_keyed(object, mtg_contracts::kir::Layer::Ability, sources)?
         {
             // CR 613.7m: simultaneous sources go in APNAP order (one
             // controller's ties are rejected at stabilization).
@@ -259,7 +252,10 @@ impl RulesTxn {
             && (o.unearthed || o.dashed || self.encore_mark(object).is_some())
         {
             const HASTE: &[KeywordAbility] = &[KeywordAbility::Haste];
-            rows.push(((o.keyword_timestamp.unwrap_or(0), 1, 0), Row::Grant(HASTE)));
+            let timestamp = o
+                .battlefield_entry_timestamp
+                .ok_or("missing haste grant timestamp")?;
+            rows.push(((timestamp, 1, 0), Row::Grant(HASTE)));
         }
         // CR 611.2c/613.1f/400.7: resolved effects affect only the captured
         // incarnation; source departure does not end an already resolved
@@ -269,35 +265,27 @@ impl RulesTxn {
             .current(object)
             .is_ok_and(|o| o.present_on_battlefield());
         for effect in &self.state.rules.effects {
-            let order = |timestamp: u64| (timestamp, 1, effect.id.0);
+            let order = (effect.timestamp, 1, 0);
             match &effect.kind {
-                ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp }
+                ResolvedEffectKind::RemoveIndestructibleSet { targets }
                     if targets.contains(&object) =>
                 {
-                    rows.push((order(*timestamp), Row::Remove(INDESTRUCTIBLE)));
+                    rows.push((order, Row::Remove(INDESTRUCTIBLE)));
                 }
                 ResolvedEffectKind::GrantKeywords {
-                    target,
-                    keywords,
-                    timestamp,
-                    ..
+                    target, keywords, ..
                 } if *target == object && battlefield_creature => {
-                    rows.push((order(*timestamp), Row::Grant(keywords)));
+                    rows.push((order, Row::Grant(keywords)));
                 }
                 ResolvedEffectKind::GrantKeywordsSet {
-                    targets,
-                    keywords,
-                    timestamp,
-                    ..
+                    targets, keywords, ..
                 } if targets.contains(&object) && on_battlefield => {
-                    rows.push((order(*timestamp), Row::Grant(keywords)));
+                    rows.push((order, Row::Grant(keywords)));
                 }
-                ResolvedEffectKind::SetCharacteristics {
-                    targets,
-                    values,
-                    timestamp,
-                } if targets.contains(&object) && on_battlefield => {
-                    rows.push((order(*timestamp), Row::Grant(&values.keywords)));
+                ResolvedEffectKind::SetCharacteristics { targets, values }
+                    if targets.contains(&object) && on_battlefield =>
+                {
+                    rows.push((order, Row::Grant(&values.keywords)));
                 }
                 _ => {}
             }
@@ -317,20 +305,22 @@ impl RulesTxn {
             }
         }
         keywords.retain(|k| !forbidden.contains(k));
-        keywords
+        Ok(keywords)
     }
     pub(crate) fn has_restriction(
         &self,
         object: ObjectId,
         restriction: CreatureRestriction,
-    ) -> bool {
-        self.creature_restrictions(object).any(|r| r == restriction)
+    ) -> Result<bool, String> {
+        Ok(self
+            .creature_restrictions(object)?
+            .any(|r| r == restriction))
     }
 
     pub(super) fn creature_restrictions(
         &self,
         object: ObjectId,
-    ) -> impl Iterator<Item = CreatureRestriction> + '_ {
+    ) -> Result<impl Iterator<Item = CreatureRestriction> + '_, String> {
         self.creature_restrictions_with_sources(object, None)
     }
 
@@ -338,9 +328,10 @@ impl RulesTxn {
         &'a self,
         object: ObjectId,
         sources: Option<&'a [CardId]>,
-    ) -> impl Iterator<Item = CreatureRestriction> + 'a {
+    ) -> Result<impl Iterator<Item = CreatureRestriction> + 'a, String> {
         use mtg_contracts::kir::CombatRequirement as R;
-        self.combat_requirements(object, sources)
+        Ok(self
+            .combat_requirements(object, sources)?
             .filter_map(|rule| match rule {
                 R::CantAttack => Some(CreatureRestriction::CantAttack),
                 R::CantBlock => Some(CreatureRestriction::CantBlock),
@@ -352,7 +343,7 @@ impl RulesTxn {
                 | R::AssignCombatDamageWithToughness
                 | R::AdditionalBlocks(_)
                 | R::UnlimitedBlocks => None,
-            })
+            }))
     }
 
     pub(crate) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
@@ -360,12 +351,14 @@ impl RulesTxn {
         if self.current(object).is_ok_and(|o| o.phased_out.is_some()) {
             return false;
         }
-        !self.current(object).is_ok_and(|o| {
-            o.present_on_battlefield()
-                && (self.has_keyword(object, KeywordAbility::Shroud)
-                    || (o.controller != controller
-                        && self.has_keyword(object, KeywordAbility::Hexproof)))
-        })
+        let Ok(o) = self.current(object) else {
+            return false;
+        };
+        !o.present_on_battlefield()
+            || self.current_keywords(object).is_ok_and(|keywords| {
+                !keywords.contains(&KeywordAbility::Shroud)
+                    && (o.controller == controller || !keywords.contains(&KeywordAbility::Hexproof))
+            })
     }
     pub(super) fn entity_target_legal(&self, target: TargetEntity, entry: &StackInstance) -> bool {
         self.entity_legal(target)
@@ -381,7 +374,8 @@ impl RulesTxn {
                         && self.targetable_by(object, entry.controller)
                         && self
                             .targeting_characteristics(entry)
-                            .is_ok_and(|source| !self.protected_from(object, &source))
+                            .and_then(|source| self.protected_from(object, &source))
+                            .is_ok_and(|protected| !protected)
                 }
             }
     }
@@ -418,7 +412,7 @@ impl RulesTxn {
                             .current(target)
                             .is_ok_and(|t| t.present_on_battlefield() && self.is_live(t.controller))
                         && self.attachment_target_type_valid(o.id, target)?
-                        && !self.protected_from(target, self.color_layer(o.id)?.as_ref())
+                        && !self.protected_from(target, self.color_layer(o.id)?.as_ref())?
                 }
                 None => false,
             };
