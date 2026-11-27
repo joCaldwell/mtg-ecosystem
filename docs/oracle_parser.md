@@ -24,6 +24,15 @@ normalized, not an original source span. `ok: true` means every block was consum
 by supported productions; it is not semantic certification, and unknown syntax
 never becomes raw executable text.
 
+`normalizeOracleTextTracked` returns the same physical lines, with their UTF-8
+byte ranges and a sparse edit map from decoded Oracle text to normalized lines
+joined by LF. Copies are implicit. Edits identify punctuation, whitespace and
+reminder removal, self-names, pronouns, and literal names. Removed reminders keep
+their original ranges. `projectNormalizedRange` returns original ranges and
+generated quote anchors. `mapToOriginal` returns the enclosing original range.
+Reserved characters, invalid Unicode, and rewrites the edit map cannot represent
+return the legacy lines with an explicit unmappable reason.
+
 ## Responsibilities and invariants
 
 - Normalize punctuation, reminder text and exact-case self-references, preserving

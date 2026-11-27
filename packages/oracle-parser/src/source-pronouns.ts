@@ -28,6 +28,7 @@
 // and the line prints no neuter pronoun of its own (which would then denote
 // something else: "…equal to its power to him"). Otherwise it becomes "~".
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+import type { Edit } from "./printed/schema.ts";
 import { CARD_TYPES, OBJECT_CLASSES, canonicalSubtypeName } from "./vocab.ts";
 
 const WORD = "[\\p{L}\\p{M}\\p{N}_'-]";
@@ -40,9 +41,18 @@ const ANCHOR = /~|\bthis card\b/giu;
 const HER_POSSESSED = new Set(["owner's", "owners'", "controller's", "power", "toughness", "name", "other", "sneak", "loyalty", "additional", "mana", "base"]);
 const HER_OBJECT_FOLLOWERS = new Set(["to", "into", "onto", "and", "for", "from", "deal", "unless", "this", "is", "equal"]);
 
-type Role = "subject" | "object" | "possessive" | "contraction" | "reflexive";
+type PronounEdit = Extract<Edit, { edit: "pronoun" }>;
+type Role = PronounEdit["role"];
 
-function role(word: string, after: string): Role | null {
+interface SourcePronounRewrite {
+  start: number;
+  end: number;
+  replacement: string;
+  role: Role;
+  as: PronounEdit["as"];
+}
+
+export function sourcePronounRole(word: string, after: string): Role | null {
   switch (word) {
     case "he": case "she": return "subject";
     case "him": return "object";
@@ -50,6 +60,7 @@ function role(word: string, after: string): Role | null {
     case "he's": case "she's": return "contraction";
     case "himself": case "herself": return "reflexive";
   }
+  if (word !== "her") return null;
   const next = /^\s+([\p{L}'-]+)/u.exec(after)?.[1].toLowerCase();
   if (next === undefined) return /^\s*(?:[.,;:"]|$)/u.test(after) ? "object" : null;
   if (HER_POSSESSED.has(next)) return "possessive";
@@ -73,12 +84,11 @@ const NEUTER_FORM: Record<Role, string> = { subject: "it", object: "it", possess
 // is the source by name as well.
 const NAME_FORM: Record<Role, string> = { subject: "~", object: "~", possessive: "~'s", contraction: "~ is", reflexive: "~" };
 
-/** One normalized line whose self-names are already `~`. Returns the line
- * unchanged unless every gendered pronoun in it provably denotes the source. */
-export function rewriteSourcePronouns(line: string): string {
+/** Stage rewrites for a line with self-names already replaced by `~`.
+ * Commit them only if every gendered pronoun provably denotes the source. */
+export function sourcePronounRewrites(line: string): SourcePronounRewrite[] {
   const printsNeuter = NEUTER.test(line);
-  let result = "";
-  let copiedThrough = 0;
+  const rewrites: SourcePronounRewrite[] = [];
   // End of the latest established reference to the source, in `line` offsets.
   let anchoredAt = -1;
   const anchors = [...line.matchAll(ANCHOR)].map(match => match.index + match[0].length);
@@ -88,17 +98,33 @@ export function rewriteSourcePronouns(line: string): string {
     const before = line.slice(0, start);
     const sentenceStart = /(?:^|[.:—•]\s+|")$/u.test(before);
     // Mid-sentence capitals are titles or names, not pronouns ("Her Majesty").
-    if (printed !== printed.toLowerCase() && !sentenceStart) return line;
+    if (printed !== printed.toLowerCase() && !sentenceStart) return [];
     for (const end of anchors) if (end <= start && end > anchoredAt) anchoredAt = end;
-    if (anchoredAt < 0) return line;
-    const as = role(printed.toLowerCase(), line.slice(start + printed.length));
-    if (!as) return line;
+    if (anchoredAt < 0) return [];
+    const as = sourcePronounRole(printed.toLowerCase(), line.slice(start + printed.length));
+    if (!as) return [];
     const contested = printsNeuter || mentionsOtherObject(line.slice(anchoredAt, start));
-    let replacement = (contested ? NAME_FORM : NEUTER_FORM)[as];
-    if (sentenceStart && printed !== printed.toLowerCase() && !replacement.startsWith("~"))
-      replacement = replacement[0].toUpperCase() + replacement.slice(1);
+    const end = start + printed.length;
+    const asName = contested ? "name" : "neuter";
+    rewrites.push({ start, end, replacement: pronounReplacement(printed, as, asName), role: as, as: asName });
+    anchoredAt = end;
+  }
+  return rewrites;
+}
+
+export function pronounReplacement(printed: string, role: Role, as: PronounEdit["as"]): string {
+  const replacement = (as === "name" ? NAME_FORM : NEUTER_FORM)[role];
+  return as === "neuter" && printed !== printed.toLowerCase()
+    ? replacement[0].toUpperCase() + replacement.slice(1)
+    : replacement;
+}
+
+export function rewriteSourcePronouns(line: string): string {
+  let result = "";
+  let copiedThrough = 0;
+  for (const { start, end, replacement } of sourcePronounRewrites(line)) {
     result += line.slice(copiedThrough, start) + replacement;
-    copiedThrough = anchoredAt = start + printed.length;
+    copiedThrough = end;
   }
   return result + line.slice(copiedThrough);
 }
