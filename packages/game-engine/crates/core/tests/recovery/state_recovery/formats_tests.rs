@@ -12,7 +12,9 @@
 //! a representative never reaches are not covered. A third representative
 //! pays a spell with a pain land's colored mana ability, reaching a selected
 //! printed mana ability, its rider's damage transaction and a kept receipt; a
-//! fourth stops a granted mana ability at its color choice.
+//! fourth stops a granted mana ability at its color choice; a fifth puts a
+//! loyalty ability and its source's prior-row facts on the stack. Another
+//! representative suspends a counted draw between attempts.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -24,8 +26,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "a028d099240a5fb214fdc3c86d42b56e7c2eb88991a6c679e5c988c893595834",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    138,
-    "4131134d6ef0099b0468f454aad5f33f9d1c24057835faf644384ea818baeb30",
+    139,
+    "5a3fe36e9f1c22499a71bda52a42dd8f3b778915aa40b50504faffa7f8ee4a03",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -942,6 +944,97 @@ fn saga_chapter() -> Game {
     panic!("Saga chapter did not reach the stack");
 }
 
+/// CR 606.4, 733.1: a loyalty ability on the stack, whose source facts
+/// carry the planeswalker's loyalty counters as captured at activation. The
+/// planeswalker is a synthetic retype of Darksteel Relic with loyalty 3 and
+/// "[-1]: Draw a card." The sample also sets the remaining optional prior-row
+/// fields (a loyalty use stamp, attachment, phasing, a hideaway link and an
+/// Adventure permission) on those facts so the fingerprint covers their shape.
+fn loyalty_activation() -> String {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let walker = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Darksteel Relic")
+        .unwrap();
+    walker.source_labels = None;
+    walker.static_abilities.clear();
+    walker.keywords.clear();
+    walker.characteristics.kind = CardKind::Planeswalker;
+    walker.characteristics.loyalty = Some(3.into());
+    walker.activated.push(ActivatedAbility {
+        x_mana_cost: false,
+        hybrid_mana: vec![],
+        modal: None,
+        cost: ActivationCost::Loyalty {
+            change: (-1).into(),
+        },
+        functioning_zone: FunctioningZone::Battlefield,
+        restriction: None,
+        program: SpellProgram::instructions(SpellTiming::MainPhase).with_instructions([
+            Instruction::act(
+                mtg_contracts::kir::Verb::Draw {
+                    player: PlayerExpr::you(Context::Activated),
+                    amount: mtg_contracts::kir::Amount::fixed(1),
+                },
+                0,
+            ),
+        ]),
+    });
+    walker.capabilities = walker.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "formats-loyalty-activation")
+            .step(TurnStep::PrecombatMain)
+            .seats(2)
+            .permanent_or_hand("Darksteel Relic", 0, 0, false)
+            .libraries("Forest", 3)
+            .prepare(),
+    );
+    let walker = Driver::object(&game, 0);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: walker,
+            ability: 0,
+        },
+    );
+    Driver::request(&mut game, u64::MAX);
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.current(walker).unwrap().loyalty_counters, 2.into());
+    let mut sample: Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    let facts = sample["state"]["stack"][0]["source_facts"]
+        .as_object_mut()
+        .expect("the loyalty ability records its source facts");
+    // Captured before the cost is paid: three counters and no use yet.
+    assert_eq!(facts["loyalty_counters"], "3");
+    assert!(!facts.contains_key("loyalty_used_turn"));
+    facts.insert("loyalty_used_turn".into(), 1.into());
+    facts.insert("attached_to".into(), serde_json::to_value(walker).unwrap());
+    facts.insert("attachment_timestamp".into(), 1.into());
+    facts.insert(
+        "phased_out".into(),
+        serde_json::to_value(PhaseReturn::Indirect {
+            attached_to: walker,
+        })
+        .unwrap(),
+    );
+    facts.insert(
+        "hideaway".into(),
+        serde_json::json!({
+            "card": walker,
+            "source": walker,
+            "source_block": 0,
+            "source_handles": ["v0-o1", "v1-o1", "v2-o1", "v3-o1"],
+            "lookers": [true, false, false, false],
+        }),
+    );
+    facts.insert(
+        "adventure_player".into(),
+        serde_json::to_value(PlayerId(0)).unwrap(),
+    );
+    serde_json::to_string(&sample).unwrap()
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -1002,7 +1095,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
                 .unwrap();
             serde_json::to_string(&sample).unwrap()
         }])
-        .chain([object_choice_shape()])
+        .chain([object_choice_shape(), loyalty_activation()])
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

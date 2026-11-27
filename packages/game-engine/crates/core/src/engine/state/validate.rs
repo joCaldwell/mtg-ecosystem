@@ -59,11 +59,14 @@ impl RulesTxn {
         }) {
             return Err("snapshot player counter quantity invariant".into());
         }
+        // CR 606.3: a loyalty use is stamped with the number of a turn this
+        // game has had, which starts at 1, the same bound a mana receipt's
+        // captured source row is held to.
         if rules.objects.values().any(|object| {
             object.loyalty_counters.is_negative()
                 || object
                     .loyalty_used_turn
-                    .is_some_and(|turn| turn > rules.turn.number)
+                    .is_some_and(|turn| turn == 0 || turn > rules.turn.number)
                 || (object.zone != Zone::Battlefield
                     && (object.loyalty_counters > Quantity::zero()
                         || object.loyalty_used_turn.is_some()))

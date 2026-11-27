@@ -3482,7 +3482,10 @@ impl RulesTxn {
         if !tokens::counter_kinds_admitted(&fact.counters) {
             return Err("captured counter kind admission".into());
         }
-        if fact.plus_one_counters.is_negative() || !tokens::counter_stacks_valid(&fact.counters) {
+        if fact.plus_one_counters.is_negative()
+            || fact.loyalty_counters.is_negative()
+            || !tokens::counter_stacks_valid(&fact.counters)
+        {
             return Err("captured counter facts".into());
         }
         Ok(())
@@ -3692,6 +3695,14 @@ impl RulesTxn {
             keywords: frozen.keywords.clone(),
             plus_one_counters: frozen.plus_one_counters.clone(),
             counters: frozen.counters.clone(),
+            // Reversible-row facts outside the damage source's consumed identity.
+            loyalty_counters: frozen.loyalty_counters.clone(),
+            loyalty_used_turn: frozen.loyalty_used_turn,
+            attached_to: frozen.attached_to,
+            attachment_timestamp: frozen.attachment_timestamp,
+            phased_out: frozen.phased_out,
+            hideaway: frozen.hideaway.clone(),
+            adventure_player: frozen.adventure_player,
             ..current
         } == *frozen
     }
@@ -3723,6 +3734,13 @@ impl RulesTxn {
                 keywords: fact.keywords.clone(),
                 plus_one_counters: fact.plus_one_counters.clone(),
                 counters: fact.counters.clone(),
+                loyalty_counters: fact.loyalty_counters.clone(),
+                loyalty_used_turn: fact.loyalty_used_turn,
+                attached_to: fact.attached_to,
+                attachment_timestamp: fact.attachment_timestamp,
+                phased_out: fact.phased_out,
+                hideaway: fact.hideaway.clone(),
+                adventure_player: fact.adventure_player,
                 ..damage.source.clone()
             }) != *fact
         {

@@ -13,6 +13,7 @@ expansion is paused.
 - Compile complete supported syntax into typed nodes or fail; no lossy raw-text
   fallback, dropped keywords/characters or `any` AST. Wrong success is worse than
   rejection. Prefer a clear experimental AST change over compatibility shims.
+- Keep [tracked normalization](../../docs/oracle_parser.md#pipeline-and-public-api) byte-identical to ordinary normalization.
 - Preserve line/ability boundaries and modal grouping. Every `null` parser result
   restores cursor and effect context. Keep complete source and explicit diagnostics.
 - `src/ast.ts` owns shapes; `parser/keywords.ts` owns accepted keyword vocabulary.
