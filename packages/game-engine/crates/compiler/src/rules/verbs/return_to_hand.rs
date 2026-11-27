@@ -11,7 +11,27 @@ pub(super) fn lower(
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     if to == "your" {
-        let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, true)?;
+        let what = object(what)?;
+        if let Some(choice) = super::move_zone::chosen(cx, &what, Destination::OwnerHand)? {
+            return match (optional, choice) {
+                (None, choice) => Ok(choice),
+                (
+                    Some(true),
+                    Instruction::Kernel {
+                        node: kir::Node::Do(Verb::Search { player, mut search }),
+                        source_block,
+                    },
+                ) => {
+                    search.optional = true;
+                    Ok(Instruction::act(
+                        Verb::Search { player, search },
+                        source_block,
+                    ))
+                }
+                _ => Err(step("return-to-hand", "optional")),
+            };
+        }
+        let slot = bind_graveyard_target(cx.program, cx.slots, &what, true)?;
         let movement = Instruction::move_target(slot, Destination::OwnerHand, cx.source_block);
         return match optional {
             None => Ok(movement),

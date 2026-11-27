@@ -23,6 +23,13 @@ pub(super) fn lower(
         {
             return Err(step("move-zone", "battlefield_entry_modifier"));
         }
+        let entry = Destination::Battlefield {
+            controller: PlayerExpr::you(cx.context),
+            tapped: tapped == Some(true),
+        };
+        if let Some(choice) = chosen(cx, &object(what)?, entry)? {
+            return Ok(choice);
+        }
         let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, false)?;
         if controller.is_none()
             && matches!(
@@ -83,10 +90,103 @@ pub(super) fn lower(
     Ok(Instruction::move_target(slot, to, cx.source_block))
 }
 
+/// CR 608.2c-d, 110.2: move cards of your hand or graveyard chosen as the
+/// instruction resolves. `None` when `what` names no such cards.
+pub(super) fn chosen(
+    cx: &StepCx<'_>,
+    what: &ast::ObjectRef,
+    to: Destination,
+) -> Result<Option<Instruction>, Failure> {
+    let Some(ChosenCards {
+        from,
+        filter,
+        count,
+        up_to,
+        random,
+    }) = chosen_cards(what)?
+    else {
+        return Ok(None);
+    };
+    if from == kir::SelectionZone::Hand && !matches!(to, Destination::Battlefield { .. }) {
+        return Err(operand("chosen_cards", "hand_destination"));
+    }
+    Ok(Some(cx.act(Verb::Search {
+        player: PlayerExpr::you(cx.context),
+        search: kir::SearchSpec {
+            filter,
+            maximum: Amount::fixed(i64::from(count)),
+            to,
+            reveal: false,
+            from,
+            optional: up_to,
+            random,
+        },
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// CR 608.2c-d, 115.10: chosen cards come only from your own hand or
+    /// graveyard by a fixed count; only a graveyard selection may be random.
+    #[test]
+    fn chosen_cards_reject_random_foreign_and_counted_selections() {
+        let card = |zone: serde_json::Value, extra: serde_json::Value| {
+            let mut what = json!({
+                "ref": "filter",
+                "filter": {"cls": "card", "types": ["creature"], "zone": zone},
+                "count": {"amount": "fixed", "value": 1}
+            });
+            what.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            serde_json::from_value::<ast::ObjectRef>(what).unwrap()
+        };
+        let yours = json!({"zone": "graveyard", "owner": "your"});
+        for (what, code) in [
+            (
+                card(
+                    json!({"zone": "hand", "owner": "your"}),
+                    json!({"random": true}),
+                ),
+                "operand:chosen_cards:random",
+            ),
+            (
+                card(yours.clone(), json!({"random": true, "upTo": true})),
+                "operand:chosen_cards:random",
+            ),
+            (
+                card(json!({"zone": "graveyard", "owner": "any"}), json!({})),
+                "operand:chosen_cards:zone",
+            ),
+            (
+                card(yours.clone(), json!({"count": {"amount": "x"}})),
+                "operand:chosen_cards:count",
+            ),
+        ] {
+            assert_eq!(chosen_cards(&what).unwrap_err().reason, code);
+        }
+        let chosen = chosen_cards(&card(
+            json!({"zone": "hand", "owner": "your"}),
+            json!({"upTo": true, "count": {"amount": "fixed", "value": 2}}),
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            chosen,
+            ChosenCards {
+                from: kir::SelectionZone::Hand,
+                filter: kir::Pred(vec![kir::Atom::Type {
+                    kind: CardKind::Creature
+                }]),
+                count: 2,
+                up_to: true,
+                random: false,
+            }
+        );
+    }
 
     #[test]
     fn foreign_graveyard_entry_requires_an_explicit_controller() {
