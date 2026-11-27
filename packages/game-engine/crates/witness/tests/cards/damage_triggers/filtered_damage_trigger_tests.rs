@@ -373,22 +373,32 @@ fn filtered_damage_two_member_commit_rolls_back_on_invalid_member_or_trigger_fau
     );
     assert_eq!(g.snapshot().unwrap(), before);
 
-    // Trigger collection runs after damage writes and needs an ID per hit.
+    // Trigger collection runs after the damage writes and allocates one ID per hit.
     let mut g = Game::with_trace(fixture, TraceMode::Detailed);
+    g.prepare_combat_damage(damage).unwrap();
+    let transaction = g.damage_transaction().unwrap();
+    g.validate_damage_transaction(transaction).unwrap();
+    let id = transaction.id;
     g.state.rules.next_trigger_id = u64::MAX - 1;
-    let mut state = g.state.clone();
+    let mut expected_state_with_fault = g.state.clone();
     let trace = g.trace.clone();
     let fault = RuleFault::TriggerIdCapacityExceeded {
         next: u64::MAX,
         additional: 1,
     };
     assert_eq!(
-        g.commit_combat_damage(damage).unwrap_err(),
+        g.commit_batch(
+            BatchCause::Combat,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::CommitDamage { transaction: id },
+            },
+        )
+        .unwrap_err(),
         "trigger ID resource limit"
     );
-    assert_eq!(g.typed_fault(), Some(&fault));
-    state.rules.typed_fault = Some(fault);
-    assert_eq!(g.state, state);
+    assert_eq!(g.state.rules.typed_fault, Some(fault.clone()));
+    expected_state_with_fault.rules.typed_fault = Some(fault);
+    assert_eq!(g.state, expected_state_with_fault);
     assert_eq!(g.trace, trace);
 }
 

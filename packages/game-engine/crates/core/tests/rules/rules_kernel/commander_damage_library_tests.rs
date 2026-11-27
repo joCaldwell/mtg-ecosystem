@@ -594,20 +594,66 @@ fn library_order_dependencies_and_late_damage_failure_roll_back_atomically() {
         controller: PlayerId(0),
         zone: Zone::Battlefield,
     });
-    let mut g = Game::new(fixture);
-    let damage = [(CardId(0), PlayerId(1)), (CardId(99), PlayerId(2))]
-        .into_iter()
-        .map(|(card, player)| DamageOccurrence {
-            source: g.object_id(card).unwrap(),
+    fixture.config.cards.push(CardSetup {
+        id: CardId(98),
+        oracle_id: BEARS.into(),
+        owner: PlayerId(1),
+        controller: PlayerId(1),
+        zone: Zone::Battlefield,
+    });
+    let mut g = Game::with_trace(fixture, TraceMode::Detailed);
+    let damage = vec![
+        DamageOccurrence {
+            source: g.object_id(CardId(0)).unwrap(),
             controller: PlayerId(0),
-            recipient: DamageRecipient::Player { player },
+            recipient: DamageRecipient::Player {
+                player: PlayerId(1),
+            },
             amount: Quantity::from(18),
-        })
-        .collect();
+        },
+        DamageOccurrence {
+            source: g.object_id(CardId(99)).unwrap(),
+            controller: PlayerId(0),
+            recipient: DamageRecipient::Permanent {
+                object: g.object_id(CardId(98)).unwrap(),
+            },
+            amount: Quantity::from(18),
+        },
+    ];
     g.prepare_combat_damage(damage).unwrap();
     let transaction = g.damage_transaction().unwrap();
     g.validate_damage_transaction(transaction).unwrap();
     let id = transaction.id;
+    let land = g.object_id(CardId(1)).unwrap();
+    let state = g.state.clone();
+    let trace = g.trace.clone();
+
+    // The ordered commit writes life, marked damage and commander history,
+    // then moves the land. The tap's facts lookup fails on its old incarnation.
+    assert_eq!(
+        g.commit_batch(
+            BatchCause::Combat,
+            EventGroup::Ordered {
+                children: vec![
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::CommitDamage { transaction: id },
+                    },
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::PutOnTopOwnerLibrary { object: land },
+                    },
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Tap { object: land },
+                    },
+                ],
+            },
+        )
+        .unwrap_err(),
+        "stale or absent object incarnation"
+    );
+    assert_eq!(g.state, state);
+    assert_eq!(g.trace, trace);
+
+    // A negative amount fails pre-write validation of the damage transaction.
     let Frame::DamageEffects { transaction } = &mut g.state.rules.frame else {
         panic!("missing prepared combat damage");
     };
