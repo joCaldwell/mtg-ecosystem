@@ -1087,12 +1087,17 @@ fn cleanup_discard_boundary(prepared: &Prepared) -> Game {
 fn cleanup_departures_preserve_or_discard_pending_choices_and_recover() {
     let prepared = prepared(ScenarioConfig::combat_game());
     let original = cleanup_discard_boundary(&prepared);
+    let chooser = PlayerId(3);
+    let discard = request(&original).1;
+    let mut kept = discard.objects_offered();
+    let selected: Vec<_> = kept.drain(..discard.required_count()).collect();
+    kept.sort_by(|a, b| a.0.cmp(&b.0));
 
     for accepted in [false, true] {
         for departing in [PlayerId(3), PlayerId(0)] {
             let mut boundary = original.fork();
             if accepted {
-                let response = passive(request(&boundary).1);
+                let response = discard.pick_objects(selected.clone());
                 submit(&mut boundary, response);
             }
 
@@ -1121,22 +1126,32 @@ fn cleanup_departures_preserve_or_discard_pending_choices_and_recover() {
             } else {
                 if !accepted {
                     let (actor, req) = request(&small);
-                    assert_eq!(actor, PlayerId(3));
+                    assert_eq!(actor, chooser);
                     assert!(matches!(req.reason, Reason::Discard) && req.required_count() == 2);
-                    submit(&mut small, passive(req));
+                    submit(&mut small, req.pick_objects(selected.clone()));
 
                     assert!(matches!(
                         settle(&mut small, 1),
                         Advance::AwaitingDecision(_)
                     ));
                 }
-                assert_eq!(observe(&small, PlayerId(3)).view.players[3].hand_count, 7);
-                for card in [18, 19] {
-                    assert_eq!(
-                        small.zone(small.object_id(CardId(card)).unwrap()),
-                        Some(Zone::Graveyard { owner: PlayerId(3) })
-                    );
-                }
+                let view = observe(&small, chooser).view;
+                assert_eq!(view.players[3].hand_count, 7);
+                let mut hand: Vec<_> = view
+                    .objects
+                    .iter()
+                    .filter(|object| object.zone == (Zone::Hand { owner: chooser }))
+                    .map(|object| object.handle.clone())
+                    .collect();
+                hand.sort_by(|a, b| a.0.cmp(&b.0));
+                assert_eq!(hand, kept);
+                assert_eq!(
+                    view.objects
+                        .iter()
+                        .filter(|object| object.zone == (Zone::Graveyard { owner: chooser }))
+                        .count(),
+                    selected.len()
+                );
                 assert_eq!(small.turn().number, 5);
                 assert_eq!(small.active_player(), Some(PlayerId(1)));
             }

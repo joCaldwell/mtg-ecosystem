@@ -8,7 +8,8 @@ use mtg_view::*;
 use std::collections::BTreeMap;
 
 /// The pool is a lower bound. Ambiguous sources keep a failed payment unknown:
-/// printed mana can have costs/riders and tokens need not have catalog rows.
+/// restricted units depend on the payment, printed mana can have costs or
+/// riders, and tokens need not have catalog rows.
 pub(super) fn intrinsic_supply(
     catalog: &Catalog,
     view: &PermittedView,
@@ -17,7 +18,7 @@ pub(super) fn intrinsic_supply(
         return (BTreeMap::new(), false);
     };
     let mut pool = payer.mana.clone();
-    let mut complete = true;
+    let mut complete = payer.restricted_mana.is_empty();
     for object in view
         .objects
         .iter()
@@ -163,4 +164,109 @@ pub(super) fn funding(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{catalog::ObservationCatalog, number_bound};
+    use mtg_contracts::{
+        CURRENT_IR_VERSION, ManaSpendRestriction, RULES_EDITION, RULES_SHA256, RestrictedMana,
+    };
+    use std::sync::Arc;
+
+    fn announce_x() -> (ObservationCatalog, Observation) {
+        let catalog = ObservationCatalog::new(Arc::new(Catalog {
+            schema_version: CURRENT_IR_VERSION,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![],
+        }));
+        let player = PlayerId(0);
+        let view = PermittedView {
+            known_searched_hand: vec![],
+            known_library_positions: vec![],
+            revealed_library_cards: vec![],
+            revealed_face_down: vec![],
+            sacrifice_choices: vec![],
+            setup: None,
+            effects: vec![],
+            combat: vec![],
+            viewer: player,
+            active: Some(player),
+            turn_owner: player,
+            turn: TurnState {
+                number: 1,
+                step: TurnStep::PrecombatMain,
+                lands_played: 0,
+            },
+            live_turn_order: vec![player],
+            commanders: vec![],
+            priority: Some(player),
+            players: vec![VisiblePlayer {
+                life_frozen_until_next_turn: false,
+                exile: vec![],
+                library_shuffles: 0,
+                poison_counters: 0.into(),
+                energy_counters: 0.into(),
+                player,
+                status: PlayerStatus::Live,
+                life: 40.into(),
+                mana: BTreeMap::from([(Color::C, 2.into())]),
+                restricted_mana: vec![],
+                hand_count: 0,
+                library_count: 0,
+            }],
+            objects: vec![],
+            stack: vec![],
+        };
+        let observation = Observation {
+            decision_context: None,
+            observation_version: 1,
+            view,
+            decision: Some(Decision {
+                id: DecisionToken("x".into()),
+                player,
+                reason: Reason::AnnounceX,
+                candidates: vec![],
+                shape: Shape::Number {
+                    min: 0.into(),
+                    max: None,
+                },
+            }),
+        };
+        (catalog, observation)
+    }
+
+    fn restricted_unit() -> RestrictedMana {
+        RestrictedMana {
+            restriction: ManaSpendRestriction::ActivatedAbility,
+            color: Color::U,
+            amount: 1.into(),
+        }
+    }
+
+    #[test]
+    fn restricted_mana_leaves_intrinsic_supply_incomplete() {
+        let (catalog, mut observation) = announce_x();
+        let pool = BTreeMap::from([(Color::C, 2.into())]);
+        assert_eq!(
+            intrinsic_supply(&catalog, &observation.view),
+            (pool.clone(), true)
+        );
+        observation.view.players[0]
+            .restricted_mana
+            .push(restricted_unit());
+        assert_eq!(intrinsic_supply(&catalog, &observation.view), (pool, false));
+    }
+
+    #[test]
+    fn restricted_mana_does_not_cap_announced_x_at_the_unrestricted_pool() {
+        let (catalog, mut observation) = announce_x();
+        assert_eq!(number_bound(&catalog, &observation), Some(2.into()));
+        observation.view.players[0]
+            .restricted_mana
+            .push(restricted_unit());
+        assert_eq!(number_bound(&catalog, &observation), None);
+    }
 }
