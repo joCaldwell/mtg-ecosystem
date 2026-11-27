@@ -18,6 +18,11 @@ impl RulesTxn {
         // CR 712.18: a transformed permanent is the same object with its
         // other face up. Only the current incarnation has transformed.
         let face = match self.state.rules.objects.get(&id.card) {
+            // CR 708.2, 707.2: a face-down object's copiable values are the
+            // face-down characteristics until it is turned face up.
+            Some(live) if live.face_down && live.id == *id => {
+                return Ok(face_down::face_down_definition());
+            }
             Some(live) if definition.transforms() && live.id == *id => live.face(),
             _ => id.face,
         };
@@ -30,7 +35,24 @@ impl RulesTxn {
     /// the ability of the face it was activated or triggered from, even after
     /// its source transforms; a spell has the characteristics of its object.
     pub(crate) fn stack_definition(&self, entry: &StackInstance) -> Result<&Definition, String> {
+        if entry.kind.is_spell() && self.is_face_down(entry.source) {
+            return Ok(face_down::face_down_definition());
+        }
         self.face_definition(entry.source.card, entry.program_face())
+    }
+
+    /// The definition captured facts were taken from: the face-down
+    /// characteristics, or the face a transforming permanent had up.
+    pub(crate) fn fact_definition(
+        &self,
+        source: ObjectId,
+        transforms: u32,
+        face_down: bool,
+    ) -> Result<&Definition, String> {
+        if face_down {
+            return Ok(face_down::face_down_definition());
+        }
+        self.face_definition(source.card, face_after(source.face, transforms))
     }
 
     pub(super) fn face_definition(

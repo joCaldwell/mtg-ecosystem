@@ -217,7 +217,7 @@ selects pointer (0) or number (1). Pointers 0–127 address ordered candidates,
 Numbers 0–62 are literal and 63 selects the numeric upper bound, which AnnounceX
 can tighten when resources are fully modeled; otherwise the published maximum
 applies, and an unbounded decision with unknown supply uses the signed 32-bit
-ceiling.
+ceiling. The bound never falls below the decision's published minimum.
 
 Entity rows preserve object order, then stack order, then remembered library
 positions, then one hand-zone row per publicly known revealed hand card in

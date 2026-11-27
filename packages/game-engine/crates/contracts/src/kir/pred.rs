@@ -248,3 +248,8 @@ impl SetExpr {
         }
     }
 }
+
+/// CR 601.2b-c: the invocation's X binds this top-level target term.
+pub fn mana_value_at_most_announced_x(atom: &Atom) -> bool {
+    matches!(atom, Atom::ManaValue { cmp: Cmp::AtMost, value } if value.is_announced_x())
+}

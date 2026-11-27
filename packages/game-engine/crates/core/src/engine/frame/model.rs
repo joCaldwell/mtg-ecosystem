@@ -140,6 +140,10 @@ pub enum Frame {
         frame: Resolving,
         payment: ResolutionPayment,
     },
+    /// CR 116.2b, 702.37e: paying a morph cost to turn a permanent face up.
+    TurnFaceUp {
+        payment: face_down::FaceUpPayment,
+    },
 
     ManaAbility {
         activation: Box<ManaActivation>,

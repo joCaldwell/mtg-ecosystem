@@ -237,6 +237,16 @@ impl RulesTxn {
                     source = describe(object, DecisionSourceKind::Activated, Some(*ability));
                     "Activate ability".into()
                 }
+                // CR 708.5: the controller may look at the card it casts or
+                // turns face up; the label shows only its own viewer.
+                Action::CastFaceDown { card } => {
+                    source = describe(card, DecisionSourceKind::Spell, None);
+                    "Cast face down".into()
+                }
+                Action::TurnFaceUp { object } => {
+                    source = describe(object, DecisionSourceKind::Spell, None);
+                    "Turn face up".into()
+                }
                 Action::ActivateMana { object } => {
                     // A source with granted abilities is described whole.
                     let granted = self

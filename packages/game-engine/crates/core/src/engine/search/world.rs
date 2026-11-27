@@ -387,9 +387,14 @@ impl SampleBuildWork {
                     // view, and echo is outside the reviewed search tier.
                     control_upkeeps: (row.zone == Zone::Battlefield).then_some(0),
                     keyword_timestamp: None,
+                    keyword_rank: 0,
                     plus_one_counters: Quantity::zero(),
                     transforms: 0,
                     adventure_player: None,
+                    // Rebuilds even the viewer's own face-down permanents face
+                    // up; face-down cards are outside the reviewed search tier,
+                    // and this must change before they are promoted to it.
+                    face_down: false,
                     deathtouch_damage: false,
                     unearthed: false,
                     dashed: false,
@@ -518,6 +523,12 @@ impl RootHandleMap {
                 },
                 Action::CastBackFace { card } => Action::CastBackFace {
                     card: object(card)?,
+                },
+                Action::CastFaceDown { card } => Action::CastFaceDown {
+                    card: object(card)?,
+                },
+                Action::TurnFaceUp { object: id } => Action::TurnFaceUp {
+                    object: object(id)?,
                 },
                 Action::PlayLandBackFace { object: id } => Action::PlayLandBackFace {
                     object: object(id)?,

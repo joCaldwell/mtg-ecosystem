@@ -208,7 +208,11 @@ fn declaration(
             .count()
             > 1
         {
-            if chosen().any(|(_, mode)| mode.optional_target || mode.target_group().is_some()) {
+            if chosen().any(|(_, mode)| {
+                mode.optional_target
+                    || mode.target_group().is_some()
+                    || mode.variable_target_count().is_some()
+            }) {
                 return Err(unsupported_modal("mixed_target_groups"));
             }
             combine(mask, &declared)?

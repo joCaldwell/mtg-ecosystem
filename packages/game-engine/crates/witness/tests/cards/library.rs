@@ -2880,3 +2880,43 @@ fn a_search_entry_without_a_question_never_validates() {
     };
     forged_choice_rejected(&mut g, &pause, "question-less search entry");
 }
+
+/// CR 400.3, 401.4: either type is legal, and the card goes to its
+/// owner's library even when another player controls it.
+#[test]
+fn run_aground_puts_either_permanent_type_on_its_owners_library() {
+    for card in [3, 4] {
+        let prepared = board(&[(
+            record!("6ef9bf18-6b09-4398-a502-6867d999ab0c"),
+            &[Cell::MoveTargetOwnerLibraryPosition],
+        )])
+        .permanent_or_hand("Run Aground", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 1, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .library_card("Island", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        let target = Driver::object(&g, card);
+        let d = Driver::request(&mut g, u64::MAX);
+        assert_eq!(
+            d.candidates,
+            [3, 4].map(|id| Candidate::Object {
+                object: Driver::object(&g, id),
+            })
+        );
+        checked(&g);
+        Driver::pick_object(&mut g, target);
+        Driver::pay(&mut g, &[1, 2, 5, 6]);
+        let mut expected = library(&g, 1);
+        expected.insert(0, CardId(card));
+        settle(&mut g);
+        assert_eq!(library(&g, 1), expected);
+        assert_eq!(shuffles(&g, 1), 0);
+        assert_recoverable((&g).into());
+    }
+}
