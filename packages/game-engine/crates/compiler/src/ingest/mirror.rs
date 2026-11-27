@@ -608,10 +608,6 @@ pub(crate) enum Step {
     Surveil {
         amount: serde_json::Value,
     },
-    Mill {
-        who: serde_json::Value,
-        amount: serde_json::Value,
-    },
     CreateReplacement {
         replacement: serde_json::Value,
         duration: SourceDuration,
@@ -766,7 +762,6 @@ pub(crate) enum Step {
         #[serde(default, deserialize_with = "present_json_operand")]
         who: Option<serde_json::Value>,
     },
-    Discard(DiscardStep),
 }
 
 impl<'de> Deserialize<'de> for Step {
@@ -774,7 +769,16 @@ impl<'de> Deserialize<'de> for Step {
         let raw = serde_json::Value::deserialize(decoder)?;
         if matches!(
             raw["effect"].as_str(),
-            Some("draw" | "gain-life" | "lose-life" | "damage" | "put-counters" | "sacrifice")
+            Some(
+                "draw"
+                    | "gain-life"
+                    | "lose-life"
+                    | "damage"
+                    | "put-counters"
+                    | "sacrifice"
+                    | "discard"
+                    | "mill"
+            )
         ) {
             if raw
                 .as_object()
@@ -806,20 +810,6 @@ impl Step {
             _ => None,
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged, deny_unknown_fields)]
-pub(crate) enum DiscardStep {
-    Chosen {
-        who: PlayerSelector,
-        what: FilterObject,
-    },
-    Random {
-        who: PlayerSelector,
-        what: FilterObject<DrawAmount>,
-        random: bool,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -905,28 +895,6 @@ pub(crate) struct PlayerSelector {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct FilterObject<A = Count, F = ObjectFilter> {
-    #[serde(rename = "ref")]
-    pub(crate) reference: String,
-    pub(crate) filter: F,
-    pub(crate) count: A,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
-pub(crate) enum ObjectFilter {
-    Types(Filter),
-    Class(CardFilter),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CardFilter {
-    pub(crate) cls: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CounterTarget {
     #[serde(rename = "ref")]
@@ -963,23 +931,9 @@ pub(crate) struct AbilityKindFilter {
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Filter {
-    pub(crate) types: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct Count {
     pub(crate) amount: String,
     pub(crate) value: u32,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "amount", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum DrawAmount {
-    X {},
-    Fixed { value: u32 },
-    ThatMuch {},
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]

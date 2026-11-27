@@ -18,8 +18,9 @@ before edits. [Core](../../docs/game-engine-mechanics.md) and [board](../../docs
   with strict capabilities/shapes and exact build/catalog recovery fencing. No old
   decoder or downgrade matrix.
 - A new resolving effect is a [Kernel IR](../../docs/game-engine-catalogs.md#kernel-ir)
-  node: an audited `kir::check` cell and its interpreter arm. Extend the operand
-  algebra when the complete source semantics require it.
+  node. Resolving actions use a checked verb signature and the shared
+  evaluator. Extend the operand algebra when the complete source semantics
+  require it.
 - Profiles are admission data over shared rules/capacities; hosting, search and
   analytics need the derived [tier](../../docs/game-engine-mechanics.md#derived-capability-tiers).
   New IR fields and cells require reviewing tier rows as well as exhaustive enum

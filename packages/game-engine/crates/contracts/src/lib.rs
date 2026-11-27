@@ -672,22 +672,6 @@ impl ObjectSet {
         SetExpr::battlefield(kir::Pred(atoms))
     }
 }
-/// The affected seats are evaluated relative to the invocation controller at resolution.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum GroupDiscardScope {
-    EachPlayer,
-    EachOpponent,
-}
-impl GroupDiscardScope {
-    /// The kernel players the scope denotes (CR 102.3).
-    pub fn player(self) -> kir::PlayerExpr {
-        match self {
-            Self::EachPlayer => kir::PlayerExpr::EachPlayer,
-            Self::EachOpponent => kir::PlayerExpr::EachOpponent,
-        }
-    }
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum EffectRecipient {
@@ -942,42 +926,6 @@ impl Instruction {
             } @ block) => Some((what, power, toughness, *block)),
             _ => None,
         }
-    }
-    /// CR 701.17a: `player` mills `amount` cards.
-    pub fn mill(player: kir::PlayerExpr, amount: kir::Amount, source_block: u32) -> Self {
-        Self::act(kir::Verb::Mill { player, amount }, source_block)
-    }
-    /// CR 701.9a-b: `player` discards `amount` cards, at random when `random`.
-    pub fn discard(
-        player: kir::PlayerExpr,
-        amount: kir::Amount,
-        random: bool,
-        source_block: u32,
-    ) -> Self {
-        Self::act(
-            kir::Verb::Discard {
-                player,
-                amount,
-                random,
-            },
-            source_block,
-        )
-    }
-    /// The player, count and source block of a chosen fixed discard by one
-    /// player: the controller, the damaged player or one announced player.
-    pub fn chosen_discard(&self) -> Option<(&kir::PlayerExpr, &Quantity, u32)> {
-        match self {
-            kernel!(Discard { player: player @ kir::PlayerExpr::Is { .. }, amount: fixed!(count), random: false } @ block) => {
-                Some((player, count, *block))
-            }
-            _ => None,
-        }
-    }
-    /// The count of the controller's own fixed discard.
-    pub fn controller_discard(&self) -> Option<&Quantity> {
-        self.chosen_discard()
-            .filter(|(player, ..)| player.is_you())
-            .map(|(_, count, _)| count)
     }
     /// CR 701.8: destroy the target of `slot` (CR 701.19c when
     /// `regeneration_forbidden`).
@@ -2372,7 +2320,7 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
     program
         .instructions
         .iter()
-        .any(|i| i.controller_discard().is_some())
+        .any(|i| matches!(i.verb(), Some(Verb::Discard { player, amount: Some(amount), random: false }) if player.is_you() && amount.as_fixed().is_some()))
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
 pub(crate) fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {

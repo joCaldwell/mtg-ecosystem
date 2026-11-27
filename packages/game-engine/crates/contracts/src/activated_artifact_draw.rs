@@ -26,7 +26,7 @@ fn draw_program(instructions: &[Instruction]) -> bool {
     match instructions.split_last() {
         Some((last, [])) => draw_count(last) == Some(1),
         Some((
-            kernel!(Discard { player: you!(), amount: fixed!(count), random: false } @ 0),
+            kernel!(Discard { player: you!(), amount: Some(fixed!(count)), random: false } @ 0),
             draws,
         )) if *count == Quantity::from(1) => match draws {
             // A two-card draw used to lower to two separate draw instructions.
@@ -65,7 +65,7 @@ mod tests {
         let discard = Instruction::act(
             Verb::Discard {
                 player: player.clone(),
-                amount: Amount::fixed(1),
+                amount: Some(Amount::fixed(1)),
                 random: false,
             },
             0,

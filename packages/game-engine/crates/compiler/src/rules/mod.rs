@@ -10,4 +10,4 @@ pub(crate) use activations::*;
 pub(crate) use procedures::*;
 pub(crate) use statics::*;
 pub(crate) use triggers::*;
-pub(crate) use verbs::append_spell_effects;
+pub(crate) use verbs::{append_spell_effects, card_result};

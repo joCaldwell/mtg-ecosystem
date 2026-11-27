@@ -6,6 +6,7 @@
 use super::*;
 
 mod antecedent;
+pub(crate) mod card_result;
 mod combat;
 mod continuous;
 mod counter;
@@ -61,6 +62,7 @@ pub(crate) struct StepCx<'a> {
     pub x: Option<kir::Amount>,
     /// The lowerer read [`Self::x`] for every X the step prints.
     pub x_consumed: bool,
+    pub result_from: Option<usize>,
 }
 
 impl StepCx<'_> {
@@ -250,6 +252,9 @@ fn pilot_each_filter(
 }
 
 fn pilot_count(cx: &mut StepCx<'_>, count: &ast::AmountCount) -> Result<Amount, Failure> {
+    if let Some(amount) = card_result::linked_count(cx, &count.of)? {
+        return Ok(amount);
+    }
     lower_count_with(count, cx.context, |filter| pilot_filter(cx, filter))
 }
 
@@ -404,6 +409,7 @@ pub(crate) fn append_spell_effects(
                 source_block,
                 x: None,
                 x_consumed: false,
+                result_from: None,
             },
             sentence,
         )?;
@@ -437,6 +443,7 @@ pub(crate) fn append_spell_effects(
                 source_block,
                 x: None,
                 x_consumed: false,
+                result_from: None,
             };
             // CR 701.23a, 701.24a: a search run spans its reveal, move and
             // shuffle steps. Neither run reads a bound X.
@@ -475,7 +482,12 @@ pub(crate) fn append_spell_effects(
             if cx.x.is_some() && !cx.x_consumed {
                 return Err(unsupported("bindings", "unconsumed count binding"));
             }
-            program.instructions.push(instruction);
+            let result_from = cx.result_from;
+            if let Some(from) = result_from {
+                card_result::join_instructions(program, from, instruction);
+            } else {
+                program.instructions.push(instruction);
+            }
             at += 1;
         }
         prior = prior.join(pending);
@@ -557,10 +569,10 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             duration,
             for_each,
         } => pump::lower(cx, what, power, toughness, duration, for_each.as_ref()),
-        Step::Mill { who, amount } => mill::lower(cx, who, amount),
-        Step::Discard(discard) => discard::lower(cx, discard),
         Step::Evaluated(effect) => match effect.as_ref() {
             ast::Effect::Draw(draw) => draw::lower(cx, draw),
+            ast::Effect::Mill(action) => mill::lower(cx, action),
+            ast::Effect::Discard(action) => discard::lower(cx, action),
             ast::Effect::Variant99(life) => life::lower(cx, life),
             ast::Effect::Sacrifice(action) => sacrifice::lower(cx, action),
             ast::Effect::Damage(action) => damage::lower(cx, action),

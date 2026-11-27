@@ -223,11 +223,15 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
             {
                 return Ok(Part::Table(steps.clone()));
             }
-            serde_json::from_value::<Sentence>(sentence.clone())
-                .map(Part::Typed)
-                .map_err(|e| mirror_gap(sentence, &e))
+            decode_sentence(sentence).map(Part::Typed)
         })
         .collect()
+}
+
+/// Decode one effect sentence; evaluated actions (including discard and mill)
+/// decode through the generated effect schema in `Step::deserialize`.
+pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
+    serde_json::from_value(raw.clone()).map_err(|e| mirror_gap(raw, &e))
 }
 
 /// A reviewed trigger lowers typed sentences only. A sentence of step table
