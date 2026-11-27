@@ -923,6 +923,14 @@ fn combat_rule(what: &ast::ObjectRef, value: &ast::CombatRule) -> Result<StaticA
                 qualified_condition(x.condition.as_deref(), x.condition_kind)?,
             )
         }
+        C::DamageAssignmentValue(x)
+            if x.value == ast::CombatRuleDamageAssignmentValueValue::Toughness =>
+        {
+            (
+                CombatRequirement::AssignCombatDamageWithToughness,
+                qualified_condition(x.condition.as_deref(), x.condition_kind)?,
+            )
+        }
         C::BlockingFilter(x)
             if x.mode == ast::CombatRuleBlockerFilterMode::Only
                 && matches!(scope(&x.attackers, false)?, Scope::Matching { filter }

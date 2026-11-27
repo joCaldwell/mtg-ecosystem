@@ -210,14 +210,24 @@ impl RulesTxn {
             .map(|o| o.id)
             .collect()
     }
-    fn power(&self, source: ObjectId) -> Result<Quantity, String> {
-        Ok(std::cmp::max(
-            self.characteristics(source)?
-                .power
-                .ok_or("missing creature power")?,
-            Quantity::zero(),
-        ))
+    // CR 101.1, 510.1a: the static rule changes the assignment amount.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn combat_damage_amount(&self, source: ObjectId) -> Result<Quantity, String> {
+        let facts = self.characteristics(source)?;
+        let assigned = if self.assigns_with_toughness(source) {
+            facts.toughness
+        } else {
+            facts.power
+        };
+        Ok(assigned
+            .ok_or("missing combat damage characteristic")?
+            .max(Quantity::zero()))
     }
+    pub(super) fn assigns_with_toughness(&self, source: ObjectId) -> bool {
+        self.combat_statics(source, None)
+            .any(|rule| rule == CombatRequirement::AssignCombatDamageWithToughness)
+    }
+
     fn recipients(&self, source: ObjectId) -> Vec<ObjectId> {
         self.state
             .rules
@@ -340,7 +350,7 @@ impl RulesTxn {
                 )
             }
             Frame::DamageChoice { source } => {
-                let power = self.power(source)?;
+                let total = self.combat_damage_amount(source)?;
                 let recipients = self.recipients(source);
                 let mut gates = vec![];
                 candidates.extend(
@@ -364,18 +374,22 @@ impl RulesTxn {
                     .map(|candidate| Bucket {
                         candidate,
                         min: 0.into(),
-                        max: power.clone(),
+                        max: total.clone(),
                     })
                     .collect();
                 self.decision(
                     player,
                     Reason::CombatDamage {
                         source,
-                        power: power.clone(),
+                        power: self
+                            .characteristics(source)?
+                            .power
+                            .ok_or("missing creature power")?
+                            .max(Quantity::zero()),
                     },
                     candidates,
                     Shape::Distribute {
-                        total: power,
+                        total,
                         buckets,
                         gates,
                     },
@@ -498,7 +512,7 @@ impl RulesTxn {
         }
         // CR510.1c/e: no order; validate the entire source distribution.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        if seen.len() != recipients.len() || sum != self.power(source)? {
+        if seen.len() != recipients.len() || sum != self.combat_damage_amount(source)? {
             return Err("incomplete damage distribution".into());
         }
         Ok(())
@@ -699,7 +713,7 @@ impl RulesTxn {
                     .map(|(_, n)| n.clone())
                     .unwrap_or_default()
             } else if a.blockers.len() == 1 && self.trample_player(a.attacker).is_none() {
-                self.power(a.attacker)?
+                self.combat_damage_amount(a.attacker)?
             } else {
                 Quantity::zero()
             };
@@ -718,9 +732,9 @@ impl RulesTxn {
     fn assign_damage(&mut self) -> Result<(), String> {
         let mut damage = vec![];
         for a in self.state.rules.combat.clone() {
-            let power = self.power(a.attacker)?;
+            let amount = self.combat_damage_amount(a.attacker)?;
             let controller = self.current(a.attacker)?.controller;
-            if self.assigns_in_damage_step(a.attacker) && power > Quantity::zero() {
+            if self.assigns_in_damage_step(a.attacker) && amount > Quantity::zero() {
                 if a.blockers.len() > 1
                     || (!a.blockers.is_empty() && self.trample_player(a.attacker).is_some())
                 {
@@ -772,7 +786,7 @@ impl RulesTxn {
                         source: a.attacker,
                         controller,
                         recipient: DamageRecipient::Creature { object: *object },
-                        amount: power,
+                        amount,
                     });
                 } else if (!a.blocked || self.trample_player(a.attacker).is_some())
                     && self.is_live(a.defender)
@@ -781,7 +795,7 @@ impl RulesTxn {
                         source: a.attacker,
                         controller,
                         recipient: DamageRecipient::Player { player: a.defender },
-                        amount: power,
+                        amount,
                     });
                 }
             }
@@ -789,13 +803,13 @@ impl RulesTxn {
                 if !self.assigns_in_damage_step(b) {
                     continue;
                 }
-                let power = self.power(b)?;
-                if power > Quantity::zero() {
+                let amount = self.combat_damage_amount(b)?;
+                if amount > Quantity::zero() {
                     damage.push(DamageOccurrence {
                         source: b,
                         controller: self.current(b)?.controller,
                         recipient: DamageRecipient::Creature { object: a.attacker },
-                        amount: power,
+                        amount,
                     });
                 }
             }

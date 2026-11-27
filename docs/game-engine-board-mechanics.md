@@ -30,7 +30,9 @@ both creatures at the declaration; counts are joint pick rules. "Can't attack
 you" removes that defender; with no attackable planeswalker or battle kinds,
 "or planeswalkers you control" adds nothing. A creature that attacks each
 combat if able must attack only while a defender remains (CR 508.1d). Relative
-powers and ambiguous "X and/or Y with Z" filters reject.
+powers and ambiguous "X and/or Y with Z" filters reject. Static toughness-based
+combat damage assignment uses current toughness for both attackers and blockers
+(CR 101.1, 510.1a).
 
 Simultaneous damage is validated before life/history writes. Combat source
 validation reads the captured creature type and keywords from resolved and

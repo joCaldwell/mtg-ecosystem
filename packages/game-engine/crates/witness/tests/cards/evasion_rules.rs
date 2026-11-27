@@ -418,3 +418,120 @@ fn attacks_this_turn_if_able_requires_the_target() {
         .unwrap();
     checked(&g);
 }
+
+const DORAN: &str = record!("a46d96d9-8e59-4777-8208-7730b9e33240");
+
+#[test]
+fn combat_damage_assignment_uses_toughness_for_attackers_and_blockers() {
+    let mut g = game(
+        &[DORAN],
+        &[
+            ("Doran, the Siege Tower", 0, B),
+            ("Storm Crow", 1, B),
+            ("Grizzly Bears", 1, B),
+        ],
+    );
+    let d = attack(&mut g, &[0]);
+    accepts(&mut g, &d, &[(1, 0), (2, 0)]);
+    let source = Driver::object(&g, 0);
+    let d = until(
+        &mut g,
+        &Reason::CombatDamage {
+            source,
+            power: 0.into(),
+        },
+    );
+    let Shape::Distribute { total, .. } = &d.shape else {
+        panic!("two blockers require a damage distribution");
+    };
+    assert_eq!(*total, 5.into());
+    checked(&g);
+    let crow = Driver::object(&g, 1);
+    let bears = Driver::object(&g, 2);
+    let before = g.snapshot().unwrap();
+    assert!(
+        g.respond(
+            d.player,
+            d.id,
+            d.damage_to(vec![(crow, 0.into()), (bears, 0.into())])
+        )
+        .is_err()
+    );
+    assert_eq!(g.snapshot().unwrap(), before);
+    g.respond(
+        d.player,
+        d.id,
+        d.damage_to(vec![(crow, 2.into()), (bears, 3.into())]),
+    )
+    .unwrap();
+    let _ = until(&mut g, &Reason::Priority);
+    let doran = g
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| o.id == source)
+        .unwrap();
+    assert_eq!(doran.marked_damage, 4.into());
+    checked(&g);
+}
+
+#[test]
+fn toughness_assignment_lowers_exact_frozen_set_scopes() {
+    use mtg_contracts::kir::CombatRequirement::AssignCombatDamageWithToughness;
+    for raw in [
+        DORAN,
+        record!("4d6d3e6d-f958-4c17-b117-960fb8033601"),
+        record!("5f657279-cc0f-4431-b517-47bd1c7109b6"),
+        record!("fa2d8440-a44a-44fe-8624-0e8b4be53f44"),
+    ] {
+        let definition = lowered(raw);
+        assert!(definition.static_abilities.iter().any(|ability| matches!(
+            &ability.effect,
+            StaticEffect::Rule {
+                rule: StaticRule::Combat {
+                    requirement: AssignCombatDamageWithToughness,
+                    ..
+                },
+                condition: None,
+            }
+        )));
+    }
+}
+
+#[test]
+fn toughness_assignment_survives_pending_damage_replacement() {
+    let mut g = game(
+        &[
+            DORAN,
+            record!("3d960d33-623a-4415-ae00-f8cffbc15f5a"),
+            record!("e5fa232a-c8f2-4532-88bf-60d1223181b0"),
+        ],
+        &[
+            ("Doran, the Siege Tower", 0, B),
+            ("Dictate of the Twin Gods", 0, B),
+            ("Urza's Armor", 1, B),
+        ],
+    );
+    let d = attack(&mut g, &[0]);
+    accepts(&mut g, &d, &[]);
+    for _ in 0..12 {
+        let d = Driver::request(&mut g, u64::MAX);
+        if matches!(d.reason, Reason::DamageEffect { .. }) {
+            let snapshot = g.snapshot().unwrap();
+            assert!(snapshot.contains("toughness_sources"));
+            let mut restored = Game::restore(g.prepared.as_ref().clone(), &snapshot).unwrap();
+            let choice = d.select(d.candidates[0].clone());
+            g.respond(d.player, d.id, choice.clone()).unwrap();
+            restored.respond(d.player, d.id, choice).unwrap();
+            let _ = until(&mut g, &Reason::Priority);
+            let _ = until(&mut restored, &Reason::Priority);
+            assert_eq!(restored.snapshot().unwrap(), g.snapshot().unwrap());
+            return;
+        }
+        assert_eq!(d.reason, Reason::Priority);
+        g.respond(d.player, d.id, mtg_witness::temporary::pass(&d))
+            .unwrap();
+    }
+    panic!("never reached damage replacement");
+}
