@@ -282,10 +282,10 @@ for this choice.
 
 **Actual card results.** An unqualified “discarded this way” or “milled this
 way” in a count or condition names the unique earlier direct producer of that
-event in the same resolving block (CR 608.2c,h). The checked sequence reads
-its actual object set and count. Type, subtype and other card predicates read
-the exact public successor or its known characteristics when it has left
-(CR 400.7, 701.9c, 701.17c). An unrevealed hidden destination supplies no
+event in the same resolving block and chosen mode (CR 608.2c,h, 700.2). The
+checked sequence reads its actual object set and count. Type, subtype and other
+card predicates read the exact public successor or its known characteristics
+when it has left (CR 400.7, 701.9c, 701.17c). An unrevealed hidden destination supplies no
 characteristics. A missing or competing producer rejects at the linked operand.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
