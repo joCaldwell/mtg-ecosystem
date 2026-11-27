@@ -509,3 +509,81 @@ fn observed_events_countering_the_trigger_does_not_target_its_permanent() {
     );
     assert_recoverable((&g).into());
 }
+
+#[test]
+fn observed_events_keeper_compares_only_the_opponent_whose_step_began() {
+    const KEEPER: &str = record!("49b9a3ac-d245-431a-bf40-64d1b8dc2b91");
+    for ahead in [false, true] {
+        let mut setup = board_with(compiled(&[KEEPER], false), TurnStep::PrecombatMain)
+            .seats(3)
+            .permanent_or_hand("Keeper of the Accord", 1, 1, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 1, 1, false);
+        for _ in 0..3 {
+            setup = setup.permanent_or_hand("Grizzly Bears", 2, 2, false);
+        }
+        if ahead {
+            setup = setup.permanent_or_hand("Grizzly Bears", 0, 0, false);
+        }
+        let mut game = Game::with_trace(prepare(setup), TraceMode::Detailed);
+        let keeper = Driver::object(&game, 0);
+        let bear = Driver::object(&game, 1);
+        drive(&mut game, &[], |g| g.state.rules.turn.step == TurnStep::End);
+        assert_eq!(triggered(&game), ahead);
+        checked(&game);
+        if ahead {
+            Driver::cast(&mut game, CardId(2));
+            Driver::pick_object(&mut game, bear);
+            Driver::pay(&mut game, &[3]);
+            settle(&mut game);
+        }
+        assert_eq!(
+            intervening(&game, keeper)
+                .into_iter()
+                .filter(|&(at_match, passed)| !at_match || passed)
+                .collect::<Vec<_>>(),
+            if ahead {
+                vec![(true, true), (false, false)]
+            } else {
+                vec![]
+            }
+        );
+        assert!(game.state.rules.tokens.is_empty());
+    }
+}
+
+#[test]
+fn observed_events_map_compares_only_the_entering_lands_controller() {
+    const MAP: &str = record!("ef833546-f755-4ac5-867a-3926984e68a0");
+    let mut game = Game::with_trace(
+        prepare(
+            board_with(compiled(&[MAP], false), TurnStep::PrecombatMain)
+                .seats(3)
+                .permanent_or_hand("Archaeomancer's Map", 1, 1, false)
+                .permanent_or_hand("Island", 0, 0, true)
+                .permanent_or_hand("Island", 2, 2, false)
+                .permanent_or_hand("Plains", 2, 2, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let map = Driver::object(&game, 0);
+    let land = Driver::object(&game, 1);
+    Driver::action(&mut game, Action::PlayLand { object: land });
+    drive(&mut game, &[], triggered);
+    let mut forged: Snapshot = strict_read(&game.snapshot().unwrap()).unwrap();
+    let StackKind::Triggered {
+        match_condition: Some(InterveningCheck::OpponentControlsMore { opponents, .. }),
+        ..
+    } = &mut forged.state.rules.stack.last_mut().unwrap().kind
+    else {
+        panic!("missing entrant controller comparison");
+    };
+    assert_eq!(*opponents, [(PlayerId(0), 1)]);
+    opponents[0].0 = PlayerId(2);
+    assert_forgery_rejected(&game, forged, "invalid trigger match condition proof");
+    checked(&game);
+    settle(&mut game);
+    assert_eq!(intervening(&game, map), [(true, true), (false, true)]);
+}

@@ -879,15 +879,27 @@ pub(super) fn intervening(
         return Ok(kir::Intervening::ControlsOwnCommander);
     }
     for (printed, kind) in [("land", CardKind::Land), ("creature", CardKind::Creature)] {
-        if *condition
-            == serde_json::json!({
-                "condition": "control-count", "who": {"player": "an-opponent"},
-                "of": {"types": [printed]}, "comparison": {
-                    "op": "gt", "value": {"amount": "count", "of": {"types": [printed], "control": "you"}}
-                }
-            })
-        {
-            return Ok(kir::Intervening::OpponentControlsMore { kind });
+        for (player, candidate) in [
+            (
+                "an-opponent",
+                kir::Intervening::OpponentControlsMore { kind },
+            ),
+            (
+                "that-player",
+                kir::Intervening::EventOpponentControlsMore { kind },
+            ),
+        ] {
+            if *condition
+                == serde_json::json!({
+                    "condition": "control-count", "who": {"player": player},
+                    "of": {"types": [printed]}, "comparison": {
+                        "op": "gt", "value": {"amount": "count", "of": {"types": [printed], "control": "you"}}
+                    }
+                })
+                && candidate.admits(pattern)
+            {
+                return Ok(candidate);
+            }
         }
     }
     let measure = match shape {

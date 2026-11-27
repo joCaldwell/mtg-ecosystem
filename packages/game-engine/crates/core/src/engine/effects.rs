@@ -644,6 +644,7 @@ impl RulesTxn {
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
+            | Cond::EventOpponentControlsMore { .. }
             | Cond::ControlledSinceLastUpkeep {} => false,
         }
     }

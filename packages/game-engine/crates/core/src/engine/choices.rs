@@ -164,6 +164,7 @@ impl InterveningCheck {
         controller: PlayerId,
         source: ObjectId,
         card_bound: u32,
+        witness: &TriggerEventWitness,
     ) -> bool {
         match (condition, self) {
             (
@@ -219,7 +220,8 @@ impl InterveningCheck {
                 },
             ) => *checked == controller && *passed == commander.is_some(),
             (
-                Intervening::OpponentControlsMore { .. },
+                Intervening::OpponentControlsMore { .. }
+                | Intervening::EventOpponentControlsMore { .. },
                 Self::OpponentControlsMore {
                     controller: checked,
                     own,
@@ -228,6 +230,14 @@ impl InterveningCheck {
                 },
             ) => {
                 *checked == controller
+                    && (!matches!(condition, Intervening::EventOpponentControlsMore { .. })
+                        || witness.permanent_count_opponent().is_some_and(|actor| {
+                            opponents
+                                .as_slice()
+                                .first()
+                                .is_none_or(|(p, _)| *p == actor)
+                                && opponents.len() <= 1
+                        }))
                     && opponents.len() <= 3
                     && opponents.iter().all(|(p, _)| p.0 < 4 && *p != controller)
                     && opponents.windows(2).all(|pair| pair[0].0 < pair[1].0)
@@ -435,11 +445,12 @@ impl RulesTxn {
         controller: PlayerId,
         source: ObjectId,
         last_known: &ObjectBefore,
-        cast: Option<EntryCast>,
+        event: (&TriggerEventWitness, Option<EntryCast>),
     ) -> Result<InterveningCheck, String> {
         if !self.is_live(controller) {
             return Err("intervening condition requested after controller departure".into());
         }
+        let (witness, cast) = event;
         Ok(match condition {
             Intervening::TurnHistory { fact, cmp, value } => {
                 use mtg_contracts::kir::TurnFact::*;
@@ -524,7 +535,17 @@ impl RulesTxn {
                     passed: commander.is_some(),
                 }
             }
-            Intervening::OpponentControlsMore { kind } => {
+            Intervening::OpponentControlsMore { kind }
+            | Intervening::EventOpponentControlsMore { kind } => {
+                let actor = if matches!(condition, Intervening::EventOpponentControlsMore { .. }) {
+                    Some(
+                        witness
+                            .permanent_count_opponent()
+                            .ok_or("missing comparison opponent")?,
+                    )
+                } else {
+                    None
+                };
                 let mut counts = [0_u32; 4];
                 for object in self
                     .state
@@ -541,6 +562,7 @@ impl RulesTxn {
                 let mut opponents = self
                     .opponents(controller)
                     .into_iter()
+                    .filter(|p| actor.is_none_or(|actor| *p == actor))
                     .map(|p| (p, counts[p.0 as usize]))
                     .collect::<Vec<_>>();
                 opponents.sort_unstable();
@@ -686,6 +708,7 @@ impl RulesTxn {
         let StackKind::Triggered {
             ability,
             match_condition,
+            witness,
             ..
         } = &stack.kind
         else {
@@ -707,13 +730,16 @@ impl RulesTxn {
                 .source_facts
                 .as_ref()
                 .ok_or("missing trigger source facts")?,
-            match match_condition {
-                Some(
-                    InterveningCheck::SourceCastByController { cast, .. }
-                    | InterveningCheck::SourceCostPaid { cast, .. },
-                ) => *cast,
-                _ => None,
-            },
+            (
+                witness,
+                match match_condition {
+                    Some(
+                        InterveningCheck::SourceCastByController { cast, .. }
+                        | InterveningCheck::SourceCostPaid { cast, .. },
+                    ) => *cast,
+                    _ => None,
+                },
+            ),
         )?;
         self.record_event(Event::TriggerConditionChecked {
             source: stack.source,
@@ -768,14 +794,15 @@ impl RulesTxn {
         {
             return Err("snapshot progressed after failed intervening comparison".into());
         }
-        match (expected, &frame.condition_check) {
-            (None, None) => Ok(()),
-            (Some(condition), Some(check))
+        match (expected, &frame.condition_check, &entry.kind) {
+            (None, None, _) => Ok(()),
+            (Some(condition), Some(check), StackKind::Triggered { witness, .. })
                 if check.validates(
                     &condition,
                     entry.controller,
                     entry.source,
                     self.intervening_card_bound(entry.controller, &condition),
+                    witness,
                 ) =>
             {
                 Ok(())
@@ -891,6 +918,7 @@ impl RulesTxn {
                     controller,
                     source,
                     self.intervening_card_bound(controller, &condition),
+                    witness,
                 ) && check.passed()
                     && !matches!(
                         check,

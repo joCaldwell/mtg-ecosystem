@@ -654,6 +654,16 @@ fn binds_observed_object(ability: &TriggeredAbility) -> bool {
     })
 }
 
+impl TriggerEventWitness {
+    pub(super) fn permanent_count_opponent(&self) -> Option<PlayerId> {
+        match self {
+            Self::Entered { entrant, .. } => Some(entrant.controller),
+            Self::StepBegan { active, .. } => *active,
+            _ => None,
+        }
+    }
+}
+
 impl StackKind {
     pub(super) fn observed_object(&self) -> Result<&ObservedObject, String> {
         match self {
@@ -1784,17 +1794,20 @@ impl RulesTxn {
                                     object.controller,
                                     object.id,
                                     &observers.object_before(object.id)?,
-                                    if matches!(
-                                        condition,
-                                        kir::Intervening::SourceCastByController
-                                            | kir::Intervening::SourceCostPaid { .. }
-                                    ) {
-                                        before.and_then(|(prior, cause)| {
-                                            prior.completed_entry_cast(cause, &witness)
-                                        })
-                                    } else {
-                                        None
-                                    },
+                                    (
+                                        &matched_witness,
+                                        if matches!(
+                                            condition,
+                                            kir::Intervening::SourceCastByController
+                                                | kir::Intervening::SourceCostPaid { .. }
+                                        ) {
+                                            before.and_then(|(prior, cause)| {
+                                                prior.completed_entry_cast(cause, &witness)
+                                            })
+                                        } else {
+                                            None
+                                        },
+                                    ),
                                 )
                             })
                             .transpose()?,

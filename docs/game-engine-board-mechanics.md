@@ -451,7 +451,10 @@ battlefield appearance (CR 400.7, 608.2h).
 `kir::Intervening::of` admits cast provenance, empty hand, source tapped
 status, own commander control, a creature power threshold and filtered
 battlefield counts. Relative counts compare lands or creatures against each
-opponent separately. Entry, attack and step triggers can compare the
+opponent separately. “That player” instead binds the entering permanent’s
+controller or the opponent whose step began. Both checks count phased-in
+permanents and use the same opponent from the event witness. Entry, attack
+and step triggers can compare the
 controller's life, hand or own graveyard card count. Both stages record
 `InterveningCheck` evidence (CR 603.4). These rows earn `Executes`
 (`InterveningIfV1`, `EventTriggerV1`).

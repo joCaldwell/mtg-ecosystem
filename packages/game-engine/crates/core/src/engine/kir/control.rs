@@ -306,6 +306,7 @@ impl RulesTxn {
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
+            | Cond::EventOpponentControlsMore { .. }
             | Cond::ControlledSinceLastUpkeep {} => {
                 return Err("intervening condition in a resolving node".into());
             }

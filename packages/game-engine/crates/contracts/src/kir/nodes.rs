@@ -59,6 +59,10 @@ pub enum Cond {
     OpponentControlsMore {
         kind: CardKind,
     },
+    /// CR 603.4: compare with the opponent identified by the trigger event.
+    EventOpponentControlsMore {
+        kind: CardKind,
+    },
     /// CR 702.30a, 603.4: the source permanent came under the ability
     /// controller's control since the beginning of that player's last upkeep.
     ControlledSinceLastUpkeep {},

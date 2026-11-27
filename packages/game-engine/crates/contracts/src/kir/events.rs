@@ -709,6 +709,10 @@ pub enum Intervening {
     OpponentControlsMore {
         kind: CardKind,
     },
+    /// CR 603.4: compare with the opponent identified by the trigger event.
+    EventOpponentControlsMore {
+        kind: CardKind,
+    },
     /// "if you control a creature with power N or greater" (CR 208).
     ControllerHasCreatureWithPower {
         minimum_power: Quantity,
@@ -804,6 +808,9 @@ impl Intervening {
             },
             Self::ControlsOwnCommander => Cond::ControlsOwnCommander {},
             Self::OpponentControlsMore { kind } => Cond::OpponentControlsMore { kind: *kind },
+            Self::EventOpponentControlsMore { kind } => {
+                Cond::EventOpponentControlsMore { kind: *kind }
+            }
             Self::SourceCastByController => Cond::CastBy {
                 object: Ref::Source,
                 caster: you,
@@ -891,6 +898,9 @@ impl Intervening {
             Cond::OpponentControlsMore {
                 kind: kind @ (CardKind::Land | CardKind::Creature),
             } => Self::OpponentControlsMore { kind: *kind },
+            Cond::EventOpponentControlsMore {
+                kind: kind @ (CardKind::Land | CardKind::Creature),
+            } => Self::EventOpponentControlsMore { kind: *kind },
             Cond::Compare {
                 left:
                     Amount::Count {
@@ -992,6 +1002,16 @@ impl Intervening {
             }
             Self::SourceControlledSinceLastUpkeep => *pattern == EventPattern::your_upkeep(),
             _ if matches!(pattern, EventPattern::BecomesTarget { .. }) => false,
+            Self::EventOpponentControlsMore { .. } => match pattern {
+                EventPattern::StepBegins {
+                    active: PlayerExpr::EachOpponent,
+                    ..
+                } => true,
+                EventPattern::Enters { object } => object.0.contains(&Atom::ControlledBy {
+                    player: PlayerExpr::EachOpponent,
+                }),
+                _ => false,
+            },
             Self::ControllerComparison { .. } => match pattern {
                 EventPattern::Enters { .. }
                 | EventPattern::Attacks { .. }
