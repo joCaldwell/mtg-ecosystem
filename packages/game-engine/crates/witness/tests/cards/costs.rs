@@ -21,6 +21,7 @@ macro_rules! record {
 }
 
 mod activation_conditions;
+mod activation_history;
 mod alternative_costs;
 mod chosen_objects;
 

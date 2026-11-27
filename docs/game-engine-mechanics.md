@@ -355,11 +355,17 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   graveyards, self-exile from hand and chosen-object mana abilities reject.
 - **Restrictions** are permission gates. "As a sorcery" is main-phase timing;
   your turn, your upkeep, your turn before attackers, combat, end of combat and
-  not your turn are typed windows. "Only once each turn" records a use per
-  source incarnation and ability, surviving control changes (CR 602.5b–d).
+  not your turn are typed windows. "Only once each turn" and "no more than
+  N times each turn" (stack abilities only) number each use per source
+  incarnation and ability, surviving control changes (CR 400.7, 602.5b–d).
   "Activate only if" is read once as activation begins (CR 602.5): an audited
   `kir::ActivationCondition` counts permanents you control, your graveyard or
-  hand, or the source's facts, kept on the stack entry for restore.
+  hand, the source's facts, your turn facts (tokens created, spells cast,
+  instant/sorcery spells, attacks, life gained; any creature died), one
+  opponent's matching permanents or more lands/creatures than you, your
+  largest same-name group (CR 201.2), card types in your graveyard, or life
+  above your starting total, kept on the stack entry for restore. Develop's
+  mana plans leave sources with the newer conditions out.
 
 ### Targets, selection and tap/untap
 

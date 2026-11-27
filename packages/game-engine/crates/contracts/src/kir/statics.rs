@@ -607,6 +607,7 @@ fn condition_supported(condition: &Cond) -> bool {
         | Cond::TurnHistory { .. }
         | Cond::ControlsOwnCommander { .. }
         | Cond::OpponentControlsMore { .. }
+        | Cond::Measured { .. }
         | Cond::ControlledSinceLastUpkeep {} => false,
     }
 }

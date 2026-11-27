@@ -1540,6 +1540,10 @@ pub struct ActivationRestriction {
     pub window: Option<ActivationWindow>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub once_each_turn: bool,
+    /// CR 602.5b: "Activate no more than [N] times each turn", N of at
+    /// least two; once is `once_each_turn`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub times_each_turn: Option<u32>,
     /// CR 602.1b, 602.5: "Activate only if"; one
     /// [`kir::ActivationCondition`] read as the activation begins.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1571,6 +1575,17 @@ pub struct ActivatedAbility {
     /// activated; `program` then carries timing only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modal: Option<ModalSpell>,
+}
+impl ActivationRestriction {
+    /// CR 602.5b: how many times each turn one object may activate the
+    /// ability, when limited.
+    pub fn each_turn_limit(&self) -> Option<u32> {
+        if self.once_each_turn {
+            Some(1)
+        } else {
+            self.times_each_turn
+        }
+    }
 }
 impl ActivatedAbility {
     /// Executable versions of this ability's program: its selections when

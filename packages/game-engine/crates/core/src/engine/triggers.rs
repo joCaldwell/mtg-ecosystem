@@ -121,8 +121,51 @@ pub struct TurnCastHistory {
     /// CR 119.9: life-gain events of this player this turn.
     #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub life_gains: u32,
+    /// CR 111.2: tokens this player created this turn.
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
+    pub tokens_created: u32,
 }
 impl TurnCastHistory {
+    /// CR 500, 601.2i: the exact measurement of `fact` for `player`; the
+    /// one reading shared by intervening "if" clauses and activation
+    /// conditions. "A creature died" reads every seat.
+    pub(super) fn measure(
+        history: &[TurnCastHistory; 4],
+        player: PlayerId,
+        fact: mtg_contracts::kir::TurnFact,
+    ) -> Result<Quantity, String> {
+        use mtg_contracts::kir::TurnFact::*;
+        let row = history
+            .get(player.0 as usize)
+            .ok_or("invalid turn history seat")?;
+        let quantity = |n: u32| Quantity::from(i64::from(n));
+        let spells = |keep: &dyn Fn(&Characteristics) -> bool| {
+            u32::try_from(
+                row.spells
+                    .iter()
+                    .filter(|spell| keep(&spell.characteristics))
+                    .count(),
+            )
+            .map(quantity)
+            .map_err(|_| "turn history count limit".to_string())
+        };
+        Ok(match fact {
+            Attacked => quantity(u32::from(row.attacked)),
+            CreatureDied => quantity(u32::from(history.iter().any(|seat| seat.creature_died))),
+            CreatureDiedUnderYourControl => quantity(u32::from(row.creature_died)),
+            PermanentLeftUnderYourControl => quantity(u32::from(row.permanent_left)),
+            SpellsCast => spells(&|_| true)?,
+            NoncreatureSpellsCast => spells(&|c| !c.has_type(CardKind::Creature))?,
+            // CR 304.1, 307.1: a spell with either card type counts once.
+            InstantOrSorcerySpellsCast => {
+                spells(&|c| c.has_type(CardKind::Instant) || c.has_type(CardKind::Sorcery))?
+            }
+            SpellsCastFromHand => quantity(row.hand_casts),
+            CardsDrawn => quantity(row.draws),
+            LifeGained => row.life_gained.clone(),
+            TokensCreated => quantity(row.tokens_created),
+        })
+    }
     fn quantity_is_zero(value: &Quantity) -> bool {
         *value == Quantity::zero()
     }
@@ -688,6 +731,34 @@ impl RulesTxn {
                 row.permanent_left = true;
                 row.creature_died |=
                     to_graveyard && prior.characteristics.has_type(CardKind::Creature);
+            }
+            // CR 111.2: the creating player, once per token.
+            let created = match &occurrence.actual {
+                EventOutcome::TokenCopied { controller, .. } => Some((*controller, 1)),
+                EventOutcome::TokensCreated {
+                    objects,
+                    controller,
+                    ..
+                }
+                | EventOutcome::EncoreTokensCreated {
+                    objects,
+                    controller,
+                    ..
+                }
+                | EventOutcome::PredefinedTokensCreated {
+                    objects,
+                    controller,
+                    ..
+                } => Some((*controller, objects.len())),
+                _ => None,
+            };
+            if let Some((player, n)) = created {
+                let n = u32::try_from(n).map_err(|_| "token history count limit")?;
+                let row = &mut self.rules_mut().cast_history[player.0 as usize];
+                row.tokens_created = row
+                    .tokens_created
+                    .checked_add(n)
+                    .ok_or("token history count limit")?;
             }
             match &occurrence.actual {
                 EventOutcome::LifeGained { player, amount, .. } => {

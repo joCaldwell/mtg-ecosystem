@@ -26,6 +26,12 @@ pub struct ActivationUse {
     #[serde(default, skip_serializing_if = "CardFace::is_front")]
     pub face: CardFace,
     pub ability: u32,
+    /// CR 602.5b: the zero-based use this turn of a limited ability.
+    #[serde(default, skip_serializing_if = "is_zero_use")]
+    pub nth: u32,
+}
+fn is_zero_use(n: &u32) -> bool {
+    *n == 0
 }
 
 /// CR 602.1b, 602.5, 605.3a: the counts an "Activate only if" condition
@@ -69,6 +75,14 @@ impl RulesTxn {
     ) -> Result<u32, String> {
         use ActivationCondition as C;
         let objects = self.state.rules.objects.values();
+        fn objects_iter(txn: &RulesTxn) -> impl Iterator<Item = &Object> {
+            txn.state.rules.objects.values()
+        }
+        fn saturate(value: &Quantity) -> u32 {
+            value
+                .to_u32()
+                .unwrap_or(if value.is_negative() { 0 } else { u32::MAX })
+        }
         let count = match leaf {
             // CR 109.5, 613: phased-in permanents with their derived facts.
             C::Controlled { filter, .. } => objects
@@ -94,6 +108,83 @@ impl RulesTxn {
                 query::matches_pred(&self.object_facts(self.current(source)?), player, filter)
                     == Tri::Yes,
             ),
+            // CR 500: the activator's turn facts; an amount beyond the
+            // evidence range saturates (every admitted value is far below).
+            C::TurnHistory { fact, .. } => {
+                let observed = triggers::TurnCastHistory::measure(
+                    &self.state.rules.cast_history,
+                    player,
+                    *fact,
+                )?;
+                return Ok(saturate(&observed));
+            }
+            C::OpponentControlsMore { kind } => {
+                let lands = |p: PlayerId| {
+                    objects_iter(self)
+                        .filter(|o| {
+                            o.present_on_battlefield()
+                                && o.controller == p
+                                && self
+                                    .object_facts(o)
+                                    .derived()
+                                    .is_some_and(|c| c.has_type(*kind))
+                        })
+                        .count()
+                };
+                let own = lands(player);
+                usize::from(self.opponents(player).into_iter().any(|p| lands(p) > own))
+            }
+            // CR 102.2-102.3: one opponent's own permanents.
+            C::OpponentControls { filter, .. } => self
+                .opponents(player)
+                .into_iter()
+                .map(|p| {
+                    objects_iter(self)
+                        .filter(|o| {
+                            let facts = self.object_facts(o);
+                            facts.controller() == p
+                                && query::matches_battlefield_pred(&facts, player, filter)
+                                    == Tri::Yes
+                        })
+                        .count()
+                })
+                .max()
+                .unwrap_or(0),
+            // CR 201.2, 707.2: copiable names of the matching permanents.
+            C::SharedName { filter, .. } => {
+                let mut names: BTreeMap<String, usize> = BTreeMap::new();
+                for o in objects_iter(self) {
+                    if query::matches_battlefield_pred(&self.object_facts(o), player, filter)
+                        == Tri::Yes
+                    {
+                        *names
+                            .entry(self.copiable_definition(o.id)?.name.clone())
+                            .or_default() += 1;
+                    }
+                }
+                names.into_values().max().unwrap_or(0)
+            }
+            // CR 205.2a, 404: every card type of the player's graveyard cards.
+            C::GraveyardCardTypes { .. } => {
+                let mut types = [false; CardKind::CARD_TYPES.len()];
+                for o in objects_iter(self) {
+                    let facts = self.object_facts(o);
+                    if o.zone != (Zone::Graveyard { owner: player }) || facts.is_token() {
+                        continue;
+                    }
+                    let c = facts.derived().ok_or("graveyard card characteristics")?;
+                    for kind in std::iter::once(c.kind).chain(c.additional_types.iter().copied()) {
+                        types[kind.card_type_index()] = true;
+                    }
+                }
+                types.iter().filter(|t| **t).count()
+            }
+            // CR 103.4: the life total against the configured starting one.
+            C::LifeAboveStarting { .. } => {
+                let mut above = self.state.rules.players[player.0 as usize].life.clone();
+                above.subtract(&self.prepared.config.initial_life(player));
+                return Ok(saturate(&above.max(Quantity::zero())));
+            }
             C::All(_) | C::Any(_) => return Err("activation condition leaf invariant".into()),
         };
         u32::try_from(count).map_err(|_| "activation condition count limit".into())
@@ -126,10 +217,28 @@ impl RulesTxn {
         let objects = self.state.rules.objects.len();
         let bounded = leaves.len() == check.counts.len()
             && leaves.iter().zip(&check.counts).all(|(leaf, &count)| {
+                use ActivationCondition as C;
                 let bound = match leaf {
-                    ActivationCondition::Controlled { .. } => objects,
-                    ActivationCondition::Source { .. } => 1,
-                    _ => owned,
+                    C::Controlled { .. } | C::OpponentControls { .. } | C::SharedName { .. } => {
+                        objects
+                    }
+                    C::Source { .. } | C::OpponentControlsMore { .. } => 1,
+                    C::GraveyardCardTypes { .. } => CardKind::CARD_TYPES.len(),
+                    // CR 500.2: an activation still on the stack began this
+                    // turn, and each turn fact only grows during a turn.
+                    C::TurnHistory { fact, .. } => {
+                        match triggers::TurnCastHistory::measure(
+                            &self.state.rules.cast_history,
+                            player,
+                            *fact,
+                        ) {
+                            Ok(now) => now.to_u32().map_or(usize::MAX, |n| n as usize),
+                            Err(_) => return false,
+                        }
+                    }
+                    // Life can since have fallen; any amount was possible.
+                    C::LifeAboveStarting { .. } => usize::MAX,
+                    C::GraveyardCards { .. } | C::HandCards { .. } | C::All(_) | C::Any(_) => owned,
                 };
                 count as usize <= bound
             });
@@ -190,18 +299,39 @@ impl RulesTxn {
                 .condition
                 .as_ref()
                 .is_none_or(|c| self.activation_condition_check(player, source, c).is_ok())
-            && (!restriction.once_each_turn
-                || !self.state.rules.activation_uses.contains(&ActivationUse {
-                    source,
-                    face: self.current(source).map_or(source.face, Object::face),
-                    ability,
-                }))
+            && restriction.each_turn_limit().is_none_or(|limit| {
+                let face = self.current(source).map_or(source.face, Object::face);
+                self.activation_use_count(source, face, ability) < limit
+            })
+    }
+
+    /// CR 602.5b: completed activations this turn of one ability of this
+    /// incarnation's face.
+    fn activation_use_count(&self, source: ObjectId, face: CardFace, ability: u32) -> u32 {
+        let uses = self
+            .state
+            .rules
+            .activation_uses
+            .iter()
+            .filter(|k| k.source == source && k.face == face && k.ability == ability)
+            .count();
+        u32::try_from(uses).unwrap_or(u32::MAX)
     }
 
     pub(super) fn validate_activation_uses(&self) -> Result<(), String> {
         for key in &self.state.rules.activation_uses {
+            // Uses are numbered from zero without gaps, below the limit.
+            let earlier = key.nth.checked_sub(1).is_none_or(|nth| {
+                self.state
+                    .rules
+                    .activation_uses
+                    .contains(&ActivationUse { nth, ..*key })
+            });
             if self.current(key.source)?.zone != Zone::Battlefield
-                || !self.activation_is_limited(key.source, key.face, key.ability)?
+                || !earlier
+                || self
+                    .activation_limit(key.source, key.face, key.ability)?
+                    .is_none_or(|limit| key.nth >= limit)
             {
                 return Err("snapshot activation use invariant".into());
             }
@@ -209,12 +339,12 @@ impl RulesTxn {
         Ok(())
     }
 
-    fn activation_is_limited(
+    fn activation_limit(
         &self,
         source: ObjectId,
         face: CardFace,
         ability: u32,
-    ) -> Result<bool, String> {
+    ) -> Result<Option<u32>, String> {
         Ok(self
             .face_definition(source.card, face)?
             .activated
@@ -222,7 +352,7 @@ impl RulesTxn {
             .ok_or("missing limited activation slot")?
             .restriction
             .as_ref()
-            .is_some_and(|r| r.once_each_turn))
+            .and_then(ActivationRestriction::each_turn_limit))
     }
 
     /// CR 601.2i, 602.2b, 602.5b: only a successfully completed activation
@@ -236,15 +366,20 @@ impl RulesTxn {
     ) -> Result<(), String> {
         // The activated face, fixed as the ability was put on the stack.
         let face = self.entry(stack_id)?.source_face;
-        if self.activation_is_limited(source, face, ability)?
+        if let Some(limit) = self.activation_limit(source, face, ability)?
             && self.current(source).is_ok()
-            && !self.rules_mut().activation_uses.insert(ActivationUse {
-                source,
-                face,
-                ability,
-            })
         {
-            return Err("activation limit already used".into());
+            let nth = self.activation_use_count(source, face, ability);
+            if nth >= limit
+                || !self.rules_mut().activation_uses.insert(ActivationUse {
+                    source,
+                    face,
+                    ability,
+                    nth,
+                })
+            {
+                return Err("activation limit already used".into());
+            }
         }
         self.record_event(Event::AbilityActivated {
             stack_id,
@@ -649,18 +784,23 @@ impl RulesTxn {
             },
         };
         let program = self.program_for(entry)?;
-        if activated
+        // CR 602.5b: a paid activation recorded its use; an unpaid one may
+        // still begin, and a once-each-turn ability has no other use.
+        if let Some(limit) = activated
             .restriction
             .as_ref()
-            .is_some_and(|r| r.once_each_turn)
+            .and_then(ActivationRestriction::each_turn_limit)
             && self.current(entry.source).is_ok()
-            && (self.state.rules.activation_uses.contains(&ActivationUse {
-                source: entry.source,
-                face: entry.source_face,
-                ability,
-            }) != entry.paid.is_some())
         {
-            return Err("snapshot activation payment/use invariant".into());
+            let uses = self.activation_use_count(entry.source, entry.source_face, ability);
+            let consistent = match (limit, entry.paid.is_some()) {
+                (1, paid) => uses == u32::from(paid),
+                (_, true) => uses >= 1,
+                (_, false) => uses < limit,
+            };
+            if !consistent {
+                return Err("snapshot activation payment/use invariant".into());
+            }
         }
         let stage = self.underlying_mana_frame(&self.state.rules.frame)?;
         let announcing = match stage {

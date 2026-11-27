@@ -31,10 +31,49 @@ pub enum ActivationCondition {
     /// greater" (CR 506.4, 208.1): the source's own current facts. Its
     /// count is one when the source satisfies `filter`, otherwise zero.
     Source { filter: Pred },
+    /// "if you created a token this turn" / "if a creature died this turn"
+    /// (CR 500, 601.2i, 111.2): one of the activator's turn facts.
+    TurnHistory {
+        fact: TurnFact,
+        cmp: Cmp,
+        value: Quantity,
+    },
+    /// "if an opponent controls more lands than you" (CR 102.2-102.3). Its
+    /// count is one when some opponent does, otherwise zero.
+    OpponentControlsMore { kind: CardKind },
+    /// "if an opponent controls N or more [filter]" (CR 102.2-102.3, 109.5):
+    /// the most phased-in matching permanents one opponent controls.
+    OpponentControls { filter: Pred, value: Quantity },
+    /// "if you control N or more [filter] with the same name" (CR 201.2):
+    /// the largest group of matching permanents you control sharing a name.
+    SharedName { filter: Pred, value: Quantity },
+    /// "if there are N or more card types among cards in your graveyard"
+    /// (CR 205.2a, 404).
+    GraveyardCardTypes { value: Quantity },
+    /// "if you have at least N life more than your starting life total"
+    /// (CR 103.4, 119.1): how far the life total exceeds the starting one.
+    LifeAboveStarting { value: Quantity },
     /// Every part holds.
     All(Vec<ActivationCondition>),
     /// "or": at least one part holds.
     Any(Vec<ActivationCondition>),
+}
+
+/// A measurement read only as an activation begins (CR 602.5); its
+/// filters name no controller and contain only
+/// [`ActivationCondition::of`]'s admitted atoms.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "measure", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Measure {
+    /// CR 102.2-102.3, 109.5: the most phased-in permanents satisfying
+    /// `filter` that any one opponent of the activator controls.
+    OpponentControls { filter: Pred },
+    /// CR 201.2: the most phased-in permanents the activator controls
+    /// satisfying `filter` that share one name.
+    SharedName { filter: Pred },
+    /// CR 103.4: how much the activator's life total exceeds their starting
+    /// life total; zero when it does not.
+    LifeAboveStarting {},
 }
 
 fn you() -> PlayerExpr {
@@ -154,6 +193,42 @@ impl ActivationCondition {
                 object: Ref::Source,
                 filter: filter.clone(),
             },
+            Self::TurnHistory { fact, cmp, value } => Cond::TurnHistory {
+                fact: *fact,
+                cmp: *cmp,
+                value: value.clone(),
+            },
+            Self::OpponentControlsMore { kind } => Cond::OpponentControlsMore { kind: *kind },
+            Self::OpponentControls { filter, value } => Cond::Measured {
+                measure: Measure::OpponentControls {
+                    filter: filter.clone(),
+                },
+                cmp: Cmp::AtLeast,
+                value: value.clone(),
+            },
+            Self::SharedName { filter, value } => Cond::Measured {
+                measure: Measure::SharedName {
+                    filter: filter.clone(),
+                },
+                cmp: Cmp::AtLeast,
+                value: value.clone(),
+            },
+            Self::GraveyardCardTypes { value } => Cond::Compare {
+                left: Amount::Distinct {
+                    set: SetExpr::Matching {
+                        zone: ZoneExpr::Graveyard { of: you() },
+                        filter: Pred::default(),
+                    },
+                    characteristic: DistinctCharacteristic::CardType,
+                },
+                cmp: Cmp::AtLeast,
+                right: Amount::fixed(value.clone()),
+            },
+            Self::LifeAboveStarting { value } => Cond::Measured {
+                measure: Measure::LifeAboveStarting {},
+                cmp: Cmp::AtLeast,
+                value: value.clone(),
+            },
             Self::All(parts) => Cond::All {
                 conditions: parts.iter().map(Self::condition).collect(),
             },
@@ -207,6 +282,58 @@ impl ActivationCondition {
                 },
                 _ => return Err(unaudited()),
             },
+            Cond::Compare {
+                left:
+                    Amount::Distinct {
+                        characteristic: DistinctCharacteristic::CardType,
+                        ..
+                    },
+                cmp: Cmp::AtLeast,
+                right: Amount::Fixed { value },
+            } if !value.is_negative() && *value != Quantity::zero() => Self::GraveyardCardTypes {
+                value: value.clone(),
+            },
+            // CR 500: the activator's own facts this turn.
+            Cond::TurnHistory { fact, cmp, value } if !value.is_negative() => Self::TurnHistory {
+                fact: *fact,
+                cmp: *cmp,
+                value: value.clone(),
+            },
+            Cond::OpponentControlsMore {
+                kind: kind @ (CardKind::Land | CardKind::Creature),
+            } => Self::OpponentControlsMore { kind: *kind },
+            Cond::Measured {
+                measure,
+                cmp: Cmp::AtLeast,
+                value,
+            } if !value.is_negative() && *value != Quantity::zero() => match measure {
+                Measure::OpponentControls { filter }
+                    if !filter.0.is_empty() && filter.0.iter().all(permanent_atom) =>
+                {
+                    Self::OpponentControls {
+                        filter: filter.clone(),
+                        value: value.clone(),
+                    }
+                }
+                Measure::SharedName { filter } => {
+                    let controller = Atom::ControlledBy { player: you() };
+                    let rest: Vec<_> = filter.0.iter().filter(|a| **a != controller).collect();
+                    if rest.len() + 1 != filter.0.len()
+                        || rest.is_empty()
+                        || !rest.iter().all(|a| permanent_atom(a))
+                    {
+                        return Err(unaudited());
+                    }
+                    Self::SharedName {
+                        filter: filter.clone(),
+                        value: value.clone(),
+                    }
+                }
+                Measure::LifeAboveStarting {} => Self::LifeAboveStarting {
+                    value: value.clone(),
+                },
+                _ => return Err(unaudited()),
+            },
             Cond::Satisfies {
                 object: Ref::Source,
                 filter,
@@ -256,12 +383,21 @@ impl ActivationCondition {
         Some(match self {
             Self::Controlled { cmp, value, .. }
             | Self::GraveyardCards { cmp, value, .. }
-            | Self::HandCards { cmp, value } => {
+            | Self::HandCards { cmp, value }
+            | Self::TurnHistory { cmp, value, .. } => {
                 let (first, rest) = counts.split_first()?;
                 *counts = rest;
                 holds(*first, *cmp, value)
             }
-            Self::Source { .. } => {
+            Self::OpponentControls { value, .. }
+            | Self::SharedName { value, .. }
+            | Self::GraveyardCardTypes { value }
+            | Self::LifeAboveStarting { value } => {
+                let (first, rest) = counts.split_first()?;
+                *counts = rest;
+                holds(*first, Cmp::AtLeast, value)
+            }
+            Self::OpponentControlsMore { .. } | Self::Source { .. } => {
                 let (first, rest) = counts.split_first()?;
                 *counts = rest;
                 match first {

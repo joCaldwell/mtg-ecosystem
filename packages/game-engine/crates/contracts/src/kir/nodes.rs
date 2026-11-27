@@ -62,6 +62,13 @@ pub enum Cond {
     /// CR 702.30a, 603.4: the source permanent came under the ability
     /// controller's control since the beginning of that player's last upkeep.
     ControlledSinceLastUpkeep {},
+    /// CR 602.5: a measurement only an activation condition reads, compared
+    /// with a fixed number ([`super::ActivationCondition`]).
+    Measured {
+        measure: super::Measure,
+        cmp: Cmp,
+        value: Quantity,
+    },
     Not {
         condition: Box<Cond>,
     },
