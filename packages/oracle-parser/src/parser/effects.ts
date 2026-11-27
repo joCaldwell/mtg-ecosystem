@@ -38,6 +38,7 @@ import { parseValueChoice } from "./choices.ts";
 import { parseSelfReplacement, withSelfReplacement } from "./self-replacement.ts";
 import { foldCounterDestination } from "./counter-destination.ts";
 import { parseModalEffect } from "./modal.ts";
+import { carryPrintedOrigin, carryPrintedToken } from "../printed/capture.ts";
 import { SentenceRecorder, recordWhole } from "./sentence-spans.ts";
 import { parseProhibitionEffect } from "./prohibitions.ts";
 import { parseUntargetable } from "./untargetable.ts";
@@ -170,7 +171,7 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
     const topMana = parseLibraryTopMana(c);
     if (topMana) return [{ steps: [topMana] }];
     const sentences: Sentence[] = [];
-    const recorder = new SentenceRecorder(c, sentences);
+    const recorder = new SentenceRecorder(c, sentences, ctx.modalOptions);
     while (!c.done()) {
       recorder.step();
       const lastSentence = sentences.at(-1);
@@ -282,8 +283,14 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       // produced; they are not further instructions of this ability.
       if (previous?.effect === "add-mana" && !previous.riders && !previousSentence.otherwise &&
           previousSentence.steps.filter(step => step.effect === "add-mana").length === 1) {
+        const from = c.pos;
         const rules = parseManaSpendingRules(c, body => parseSentences(body, { modalOptions: [] }), !previous.restriction);
-        if (rules) { Object.assign(previous, rules); continue; }
+        if (rules) {
+          Object.assign(previous, rules);
+          c.fold(previous, from);
+          c.fold(previousSentence, from);
+          continue;
+        }
       }
       // CR 500.5: the same holds for how long that mana stays unspent.
       const produced = previousSentence && !previousSentence.otherwise ? previousSentence.steps.filter(step => step.effect === "add-mana") : [];
@@ -1066,7 +1073,10 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
       // A coordinated multi-object instruction is simultaneous (CR 608.2c);
       // separate instructions joined by "then" remain separate steps.
       if (parsed.length > 1) {
-        const children = parsed.map(({ optional: _optional, decidedBy: _decidedBy, ...step }) => step);
+        const children = parsed.map(original => {
+          const { optional: _optional, decidedBy: _decidedBy, ...step } = original;
+          return carryPrintedOrigin(original, step);
+        });
         parsed = [{ effect: "simultaneous", steps: children, ...(optional ? { optional: true as const } : {}), ...(decidedBy ? { decidedBy } : {}) }];
       }
       foldUnpreventableClause(c, parsed);
@@ -1078,7 +1088,10 @@ function parseSteps(c: Cursor, ctx: EffectContext, leadingDuration?: Duration): 
     // Preserve one choice for "may A and B", not independent optional A/B.
     for (const group of choices.reverse()) {
       if (group.end - group.start < 2) continue;
-      const children = steps.slice(group.start, group.end).map(({ optional: _optional, decidedBy: _decidedBy, ...step }) => step);
+      const children = steps.slice(group.start, group.end).map(original => {
+        const { optional: _optional, decidedBy: _decidedBy, ...step } = original;
+        return carryPrintedOrigin(original, step);
+      });
       steps.splice(group.start, group.end - group.start, { effect: "optional-group", who: group.who ?? { player: "you" }, steps: children });
     }
     return steps.length ? steps : null;
@@ -1316,6 +1329,7 @@ function transactionalStep(parser: StepParser): StepParser {
 }
 
 function parseStep(c: Cursor, ctx: EffectContext, options?: StepOptions): Effect[] | null {
+  const start = c.pos - (options?.optionalConsumed ? 2 : 0);
   const previousSubject = ctx.lastSubject;
   const previousPlayer = ctx.lastPlayer;
   const previousImplied = ctx.impliedActor;
@@ -1345,6 +1359,7 @@ function parseStep(c: Cursor, ctx: EffectContext, options?: StepOptions): Effect
       if (causativeActor && !performedBy(r, causativeActor)) return c.fail("instruction performed by the player named after 'have'");
       // One printed fresh choice must not be duplicated by subject elision.
       if (ctx.lastSubject && carriesFreshChoice(ctx.lastSubject)) ctx.lastSubject = undefined;
+      if (r.length === 1) c.mark(r[0], start);
       return r;
     }
     return c.fail("effect");
@@ -2353,7 +2368,7 @@ export function parseGainedAbilities(c: Cursor, options: { allowFreshProtectionC
       if (options.tokenName) inner = ownNameAsThisToken(inner, options.tokenName);
       // An ability quoted inside this one uses single quotation marks; within
       // the quoted ability's own text they are its ordinary quotation marks.
-      const ability = lineParser(inner.map((token): Token => token.kind === "punct" && token.value === "'" ? { ...token, value: '"' } : token), []);
+      const ability = lineParser(inner.map((token): Token => token.kind === "punct" && token.value === "'" ? carryPrintedToken(token, { ...token, value: '"' }) : token), []);
       return ability ? { gained: "quoted", ability } : null;
     }
     const abilitiesOf = parseAbilitiesOf(c);

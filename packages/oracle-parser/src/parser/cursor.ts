@@ -8,9 +8,24 @@
 //    alternative".
 
 import type { Token } from "../lexer.ts";
+import { tokenCapture, type PrintedCapture } from "../printed/capture.ts";
+import type { ImplicitReason } from "../printed/schema.ts";
 
 export class Cursor {
-  pos = 0;
+  private position = 0;
+  readonly printed?: PrintedCapture;
+  private readonly writes: { position: number; start: number; end: number }[] = [];
+
+  get pos(): number { return this.position; }
+  set pos(position: number) {
+    if (this.printed && position < this.position) {
+      while (this.writes.length && this.writes.at(-1)!.position > position) {
+        const write = this.writes.pop()!;
+        this.printed.rewind(write.start, write.end);
+      }
+    }
+    this.position = position;
+  }
   /** Set only while parsing the instructions of a pregame opening-hand action
    * (CR 103.6b), where "the first upkeep" names a turn of the game that has not
    * begun; elsewhere that wording stays unsupported. */
@@ -21,6 +36,7 @@ export class Cursor {
 
   constructor(tokens: Token[]) {
     this.tokens = tokens;
+    this.printed = tokenCapture(tokens);
   }
 
   done(): boolean {
@@ -39,9 +55,66 @@ export class Cursor {
   /** Run fn; if it returns null, rewind to where we started. */
   attempt<T>(fn: (c: this) => T | null): T | null {
     const start = this.pos;
+    const checkpoint = this.printed?.checkpoint();
+    const previousWrites = this.writes.length;
     const result = fn(this);
-    if (result === null) this.pos = start;
+    if (result === null) {
+      this.pos = start;
+      if (checkpoint !== undefined) {
+        this.printed!.rewind(checkpoint);
+        // The failed production may have returned null without advancing.
+        while (this.writes.length > previousWrites) this.writes.pop();
+      }
+    } else if (checkpoint !== undefined) {
+      if (result && typeof result === "object" && !Array.isArray(result))
+        this.printed!.mark(result, this.tokens.slice(start, this.pos));
+      this.noteWrite(checkpoint);
+    }
     return result;
+  }
+
+  mark<const T extends object>(node: T, start: number, end = this.pos, mode?: "complete-production"): T {
+    if (this.printed) {
+      const checkpoint = this.printed.checkpoint();
+      this.printed.mark(node, this.tokens.slice(start, end), mode);
+      this.noteWrite(checkpoint);
+    }
+    return node;
+  }
+
+  markTokens<const T extends object>(node: T, tokens: readonly Token[]): T {
+    if (this.printed) {
+      const checkpoint = this.printed.checkpoint();
+      this.printed.mark(node, tokens);
+      this.noteWrite(checkpoint);
+    }
+    return node;
+  }
+
+  fold(node: object, start: number, end = this.pos): void {
+    if (this.printed) this.foldTokens(node, this.tokens.slice(start, end));
+  }
+
+  foldTokens(node: object, tokens: readonly Token[]): void {
+    if (this.printed) {
+      const checkpoint = this.printed.checkpoint();
+      this.printed.fold(node, tokens);
+      this.noteWrite(checkpoint);
+    }
+  }
+
+  implicit<const T extends object>(node: T, reason: ImplicitReason): T {
+    if (this.printed) {
+      const checkpoint = this.printed.checkpoint();
+      this.printed.implicit(node, reason);
+      this.noteWrite(checkpoint);
+    }
+    return node;
+  }
+
+  private noteWrite(start: number): void {
+    const end = this.printed!.checkpoint();
+    if (end > start) this.writes.push({ position: this.pos, start, end });
   }
 
   /** Record a failure expectation at the current position; returns null. */

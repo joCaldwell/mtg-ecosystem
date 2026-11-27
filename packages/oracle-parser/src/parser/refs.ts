@@ -82,16 +82,17 @@ export function targetSelectionProvenance(token: Token | undefined): TargetSelec
 /** "a"/"an"/"three"/"3"/"X" — counting words used before nouns. */
 export function parseCount(c: Cursor): Amount | null {
   return c.attempt((c): Amount | null => {
+    const start = c.pos;
     const n = c.number();
-    if (n !== null) return { amount: "fixed", value: n };
-    if (c.word("a", "an") !== null) return { amount: "fixed", value: 1 };
+    if (n !== null) return c.mark({ amount: "fixed", value: n }, start);
+    if (c.word("a", "an") !== null) return c.mark({ amount: "fixed", value: 1 }, start);
     if (c.word("x") !== null) return { amount: "x" };
     const t = c.peek();
     if (t?.kind === "word" && !t.possessive) {
       const wn = wordNumber(t.value);
       if (wn !== undefined) {
         c.pos++;
-        return { amount: "fixed", value: wn };
+        return c.mark({ amount: "fixed", value: wn }, start);
       }
     }
     return c.fail("count");
@@ -1994,7 +1995,7 @@ function parsePlayerBase(c: Cursor): PlayerRef | null {
     // "Enchant opponent" (a separate line) already restricts what the Aura can
     // enchant, so "enchanted opponent" is the same player as "enchanted player".
     if (c.words("enchanted", "player") || c.words("enchanted", "opponent")) return { player: "enchanted-player" };
-    if (c.word("you") !== null) return { player: "you" };
+    if (c.word("you") !== null) return c.mark({ player: "you" }, c.pos - 1);
     const relational = parseRelationalPlayer(c, parseObjectRef);
     if (relational) return relational;
     const of = parsePossessiveObject(c);
@@ -2300,7 +2301,8 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       // "Up to that many target ...": the count is the symbolic anaphoric amount
       // (a repeated payment's count, the previous instruction's number).
       const thatMany = upTo ? c.attempt((c): Amount | null => c.words("that", "many") ? { amount: "that-much" } : null) : null;
-      const count: Amount = thatMany ?? c.attempt(parseCount) ?? { amount: "fixed", value: 1 };
+      const stated = thatMany ?? c.attempt(parseCount);
+      const count: Amount = stated ?? { amount: "fixed", value: 1 };
       const other = c.word("other") !== null;
       const token = c.peek();
       if (c.word("target") === null) return null;
@@ -2317,6 +2319,7 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
         && (upTo || count.amount !== "fixed" || count.value !== 1)) selected.filter.zone = { ...zone, owner: "any-single" };
       const chosenBy = !selected.groupConstraints ? parseTargetChooser(c) : null;
       if (chosenBy) selected.filter = parseResumedFilterQualifiers(c, selected.filter);
+      if (!stated) c.implicit(count, "implied-singular-target");
       return { ref: "target", ...selected, count, ...(upTo ? { upTo: true } : {}), ...(chosenBy ? { chosenBy } : {}), ...targetSelectionProvenance(token) };
     });
     if (targetRef) return targetRef;
@@ -2412,7 +2415,7 @@ export function parsePossessivePlayer(c: Cursor): PlayerRef | null {
       return { player: "enchanted-player" };
     if (c.attempt(c => c.word("defending") !== null && c.possessive("player") !== null ? true : null))
       return { player: "defending-player" };
-    if (c.word("your") !== null) return { player: "you" };
+    if (c.word("your") !== null) return c.mark({ player: "you" }, c.pos - 1);
     if (c.word("their") !== null) return { player: "they" };
     const target = c.peek();
     if (c.word("target") !== null) {

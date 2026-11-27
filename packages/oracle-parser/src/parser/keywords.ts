@@ -513,6 +513,7 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
   return c.attempt((c): KeywordInstance[] | null => {
     const keywords: KeywordInstance[] = [];
     for (;;) {
+      const start = c.pos;
       const kw = parseKeyword(c);
       if (!kw) return null;
       // "Firebending X, where X is ~'s power": the definition of the keyword's X.
@@ -520,7 +521,7 @@ export function parseKeywordLine(c: Cursor): KeywordInstance[] | null {
         const value = c.attempt(c => (c.punct(",") && c.words("where", "x", "is") ? parseAmount(c) : null));
         if (value) kw.bindings = [{ variable: "x", value }];
       }
-      keywords.push(kw);
+      keywords.push(c.mark(kw, start));
       if (c.isPunct(",") || c.isPunct(";")) {
         c.next();
         c.word("and");

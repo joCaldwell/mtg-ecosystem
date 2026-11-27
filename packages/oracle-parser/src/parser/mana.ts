@@ -1,3 +1,4 @@
+import { carryPrintedOrigin } from "../printed/capture.ts";
 // Mana production is distinct from payment. CR 106.8-.11 define production
 // even for hybrid, Phyrexian, generic, and snow symbols; keep their validated
 // symbols so those rules determine the produced color/type and quantity.
@@ -160,7 +161,7 @@ export function parseSpendingUse(c: Cursor): ManaSpendingUse | null {
         (filter.allOf ?? []).some(nestedZone) || (filter.anyOf ?? []).some(nestedZone);
       if ([...(filter.allOf ?? []), ...(filter.anyOf ?? [])].some(nestedZone)) return null;
       const { zone: from, ...qualities } = filter;
-      return { use: "cast", filter: qualities, ...(from ? { from } : {}) };
+      return { use: "cast", filter: carryPrintedOrigin(filter, qualities), ...(from ? { from } : {}) };
     }
     if (c.word("activate") === null) return null;
     c.word("an");
@@ -327,6 +328,7 @@ export function parseManaSpendingRules(c: Cursor, parseBody: BodyParser, allowRe
     let restriction: ManaSpendingRestriction | undefined;
     if (allowRestriction) {
       const restricted = c.attempt(c => {
+        const start = c.pos;
         const onCosts = parseOnCostsRestriction(c);
         if (onCosts) return c.punct(".") || c.done() ? { restriction: onCosts, rider: undefined } : null;
         let kind: ManaSpendingRestriction["restriction"];
@@ -336,6 +338,7 @@ export function parseManaSpendingRules(c: Cursor, parseBody: BodyParser, allowRe
         const article = c.peek(1);
         const uses = parseSpendingUses(c);
         if (!uses) return null;
+        const restrictionEnd = c.pos;
         // Delighted Halfling: the spell this mana is spent on gains a rule.
         // "That spell" needs the singular "a ... spell" as its antecedent.
         let rider: ManaSpendingRider | undefined;
@@ -345,13 +348,14 @@ export function parseManaSpendingRules(c: Cursor, parseBody: BodyParser, allowRe
           c.punct(",");
           if (c.word("and") === null || !c.words("that", "spell")) return null;
           c.pos -= 2;
+          const riderStart = c.pos;
           const body = new Cursor(c.tokens.slice(c.pos, sentenceEnd(c) + 1));
           const effects = parseBody(body);
           if (!effects || !body.done()) return null;
           c.pos += body.pos;
-          rider = { rider: "effect", mana: "that", spentOn: uses, effects };
+          rider = c.mark({ rider: "effect", mana: "that", spentOn: uses, effects }, riderStart);
         } else if (!c.punct(".") && !c.done()) return null;
-        return { restriction: { restriction: kind, uses }, rider };
+        return { restriction: c.mark({ restriction: kind, uses }, start, restrictionEnd), rider };
       });
       if (restricted) {
         restriction = restricted.restriction;
@@ -381,6 +385,7 @@ export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { eff
   });
   if (eachColor) return eachColor;
   return c.attempt(c => {
+    const start = c.pos;
     const explicit = c.attempt((c): PlayerRef | null => c.words("a", "player", "of", "your", "choice")
       ? { player: "player-of-choice", chooser: { player: "you" } } : null) ?? parsePlayerRef(c);
     const verb = c.word("add", "adds");
@@ -394,10 +399,13 @@ export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { eff
     // the color choice, as for any mana of any color (CR 106.3).
     if (c.isWord("they") && actor.player !== "you" && !isPluralPlayerRef(actor) &&
         (mana.mana === "any-color" || mana.mana === "any-one-color") && !c.words("they", "choose")) return null;
+    const beforeRestriction = c.pos;
     const restriction = c.attempt(c => {
       if (!c.punct(".")) return null;
       return parseRestriction(c);
     });
-    return { actor, effects: [{ effect: "add-mana", who: actor, mana, ...(restriction ? { restriction } : {}) }] };
+    const effect = c.mark({ effect: "add-mana", who: actor, mana, ...(restriction ? { restriction } : {}) }, start, beforeRestriction);
+    if (restriction) c.fold(effect, beforeRestriction);
+    return { actor, effects: [effect] };
   });
 }

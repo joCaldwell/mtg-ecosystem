@@ -162,7 +162,7 @@ function parseSpecified(c: Cursor, parseAbilities: AbilityParser): SpecifiedToke
     const parseStats = (c: Cursor) => c.attempt(c => {
       const value = (c: Cursor): Amount | null => {
         const n = c.number();
-        if (n !== null) return { amount: "fixed", value: n };
+        if (n !== null) return c.mark({ amount: "fixed", value: n }, c.pos - 1);
         return c.word("x") !== null ? { amount: "x" } : null;
       };
       const power = value(c);
