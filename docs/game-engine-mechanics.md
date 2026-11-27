@@ -257,15 +257,18 @@ write. "Look at the top N, then put them back in any order" orders the clamped
 prefix, even one card (CR 701.20e); positions beyond it stay public. All of these
 finish before Commander SBAs; departure never redirects attempts.
 
-**Draws and discards.** Counted draws are sequential unclamped attempts, one
-card per KIR instruction for an announced player; each-player draws finish one
-player before the next in APNAP order (CR 121.2c). Fixed, unqualified discard
-can follow other instructions: the controller, an announced player or opponent,
-each player or each opponent chooses from their own hand (CR 701.9a–b, 101.4),
-and a damage trigger can name the damaged player. A spell can make its announced
-player discard at random, including announced X, sampling without replacement.
-Discards clamp to hand size; choices and samples stay private until one
-simultaneous discard.
+**Draw, discard and mill.** Counted draws are sequential unclamped attempts.
+Each player finishes their draws before the next player in APNAP order
+(CR 121.2c). The player discarding chooses from their own hand. Per-player
+choices occur in APNAP order, and earlier choices stay private while the other
+seats choose (CR 701.9a–b, 101.4a). Random discard samples without replacement
+from the affected seat's seeded stream. Discard clamps to hand size and a
+whole-hand instruction needs no choice. All selected cards move in one event.
+
+Mill reads each affected player's prefix before moving any cards in the same
+event. An instruction mills as many as possible if the library is short
+(CR 701.17a–b). Result counts and characteristic predicates read the actual
+moved cards through the [step result](game-engine-catalogs.md#verb-signatures).
 
 Spells keep the printed order of fixed library, life, removal and
 land-allowance instructions across blocks; fixed library steps also compose in
