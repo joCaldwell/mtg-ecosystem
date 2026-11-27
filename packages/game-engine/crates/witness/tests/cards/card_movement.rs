@@ -25,6 +25,7 @@ const SIBSIG_HOST: &str = record!("11776f73-f504-4f19-b5b6-2f58279f8b15");
 const WHEEL_OF_FORTUNE: &str = record!("a8abd966-de7b-46a3-8ac7-8747ab35653a");
 const HYMN: &str = record!("992d9a72-d34d-47d7-96fb-37f0efb515ef");
 const INDEX: &str = record!("613b824e-39d1-4c6e-a19c-c915abdc860b");
+const RECKLESS_HANDLING: &str = record!("f1ea7dc5-01cb-4780-947c-08ea9324c52f");
 const RESURRECTION: &str = record!("837417d8-8260-486d-a3ed-3b5711eaf34a");
 const VAMPIRIC_TUTOR: &str = record!("ededbdae-d9dc-4206-9335-d7158f2d7700");
 const WORLDLY_TUTOR: &str = record!("e8863518-0bfa-49c3-8c6e-6c9116a81051");
@@ -337,6 +338,29 @@ fn wheel_of_fortune_discards_the_whole_hand_without_a_choice() {
                 owner: PlayerId(owner)
             })
         );
+    }
+}
+
+#[test]
+fn reckless_handling_reads_the_type_actually_discarded_this_way() {
+    let hand = Zone::Hand { owner: PlayerId(0) };
+    let graveyard = Zone::Graveyard { owner: PlayerId(0) };
+    for (card, damage) in [("Sol Ring", 2), ("Forest", 0)] {
+        let mut g = Game::new(
+            board(&[(RECKLESS_HANDLING, Cell::Evaluated(EvaluatedVerb::Discard))])
+                .card("Reckless Handling", 0, 0, hand)
+                .permanent_or_hand("Mountain", 0, 0, false)
+                .permanent_or_hand("Mountain", 0, 0, false)
+                .card(card, 0, 0, hand)
+                .prepare(),
+        );
+        let mut expected = g.state.rules.players[1].life.clone();
+        expected.subtract(&damage.into());
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2]);
+        settle(&mut g);
+        assert_eq!(g.zone(Driver::object(&g, 3)), Some(graveyard));
+        assert_eq!(g.state.rules.players[1].life, expected);
     }
 }
 
