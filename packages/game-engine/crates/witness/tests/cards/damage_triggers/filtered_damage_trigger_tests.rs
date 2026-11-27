@@ -305,19 +305,14 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
     let ring = Driver::object(&g, 2);
     let state = g.state.clone();
     assert!(
-        g.commit(
-            ProposedEvent::CombatDamage {
-                damage: vec![DamageOccurrence {
-                    source: ring,
-                    controller: PlayerId(0),
-                    recipient: DamageRecipient::Player {
-                        player: PlayerId(1)
-                    },
-                    amount: 1.into()
-                }]
+        g.commit_combat_damage(vec![DamageOccurrence {
+            source: ring,
+            controller: PlayerId(0),
+            recipient: DamageRecipient::Player {
+                player: PlayerId(1)
             },
-            BatchCause::Fixture
-        )
+            amount: 1.into()
+        }])
         .is_err()
     );
     assert_eq!(g.state, state);

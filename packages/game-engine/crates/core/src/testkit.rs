@@ -133,10 +133,6 @@ pub trait GameTestkit {
 
     fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool>;
     fn apply_departure(&mut self, player: PlayerId) -> Result<(), String>;
-    fn apply_noncombat_damage(
-        &mut self,
-        damage: &NoncombatDamageOccurrence,
-    ) -> Result<EventOutcome, String>;
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String>;
     fn apply_occurrence_with_prior(
         &mut self,
@@ -192,6 +188,10 @@ pub trait GameTestkit {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String>;
+    fn commit_combat_damage(
+        &mut self,
+        damage: Vec<DamageOccurrence>,
+    ) -> Result<CommittedBatch, String>;
     fn complete_test_mana(&mut self);
     fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String>;
     fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId>;
@@ -211,11 +211,6 @@ pub trait GameTestkit {
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String>;
     fn damage_effect_request(&self) -> Result<Option<Decision<Rules>>, String>;
     fn damage_effect_step(&mut self) -> Result<(), String>;
-    fn damage_keywords(
-        &mut self,
-        actual: &[ActualDamage],
-        arg2: Option<&BTreeMap<DamageId, ObjectBefore>>,
-    ) -> Result<Vec<LifelinkGain>, String>;
     fn damage_limit(&self) -> usize;
     fn damage_transaction(&self) -> Result<&DamageTransaction, String>;
     fn definition(&self, card: CardId) -> Result<&Definition, String>;
@@ -552,12 +547,6 @@ impl GameTestkit for Game {
     fn apply_departure(&mut self, player: PlayerId) -> Result<(), String> {
         RulesTxn::apply_departure(self, player)
     }
-    fn apply_noncombat_damage(
-        &mut self,
-        damage: &NoncombatDamageOccurrence,
-    ) -> Result<EventOutcome, String> {
-        RulesTxn::apply_noncombat_damage(self, damage)
-    }
     fn apply_occurrence(&mut self, proposed: &ProposedEvent) -> Result<EventOutcome, String> {
         RulesTxn::apply_occurrence(self, proposed)
     }
@@ -658,6 +647,32 @@ impl GameTestkit for Game {
     ) -> Result<CommittedBatch, String> {
         RulesTxn::commit_batch(self, cause, group)
     }
+    /// Private assignment fixture. Commit through the same transaction as
+    /// combat, then return to the caller's frame for the remaining assertions.
+    fn commit_combat_damage(
+        &mut self,
+        damage: Vec<DamageOccurrence>,
+    ) -> Result<CommittedBatch, String> {
+        let mut staged = self.fork();
+        if let Err(error) = staged.prepare_combat_damage(damage) {
+            self.state.rules.typed_fault = staged.state.rules.typed_fault.clone();
+            return Err(error);
+        }
+        let transaction = staged.damage_transaction()?.id;
+        let result = staged.commit_batch(
+            BatchCause::Combat,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::CommitDamage { transaction },
+            },
+        )?;
+        let resume = self.state.rules.frame.clone();
+        self.state = staged.state.clone();
+        self.state.rules.frame = resume;
+        self.trace = staged.trace.clone();
+        self.stream_buffer.append(&mut staged.stream_buffer);
+        self.state_token = staged.state_token.clone();
+        Ok(result)
+    }
     fn complete_test_mana(&mut self) {
         Game::complete_test_mana(self)
     }
@@ -705,13 +720,6 @@ impl GameTestkit for Game {
     }
     fn damage_effect_step(&mut self) -> Result<(), String> {
         RulesTxn::damage_effect_step(self)
-    }
-    fn damage_keywords(
-        &mut self,
-        actual: &[ActualDamage],
-        arg2: Option<&BTreeMap<DamageId, ObjectBefore>>,
-    ) -> Result<Vec<LifelinkGain>, String> {
-        RulesTxn::damage_keywords(self, actual, arg2)
     }
     fn damage_limit(&self) -> usize {
         RulesTxn::damage_limit(self)

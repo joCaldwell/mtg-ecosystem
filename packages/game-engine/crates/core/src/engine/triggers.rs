@@ -269,11 +269,10 @@ pub enum TriggerEventWitness {
         binding: Option<ObservedObject>,
     },
     /// Immutable damage-time facts, independent of departure-refreshed source
-    /// LKI. None identifies the genuine legacy CombatDamage leaf; Some names
-    /// the original frozen transaction, never the current combat state.
+    /// LKI. The transaction identifies the original frozen damage group.
     DamageDealt {
         kind: DamageKind,
-        transaction: Option<DamageTransactionId>,
+        transaction: DamageTransactionId,
         damage: Box<ActualDamage>,
         /// CR 109.2/603.10: creature filters inspect the exact permanent at
         /// the damage event, separately from assigned damage-source LKI.
@@ -949,9 +948,7 @@ impl RulesTxn {
                         .life_gained
                         .add(amount);
                 }
-                EventOutcome::DamageCommitted { life_gains, .. }
-                | EventOutcome::NoncombatDamageDealt { life_gains, .. }
-                | EventOutcome::DamageDealt { life_gains, .. } => {
+                EventOutcome::DamageCommitted { life_gains, .. } => {
                     for gain in life_gains {
                         self.rules_mut().cast_history[gain.player.0 as usize]
                             .life_gained
@@ -984,7 +981,7 @@ impl RulesTxn {
                 // positive members against their frozen pre-commit transaction.
                 // Aggregate life results are not damage occurrences. The combat
                 // source/player uniqueness invariant is enforced at preparation,
-                // restore validation and the legacy leaf before any writes.
+                // and restore validation before any writes.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 EventOutcome::DamageCommitted {
                     transaction,
@@ -1015,7 +1012,7 @@ impl RulesTxn {
                         if matches!(d.recipient, DamageRecipient::Player { .. }) {
                             witnesses.push(TriggerEventWitness::DamageDealt {
                                 kind: tx.kind,
-                                transaction: Some(tx.id),
+                                transaction: tx.id,
                                 damage: Box::new(d.clone()),
                                 match_source: None,
                             });
@@ -1023,49 +1020,6 @@ impl RulesTxn {
                     }
                     witnesses
                 }
-                // The genuine legacy noncombat leaf carries the consumed
-                // source facts and invocation controller separately. Its typed
-                // occurrence, not its life-total result, supplies the witness.
-                EventOutcome::NoncombatDamageDealt { damage, .. }
-                    if matches!(damage.recipient, DamageRecipient::Player { .. }) =>
-                {
-                    vec![TriggerEventWitness::DamageDealt {
-                        kind: DamageKind::Noncombat,
-                        transaction: None,
-                        match_source: None,
-                        damage: Box::new(ActualDamage {
-                            id: DamageId(0),
-                            source: damage.source.clone(),
-                            controller: damage.controller,
-                            recipient: damage.recipient,
-                            amount: damage.amount.clone(),
-                        }),
-                    }]
-                }
-                // A genuine legacy CombatDamage leaf has no transaction ID.
-                // Its typed vector supplies source, recipient and amount; freeze
-                // pre-event source facts, never infer from its life-total result.
-                EventOutcome::DamageDealt { damage, .. } => damage
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, d)| matches!(d.recipient, DamageRecipient::Player { .. }))
-                    .map(|(i, d)| {
-                        Ok(TriggerEventWitness::DamageDealt {
-                            kind: DamageKind::Combat,
-                            transaction: None,
-                            match_source: None,
-                            damage: Box::new(ActualDamage {
-                                id: DamageId(
-                                    u32::try_from(i).map_err(|_| "damage member identity limit")?,
-                                ),
-                                source: before.object_before(d.source)?,
-                                controller: d.controller,
-                                recipient: d.recipient,
-                                amount: d.amount.clone(),
-                            }),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, String>>()?,
                 // CR 508.1f-m/508.2a-b/508.3a/508.4, 603.2c/g: only
                 // the completed, validated declaration is an attack event.
                 // Each member shares the real batch occurrence but freezes its
@@ -1209,9 +1163,7 @@ impl RulesTxn {
             // life-gain event; lifelink gains arrive grouped by source.
             let gains: Vec<(PlayerId, &Quantity)> = match &occurrence.actual {
                 EventOutcome::LifeGained { player, amount, .. } => vec![(*player, amount)],
-                EventOutcome::DamageCommitted { life_gains, .. }
-                | EventOutcome::NoncombatDamageDealt { life_gains, .. }
-                | EventOutcome::DamageDealt { life_gains, .. } => life_gains
+                EventOutcome::DamageCommitted { life_gains, .. } => life_gains
                     .iter()
                     .map(|gain| (gain.player, &gain.amount))
                     .collect(),
@@ -1287,20 +1239,6 @@ impl RulesTxn {
                         })
                         .collect()
                 }
-                EventOutcome::NoncombatDamageDealt { damage, .. } => match damage.recipient {
-                    DamageRecipient::Permanent { object } if damage.amount > Quantity::zero() => {
-                        vec![(DamageKind::Noncombat, object)]
-                    }
-                    _ => vec![],
-                },
-                EventOutcome::DamageDealt { damage, .. } => damage
-                    .iter()
-                    .filter(|d| d.amount > Quantity::zero())
-                    .filter_map(|d| match d.recipient {
-                        DamageRecipient::Permanent { object } => Some((DamageKind::Combat, object)),
-                        DamageRecipient::Player { .. } => None,
-                    })
-                    .collect(),
                 _ => vec![],
             };
             let mut recipients = BTreeSet::new();
@@ -2943,7 +2881,7 @@ impl RulesTxn {
                         return Err("snapshot damage match appearance invariant".into());
                     }
                 }
-                transaction.is_none_or(|id| id.0 < self.state.rules.next_damage_transaction_id)
+                transaction.0 < self.state.rules.next_damage_transaction_id
                     && (damage.id.0 as usize) < self.damage_limit()
                     && damage.amount > Quantity::zero()
                     // CR 120.2, 510.1: combat damage comes from battlefield

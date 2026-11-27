@@ -684,10 +684,10 @@ pub enum Verb {
     /// CR 702.109a, 603.7: return the permanent the dashed spell became to
     /// its owner's hand, if it is still that object on the battlefield.
     ReturnDashedToHand {},
-    /// CR 702.116a, 508.4: create one token copy of the source, tapped and
-    /// attacking `defender`. It is performed only for a live opponent other
-    /// than the defending player of the source's attack; planeswalkers are
-    /// never admitted, so the token attacks that player.
+    /// CR 702.116a, 508.4: create one tapped and attacking token copy of the
+    /// source for the live opponent bound to `defender`, other than the defending
+    /// player of the source's attack. The ability's controller chooses that
+    /// opponent or a planeswalker they control for the token to attack.
     CreateMyriadToken {
         defender: PlayerExpr,
     },

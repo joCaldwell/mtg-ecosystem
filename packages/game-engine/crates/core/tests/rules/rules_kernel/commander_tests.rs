@@ -413,32 +413,27 @@ fn departure_exile_chooses_owner_and_owner_departure_never_resurrects_commander(
 #[test]
 fn commander_damage_uses_the_ledger_in_earliest_commander_catalog() {
     let mut g = game(ScenarioConfig::commander_lifecycle());
-    let result = g.commit(
-        ProposedEvent::CombatDamage {
-            damage: vec![
-                DamageOccurrence {
-                    source: g.object_id(CardId(14)).unwrap(),
-                    controller: PlayerId(1),
-                    recipient: DamageRecipient::Player {
-                        player: PlayerId(2),
-                    },
-                    amount: Quantity::from(2),
-                },
-                DamageOccurrence {
-                    source: g.object_id(CardId(0)).unwrap(),
-                    controller: PlayerId(0),
-                    recipient: DamageRecipient::Player {
-                        player: PlayerId(1),
-                    },
-                    amount: Quantity::from(2),
-                },
-            ],
+    let result = g.commit_combat_damage(vec![
+        DamageOccurrence {
+            source: g.object_id(CardId(14)).unwrap(),
+            controller: PlayerId(1),
+            recipient: DamageRecipient::Player {
+                player: PlayerId(2),
+            },
+            amount: Quantity::from(2),
         },
-        BatchCause::Combat,
-    );
-    let EventOutcome::DamageDealt {
+        DamageOccurrence {
+            source: g.object_id(CardId(0)).unwrap(),
+            controller: PlayerId(0),
+            recipient: DamageRecipient::Player {
+                player: PlayerId(1),
+            },
+            amount: Quantity::from(2),
+        },
+    ]);
+    let EventOutcome::DamageCommitted {
         commander_damage, ..
-    } = result.unwrap()
+    } = result.as_ref().unwrap().result(&[]).unwrap()
     else {
         panic!("damage outcome")
     };
