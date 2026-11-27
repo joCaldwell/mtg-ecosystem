@@ -4,62 +4,6 @@
 use super::*;
 
 impl RulesTxn {
-    pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
-        let instruction = self
-            .program_for(self.entry(frame.stack_id)?)?
-            .instructions
-            .get(frame.cursor as usize)
-            .ok_or("missing draw instruction")?;
-        self.draw_player_for_instruction(frame, instruction)
-    }
-
-    pub(super) fn draw_player_for_instruction(
-        &self,
-        frame: &Resolving,
-        instruction: &Instruction,
-    ) -> Result<PlayerId, String> {
-        match instruction {
-            kernel!(Draw { player, .. }) => match player {
-                mtg_contracts::kir::PlayerExpr::EachPlayer => frame
-                    .each_player_draw
-                    .as_ref()
-                    .and_then(|scope| scope.remaining.first().copied())
-                    .ok_or_else(|| "missing current each-player draw seat".into()),
-                mtg_contracts::kir::PlayerExpr::Is {
-                    who: mtg_contracts::kir::Ref::Target { slot },
-                } => self
-                    .entry(frame.stack_id)?
-                    .player_targets
-                    .get(*slot as usize)
-                    .copied()
-                    .ok_or_else(|| "missing draw target".into()),
-                mtg_contracts::kir::PlayerExpr::Is {
-                    who: mtg_contracts::kir::Ref::EventPlayer { .. },
-                } => self
-                    .entry(frame.stack_id)?
-                    .kind
-                    .event_player()?
-                    .ok_or_else(|| "absent draw event player".into()),
-                mtg_contracts::kir::PlayerExpr::Is {
-                    who: mtg_contracts::kir::Ref::Controller { .. },
-                } => Ok(self.entry(frame.stack_id)?.controller),
-                // CR 108.3, 608.2h: the physical card's owner stays the
-                // same after the preceding instruction shuffled the object.
-                mtg_contracts::kir::PlayerExpr::OwnerOf {
-                    object: mtg_contracts::kir::Ref::Target { slot },
-                } => {
-                    let target = self
-                        .bound_object_target(self.entry(frame.stack_id)?, *slot as usize)
-                        .ok_or("missing target for owner draw")?;
-                    Ok(self.state.rules.cards[&target.card].owner)
-                }
-                _ => Err("unsupported draw recipient".into()),
-            },
-
-            _ => Err("not draw instruction".into()),
-        }
-    }
-
     pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
         self.is_permanent_damage_recipient(id)
     }

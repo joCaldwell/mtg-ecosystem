@@ -1465,9 +1465,11 @@ fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_ba
             .as_mut()
             .unwrap()
             .instructions
-            .push(mtg_contracts::Instruction::draw(
-                mtg_contracts::kir::PlayerExpr::you(mtg_contracts::kir::Context::Spell),
-                1.into(),
+            .push(mtg_contracts::Instruction::act(
+                mtg_contracts::kir::Verb::Draw {
+                    player: mtg_contracts::kir::PlayerExpr::you(mtg_contracts::kir::Context::Spell),
+                    amount: mtg_contracts::kir::Amount::fixed(1),
+                },
                 0,
             ));
         v.objects[0] = board::card(&c, protected, 0, Zone::Battlefield);

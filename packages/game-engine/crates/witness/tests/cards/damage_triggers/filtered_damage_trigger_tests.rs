@@ -466,14 +466,19 @@ fn filtered_damage_coherent_damager_and_recipient_lies_cannot_authorize_recovery
 
     for lie in ["damager", "recipient"] {
         let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-        let witness = &mut forged["state"]["pending_triggers"][0]["witness"];
+        let row = &mut forged["state"]["pending_triggers"][0];
+        // A coherent forgery must alter the occurrence and its captured
+        // binding. Structural validation should admit the coherent lie,
+        // while replay still authenticates the actual event.
         if lie == "damager" {
             let appearance =
                 serde_json::to_value(g.object_before(Driver::object(&g, 2)).unwrap()).unwrap();
-            witness["damage"]["source"] = appearance.clone();
-            witness["match_source"] = appearance;
+            row["witness"]["damage"]["source"] = appearance.clone();
+            row["witness"]["match_source"] = appearance.clone();
+            row["binding"]["object"] = appearance;
         } else {
-            witness["damage"]["recipient"]["player"] = 3.into();
+            row["witness"]["damage"]["recipient"]["player"] = 3.into();
+            row["binding"]["player"] = 3.into();
         }
         let decoded: Snapshot = serde_json::from_value(forged.clone()).unwrap();
         let mut structural = g.fork();

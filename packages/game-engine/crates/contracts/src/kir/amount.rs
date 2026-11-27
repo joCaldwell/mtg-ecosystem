@@ -99,6 +99,11 @@ impl Amount {
             _ => None,
         }
     }
+    /// The fixed draw counts covered by the original single-draw review.
+    pub(crate) fn is_reviewed_fixed_draw(&self) -> bool {
+        self.as_fixed()
+            .is_some_and(|value| *value == Quantity::from(1) || *value == Quantity::from(2))
+    }
     /// CR 107.3: the value announced for X.
     pub fn announced_x() -> Self {
         Self::Var {

@@ -15,9 +15,7 @@ pub enum CommanderContinuation {
         source_block: u32,
     },
     ResolutionDraw {
-        frame: Resolving,
-        player: PlayerId,
-        source_block: u32,
+        resume: FrameLink,
     },
     /// CR 701.23a, 903.9b: a search's `found` cards wait while each found
     /// commander bound for its owner's hand (`remaining`, the current one
@@ -287,38 +285,8 @@ impl RulesTxn {
                 };
                 self.finish_instruction(frame, outcome)?;
             }
-            CommanderContinuation::ResolutionDraw {
-                frame,
-                player,
-                source_block,
-            } => {
-                let movement = if present {
-                    Some(self.move_object_for(
-                        object,
-                        actual_destination,
-                        BatchCause::InstructionDraw {
-                            stack_id: frame.stack_id,
-                            player,
-                            source: self.entry(frame.stack_id)?.source,
-                            cursor: frame.cursor,
-                            source_block,
-                        },
-                    )?)
-                } else {
-                    None
-                };
-                self.finish_draw_attempt(
-                    frame,
-                    if present {
-                        InstructionOutcome::Drawn {
-                            player,
-                            movement,
-                            failed: false,
-                        }
-                    } else {
-                        InstructionOutcome::PlayerActionSkipped { player }
-                    },
-                )?;
+            CommanderContinuation::ResolutionDraw { resume } => {
+                self.finish_commander_draw(resume, object, present.then_some(actual_destination))?;
             }
             CommanderContinuation::Search {
                 frame,
@@ -559,38 +527,13 @@ impl RulesTxn {
                     }
                     self.validate_resolving(frame)?;
                 }
-                CommanderContinuation::ResolutionDraw {
-                    frame,
-                    player,
-                    source_block,
-                } => {
-                    self.validate_resolving(frame)?;
-                    if *player != owner
-                        || !self
-                            .resolution_draw_player(frame)
-                            .is_ok_and(|p| p == *player)
-                        || current.zone != (Zone::Library { owner })
+                CommanderContinuation::ResolutionDraw { resume } => {
+                    if current.zone != (Zone::Library { owner })
                         || *destination != (Zone::Hand { owner })
-                        || self.top_library_card(*player) != Some(object.card)
-                        || !match self
-                            .program_for(self.entry(frame.stack_id)?)?
-                            .instructions
-                            .get(frame.cursor as usize)
-                        {
-                            // CR 121.2: a single draw has no progress; a
-                            // counted draw replaces one of its attempts.
-                            Some(kernel!(Draw { player, amount } @ b)) => {
-                                b == source_block
-                                    && (mtg_contracts::kir::single_draw(player, amount)
-                                        || frame.draw_progress.is_some())
-                            }
-
-                            _ => false,
-                        }
+                        || self.top_library_card(owner) != Some(object.card)
+                        || self.saved_draw_player(*resume)? != owner
                     {
-                        return Err(
-                            "snapshot commander resolution draw continuation invariant".into()
-                        );
+                        return Err("invalid commander draw continuation".into());
                     }
                 }
                 CommanderContinuation::Search {

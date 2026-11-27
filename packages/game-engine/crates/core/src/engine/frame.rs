@@ -129,11 +129,7 @@ macro_rules! frame_walk {
                         frame,
                         source_block: _,
                     } | CommanderContinuation::LookHand { frame, .. } => visit($Held::Invocation(frame.stack_id)),
-                    CommanderContinuation::ResolutionDraw {
-                        frame,
-                        player: _,
-                        source_block: _,
-                    } => visit($Held::Invocation(frame.stack_id)),
+                    CommanderContinuation::ResolutionDraw { .. } => {}
                     CommanderContinuation::Search {
                         frame,
                         player: _,
@@ -202,7 +198,8 @@ macro_rules! frame_parent {
             Self::CommanderReturn {
                 continuation:
                     CommanderContinuation::StateBased { resume }
-                    | CommanderContinuation::StateBasedBatch { resume, .. },
+                    | CommanderContinuation::StateBasedBatch { resume, .. }
+                    | CommanderContinuation::ResolutionDraw { resume },
                 ..
             } => Some(resume),
             Self::TriggerOrder { placement } | Self::TriggerTargets { placement, .. } => {
@@ -218,7 +215,6 @@ macro_rules! frame_parent {
             }
             Self::CommanderReturn { continuation: CommanderContinuation::BoardReturn { .. }
                 | CommanderContinuation::SpellMove { .. }
-                | CommanderContinuation::ResolutionDraw { .. }
                 | CommanderContinuation::Search { .. }
                 | CommanderContinuation::LookHand { .. }
                 | CommanderContinuation::Draw { .. }, .. }

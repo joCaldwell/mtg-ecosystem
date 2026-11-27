@@ -13,7 +13,8 @@
 //! pays a spell with a pain land's colored mana ability, reaching a selected
 //! printed mana ability, its rider's damage transaction and a kept receipt; a
 //! fourth stops a granted mana ability at its color choice; a fifth puts a
-//! loyalty ability and its source's prior-row facts on the stack.
+//! loyalty ability and its source's prior-row facts on the stack. Another
+//! representative suspends a counted draw between attempts.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -25,8 +26,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "a028d099240a5fb214fdc3c86d42b56e7c2eb88991a6c679e5c988c893595834",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    138,
-    "57e0b74669b91923c87ca4e664c746b6f4a5837a2a28149243e448b680ca4a82",
+    139,
+    "5a3fe36e9f1c22499a71bda52a42dd8f3b778915aa40b50504faffa7f8ee4a03",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -133,6 +134,10 @@ pub(super) fn actions_scenario() -> Prepared {
 }
 
 pub(super) fn cast_edict(prepared: Prepared) -> Game {
+    cast_edict_at(prepared, vec![PlayerId(1)])
+}
+
+pub(super) fn cast_edict_at(prepared: Prepared, targets: Vec<PlayerId>) -> Game {
     let mut game = Game::new(prepared);
     let answer = |game: &mut Game, response: Answer| {
         let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
@@ -145,7 +150,7 @@ pub(super) fn cast_edict(prepared: Prepared) -> Game {
         answer(&mut game, selected_answer)
     };
     {
-        let selected_answer = game.next_test_decision().player_targets(vec![PlayerId(1)]);
+        let selected_answer = game.next_test_decision().player_targets(targets);
         answer(&mut game, selected_answer)
     };
     for land in [2, 3] {
@@ -542,7 +547,13 @@ fn chosen_cost_shapes() -> Vec<Game> {
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
-                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+                Instruction::act(
+                    mtg_contracts::kir::Verb::Draw {
+                        player: PlayerExpr::you(Context::Activated),
+                        amount: mtg_contracts::kir::Amount::fixed(1),
+                    },
+                    0,
+                ),
             ]),
         });
     }
@@ -616,8 +627,15 @@ fn activation_condition_shapes() -> Vec<Game> {
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,
-                program: SpellProgram::instructions(SpellTiming::Instant)
-                    .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
+                program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
+                    Instruction::act(
+                        mtg_contracts::kir::Verb::Draw {
+                            player: you.clone(),
+                            amount: mtg_contracts::kir::Amount::fixed(1),
+                        },
+                        0,
+                    ),
+                ]),
             });
         } else if d.name == "Sol Ring" {
             d.mana_abilities[0].condition = Some(controls(CardKind::Artifact));
@@ -954,7 +972,13 @@ fn loyalty_activation() -> String {
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,
         program: SpellProgram::instructions(SpellTiming::MainPhase).with_instructions([
-            Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+            Instruction::act(
+                mtg_contracts::kir::Verb::Draw {
+                    player: PlayerExpr::you(Context::Activated),
+                    amount: mtg_contracts::kir::Amount::fixed(1),
+                },
+                0,
+            ),
         ]),
     });
     walker.capabilities = walker.requirements();
@@ -1020,6 +1044,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            super::kernel_control_tests::suspended_counted_draw(),
             super::kernel_control_tests::suspended_creature_payment(),
             pending_stack_target(),
             suspended_delve(),

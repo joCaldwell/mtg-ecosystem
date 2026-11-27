@@ -50,8 +50,13 @@ fn filtered_sacrifice_sources_lower_completely() {
     ] {
         add(&mut catalog, raw);
     }
-    assert!(
-        matches!(compile(ARCHON), mtg_compiler::CompileResult::Unsupported { reason, .. } if reason == "operand:player:target_opponent")
+    let archon = compile(ARCHON);
+    let mtg_compiler::CompileResult::Lowered { definition } = archon else {
+        panic!("complete target-opponent program should lower: {archon:?}");
+    };
+    assert_eq!(
+        mtg_contracts::kir::definition_tiers(&definition).unwrap(),
+        mtg_contracts::kir::Tiers::EXECUTES
     );
     assert!(!matches!(
         compile(ENTRAPMENT),

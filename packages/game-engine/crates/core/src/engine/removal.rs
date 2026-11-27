@@ -16,6 +16,8 @@ pub struct TargetFacts {
     controller: PlayerId,
     power: Option<Quantity>,
     mana_value: Quantity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    toughness: Option<Quantity>,
 }
 impl TargetFacts {
     pub(in crate::engine) fn controller(&self) -> PlayerId {
@@ -24,6 +26,10 @@ impl TargetFacts {
 
     pub(in crate::engine) fn mana_value(&self) -> &Quantity {
         &self.mana_value
+    }
+
+    pub(in crate::engine) fn toughness(&self) -> Option<&Quantity> {
+        self.toughness.as_ref()
     }
 
     pub(in crate::engine) fn power(&self) -> Option<&Quantity> {
@@ -38,11 +44,27 @@ impl RulesTxn {
         )
     }
 
+    fn tracks_target_slot(domain: TargetDomain) -> bool {
+        Self::tracks_stack_target_facts(domain)
+            || matches!(
+                domain,
+                TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BlockingBattlefieldCreature
+                    | TargetDomain::CreatureOrPlaneswalker
+                    | TargetDomain::GraveyardCard { .. }
+                    | TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+            )
+    }
+
     fn tracks_target_facts(program: &SpellProgram) -> bool {
         program
             .targets
             .iter()
-            .any(|spec| spec.filter.is_some() || Self::tracks_stack_target_facts(spec.domain))
+            .any(|spec| Self::tracks_target_slot(spec.domain))
     }
 
     fn target_information_frame(&mut self) -> Option<&mut Resolving> {
@@ -63,6 +85,20 @@ impl RulesTxn {
             frames = rest;
         }
 
+        if matches!(
+            frame,
+            Frame::Kernel { .. }
+                | Frame::CommanderReturn {
+                    continuation: CommanderContinuation::ResolutionDraw { .. },
+                    ..
+                }
+        ) {
+            return match frames.first_mut() {
+                Some(Frame::Resolve { frame }) => Some(frame),
+                _ => None,
+            };
+        }
+
         match frame {
             Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }
@@ -76,13 +112,13 @@ impl RulesTxn {
             Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }
-                | CommanderContinuation::ResolutionDraw { frame, .. }
                 | CommanderContinuation::Search { frame, .. }
                 | CommanderContinuation::LookHand { frame, .. } => Some(frame),
                 CommanderContinuation::StateBased { .. }
                 | CommanderContinuation::StateBasedBatch { .. } => None,
 
-                CommanderContinuation::Draw { .. } => None,
+                CommanderContinuation::Draw { .. }
+                | CommanderContinuation::ResolutionDraw { .. } => None,
             },
             _ => None,
         }
@@ -217,7 +253,7 @@ impl RulesTxn {
             .iter()
             .enumerate()
             .map(|(slot, t)| {
-                if legal.get(slot) != Some(&true) {
+                if legal.get(slot) != Some(&true) || !Self::tracks_target_slot(t.domain) {
                     return Ok(None);
                 }
                 if Self::tracks_stack_target_facts(t.domain) {
@@ -238,6 +274,7 @@ impl RulesTxn {
                             c.power
                         },
                         mana_value: self.stack_mana_value(e)?,
+                        toughness: None,
                     }))
                 } else {
                     let object = *self
@@ -248,6 +285,7 @@ impl RulesTxn {
                         controller: self.current(object)?.controller,
                         mana_value: c.printed_mana_value(),
                         power: c.power,
+                        toughness: c.toughness,
                     }))
                 }
             })
@@ -261,7 +299,8 @@ impl RulesTxn {
             || (expected
                 && (frame.target_facts.len() != program.targets.len()
                     || frame.target_facts.iter().enumerate().any(|(slot, fact)| {
-                        let legal = frame.legal_targets.get(slot) == Some(&true);
+                        let legal = frame.legal_targets.get(slot) == Some(&true)
+                            && Self::tracks_target_slot(program.targets[slot].domain);
                         fact.is_some() != legal
                             || fact
                                 .as_ref()
