@@ -5,6 +5,7 @@ use mtg_contracts::kir::{
     OperandSlot, QuantityDomain, Resolved, Stat, StepRole,
 };
 mod hidden;
+mod movement;
 mod perform;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +101,25 @@ pub(super) enum StepProgress {
     },
     /// The chosen objects move in one simultaneous event.
     CommitMoves { chosen: Vec<(PlayerId, ObjectId)> },
+    /// CR 400.3, 608.2h: the members a zone change read once, waiting for
+    /// each commander owner's choice in APNAP order (CR 903.9b) or for the
+    /// entering cards' entry questions (CR 303.4f, 614.12).
+    Moves {
+        objects: Vec<ObjectId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        remaining: Vec<(PlayerId, ObjectId)>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        choices: Vec<(ObjectId, bool)>,
+        /// CR 110.2a: the player under whose control the cards enter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        controller: Option<PlayerId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        hosts: Vec<(ObjectId, ObjectId)>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        paid: Vec<(ObjectId, bool)>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        revealed: Vec<(ObjectId, Option<ObjectId>)>,
+    },
 }
 
 impl RulesTxn {
@@ -567,6 +587,9 @@ impl RulesTxn {
 
     pub(super) fn evaluated_performable(&self, task: &Task, verb: &Verb) -> Result<bool, String> {
         let (signature, operands) = verb.evaluated().ok_or("missing verb signature")?;
+        if let Evaluated::Move { what, to } = operands {
+            return self.move_performable(task, what, to);
+        }
         let amount = match operands.amount() {
             Some(amount) => match self.evaluated_amount(task, amount)? {
                 Resolved::Present(n) if n > Quantity::zero() => Some(n),
@@ -614,6 +637,7 @@ impl RulesTxn {
             Evaluated::Counters { on, counter, .. } => {
                 !self.counter_recipients(task, on, counter)?.is_empty()
             }
+            Evaluated::Move { .. } => unreachable!("moves return early"),
             Evaluated::Sacrifice { player, .. } => {
                 let Resolved::Present(players) = self.evaluated_players(task, player)? else {
                     return Ok(false);
@@ -636,6 +660,9 @@ impl RulesTxn {
         block: u32,
     ) -> Result<(), String> {
         let (signature, operands) = verb.evaluated().ok_or("missing verb signature")?;
+        if let Evaluated::Move { what, to } = operands {
+            return self.begin_move(task, what, to, block);
+        }
         let quantity = signature
             .slots
             .iter()
@@ -1205,6 +1232,7 @@ impl RulesTxn {
                 | EvaluatedVerb::Sacrifice
                 | EvaluatedVerb::Discard
                 | EvaluatedVerb::Mill
+                | EvaluatedVerb::Move
         );
         let rules = &self.state.rules;
         if result

@@ -136,6 +136,11 @@ impl Task {
     fn chooser(&self) -> Option<PlayerId> {
         match self.stage {
             Stage::Step(StepProgress::Collect { ref remaining, .. }) => remaining.first().copied(),
+            Stage::Step(StepProgress::Moves {
+                ref remaining,
+                controller,
+                ..
+            }) => remaining.first().map(|(owner, _)| *owner).or(controller),
             Stage::Run | Stage::Leaf | Stage::Complete { .. } | Stage::Step(_) => None,
             Stage::Ask(AskKind::Optional { chooser })
             | Stage::MyriadDefender { chooser }
@@ -466,6 +471,9 @@ impl RulesTxn {
         if matches!(task.stage, Stage::Step(StepProgress::Collect { .. })) {
             return self.collect_request(task);
         }
+        if matches!(task.stage, Stage::Step(StepProgress::Moves { .. })) {
+            return self.move_request(task);
+        }
         if matches!(task.stage, Stage::MyriadDefender { .. }) {
             let candidates = self.myriad_candidates(task, player)?;
             return Ok((candidates.len() > 1)
@@ -611,6 +619,11 @@ impl RulesTxn {
                 Stage::Step(progress @ StepProgress::Sample { .. }),
                 Node::Do(Verb::Discard { random: true, .. }),
             ) if depth == self.state.rules.frames.len() => self.validate_sample(task, progress),
+            (Stage::Step(progress @ StepProgress::Moves { .. }), Node::Do(Verb::Move { .. }))
+                if depth == self.state.rules.frames.len() =>
+            {
+                self.validate_moves(task, progress)
+            }
             // A specialist transaction holds this saved task as its parent.
             (
                 Stage::Step(
@@ -732,6 +745,7 @@ impl RulesTxn {
             Stage::Step(StepProgress::Sequence { .. }) => return self.step_sequence(task),
             Stage::Step(StepProgress::Collect { .. }) => return self.step_collect(task),
             Stage::Step(StepProgress::Sample { .. }) => return self.step_sample(task),
+            Stage::Step(StepProgress::Moves { .. }) => return self.step_moves(task),
             Stage::Step(_) => return Err("a specialist transaction resumes this step".into()),
             _ => {}
         }
@@ -1092,24 +1106,6 @@ impl RulesTxn {
             Node::Do(Verb::Transform { what: Ref::Source }) => {
                 self.source_transformable(self.entry(self.kernel_root()?.stack_id)?)?
             }
-            Node::Do(Verb::Move {
-                what,
-                to: mtg_contracts::kir::Destination::Battlefield { .. },
-            }) => {
-                for id in self.control_objects(task, what)? {
-                    if self.current(id).is_ok()
-                        && self.may_enter_battlefield(id.card)?
-                        && self.entry_hosts(id)?.is_none_or(|hosts| !hosts.is_empty())
-                    {
-                        return Ok(true);
-                    }
-                }
-                false
-            }
-            Node::Do(Verb::Move { what, .. }) => self
-                .control_objects(task, what)?
-                .into_iter()
-                .any(|id| self.current(id).is_ok()),
             Node::Do(verb) if verb.is_evaluated() => self.evaluated_performable(task, verb)?,
             // Composition admits optional bodies of the verbs above only
             // (`compose::control::decided`); nested control decides its own

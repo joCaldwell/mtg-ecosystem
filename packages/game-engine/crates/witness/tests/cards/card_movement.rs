@@ -369,14 +369,17 @@ fn eternal_witness_announces_one_target_then_offers_the_return() {
     let you = PlayerId(0);
     let graveyard = Zone::Graveyard { owner: you };
     let hand = Zone::Hand { owner: you };
-    let prepared = board(&[(ETERNAL_WITNESS, Cell::MoveOwnGraveyardTargetToHand)])
-        .card("Eternal Witness", 0, 0, hand)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .card("Grizzly Bears", 0, 0, graveyard)
-        .card("Island", 1, 1, Zone::Graveyard { owner: PlayerId(1) })
-        .prepare();
+    let prepared = board(&[(
+        ETERNAL_WITNESS,
+        Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
+    )])
+    .card("Eternal Witness", 0, 0, hand)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .card("Grizzly Bears", 0, 0, graveyard)
+    .card("Island", 1, 1, Zone::Graveyard { owner: PlayerId(1) })
+    .prepare();
     for flag in [Flag::Decline, Flag::Accept] {
         let mut g = Game::new(prepared.clone());
         Driver::cast(&mut g, CardId(0));
@@ -407,8 +410,14 @@ fn archaeomancer_targets_either_spell_type_from_its_own_graveyard() {
     let graveyard = Zone::Graveyard { owner: PlayerId(0) };
     let mut g = Game::new(
         board(&[
-            (ARCHAEOMANCER, Cell::MoveOwnGraveyardTargetToHand),
-            (DISENTOMB, Cell::MoveOwnGraveyardTargetToHand),
+            (
+                ARCHAEOMANCER,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
+            ),
+            (
+                DISENTOMB,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
+            ),
         ])
         .permanent_or_hand("Archaeomancer", 0, 0, true)
         .permanent_or_hand("Island", 0, 0, false)
@@ -443,10 +452,13 @@ fn graveyard_creature_can_enter_untapped_from_a_spell_or_tapped_from_an_ability(
         } else {
             (RESURRECTION, "Resurrection", "Plains")
         };
-        let mut setup = board(&[(raw, Cell::MoveOwnGraveyardCreatureToBattlefield)])
-            .permanent_or_hand(name, 0, 0, !tapped)
-            .card("Grizzly Bears", 0, 0, graveyard)
-            .card("Forest", 0, 0, graveyard);
+        let mut setup = board(&[(
+            raw,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
+        )])
+        .permanent_or_hand(name, 0, 0, !tapped)
+        .card("Grizzly Bears", 0, 0, graveyard)
+        .card("Forest", 0, 0, graveyard);
         let lands: Vec<u32> = (3..if tapped { 10 } else { 7 }).collect();
         for _ in &lands {
             setup = setup.permanent_or_hand(land, 0, 0, false);
