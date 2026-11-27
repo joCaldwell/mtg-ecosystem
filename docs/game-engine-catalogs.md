@@ -79,12 +79,40 @@ policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
 
 The promoted R6 cut has an origin under `phase1-r6/`. Both archives verify for
-all 742 R5-origin fixture identities. Each R6 fixture
-kept the same archive line and added only `printed` and `printedSha256` to the
-R5 row. The R5 origin and the fixture manifests continue to supply the default
-controls. `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM
---archives R5 R6` performs this check in a scratch copy of a pre-promotion
-registry and its fixtures.
+all 742 R5-origin fixture identities. Each R6 fixture keeps the same archive
+line and adds only `printed` and `printedSha256` to the R5 row. The R5 origin and
+fixture manifests supply the default controls.
+
+### Promote or re-pin R6
+
+After reviewing the candidate's D0 receipt and producer commit, build
+`mtg-sim` from the current checkout and run the promotion script with a new
+scratch directory:
+
+```sh
+sh scripts/engine-env.sh npm run engine:dev -- build -p mtg-sim
+sh scripts/promote-archive-cut.sh /path/to/r6-candidate.jsonl /path/to/d0.json \
+  --r5 /path/to/oracle-ast-phase1-r5.jsonl --sim target/engine/debug/mtg-sim \
+  --producer-revision REVIEWED_COMMIT --out generated/r6-promotion
+```
+
+D0 records the producer's source digest. Supply the reviewed 40-digit commit
+separately. The script stages the candidate registration and exact header with
+empty R6 record pins and only the earlier fixture provenance. It runs
+`catalog extract` for every R5 identity and `catalog verify` against both full
+archives. The script checks matching archive line numbers and the exact R5
+row plus the two evidence fields before installing the R6 fixtures, registry,
+provenance, frozen inputs and registry test header reference. The scratch
+output retains the verified fixtures. Use a new scratch directory each time.
+Re-promoting the same candidate, receipt and producer commit reproduces the
+tracked bytes. The candidate basename becomes the frozen compile cache name.
+
+The script uses `--promotion` on the offline extraction and verification
+commands to verify the proposed R6 registration from scratch. Earlier origins
+must match the binary's embedded pins. Normal extraction, verification and
+compile use the embedded registry. For a scratch check of the currently
+registered cut, use `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim
+SIM --archives R5 R6`.
 
 `scripts/compare-archive-cut.py d1 BEFORE AFTER` compares bulk payload bytes,
 coverage, blockers, four tier decisions from the compiler's
@@ -535,13 +563,14 @@ its index row by `oracle_id`, `source_index` and `archive_line` and adds `phase`
 (`scope`, `read`, `lower`, `validate`) and `location` (an archive JSON pointer for
 read failures, the compiler path for lowering). The compile manifest binds the
 path-free logical inputs and their digest, producer, versions, counts and the four
-other files' proofs. Publication re-verifies staged files, renames the bundle
-once and syncs the parent. A retry under the parent lock clears an interrupted
-private stage only if its ownership marker matches the parent, destination and
-stage directory. A stale or foreign stage without matching ownership evidence
-blocks publication and is preserved. The `.bulk-stage-` prefix is reserved in
-the destination directory. An occupied destination succeeds only when it
-already holds exactly this bundle.
+other files' proofs. Each run writes and syncs the five files in a uniquely
+named private sibling stage, verifies the proofs, and publishes via one
+atomic no-replace rename followed by a parent directory sync. An occupied
+destination succeeds only if it holds exactly those five regular files with
+identical bytes. A retry gets a new stage even if an interrupted run left
+its stage behind. The `.bulk-stage-` prefix is reserved for staging. Use
+[`catalog stages`](game-engine-storage.md#abandoned-bundle-stages) to inspect or
+explicitly remove abandoned stages.
 
 ## Single matches and policy inputs
 

@@ -53,10 +53,14 @@ pub struct AcceptedArchive {
     pub record_sha256: std::collections::BTreeSet<String>,
 }
 static ARCHIVES: LazyLock<Result<Vec<AcceptedArchive>, String>> = LazyLock::new(|| {
-    validate_registry(strict_read(include_str!(
+    parse_archive_registry(include_str!(
         "../../../tests/fixtures/accepted-archives.json"
-    ))?)
+    ))
 });
+
+pub fn parse_archive_registry(raw: &str) -> Result<Vec<AcceptedArchive>, String> {
+    validate_registry(strict_read(raw)?)
+}
 
 fn validate_registry(archives: Vec<AcceptedArchive>) -> Result<Vec<AcceptedArchive>, String> {
     let mut identities = std::collections::BTreeSet::new();
@@ -121,9 +125,16 @@ pub fn accepted_archives() -> Result<&'static [AcceptedArchive], String> {
     ARCHIVES.as_ref().map(Vec::as_slice).map_err(Clone::clone)
 }
 pub fn accepted_manifest(manifest: &str) -> Result<&'static AcceptedArchive, String> {
+    registered_manifest(manifest, accepted_archives()?)
+}
+
+pub fn registered_manifest<'a>(
+    manifest: &str,
+    registry: &'a [AcceptedArchive],
+) -> Result<&'a AcceptedArchive, String> {
     let m: serde_json::Value = strict_read(manifest)?;
     let hash = sha256(manifest.trim_end().as_bytes());
-    let a = accepted_archives()?
+    let a = registry
         .iter()
         .find(|a| !a.pending && a.manifest_sha256 == hash)
         .ok_or("unsupported archive version, source identity, or rules edition")?;
@@ -132,9 +143,7 @@ pub fn accepted_manifest(manifest: &str) -> Result<&'static AcceptedArchive, Str
     {
         return Err("R6 header bytes differ from the registered header".into());
     }
-    let r5 = accepted_archives()?
-        .iter()
-        .find(|a| a.cut == ArchiveCut::R5);
+    let r5 = registry.iter().find(|a| a.cut == ArchiveCut::R5);
     validate_header(&m, a, r5)?;
     Ok(a)
 }

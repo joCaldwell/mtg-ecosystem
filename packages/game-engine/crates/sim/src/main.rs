@@ -18,9 +18,11 @@ const USAGE: &str = "usage: mtg-sim COMMAND
   catalog reference-trace ARCHIVE --out FILE
   catalog identity --inputs FROZEN_MANIFEST --cache DIR
   catalog compile --inputs FROZEN_MANIFEST --cache DIR --out NEW_DIR [--fresh-reader ROOT | --reader-if-missing ROOT]
+  catalog stages [PARENT]
+  catalog stages --remove STAGE
   catalog build MANIFEST [--write]
-  catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID...
-  catalog verify ARCHIVE PROVENANCE
+  catalog extract [--promotion] ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID...
+  catalog verify [--promotion] ARCHIVE PROVENANCE
   schema
   deck-inspect --artifact DIR --manifest-sha SHA --decks JSON
   match-game PROFILE INDEX --journal-dir ABSOLUTE_DIR
@@ -112,6 +114,18 @@ fn catalog(args: &[String]) -> Result<serde_json::Value, Box<dyn std::error::Err
         Some("build-ir") if args.len() == 4 && args[2] == "--out" => serde_json::to_value(
             mtg_compiler::bulk::build_ir(Path::new(&args[1]), Path::new(&args[3]), BUILD.id)?,
         )?,
+        Some("stages") => match &args[1..] {
+            [] => serde_json::to_value(mtg_compiler::bulk::list_stages(Path::new("."))?)?,
+            [parent] if !parent.starts_with("--") => {
+                serde_json::to_value(mtg_compiler::bulk::list_stages(Path::new(parent))?)?
+            }
+            [flag, path] if flag == "--remove" => {
+                mtg_compiler::bulk::remove_stage(Path::new(path))
+                    .map_err(|e| format!("cannot remove stage {path}: {e}"))?;
+                serde_json::json!({"removed": path})
+            }
+            _ => return Err(USAGE.into()),
+        },
         Some("build") if matches!(args.len(), 2 | 3) => {
             let write = match args.get(2).map(String::as_str) {
                 None => false,
@@ -127,11 +141,27 @@ fn catalog(args: &[String]) -> Result<serde_json::Value, Box<dyn std::error::Err
                 }
             }
         }
-        Some("verify") if args.len() == 3 => {
-            mtg_compiler::verify_archive(Path::new(&args[1]), Path::new(&args[2]))?
-        }
-        Some("extract") if args.len() >= 4 => {
-            mtg_compiler::extract_records(Path::new(&args[1]), Path::new(&args[2]), &args[3..])?
+        Some("verify" | "extract") => {
+            let (promotion, operands) = match &args[1..] {
+                [flag, rest @ ..] if flag == "--promotion" => (true, rest),
+                rest => (false, rest),
+            };
+            match (args[0].as_str(), operands) {
+                ("verify", [archive, provenance]) => mtg_compiler::catalog::verify_fixture_archive(
+                    Path::new(archive),
+                    Path::new(provenance),
+                    promotion,
+                )?,
+                ("extract", [archive, provenance, selectors @ ..]) if !selectors.is_empty() => {
+                    mtg_compiler::catalog::extract_fixture_records(
+                        Path::new(archive),
+                        Path::new(provenance),
+                        selectors,
+                        promotion,
+                    )?
+                }
+                _ => return Err(USAGE.into()),
+            }
         }
         _ => return Err(USAGE.into()),
     })

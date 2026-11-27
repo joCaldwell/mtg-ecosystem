@@ -7,8 +7,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
     io::{self, BufRead, BufReader, BufWriter, Read, Write},
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::DirBuilderExt,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug, Serialize)]
@@ -458,25 +460,38 @@ impl PublishError<String> {
     }
 }
 
-/// Whether `out` already holds exactly these published bytes. With `exact`,
-/// the directory must contain no other entry.
-fn matches_bundle(out: &Path, files: &StagedFiles, exact: bool) -> bool {
-    fs::symlink_metadata(out).is_ok_and(|m| m.is_dir())
-        && files
-            .iter()
-            .all(|(name, proof)| matches_payload(&out.join(name), proof))
-        && (!exact
-            || fs::read_dir(out).is_ok_and(|entries| {
-                let names = entries
-                    .map(|e| e.map(|e| e.file_name()))
-                    .collect::<Result<BTreeSet<_>, _>>();
-                names.is_ok_and(|names| {
-                    names.len() == files.len()
-                        && files
-                            .iter()
-                            .all(|(name, _)| names.contains(std::ffi::OsStr::new(name)))
-                })
-            }))
+fn identical_files(left: &Path, right: &Path) -> io::Result<bool> {
+    let meta = fs::symlink_metadata(right)?;
+    if !meta.is_file() || meta.len() != fs::metadata(left)?.len() {
+        return Ok(false);
+    }
+    let mut left = BufReader::with_capacity(BUFFER, File::open(left)?);
+    let mut right = File::open(right)?;
+    let mut buffer = [0; BUFFER];
+    loop {
+        let bytes = left.fill_buf()?;
+        if bytes.is_empty() {
+            return Ok(right.read(&mut buffer[..1])? == 0);
+        }
+        right.read_exact(&mut buffer[..bytes.len()])?;
+        if bytes != &buffer[..bytes.len()] {
+            return Ok(false);
+        }
+        let len = bytes.len();
+        left.consume(len);
+    }
+}
+
+fn contains_only(out: &Path, files: &StagedFiles) -> io::Result<bool> {
+    let mut count = 0;
+    for entry in fs::read_dir(out)? {
+        let name = entry?.file_name();
+        if !files.iter().any(|(expected, _)| name == *expected) {
+            return Ok(false);
+        }
+        count += 1;
+    }
+    Ok(count == files.len())
 }
 
 fn sync_dir(path: &Path) -> Result<(), String> {
@@ -492,103 +507,80 @@ const BUNDLE_FILES: [&str; 5] = [
     "outcomes.jsonl",
     "compile-manifest.json",
 ];
-const STAGE_OWNER: &str = "owner";
-const STAGE_BUNDLE: &str = "bundle";
+const STAGE_PREFIX: &[u8] = b".bulk-stage-";
 
-fn stage_owner(parent: &fs::Metadata, stage: &fs::Metadata, destination: &str) -> String {
-    // Bind the marker to the locked parent, destination name and this stage's
-    // filesystem identity. Copying the marker into another directory is insufficient.
-    format!(
-        "bulk-stage-v1\n{}:{}\n{destination}\n{}:{}\n",
-        parent.dev(),
-        parent.ino(),
-        stage.dev(),
-        stage.ino(),
-    )
+fn stage_name(name: &std::ffi::OsStr) -> bool {
+    name.as_encoded_bytes()
+        .strip_prefix(STAGE_PREFIX)
+        .is_some_and(|suffix| !suffix.is_empty())
 }
 
-fn create_stage(stage: &Path, parent: &fs::Metadata, destination: &str) -> io::Result<PathBuf> {
-    fs::DirBuilder::new().mode(0o700).create(stage)?;
-    let owner = stage_owner(parent, &fs::symlink_metadata(stage)?, destination);
-    let mut marker = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(stage.join(STAGE_OWNER))?;
-    marker.write_all(owner.as_bytes())?;
-    marker.sync_all()?;
-    let bundle = stage.join(STAGE_BUNDLE);
-    fs::DirBuilder::new().mode(0o700).create(&bundle)?;
-    File::open(stage)?.sync_all()?;
-    Ok(bundle)
-}
-
-fn remove_stage(stage: &Path, parent: &fs::Metadata, destination: &str) -> io::Result<()> {
-    let metadata = match fs::symlink_metadata(stage) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        result => result?,
-    };
-    if !metadata.is_dir() || metadata.permissions().mode() & 0o777 != 0o700 {
-        return Err(io::Error::other("staging path is not a private directory"));
-    }
-    let owner = stage_owner(parent, &metadata, destination);
-    let marker = stage.join(STAGE_OWNER);
-    if !matches_payload(
-        &marker,
-        &JsonByteProof {
-            bytes: owner.len() as u64,
-            sha256: sha256(owner.as_bytes()),
-        },
-    ) {
-        return Err(io::Error::other(
-            "staging directory has no valid ownership marker",
-        ));
-    }
-    let mut bundle = None;
-    for entry in fs::read_dir(stage)? {
+/// List sibling stages without following directory symlinks or removing anything.
+pub fn list_stages(parent: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut stages = Vec::new();
+    for entry in fs::read_dir(parent)? {
         let entry = entry?;
-        let name = entry.file_name();
-        if name == STAGE_OWNER {
-            continue;
+        if stage_name(&entry.file_name()) && entry.file_type()?.is_dir() {
+            stages.push(entry.path());
         }
-        if name != STAGE_BUNDLE || !entry.file_type()?.is_dir() {
+    }
+    stages.sort();
+    Ok(stages)
+}
+
+/// Explicitly discard one abandoned stage. Inspect all entries before unlinking
+/// anything, and never recurse into nested directories or follow leaf symlinks.
+pub fn remove_stage(stage: &Path) -> io::Result<()> {
+    let name = stage
+        .file_name()
+        .filter(|name| stage_name(name))
+        .ok_or_else(|| io::Error::other("expected a .bulk-stage-* directory"))?;
+    // Strip trailing slashes or /. before checking the leaf's type.
+    let stage = stage.parent().unwrap_or(Path::new(".")).join(name);
+    if !fs::symlink_metadata(&stage)?.is_dir() {
+        return Err(io::Error::other("staging path is not a directory"));
+    }
+    let entries = fs::read_dir(&stage)?.collect::<Result<Vec<_>, _>>()?;
+    for entry in &entries {
+        if !entry.file_type()?.is_file()
+            || !BUNDLE_FILES.iter().any(|name| entry.file_name() == *name)
+        {
             return Err(io::Error::other(
                 "staging directory contains an unexpected entry",
             ));
         }
-        bundle = Some(entry.path());
     }
-    if let Some(bundle) = bundle {
-        let entries = fs::read_dir(&bundle)?.collect::<Result<Vec<_>, _>>()?;
-        for entry in &entries {
-            if !entry.file_type()?.is_file()
-                || !BUNDLE_FILES.iter().any(|name| entry.file_name() == *name)
-            {
-                return Err(io::Error::other(
-                    "staged bundle contains an unexpected entry",
-                ));
-            }
-        }
-        for entry in entries {
-            fs::remove_file(entry.path())?;
-        }
-        fs::remove_dir(bundle)?;
+    for entry in entries {
+        fs::remove_file(entry.path())?;
     }
-    fs::remove_file(marker)?;
     fs::remove_dir(stage)
 }
 
-/// Write files under a private 0700 sibling stage, re-verify each against its
-/// proof, sync the bundle, rename it onto `out` once and sync the parent.
-/// When the rename fails, success requires `out` to already hold the same
-/// files (exactly those files when `exact`): an identical retry or a
-/// concurrent identical writer. Under the parent lock, a retry only discards
-/// stages with ownership evidence. The marker stays outside the renamed bundle.
+fn create_stage(parent: &Path, name: &std::ffi::OsStr) -> io::Result<PathBuf> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let destination = sha256(name.as_encoded_bytes());
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_nanos();
+    let pid = std::process::id();
+    let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+    let stage = parent.join(format!(
+        ".bulk-stage-{destination}-{pid}-{nanos:x}-{serial:x}"
+    ));
+    fs::DirBuilder::new().mode(0o700).create(&stage)?;
+    Ok(stage)
+}
+
+/// Expose one verified bundle atomically. A losing publisher compares the
+/// occupied destination with its own staged bytes and cleans only its own stage.
 pub(crate) fn publish<R, E>(
     out: &Path,
     exact: bool,
     write: impl FnOnce(&Path) -> Result<(R, StagedFiles), E>,
 ) -> Result<R, PublishError<E>> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+
     let destination = |e: String| PublishError::Destination(e);
     let parent = out
         .parent()
@@ -597,56 +589,69 @@ pub(crate) fn publish<R, E>(
     let name = out
         .file_name()
         .ok_or_else(|| destination("missing destination name".into()))?;
-    if name.as_encoded_bytes().starts_with(b".bulk-stage-") {
+    if name.as_encoded_bytes().starts_with(STAGE_PREFIX) {
         return Err(destination(
             "destination name is reserved for bundle staging".into(),
         ));
     }
-    let io_error = |e: io::Error| destination(e.to_string());
-    fs::create_dir_all(parent).map_err(io_error)?;
-    let lock = File::open(parent).map_err(io_error)?;
-    lock.lock().map_err(io_error)?;
-    let parent_metadata = lock.metadata().map_err(io_error)?;
-    let destination_id = sha256(name.as_encoded_bytes());
-    let stage = parent.join(format!(".bulk-stage-{destination_id}"));
-    let cleanup = || {
-        remove_stage(&stage, &parent_metadata, &destination_id)
-            .map_err(|e| destination(format!("stale or foreign stage {}: {e}", stage.display())))
-    };
-    cleanup()?;
-    let bundle = create_stage(&stage, &parent_metadata, &destination_id)
-        .map_err(|e| destination(format!("cannot create bulk stage {}: {e}", stage.display())))?;
+    let out = parent.join(name);
+    fs::create_dir_all(parent).map_err(|e| destination(format!("{}: {e}", parent.display())))?;
+    let stage = create_stage(parent, name).map_err(|e| {
+        destination(format!(
+            "cannot create bulk stage in {}: {e}",
+            parent.display()
+        ))
+    })?;
+    #[cfg(test)]
+    tests::publication_boundary("after-mkdir");
     let result = (|| {
-        let (report, files) = write(&bundle).map_err(PublishError::Write)?;
+        let (report, files) = write(&stage).map_err(PublishError::Write)?;
         if let Some((name, _)) = files
             .iter()
-            .find(|(name, proof)| !matches_payload(&bundle.join(name), proof))
+            .find(|(name, proof)| !matches_payload(&stage.join(name), proof))
         {
             return Err(destination(format!(
                 "staged {name} does not match its proof"
             )));
         }
-        sync_dir(&bundle).map_err(destination)?;
-        let published = match fs::symlink_metadata(out) {
-            Ok(_) => Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "destination already exists",
-            )),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => fs::rename(&bundle, out),
-            Err(e) => Err(e),
-        };
-        if let Err(error) = published
-            && !matches_bundle(out, &files, exact)
-        {
-            return Err(destination(format!(
-                "cannot publish bulk artifact to {}: {error}",
-                out.display()
-            )));
+        if !contains_only(&stage, &files).unwrap_or(false) {
+            return Err(destination("unexpected files in staged bundle".into()));
         }
-        Ok(report)
+        #[cfg(test)]
+        tests::publication_boundary("after-verify");
+        sync_dir(&stage).map_err(destination)?;
+        #[cfg(test)]
+        tests::publication_boundary("before-rename");
+        // NOREPLACE also protects an empty destination created concurrently.
+        // https://docs.rs/rustix/1.1.6/rustix/fs/fn.renameat_with.html
+        match renameat_with(CWD, &stage, CWD, &out, RenameFlags::NOREPLACE) {
+            Ok(()) => {
+                #[cfg(test)]
+                tests::publication_boundary("after-rename");
+                Ok((report, true))
+            }
+            Err(rustix::io::Errno::EXIST)
+                if fs::symlink_metadata(&out).is_ok_and(|m| m.is_dir())
+                    && files.iter().all(|(name, _)| {
+                        identical_files(&stage.join(name), &out.join(name)).unwrap_or(false)
+                    })
+                    && (!exact || contains_only(&out, &files).unwrap_or(false)) =>
+            {
+                Ok((report, false))
+            }
+            Err(error) => Err(destination(format!(
+                "cannot publish bulk artifact to {}: {error}; an existing destination must hold the identical bundle",
+                out.display()
+            ))),
+        }
     })();
-    cleanup()?;
-    let report = result?;
+
+    if !matches!(&result, Ok((_, true))) {
+        remove_stage(&stage).map_err(|e| {
+            destination(format!("cannot remove bulk stage {}: {e}", stage.display()))
+        })?;
+    }
+    let (report, _) = result?;
     sync_dir(parent).map_err(destination)?;
     Ok(report)
 }
@@ -782,103 +787,208 @@ mod tests {
     }
 
     #[test]
-    fn bundle_interrupted_write_exposes_nothing_and_concurrent_writers_agree() {
-        let parent = scratch("bundle-race");
+    fn failed_or_tampered_stage_exposes_nothing() {
+        let parent = scratch("bundle-failed");
         let dest = parent.join("bundle");
-        // A failure after some files were staged publishes nothing.
         let failed = publish(&dest, true, |stage: &Path| {
             stage_files(stage, &BUNDLE[..3], "")?;
             Err::<((), StagedFiles), _>("interrupted".to_owned())
         });
         assert!(matches!(failed, Err(PublishError::Write(e)) if e == "interrupted"));
-        assert!(!dest.exists());
-        assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
-        // A staged file that no longer matches its proof is never exposed.
         let tampered = publish(&dest, true, |stage: &Path| {
             let staged = stage_files(stage, &BUNDLE, "")?;
             fs::write(stage.join("outcomes.jsonl"), b"tampered").map_err(|e| e.to_string())?;
             Ok::<_, String>(staged)
         });
         assert!(matches!(tampered, Err(PublishError::Destination(_))));
-        assert!(!dest.exists());
-        // Leave a real stage in the state a writer killed during its write would leave.
-        let id = sha256(b"bundle");
-        let abandoned = parent.join(format!(".bulk-stage-{id}"));
-        let bundle = create_stage(&abandoned, &fs::metadata(&parent).unwrap(), &id).unwrap();
-        fs::write(bundle.join("catalog.json"), b"incomplete").unwrap();
-        // Identical concurrent writers all succeed with one complete bundle.
-        std::thread::scope(|scope| {
-            let writers: Vec<_> = (0..4)
-                .map(|_| {
-                    scope.spawn(|| {
-                        publish(&dest, true, |stage: &Path| stage_files(stage, &BUNDLE, ""))
-                    })
-                })
-                .collect();
-            for writer in writers {
-                writer.join().unwrap().unwrap();
-            }
-        });
-        assert_eq!(fs::read_dir(&dest).unwrap().count(), BUNDLE.len());
-        assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
-        fs::remove_dir_all(parent).unwrap();
+        assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
+        fs::remove_dir(parent).unwrap();
     }
 
     #[test]
-    fn bundle_retry_preserves_a_foreign_bundle_at_the_stage_path() {
-        let parent = scratch("foreign-stage");
+    fn concurrent_publishers_keep_the_winner_and_leave_foreign_stages_alone() {
+        use std::os::unix::fs::MetadataExt;
+        let parent = scratch("bundle-race");
         let dest = parent.join("bundle");
-        let id = sha256(b"bundle");
-        let stage = parent.join(format!(".bulk-stage-{id}"));
-        let write = |stage: &Path| stage_files(stage, &BUNDLE, "");
-        fs::DirBuilder::new().mode(0o700).create(&stage).unwrap();
-        let (_, files) = write(&stage).unwrap();
-        let other =
-            create_stage(&parent.join("other"), &fs::metadata(&parent).unwrap(), &id).unwrap();
-        for add_marker in [false, true] {
-            if add_marker {
-                // Even a well-formed marker for this destination binds the stage that made it.
-                fs::copy(other.with_file_name(STAGE_OWNER), stage.join(STAGE_OWNER)).unwrap();
-            }
-            let PublishError::Destination(error) = publish(&dest, true, write).unwrap_err() else {
-                panic!("expected a destination failure");
+        let foreign = parent.join(format!(".bulk-stage-{}", sha256(b"bundle")));
+        fs::create_dir(&foreign).unwrap();
+        stage_files(&foreign, &BUNDLE, "foreign ").unwrap();
+        let rendezvous = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let publish_bundle = || {
+                publish(&dest, true, |stage| {
+                    let files = stage_files(stage, &BUNDLE, "")?;
+                    let inode = fs::metadata(stage).unwrap().ino();
+                    rendezvous.wait();
+                    Ok::<_, String>((inode, files.1))
+                })
+                .unwrap()
             };
-            assert!(error.contains(&format!("stale or foreign stage {}", stage.display())));
-            assert!(!dest.exists());
-            assert!(
-                files
-                    .iter()
-                    .all(|(name, proof)| matches_payload(&stage.join(name), proof))
-            );
-        }
+            let first = scope.spawn(publish_bundle);
+            let second = scope.spawn(publish_bundle);
+            let inodes = [first.join().unwrap(), second.join().unwrap()];
+            assert_ne!(inodes[0], inodes[1]);
+            assert!(inodes.contains(&fs::metadata(&dest).unwrap().ino()));
+        });
+        assert_bundle(&dest, "");
+        assert_bundle(&foreign, "foreign ");
+        assert_eq!(list_stages(&parent).unwrap(), [foreign]);
         fs::remove_dir_all(parent).unwrap();
     }
 
     #[test]
-    fn bundle_retry_preserves_unknown_staging_entries_and_empty_destinations() {
+    fn bundle_never_replaces_an_empty_destination() {
+        use std::os::unix::fs::MetadataExt;
         let parent = scratch("bundle-occupied");
         let dest = parent.join("bundle");
-        let write = |stage: &Path| stage_files(stage, &BUNDLE, "");
-        let id = sha256(b"bundle");
-        let stage = parent.join(format!(".bulk-stage-{id}"));
-        let bundle = create_stage(&stage, &fs::metadata(&parent).unwrap(), &id).unwrap();
-        let (_, staged) = write(&bundle).unwrap();
-        let unrelated = bundle.join("keep");
-        fs::write(&unrelated, b"keep").unwrap();
-        assert!(matches!(
-            publish(&dest, true, write),
-            Err(PublishError::Destination(_))
-        ));
-        assert_eq!(fs::read(&unrelated).unwrap(), b"keep");
-        assert!(matches_payload(&bundle.join(staged[0].0), &staged[0].1));
-        fs::remove_dir_all(stage).unwrap();
-        fs::create_dir(&dest).unwrap();
-        assert!(matches!(
-            publish(&dest, true, write),
-            Err(PublishError::Destination(_))
-        ));
+        let mut occupied_inode = 0;
+        let result = publish(&dest, true, |stage| {
+            let result = stage_files(stage, &BUNDLE, "")?;
+            fs::create_dir(&dest).unwrap();
+            occupied_inode = fs::metadata(&dest).unwrap().ino();
+            Ok::<_, String>(result)
+        });
+        assert!(matches!(result, Err(PublishError::Destination(_))));
+        assert_eq!(fs::metadata(&dest).unwrap().ino(), occupied_inode);
         assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
-        assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+        assert!(list_stages(&parent).unwrap().is_empty());
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn explicit_stage_removal_refuses_unknown_entries_and_symlinks() {
+        let parent = scratch("remove-stage");
+        let stage = parent.join(".bulk-stage-test");
+        let foreign = parent.join("foreign");
+        fs::create_dir(&stage).unwrap();
+        fs::create_dir(&foreign).unwrap();
+        let regular = stage.join("index.json");
+        let unexpected = stage.join("unexpected");
+        let symlink = stage.join("catalog.json");
+        let linked_dir = parent.join(".bulk-stage-link");
+        fs::write(&regular, b"staged").unwrap();
+        fs::write(&unexpected, b"unknown").unwrap();
+        fs::write(foreign.join("catalog.json"), b"foreign").unwrap();
+        std::os::unix::fs::symlink(foreign.join("catalog.json"), &symlink).unwrap();
+        std::os::unix::fs::symlink(&foreign, &linked_dir).unwrap();
+
+        assert_eq!(
+            list_stages(&parent).unwrap().as_slice(),
+            std::slice::from_ref(&stage)
+        );
+        assert!(remove_stage(&stage).is_err());
+        assert_eq!(fs::read(&regular).unwrap(), b"staged");
+        fs::remove_file(&unexpected).unwrap();
+        assert!(remove_stage(&stage).is_err());
+        assert!(remove_stage(&linked_dir.join(".")).is_err());
+        assert!(remove_stage(&foreign).is_err());
+        assert_eq!(fs::read(foreign.join("catalog.json")).unwrap(), b"foreign");
+        fs::remove_file(symlink).unwrap();
+        remove_stage(&stage).unwrap();
+        assert!(!stage.exists());
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    fn assert_bundle(path: &Path, body: &str) {
+        assert_eq!(fs::read_dir(path).unwrap().count(), BUNDLE.len());
+        for name in BUNDLE {
+            assert_eq!(
+                fs::read(path.join(name)).unwrap(),
+                format!("{body}{name}").as_bytes()
+            );
+        }
+    }
+
+    const PAUSE_AT: &str = "MTG_TEST_BULK_PAUSE_AT";
+    const CHILD_DEST: &str = "MTG_TEST_BULK_DEST";
+
+    pub(super) fn publication_boundary(site: &str) {
+        if std::env::var(PAUSE_AT).as_deref() == Ok(site) {
+            println!("ready for SIGKILL at {site}");
+            loop {
+                std::thread::park();
+            }
+        }
+    }
+
+    #[test]
+    fn publication_kill_child() {
+        if let Some(out) = std::env::var_os(CHILD_DEST) {
+            publish(Path::new(&out), true, |stage| {
+                if std::env::var(PAUSE_AT).as_deref() == Ok("mid-write") {
+                    write_payload(&stage.join("catalog.json"), 64, |writer| {
+                        writer.write_all(b"partial")?;
+                        writer.flush()?;
+                        publication_boundary("mid-write");
+                        Ok(())
+                    })
+                    .map_err(PayloadError::into_message)?;
+                    panic!("mid-write hook returned");
+                }
+                stage_files(stage, &BUNDLE, "")
+            })
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn sigkill_at_each_publication_boundary_leaves_retryable_output() {
+        use std::{
+            os::unix::process::ExitStatusExt,
+            process::{Command, Stdio},
+            sync::mpsc,
+            time::Duration,
+        };
+
+        for site in [
+            "after-mkdir",
+            "mid-write",
+            "after-verify",
+            "before-rename",
+            "after-rename",
+        ] {
+            let parent = scratch(site);
+            let dest = parent.join("bundle");
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "bulk::tests::publication_kill_child",
+                    "--nocapture",
+                ])
+                .env(PAUSE_AT, site)
+                .env(CHILD_DEST, &dest)
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let (send, receive) = mpsc::channel();
+            let reader = std::thread::spawn(move || {
+                let message = format!("ready for SIGKILL at {site}");
+                let reached = BufReader::new(stdout)
+                    .lines()
+                    .map_while(Result::ok)
+                    .any(|line| line.contains(&message));
+                send.send(reached).ok();
+            });
+            let reached = receive.recv_timeout(Duration::from_secs(15));
+            child.kill().unwrap();
+            let status = child.wait().unwrap();
+            reader.join().unwrap();
+            assert_eq!(reached, Ok(true), "{site}");
+            assert_eq!(status.signal(), Some(9), "{site}");
+            assert_eq!(dest.exists(), site == "after-rename", "{site}");
+            if dest.exists() {
+                assert_bundle(&dest, "");
+            }
+            let stages = list_stages(&parent).unwrap();
+            assert_eq!(stages.len(), usize::from(site != "after-rename"), "{site}");
+            publish(&dest, true, |stage| stage_files(stage, &BUNDLE, "")).unwrap();
+            assert_bundle(&dest, "");
+            assert_eq!(list_stages(&parent).unwrap(), stages);
+            for stage in stages {
+                remove_stage(&stage).unwrap();
+            }
+            fs::remove_dir_all(parent).unwrap();
+        }
     }
 }

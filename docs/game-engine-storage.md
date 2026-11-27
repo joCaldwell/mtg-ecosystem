@@ -48,6 +48,24 @@ stale local crates; prefer per-worktree targets. `list` also reports the unselec
 legacy `$XDG_CACHE_HOME/mtg-ecosystem/cargo/<repo>/<rustc>` cache and global
 `engine-verification/cargo.lock`; reclaiming that cache requires ownership review.
 
+## Abandoned bundle stages
+
+A killed [frozen-input compile](game-engine-catalogs.md#frozen-input-compile)
+can leave a private `.bulk-stage-*` directory beside the destination. Each retry
+creates a new stage. Keep abandoned stages if they hold evidence you need.
+
+```sh
+mtg-sim catalog stages /path/to/destination-parent
+mtg-sim catalog stages --remove /path/to/destination-parent/.bulk-stage-EXACT-NAME
+```
+
+The list command defaults to the current directory. Remove only a stage you
+own after its publisher has exited. The removal command checks the named
+directory before unlinking anything, and allows only regular files named
+`catalog.json`, `index.json`, `manifest.json`, `outcomes.jsonl` and
+`compile-manifest.json`. It accepts empty and partial stages. Directories,
+symlinks and other entries inside the named stage block removal.
+
 ## Inventory
 
 ```sh

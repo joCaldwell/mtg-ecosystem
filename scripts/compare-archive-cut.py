@@ -9,8 +9,12 @@ import argparse
 import csv
 import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
+import sys
+import tempfile
 from itertools import zip_longest
 from pathlib import Path
 
@@ -162,33 +166,56 @@ def compare(mode, before, after, archives=None):
     }
 
 
-def fixtures(sim, source, out, archives):
-    """Re-extract all R5-origin fixture rows from R6 into OUT and verify both origins there."""
-    require(not out.exists(), f'{out} already exists')
+def pretty(path, value):
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+
+def fixtures(sim, source, out, archives, replacement=None):
+    """Regenerate R6 fixtures in OUT and verify both origins without editing the source tree."""
     registry = json.loads((source / 'accepted-archives.json').read_bytes())
     origins = {origin['cut']: origin for origin in registry}
-    r5, r6 = origins['r5'], origins['r6']
-    out.mkdir(parents=True)
-    for name in ('accepted-archives.json', 'provenance.json', r5['manifest_file'], r6['manifest_file']):
-        shutil.copyfile(source / name, out / name)
+    r5, previous_r6 = origins['r5'], origins['r6']
+    r6, header = replacement or (previous_r6.copy(), (source / previous_r6['manifest_file']).read_bytes())
+    r6['record_sha256'] = []
+    registry[registry.index(previous_r6)] = r6
     provenance = json.loads((source / 'provenance.json').read_bytes())
+    old_r6_order = {row['oracle_id']: index for index, row in enumerate(provenance['records'])
+                    if row['archive'] == previous_r6['manifest_file']}
+    provenance['records'] = [row for row in provenance['records'] if row['archive'] != previous_r6['manifest_file']]
     rows = [row for row in provenance['records'] if row['archive'] == r5['manifest_file']]
-    require(len(rows) == len(r5['record_sha256']) and all(r['record_sha256'] in r5['record_sha256'] for r in rows),
-            'R5 provenance rows and origin pins differ')
+    require(rows and {r['record_sha256'] for r in rows} == set(r5['record_sha256'])
+            and len({r['oracle_id'] for r in rows}) == len(rows), 'R5 provenance rows and origin pins differ')
+
+    out.mkdir(parents=True)
+    pretty(out / 'accepted-archives.json', registry)
+    pretty(out / 'provenance.json', provenance)
+    (out / r6['manifest_file']).write_bytes(header)
+    shutil.copyfile(source / r5['manifest_file'], out / r5['manifest_file'])
     for row in rows:
         (out / row['file']).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / row['file'], out / row['file'])
 
     def sim_json(*args):
-        done = subprocess.run([str(sim), 'catalog', *map(str, args)], capture_output=True, check=False)
+        command, *operands = args
+        options = ['--promotion'] if replacement else []
+        done = subprocess.run([str(sim.resolve()), 'catalog', command, *options, *map(str, operands)],
+                              capture_output=True, check=False)
         require(done.returncode == 0, f'{args[0]} failed: {done.stderr.decode(errors="replace").strip()}')
         return json.loads(done.stdout)
 
-    extracted = sim_json('extract', archives[1], out / 'provenance.json', *(row['oracle_id'] for row in rows))
-    verified = {cut: sim_json('verify', archive, out / 'provenance.json') for cut, archive in zip(('r5', 'r6'), archives)}
-    after = json.loads((out / 'provenance.json').read_bytes())
+    provenance_path = out / 'provenance.json'
+    extracted = sim_json('extract', archives[1], provenance_path, *(row['oracle_id'] for row in rows))
+    after = json.loads(provenance_path.read_bytes())
+    count = len(provenance['records'])
+    require(after['records'][:count] == provenance['records'], 'existing provenance rows changed')
+    # Existing witnesses keep their positions. New R5 identities follow them in
+    # extraction order, matching the ordering of an incremental promotion.
+    after['records'][count:] = sorted(after['records'][count:],
+                                      key=lambda row: old_r6_order.get(row['oracle_id'], float('inf')))
+    pretty(provenance_path, after)
+    verified = {cut: sim_json('verify', archive, provenance_path) for cut, archive in zip(('r5', 'r6'), archives)}
+    require(all(report['verified_records'] == len(rows) for report in verified.values()), 'verify omitted fixture rows')
     new_rows = {row['oracle_id']: row for row in after['records'] if row['archive'] == r6['manifest_file']}
-    require(after['records'][:len(provenance['records'])] == provenance['records'], 'existing provenance rows changed')
     require(len(new_rows) == len(rows) == len(extracted['extracted']), 'R6 extraction is not one row per R5 identity')
     registry_after = {origin['cut']: origin for origin in json.loads((out / 'accepted-archives.json').read_bytes())}
     require(registry_after['r5'] == r5, 'R5 origin pins changed')
@@ -218,22 +245,139 @@ def fixtures(sim, source, out, archives):
             'verified': {cut: report['verified_records'] for cut, report in verified.items()}}
 
 
+def promotion_inputs(candidate, receipt, revision):
+    require(receipt['status'] == 'candidate' and receipt['d0']['status'] == 'passed',
+            'promotion requires a passing D0 candidate receipt')
+    r6 = receipt['registryEntry']
+    require(r6['cut'] == 'r6' and not r6['record_sha256'] and not r6.get('pending') and not r6.get('candidate'),
+            'D0 receipt must supply an unpinned R6 registry entry')
+    require(re.fullmatch(r'[0-9a-f]{40}', revision) and r6['parser_revision'] in ('', revision),
+            'reviewed producer revision is missing or differs from the receipt')
+    r6['parser_revision'] = revision
+    with candidate.open('rb') as archive:
+        raw = archive.readline(1024 * 1024 + 1)
+    require(raw.endswith(b'\n') and len(raw) <= 1024 * 1024 and sha(raw[:-1]) == r6['manifest_sha256']
+            and r6['manifest_file'] == f"archive-manifest-r6-candidate-{r6['manifest_sha256']}.json"
+            and candidate.stat().st_size == r6['r6']['file_bytes'], 'R6 header or byte length differs from D0')
+    header = json.loads(raw)
+    require(receipt['legacy'] == header['legacy'] and receipt['rulesSha256'] == header['rules']['sha256'],
+            'R5 control or rules hashes differ from D0')
+    return r6, raw, header
+
+
+def pin_frozen_inputs(inputs, candidate, r6, header):
+    for role, field in [('oracle', 'corpus'), ('paperEvidence', 'paperEvidence')]:
+        source = header[field]
+        basename = source['snapshotFile']
+        require(Path(basename).name == basename, f'invalid {role} snapshot basename')
+        inputs[role].update(path=(Path(inputs[role]['path']).parent / basename).as_posix(),
+                            bytes=source['bytes'], sha256=source['sha256'])
+    inputs['oracle']['canonicalRecordsSha256'] = r6['r6']['canonical_records_sha256']
+    inputs['scope'] = header['scope']
+    inputs['rules'] = {field: header['rules'][field] for field in ('edition', 'sha256')}
+    inputs['reader'] = {'revision': r6['parser_revision'], 'sourceSha256': r6['parser_source_sha256']}
+    inputs['archive'] = {'file': candidate.name, 'schemaVersion': header['schemaVersion'],
+                         'bytes': r6['r6']['file_bytes'], 'sha256': r6['file_sha256'],
+                         'headerSha256': r6['manifest_sha256']}
+    inputs['r6'].update(archiveManifest=r6['manifest_file'], printed=header['printed'], nameCatalog=header['nameCatalog'])
+
+
+def install_promotion(source, registry_tests, out, previous_r6, r6):
+    old_header, new_header = previous_r6['manifest_file'], r6['manifest_file']
+    inputs_name = 'compile-inputs-phase1-r6.json'
+    old_header_path = source / old_header
+    require(Path(old_header).name == old_header and old_header_path.is_file() and not old_header_path.is_symlink()
+            and sha(old_header_path.read_bytes().removesuffix(b'\n')) == previous_r6['manifest_sha256'],
+            'current R6 header does not match its registry pin')
+    require(old_header == new_header or not os.path.lexists(source / new_header), 'new R6 header path already exists')
+    tests = registry_tests.read_bytes()
+    require(tests.count(old_header.encode()) == 1, 'registry test must reference the current R6 header exactly once')
+
+    before = json.loads((source / 'provenance.json').read_bytes())
+    old_rows = [row for row in before['records'] if row['archive'] == old_header]
+    current = source / 'phase1-r6'
+    require(not current.is_symlink(), f'{current} is a symlink')
+    expected = set()
+    for row in old_rows:
+        file = Path(row['file'])
+        require(re.fullmatch(r'phase1-r6/[0-9a-f-]{36}\.json', file.as_posix()), f'invalid R6 fixture path {file}')
+        path = source / file
+        require(path.is_file() and not path.is_symlink()
+                and sha(path.read_bytes().rstrip()) == row['record_sha256'], f'local R6 fixture differs from its pin: {path}')
+        expected.add(path)
+    require((set(current.iterdir()) if current.exists() else set()) == expected, f'unregistered entries in {current}')
+
+    # Preserve the verified scratch copy as evidence. Stage same-filesystem
+    # replacements before installing them so package files are never truncated.
+    with tempfile.TemporaryDirectory(prefix='.promote-', dir=source) as stage:
+        staged = Path(stage)
+        replacements = []
+        names = ['accepted-archives.json', 'provenance.json', new_header, inputs_name]
+        for name in names:
+            shutil.copyfile(out / name, staged / name)
+            replacements.append((staged / name, source / name))
+        for file in sorted((out / 'phase1-r6').iterdir()):
+            shutil.copyfile(file, staged / file.name)
+            replacements.append((staged / file.name, current / file.name))
+        test_copy = staged / registry_tests.name
+        test_copy.write_bytes(tests.replace(old_header.encode(), new_header.encode()))
+        current.mkdir(exist_ok=True)
+        for temp, target in replacements:
+            if not target.exists() or target.read_bytes() != temp.read_bytes():
+                os.replace(temp, target)
+        if old_header != new_header:
+            os.replace(test_copy, registry_tests)
+    replaced = {target for _, target in replacements}
+    for obsolete in sorted(expected - replaced):
+        obsolete.unlink()
+    if old_header != new_header:
+        old_header_path.unlink()
+
+
+def promote(args):
+    root = Path(__file__).resolve().parent.parent
+    source = root / 'packages/game-engine/tests/fixtures'
+    registry_tests = root / 'packages/game-engine/crates/contracts/src/archives.rs'
+    registry = json.loads((source / 'accepted-archives.json').read_bytes())
+    previous_r6 = next(a for a in registry if a['cut'] == 'r6')
+    r6, raw, header = promotion_inputs(args.candidate, json.loads(args.receipt.read_bytes()), args.producer_revision)
+    report = fixtures(args.sim, source, args.out, (args.r5, args.candidate), replacement=(r6, raw))
+    inputs_name = 'compile-inputs-phase1-r6.json'
+    inputs = json.loads((source / inputs_name).read_bytes())
+    pin_frozen_inputs(inputs, args.candidate, r6, header)
+    pretty(args.out / inputs_name, inputs)
+    install_promotion(source, registry_tests, args.out, previous_r6, r6)
+    return {**report, 'comparison': 'promotion', 'archive_sha256': r6['file_sha256'],
+            'header_sha256': r6['manifest_sha256'], 'producer_revision': args.producer_revision}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('d1', 'd2', 'fixtures'))
-    parser.add_argument('before', type=Path, help='D1/D2 earlier run, or the fixtures directory')
-    parser.add_argument('after', type=Path, help='D1/D2 later run, or a new scratch directory')
-    parser.add_argument('--archives', nargs=2, type=Path, metavar=('R5', 'R6'))
-    parser.add_argument('--sim', type=Path, help='mtg-sim binary for fixtures')
+    if sys.argv[1:2] == ['promote']:
+        parser.add_argument('mode', choices=('promote',))
+        parser.add_argument('candidate', type=Path)
+        parser.add_argument('receipt', type=Path, help='passing D0 JSON receipt')
+        parser.add_argument('--r5', type=Path, required=True, help='pinned R5 control archive')
+        parser.add_argument('--sim', type=Path, required=True, help='mtg-sim built from this checkout')
+        parser.add_argument('--out', type=Path, required=True, help='new scratch directory for the verified fixtures')
+        parser.add_argument('--producer-revision', required=True, help='reviewed candidate producer commit')
+    else:
+        parser.add_argument('mode', choices=('d1', 'd2', 'fixtures'))
+        parser.add_argument('before', type=Path, help='D1/D2 earlier run, or the fixtures directory')
+        parser.add_argument('after', type=Path, help='D1/D2 later run, or a new scratch directory')
+        parser.add_argument('--archives', nargs=2, type=Path, metavar=('R5', 'R6'))
+        parser.add_argument('--sim', type=Path, help='mtg-sim binary for fixtures')
     args = parser.parse_args()
     try:
-        if args.mode == 'fixtures':
+        if args.mode == 'promote':
+            result = promote(args)
+        elif args.mode == 'fixtures':
             require(args.sim is not None and args.archives is not None, 'fixtures requires --sim and --archives')
             result = fixtures(args.sim, args.before, args.after, args.archives)
         else:
             result = compare(args.mode, args.before, args.after, args.archives)
         print(json.dumps(result, indent=2))
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, StopIteration) as error:
         parser.exit(1, f'{error}\n')
 
 
