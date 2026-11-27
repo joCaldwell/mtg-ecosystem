@@ -11,6 +11,7 @@ mod costs;
 mod counter_regeneration;
 mod counters;
 mod damage_triggers;
+mod evaluated_moves;
 mod evasion;
 mod evasion_rules;
 mod face_down;

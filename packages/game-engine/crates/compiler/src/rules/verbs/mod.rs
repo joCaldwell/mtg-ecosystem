@@ -578,27 +578,12 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             ast::Effect::PutCounters(action) => counters::lower(cx, action),
             ast::Effect::Exile(action) => exile::lower(cx, action),
             ast::Effect::ReturnToHand(action) => return_to_hand::lower(cx, action),
+            ast::Effect::MoveZone(action) => move_zone::lower(cx, action),
             // CR 610.3: a return linked to a duration has no executable
             // delayed form yet.
             ast::Effect::ExileUntil(_) => Err(step("exile-until", "linked_return")),
             _ => unreachable!("evaluated AST effect"),
         },
-        Step::MoveZone {
-            what,
-            to,
-            order,
-            tapped,
-            who,
-            controller,
-        } => move_zone::lower(
-            cx,
-            what,
-            to,
-            order.as_deref(),
-            *tapped,
-            who.as_ref(),
-            controller.as_deref(),
-        ),
         Step::CreateReplacement { .. } => Err(step("create-replacement", "replacement")),
         Step::LoseAbilities { .. } => Err(step("lose-abilities", "unlowered")),
         Step::PlayCard { .. } => Err(step("play-card", "unlowered")),

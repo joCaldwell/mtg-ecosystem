@@ -79,11 +79,15 @@ impl Walk<'_, '_> {
                 | TargetDomain::GraveyardCard { .. }
         );
         match (to, self.domain(slot)?) {
-            (Destination::OwnerHand | Destination::OwnerLibraryTop | Destination::Exile, _)
-                if graveyard =>
-            {
-                Ok(MOVED)
-            }
+            // CR 401.4: a graveyard card can go to either end of its
+            // owner's library.
+            (
+                Destination::OwnerHand
+                | Destination::OwnerLibraryTop
+                | Destination::OwnerLibraryBottom
+                | Destination::Exile,
+                _,
+            ) if graveyard => Ok(MOVED),
             (
                 Destination::Battlefield { controller, .. },
                 TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard,

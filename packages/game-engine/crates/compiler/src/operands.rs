@@ -2249,9 +2249,9 @@ pub(crate) fn lower_player_ref(
 }
 
 /// CR 400.3, 401.4: a destination zone the move verbs perform.
-pub(crate) fn lower_destination(to: &serde_json::Value) -> Result<kir::Destination, Failure> {
-    let zone: ast::ZoneRef = typed(to, "destination")?;
-    match zone {
+/// CR 400.3, 401.4: the top or bottom of the object's owner's library.
+pub(crate) fn lower_zone_destination(zone: &ast::ZoneRef) -> Result<kir::Destination, Failure> {
+    match zone.clone() {
         ast::ZoneRef {
             zone: ast::Zone::Library,
             position: Some(ast::ObjectFilterZoneChangeHistoryFromZoneRefPosition::Top),

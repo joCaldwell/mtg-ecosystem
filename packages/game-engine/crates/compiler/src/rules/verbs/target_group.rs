@@ -45,7 +45,6 @@ enum Field<'a> {
 fn field(step: &mut Step) -> Option<Field<'_>> {
     Some(match step {
         Step::Destroy { what, .. }
-        | Step::MoveZone { what, .. }
         | Step::Pump { what, .. }
         | Step::GainAbilities { what, .. }
         | Step::Regenerate { what }
@@ -55,6 +54,7 @@ fn field(step: &mut Step) -> Option<Field<'_>> {
             ast::Effect::PutCounters(counters) => Field::Typed(&mut counters.on),
             ast::Effect::Exile(exile) => Field::Typed(&mut exile.what),
             ast::Effect::ReturnToHand(movement) => Field::Typed(&mut movement.what),
+            ast::Effect::MoveZone(movement) => Field::Typed(&mut movement.what),
             ast::Effect::Damage(damage) => match damage.to.as_mut() {
                 ast::DamageTarget::Object(to) => Field::Typed(&mut to.r#ref),
                 _ => return None,
