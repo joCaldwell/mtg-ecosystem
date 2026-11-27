@@ -686,8 +686,8 @@ pub enum Verb {
     ReturnDashedToHand {},
     /// CR 702.116a, 508.4: create one tapped and attacking token copy of the
     /// source for the live opponent bound to `defender`, other than the defending
-    /// player of the source's attack. The ability's controller chooses that
-    /// opponent or a planeswalker they control for the token to attack.
+    /// player of the source's attack. The ability's controller chooses that opponent
+    /// or a planeswalker that opponent controls for the token to attack.
     CreateMyriadToken {
         defender: PlayerExpr,
     },

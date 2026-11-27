@@ -659,12 +659,18 @@ impl GameTestkit for Game {
             return Err(error);
         }
         let transaction = staged.damage_transaction()?.id;
-        let result = staged.commit_batch(
+        let result = match staged.commit_batch(
             BatchCause::Combat,
             EventGroup::Occurrence {
                 proposed: ProposedEvent::CommitDamage { transaction },
             },
-        )?;
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                self.state.rules.typed_fault = staged.state.rules.typed_fault.clone();
+                return Err(error);
+            }
+        };
         let resume = self.state.rules.frame.clone();
         self.state = staged.state.clone();
         self.state.rules.frame = resume;

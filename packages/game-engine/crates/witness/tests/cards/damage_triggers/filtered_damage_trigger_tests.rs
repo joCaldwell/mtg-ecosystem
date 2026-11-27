@@ -335,6 +335,64 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
     }
 }
 #[test]
+fn filtered_damage_two_member_commit_rolls_back_on_invalid_member_or_trigger_fault() {
+    let fixture = prepared(&[
+        ("Research Thief", 2, 0, Zone::Battlefield),
+        ("Alpha Myr", 3, 0, Zone::Battlefield),
+        ("Alpha Myr", 3, 0, Zone::Battlefield),
+    ]);
+    let mut g = Game::with_trace(fixture.clone(), TraceMode::Detailed);
+    let damage = (1..=2)
+        .map(|card| DamageOccurrence {
+            source: Driver::object(&g, card),
+            controller: PlayerId(0),
+            recipient: DamageRecipient::Player {
+                player: PlayerId(1),
+            },
+            amount: 2.into(),
+        })
+        .collect::<Vec<_>>();
+    g.prepare_combat_damage(damage.clone()).unwrap();
+    let transaction = g.damage_transaction().unwrap();
+    g.validate_damage_transaction(transaction).unwrap();
+    let id = transaction.id;
+    let Frame::DamageEffects { transaction } = &mut g.state.rules.frame else {
+        panic!("missing prepared combat damage");
+    };
+    transaction.entries[1].controller = PlayerId(1);
+    let before = g.snapshot().unwrap();
+    assert_eq!(
+        g.commit_batch(
+            BatchCause::Combat,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::CommitDamage { transaction: id },
+            },
+        )
+        .unwrap_err(),
+        "invalid assigned combat source"
+    );
+    assert_eq!(g.snapshot().unwrap(), before);
+
+    // Trigger collection runs after damage writes and needs an ID per hit.
+    let mut g = Game::with_trace(fixture, TraceMode::Detailed);
+    g.state.rules.next_trigger_id = u64::MAX - 1;
+    let mut state = g.state.clone();
+    let trace = g.trace.clone();
+    let fault = RuleFault::TriggerIdCapacityExceeded {
+        next: u64::MAX,
+        additional: 1,
+    };
+    assert_eq!(
+        g.commit_combat_damage(damage).unwrap_err(),
+        "trigger ID resource limit"
+    );
+    assert_eq!(g.typed_fault(), Some(&fault));
+    state.rules.typed_fault = Some(fault);
+    assert_eq!(g.state, state);
+    assert_eq!(g.trace, trace);
+}
+
+#[test]
 fn filtered_damage_multiple_observers_and_members_retain_occurrence_multiplicity() {
     let mut g = Game::new(prepared(&[
         ("Research Thief", 2, 0, Zone::Battlefield),

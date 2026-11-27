@@ -586,29 +586,42 @@ fn library_order_dependencies_and_late_damage_failure_roll_back_atomically() {
         .is_err()
     );
     assert_eq!(g.snapshot().unwrap(), before);
-    let mut g = Game::new(prepared(ScenarioConfig::commander_damage()));
+    let mut fixture = prepared(ScenarioConfig::commander_damage());
+    fixture.config.cards.push(CardSetup {
+        id: CardId(99),
+        oracle_id: YARGLE.into(),
+        owner: PlayerId(0),
+        controller: PlayerId(0),
+        zone: Zone::Battlefield,
+    });
+    let mut g = Game::new(fixture);
+    let damage = [(CardId(0), PlayerId(1)), (CardId(99), PlayerId(2))]
+        .into_iter()
+        .map(|(card, player)| DamageOccurrence {
+            source: g.object_id(card).unwrap(),
+            controller: PlayerId(0),
+            recipient: DamageRecipient::Player { player },
+            amount: Quantity::from(18),
+        })
+        .collect();
+    g.prepare_combat_damage(damage).unwrap();
+    let transaction = g.damage_transaction().unwrap();
+    g.validate_damage_transaction(transaction).unwrap();
+    let id = transaction.id;
+    let Frame::DamageEffects { transaction } = &mut g.state.rules.frame else {
+        panic!("missing prepared combat damage");
+    };
+    transaction.entries[1].amount = Quantity::from(-1);
     let before = g.snapshot().unwrap();
-    let source = g.object_id(CardId(0)).unwrap();
-    assert!(
-        g.commit_combat_damage(vec![
-            DamageOccurrence {
-                source,
-                controller: PlayerId(0),
-                recipient: DamageRecipient::Player {
-                    player: PlayerId(1)
-                },
-                amount: Quantity::from(18)
+    assert_eq!(
+        g.commit_batch(
+            BatchCause::Combat,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::CommitDamage { transaction: id },
             },
-            DamageOccurrence {
-                source,
-                controller: PlayerId(0),
-                recipient: DamageRecipient::Player {
-                    player: PlayerId(2)
-                },
-                amount: Quantity::from(-1)
-            },
-        ])
-        .is_err()
+        )
+        .unwrap_err(),
+        "damage source identity/quantity invariant"
     );
     assert_eq!(g.snapshot().unwrap(), before);
 }
