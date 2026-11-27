@@ -88,10 +88,13 @@ the permanent's derived battlefield characteristics and status, including
 type alternatives, nontoken and combat status. Phased-out permanents are
 excluded (CR 702.26b). A mandatory instruction to the controller, each
 player, or each opponent can require a fixed number per player, taking
-all eligible permanents when there are fewer (CR 609.3). “Another” excludes the exact source permanent
-(CR 400.7). A spell can ask each opponent for a creature with the greatest
+all eligible permanents when there are fewer (CR 609.3). “Another”
+excludes the exact source permanent (CR 400.7). A spell can ask each
+opponent for a creature with the greatest
 power among creatures they control. Each opponent sees every tied creature
-at their own maximum, using current power (CR 107.1b, 608.2h).
+at their own maximum, using current power (CR 107.1b, 608.2h). In a
+step-begin trigger, “that player” uses the active player from the
+original event (CR 500.1, 603.2).
 
 **Board-wide sets** include granted keywords at execution. Destruction, exile,
 bounce and all-recipient damage commit atomically; temporary P/T sets capture

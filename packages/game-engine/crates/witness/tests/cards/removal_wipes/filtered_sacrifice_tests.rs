@@ -222,6 +222,10 @@ fn cast_and_pass(game: &mut Game, lands: &[u32], color: Color) {
 fn cast_and_pass_with_mana(game: &mut Game, mana_sources: &[(u32, Color)]) {
     let cast = Driver::request(game, u64::MAX).cast(CardId(0));
     Driver::answer(game, u64::MAX, cast);
+    pay_and_pass(game, mana_sources);
+}
+
+fn pay_and_pass(game: &mut Game, mana_sources: &[(u32, Color)]) {
     let mut mana = BTreeMap::<Color, Quantity>::new();
     for &(land, color) in mana_sources {
         mana.entry(color).or_default().add(&1.into());
@@ -274,8 +278,14 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
     for _ in 0..4 {
         board = board.permanent_or_hand("Swamp", 0, 0, false);
     }
-    for player in [0, 1, 1, 1, 3] {
-        board = board.permanent_or_hand("Grizzly Bears", player, player, false);
+    for (name, player) in [
+        ("Grizzly Bears", 0),
+        ("Kalastria Highborn", 1),
+        ("Vampire Nighthawk", 1),
+        ("Grizzly Bears", 1),
+        ("Grizzly Bears", 3),
+    ] {
+        board = board.permanent_or_hand(name, player, player, false);
     }
     let prepared = board.libraries("Forest", 4).prepare();
     let mut game = Game::new(prepared.clone());
@@ -310,7 +320,13 @@ fn each_player_chooses_their_fixed_count_before_the_batch() {
         assert_eq!(restored.current(object).unwrap().zone, Zone::Battlefield);
     }
     Driver::answer(&mut restored, u64::MAX, c.pick_object(last));
-    Driver::request(&mut restored, u64::MAX);
+    // CR 603.10a: the Highborn looks back and sees itself and the other dying Vampire.
+    let triggers = Driver::request(&mut restored, u64::MAX);
+    assert_eq!(
+        (triggers.player, &triggers.reason),
+        (PlayerId(1), &Reason::OrderTriggers)
+    );
+    assert_eq!(triggers.required_count(), 2);
     for (player, object) in previous.into_iter().chain([(PlayerId(3), last)]) {
         let current = Driver::object(&restored, object.card.0);
         assert_eq!(
@@ -372,4 +388,118 @@ fn greatest_power_is_per_opponent_and_offers_every_tie() {
             }
         );
     }
+}
+
+#[test]
+fn upkeep_sacrifice_uses_the_original_active_player() {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    add(
+        &mut catalog,
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/61f68cf6-e083-4264-89b4-cc17749b2a8b.json"
+        ),
+    );
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let prepared = Board::new(catalog, "active-player-sacrifice")
+        .step(TurnStep::Untap)
+        .permanent_or_hand("Ruthless Winnower", 1, 1, false)
+        .permanent_or_hand("Grizzly Bears", 1, 0, false)
+        .permanent_or_hand("Llanowar Elves", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .libraries("Forest", 4)
+        .prepare();
+    let mut game = Game::new(prepared.clone());
+    let mut choice = Driver::request(&mut game, u64::MAX);
+    for _ in 0..8 {
+        if choice.reason == Reason::Sacrifice {
+            break;
+        }
+        assert_eq!(choice.reason, Reason::Priority);
+        Driver::answer(&mut game, u64::MAX, choice.pass());
+        choice = Driver::request(&mut game, u64::MAX);
+    }
+    assert_eq!(
+        (choice.player, &choice.reason),
+        (PlayerId(0), &Reason::Sacrifice)
+    );
+    let bear = Driver::object(&game, 1);
+    assert_eq!(choice.objects_offered(), vec![bear]);
+    let mut restored = Game::restore(prepared, &game.snapshot().unwrap()).unwrap();
+    assert_eq!(Driver::request(&mut restored, u64::MAX), choice);
+    Driver::answer(&mut restored, u64::MAX, choice.pick_object(bear));
+    Driver::request(&mut restored, u64::MAX);
+    let current = Driver::object(&restored, 1);
+    assert_eq!(
+        restored.current(current).unwrap().zone,
+        Zone::Graveyard { owner: PlayerId(1) }
+    );
+}
+
+#[test]
+fn target_player_only_selects_a_current_combatant() {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    add(
+        &mut catalog,
+        include_str!(
+            "../../../../../tests/fixtures/phase1-r5/efdaa3eb-e5d1-4438-b21d-2ec0fff44721.json"
+        ),
+    );
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let prepared = Board::new(catalog, "targeted-combat-sacrifice")
+        .step(TurnStep::BeginningCombat)
+        .permanent_or_hand("Celestial Flare", 1, 1, true)
+        .permanent_or_hand("Plains", 1, 1, false)
+        .permanent_or_hand("Plains", 1, 1, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .libraries("Forest", 4)
+        .prepare();
+    let mut game = Game::new(prepared);
+    let mut attack = Driver::request(&mut game, u64::MAX);
+    for _ in 0..4 {
+        if attack.reason == Reason::Attackers {
+            break;
+        }
+        Driver::answer(&mut game, u64::MAX, attack.pass());
+        attack = Driver::request(&mut game, u64::MAX);
+    }
+    assert_eq!(attack.reason, Reason::Attackers);
+    let attacker = Driver::object(&game, 3);
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        attack.attack(vec![(attacker, PlayerId(1))]),
+    );
+    Driver::pass(&mut game);
+    let cast = Driver::request(&mut game, u64::MAX);
+    assert_eq!(cast.player, PlayerId(1));
+    Driver::answer(&mut game, u64::MAX, cast.cast(CardId(0)));
+    let targets = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(targets.reason, Reason::Targets { .. }));
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        targets.player_targets(vec![PlayerId(0)]),
+    );
+    pay_and_pass(&mut game, &[(1, Color::W), (2, Color::W)]);
+    let choice = Driver::request(&mut game, u64::MAX);
+    assert_eq!(
+        (choice.player, &choice.reason),
+        (PlayerId(0), &Reason::Sacrifice)
+    );
+    assert_eq!(choice.objects_offered(), vec![attacker]);
+    Driver::answer(&mut game, u64::MAX, choice.pick_object(attacker));
+    Driver::request(&mut game, u64::MAX);
+    assert_eq!(
+        game.current(Driver::object(&game, 3)).unwrap().zone,
+        Zone::Graveyard { owner: PlayerId(0) }
+    );
+    assert_eq!(
+        game.current(Driver::object(&game, 4)).unwrap().zone,
+        Zone::Battlefield
+    );
 }

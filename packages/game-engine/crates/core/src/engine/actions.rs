@@ -782,10 +782,7 @@ impl RulesTxn {
             }) => self.execute_sacrifice_instruction(frame, op),
             kernel!(Sacrifice { player: player @ (you!() | event_player!()), .. } @ source_block) =>
             {
-                let recipient = player
-                    .is_event_player()
-                    .then_some(ActionRecipient::EventPlayer);
-                let actor = self.resolution_player(&frame, recipient.as_ref())?;
+                let actor = self.resolving_sacrifice_player(&frame, &player)?;
                 if !self.is_live(actor) || self.sacrifice_options(&frame, actor)?.is_empty() {
                     self.finish_instruction(
                         frame,
@@ -1437,12 +1434,9 @@ impl RulesTxn {
                     },
                     kernel!(Sacrifice { player: recipient @ (you!() | event_player!()), .. } @ expected),
                 ) => {
-                    let recipient = recipient
-                        .is_event_player()
-                        .then_some(ActionRecipient::EventPlayer);
                     source_block == expected
                         && self
-                            .resolution_player(frame, recipient.as_ref())
+                            .resolving_sacrifice_player(frame, recipient)
                             .is_ok_and(|actor| actor == *player)
                 }
                 (

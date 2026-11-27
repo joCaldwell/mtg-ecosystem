@@ -387,7 +387,9 @@ impl GraveyardGroup {
                     GroupResult::Discard {..} => matches!(i, kernel!(Discard { player: you!() | event_player!(), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), amount: fixed!(_), random: false }) | kernel!(Discard { player: target_player!(_), random: true, .. })),
                     GroupResult::Sacrifice {player} if matches!(i, Instruction::Kernel { node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. }, .. }) => *player == entry.controller,
                     GroupResult::Sacrifice {player} if matches!(i, kernel!(Sacrifice { player: you!(), .. })) => *player == entry.controller,
-                    GroupResult::Sacrifice {..} => matches!(i, kernel!(Sacrifice { player: event_player!(), .. }) | kernel!(Sacrifice { player: target_player!(_), .. })),
+                    GroupResult::Sacrifice { player } if let kernel!(Sacrifice { player: recipient @ event_player!(), .. }) = i =>
+                        game.resolving_sacrifice_player(frame, recipient).is_ok_and(|actor| actor == *player),
+                    GroupResult::Sacrifice {..} => matches!(i, kernel!(Sacrifice { player: target_player!(_), .. })),
                 };
                 kind && self.cause == game.instruction_cause(frame,i.source_block())? && leaves.iter().all(|e| match (i,e) {
                     (i,ProposedEvent::DestroyPermanent {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| game.bound_object_target(entry,slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),

@@ -190,6 +190,7 @@ pub enum Cell {
     // CR 701.21: sacrifice.
     SacrificeController,
     SacrificeDamagedPlayer,
+    SacrificeActivePlayer,
     SacrificeEachPlayer,
     SacrificeEachOpponent,
     SacrificeEachOpponentGreatestPower,
@@ -424,6 +425,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DiscardGroup
         | C::SacrificeController
         | C::SacrificeDamagedPlayer
+        | C::SacrificeActivePlayer
         | C::SacrificeEachPlayer
         | C::SacrificeEachOpponent
         | C::SacrificeEachOpponentGreatestPower

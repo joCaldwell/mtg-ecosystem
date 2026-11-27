@@ -262,6 +262,34 @@ impl RulesTxn {
         }
     }
 
+    pub(super) fn resolving_sacrifice_player(
+        &self,
+        frame: &Resolving,
+        player: &mtg_contracts::kir::PlayerExpr,
+    ) -> Result<PlayerId, String> {
+        use mtg_contracts::kir::{EventPlayerRole, PlayerExpr, Ref};
+        match player {
+            you!() => Ok(self.entry(frame.stack_id)?.controller),
+            PlayerExpr::Is {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::DamagedPlayer,
+                    },
+            } => self.resolution_player(frame, Some(&ActionRecipient::EventPlayer)),
+            PlayerExpr::Is {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::ActivePlayer,
+                    },
+            } => self
+                .entry(frame.stack_id)?
+                .kind
+                .event_player()?
+                .ok_or_else(|| "missing original active player".into()),
+            _ => Err("unbound sacrifice player".into()),
+        }
+    }
+
     pub(super) fn resolving_sacrifice_count(&self, frame: &Resolving) -> Result<usize, String> {
         let entry = self.entry(frame.stack_id)?;
         match self

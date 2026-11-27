@@ -65,6 +65,12 @@ impl Walk<'_, '_> {
                         role: EventPlayerRole::DamagedPlayer,
                     },
             } => Ok(Cell::SacrificeDamagedPlayer),
+            PlayerExpr::Is {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::ActivePlayer,
+                    },
+            } => Ok(Cell::SacrificeActivePlayer),
             PlayerExpr::EachPlayer => Ok(Cell::SacrificeEachPlayer),
             PlayerExpr::EachOpponent => Ok(Cell::SacrificeEachOpponent),
             PlayerExpr::Is {

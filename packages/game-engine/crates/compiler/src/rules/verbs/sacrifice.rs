@@ -27,6 +27,11 @@ pub(super) fn lower(
         ast::PlayerRef::ThatPlayer(_) if cx.player_binding == PlayerBinding::DamageRecipient => {
             PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer)
         }
+        ast::PlayerRef::ThatPlayer(_)
+            if cx.player_binding.event_role() == Some(kir::EventPlayerRole::ActivePlayer) =>
+        {
+            PlayerExpr::event(kir::EventPlayerRole::ActivePlayer)
+        }
         ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
         ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
         ast::PlayerRef::EachOpponent(_) => PlayerExpr::EachOpponent,
