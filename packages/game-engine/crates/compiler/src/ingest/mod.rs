@@ -4,6 +4,7 @@ use super::*;
 
 mod mirror;
 mod printed;
+pub(crate) use printed::evidence;
 mod r6;
 pub(crate) use mirror::*;
 pub(crate) use r6::ArchiveEvidence;

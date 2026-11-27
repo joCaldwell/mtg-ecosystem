@@ -217,30 +217,28 @@ impl RulesTxn {
         }))
     }
 
-    pub(crate) fn entity_legal(&self, target: TargetEntity) -> bool {
+    pub(crate) fn entity_legal(&self, target: TargetEntity) -> Result<bool, String> {
         match target {
-            TargetEntity::Player { player } => self.targetable_player(player),
+            TargetEntity::Player { player } => Ok(self.targetable_player(player)),
             TargetEntity::Object { object } => self.is_permanent_damage_recipient(object),
         }
     }
-    pub(super) fn eligible_entities(&self) -> Vec<TargetEntity> {
-        self.live_players()
+    pub(super) fn eligible_entities(&self) -> Result<Vec<TargetEntity>, String> {
+        let mut out: Vec<TargetEntity> = self
+            .live_players()
             .into_iter()
             .filter(|p| self.targetable_player(*p))
             .map(|player| TargetEntity::Player { player })
-            .chain(
-                self.state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| {
-                        self.top().is_ok_and(|entry| {
-                            self.entity_target_legal(TargetEntity::Object { object: o.id }, entry)
-                        })
-                    })
-                    .map(|o| TargetEntity::Object { object: o.id }),
-            )
-            .collect()
+            .collect();
+        if let Ok(entry) = self.top() {
+            for o in self.state.rules.objects.values() {
+                let target = TargetEntity::Object { object: o.id };
+                if self.entity_target_legal(target, entry)? {
+                    out.push(target);
+                }
+            }
+        }
+        Ok(out)
     }
     pub(super) fn validate_entity_targets(
         &self,
@@ -250,13 +248,18 @@ impl RulesTxn {
         let top = self.top()?;
         let program = self.program()?;
 
+        let mut legal = true;
+        for target in entities {
+            legal &= self.entity_target_legal(*target, top)?;
+        }
         if player != top.controller
             || entities.len() != program.targets.len()
-            || entities.iter().enumerate().any(|(slot, target)| {
+            || !legal
+            || entities.iter().enumerate().any(|(slot, _)| {
                 !matches!(
                     program.targets[slot].domain,
                     TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker
-                ) || !self.entity_target_legal(*target, top)
+                )
             })
         {
             return Err("invalid damage targets".into());

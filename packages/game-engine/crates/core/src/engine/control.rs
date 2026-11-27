@@ -114,11 +114,17 @@ impl RulesTxn {
             .iter()
             .flat_map(|a| std::iter::once(a.attacker).chain(a.blockers.iter().copied()))
             .chain(self.state.rules.blocking_creatures.iter().copied())
-            .filter(|o| {
-                self.current(*o)
-                    .is_ok_and(|object| object.present_on_battlefield())
-                    && !self.is_battlefield_creature(*o)
+            .map(|o| {
+                Ok((
+                    o,
+                    self.current(o)
+                        .is_ok_and(|object| object.present_on_battlefield())
+                        && !self.is_battlefield_creature(o)?,
+                ))
             })
+            .collect::<Result<Vec<_>, String>>()?
+            .into_iter()
+            .filter_map(|(o, gone)| gone.then_some(o))
             .collect();
         for object in gone {
             self.remove_from_combat(object);

@@ -22,7 +22,7 @@ impl RulesTxn {
                 let object = *self
                     .bound_object_target(self.entry(frame.stack_id)?, slot)
                     .ok_or("missing combat prohibition target")?;
-                if !self.is_battlefield_creature(object) {
+                if !self.is_battlefield_creature(object)? {
                     return Ok(None);
                 }
                 Scope::Target { target: object }
@@ -33,7 +33,7 @@ impl RulesTxn {
                 target: Ref::Source,
             } => {
                 let object = self.entry(frame.stack_id)?.source;
-                if !self.is_battlefield_creature(object) {
+                if !self.is_battlefield_creature(object)? {
                     return Ok(None);
                 }
                 Scope::Target { target: object }

@@ -683,14 +683,16 @@ function parseSingleEvent(c: Cursor): Trigger | null {
     const events: Trigger[] = [];
     for (const { what: subject, grouping, groupSize } of subjects) {
       c.pos = eventStart;
-      const event = parseSubjectEvents(c, subject);
+      const sharedSubjectStart = subjects.length === 1 && !grouping ? subjectStart : undefined;
+      const event = parseSubjectEvents(c, subject, sharedSubjectStart);
       if (!event) return null;
       // A sized group is printed only for attacks (declared together, CR 508.1).
       if (groupSize && event.trigger !== "attacks") return c.fail("attack by a sized group");
       const grouped = grouping ? { ...event, grouping, ...(groupSize ? { groupSize } : {}) } : event;
-      // The event matcher starts after the subject. Only the combined single
-      // event production consumes both; alternatives share their subject.
-      if (subjects.length === 1 && event.trigger !== "any-of") c.mark(grouped, subjectStart, c.pos, "complete-production");
+      // One simple subject and coordinated verbs form a contiguous claim.
+      // A grouped alternative keeps the outer mark with its introducer.
+      if (sharedSubjectStart !== undefined || subjects.length === 1 && event.trigger !== "any-of")
+        c.mark(grouped, subjectStart, c.pos, "complete-production");
       events.push(grouped);
     }
     return events.length === 1 ? events[0] : { trigger: "any-of", events };
@@ -710,17 +712,22 @@ function isSingleIdentifiedObject(what: ObjectRef): boolean {
   return what.ref === "self" || what.ref === "this" || what.ref === "equipped" || what.ref === "enchanted";
 }
 
-function parseSubjectEvents(c: Cursor, subject: ObjectRef): Trigger | null {
+function parseSubjectEvents(c: Cursor, subject: ObjectRef, subjectStart?: number): Trigger | null {
   return c.attempt((c): Trigger | null => {
     const first = parseObjectEvent(c, subject);
     if (!first) return null;
+    const firstEnd = c.pos;
     const events = [first];
     while (c.word("or") !== null) {
-      const next = parseObjectEvent(c, subject);
+      const next = parseObjectEvent(c, subjectStart === undefined ? subject : c.alias(subject));
       if (!next) return null;
       events.push(next);
     }
-    return events.length === 1 ? first : { trigger: "any-of", events };
+    if (events.length === 1) return first;
+    // The first event consumes the printed subject and its own verb. Later
+    // events consume their verbs and refer back to the one printed subject.
+    if (subjectStart !== undefined) c.mark(first, subjectStart, firstEnd, "complete-production");
+    return { trigger: "any-of", events };
   });
 }
 

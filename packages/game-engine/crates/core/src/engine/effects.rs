@@ -487,15 +487,13 @@ impl RulesTxn {
         &self,
     ) -> Result<impl Iterator<Item = (&Object, &StaticRule)>, String> {
         Ok(self
-            .battlefield_statics(None)?
+            .live_static_rules(self.battlefield_statics(None)?)?
             .into_iter()
-            .filter_map(|(source, effect)| {
-                let rule = self.unpack_static_rule(source, effect)?;
+            .filter(|(_, rule)| {
                 matches!(
                     rule,
                     StaticRule::Block { .. } | StaticRule::AttackRestriction { .. }
                 )
-                .then_some((source, rule))
             }))
     }
 
@@ -542,14 +540,15 @@ impl RulesTxn {
             .chain(entry.and_then(|entry| entry.previous.as_ref()))
     }
 
-    fn static_count(&self, source: &Object, set: &SetExpr) -> usize {
-        match set {
+    /// A failed layer read is an error, never a smaller count.
+    fn static_count(&self, source: &Object, set: &SetExpr) -> Result<usize, String> {
+        Ok(match set {
             SetExpr::One {
                 object: Ref::Source,
             } => 1,
-            SetExpr::Matching { zone, filter } => self
-                .objects_for_static_counts()
-                .filter(|target| {
+            SetExpr::Matching { zone, filter } => {
+                let mut count = 0usize;
+                for target in self.objects_for_static_counts() {
                     let present = match zone {
                         ZoneExpr::Battlefield => target.present_on_battlefield(),
                         ZoneExpr::Graveyards => matches!(target.zone, Zone::Graveyard { .. }),
@@ -559,55 +558,55 @@ impl RulesTxn {
                         }
                         _ => false,
                     };
-                    present
+                    if present
                         && (!matches!(target.zone, Zone::Graveyard { .. })
                             || !self.state.rules.tokens.contains_key(&target.id.card))
-                        && self
-                            .structural_characteristics(target.id)
-                            .is_ok_and(|characteristics| {
-                                self.static_predicate(
-                                    filter,
-                                    source,
-                                    target,
-                                    &characteristics,
-                                    target.controller,
-                                )
-                            })
-                })
-                .count(),
+                    {
+                        let characteristics = self.structural_characteristics(target.id)?;
+                        count += usize::from(self.static_predicate(
+                            filter,
+                            source,
+                            target,
+                            &characteristics,
+                            target.controller,
+                        ));
+                    }
+                }
+                count
+            }
             _ => 0,
-        }
+        })
     }
 
-    fn static_amount(&self, source: &Object, amount: &Amount) -> Option<Quantity> {
-        match amount {
+    fn static_amount(&self, source: &Object, amount: &Amount) -> Result<Option<Quantity>, String> {
+        Ok(match amount {
             Amount::Fixed { value } => Some(value.clone()),
-            Amount::Count { set } => Some((self.static_count(source, set) as i64).into()),
+            Amount::Count { set } => Some((self.static_count(source, set)? as i64).into()),
             // CR 700.5: statics admit only their controller's devotion
             // (`kir::statics`).
             Amount::Devotion { player, colors } => {
                 if *player != PlayerExpr::static_controller() {
-                    return None;
+                    return Ok(None);
                 }
-                self.devotion(source.controller, colors)
+                Some(self.devotion(source.controller, colors)?)
             }
             _ => None,
-        }
+        })
     }
 
     /// CR 700.5, 700.5a: the mana symbols of `colors` among the mana costs
     /// of the permanents `player` controls; a hybrid symbol contributes at
     /// most one.
-    pub(super) fn devotion(&self, player: PlayerId, colors: &[Color]) -> Option<Quantity> {
+    pub(super) fn devotion(&self, player: PlayerId, colors: &[Color]) -> Result<Quantity, String> {
         let mut count = Quantity::zero();
         for permanent in self
             .objects_for_static_counts()
             .filter(|p| p.present_on_battlefield() && p.controller == player)
         {
-            let c = &self.copiable_definition(permanent.id).ok()?.characteristics;
+            let c = &self.copiable_definition(permanent.id)?.characteristics;
             count.add(&(c.devotion_symbols(colors) as i64).into());
         }
-        Some(count)
+        Ok(count)
     }
 
     pub(super) fn entry_condition(
@@ -646,20 +645,31 @@ impl RulesTxn {
         })
     }
 
-    pub(super) fn static_condition(&self, source: &Object, condition: &Cond) -> bool {
-        match condition {
+    pub(super) fn static_condition(
+        &self,
+        source: &Object,
+        condition: &Cond,
+    ) -> Result<bool, String> {
+        Ok(match condition {
             Cond::Compare { left, cmp, right } => self
-                .static_amount(source, left)
-                .zip(self.static_amount(source, right))
+                .static_amount(source, left)?
+                .zip(self.static_amount(source, right)?)
                 .is_some_and(|(left, right)| static_compare(&left, *cmp, &right)),
-            Cond::Exists { set } => self.static_count(source, set) > 0,
+            Cond::Exists { set } => self.static_count(source, set)? > 0,
             Cond::ActivePlayer { player } => self
                 .state
                 .rules
                 .active
                 .is_some_and(|active| self.static_player(player, source.controller, active)),
-            Cond::Not { condition } => !self.static_condition(source, condition),
-            Cond::All { conditions } => conditions.iter().all(|c| self.static_condition(source, c)),
+            Cond::Not { condition } => !self.static_condition(source, condition)?,
+            Cond::All { conditions } => {
+                for c in conditions {
+                    if !self.static_condition(source, c)? {
+                        return Ok(false);
+                    }
+                }
+                true
+            }
             Cond::CostPaid { .. }
             | Cond::Satisfies { .. }
             | Cond::CastBy { .. }
@@ -670,7 +680,7 @@ impl RulesTxn {
             | Cond::ControllerCreatureTotalPower { .. }
             | Cond::Measured { .. }
             | Cond::ControlledSinceLastUpkeep {} => false,
-        }
+        })
     }
 
     /// The battlefield statics that exist after ability removal (CR 305.7,
@@ -721,17 +731,38 @@ impl RulesTxn {
         &self,
         source: &Object,
         effect: &'a StaticEffect,
-    ) -> Option<&'a StaticRule> {
-        match effect {
+    ) -> Result<Option<&'a StaticRule>, String> {
+        Ok(match effect {
             StaticEffect::Rule { rule, condition }
-                if condition
-                    .as_ref()
-                    .is_none_or(|c| self.static_condition(source, c)) =>
+                if self.condition_holds(source, condition.as_ref())? =>
             {
                 Some(rule)
             }
             _ => None,
+        })
+    }
+
+    /// CR 604.1: a static with no condition, or whose condition holds now.
+    pub(super) fn condition_holds(
+        &self,
+        source: &Object,
+        condition: Option<&Cond>,
+    ) -> Result<bool, String> {
+        condition.map_or(Ok(true), |c| self.static_condition(source, c))
+    }
+
+    /// The live rules of `statics`, keeping their order.
+    fn live_static_rules<'a>(
+        &self,
+        statics: impl IntoIterator<Item = (&'a Object, &'a StaticEffect)>,
+    ) -> Result<Vec<(&'a Object, &'a StaticRule)>, String> {
+        let mut rules = vec![];
+        for (source, effect) in statics {
+            if let Some(rule) = self.unpack_static_rule(source, effect)? {
+                rules.push((source, rule));
+            }
         }
+        Ok(rules)
     }
 
     pub(super) fn static_changes<'a>(
@@ -817,9 +848,7 @@ impl RulesTxn {
                         _ => self.color_layer_with_sources(target.id, sources),
                     };
                     self.static_matches(affects, source, target, facts?.as_ref(), target.controller)
-                        && condition
-                            .as_ref()
-                            .is_none_or(|c| self.static_condition(source, c))
+                        && self.condition_holds(source, condition.as_ref())?
                         && self.static_exists(source, key, Some(first), &alive, setters)?
                 }
             };
@@ -848,17 +877,15 @@ impl RulesTxn {
             return Ok(vec![]);
         }
         let mut rules = self
-            .battlefield_statics(sources)?
+            .live_static_rules(self.battlefield_statics(sources)?)?
             .into_iter()
-            .filter_map(
-                |(source, effect)| match self.unpack_static_rule(source, effect)? {
-                    StaticRule::Combat {
-                        affects,
-                        requirement,
-                    } => Some((source, affects, *requirement)),
-                    _ => None,
-                },
-            )
+            .filter_map(|(source, rule)| match rule {
+                StaticRule::Combat {
+                    affects,
+                    requirement,
+                } => Some((source, affects, *requirement)),
+                _ => None,
+            })
             .peekable();
         if rules.peek().is_none() {
             return Ok(vec![]);
@@ -881,7 +908,7 @@ impl RulesTxn {
             if let Some(StaticRule::AdditionalLandPlays {
                 player: who,
                 allowance,
-            }) = self.unpack_static_rule(source, effect)
+            }) = self.unpack_static_rule(source, effect)?
                 && self.static_player(who, source.controller, player)
             {
                 match allowance {
@@ -895,13 +922,13 @@ impl RulesTxn {
 
     pub(super) fn static_hand_size(&self, player: PlayerId) -> Result<Option<Quantity>, String> {
         let mut changes: Vec<_> = self
-            .battlefield_statics(None)?
+            .live_static_rules(self.battlefield_statics(None)?)?
             .into_iter()
-            .filter_map(|(source, effect)| {
+            .filter_map(|(source, rule)| {
                 let StaticRule::MaximumHandSize {
                     player: who,
                     change,
-                } = self.unpack_static_rule(source, effect)?
+                } = rule
                 else {
                     return None;
                 };
@@ -942,16 +969,13 @@ impl RulesTxn {
         target: &'a Object,
     ) -> Result<impl Iterator<Item = (&'a Object, &'a StaticRule)> + 'a, String> {
         Ok(self
-            .battlefield_statics(None)?
-            .into_iter()
-            .chain(
-                self.static_abilities_in(target, FunctioningZone::Stack)
-                    .map(move |e| (target, e)),
-            )
-            .filter_map(|(source, effect)| {
-                self.unpack_static_rule(source, effect)
-                    .map(|rule| (source, rule))
-            }))
+            .live_static_rules(
+                self.battlefield_statics(None)?.into_iter().chain(
+                    self.static_abilities_in(target, FunctioningZone::Stack)
+                        .map(move |e| (target, e)),
+                ),
+            )?
+            .into_iter())
     }
 
     pub(super) fn has_uncounterable_static(
@@ -1001,7 +1025,7 @@ impl RulesTxn {
                 let mut change = change.clone();
                 if let Some(amount) = multiplier {
                     let multiplier = self
-                        .static_amount(source, amount)
+                        .static_amount(source, amount)?
                         .ok_or("invalid static cost multiplier")?;
                     let (SpellCostChange::Increase { mana } | SpellCostChange::Reduce { mana }) =
                         &mut change;
@@ -1150,8 +1174,7 @@ impl RulesTxn {
                 .map(|(_, c)| c.printed_mana_value())
                 .fold(Quantity::zero(), Quantity::max),
             Amount::Devotion { player, colors } if *player == PlayerExpr::static_controller() => {
-                self.devotion(source.controller, colors)
-                    .ok_or("missing devotion definition")?
+                self.devotion(source.controller, colors)?
             }
             Amount::Distinct {
                 set,
@@ -1409,7 +1432,7 @@ impl RulesTxn {
                     .get(target_slot as usize)
                     .copied()
                     .unwrap_or(false)
-                    || !self.is_battlefield_creature(target)
+                    || !self.is_battlefield_creature(target)?
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -1428,7 +1451,7 @@ impl RulesTxn {
             kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
             {
                 let target = self.event_object_target(&frame)?;
-                if !self.is_battlefield_creature(target) {
+                if !self.is_battlefield_creature(target)? {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
@@ -1636,14 +1659,17 @@ impl RulesTxn {
             Err("missing damage transaction".into())
         }
     }
-    pub(super) fn recipient_chooser(&self, recipient: &DamageRecipient) -> Option<PlayerId> {
-        match recipient {
+    pub(super) fn recipient_chooser(
+        &self,
+        recipient: &DamageRecipient,
+    ) -> Result<Option<PlayerId>, String> {
+        Ok(match recipient {
             DamageRecipient::Player { player } => self.is_live(*player).then_some(*player),
             DamageRecipient::Permanent { object } => self
-                .is_permanent_damage_recipient(*object)
+                .is_permanent_damage_recipient(*object)?
                 .then(|| self.current(*object).ok().map(|o| o.controller))
                 .flatten(),
-        }
+        })
     }
     /// CR 608.2h/609.7c/702.2e/702.15b-c: damage-time properties use the
     /// exact source's current public-zone appearance or its LKI when it has
@@ -1736,7 +1762,7 @@ impl RulesTxn {
             .ok_or("unknown original damage occurrence")?;
         if d.amount <= Quantity::zero()
             || d.applied.contains(&pair.effect)
-            || self.recipient_chooser(&d.recipient).is_none()
+            || self.recipient_chooser(&d.recipient)?.is_none()
         {
             return Err("damage effect no longer applicable".into());
         }
@@ -1837,14 +1863,12 @@ impl RulesTxn {
             .position(|p| *p == self.state.rules.turn_owner)
             .ok_or("missing APNAP anchor")?;
         order.rotate_left(anchor);
-        let mut recipients: Vec<_> = tx
-            .entries
-            .iter()
-            .filter_map(|d| {
-                self.recipient_chooser(&d.recipient)
-                    .map(|p| (p, d.recipient))
-            })
-            .collect();
+        let mut recipients: Vec<_> = vec![];
+        for d in &tx.entries {
+            if let Some(p) = self.recipient_chooser(&d.recipient)? {
+                recipients.push((p, d.recipient));
+            }
+        }
         recipients.sort_by_key(|(p, r)| {
             (
                 order.iter().position(|q| q == p).unwrap_or(4),
@@ -2134,7 +2158,7 @@ impl RulesTxn {
                             .get(*target_slot as usize)
                             == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
-                            && self.is_battlefield_creature(*target)
+                            && self.is_battlefield_creature(*target)?
                             && power == p
                             && toughness == t
                             && *source_block == effect.origin.source_block
@@ -2148,7 +2172,7 @@ impl RulesTxn {
                         },
                     ) => {
                         self.event_object_target(frame).ok() == Some(*target)
-                            && self.is_battlefield_creature(*target)
+                            && self.is_battlefield_creature(*target)?
                             && power == p
                             && toughness == t
                             && *source_block == effect.origin.source_block
@@ -2315,7 +2339,7 @@ impl RulesTxn {
             if d.amount.is_negative() || d.original_amount <= Quantity::zero() {
                 return Err("invalid final damage quantity".into());
             }
-            if self.recipient_chooser(&d.recipient).is_none() {
+            if self.recipient_chooser(&d.recipient)?.is_none() {
                 cancelled.push(d.id);
                 continue;
             }
@@ -2823,7 +2847,7 @@ impl RulesTxn {
         if let Ok(tx) = self.damage_transaction() {
             let statics = self.static_damage_keys()?;
             for d in &tx.entries {
-                let Some(controller) = self.recipient_chooser(&d.recipient) else {
+                let Some(controller) = self.recipient_chooser(&d.recipient)? else {
                     continue;
                 };
                 if d.amount <= Quantity::zero() {

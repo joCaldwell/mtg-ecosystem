@@ -75,7 +75,7 @@ impl RulesTxn {
             ));
         }
         if let Some(reason) =
-            self.spell_proposal_obstacle(program, player, &definition.characteristics)
+            self.spell_proposal_obstacle(program, player, &definition.characteristics)?
         {
             return Err(RuleError::illegal(reason));
         }
@@ -115,7 +115,7 @@ impl RulesTxn {
             ));
         }
         if let Some(modal) = &definition.modal_spell
-            && !self.modal_has_selection(modal, player, &definition.characteristics, None)
+            && !self.modal_has_selection(modal, player, &definition.characteristics, None)?
         {
             return Err(RuleError::illegal(
                 "no legal mode selection for this proposal",
@@ -175,7 +175,7 @@ impl RulesTxn {
             ));
         }
         if let Some(reason) =
-            self.spell_proposal_obstacle(program, player, &face_down.characteristics)
+            self.spell_proposal_obstacle(program, player, &face_down.characteristics)?
         {
             return Err(RuleError::illegal(reason));
         }
@@ -195,19 +195,19 @@ impl RulesTxn {
         program: &SpellProgram,
         player: PlayerId,
         source: &Characteristics,
-    ) -> Option<&'static str> {
+    ) -> Result<Option<&'static str>, String> {
         if program
             .additional_sacrifice
             .as_ref()
             .is_some_and(|filter| self.sacrifice_candidates(player, filter).is_empty())
         {
-            return Some("no payable sacrifice cost");
+            return Ok(Some("no payable sacrifice cost"));
         }
         // A spell names no battlefield source, so no target excludes one.
-        if !self.has_target_domain(program, player, source, None) {
-            return Some("no legal target for this proposal");
+        if !self.has_target_domain(program, player, source, None)? {
+            return Ok(Some("no legal target for this proposal"));
         }
-        None
+        Ok(None)
     }
 
     /// Quote an ordinary front-face cast for its priority holder using the

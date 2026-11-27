@@ -154,6 +154,6 @@ pub(super) fn capabilities(what: &SetExpr, to: &Destination, out: &mut BTreeSet<
                 _ => Capability::PermanentRemovalV1,
             });
         }
-        SetExpr::Pool { .. } | SetExpr::Result { .. } => {}
+        SetExpr::Pool { .. } | SetExpr::Targets { .. } | SetExpr::Result { .. } => {}
     }
 }

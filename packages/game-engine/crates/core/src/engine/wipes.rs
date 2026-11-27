@@ -60,15 +60,15 @@ impl RulesTxn {
         };
         let entry = self.top()?;
         // With no qualifying card, target announcement rejects the cast.
-        Ok(self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|object| self.object_target_legal_before_x(entry, object.id, spec))
-            .filter_map(|object| self.graveyard_mana_value(object.id))
-            .min()
-            .unwrap_or_else(Quantity::zero))
+        let mut least: Option<Quantity> = None;
+        for object in self.state.rules.objects.values() {
+            if self.object_target_legal_before_x(entry, object.id, spec)?
+                && let Some(value) = self.graveyard_mana_value(object.id)
+            {
+                least = Some(least.map_or(value.clone(), |l| l.min(value)));
+            }
+        }
+        Ok(least.unwrap_or_else(Quantity::zero))
     }
 
     // CR 601.2b-c: an exact X choice must leave that many legal objects.
@@ -81,13 +81,10 @@ impl RulesTxn {
         }
         let entry = self.top()?;
         let spec = &program.targets[0];
-        let eligible = self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|object| self.object_target_legal_before_x(entry, object.id, spec))
-            .count();
+        let mut eligible = 0usize;
+        for object in self.state.rules.objects.values() {
+            eligible += usize::from(self.object_target_legal_before_x(entry, object.id, spec)?);
+        }
         Ok(Some(
             i64::try_from(eligible)
                 .map_err(|_| "target choice limit")?

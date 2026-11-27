@@ -35,6 +35,11 @@ testkit_fields! {
         pub(in crate::engine) actual_journal: Option<Box<ActualJournal>>,
         // Present only on the private CR 614.12 lookahead fork.
         pub(in crate::engine) prospective_entry: Option<battlefield_entry::ProspectiveEntryState>,
+        // CR 616.1 answers given while a suspended step replays; empty
+        // otherwise. Every fork of the replaying step reads them.
+        pub(in crate::engine) replacement_answers: Arc<[replacement::OrderAnswer]>,
+        // The lineage of the leaf being applied, taken by its occurrence.
+        pub(in crate::engine) quantity_log: Vec<replacement::QuantityApplication>,
     }
 }
 testkit_fields! {
@@ -257,6 +262,8 @@ impl RulesTxn {
             kernel_leaf: None,
             actual_journal: None,
             prospective_entry: None,
+            replacement_answers: Arc::new([]),
+            quantity_log: vec![],
             published: None,
         };
         if let Some(starting) = game
@@ -294,6 +301,8 @@ impl RulesTxn {
             published: self.published.clone(),
             actual_journal: self.actual_journal.clone(),
             prospective_entry: self.prospective_entry.clone(),
+            replacement_answers: self.replacement_answers.clone(),
+            quantity_log: vec![],
         }
     }
     /// Trusted host execution boundary; never a player-facing identifier.

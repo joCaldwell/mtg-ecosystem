@@ -56,6 +56,7 @@ impl RulesTxn {
             Frame::ChosenObjectCost { selected, .. } => return self.chosen_cost_request(selected),
             Frame::LegendRule { .. } => return self.legend_request(),
             Frame::BattlefieldEntry { entry } => return self.battlefield_entry_request(entry),
+            Frame::ReplacementOrder { order } => return self.replacement_order_request(order),
             Frame::Priority => self.priority_decision(self.state.rules.priority)?,
             Frame::TriggerTargets { .. } if !self.top_has_target_domain()? => return Ok(None),
             Frame::TriggerTargets { .. } if self.unbound_modes(self.top()?)? => {

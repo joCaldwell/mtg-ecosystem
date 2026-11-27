@@ -86,10 +86,12 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
   };
 
   const targets = new Map<object, { path: string; value: object }>();
+  let hasQuotedGrant = false;
   // An alias re-originated in place keeps its identity for earlier aliases of it.
   const chains = new Map<object, object>();
   function findAliasTargets(value: unknown, path: string): void {
     if (!value || typeof value !== "object") return;
+    if ("gained" in value && value.gained === "quoted") hasQuotedGrant = true;
     const origin = capture.origin(value);
     const identity = capture.identity(value);
     if (origin?.basis === "alias") {
@@ -102,16 +104,16 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
   findAliasTargets(ability, "");
 
   function visit(value: unknown, path: string, scope: string, depth: number, parent?: LocatedNode,
-    aliasOf?: string): void {
+    aliasOf?: string, unlocated = false): void {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
       value.forEach((item, i) => visit(item, pointer(path, String(i)), scope, depth, parent,
-        aliasOf === undefined ? undefined : pointer(aliasOf, String(i))));
+        aliasOf === undefined ? undefined : pointer(aliasOf, String(i)), unlocated));
       return;
     }
     const obj = value as Record<string, unknown>;
     if (abilityKinds.has(obj.kind as Ability["kind"])) scope = path;
-    const origin = capture.origin(value);
+    const origin = unlocated ? undefined : capture.origin(value);
     const mutated = origin?.basis === "recorded" && capture.changedSinceMark(value);
     if (mutated) {
       defects.mutationGuardDemotions++;
@@ -126,6 +128,17 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
       const target = targets.get(identity);
       if (target && JSON.stringify(target.value) === JSON.stringify(value)) aliasOf = target.path;
     }
+    if (hasQuotedGrant && aliasOf === undefined && !mutated && (origin?.basis === "recorded" || origin?.basis === "hull")) {
+      // A printed occurrence may be copied into several AST branches. In a
+      // block with a grant, treating both copies as independent can discard
+      // the whole enclosure when the sibling extents are compared.
+      const target = targets.get(capture.identity(value)!);
+      if (target && capture.origin(target.value) === origin && byPath.has(target.path)) {
+        const listSibling = /\/\d+$/.test(path) && /\/\d+$/.test(target.path) &&
+          path.slice(0, path.lastIndexOf("/")) === target.path.slice(0, target.path.lastIndexOf("/"));
+        if (!listSibling && JSON.stringify(target.value) === JSON.stringify(value)) aliasOf = target.path;
+      }
+    }
 
     const located: LocatedNode = { value: obj, node: { path, basis: "unlocated" }, scope, depth, children: [] };
     ordered.push(located);
@@ -134,8 +147,10 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
     for (const [key, child] of Object.entries(value)) {
       const newBody = key === "effects" && (obj.effect === "create-reflexive-trigger" ||
         obj.effect === "create-delayed-trigger" && obj.targets === "delayed-ability");
+      // The alias names the shared grant. Its body has no second enclosure.
+      const sharedBody = aliasOf !== undefined && obj.gained === "quoted" && key === "ability";
       visit(child, pointer(path, key), newBody ? path : scope, depth + 1, located,
-        aliasOf === undefined ? undefined : pointer(aliasOf, key));
+        aliasOf === undefined || sharedBody ? undefined : pointer(aliasOf, key), unlocated || sharedBody);
     }
 
     if (aliasOf !== undefined) {

@@ -95,6 +95,65 @@ D2 substitutes only the two definition archive/parser provenance digests
 changed rows, and the manifest's archive/parser identities, catalog digest and
 payload hashes. The same producer, payload lengths and all decisions must agree.
 
+### Rust printed evidence
+
+The intake verifier applies P1–P10 to each applicable R6 row before its card is
+assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
+wire format and evidence bases. P6 rebuilds quote regions from the original
+text through verified normalization, lexing and punctuation order. A quoted
+grant's AST body enters the region bounded by its wrapper's matching marks.
+Every matched pair in a successfully read block needs an owner. An ancestor's
+span may include an owned quote together with both marks. Primary spans,
+folds, hull spans and clause runs each preserve that boundary.
+The exact `the "legend rule" doesn't apply` exemption and
+`all "bands with other" abilities` removal can own their term quotes. The
+verifier requires the matching located AST production and the complete pair
+in each run set that covers it. Terms stay in the enclosing ability's scope.
+P7 requires a fact and its owner to share a region. A lexical fact wholly
+inside a verified term keeps its innermost owner in that ability. P9 requires
+the target token, its fact owner and the linked selection node to share a
+region. A family that opts in receives a verified `CardEvidence` from intake.
+Query its face and block before lowering and pass the missing obligation
+when an R5 input requires R6. The result is a per-card
+`evidence:requires-r6` with the requested face, block and obligation.
+
+`BlockEvidence` locates AST object nodes and individual facts in original UTF-8
+face bytes. A recorded node cites its runs and folds. An alias names the same
+occurrence and reports the resolved owner. An implicit node supplies a closed
+reason and uses the governing production as its diagnostic anchor. A hull
+locates a container. Facts on its verified tokens can be cited individually.
+An unlocated object, an alias without a usable target or a fact assigned to
+the root for uncovered tokens yields a located `evidence:missing`.
+
+The opt-in check derives its obligation inventory from the verified block AST.
+P11 requires the resolver to discharge each field with a verified exact link,
+a production-specific check of the printed phrase and field value, or a closed
+default at its governing node. P12 requires an explicit checked meaning or
+structural role for every printed fact and token. Structural roles require a
+verified punctuation fact within the recorded production's quote region and
+at its boundary. A sentence period may touch that region's closing mark.
+The current roles cover period-terminated sentences, trigger and for-each clause commas,
+activation cost list commas, and the activation cost/effect colon. These use
+the parser's [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
+and its sentence, clause and activation productions. Operators, including
+signs and the power/toughness slash, require a checked field meaning and a
+fact bound to that meaning. Fact and token lookups leave coverage unchanged.
+This catches an omitted qualifier with either a null field link or an absent
+fact. Several checked fields may cite the same occurrence.
+An undischarged field or unconsumed occurrence rejects the card with an original
+byte range.
+
+Run the frozen witness and mutation harness against the pinned candidate with
+`MTG_R6_VERIFIER_ROWS` set to its path.
+
+```sh
+sh scripts/engine-env.sh npm run engine:dev -- test -p mtg-compiler --lib frozen_family_evidence -- --ignored --nocapture
+```
+
+The verifier-only mutations rehash their local payloads over unchanged Oracle
+text. The detached source probes re-read changed text through the pinned
+parser and verify the new AST and evidence or require a located rejection.
+
 ## IR and build identity
 
 `mtg_contracts::CURRENT_IR_VERSION` is the sole executable IR authority, fixed at
@@ -403,8 +462,9 @@ of a simultaneous step after an earlier sibling took from the pool. A printed
 target's block-relative slot must be the one announced for its selection.
 Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
 target bind through the [antecedent rule](#verb-signatures). Counters on each of
-several targets reject as `operand:target:<count|up_to>:counters`, because
-per-member leaves would split one simultaneous placement (CR 608.2f, 603.2c).
+several targets lower to one `PutCounters` over `SetExpr::Targets`, a single
+simultaneous placement on the counted occurrence's legal members (CR 608.2f,
+603.2c); per-member leaves would split it into several events.
 
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.

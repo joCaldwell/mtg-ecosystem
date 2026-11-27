@@ -7,6 +7,7 @@ import type { PrintedBlock, PrintedFace, TokenRun } from "../src/printed/schema.
 import { analyzeCardBindings } from "../src/semantic/bindings.ts";
 import { resolveCard } from "../src/semantic/resolution.ts";
 import { frozenR5, readRows } from "./support/frozen-r5.ts";
+import { nodesAtPaths, quoteChecks } from "./support/printed-quotes.ts";
 
 const archivePath = process.env.MTG_R5_ARCHIVE;
 
@@ -129,20 +130,9 @@ const witnessGroups = [
   ["Secret Rendezvous", "Wedgelight Rammer"],
 ] as const;
 
-function valuesAtPaths(value: unknown, path = "", values = new Map<string, Record<string, unknown>>()) {
-  if (Array.isArray(value)) value.forEach((item, index) => valuesAtPaths(item, `${path}/${index}`, values));
-  else if (value && typeof value === "object") {
-    const object = value as Record<string, unknown>;
-    values.set(path, object);
-    for (const [key, child] of Object.entries(object))
-      valuesAtPaths(child, path + "/" + key.replaceAll("~", "~0").replaceAll("/", "~1"), values);
-  }
-  return values;
-}
-
 function auditBlock(face: Extract<PrintedFace, { status: "read" }>,
   block: Extract<PrintedBlock, { status: "read" }>, ability: unknown, source: Buffer) {
-  const values = valuesAtPaths(ability);
+  const values = nodesAtPaths(ability);
   return block.nodes.map(node => {
     const value = values.get(node.path);
     assert.ok(value, node.path);
@@ -165,7 +155,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
   const wrongSpans = { verbRecordedYou: 0, regenerationForbidden: 0, unpreventable: 0, optional: 0 };
   const families = familyNames.map(family => ({ family, roots: 0, unlocatedRoots: 0, nodes: 0, unlocated: 0 }));
   const witnesses = witnessGroups.map(names => ({ names, observed: new Set<string>(), failedBlocks: 0, unlocated: [] as string[] }));
-  const emitted = { nesting: 0, overlap: 0, conflict: 0, hull: 0 };
+  const emitted = { nesting: 0, overlap: 0, conflict: 0, hull: 0, quotes: 0 };
   const failures: string[] = [];
   const digest = createHash("sha256");
   const check = (pass: boolean, key: "legacyDiffs" | "captureDiffs" | "bindingDiffs" | "resolutionDiffs", site: string) => {
@@ -197,6 +187,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
       else {
         counts.failedLexLines += read.printed.lines.filter(line => line.status === "failed").length;
         const sourceText = Buffer.from(source.oracle_text!);
+        const checkQuotes = quoteChecks(read.printed, read.result.lines.map(line => line.text).join("\n"));
         const tokenCounts = read.printed.lines.map(line => line.status === "lexed" ? line.tokens.length : 0);
         const witness = witnesses.find(({ names }) => names.some(name => name === source.name));
         if (witness) witness.observed.add(source.name);
@@ -220,6 +211,9 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
           }
           const parsedLine = read.result.lines[index];
           assert.ok(parsedLine?.ok, site);
+          const quoteErrors = checkQuotes(block, parsedLine.ability);
+          emitted.quotes += quoteErrors.length;
+          if (quoteErrors.length && failures.length < 12) failures.push(`${site} block ${index}: ${quoteErrors[0]}`);
           const roots = new Map<string, typeof families[number]>();
           for (const { node, value, printed } of auditBlock(read.printed, block, parsedLine.ability, sourceText)) {
             bases[node.basis]++;
@@ -244,7 +238,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
             if (value.optional === true && !/\bmay\b/iu.test(printed)) wrongSpans.optional++;
           }
           const defects = defectCount(block, tokenCounts);
-          for (const key of Object.keys(emitted) as (keyof typeof emitted)[]) emitted[key] += defects[key];
+          for (const key of Object.keys(defects) as (keyof typeof defects)[]) emitted[key] += defects[key];
         }
       }
       return { sourceFaceIndex, result: read.result };
@@ -270,8 +264,9 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
     await writeFile(process.env.MTG_R5_CAPTURE_RECEIPT, JSON.stringify(receipt, null, 2) + "\n");
   assert.equal(counts.attempted, 34_464);
   assert.equal(counts.unmappable, 0);
+  assert.equal(receipt.legacyResultSha256, "adfad83fde64e32eb54df40eee03e4ed68c41f806b9e81297cb457c30bc62309");
   assert.deepEqual(failures, []);
-  assert.deepEqual(emitted, { nesting: 0, overlap: 0, conflict: 0, hull: 0 });
+  assert.deepEqual(emitted, { nesting: 0, overlap: 0, conflict: 0, hull: 0, quotes: 0 });
   assert.deepEqual(wrongSpans, { verbRecordedYou: 0, regenerationForbidden: 0, unpreventable: 0, optional: 0 });
   assert.equal(candidates.mutationGuardDemotions, 0);
   assert.equal(candidates.unlocatedSelections, 0);

@@ -217,23 +217,33 @@ card's identity in that hand (`known_searched_hand`) without exceeding the
 revealed copies. Other entry costs (behold, multiple cards) reject.
 
 **Quantity and entry replacements (E2 contract).** They follow the shared
-[pre-commit protocol](game-engine-mechanics.md#runtime-invariants). An entering
-permanent is tested as it would exist, under its incoming controller, against
-the battlefield before any simultaneous entrant. The prospective entry query is used before each replacement application. A
-co-entering doubler never activates through allocation order. The entrant's own "enters
-with" counters, intrinsic loyalty and ordinary Saga lore become contained
-counter members that quantity effects can see (CR 122.6, 714.3a). Precombat-main
-lore stays a turn-based action (CR 714.3c). Quantity replacements lower to
-`StaticEffect::ModifyQuantity` over token creation or counter placement, reusing
-`CounterPlacementModification`'s positive add and multiply; any other change
-(Vizier of Remedies' subtraction) rejects the card. An effect-only clause
-matches what a resolving effect or another replacement produces (CR 614.16); an
-any-origin clause also matches costs. So a loyalty cost under Doubling Season
-stays at its paid amount, while a +1/+1 cost placement modified by Hardened
-Scales becomes eligible for Season. From one +1/+1 counter placed by an effect,
-Scales then Season gives four, and Season then Scales gives three.
-`validate_counter_allocations` checks the original proposal against the
-instruction and the committed count against the recorded applications.
+[pre-commit protocol](game-engine-mechanics.md#runtime-invariants). "If an
+effect would create one or more tokens under your control" and "If [an effect
+would put] one or more [kind] counters [would be put] on a [permanent/creature]
+you control" lower to `StaticRule::ModifyQuantity { event, change }`: event
+`CreateTokens` or `PutCounters` (one kind or any, permanents or creatures) with
+an effect-only or any origin, and change `QuantityModification` add or multiply
+(Hardened Scales; Doubling Season, Parallel Lives, Anointed Procession,
+Branching Evolution, Corpsejack Menace). Tokens only multiply. Any other event,
+recipient or change, such as Vizier of Remedies' subtraction, rejects the card
+as `static:replacement:<verb>:<field>`.
+
+An entering permanent is tested as it would exist, under its incoming
+controller, against the battlefield before any simultaneous entrant (CR 614.12),
+so a co-entering doubler never applies and an entrant's own quantity statics do
+not see its own entry. Its "enters with" counters, intrinsic loyalty and
+ordinary Saga lore are contained counter members produced by a replacement
+(CR 122.6, 306.5b, 714.3a), as is the megamorph counter (CR 614.1e); the
+entering card is the order subject unless it comes from a hidden zone or is a
+token. Precombat-main lore stays a turn-based action (CR 714.3c) and is not
+doubled. A loyalty cost under Doubling Season stays at its paid amount; a
+resolving proliferate of it doubles; a planeswalker enters with twice its
+loyalty and a Saga with two lore counters, so chapters I and II each trigger.
+From one +1/+1 counter placed by an effect, Scales then Season gives four and
+Season then Scales three. A token creation multiplies each recipe, defender or
+opponent (populate, myriad, encore) and stays one creation per invocation.
+Counters on each of several targets are one placement whose members each ask
+their own order.
 
 ## Keywords, attachments and temporary effects
 

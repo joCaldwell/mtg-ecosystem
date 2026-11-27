@@ -543,7 +543,7 @@ impl RulesTxn {
         node: &Node,
     ) -> Result<Vec<ObjectId>, String> {
         if Self::is_sacrifice_payment(node) {
-            return Ok(self.controlled_creatures(player));
+            return self.controlled_creatures(player);
         }
         let mut eligible = Vec::new();
         for card in self.action_hand(player) {

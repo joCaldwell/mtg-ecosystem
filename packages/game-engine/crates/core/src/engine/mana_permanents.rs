@@ -573,10 +573,7 @@ impl RulesTxn {
                     } => reads.push((key, *controller, *colors_only)),
                     ManaProduction::ChooseDevotion {} => {
                         for color in self.mana_colors(o.controller, &ability.production)? {
-                            if self
-                                .devotion(o.controller, &[color])
-                                .is_some_and(|n| n > Quantity::zero())
-                            {
+                            if self.devotion(o.controller, &[color])? > Quantity::zero() {
                                 types.insert(color);
                             }
                         }
@@ -1286,9 +1283,7 @@ impl RulesTxn {
             }
             ManaProduction::ChooseDevotion {} => {
                 let color = color.ok_or("devotion mana requires a chosen color")?;
-                let amount = self
-                    .devotion(a.player, &[color])
-                    .ok_or("missing devotion characteristics")?;
+                let amount = self.devotion(a.player, &[color])?;
                 if amount == Quantity::zero() {
                     vec![]
                 } else {
@@ -1725,9 +1720,13 @@ impl RulesTxn {
             f = self.saved_frame(a.resume)?;
         }
         if let Frame::Mana { cast } = f {
-            invalid |= self.state.rules.stack.last().is_none_or(|top| {
-                top.id != cast.stack_id || self.announced_target_legality(top).iter().any(|v| !*v)
-            });
+            invalid |= match self.state.rules.stack.last() {
+                None => true,
+                Some(top) => {
+                    top.id != cast.stack_id
+                        || self.announced_target_legality(top)?.iter().any(|v| !*v)
+                }
+            };
         }
         if invalid {
             if let Frame::ManaSourceChoice { resume, .. } = &self.state.rules.frame {

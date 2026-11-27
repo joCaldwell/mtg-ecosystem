@@ -604,7 +604,9 @@ impl RulesTxn {
                     self.zone(*object) == Some(Zone::Hand { owner: *player })
                         && self.is_live(*player)
                 }
-                ProposedEvent::DestroyCreature { object } => self.is_battlefield_creature(*object),
+                ProposedEvent::DestroyCreature { object } => {
+                    self.is_battlefield_creature(*object)?
+                }
                 ProposedEvent::DestroyPermanent { object } => self
                     .current(*object)
                     .is_ok_and(|o| o.present_on_battlefield()),

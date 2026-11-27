@@ -220,12 +220,8 @@ pub(super) fn lower(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instr
         return Err(operand("target", format!("{}:damage_source", group.code())));
     }
     // CR 608.2f, 603.2c: counters put on each of several targets are one
-    // action processed simultaneously, one event with several occurrences.
-    // Per-member leaves would place them one event at a time, and no set
-    // names several announced targets.
-    if matches!(step.effect(), Some(ast::Effect::PutCounters(_))) {
-        return Err(operand("target", format!("{}:counters", group.code())));
-    }
+    // simultaneous placement event over the group's legal members.
+    let counters = matches!(step.effect(), Some(ast::Effect::PutCounters(_)));
     if group.count > MAX_GROUP {
         return Err(operand(
             "target",
@@ -265,7 +261,47 @@ pub(super) fn lower(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instr
         return Err(operand("target", format!("{}:shape", group.code())));
     }
     cx.program.optional_target = group.up_to;
+    if counters {
+        return Ok(Some(vec![placement(cx, &out)?]));
+    }
     Ok(Some(batch(cx, group.count, out)))
+}
+
+/// CR 608.2b, 608.2f: the per-member placements of one counted occurrence,
+/// identical but for their slot, become one placement on every legal member.
+fn placement(cx: &StepCx<'_>, members: &[Instruction]) -> Result<Instruction, Failure> {
+    let mut shape = None;
+    for (index, instruction) in members.iter().enumerate() {
+        let Instruction::Kernel {
+            node:
+                kir::Node::Do(Verb::PutCounters {
+                    on,
+                    counter,
+                    amount,
+                }),
+            ..
+        } = instruction
+        else {
+            return Err(operand("target", "group:counters:leaf"));
+        };
+        if *on != SetExpr::target(index as u32)
+            || shape.is_some_and(|(c, a)| (c, a) != (counter, amount))
+        {
+            return Err(operand("target", "group:counters:leaf"));
+        }
+        shape = Some((counter, amount));
+    }
+    let (counter, amount) = shape.ok_or_else(|| operand("target", "group:counters:leaf"))?;
+    Ok(Instruction::Kernel {
+        node: kir::Node::Do(Verb::PutCounters {
+            on: SetExpr::Targets {
+                slots: (0..members.len() as u32).collect(),
+            },
+            counter: counter.clone(),
+            amount: amount.clone(),
+        }),
+        source_block: cx.source_block,
+    })
 }
 
 /// CR 603.6a, 603.10a, 608.2b: battlefield removal and tap status change

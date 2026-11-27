@@ -498,7 +498,7 @@ impl RulesTxn {
         for spec in specs {
             let allowed = match spec.domain {
                 TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => self
-                    .eligible_entities()
+                    .eligible_entities()?
                     .into_iter()
                     .map(|entity| {
                         let target = match entity {
@@ -531,8 +531,11 @@ impl RulesTxn {
                     .rules
                     .objects
                     .values()
-                    .filter(|o| self.object_target_legal_for(entry, o.id, spec))
-                    .map(|o| candidate_index(&mut candidates, Candidate::Object { object: o.id }))
+                    .map(|o| Ok((o.id, self.object_target_legal_for(entry, o.id, spec)?)))
+                    .collect::<Result<Vec<_>, String>>()?
+                    .into_iter()
+                    .filter_map(|(object, legal)| legal.then_some(object))
+                    .map(|object| candidate_index(&mut candidates, Candidate::Object { object }))
                     .collect(),
                 _ => return Err("target domain outside the admitted decision algebra".into()),
             };

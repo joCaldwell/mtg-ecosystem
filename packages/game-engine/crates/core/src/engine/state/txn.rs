@@ -123,7 +123,17 @@ impl Game {
     /// history capacity, commit. On failure nothing is committed, and a
     /// capacity fault the change recorded travels with the error.
     pub(in crate::engine) fn commit_rule_step(&mut self, coalesce: bool) -> Result<(), RuleError> {
-        self.transact(true, |tx| tx.execute_step(coalesce))
+        match self.transact(true, |tx| tx.execute_step(coalesce)) {
+            // CR 616.1: the step reached an unanswered replacement order.
+            // Nothing it did is kept; the order frame asks and replays it.
+            Err(error) => match replacement::requested_order(&String::from(error.clone())) {
+                Some(request) => {
+                    self.transact(true, |tx| tx.suspend_for_replacement_order(request))
+                }
+                None => Err(error),
+            },
+            ok => ok,
+        }
     }
 
     /// Accepts an input atomically. Retaining an input is charged to history
@@ -234,6 +244,8 @@ impl RulesTxn {
             published: None,
             actual_journal: None,
             prospective_entry: None,
+            replacement_answers: Arc::new([]),
+            quantity_log: vec![],
         })
     }
 }

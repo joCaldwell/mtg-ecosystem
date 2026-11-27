@@ -85,12 +85,17 @@ impl RulesTxn {
 
     /// CR 122.1: P/T and keyword counters go on battlefield creatures here;
     /// other kinds on any present permanent.
-    pub(super) fn counter_recipient(&self, object: ObjectId, counter: &CounterKind) -> bool {
+    pub(super) fn counter_recipient(
+        &self,
+        object: ObjectId,
+        counter: &CounterKind,
+    ) -> Result<bool, String> {
         if counter.needs_creature() {
             self.is_battlefield_creature(object)
         } else {
-            self.current(object)
-                .is_ok_and(Object::present_on_battlefield)
+            Ok(self
+                .current(object)
+                .is_ok_and(Object::present_on_battlefield))
         }
     }
 
@@ -304,13 +309,15 @@ impl RulesTxn {
         // CR 701.34a: one atomic placement per permanent carries every kind
         // it receives; members are grouped by object in allocation order.
         let mut leaves: Vec<ProposedEvent> = vec![];
-        for m in tx.members.iter().filter(|m| {
-            if proliferating {
+        for m in &tx.members {
+            let receives = if proliferating {
                 self.can_proliferate_permanent(m.object)
             } else {
-                self.counter_recipient(m.object, &m.counter)
+                self.counter_recipient(m.object, &m.counter)?
+            };
+            if !receives {
+                continue;
             }
-        }) {
             let amount = CounterAmount {
                 counter: m.counter.clone(),
                 amount: m.amount.clone(),
