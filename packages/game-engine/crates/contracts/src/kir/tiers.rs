@@ -670,6 +670,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::FightV1
         | C::PopulateV1
         | C::MyriadV1
+        | C::FlankingV1
         | C::PlayerCountersV1
         | C::RegenerationShieldV1
         | C::ProliferateV1

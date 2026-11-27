@@ -1088,6 +1088,8 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
                 | K::Horsemanship
                 | K::Fear
                 | K::Skulk
+                // CR 702.25a: with its trigger (`triggered`).
+                | K::Flanking
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
@@ -1098,6 +1100,12 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
 /// Complete admission of a composed definition. Nothing here defers to a
 /// whole-card family, so a rejected row can never be reached another way.
 pub(crate) fn validate(d: &Definition) -> Result<(), String> {
+    // CR 702.25a: the flanking marker and the flanking trigger come together.
+    if d.keywords.contains(&KeywordAbility::Flanking)
+        != d.triggered.iter().any(TriggeredAbility::is_flanking)
+    {
+        return cell("keyword", "flanking");
+    }
     let p = &d.provenance;
     let source: serde_json::Value = strict_read(&p.source_json)?;
     let abilities_json = match &d.back_face {

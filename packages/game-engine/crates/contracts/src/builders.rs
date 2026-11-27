@@ -378,6 +378,52 @@ impl TriggeredAbility {
         }
     }
 
+    /// CR 702.25a: "Whenever this creature becomes blocked by a creature
+    /// without flanking, the blocking creature gets -1/-1 until end of turn."
+    pub fn flanking(block: u32) -> Self {
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        program.instructions.push(Instruction::Kernel {
+            source_block: block,
+            node: kir::Node::Do(kir::Verb::ModifyUntil {
+                what: kir::SetExpr::One {
+                    object: kir::Ref::EventObject {
+                        role: kir::EventObjectRole::Blocker,
+                    },
+                },
+                layer: kir::Layer::PowerToughnessModify,
+                change: kir::Change::PowerToughness {
+                    power: kir::Amount::fixed(-1),
+                    toughness: kir::Amount::fixed(-1),
+                },
+                until: kir::Until::EndOfTurn,
+            }),
+        });
+        Self {
+            modal: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::on(kir::EventPattern::BlockedByCreature {
+                attacker: kir::Pred::source(),
+                blocker: kir::Pred(vec![
+                    kir::Atom::Type {
+                        kind: CardKind::Creature,
+                    },
+                    kir::Atom::NotKeyword {
+                        keyword: KeywordAbility::Flanking,
+                    },
+                ]),
+            }),
+            program,
+        }
+    }
+
+    /// CR 702.25a: this is exactly a flanking ability.
+    pub fn is_flanking(&self) -> bool {
+        let block = self.program.instructions.first().map(|i| match i {
+            Instruction::Kernel { source_block, .. } => *source_block,
+        });
+        block.is_some_and(|block| *self == Self::flanking(block))
+    }
+
     /// CR 702.116a: this is exactly a myriad ability.
     pub fn is_myriad(&self) -> bool {
         let block = self.program.instructions.first().map(|i| match i {

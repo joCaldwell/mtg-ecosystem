@@ -1,7 +1,8 @@
 //! Combat-triggered keywords lowered to their defining triggers, from exact
 //! frozen R5 source on private boards: CR 702.83 (exalted), 702.116
 //! (myriad), 702.105 (dethrone), 702.149 (training), 702.130 (afflict),
-//! 702.23 (rampage), 702.121 (melee) and 702.91 (battle cry).
+//! 702.23 (rampage), 702.121 (melee), 702.91 (battle cry) and 702.25
+//! (flanking).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -18,6 +19,7 @@ const KHENRA_ETERNAL: &str = record!("91b46b22-8062-434b-8432-5ed1062ccaf9");
 const AERATHI_BERSERKER: &str = record!("5cb495a2-c683-4066-b6ee-d0b7d8843cb9");
 const DEPUTIZED_PROTESTER: &str = record!("09947592-1730-4c1c-bfa5-be53a68d6919");
 const ACCORDER_PALADIN: &str = record!("6891c8b7-7112-40dc-8b94-b84ad1885e5e");
+const BENALISH_CAVALRY: &str = record!("0bf619f9-4b19-404c-995f-f23a4b859dd4");
 
 fn power_toughness(g: &Game, object: ObjectId) -> (Option<Quantity>, Option<Quantity>) {
     let c = g.characteristics(object).unwrap();
@@ -558,5 +560,39 @@ fn battle_cry_pumps_each_other_attacking_creature() {
     assert_eq!(power_toughness(&g, second), pt(4, 1));
     assert_eq!(power_toughness(&g, bears), pt(4, 2));
     assert_eq!(power_toughness(&g, home), pt(2, 2));
+    assert_recoverable((&g).into());
+}
+
+/// Benalish Cavalry (2/2, flanking) is blocked by Grizzly Bears and by the
+/// opponent's own Benalish Cavalry. Flanking triggers once, for the blocker
+/// without flanking (CR 702.25a): the Bears become 1/1, the other Cavalry
+/// stays 2/2. Damage then kills the Bears.
+#[test]
+fn flanking_shrinks_each_blocker_without_flanking() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[BENALISH_CAVALRY], TurnStep::BeginningCombat)
+                .permanent_or_hand("Benalish Cavalry", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 1, 1, false)
+                .permanent_or_hand("Benalish Cavalry", 1, 1, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let [cavalry, bears, other] = [0, 1, 2].map(|i| Driver::object(&g, i));
+    assert!(
+        g.definition(CardId(0))
+            .unwrap()
+            .keywords
+            .contains(&KeywordAbility::Flanking)
+    );
+    blocked_combat(
+        &mut g,
+        &[(cavalry, PlayerId(1))],
+        &[(bears, cavalry), (other, cavalry)],
+    );
+    assert_eq!(power_toughness(&g, bears), pt(1, 1));
+    assert_eq!(power_toughness(&g, other), pt(2, 2));
+    assert_eq!(power_toughness(&g, cavalry), pt(2, 2));
+    checked(&g);
     assert_recoverable((&g).into());
 }

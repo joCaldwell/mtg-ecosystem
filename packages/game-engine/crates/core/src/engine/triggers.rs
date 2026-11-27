@@ -337,6 +337,10 @@ pub enum TriggerEventWitness {
         attacker: Box<ObjectBefore>,
         blocker: Box<ObjectBefore>,
         controller_at_match: PlayerId,
+        /// CR 702.25a, 603.10: the blocker an effect names ("the blocking
+        /// creature"), bound when the ability triggers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binding: Option<ObservedObject>,
     },
     /// CR 120.3, 603.2c: a permanent dealt positive damage by one
     /// simultaneous damage event, as it was when the damage was dealt.
@@ -387,16 +391,18 @@ pub enum TriggerEventWitness {
 impl TriggerEventWitness {
     pub(super) fn observed_object(&self) -> Option<&ObservedObject> {
         match self {
-            Self::Entered { binding, .. } | Self::CreatureAttacked { binding, .. } => {
-                binding.as_ref()
-            }
+            Self::Entered { binding, .. }
+            | Self::CreatureAttacked { binding, .. }
+            | Self::BlockedByCreature { binding, .. } => binding.as_ref(),
             _ => None,
         }
     }
 
     pub(super) fn refresh_observed_object(&mut self, facts: &ObjectBefore) {
         match self {
-            Self::Entered { binding, .. } | Self::CreatureAttacked { binding, .. } => {
+            Self::Entered { binding, .. }
+            | Self::CreatureAttacked { binding, .. }
+            | Self::BlockedByCreature { binding, .. } => {
                 if let Some(binding) = binding
                     && binding.last_known.object == facts.object
                 {
@@ -1152,6 +1158,7 @@ impl RulesTxn {
                         controller_at_match: a.controller,
                         attacker: a,
                         blocker: b,
+                        binding: None,
                     });
                     if blockers.insert(*blocker) {
                         let facts = before.object_before(*blocker)?;
@@ -1975,7 +1982,8 @@ impl RulesTxn {
             if let Some(facts) = observed {
                 let binding = match &mut witness {
                     TriggerEventWitness::Entered { binding, .. }
-                    | TriggerEventWitness::CreatureAttacked { binding, .. } => binding,
+                    | TriggerEventWitness::CreatureAttacked { binding, .. }
+                    | TriggerEventWitness::BlockedByCreature { binding, .. } => binding,
                     _ => return Err("bound event object has no typed witness".into()),
                 };
                 *binding = Some(ObservedObject {
@@ -3040,6 +3048,7 @@ impl RulesTxn {
                 blocker,
                 attacker,
                 controller_at_match,
+                ..
             } => {
                 self.validate_fact_identity(blocker)?;
                 self.validate_fact_identity(attacker)?;

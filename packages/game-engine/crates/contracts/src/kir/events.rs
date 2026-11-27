@@ -238,6 +238,7 @@ impl EventPattern {
             | Self::AttacksAlone { .. }
             | Self::AttacksWithGreaterPower { .. }
             | Self::AttacksPlayerWithMostLife { .. } => Some(EventObjectRole::Attacked),
+            Self::BlockedByCreature { .. } => Some(EventObjectRole::Blocker),
             _ => None,
         }
     }
