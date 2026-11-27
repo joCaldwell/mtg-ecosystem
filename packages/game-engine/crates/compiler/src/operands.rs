@@ -321,7 +321,12 @@ pub(crate) struct Scope {
     /// The card types the trigger's event object pattern names, as
     /// [`CardKind::CARD_TYPES`] bits; zero names none.
     pub(crate) event_types: u8,
+    /// CR 201.5: the trigger condition names the source apart from its
+    /// event object ("a spell that targets this creature", "this creature
+    /// becomes blocked by a creature").
+    pub(crate) source_named: bool,
     pub(crate) prior: crate::ingest::Introduced,
+    pub(crate) floor: Floor,
 }
 
 impl From<PlayerBinding> for Scope {
@@ -330,9 +335,20 @@ impl From<PlayerBinding> for Scope {
             player,
             event_is_source: false,
             event_types: 0,
+            source_named: false,
             prior: Default::default(),
+            floor: Floor::default(),
         }
     }
+}
+
+/// CR 700.2, 700.2c: where one chosen mode's own targets and instructions
+/// begin in a program that several chosen modes share. A pronoun in the
+/// mode refers only to that mode's text, never an earlier mode's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Floor {
+    pub(crate) targets: usize,
+    pub(crate) instructions: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

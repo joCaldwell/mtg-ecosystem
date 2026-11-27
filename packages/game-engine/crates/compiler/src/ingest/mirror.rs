@@ -415,6 +415,9 @@ pub(crate) struct Introduced {
     /// The step names an untargeted object: a chosen, created, revealed,
     /// attached or set object, or a step result (CR 608.2c, 608.2h).
     pub(crate) other: bool,
+    /// The step names the source itself, as "this <type>" or by name
+    /// (CR 201.5): a later bare "it" may mean it.
+    pub(crate) source: bool,
 }
 
 impl Introduced {
@@ -422,20 +425,21 @@ impl Introduced {
         Self {
             object_target: self.object_target || other.object_target,
             other: self.other || other.other,
+            source: self.source || other.source,
         }
     }
 
-    /// Scan one archived step. Pronouns, "this"/"self" and the trigger's
-    /// own event object name nothing new; every other object reference,
-    /// and every step that creates, reveals or moves cards it does not
-    /// target, introduces a candidate.
+    /// Scan one archived step. Pronouns and the trigger's own event object
+    /// name nothing new, and "this"/"self" names only the source; every
+    /// other object reference, and every step that creates, reveals or
+    /// moves cards it does not target, introduces a candidate.
     pub(crate) fn of_step(step: &serde_json::Value) -> Self {
         fn walk(value: &serde_json::Value, out: &mut Introduced) {
             match value {
                 serde_json::Value::Object(object) => {
                     match object.get("ref").and_then(|r| r.as_str()) {
-                        Some("it" | "that" | "them" | "this" | "self" | "trigger-event-object") => {
-                        }
+                        Some("it" | "that" | "them" | "trigger-event-object") => {}
+                        Some("this" | "self") => out.source = true,
                         Some("target" | "any-target") => out.object_target = true,
                         Some(_) => out.other = true,
                         None => {}

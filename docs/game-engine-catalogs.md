@@ -349,7 +349,7 @@ target's block-relative slot must be the one announced for its selection.
 Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
 target bind through the [antecedent rule](#verb-signatures). Counters on each of
 several targets reject as `operand:target:<count|up_to>:counters`, because
-per-member leaves would split one simultaneous placement (CR 122.6).
+per-member leaves would split one simultaneous placement (CR 608.2f, 603.2c).
 
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.

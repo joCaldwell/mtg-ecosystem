@@ -236,6 +236,32 @@ fn declaration(
     })
 }
 
+/// CR 700.2, 700.2c: one chosen mode of a spell lowers against its own
+/// text. In a selection that shares one program, the floor hides the
+/// targets and instructions of the modes before it from its pronouns.
+pub(super) fn append_mode(
+    selection: &mut SpellProgram,
+    option: &[Value],
+    block: usize,
+) -> Result<(), Failure> {
+    let floor = Floor {
+        targets: selection.targets.len(),
+        instructions: selection.instructions.len(),
+    };
+    append_effects(
+        selection,
+        parts(option)?,
+        block,
+        &mut BTreeMap::new(),
+        Context::Spell,
+        |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
+        Scope {
+            floor,
+            ..PlayerBinding::Unbound.into()
+        },
+    )
+}
+
 pub(super) fn lower(
     effects: &[Value],
     timing: SpellTiming,
@@ -243,17 +269,7 @@ pub(super) fn lower(
     site: &control::Site<'_>,
 ) -> Result<ModalSpell, Failure> {
     let declared = printed(effects, text, Header::Spell, site)?;
-    let append = |mode: &mut SpellProgram, option: &[Value]| {
-        append_effects(
-            mode,
-            parts(option)?,
-            site.index,
-            &mut BTreeMap::new(),
-            Context::Spell,
-            |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
-            PlayerBinding::Unbound,
-        )
-    };
+    let append = |mode: &mut SpellProgram, option: &[Value]| append_mode(mode, option, site.index);
     let mut modes = Vec::with_capacity(declared.options.len());
     for option in &declared.options {
         let mut mode = SpellProgram::instructions(timing);
