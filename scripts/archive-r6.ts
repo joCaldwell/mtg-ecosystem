@@ -28,6 +28,58 @@ const fingerprint = () => ({ revision: null, sourceSha256: sourceDigest(["script
 const PRINTED_FIELD = ',"printed":';
 const PRINTED_SUFFIX = /^,"printed":(\{.*\}),"printedSha256":"([0-9a-f]{64})"\}\n$/s;
 
+interface PrintedFieldOrder {
+  keys: readonly string[];
+  children?: Readonly<Record<string, PrintedFieldOrder>>;
+}
+
+// JSON.stringify preserves the order used by the capture constructors. Each
+// list covers the keys of the writer's variants, including optional fields.
+const TEXT_DIGEST_ORDER = { keys: ["bytes", "sha256"] };
+const PRINTED_FIELD_ORDER: PrintedFieldOrder = {
+  keys: ["artifactKind", "schemaVersion", "faces"],
+  children: {
+    faces: {
+      keys: ["sourceFaceIndex", "status", "field", "reason", "original", "normalized", "edits", "lines", "blocks", "removedReminders"],
+      children: {
+        original: TEXT_DIGEST_ORDER,
+        normalized: TEXT_DIGEST_ORDER,
+        edits: { keys: ["edit", "reminder", "form", "role", "as", "slot", "via", "o", "n"] },
+        lines: {
+          keys: ["sourceId", "n", "status", "tokens", "error", "at"],
+          children: { tokens: { keys: ["t", "possessive", "grammarIndex", "n", "o"] } },
+        },
+        blocks: {
+          keys: ["status", "lines", "n", "facts", "nodes", "error", "at", "location"],
+          children: {
+            facts: { keys: ["fact", "form", "possessive", "value", "role", "moved", "n", "reminderIndex", "o",
+              "at", "tok", "targetIndex", "scope", "selectionId", "field"] },
+            nodes: { keys: ["path", "basis", "span", "folds", "clauses", "of", "reason"] },
+          },
+        },
+        removedReminders: { keys: ["fact", "editIndex", "o"] },
+      },
+    },
+  },
+};
+
+function verifyPrintedFieldOrder(value: unknown, order?: PrintedFieldOrder): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const entry of value) verifyPrintedFieldOrder(entry, order);
+    return;
+  }
+  if (!order) throw new Error("unexpected object in printed value");
+  let previous = -1;
+  for (const [key, child] of Object.entries(value)) {
+    const index = order.keys.indexOf(key);
+    if (index === -1) throw new Error(`unexpected printed field "${key}"`);
+    if (index <= previous) throw new Error(`printed field order differs from the writer at "${key}"`);
+    previous = index;
+    verifyPrintedFieldOrder(child, order.children?.[key]);
+  }
+}
+
 function emptyPrintedSummary() {
   return {
     records: 0,
@@ -115,23 +167,55 @@ function canonicalObject<T>(line: Buffer): T {
   return decoded as T;
 }
 
+type R6HeaderFields = Pick<R6Manifest, "parser" | "printed" | "nameCatalog" | "printedSummary" | "legacy"> &
+  { rules: Pick<R6Manifest["rules"], "sha256"> };
+
+function r6Manifest(old: ArchiveManifest, fields: R6HeaderFields): R6Manifest {
+  const { schemaSha256, vocabularySha256, generatorSha256, recordsSha256 } = fields.printed;
+  const { sha256, names } = fields.nameCatalog;
+  const { manifestSha256, fileSha256 } = fields.legacy;
+  return {
+    ...old, schemaVersion: 5, cut: "r6",
+    parser: { sourceSha256: fields.parser.sourceSha256 },
+    rules: { ...old.rules, sha256: fields.rules.sha256 },
+    printed: { schemaVersion: 1, schemaSha256, vocabularySha256, generatorSha256, recordsSha256 },
+    nameCatalog: { sha256, names },
+    printedSummary: fields.printedSummary,
+    legacy: { manifestSha256, fileSha256 },
+  };
+}
+
+function serializeR6Manifest(manifest: R6Manifest): Buffer {
+  return Buffer.from(JSON.stringify(manifest) + "\n");
+}
+
+function matchesSummaryFields(actual: unknown, template: object): boolean {
+  if (!actual || typeof actual !== "object" || Array.isArray(actual)) return false;
+  const entries = Object.entries(actual);
+  const fields = Object.entries(template);
+  return entries.length === fields.length && fields.every(([key, child], index) => {
+    const [actualKey, actualChild] = entries[index];
+    return key === actualKey && (typeof child === "object" ? matchesSummaryFields(actualChild, child)
+      : Number.isSafeInteger(actualChild) && actualChild >= 0);
+  });
+}
+
 function headerPair(baseline: Buffer, candidate: Buffer, pin: LegacyPin): R6Manifest {
   if (sha256(baseline.subarray(0, -1)) !== pin.headerSha256) throw new Error("R5 header hash differs from the pin");
   const old = canonicalObject<ArchiveManifest>(baseline);
   const header = canonicalObject<R6Manifest>(candidate);
-  const { schemaVersion, cut, parser, rules, printed, nameCatalog, printedSummary, legacy, ...same } = header;
-  const { schemaVersion: oldSchema, parser: _oldParser, rules: oldRules, ...oldSame } = old;
-  if (oldSchema !== 4 || schemaVersion !== 5 || cut !== "r6" ||
-      JSON.stringify(same) !== JSON.stringify(oldSame) ||
-      oldRules.edition !== frozen.rules.edition || rules?.edition !== oldRules.edition || rules.url !== oldRules.url ||
-      rules.sha256 !== frozen.rules.sha256 || Object.keys(rules).length !== 3 ||
-      Object.keys(parser ?? {}).length !== 1 || typeof parser.sourceSha256 !== "string" || !digestPattern.test(parser.sourceSha256))
+  const { parser, rules, printed, nameCatalog, printedSummary, legacy } = header;
+  if (old.schemaVersion !== 4 || old.rules.edition !== frozen.rules.edition || rules?.sha256 !== frozen.rules.sha256 ||
+      typeof parser?.sourceSha256 !== "string" || !digestPattern.test(parser.sourceSha256))
     throw new Error("R6 header differs from the frozen legacy metadata or has an invalid cut identity");
   if (legacy?.manifestSha256 !== pin.headerSha256 || legacy?.fileSha256 !== pin.sha256 ||
       ![printed?.schemaSha256, printed?.vocabularySha256, printed?.generatorSha256, printed?.recordsSha256, nameCatalog?.sha256]
         .every(value => typeof value === "string" && digestPattern.test(value)) ||
-      printed.schemaVersion !== 1 || !Number.isSafeInteger(nameCatalog.names) || nameCatalog.names < 1 || !printedSummary)
+      !Number.isSafeInteger(nameCatalog.names) || nameCatalog.names < 1)
     throw new Error("R6 header has invalid archive or evidence pins");
+  if (!matchesSummaryFields(printedSummary, emptyPrintedSummary()) ||
+      !candidate.equals(serializeR6Manifest(r6Manifest(old, header))))
+    throw new Error("R6 header fields or field order differ from the schema-5 writer");
   return header;
 }
 
@@ -156,8 +240,11 @@ function verifyRow(baseline: Buffer, line: Buffer, sourceIndex: number) {
   const printedSha256 = suffix[2];
   const rawPrinted = appended.subarray(PRINTED_FIELD.length, PRINTED_FIELD.length + Buffer.byteLength(suffix[1]));
   if (sha256(rawPrinted) !== printedSha256) throw new Error("printed hash mismatch");
+  if (!rawPrinted.equals(Buffer.from(JSON.stringify(printed))))
+    throw new Error("printed value is not compact canonical JSON");
   if (printed.artifactKind !== "oracle-printed-evidence" || printed.schemaVersion !== 1 || !Array.isArray(printed.faces))
     throw new Error("invalid printed evidence envelope");
+  verifyPrintedFieldOrder(printed, PRINTED_FIELD_ORDER);
   return { record, printed, printedSha256 };
 }
 
@@ -307,14 +394,14 @@ export async function writeR6Candidate(options: {
       await body.close();
     }
     requireSnapshot({ revision: null, sourceSha256: legacy.parser.sourceSha256 }, fingerprint);
-    const header: R6Manifest = {
-      ...legacy, schemaVersion: 5, cut: "r6", parser: { sourceSha256: legacy.parser.sourceSha256 },
-      rules: { ...legacy.rules, sha256: rulesSha256 },
+    const header = r6Manifest(legacy, {
+      parser: { sourceSha256: legacy.parser.sourceSha256 },
+      rules: { sha256: rulesSha256 },
       printed: { ...printedContract, recordsSha256: printedHash.digest("hex") },
       nameCatalog, printedSummary,
       legacy: { manifestSha256: frozen.archive.headerSha256, fileSha256: frozen.archive.sha256 },
-    };
-    const headerLine = Buffer.from(JSON.stringify(header) + "\n");
+    });
+    const headerLine = serializeR6Manifest(header);
     limitLine(headerLine, 1);
     if (bytes + headerLine.length > ARCHIVE_LIMITS.bytes) throw new Error("line 1: archive byte limit exceeded");
     const candidate = await open(temporary, "wx");

@@ -182,11 +182,13 @@ LF. The archive's ordered printed digest hashes one
 `sourceIndex<TAB>oracleIdentity<TAB>printedSha256-or-excluded<LF>` per source row.
 `printedSha256` hashes the exact serialized `printed` value.
 
-D0 streams the staged candidate and pinned R5 bytes in lockstep. Excluded
-rows must match exactly. In-scope rows must match up to the final object brace
-and add only `printed` and `printedSha256` after `resolutionSha256`. The check
-verifies source, AST, binding and resolution hash preimages. A mismatch
-identifies the first failing line and blocks publication. `--legacy-baseline
+D0 streams the staged candidate and pinned R5 bytes in lockstep. The candidate
+header must use the exact schema-5 fields in writer order. Excluded rows must
+match exactly. In-scope rows must match up to the final object brace and add
+only `printed` and `printedSha256` after `resolutionSha256`. D0 checks that
+the raw printed value is compact JSON in writer order. It verifies the raw
+printed digest and the source, AST, binding and resolution hash preimages. A
+mismatch identifies the first failing line and blocks publication. `--legacy-baseline
 PATH --verify-candidate PATH` repeats D0 on existing files. The JSON receipt
 includes the exact archive pins, counts by capture basis, elapsed check time,
 and largest raw line including LF. The candidate manifest and frozen snapshots
