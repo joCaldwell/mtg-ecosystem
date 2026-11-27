@@ -401,3 +401,47 @@ fn life_lost_this_way_reads_only_its_own_mode() {
         ]
     ));
 }
+
+/// CR 700.2, 608.2c: "draw a card for each card discarded this way" reads
+/// the discard of its own mode. An earlier chosen mode's discard in the
+/// shared program is neither a competing producer nor a fallback one.
+#[test]
+fn discarded_this_way_reads_only_its_own_mode() {
+    let discard = |who: &str| {
+        serde_json::json!({"effect": "discard", "who": {"player": who},
+            "what": {"ref": "filter", "filter": {"cls": "card"},
+                "count": {"amount": "fixed", "value": 1}}})
+    };
+    let draw = serde_json::json!({"effect": "draw", "who": {"player": "you"},
+        "amount": {"amount": "count", "of": {"cls": "card",
+            "relation": {"relation": "event-result", "event": "discard", "scope": "this-way"}}}});
+    let earlier = serde_json::json!({"steps": [discard("each-opponent")]});
+    let own = serde_json::json!({"steps": [discard("you"), draw.clone()]});
+    let mut selection = SpellProgram::instructions(SpellTiming::Instant);
+    modal::append_mode(&mut selection, std::slice::from_ref(&earlier), 0).unwrap();
+    modal::append_mode(&mut selection, std::slice::from_ref(&own), 0).unwrap();
+    let [
+        Instruction::Kernel {
+            node: kir::Node::Do(opponents),
+            ..
+        },
+        Instruction::Kernel {
+            node: kir::Node::Seq(linked),
+            ..
+        },
+    ] = selection.instructions.as_slice()
+    else {
+        panic!("the later mode links its own discard: {:?}", selection.instructions);
+    };
+    assert!(opponents.evaluated().is_some());
+    assert_eq!(linked.len(), 2);
+    // Neighbour: a mode with no discard of its own cannot read the earlier
+    // mode's.
+    let alone = serde_json::json!({"steps": [draw]});
+    let mut selection = SpellProgram::instructions(SpellTiming::Instant);
+    modal::append_mode(&mut selection, std::slice::from_ref(&earlier), 0).unwrap();
+    assert_eq!(
+        code(&modal::append_mode(&mut selection, std::slice::from_ref(&alone), 0).unwrap_err()),
+        "operand:result:unbound_event_result"
+    );
+}

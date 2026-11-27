@@ -62,11 +62,14 @@ pub(super) fn linked_count(
     let Some((family, filter)) = card_result(filter)? else {
         return Ok(None);
     };
+    // CR 700.2: a chosen mode reads only its own instructions, never an
+    // earlier chosen mode's in the shared program.
     let instructions = &cx.program.instructions;
     let base = instructions
         .iter()
         .rposition(|instruction| instruction.source_block() != cx.source_block)
-        .map_or(0, |index| index + 1);
+        .map_or(0, |index| index + 1)
+        .max(cx.floor.instructions);
     let index = base
         + producer(
             instructions[base..]
