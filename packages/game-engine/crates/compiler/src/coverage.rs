@@ -33,6 +33,11 @@ fn io(e: std::io::Error) -> CoverageError {
         reason: e.to_string(),
     }
 }
+
+fn verify_evidence(archive: &AcceptedArchive, text: &str) -> Result<(), CoverageError> {
+    crate::ingest::ArchiveEvidence::verify_text(archive, text)
+        .map_err(|(line, reason)| CoverageError::InvalidRecord { line, reason })
+}
 #[derive(Debug, Serialize)]
 pub struct ReasonCount {
     pub status: String,
@@ -330,6 +335,7 @@ pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageE
     if accepted.file_sha256.as_deref() != Some(sha256(&bytes).as_str()) {
         return Err(CoverageError::ArchiveHashMismatch);
     }
+    verify_evidence(accepted, text)?;
     let mut gaps = vec![];
     for (i, raw) in text.lines().skip(1).enumerate() {
         let row: Value = strict_read(raw).map_err(|reason| CoverageError::InvalidRecord {
@@ -413,6 +419,7 @@ pub fn coverage_selected(
     if accepted.file_sha256.as_deref() != Some(hash.as_str()) {
         return Err(CoverageError::ArchiveHashMismatch);
     }
+    verify_evidence(accepted, text)?;
     let mut summary = CoverageSummary {
         report_version: 1,
         archive_sha256: hash,

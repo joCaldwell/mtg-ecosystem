@@ -78,7 +78,10 @@ pub fn compile(manifest: &str, record: &str) -> CompileResult {
     compile_result(
         accepted_manifest(manifest)
             .map_err(|e| invalid("manifest", e))
-            .and_then(|archive| lower(archive, record)),
+            .and_then(|archive| {
+                ingest::ArchiveEvidence::verify_fixture(archive, record)?;
+                lower(archive, record)
+            }),
     )
 }
 

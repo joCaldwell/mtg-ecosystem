@@ -14,20 +14,52 @@ test('retained archive hashes agree with JavaScript and source parser', () => {
   const provenance = JSON.parse(read('provenance.json'));
   const archives = JSON.parse(read('accepted-archives.json'));
   for (const archive of archives) {
+    if (archive.pending) {
+      assert.equal(archive.cut, 'r6');
+      assert.equal(archive.file_sha256, null);
+      assert.deepEqual(archive.record_sha256, []);
+      continue;
+    }
     const raw = read(archive.manifest_file);
     const header = JSON.parse(raw);
     assert.equal(sha(raw.trimEnd()), archive.manifest_sha256);
-    assert.equal(header.parser.revision, archive.parser_revision);
+    if (archive.cut === 'r6') {
+      assert.equal(header.schemaVersion, 5);
+      assert.equal(header.cut, 'r6');
+      assert.deepEqual(Object.keys(header.parser), ['sourceSha256']);
+      assert.equal(header.rules.sha256, provenance.rules_sha256);
+      assert.equal(header.printed.schemaVersion, 1);
+      assert.equal(header.printed.schemaSha256, archive.r6.printed_schema_sha256);
+      assert.equal(header.printed.vocabularySha256, archive.r6.printed_vocabulary_sha256);
+      assert.equal(header.printed.generatorSha256, archive.r6.printed_generator_sha256);
+      assert.equal(header.printed.recordsSha256, archive.r6.printed_records_sha256);
+      assert.equal(header.nameCatalog.sha256, archive.r6.name_catalog_sha256);
+      assert.equal(header.nameCatalog.names, archive.r6.name_catalog_names);
+      assert.equal(header.inputRecords, archive.r6.input_records);
+      assert.equal(header.corpus.canonicalRecordsSha256, archive.r6.canonical_records_sha256);
+    } else {
+      assert.ok(['r4', 'r5'].includes(archive.cut));
+      assert.equal(header.schemaVersion, 4);
+      assert.equal(header.parser.revision, archive.parser_revision);
+    }
     assert.equal(header.parser.sourceSha256, archive.parser_source_sha256);
     assert.equal(header.corpus.sha256, archive.corpus_sha256);
   }
   assert.ok(provenance.records.length > 0);
   for (const witness of provenance.records) {
     const archive = archives.find((a: any) => a.manifest_file === witness.archive);
-    assert.ok(archive, witness.file);
+    assert.ok(archive && !archive.pending, witness.file);
     const raw = read(witness.file);
     const record = JSON.parse(raw);
     assert.equal(sha(raw.trimEnd()), witness.record_sha256);
+    assert.ok(archive.record_sha256.includes(witness.record_sha256));
+    if (archive.cut === 'r6' && record.status !== 'excluded') {
+      assert.equal(sha(JSON.stringify(record.printed)), record.printedSha256);
+      assert.equal(record.printed.faces.length, record.faces.length);
+    } else {
+      assert.equal(Object.hasOwn(record, 'printed'), false);
+      assert.equal(Object.hasOwn(record, 'printedSha256'), false);
+    }
     assert.equal(sha(JSON.stringify(record.source)), record.sourceSha256);
     if (record.binding != null) assert.equal(sha(JSON.stringify(record.binding)), record.bindingSha256);
     else assert.equal(record.bindingSha256, undefined);

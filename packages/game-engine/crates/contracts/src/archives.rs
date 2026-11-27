@@ -3,9 +3,35 @@ use crate::{sha256, strict_read};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArchiveCut {
+    R4,
+    R5,
+    R6,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct R6Pins {
+    pub file_bytes: u64,
+    pub max_line_bytes: usize,
+    pub input_records: u32,
+    pub canonical_records_sha256: String,
+    pub printed_schema_sha256: String,
+    pub printed_vocabulary_sha256: String,
+    pub printed_generator_sha256: String,
+    pub printed_records_sha256: String,
+    pub name_catalog_sha256: String,
+    pub name_catalog_names: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AcceptedArchive {
+    pub cut: ArchiveCut,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pending: bool,
     pub manifest_file: String,
     pub manifest_sha256: String,
     /// Historical full archive bytes were not retained; its committed records
@@ -14,6 +40,8 @@ pub struct AcceptedArchive {
     pub parser_revision: String,
     pub parser_source_sha256: String,
     pub corpus_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r6: Option<R6Pins>,
     /// Reviewed raw-record hashes bound to this origin, independent of the
     /// mutable archive filename on a provenance row. Extraction extends these
     /// only after verifying the retained full archive hash and original bytes.
@@ -25,6 +53,30 @@ static ARCHIVES: LazyLock<Result<Vec<AcceptedArchive>, String>> = LazyLock::new(
     ))?;
     let mut identities = std::collections::BTreeSet::new();
     for a in &archives {
+        match (a.cut, a.pending, &a.r6) {
+            (ArchiveCut::R6, true, None)
+                if a.file_sha256.is_none() && a.record_sha256.is_empty() => {}
+            (ArchiveCut::R6, false, Some(pins))
+                if a.file_sha256.is_some()
+                    && (1..=crate::bulk_catalog::ARCHIVE_MAX_BYTES).contains(&pins.file_bytes)
+                    && (1..=crate::bulk_catalog::ARCHIVE_MAX_LINE_BYTES)
+                        .contains(&pins.max_line_bytes)
+                    && (1..=crate::bulk_catalog::ARCHIVE_MAX_RECORDS)
+                        .contains(&(pins.input_records as usize))
+                    && pins.name_catalog_names > 0
+                    && [
+                        &pins.canonical_records_sha256,
+                        &pins.printed_schema_sha256,
+                        &pins.printed_vocabulary_sha256,
+                        &pins.printed_generator_sha256,
+                        &pins.printed_records_sha256,
+                        &pins.name_catalog_sha256,
+                    ]
+                    .into_iter()
+                    .all(|hash| crate::bulk_catalog::is_sha256(hash)) => {}
+            (ArchiveCut::R4 | ArchiveCut::R5, false, None) => {}
+            _ => return Err("invalid archive cut registration".into()),
+        }
         for h in [
             &a.manifest_sha256,
             &a.parser_source_sha256,
@@ -56,25 +108,77 @@ pub fn accepted_manifest(manifest: &str) -> Result<&'static AcceptedArchive, Str
     let hash = sha256(manifest.trim_end().as_bytes());
     let a = accepted_archives()?
         .iter()
-        .find(|a| a.manifest_sha256 == hash)
+        .find(|a| !a.pending && a.manifest_sha256 == hash)
         .ok_or("unsupported archive version, source identity, or rules edition")?;
+    if a.cut == ArchiveCut::R6
+        && sha256(manifest.strip_suffix('\n').unwrap_or(manifest).as_bytes()) != hash
+    {
+        return Err("R6 header bytes differ from the registered header".into());
+    }
+    let r5 = accepted_archives()?
+        .iter()
+        .find(|a| a.cut == ArchiveCut::R5);
+    validate_header(&m, a, r5)?;
+    Ok(a)
+}
+
+fn validate_header(
+    m: &serde_json::Value,
+    a: &AcceptedArchive,
+    r5: Option<&AcceptedArchive>,
+) -> Result<(), String> {
     if m["recordType"] != "manifest"
         || m["artifactKind"] != "oracle-ast-archive"
-        || m["schemaVersion"].as_u64() != Some(4)
         || m["executable"] != false
-        || m["parser"]["revision"] != a.parser_revision
         || m["parser"]["sourceSha256"] != a.parser_source_sha256
         || m["corpus"]["sha256"] != a.corpus_sha256
         || m["rules"]["edition"] != crate::RULES_EDITION
     {
         return Err("accepted archive metadata mismatch".into());
     }
-    Ok(a)
+    match a.cut {
+        ArchiveCut::R4 | ArchiveCut::R5
+            if m["schemaVersion"] == 4 && m["parser"]["revision"] == a.parser_revision =>
+        {
+            Ok(())
+        }
+        ArchiveCut::R6 if !a.pending => {
+            let pins = a.r6.as_ref().ok_or("R6 cut has no measured pins")?;
+            let legacy = r5.ok_or("R6 cut has no R5 baseline")?;
+            if m["schemaVersion"] == 5
+                && m["cut"] == "r6"
+                && m["parser"]
+                    .as_object()
+                    .is_some_and(|parser| parser.len() == 1)
+                && m["rules"]["sha256"] == crate::RULES_SHA256
+                && m["printed"]["schemaVersion"] == 1
+                && m["printed"]["schemaSha256"] == pins.printed_schema_sha256
+                && m["printed"]["vocabularySha256"] == pins.printed_vocabulary_sha256
+                && m["printed"]["generatorSha256"] == pins.printed_generator_sha256
+                && m["printed"]["recordsSha256"] == pins.printed_records_sha256
+                && m["nameCatalog"]["sha256"] == pins.name_catalog_sha256
+                && m["nameCatalog"]["names"].as_u64() == Some(pins.name_catalog_names as u64)
+                && m["legacy"]["manifestSha256"] == legacy.manifest_sha256
+                && m["legacy"]["fileSha256"].as_str() == legacy.file_sha256.as_deref()
+                && m["inputRecords"] == pins.input_records
+                && m["corpus"]["canonicalRecordsSha256"] == pins.canonical_records_sha256
+                && m["corpus"]["sha256"] == legacy.corpus_sha256
+                && m["printedSummary"].is_object()
+            {
+                Ok(())
+            } else {
+                Err("accepted R6 archive metadata mismatch".into())
+            }
+        }
+        _ => Err("archive cut and schema mismatch".into()),
+    }
 }
 pub fn accepted_provenance(manifest_sha256: &str, parser_sha256: &str) -> bool {
     accepted_archives().is_ok_and(|archives| {
         archives.iter().any(|a| {
-            a.manifest_sha256 == manifest_sha256 && a.parser_source_sha256 == parser_sha256
+            !a.pending
+                && a.manifest_sha256 == manifest_sha256
+                && a.parser_source_sha256 == parser_sha256
         })
     })
 }
@@ -96,5 +200,59 @@ mod tests {
             m["parser"]["revision"] = "unaccepted".into();
             assert!(accepted_manifest(&m.to_string()).is_err());
         }
+    }
+
+    #[test]
+    fn measured_r6_uses_source_identity_and_the_pending_entry_cannot_authorize_rows() {
+        let legacy = accepted_archives()
+            .unwrap()
+            .iter()
+            .find(|entry| entry.cut == ArchiveCut::R5)
+            .unwrap();
+        let mut r6 = accepted_archives()
+            .unwrap()
+            .iter()
+            .find(|entry| entry.cut == ArchiveCut::R6)
+            .unwrap()
+            .clone();
+        if r6.pending {
+            assert!(!accepted_provenance(
+                &r6.manifest_sha256,
+                &r6.parser_source_sha256
+            ));
+        }
+        let digest = "1".repeat(64);
+        r6.pending = false;
+        r6.parser_revision = "2".repeat(40);
+        r6.parser_source_sha256 = digest.clone();
+        r6.r6 = Some(R6Pins {
+            file_bytes: 1,
+            max_line_bytes: 1,
+            input_records: 1,
+            canonical_records_sha256: digest.clone(),
+            printed_schema_sha256: digest.clone(),
+            printed_vocabulary_sha256: digest.clone(),
+            printed_generator_sha256: digest.clone(),
+            printed_records_sha256: digest.clone(),
+            name_catalog_sha256: digest.clone(),
+            name_catalog_names: 1,
+        });
+        let mut header = serde_json::json!({
+            "recordType": "manifest", "artifactKind": "oracle-ast-archive", "cut": "r6",
+            "schemaVersion": 5, "executable": false, "inputRecords": 1,
+            "corpus": {"sha256": legacy.corpus_sha256, "canonicalRecordsSha256": digest},
+            "parser": {"sourceSha256": digest},
+            "rules": {"edition": crate::RULES_EDITION, "sha256": crate::RULES_SHA256},
+            "printed": {"schemaVersion": 1, "schemaSha256": digest, "vocabularySha256": digest,
+                "generatorSha256": digest, "recordsSha256": digest},
+            "nameCatalog": {"sha256": digest, "names": 1}, "printedSummary": {},
+            "legacy": {"manifestSha256": legacy.manifest_sha256, "fileSha256": legacy.file_sha256},
+        });
+        assert!(validate_header(&header, &r6, Some(legacy)).is_ok());
+        assert!(accepted_manifest(&header.to_string()).is_err());
+        header["parser"]["revision"] = r6.parser_revision.clone().into();
+        assert!(validate_header(&header, &r6, Some(legacy)).is_err());
+        header["schemaVersion"] = 4.into();
+        assert!(validate_header(&header, &r6, Some(legacy)).is_err());
     }
 }
