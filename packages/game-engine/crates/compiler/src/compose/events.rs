@@ -828,6 +828,44 @@ fn turn_history(condition: &serde_json::Value) -> Option<kir::Intervening> {
     {
         return measure(CardsDrawn, &comparison);
     }
+    for (fact, player, filter) in [
+        (
+            ArtifactsEnteredUnderYourControl,
+            "you",
+            json!({"types": ["artifact"]}),
+        ),
+        (
+            CreaturesEnteredUnderYourControl,
+            "you",
+            json!({"types": ["creature"]}),
+        ),
+        (
+            CreaturesEnteredUnderOpponentsControl,
+            "an-opponent",
+            json!({"types": ["creature"]}),
+        ),
+        (
+            NonlandPermanentsEnteredUnderYourControl,
+            "you",
+            json!({"nonTypes": ["land"], "cls": "permanent"}),
+        ),
+    ] {
+        let comparison = &condition["subject"]["comparison"];
+        if *condition
+            == json!({
+                "condition": "zone-change-history", "event": "enters", "during": "this-turn",
+                "to": {"zone": "battlefield"}, "controllerAtMove": {"player": player},
+                "subject": {"match": "filter", "filter": filter, "comparison": comparison}
+            })
+        {
+            // The singular opponent clause is existential, so aggregation
+            // across seats is valid only for this threshold.
+            if fact == CreaturesEnteredUnderOpponentsControl && *comparison != fixed("ge", 1) {
+                return None;
+            }
+            return measure(fact, comparison);
+        }
+    }
     let change = |event, filter| {
         json!({
             "condition": "zone-change-history", "event": event, "during": "this-turn",
@@ -879,16 +917,43 @@ pub(super) fn intervening(
         return Ok(kir::Intervening::ControlsOwnCommander);
     }
     for (printed, kind) in [("land", CardKind::Land), ("creature", CardKind::Creature)] {
-        if *condition
-            == serde_json::json!({
-                "condition": "control-count", "who": {"player": "an-opponent"},
-                "of": {"types": [printed]}, "comparison": {
-                    "op": "gt", "value": {"amount": "count", "of": {"types": [printed], "control": "you"}}
-                }
-            })
-        {
-            return Ok(kir::Intervening::OpponentControlsMore { kind });
+        for (player, candidate) in [
+            (
+                "an-opponent",
+                kir::Intervening::OpponentControlsMore { kind },
+            ),
+            (
+                "that-player",
+                kir::Intervening::EventOpponentControlsMore { kind },
+            ),
+        ] {
+            if *condition
+                == serde_json::json!({
+                    "condition": "control-count", "who": {"player": player},
+                    "of": {"types": [printed]}, "comparison": {
+                        "op": "gt", "value": {"amount": "count", "of": {"types": [printed], "control": "you"}}
+                    }
+                })
+                && candidate.admits(pattern)
+            {
+                return Ok(candidate);
+            }
         }
+    }
+    if *condition
+        == serde_json::json!({
+            "condition": "compare", "comparison": &condition["comparison"],
+            "value": {"amount": "attribute-sum", "attribute": "power",
+                "among": {"ref": "each", "filter": {"types": ["creature"], "control": "you"}}}
+        })
+    {
+        let (cmp, value) =
+            control::comparison(&condition["comparison"]).map_err(|_| unsupported_intervening())?;
+        let candidate = kir::Intervening::ControllerCreatureTotalPower { cmp, value };
+        return candidate
+            .admits(pattern)
+            .then_some(candidate)
+            .ok_or_else(unsupported_intervening);
     }
     let measure = match shape {
         Some("life-total" | "cards-in-hand") if fields == Some(3) && condition["who"] == you => {
@@ -943,11 +1008,22 @@ fn unsupported_intervening() -> Failure {
     )
 }
 
-/// CR 603.4, 109.5: an intervening "if you control a [filter]" or "if you
-/// control N or more [filter]" clause, read when the event occurs and again
-/// as the ability resolves. The filter may say "other" (CR 201.5).
+/// CR 603.4, 109.5: compare the number of matching permanents "you"
+/// control, including a check that there are zero. The filter may say
+/// "other" (CR 201.5).
 fn board_intervening(condition: &serde_json::Value) -> Result<kir::Intervening, Failure> {
     let reject = unsupported_intervening;
+    let absent = condition["condition"] == "not";
+    let condition = if absent {
+        if condition.as_object().map(|o| o.len()) != Some(2)
+            || condition["of"]["condition"] != "control"
+        {
+            return Err(reject());
+        }
+        &condition["of"]
+    } else {
+        condition
+    };
     let fields = condition.as_object().map(|o| o.len()).unwrap_or(0);
     if condition.get("who") != Some(&serde_json::json!({"player": "you"})) {
         return Err(reject());
@@ -961,7 +1037,11 @@ fn board_intervening(condition: &serde_json::Value) -> Result<kir::Intervening, 
             {
                 return Err(reject());
             }
-            (&what["filter"], Cmp::AtLeast, Quantity::from(1))
+            if absent {
+                (&what["filter"], Cmp::Exactly, Quantity::zero())
+            } else {
+                (&what["filter"], Cmp::AtLeast, Quantity::from(1))
+            }
         }
         Some("control-count") if fields == 4 => {
             let (cmp, value) = control::comparison(&condition["comparison"])?;
