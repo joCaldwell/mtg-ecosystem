@@ -621,12 +621,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::AllDamage]);
             (keys.clone(), keys)
         }
-        ProposedEvent::EnterAttached { object, target } => {
-            let writes = BTreeSet::from([FactKey::Object(object.card)]);
-            let mut reads = writes.clone();
-            reads.insert(FactKey::Object(target.card));
-            (reads, writes)
-        }
         ProposedEvent::Attach { object, target } => {
             let writes = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = writes.clone();
@@ -665,9 +659,13 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         }
         ProposedEvent::Move { object, .. }
         | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::EnterAttached { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = keys.clone();
+            if let ProposedEvent::EnterAttached { target, .. } = event {
+                reads.insert(FactKey::Object(target.card));
+            }
             // Zone membership is authoritative (CR 400.7). A battlefield Aura
             // moving to graveyard neither consumes nor changes library order.
             // Its SBA may coincide with a tucked token ceasing (704.5d/m).
@@ -736,6 +734,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
     let keys: Vec<_> = match event {
         ProposedEvent::Move { object, .. }
         | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::EnterAttached { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             vec![
                 FactKey::ManaAbilityUse(object.card),
@@ -807,7 +806,6 @@ fn collect<'a>(
                     matches!(
                         e,
                         ProposedEvent::Setup { .. }
-                            | ProposedEvent::EnterAttached { .. }
                             | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
                             | ProposedEvent::CommitDamage { .. }
@@ -2390,24 +2388,25 @@ impl RulesTxn {
                 // CR 303.4a/608.3c/603.6a: the Aura is already legally
                 // attached when entry observers and ETB hooks see it.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                let source = self.current(*object)?;
+                let prior = entry_state.unwrap_or(self);
+                let source = prior.current(*object)?;
                 {
-                    let characteristics = self.structural_characteristics(*object)?;
+                    let characteristics = prior.structural_characteristics(*object)?;
                     // CR 303.4f: an Aura entering without being cast (from its
                     // owner's library, hand or graveyard) enchants a chosen
                     // object it could enchant; that choice does not target.
-                    let owner = self.state.rules.cards[&object.card].owner;
+                    let owner = prior.state.rules.cards[&object.card].owner;
                     let chosen = matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } | Zone::Hand { owner: p } if p == owner);
                     if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]
-                        || !self.is_live(source.controller)
-                        || !self.attachment_target_type_valid(*object, *target)?
-                        || !self
-                            .current(*target)
-                            .is_ok_and(|o| o.present_on_battlefield() && self.is_live(o.controller))
-                        || (!chosen && !self.targetable_by(*target, source.controller))
-                        || self.protected_from(*target, &characteristics)?
+                        || !prior.is_live(source.controller)
+                        || !prior.attachment_target_type_valid(*object, *target)?
+                        || !prior.current(*target).is_ok_and(|o| {
+                            o.present_on_battlefield() && prior.is_live(o.controller)
+                        })
+                        || (!chosen && !prior.targetable_by(*target, source.controller))
+                        || prior.protected_from(*target, &characteristics)?
                     {
                         return Err("invalid attached Aura entry".into());
                     }
@@ -2444,23 +2443,25 @@ impl RulesTxn {
                 }
             }
             ProposedEvent::Attach { object, target } => {
+                let prior = entry_state.unwrap_or(self);
+                let current = prior.current(*object)?;
                 let target_valid = match target {
                     Some(t) => {
                         *t != *object
-                            && self.current(*t).is_ok_and(|o| {
-                                o.present_on_battlefield() && self.is_live(o.controller)
+                            && prior.current(*t).is_ok_and(|o| {
+                                o.present_on_battlefield() && prior.is_live(o.controller)
                             })
-                            && self.attachment_target_type_valid(*object, *t)?
-                            && !self.protected_from(*t, self.color_layer(*object)?.as_ref())?
+                            && prior.attachment_target_type_valid(*object, *t)?
+                            && !prior.protected_from(*t, prior.color_layer(*object)?.as_ref())?
                     }
                     None => true,
                 };
                 // CR 704.5p: anything attached may become unattached; only an
                 // Aura or Equipment attaches.
-                if !self.current(*object)?.present_on_battlefield()
-                    || !self.is_live(self.current(*object)?.controller)
+                if !current.present_on_battlefield()
+                    || !prior.is_live(current.controller)
                     || (target.is_some()
-                        && !self
+                        && !prior
                             .structural_characteristics(*object)?
                             .subtypes
                             .iter()
@@ -2469,13 +2470,13 @@ impl RulesTxn {
                 {
                     return Err("invalid attachment event".into());
                 }
-                let previous = self.current(*object)?.attached_to;
+                let previous = current.attached_to;
+                let rank = prior.apnap_rank(current.controller);
                 let allocation = if previous != *target && target.is_some() {
                     Some(self.allocate_timestamp(entry_state)?)
                 } else {
                     None
                 };
-                let rank = self.apnap_rank(self.current(*object)?.controller);
                 let o = self
                     .rules_mut()
                     .objects

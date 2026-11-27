@@ -1039,3 +1039,38 @@ fn pre_e2_prospective_heliod_reads_prior_devotion_without_disclosing_his_hand() 
     assert_eq!(pt(&g, heliod), (q(1), q(1)));
     assert_recoverable((&g).into());
 }
+
+/// CR 303.4f, 614.12: both Auras choose their host from the prior board.
+/// Song changes its type only once both have entered, then CR 704.5m
+/// removes Mystic Subdual, which can no longer enchant it.
+#[test]
+fn pre_e2_simultaneous_auras_read_the_common_attachment_host() {
+    let mut g = game(&[
+        ("Song of the Dryads", 0, G),
+        ("Mystic Subdual", 1, G),
+        ("Grizzly Bears", 1, B),
+    ]);
+    assert_recoverable((&g).into());
+    let host = object(&g, 2);
+    let occurrences = [0, 1].map(|id| ProposedEvent::EnterAttached {
+        object: object(&g, id),
+        target: host,
+    });
+    g.commit_batch(
+        BatchCause::Fixture,
+        EventGroup::Simultaneous {
+            occurrences: occurrences.into(),
+        },
+    )
+    .unwrap();
+    let rows = [0, 1].map(|id| g.current(object(&g, id)).unwrap());
+    assert!(rows.iter().all(|row| row.attached_to == Some(host)));
+    assert_eq!(rows[0].attachment_timestamp, rows[1].attachment_timestamp);
+    assert!(g.characteristics(host).unwrap().has_subtype("Forest"));
+    g.stabilize().unwrap();
+    Driver::request(&mut g, u64::MAX);
+    assert_eq!(
+        g.zone(object(&g, 1)),
+        Some(Zone::Graveyard { owner: PlayerId(1) })
+    );
+}
