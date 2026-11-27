@@ -207,7 +207,7 @@ pub(super) fn object_effect(
             .transpose()?
             .map(|i| i.condition()),
         once_each_turn: false,
-            your_turn: false,
+        your_turn: false,
         pattern,
     };
     program.instructions.push(instruction);
@@ -275,9 +275,10 @@ pub(super) fn general(
                 Some("attacks") => (Kind::Attacks, &[]),
                 // CR 603.6c, 509.3a: an alternative of an any-of event; the
                 // single events lower in their own rows below.
-                Some("leaves") if object.get("withoutDying") == Some(&serde_json::json!(true)) => {
-                    (Kind::LeavesWithoutDying, &[("withoutDying", serde_json::Value::Null)])
-                }
+                Some("leaves") if object.get("withoutDying") == Some(&serde_json::json!(true)) => (
+                    Kind::LeavesWithoutDying,
+                    &[("withoutDying", serde_json::Value::Null)],
+                ),
                 Some("leaves") => (Kind::Leaves, &[]),
                 Some("blocks") => (Kind::Blocks, &[]),
                 Some("put-into-graveyard") => (
@@ -318,7 +319,8 @@ pub(super) fn general(
         && let Some([cycle, discard]) = trigger["events"].as_array().map(Vec::as_slice)
         && cycle["trigger"] == "cycle"
         && discard["trigger"] == "discards"
-        && cycle.as_object().map(serde_json::Map::len) == discard.as_object().map(serde_json::Map::len)
+        && cycle.as_object().map(serde_json::Map::len)
+            == discard.as_object().map(serde_json::Map::len)
         && cycle["who"] == discard["who"]
         && cycle["what"] == discard["what"]
     {
@@ -333,7 +335,10 @@ pub(super) fn general(
         && b["trigger"] == "sacrifices"
         && a["who"] == b["who"]
         && let (
-            Some(EventPattern::Sacrifices { player, object: first }),
+            Some(EventPattern::Sacrifices {
+                player,
+                object: first,
+            }),
             Some(EventPattern::Sacrifices { object: second, .. }),
         ) = (general(card, a)?, general(card, b)?)
     {
@@ -463,8 +468,7 @@ pub(super) fn general(
         // CR 119.9: the source's entry or a player's life gain.
         let gain = if a["trigger"] == "gains-life" { a } else { b };
         if gain["trigger"] == "gains-life"
-            && let Some((Kind::Enters, object)) =
-                event(card, if gain == a { b } else { a })?
+            && let Some((Kind::Enters, object)) = event(card, if gain == a { b } else { a })?
             && object == Pred::source()
             && let Some(EventPattern::GainsLife { player, nth: None }) = general(card, gain)?
         {
@@ -649,8 +653,12 @@ pub(super) fn typed_filter(filter: &serde_json::Value) -> Result<ast::ObjectFilt
 /// The event player "you", "an opponent" or "a player" (CR 109.5, 102.3).
 fn event_player(who: &serde_json::Value) -> Option<PlayerExpr> {
     match who {
-        who if *who == serde_json::json!({"player": "you"}) => Some(PlayerExpr::you(Context::Triggered)),
-        who if *who == serde_json::json!({"player": "an-opponent"}) => Some(PlayerExpr::EachOpponent),
+        who if *who == serde_json::json!({"player": "you"}) => {
+            Some(PlayerExpr::you(Context::Triggered))
+        }
+        who if *who == serde_json::json!({"player": "an-opponent"}) => {
+            Some(PlayerExpr::EachOpponent)
+        }
         who if *who == serde_json::json!({"player": "a-player"}) => Some(PlayerExpr::EachPlayer),
         _ => None,
     }
@@ -663,7 +671,12 @@ fn event_player(who: &serde_json::Value) -> Option<PlayerExpr> {
 /// the card was put into (CR 702.29c) and rejects by name, as do a cause,
 /// a grouping and the remaining qualifiers.
 fn discard_event(trigger: &serde_json::Value) -> Result<Option<EventPattern>, Failure> {
-    let reject = |detail: &str| Err(unsupported("compose.block", format!("trigger:discard:{detail}")));
+    let reject = |detail: &str| {
+        Err(unsupported(
+            "compose.block",
+            format!("trigger:discard:{detail}"),
+        ))
+    };
     let Some(fields) = trigger.as_object() else {
         return Ok(None);
     };
@@ -688,7 +701,9 @@ fn discard_event(trigger: &serde_json::Value) -> Result<Option<EventPattern>, Fa
         {
             Pred::source()
         }
-        Some(what) if what["ref"] == "this" || what["ref"] == "self" => return reject("source-card"),
+        Some(what) if what["ref"] == "this" || what["ref"] == "self" => {
+            return reject("source-card");
+        }
         Some(what)
             if what["ref"] == "filter"
                 && what.as_object().map(serde_json::Map::len) == Some(3)
@@ -705,7 +720,8 @@ fn discard_event(trigger: &serde_json::Value) -> Result<Option<EventPattern>, Fa
                 }
                 match fields.get_mut("anyOf").and_then(|a| a.as_array_mut()) {
                     Some(children) => children.iter_mut().all(|child| {
-                        child.get("cls").is_none() || strip(child) && child.as_object().is_some_and(|c| !c.is_empty())
+                        child.get("cls").is_none()
+                            || strip(child) && child.as_object().is_some_and(|c| !c.is_empty())
                     }),
                     None => true,
                 }

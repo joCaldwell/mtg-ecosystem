@@ -270,7 +270,9 @@ fn event_alternatives_becomes_blocked_by_a_creature_triggers_per_blocker() {
         Driver::object(&g, 2),
     );
     assert!(matches!(
-        g.definition(CardId(0)).unwrap().triggered[0].condition.pattern(),
+        g.definition(CardId(0)).unwrap().triggered[0]
+            .condition
+            .pattern(),
         EventPattern::BlockedByCreature { .. }
     ));
     declare(&mut g, &[tiger], &[(a, tiger), (b, tiger)], 2);
@@ -440,9 +442,6 @@ fn event_alternatives_leaves_without_dying() {
         assert!(g.current(target).is_err());
     }
     assert_eq!(collected(&g, cosmographer), 1);
-    assert_eq!(
-        g.current(cosmographer).unwrap().plus_one_counters,
-        2.into()
-    );
+    assert_eq!(g.current(cosmographer).unwrap().plus_one_counters, 2.into());
     assert_recoverable((&g).into());
 }

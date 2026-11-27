@@ -178,7 +178,7 @@ impl TriggeredAbility {
                     identity: EVOKE_COST.into(),
                 }),
                 once_each_turn: false,
-            your_turn: false,
+                your_turn: false,
             },
             program,
         }
@@ -220,7 +220,7 @@ impl TriggeredAbility {
                 pattern: kir::EventPattern::your_upkeep(),
                 intervening_if: Some(kir::Cond::ControlledSinceLastUpkeep {}),
                 once_each_turn: false,
-            your_turn: false,
+                your_turn: false,
             },
             program,
         }

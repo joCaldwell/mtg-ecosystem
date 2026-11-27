@@ -28,12 +28,15 @@ fn collected(g: &Game, source: ObjectId) -> usize {
 fn discard_events_cycling_triggers_cycle_and_discard_observers_once() {
     let mut g = Game::with_trace(
         prepare(
-            board(&[FLOURISHING_FOX, HORROR, STOIC_CHAMPION], TurnStep::PrecombatMain)
-                .permanent_or_hand("Flourishing Fox", 0, 0, false)
-                .permanent_or_hand("Horror of the Broken Lands", 0, 0, false)
-                .permanent_or_hand("Stoic Champion", 1, 1, false)
-                .permanent_or_hand("Flourishing Fox", 0, 0, true)
-                .permanent_or_hand("Plains", 0, 0, false),
+            board(
+                &[FLOURISHING_FOX, HORROR, STOIC_CHAMPION],
+                TurnStep::PrecombatMain,
+            )
+            .permanent_or_hand("Flourishing Fox", 0, 0, false)
+            .permanent_or_hand("Horror of the Broken Lands", 0, 0, false)
+            .permanent_or_hand("Stoic Champion", 1, 1, false)
+            .permanent_or_hand("Flourishing Fox", 0, 0, true)
+            .permanent_or_hand("Plains", 0, 0, false),
         ),
         TraceMode::Detailed,
     );
@@ -44,11 +47,15 @@ fn discard_events_cycling_triggers_cycle_and_discard_observers_once() {
         Driver::object(&g, 3),
     );
     assert!(matches!(
-        g.definition(CardId(0)).unwrap().triggered[0].condition.pattern(),
+        g.definition(CardId(0)).unwrap().triggered[0]
+            .condition
+            .pattern(),
         EventPattern::Discards { cycled: true, .. }
     ));
     assert!(matches!(
-        g.definition(CardId(1)).unwrap().triggered[0].condition.pattern(),
+        g.definition(CardId(1)).unwrap().triggered[0]
+            .condition
+            .pattern(),
         EventPattern::Discards { cycled: false, .. }
     ));
     Driver::action(
@@ -63,10 +70,7 @@ fn discard_events_cycling_triggers_cycle_and_discard_observers_once() {
     checked(&g);
     settle(&mut g);
     assert_eq!(g.current(fox).unwrap().plus_one_counters, 1.into());
-    assert_eq!(
-        [fox, horror, champion].map(|o| collected(&g, o)),
-        [1, 1, 1]
-    );
+    assert_eq!([fox, horror, champion].map(|o| collected(&g, o)), [1, 1, 1]);
     assert_recoverable((&g).into());
 }
 
@@ -106,10 +110,7 @@ fn discard_events_filtered_discard_reads_the_discarded_card() {
     // The pending land trigger retains the discarded card's facts.
     checked(&g);
     settle(&mut g);
-    assert_eq!(
-        [fox, horror, goblin].map(|o| collected(&g, o)),
-        [0, 1, 1]
-    );
+    assert_eq!([fox, horror, goblin].map(|o| collected(&g, o)), [0, 1, 1]);
     let treasures = g
         .state
         .rules
@@ -204,10 +205,18 @@ fn discard_events_discarded_card_triggers_and_a_plain_discard_is_no_cycle() {
     assert_eq!(discard.reason, Reason::Discard);
     let picks = cards
         .iter()
-        .map(|object| discard.index(&Candidate::Object { object: *object }).unwrap())
+        .map(|object| {
+            discard
+                .index(&Candidate::Object { object: *object })
+                .unwrap()
+        })
         .collect();
-    g.respond(discard.player, discard.id, Answer::Pick { picks: vec![picks] })
-        .unwrap();
+    g.respond(
+        discard.player,
+        discard.id,
+        Answer::Pick { picks: vec![picks] },
+    )
+    .unwrap();
     drive(&mut g, &[], triggered);
     assert_eq!(g.state.rules.stack.len(), 1);
     checked(&g);

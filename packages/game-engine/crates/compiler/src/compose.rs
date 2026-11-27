@@ -674,7 +674,7 @@ fn trigger_event(
         pattern: event,
         intervening_if: intervening.map(|i| i.condition()),
         once_each_turn: false,
-            your_turn: false,
+        your_turn: false,
     };
     if let [Part::Departure(parent)] = parts.as_slice() {
         program = parent.clone();

@@ -425,7 +425,9 @@ impl TriggerEventWitness {
             | (EventPattern::Blocks { .. }, Self::Blocked { .. })
             | (EventPattern::GainsLife { .. }, Self::LifeGained { .. })
             | (EventPattern::BecomesBlocked { .. }, Self::BecameBlocked { .. })
-            | (EventPattern::BlockedByCreature { .. }, Self::BlockedByCreature { .. }) => Some(second),
+            | (EventPattern::BlockedByCreature { .. }, Self::BlockedByCreature { .. }) => {
+                Some(second)
+            }
             (_, Self::BlockedCreature { .. })
                 if matches!(**first, EventPattern::BlocksCreature { .. }) =>
             {
@@ -434,7 +436,9 @@ impl TriggerEventWitness {
             (_, Self::Blocked { .. }) if matches!(**first, EventPattern::Blocks { .. }) => {
                 Some(first)
             }
-            (_, Self::CreatureAttacked { .. }) if matches!(**first, EventPattern::Attacks { .. }) => {
+            (_, Self::CreatureAttacked { .. })
+                if matches!(**first, EventPattern::Attacks { .. }) =>
+            {
                 Some(first)
             }
             _ => None,
@@ -1265,7 +1269,10 @@ impl RulesTxn {
                 .cast_history
                 .get_mut(player.0 as usize)
                 .ok_or("invalid turn history seat")?;
-            row.cycles = row.cycles.checked_add(1).ok_or("turn history count limit")?;
+            row.cycles = row
+                .cycles
+                .checked_add(1)
+                .ok_or("turn history count limit")?;
         }
         let dies = witness.dies();
         let enters = witness.enters();
@@ -2704,20 +2711,20 @@ impl RulesTxn {
                     && ordinal_evidence(pattern, *nth)
                     && (nth.is_none() || *cycled)
                     && matches!(pattern, EventPattern::Discards { player: expected, card: pred, cycled: cycle, .. }
-                        if player_in(expected, Some(*player), controller)
-                            && (!*cycle || *cycled)
-                            // Accepted-input replay proves the cost that
-                            // discarded it and the frozen card facts.
-                            && match card {
-                                Some(facts) => pred.reads_characteristics()
-                                    && facts.object == movement.successor
-                                    && facts.owner == *player
-                                    && holds(pred, Some(&frozen(facts)), controller,
-                                        facts.object, &identity(facts.object)),
-                                None => !pred.reads_characteristics()
-                                    && identity_holds(pred, movement.successor,
-                                        &identity(movement.successor)),
-                            })
+                    if player_in(expected, Some(*player), controller)
+                        && (!*cycle || *cycled)
+                        // Accepted-input replay proves the cost that
+                        // discarded it and the frozen card facts.
+                        && match card {
+                            Some(facts) => pred.reads_characteristics()
+                                && facts.object == movement.successor
+                                && facts.owner == *player
+                                && holds(pred, Some(&frozen(facts)), controller,
+                                    facts.object, &identity(facts.object)),
+                            None => !pred.reads_characteristics()
+                                && identity_holds(pred, movement.successor,
+                                    &identity(movement.successor)),
+                        })
                     && death_controller.is_none()
             }
             TriggerEventWitness::BlockedCreature {
@@ -2747,7 +2754,11 @@ impl RulesTxn {
                 let seated = |facts: &ObjectBefore| {
                     facts.zone == Zone::Battlefield
                         && facts.characteristics.has_type(CardKind::Creature)
-                        && self.state.rules.original_seating.contains(&facts.controller)
+                        && self
+                            .state
+                            .rules
+                            .original_seating
+                            .contains(&facts.controller)
                         && self
                             .state
                             .rules
@@ -2766,10 +2777,20 @@ impl RulesTxn {
                     && seated(attacker)
                     && blocker.object != attacker.object
                     && blocker.controller != attacker.controller
-                    && holds(pred, Some(&frozen(source_facts)), controller,
-                        source_facts.object, &identity(source_facts.object))
-                    && holds(other, Some(&frozen(other_facts)), controller,
-                        other_facts.object, &identity(other_facts.object))
+                    && holds(
+                        pred,
+                        Some(&frozen(source_facts)),
+                        controller,
+                        source_facts.object,
+                        &identity(source_facts.object),
+                    )
+                    && holds(
+                        other,
+                        Some(&frozen(other_facts)),
+                        controller,
+                        other_facts.object,
+                        &identity(other_facts.object),
+                    )
                     && death_controller.is_none()
             }
             TriggerEventWitness::Blocked {
@@ -2963,7 +2984,10 @@ impl RulesTxn {
                                 && creature_card(pred, subject)?
                         }
                         // CR 603.6c: replay proves the departed facts.
-                        EventPattern::LeavesBattlefield { object: pred, without_dying } => {
+                        EventPattern::LeavesBattlefield {
+                            object: pred,
+                            without_dying,
+                        } => {
                             witness.leaves()
                                 && !(*without_dying && witness.dies())
                                 && identity_holds(pred, subject, &identity(subject))

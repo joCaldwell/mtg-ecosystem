@@ -440,11 +440,7 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             | (
                 EventPattern::Enters { object },
                 EventPattern::LeavesBattlefield { object: other, .. },
-            )
-                if *object == Pred::source() && *other == Pred::source() =>
-            {
-                Ok(())
-            }
+            ) if *object == Pred::source() && *other == Pred::source() => Ok(()),
             // CR 506.4, 509.1a: an attacking creature is never declared as a
             // blocker, so one declaration is either the attack or the block.
             (EventPattern::Attacks { attacker }, EventPattern::Blocks { blocker })
@@ -537,7 +533,9 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
     }
     // CR 509.3f: the other creature of a blocking pair is read as it was
     // declared; it is never the source or its host, and has no status here.
-    if let EventPattern::BlocksCreature { attacker: other, .. }
+    if let EventPattern::BlocksCreature {
+        attacker: other, ..
+    }
     | EventPattern::BlockedByCreature { blocker: other, .. } = pattern
     {
         event_pred(other, 0)?;
