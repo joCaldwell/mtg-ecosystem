@@ -9,7 +9,7 @@ impl RulesTxn {
         candidates: Vec<Candidate<Rules>>,
         shape: Shape,
     ) -> Decision<Rules> {
-        let (candidates, shape) = self.public_candidate_order(candidates, shape);
+        let (candidates, shape) = self.public_candidate_order(player, &reason, candidates, shape);
         Decision {
             id: self.state.rules.revision,
             player,
@@ -19,14 +19,12 @@ impl RulesTxn {
         }
     }
 
-    /// CR 708.5-708.6: a decision offering a face-down object must not
-    /// order its object candidates by physical card, which would tell the
-    /// face-down cards apart. Object candidates are then ordered by public
-    /// facts alone: zone, battlefield entry timestamp or stack position.
-    /// Other candidates keep their places, and every index in the shape is
-    /// remapped, so answers are read through the same table as before.
+    /// Order object candidates by the viewer's known facts and issued handles
+    /// (CR 400.2, 708.5-708.6). Remap shape indices to the same candidates.
     fn public_candidate_order(
         &self,
+        player: PlayerId,
+        reason: &Reason<Rules>,
         mut candidates: Vec<Candidate<Rules>>,
         shape: Shape,
     ) -> (Vec<Candidate<Rules>>, Shape) {
@@ -34,21 +32,32 @@ impl RulesTxn {
             Candidate::Object { object } => Some(*object),
             _ => None,
         };
-        if !candidates
-            .iter()
-            .filter_map(object)
-            .any(|o| self.is_face_down(o))
-        {
+        // These choices already present the sequence of cards the viewer
+        // looked at (CR 701.20e, 701.22a, 701.25a). Searching a library
+        // does not grant that positional information (CR 701.23a).
+        if matches!(
+            reason,
+            Reason::LookChooseHand
+                | Reason::ScryBottom
+                | Reason::SurveilGraveyard
+                | Reason::OrderLibraryTop
+                | Reason::OrderLibraryBottom
+        ) {
+            return (candidates, shape);
+        }
+        let positions: Vec<usize> = (0..candidates.len())
+            .filter(|i| object(&candidates[*i]).is_some())
+            .collect();
+        if positions.len() < 2 {
             return (candidates, shape);
         }
         let key = |o: ObjectId| {
             let live = self.current(o).ok();
             let zone = live.map(|o| o.zone);
-            match zone {
+            let public = match zone {
                 Some(Zone::Battlefield) => (
                     0,
                     live.and_then(|o| o.keyword_timestamp).unwrap_or(u64::MAX),
-                    o,
                 ),
                 Some(Zone::Stack) => (
                     1,
@@ -58,16 +67,16 @@ impl RulesTxn {
                         .iter()
                         .position(|e| e.source == o)
                         .map_or(u64::MAX, |p| p as u64),
-                    o,
                 ),
-                _ => (2, 0, o),
-            }
+                _ => (2, 0),
+            };
+            // Publication discovers the decider before minting newly visible
+            // handles. That discovery discards the candidate table. A
+            // projected decision requires an issued handle for every object.
+            (public, self.object_handle_id(player, o).ok())
         };
-        let positions: Vec<usize> = (0..candidates.len())
-            .filter(|i| object(&candidates[*i]).is_some())
-            .collect();
         let mut sorted = positions.clone();
-        sorted.sort_by_key(|i| key(object(&candidates[*i]).expect("object candidate")));
+        sorted.sort_by_cached_key(|i| key(object(&candidates[*i]).expect("object candidate")));
         // `map[old] = new` for every candidate index.
         let mut map: Vec<u32> = (0..candidates.len() as u32).collect();
         for (slot, old) in positions.iter().zip(&sorted) {

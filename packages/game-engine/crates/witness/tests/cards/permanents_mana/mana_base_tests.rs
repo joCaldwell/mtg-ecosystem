@@ -1056,3 +1056,141 @@ fn activation_only_mana_is_visible_to_every_seat_and_reverses_with_its_receipt()
         assert_recoverable((&branch).into());
     }
 }
+
+#[test]
+fn activation_only_mana_keeps_a_payable_activation_in_the_environment_mask() {
+    use mtg_observe::action::{Composer, Step};
+
+    let mut catalog = hawker_catalog();
+    let raw = include_str!(
+        "../../../../../tests/fixtures/phase1-r5/bd55bcc4-f0c5-4c09-8b3b-2e25e9fbd9ee.json"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(MANIFEST, raw)
+    else {
+        panic!("Drake Hatchling must lower");
+    };
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let mut game = Game::new(
+        Board::new(catalog, "restricted mana funding mask")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Omen Hawker", 0, 0, false)
+            .permanent_or_hand("Drake Hatchling", 0, 0, false)
+            .permanent_or_hand("Unsummon", 1, 1, true)
+            .permanent_or_hand("Island", 1, 1, false)
+            .prepare(),
+    );
+    let hawker = Driver::object(&game, 0);
+    let drake = Driver::object(&game, 1);
+    activate(&mut game, 0);
+    priority(&mut game);
+    Driver::pass(&mut game);
+    Driver::cast(&mut game, CardId(2));
+    Driver::pick_object(&mut game, hawker);
+    Driver::pay(&mut game, &[3]);
+    for _ in 0..game.live_players().len() {
+        Driver::pass(&mut game);
+    }
+    priority(&mut game);
+
+    // With Hawker back in hand, no battlefield source can make the
+    // estimate incomplete. The two restricted units are the entire pool.
+    let observation = observed(&game, 0);
+    let payer = &observation.view.players[0];
+    assert!(payer.mana.is_empty());
+    assert_eq!(
+        payer.mana_total(),
+        BTreeMap::from([(Color::C, 1.into()), (Color::U, 1.into())])
+    );
+    assert!(
+        payer
+            .restricted_mana
+            .iter()
+            .all(|unit| { unit.restriction == ManaSpendRestriction::ActivatedAbility })
+    );
+    assert_eq!(payer.restricted_mana.len(), 2);
+    assert_eq!(
+        game.state.rules.objects[&CardId(0)].zone,
+        Zone::Hand { owner: PlayerId(0) }
+    );
+    let decision = observation.decision.as_ref().unwrap();
+    let activation = decision
+        .index(&Candidate::Action {
+            action: Action::ActivateAbility {
+                object: game.handle_for(PlayerId(0), drake).unwrap(),
+                ability: 0,
+            },
+        })
+        .unwrap() as usize;
+    let pass = decision
+        .index(&Candidate::Action {
+            action: Action::Pass,
+        })
+        .unwrap() as usize;
+    let Step::Choose(choices) = Composer::compose(decision, &[], None).unwrap() else {
+        panic!("expected the priority pointer head");
+    };
+    let catalog = mtg_observe::catalog::ObservationCatalog::new(game.prepared.catalog.clone());
+    let row = mtg_observe::encode(&catalog, &observation, 0, &choices, true).unwrap();
+    assert_eq!(row.ptr_mask[pass], 1, "there is another unmasked choice");
+    assert_eq!((row.cand[activation][5], row.ptr_mask[activation]), (2, 1));
+    let Step::Answer(answer) = Composer::compose(decision, &[activation], None).unwrap() else {
+        panic!("expected the activation answer");
+    };
+    let QueryResult::Complete(QueryValue::Validated(receipt)) = game.check_player_response(
+        decision.player,
+        decision.id.clone(),
+        answer,
+        Budget::unlimited(),
+    ) else {
+        panic!("the engine rejected the encoded activation");
+    };
+    game.submit(receipt).unwrap();
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    let spend = Driver::request(&mut game, u64::MAX);
+    let Shape::Pay {
+        cost,
+        pool,
+        step: PayStep::Spend,
+    } = &spend.shape
+    else {
+        panic!("expected a spending decision for Drake Hatchling");
+    };
+    assert_eq!(cost.colored, [Color::U]);
+    assert_eq!(cost.generic, Quantity::zero());
+    assert!(pool.unrestricted.is_empty());
+    let blue = pool
+        .restricted
+        .iter()
+        .find(|unit| unit.color == Color::U)
+        .unwrap();
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::SpendRestricted {
+                unrestricted: BTreeMap::new(),
+                restricted: vec![blue.clone()],
+            },
+        },
+    );
+    for _ in 0..game.live_players().len() {
+        Driver::pass(&mut game);
+    }
+    priority(&mut game);
+    assert_eq!(game.characteristics(drake).unwrap().power, Some(2.into()));
+    assert_eq!(
+        observed(&game, 0).view.players[0].mana_total(),
+        BTreeMap::from([(Color::C, 1.into())])
+    );
+}

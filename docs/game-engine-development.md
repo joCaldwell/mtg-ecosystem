@@ -209,11 +209,13 @@ previous decision.
 `payment` is `auto` (default) or `manual`; spend always uses the exact solver.
 `opponents` is `self_play` (default) or `baseline` (seat zero acts, other seats
 use Develop). `mask_unfundable` defaults to true: the encoder proves fixed costs
-from the visible pool and intrinsic single-color lands, keeps a candidate with
-funding code 2 for uncertain sources, payments or visible spell-cost reducers,
-and preserves the original pointers if filtering would empty the head. `head`
-selects pointer (0) or number (1). Pointers 0–127 address ordered candidates,
-128 ends a slot or ordering, 129 and 130 finish production with undo or keep.
+from the unrestricted pool and intrinsic single-color lands. It keeps an
+otherwise unfundable candidate with funding code 2 when the pool contains
+restricted mana or when sources, payments or visible spell-cost reducers make
+funding uncertain. It preserves the original pointers if filtering would empty
+the head. `head` selects pointer (0) or number (1). Pointers 0–127 address
+ordered candidates, 128 ends a slot or ordering, and 129 and 130 finish
+production with undo or keep.
 Numbers 0–62 are literal and 63 selects the numeric upper bound, which AnnounceX
 can tighten when resources are fully modeled; otherwise the published maximum
 applies, and an unbounded decision with unknown supply uses the signed 32-bit

@@ -106,11 +106,11 @@ fn card_choice(g: &mut Game, offered: &[u32], min: u32, max: u32) -> Decision<Ru
         (PlayerId(0), &Reason::ResolveCardChoice),
         "{d:?}"
     );
-    let expected: Vec<_> = offered
-        .iter()
-        .map(|id| Candidate::Object {
-            object: Driver::object(g, *id),
-        })
+    let mut objects: Vec<_> = offered.iter().map(|id| Driver::object(g, *id)).collect();
+    objects.sort_by_cached_key(|object| g.handle_for(d.player, *object).unwrap().0);
+    let expected: Vec<_> = objects
+        .into_iter()
+        .map(|object| Candidate::Object { object })
         .collect();
     assert_eq!(d.candidates, expected);
     let Shape::Pick { slots, .. } = &d.shape else {

@@ -257,7 +257,7 @@ fn attack_offer(g: &Game, d: &Decision<Rules>) -> BTreeMap<u32, (Vec<u8>, u32)> 
                 panic!("attackers are objects")
             };
             let id = (0..16).find(|i| Driver::object(g, *i) == *object).unwrap();
-            let players = s
+            let mut players: Vec<_> = s
                 .allowed
                 .iter()
                 .map(|a| match &d.candidates[*a as usize] {
@@ -265,6 +265,7 @@ fn attack_offer(g: &Game, d: &Decision<Rules>) -> BTreeMap<u32, (Vec<u8>, u32)> 
                     other => panic!("defender {other:?}"),
                 })
                 .collect();
+            players.sort_unstable();
             (id, (players, s.min))
         })
         .collect()
