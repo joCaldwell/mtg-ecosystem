@@ -3528,6 +3528,8 @@ impl RulesTxn {
             transforms: frozen.transforms,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
+            plus_one_counters: frozen.plus_one_counters.clone(),
+            counters: frozen.counters.clone(),
             ..current
         } == *frozen
     }
@@ -3556,6 +3558,8 @@ impl RulesTxn {
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
                 keywords: fact.keywords.clone(),
+                plus_one_counters: fact.plus_one_counters.clone(),
+                counters: fact.counters.clone(),
                 ..damage.source.clone()
             }) != *fact
         {

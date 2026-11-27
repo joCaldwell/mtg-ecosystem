@@ -478,3 +478,129 @@ fn tranquilize_stun_counters_replace_each_untap() {
     assert!(!g.current(bears).unwrap().tapped);
     assert!(g.current(bears).unwrap().counters.is_empty());
 }
+
+const ASSEMBLE_THE_LEGION: &str = record!("6f81bef3-6ca0-4cf4-aa99-7b2813eeef04");
+const BARRINS_CODEX: &str = record!("f7c237e6-17a4-4e72-8cc3-456aec738394");
+
+/// Advance to seat 0's next turn, accepting every optional effect seat 0 is
+/// offered on the way.
+fn next_own_turn(g: &mut Game) {
+    let turn = g.state.rules.turn.number;
+    for _ in 0..400 {
+        let r = Driver::request(g, u64::MAX);
+        if g.state.rules.turn.number > turn
+            && g.state.rules.active == Some(PlayerId(0))
+            && r.reason == Reason::Priority
+            && g.state.rules.stack.is_empty()
+            && g.state.rules.turn.step != TurnStep::Untap
+            && g.state.rules.turn.step != TurnStep::Upkeep
+        {
+            checked(g);
+            return;
+        }
+        let answer = match r.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::Attackers => r.attack(vec![]),
+            Reason::OptionalEffect => {
+                checked(g);
+                r.pick_one(&Candidate::Flag { flag: Flag::Accept }).unwrap()
+            }
+            ref reason => panic!("unexpected turn boundary {reason:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    panic!("seat 0's next turn did not arrive");
+}
+
+fn tokens(g: &Game) -> usize {
+    g.state
+        .rules
+        .objects
+        .values()
+        .filter(|o| o.zone == Zone::Battlefield && g.state.rules.tokens.contains_key(&o.id.card))
+        .count()
+}
+
+/// Assemble the Legion: "At the beginning of your upkeep, put a muster
+/// counter on this enchantment. Then create a 1/1 ... token ... for each
+/// muster counter on this enchantment." The count is read after this
+/// upkeep's placement: one token, then two more (CR 122.1, 608.2h).
+#[test]
+fn assemble_the_legion_counts_its_own_muster_counters() {
+    let prepared = board(&[(
+        ASSEMBLE_THE_LEGION,
+        &[Cell::KindCountersSource, Cell::CountedTokens],
+    )])
+    .permanent_or_hand("Assemble the Legion", 0, 0, false)
+    .libraries("Island", 12)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let legion = Driver::object(&g, 0);
+    let muster = CounterKind::Named {
+        name: "muster".into(),
+    };
+    next_own_turn(&mut g);
+    assert_eq!(
+        g.current(legion).unwrap().counter_count(&muster),
+        Quantity::from(1)
+    );
+    assert_eq!(tokens(&g), 1);
+    next_own_turn(&mut g);
+    assert_eq!(
+        g.current(legion).unwrap().counter_count(&muster),
+        Quantity::from(2)
+    );
+    assert_eq!(tokens(&g), 3);
+    assert_recoverable((&g).into());
+}
+
+/// Barrin's Codex: "you may put a page counter on this artifact" each
+/// upkeep; "{4}, {T}, Sacrifice this artifact: Draw X cards, where X is the
+/// number of page counters on this artifact." The sacrificed source's
+/// counters are read as it last existed (CR 122.1, 608.2h).
+#[test]
+fn barrins_codex_reads_its_last_known_page_counters() {
+    let mut scenario = board(&[(BARRINS_CODEX, &[Cell::KindCountersSource])]).permanent_or_hand(
+        "Barrin's Codex",
+        0,
+        0,
+        false,
+    );
+    for _ in 0..4 {
+        scenario = scenario.permanent_or_hand("Island", 0, 0, false);
+    }
+    let mut g = Game::with_trace(
+        scenario.libraries("Island", 12).prepare(),
+        TraceMode::Detailed,
+    );
+    let codex = Driver::object(&g, 0);
+    next_own_turn(&mut g);
+    next_own_turn(&mut g);
+    let page = CounterKind::Named {
+        name: "page".into(),
+    };
+    assert_eq!(
+        g.current(codex).unwrap().counter_count(&page),
+        Quantity::from(2)
+    );
+    let hand = |g: &Game| {
+        g.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
+            .count()
+    };
+    let before = hand(&g);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: codex,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut g, &[1, 2, 3, 4]);
+    assert_eq!(zone(&g, 0), Zone::Graveyard { owner: PlayerId(0) });
+    settle(&mut g);
+    assert_eq!(hand(&g), before + 2);
+}

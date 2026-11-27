@@ -130,6 +130,11 @@ pub struct ObjectBefore {
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deathtouch_damage: bool,
+    /// CR 122.1, 608.2h: the counters as last known.
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counters: Vec<CounterStack>,
     pub object: ObjectId,
     pub owner: PlayerId,
     pub controller: PlayerId,

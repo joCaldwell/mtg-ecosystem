@@ -86,6 +86,58 @@ pub enum CounterKind {
     },
 }
 
+/// Counter names the pinned rules give meaning on objects or players: CR
+/// 107.17 ticket, 122.1b keywords, 122.1c shield, 122.1d stun, 122.1e
+/// loyalty, 122.1f poison, 122.1g defense, 122.1h finality, 122.1i rad,
+/// 122.1j hone, 702.24 age, 702.32 fade, 702.62/702.63 time, 711 level,
+/// 714 lore, 107.14 energy, and experience. A [`CounterKind::Named`] is a
+/// counter with none of these meanings (CR 122.1).
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+const RULES_COUNTER_NAMES: &[&str] = &[
+    "age",
+    "decayed",
+    "deathtouch",
+    "defense",
+    "double strike",
+    "energy",
+    "exalted",
+    "experience",
+    "fade",
+    "finality",
+    "first strike",
+    "flying",
+    "haste",
+    "hexproof",
+    "hone",
+    "indestructible",
+    "level",
+    "lifelink",
+    "lore",
+    "loyalty",
+    "menace",
+    "poison",
+    "rad",
+    "reach",
+    "shadow",
+    "shield",
+    "stun",
+    "ticket",
+    "time",
+    "trample",
+    "vigilance",
+];
+
+/// CR 122.1: a lowercase counter name with no rules meaning.
+pub fn plain_counter_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b' ' || b == b'-')
+        && !name.starts_with(' ')
+        && !name.ends_with(' ')
+        && !RULES_COUNTER_NAMES.contains(&name)
+}
+
 impl CounterKind {
     /// CR 122.1a-b: power/toughness and keyword counters act only on
     /// creatures here; other kinds may sit on any permanent.

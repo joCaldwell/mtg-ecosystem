@@ -42,6 +42,12 @@ pub enum Amount {
     LifeOf {
         player: PlayerExpr,
     },
+    /// CR 122.1, 608.2h: how many counters of `counter` are on one object
+    /// as the verb reads it, using last known information if it has left.
+    CountersOn {
+        object: Ref,
+        counter: CounterKind,
+    },
     /// CR 202.3, 601.2i: the total mana value of the spells `caster` cast
     /// this turn other than the resolving spell.
     OtherCastsManaValue {
@@ -91,7 +97,10 @@ impl Amount {
     /// CR 608.2h: a number the game state supplies when the verb reads it.
     pub fn is_resolution_count(&self) -> bool {
         match self {
-            Self::Count { .. } | Self::Greatest { .. } | Self::Devotion { .. } => true,
+            Self::Count { .. }
+            | Self::Greatest { .. }
+            | Self::Devotion { .. }
+            | Self::CountersOn { .. } => true,
             Self::Times { of, .. } => of.is_resolution_count(),
             _ => false,
         }

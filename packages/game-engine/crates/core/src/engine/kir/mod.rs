@@ -518,6 +518,25 @@ impl RulesTxn {
                 }
                 Ok(greatest)
             }
+            // CR 122.1, 608.2h: the source's counters now, or as it last
+            // existed on the battlefield.
+            Amount::CountersOn {
+                object: Ref::Source,
+                counter,
+            } => {
+                let facts = self.source_facts(self.entry(frame.stack_id)?)?;
+                Ok(
+                    if *counter == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
+                        facts.plus_one_counters
+                    } else {
+                        facts
+                            .counters
+                            .iter()
+                            .find(|stack| stack.kind == *counter)
+                            .map_or_else(Quantity::zero, |stack| stack.count.clone())
+                    },
+                )
+            }
             Amount::Times { factor, of } => {
                 let mut value = self.kernel_amount(frame, of)?;
                 value.multiply(factor);

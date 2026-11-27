@@ -43,6 +43,10 @@ impl Walk<'_, '_> {
                 Self::fixed_at_least(amount, 1, "counter amount")?;
                 false
             }
+            CounterKind::Named { name } if crate::kir::plain_counter_name(name) => {
+                Self::fixed_at_least(amount, 1, "counter amount")?;
+                false
+            }
             CounterKind::Keyword { .. } | CounterKind::Named { .. } => return unaudited("verb"),
         };
         let cell = |plus: Cell, kind: Cell| Ok(if plus_one { plus } else { kind });
@@ -107,7 +111,9 @@ pub(super) fn capabilities(counter: &CounterKind, amount: &Amount, out: &mut BTr
         CounterKind::Stun => {
             out.insert(Capability::StunCountersV1);
         }
-        CounterKind::Named { .. } => {}
+        CounterKind::Named { .. } => {
+            out.insert(Capability::NamedCountersV1);
+        }
     }
     if amount.is_announced_x() {
         out.insert(Capability::AnnouncedXEffectsV1);

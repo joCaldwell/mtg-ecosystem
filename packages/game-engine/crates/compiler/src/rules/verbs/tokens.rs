@@ -94,6 +94,7 @@ fn amount(
         ast::Amount::X(_) => Ok(bound.unwrap_or_else(Amount::announced_x)),
         _ if bound.is_some() => Err(unsupported("bindings", "unconsumed count binding")),
         ast::Amount::Count(count) => lower_count(&count, cx.context),
+        ast::Amount::CounterCount(_) | ast::Amount::Product(_) => source_counter_amount(&count),
         other => Ok(Amount::Fixed {
             value: fixed_positive_amount(&other)?,
         }),

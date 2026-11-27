@@ -539,7 +539,7 @@ impl Walk<'_, '_> {
                 }
                 self.set(set)
             }
-            Amount::StatOf { object, .. } => self
+            Amount::StatOf { object, .. } | Amount::CountersOn { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
             Amount::Greatest { set, .. } => self.set(set),
@@ -1534,6 +1534,17 @@ impl Walk<'_, '_> {
                 if *factor > Quantity::from(1) && !matches!(**of, Amount::Times { .. }) =>
             {
                 Self::audit_verb_amount(of)
+            }
+            // CR 122.1, 608.2h: the source's own admitted counter kinds.
+            Amount::CountersOn {
+                object: Ref::Source,
+                counter,
+            } if match counter {
+                CounterKind::Named { name } => crate::kir::plain_counter_name(name),
+                _ => true,
+            } =>
+            {
+                Ok(())
             }
             _ => unaudited("resolution count"),
         }

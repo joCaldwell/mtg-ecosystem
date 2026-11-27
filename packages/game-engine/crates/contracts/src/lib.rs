@@ -438,6 +438,8 @@ pub enum Capability {
     KeywordCountersV1,
     /// CR 122.1d: stun counters replace untapping.
     StunCountersV1,
+    /// CR 122.1: counters without rules meaning, read by their cards.
+    NamedCountersV1,
 
     DestroyCreatureV1,
     GraveyardRecursionV1,

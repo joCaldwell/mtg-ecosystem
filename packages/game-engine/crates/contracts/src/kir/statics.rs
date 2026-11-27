@@ -586,6 +586,7 @@ fn cda_amount(amount: &Amount) -> bool {
         }
         Amount::Var { .. }
         | Amount::StatOf { .. }
+        | Amount::CountersOn { .. }
         | Amount::Greatest { .. }
         | Amount::LifeOf { .. }
         | Amount::OtherCastsManaValue { .. } => false,

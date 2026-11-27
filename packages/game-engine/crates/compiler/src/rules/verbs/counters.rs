@@ -11,7 +11,7 @@ pub(super) fn lower(
     count: &serde_json::Value,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
-    let counter = object_counter_kind(counter)?;
+    let counter = object_counter_kind(&counter.r#type)?;
     let amount = match typed(count, "amount")? {
         ast::Amount::X(_) if counter == kir::CounterKind::MinusOneMinusOne => {
             kir::Amount::announced_x()
@@ -23,7 +23,7 @@ pub(super) fn lower(
     let on = object(on)?;
     let on = if is_set(&on) {
         lower_board_set(&on, cx.context)?
-    } else if is_this_creature(&on) {
+    } else if is_this_creature(&on) || (!counter.needs_creature() && is_this_permanent(&on)) {
         kir::SetExpr::source()
     } else if let Some(slot) = continuous::followup_target(cx, &on) {
         SetExpr::target(slot)
@@ -37,24 +37,6 @@ pub(super) fn lower(
         )
     };
     Ok(Instruction::counters(on, counter, amount, cx.source_block))
-}
-
-/// CR 122.1: the permanent counter kinds whose rules the engine executes.
-pub(crate) fn object_counter_kind(counter: &SourceCounter) -> Result<kir::CounterKind, Failure> {
-    match counter.r#type.as_str() {
-        "+1/+1" => Ok(kir::CounterKind::PlusOnePlusOne),
-        "-1/-1" => Ok(kir::CounterKind::MinusOneMinusOne),
-        // CR 122.1b: a keyword counter grants exactly its keyword; the
-        // kernel check admits only keywords whose grant the runtime executes.
-        name @ ("flying" | "first strike" | "double strike" | "deathtouch" | "haste"
-        | "hexproof" | "indestructible" | "lifelink" | "menace" | "reach" | "trample"
-        | "vigilance") => Ok(kir::CounterKind::Keyword {
-            keyword: serde_json::from_value(serde_json::Value::String(name.into()))
-                .map_err(|_| step("put-counters", "counter_kind"))?,
-        }),
-        "stun" => Ok(kir::CounterKind::Stun),
-        _ => Err(step("put-counters", "counter_kind")),
-    }
 }
 
 /// CR 107.14, 122.1f, 704.5c: a fixed award to you or to each opponent.
