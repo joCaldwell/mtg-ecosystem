@@ -180,6 +180,13 @@ impl RulesTxn {
                         .collect(),
                 }
             }
+            Shape::CombatDistribute { mut groups, lethal } => {
+                for group in &mut groups {
+                    group.source = m(&group.source);
+                    group.recipients = group.recipients.iter().map(m).collect();
+                }
+                Shape::CombatDistribute { groups, lethal }
+            }
             Shape::Pay {
                 cost,
                 pool,
