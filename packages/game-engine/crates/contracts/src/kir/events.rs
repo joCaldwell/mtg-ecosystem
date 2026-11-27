@@ -669,6 +669,10 @@ pub enum TurnFact {
     SpellsCastFromHand,
     CardsDrawn,
     LifeGained,
+    ArtifactsEnteredUnderYourControl,
+    CreaturesEnteredUnderYourControl,
+    CreaturesEnteredUnderOpponentsControl,
+    NonlandPermanentsEnteredUnderYourControl,
     /// CR 111.2: tokens this player created this turn.
     TokensCreated,
     /// CR 601.2i: instant and sorcery spells this player cast this turn.
@@ -712,6 +716,15 @@ pub enum Intervening {
     ControlsOwnCommander,
     OpponentControlsMore {
         kind: CardKind,
+    },
+    /// CR 603.4: compare with the opponent identified by the trigger event.
+    EventOpponentControlsMore {
+        kind: CardKind,
+    },
+    /// CR 107.1b, 603.4: total signed power of creatures you control.
+    ControllerCreatureTotalPower {
+        cmp: Cmp,
+        value: Quantity,
     },
     /// "if you control a creature with power N or greater" (CR 208).
     ControllerHasCreatureWithPower {
@@ -808,6 +821,9 @@ impl Intervening {
             },
             Self::ControlsOwnCommander => Cond::ControlsOwnCommander {},
             Self::OpponentControlsMore { kind } => Cond::OpponentControlsMore { kind: *kind },
+            Self::EventOpponentControlsMore { kind } => {
+                Cond::EventOpponentControlsMore { kind: *kind }
+            }
             Self::SourceCastByController => Cond::CastBy {
                 object: Ref::Source,
                 caster: you,
@@ -816,6 +832,12 @@ impl Intervening {
                 identity: identity.clone(),
             },
             Self::SourceControlledSinceLastUpkeep => Cond::ControlledSinceLastUpkeep {},
+            Self::ControllerCreatureTotalPower { cmp, value } => {
+                Cond::ControllerCreatureTotalPower {
+                    cmp: *cmp,
+                    value: value.clone(),
+                }
+            }
             Self::ControllerHandEmpty => Cond::Compare {
                 left: Amount::Count {
                     set: SetExpr::Matching {
@@ -880,11 +902,17 @@ impl Intervening {
     /// has none. A condition is admitted only in exactly one of these forms.
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
-            Cond::TurnHistory { fact, cmp, value } if !value.is_negative() => Self::TurnHistory {
-                fact: *fact,
-                cmp: *cmp,
-                value: value.clone(),
-            },
+            Cond::TurnHistory { fact, cmp, value }
+                if !value.is_negative()
+                    && (*fact != TurnFact::CreaturesEnteredUnderOpponentsControl
+                        || (*cmp == Cmp::AtLeast && *value == Quantity::from(1))) =>
+            {
+                Self::TurnHistory {
+                    fact: *fact,
+                    cmp: *cmp,
+                    value: value.clone(),
+                }
+            }
             Cond::CastBy { .. } => Self::SourceCastByController,
             Cond::ControlledSinceLastUpkeep {} => Self::SourceControlledSinceLastUpkeep,
             // CR 702.74a: the one reviewed entry cost an intervening clause reads.
@@ -895,6 +923,15 @@ impl Intervening {
             Cond::OpponentControlsMore {
                 kind: kind @ (CardKind::Land | CardKind::Creature),
             } => Self::OpponentControlsMore { kind: *kind },
+            Cond::EventOpponentControlsMore {
+                kind: kind @ (CardKind::Land | CardKind::Creature),
+            } => Self::EventOpponentControlsMore { kind: *kind },
+            Cond::ControllerCreatureTotalPower { cmp, value } if !value.is_negative() => {
+                Self::ControllerCreatureTotalPower {
+                    cmp: *cmp,
+                    value: value.clone(),
+                }
+            }
             Cond::Compare {
                 left:
                     Amount::Count {
@@ -996,13 +1033,27 @@ impl Intervening {
             }
             Self::SourceControlledSinceLastUpkeep => *pattern == EventPattern::your_upkeep(),
             _ if matches!(pattern, EventPattern::BecomesTarget { .. }) => false,
-            Self::ControllerComparison { .. } => match pattern {
-                EventPattern::Enters { .. }
-                | EventPattern::Attacks { .. }
-                | EventPattern::StepBegins { .. } => true,
-                EventPattern::AnyOf { first, second } => self.admits(first) && self.admits(second),
+            Self::EventOpponentControlsMore { .. } => match pattern {
+                EventPattern::StepBegins {
+                    active: PlayerExpr::EachOpponent,
+                    ..
+                } => true,
+                EventPattern::Enters { object } => object.0.contains(&Atom::ControlledBy {
+                    player: PlayerExpr::EachOpponent,
+                }),
                 _ => false,
             },
+            Self::ControllerComparison { .. } | Self::ControllerCreatureTotalPower { .. } => {
+                match pattern {
+                    EventPattern::Enters { .. }
+                    | EventPattern::Attacks { .. }
+                    | EventPattern::StepBegins { .. } => true,
+                    EventPattern::AnyOf { first, second } => {
+                        self.admits(first) && self.admits(second)
+                    }
+                    _ => false,
+                }
+            }
             _ => true,
         }
     }

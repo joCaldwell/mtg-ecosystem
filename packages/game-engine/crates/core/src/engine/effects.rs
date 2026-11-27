@@ -648,6 +648,8 @@ impl RulesTxn {
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
+            | Cond::EventOpponentControlsMore { .. }
+            | Cond::ControllerCreatureTotalPower { .. }
             | Cond::Measured { .. }
             | Cond::ControlledSinceLastUpkeep {} => false,
         }
