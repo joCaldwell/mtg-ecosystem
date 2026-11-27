@@ -930,7 +930,14 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     {
         return cell("trigger", format!("{key}:intervening_if"));
     }
-    if a.functioning_zone != FunctioningZone::Battlefield
+    // CR 702.29c: a discard of this card triggers from the graveyard it
+    // was put into; every other admitted event from the battlefield.
+    let zone = if pattern.discards_source() {
+        FunctioningZone::Graveyard
+    } else {
+        FunctioningZone::Battlefield
+    };
+    if a.functioning_zone != zone
         || !matches!(
             kind,
             CardKind::Creature | CardKind::Artifact | CardKind::Enchantment | CardKind::Land

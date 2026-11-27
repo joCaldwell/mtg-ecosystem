@@ -1626,6 +1626,10 @@ pub enum TriggerCondition {
         /// the source triggers this ability at most once per turn (CR 400.7).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         once_each_turn: bool,
+        /// "[Event] during your turn": the event occurs while the ability's
+        /// controller is the active player (CR 102.1, 500.1).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        your_turn: bool,
     },
 }
 impl TriggerCondition {
@@ -1635,6 +1639,12 @@ impl TriggerCondition {
             pattern,
             intervening_if: None,
             once_each_turn: false,
+            your_turn: false,
+        }
+    }
+    pub fn your_turn(&self) -> bool {
+        match self {
+            Self::Event { your_turn, .. } => *your_turn,
         }
     }
     pub fn once_each_turn(&self) -> bool {
@@ -2203,7 +2213,10 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
     if ability.condition.intervening_if().is_some() {
         caps.push(Capability::InterveningIfV1);
     }
-    if ability.condition.once_each_turn() || pattern.nth().is_some() {
+    if ability.condition.once_each_turn()
+        || ability.condition.your_turn()
+        || pattern.nth().is_some()
+    {
         caps.push(Capability::TriggerTurnHistoryV1);
     }
     // CR 700.4: a creature you control (optionally another, nontoken or
