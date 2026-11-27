@@ -527,6 +527,7 @@ fn chosen_cost_shapes() -> Vec<Game> {
         forest.activated.push(ActivatedAbility {
             modal: None,
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
+                minimum_power: None,
                 action,
                 filter: ChosenCostFilter::Any,
                 count: 1,

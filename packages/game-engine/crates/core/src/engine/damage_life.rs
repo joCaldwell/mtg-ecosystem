@@ -368,12 +368,7 @@ impl RulesTxn {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            self.validate_characteristic_identity(
-                entry.source,
-                fact.transforms,
-                fact.face_down,
-                &fact.characteristics,
-            )?;
+            self.validate_fact_identity(fact)?;
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {

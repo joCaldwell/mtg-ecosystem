@@ -42,8 +42,17 @@ impl Walk<'_, '_> {
             || (!values.keywords.is_empty()
                 && !crate::supported_temporary_keywords(&values.keywords))
             || values.animation.as_ref().is_some_and(|animation| {
-                values.base_power.is_none()
-                    || values.base_toughness.is_none()
+                ((values.base_power.is_none() || values.base_toughness.is_none())
+                    && !(self.env.context == Context::Activated
+                        && *what
+                            == (SetExpr::One {
+                                object: Ref::Source,
+                            })
+                        && values.base_power.is_none()
+                        && values.base_toughness.is_none()
+                        && animation.add_artifact
+                        && !animation.replace_creature_subtypes
+                        && animation.creature_subtypes.is_empty()))
                     || (animation.replace_creature_subtypes
                         && animation.creature_subtypes.is_empty())
                     || animation
