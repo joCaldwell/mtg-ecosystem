@@ -37,6 +37,7 @@ impl StackKind {
                     witness @ (TriggerEventWitness::StepBegan { .. }
                     | TriggerEventWitness::SpellCast { .. }
                     | TriggerEventWitness::CardDrawn { .. }
+                    | TriggerEventWitness::CreatureAttacked { .. }
                     | TriggerEventWitness::AttackerUnblocked { .. }
                     | TriggerEventWitness::BecameBlocked { .. }),
                 ..
@@ -155,18 +156,21 @@ impl RulesTxn {
     }
     pub(super) fn top_has_target_domain(&self) -> Result<bool, String> {
         let top = self.top()?;
-        let source = self.targeting_characteristics(top)?;
         if top.mode_mask.is_none()
             && let Some(modal) = self.modal_declaration(top)?
         {
+            let source = self.targeting_characteristics(top)?;
             return Ok(self.modal_has_selection(modal, top.controller, &source, Some(top.source)));
         }
-        Ok(self.has_target_domain(
-            self.program_for(top)?,
-            top.controller,
-            &source,
-            Some(top.source),
-        ))
+        let program = self.program_for(top)?;
+        let source = self.targeting_source(
+            top,
+            program
+                .targets
+                .iter()
+                .any(mtg_contracts::TargetSpec::requires_source_power),
+        )?;
+        Ok(self.has_target_domain(program, top.controller, &source, Some(top.source)))
     }
 
     pub(crate) fn has_target_domain(
@@ -296,7 +300,8 @@ impl RulesTxn {
         match recipient {
             None | Some(ActionRecipient::Controller) => Ok(self.entry(frame.stack_id)?.controller),
             Some(ActionRecipient::EventPlayer) => {
-                let StackKind::Triggered { witness, .. } = &self.entry(frame.stack_id)?.kind else {
+                let kind = &self.entry(frame.stack_id)?.kind;
+                let StackKind::Triggered { witness, .. } = kind else {
                     return Err("unbound damage-recipient action".into());
                 };
                 match witness {
@@ -306,9 +311,9 @@ impl RulesTxn {
                             Err("action event requires a player damage recipient".into())
                         }
                     },
-                    TriggerEventWitness::AttackerUnblocked { defender, .. }
-                    | TriggerEventWitness::BecameBlocked { defender, .. } => Ok(*defender),
-                    _ => Err("unbound damage-recipient action".into()),
+                    _ => kind
+                        .event_player()?
+                        .ok_or_else(|| "missing event player".into()),
                 }
             }
         }

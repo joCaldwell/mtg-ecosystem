@@ -2030,6 +2030,10 @@ fn event_supplies(event: &TriggerCondition, role: EventPlayerRole) -> bool {
     event_player_roles(event).contains(&role)
         || (role == EventPlayerRole::DamagedPlayer
             && matches!(event.pattern(), EventPattern::DealsDamage { .. }))
+        // CR 508.5: the player the attacking source attacks. This role is explicit in
+        // annihilator. An attack alone does not bind the pronoun "that player".
+        || (role == EventPlayerRole::DefendingPlayer
+            && matches!(event.pattern(), EventPattern::Attacks { .. }))
 }
 
 /// The event-player role an event supplies, for lowerers of "that player".

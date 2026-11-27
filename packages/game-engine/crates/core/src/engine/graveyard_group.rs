@@ -375,7 +375,7 @@ impl GraveyardGroup {
                 let entry = game.entry(frame.stack_id)?;
                 let i = game.program_for(entry)?.instructions.get(frame.cursor as usize).ok_or("missing retained instruction")?;
                 let kind = match result {
-                    GroupResult::Effect if matches!(i, kernel!(Sacrifice { player: you!(), count: fixed!(count), .. }) if *count > Quantity::from(1)) => true,
+                    GroupResult::Effect if matches!(i, kernel!(Sacrifice { player: you!() | event_player!(), count: fixed!(count), .. }) if *count > Quantity::from(1)) => true,
                     GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature) || matches!(i, kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(_), random: false }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. }) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. })),
                     GroupResult::ActualEffect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldPermanent),
                     GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}) | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. }),

@@ -279,13 +279,13 @@ impl RulesTxn {
             PlayerExpr::Is {
                 who:
                     Ref::EventPlayer {
-                        role: EventPlayerRole::ActivePlayer,
+                        role: EventPlayerRole::ActivePlayer | EventPlayerRole::DefendingPlayer,
                     },
             } => self
                 .entry(frame.stack_id)?
                 .kind
                 .event_player()?
-                .ok_or_else(|| "missing original active player".into()),
+                .ok_or_else(|| "missing sacrifice event player".into()),
             _ => Err("unbound sacrifice player".into()),
         }
     }

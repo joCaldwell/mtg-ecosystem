@@ -191,6 +191,9 @@ pub enum Cell {
     SacrificeController,
     SacrificeDamagedPlayer,
     SacrificeActivePlayer,
+    /// CR 702.86a, 508.5: an attack trigger's defending player sacrifices N
+    /// permanents of their choice, or every one they control if fewer.
+    SacrificeDefendingPlayer,
     SacrificeEachPlayer,
     SacrificeEachOpponent,
     SacrificeEachOpponentGreatestPower,
@@ -440,6 +443,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeController
         | C::SacrificeDamagedPlayer
         | C::SacrificeActivePlayer
+        | C::SacrificeDefendingPlayer
         | C::SacrificeEachPlayer
         | C::SacrificeEachOpponent
         | C::SacrificeEachOpponentGreatestPower
@@ -678,6 +682,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::PopulateV1
         | C::MyriadV1
         | C::FlankingV1
+        | C::SourceRelativePowerTargetV1
         | C::PlayerCountersV1
         | C::RegenerationShieldV1
         | C::ProliferateV1

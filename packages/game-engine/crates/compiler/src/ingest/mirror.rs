@@ -77,6 +77,8 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "melee"
                 | "battle cry"
                 | "flanking"
+                | "annihilator"
+                | "mentor"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
@@ -90,9 +92,8 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             "protection" => ["keyword", "from"].as_slice(),
-            "crew" | "bushido" | "afterlife" | "soulshift" | "afflict" | "rampage" => {
-                ["keyword", "amount"].as_slice()
-            }
+            "crew" | "bushido" | "afterlife" | "soulshift" | "afflict" | "rampage"
+            | "annihilator" => ["keyword", "amount"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {

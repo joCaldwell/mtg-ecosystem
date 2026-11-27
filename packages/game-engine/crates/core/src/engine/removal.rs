@@ -134,12 +134,14 @@ impl RulesTxn {
     }
     /// CR 109.2, 201.5, 601.2c, 608.2b: a battlefield target's criteria for
     /// `controller`. "Another" (`IsNot` the source) excludes `source`, the
-    /// targeting object's own identity.
+    /// targeting object's own identity; `source_power` is its power, current
+    /// or last known (CR 702.134a).
     pub(crate) fn permanent_target_legal(
         &self,
         object: ObjectId,
         controller: PlayerId,
         source: Option<ObjectId>,
+        source_power: Option<&Quantity>,
         spec: &TargetSpec,
     ) -> bool {
         self.targetable_by(object, controller)
@@ -153,7 +155,10 @@ impl RulesTxn {
                         &self.object_facts(current),
                         controller,
                         filter,
-                        Some(source == Some(object)),
+                        Some(crate::query::TargetSource {
+                            is_source: source == Some(object),
+                            power: source_power,
+                        }),
                     )
                     .is_yes()
                 })

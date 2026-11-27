@@ -284,14 +284,18 @@ beyond the first; melee pumps +1/+1 per opponent declared attacked; both count
 on resolution. Flanking shrinks each blocker without the flanking marker by
 -1/-1; marker and trigger are admitted only together. Dethrone and training add a
 +1/+1 counter. Afflict N makes the blocked attacker's defending player lose N.
+Annihilator N makes that attacker’s defending player choose N permanents they
+control to sacrifice together, or all they control if fewer (CR 702.86). Mentor
+puts a +1/+1 counter on target attacking creature with strictly lower power. Compare both powers
+at placement and resolution, using the mentor source’s last known power after
+it leaves (CR 702.134a–b, 608.2b). “Whenever ... mentors” events (CR 702.134c) reject.
 Myriad (a single-faced creature card without entry replacements) offers its
 controller a copy for each other live opponent; the accepted copies enter
 together, tapped and attacking those players (CR 508.4, 608.2f). They never
 attacked, and that invocation's delayed trigger exiles them at end of combat.
 The keyword line must print each N, and the source keyword list must
 name each keyword. X amounts reject. So do the remaining triggered keywords, such as
-mentor (a relative-power target), undying/persist (counter memory and entry
-counters) and extort (hybrid resolution payment).
+undying/persist (counter memory and entry counters) and extort (hybrid resolution payment).
 
 Static guards can read the active player, public battlefield or graveyard
 counts, and devotion (CR 700.5). Rule statics apply combat prohibitions and

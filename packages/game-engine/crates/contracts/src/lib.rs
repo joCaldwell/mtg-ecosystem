@@ -434,6 +434,9 @@ pub enum Capability {
     MyriadV1,
     /// CR 702.25a: the flanking marker and its block-pair trigger.
     FlankingV1,
+    /// CR 702.134a, 608.2b: a target whose power must be less than the
+    /// triggering source's, current or last known.
+    SourceRelativePowerTargetV1,
     PlayerCountersV1,
     ProliferateV1,
     CreatureTokensV1,
@@ -570,8 +573,17 @@ pub struct PermanentFilter {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "comparison", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CreaturePowerFilter {
-    AtLeast { value: Quantity },
-    AtMost { value: Quantity },
+    AtLeast {
+        value: Quantity,
+    },
+    AtMost {
+        value: Quantity,
+    },
+    /// CR 702.134a, 608.2b: power less than the targeting ability's source's
+    /// power, read from its current derived power at announcement and again
+    /// at resolution, or from its last known information once it has left
+    /// the battlefield. Admitted only for a triggered ability's one target.
+    LessThanSource {},
 }
 /// Closed non-targeted sets, evaluated as an instruction is performed (CR 608.2h).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2471,12 +2483,18 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if target.filter.is_some() {
             set.insert(Capability::PermanentRemovalV1);
         }
-        if target
+        match target
             .filter
             .as_ref()
-            .is_some_and(|filter| filter.power.is_some())
+            .and_then(|filter| filter.power.as_ref())
         {
-            set.insert(Capability::PowerFilteredRemovalV1);
+            Some(CreaturePowerFilter::LessThanSource {}) => {
+                set.insert(Capability::SourceRelativePowerTargetV1);
+            }
+            Some(_) => {
+                set.insert(Capability::PowerFilteredRemovalV1);
+            }
+            None => {}
         }
         if target
             .filter

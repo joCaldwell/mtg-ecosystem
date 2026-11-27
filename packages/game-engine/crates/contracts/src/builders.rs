@@ -53,6 +53,12 @@ impl PermanentFilter {
 }
 
 impl TargetSpec {
+    pub fn requires_source_power(&self) -> bool {
+        self.filter
+            .as_ref()
+            .is_some_and(|filter| filter.power == Some(CreaturePowerFilter::LessThanSource {}))
+    }
+
     pub fn mana_value_at_most_announced_x(&self) -> bool {
         self.filter
             .as_ref()

@@ -110,16 +110,17 @@ impl RulesTxn {
         spec: &mtg_contracts::TargetSpec,
         x: XBound<'_>,
     ) -> bool {
-        self.targeting_characteristics(entry).is_ok_and(|source| {
-            self.object_target_legal_by(
-                object,
-                entry.controller,
-                &source,
-                Some(entry.source),
-                spec,
-                x,
-            )
-        })
+        self.targeting_source(entry, spec.requires_source_power())
+            .is_ok_and(|source| {
+                self.object_target_legal_by(
+                    object,
+                    entry.controller,
+                    &source,
+                    Some(entry.source),
+                    spec,
+                    x,
+                )
+            })
     }
 
     /// CR 115.1, 601.2c, 608.2b: whether `object` is a legal target of an
@@ -141,7 +142,13 @@ impl RulesTxn {
         }
         match spec.domain {
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
-                self.permanent_target_legal(object, controller, source_object, spec)
+                self.permanent_target_legal(
+                    object,
+                    controller,
+                    source_object,
+                    source.power.as_ref(),
+                    spec,
+                )
             }
             TargetDomain::GraveyardCard { .. }
             | TargetDomain::OwnGraveyardCreatureCard
