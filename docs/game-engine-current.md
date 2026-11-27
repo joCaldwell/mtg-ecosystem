@@ -23,6 +23,9 @@ wall-clock reporting; library callers can supply their own journal sink to
 
 ## Supported behavior and remaining work
 
+The [rework plan](game-engine-rework.md) orders the remaining engine and
+parser work: stages, investment gates and the 150-of-157 training target.
+
 Archive R5 composition lowers each supported card to `Instruction::Kernel`
 programs or reports an unsupported record; [mechanics](game-engine-mechanics.md)
 ([board](game-engine-board-mechanics.md)) owns the supported rules and [Kernel IR](game-engine-catalogs.md#kernel-ir) the
