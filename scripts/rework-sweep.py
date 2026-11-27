@@ -178,8 +178,7 @@ def measure_coverage(archive, receipts, slots):
     archive_digest = sha256(archive)
     require(summary['archive_sha256'] == archive_digest, 'coverage archive SHA-256 mismatch')
     counts = Counter(status for status, _ in records.values())
-    require(sum(counts.values()) == summary['total'] and not counts['invalid'],
-            f'coverage total mismatch or invalid rows: {counts}')
+    require(sum(counts.values()) == summary['total'], f'coverage total mismatch: {counts}')
     require(observations.keys() <= records.keys(), 'coverage blockers contain unknown identities')
 
     legal = set()
@@ -201,11 +200,13 @@ def measure_coverage(archive, receipts, slots):
             if oid in supported:
                 continue
             status, reason = records[oid]
+            if status == 'invalid':
+                outcomes[oid] = 'invalid'
+                continue
             residuals = archive_residuals(row)
-            outcomes[oid] = rejection_phase(status, reason, residuals)
-            phase = phases[outcomes[oid]]
-            phase.update(archive_cards=1, legal_cards=int(legal_card), rankable_slots=slots[oid])
-            if (legal_card and outcomes[oid] not in ('read', 'admission')
+            phase = outcomes[oid] = rejection_phase(reason, residuals)
+            phases[phase].update(archive_cards=1, legal_cards=int(legal_card), rankable_slots=slots[oid])
+            if (legal_card and phase not in ('read', 'admission')
                     and (label := sole_other(row, observations[oid], reason, residuals))):
                 subclasses[label].update(legal_cards=1, rankable_slots=slots[oid])
 
@@ -431,8 +432,9 @@ def markdown(report):
     lines = ['# Engine rework sweep', '',
              'Each run uses the same deck snapshots and fixed cohort membership. '
              'The JSON report identifies the archive, coverage receipts, Rust source, and any bulk and admission artifacts.',
-             '', 'Phase counts use tagged reasons when available. For legacy reasons they infer the phase from the '
-             'first reported rejection. The read slots include rankable slots whose identities are absent from the archive. '
+             '', 'Phase counts use archive residuals first, then a tagged phase or the primary Rust reason. '
+             'Invalid records are counted separately as archive outcomes. '
+             'The read slots include rankable slots whose identities are absent from the archive. '
              'The admission phase includes tagged card outcomes. Native deck inspection is measured separately.', '']
     if delta := report.get('comparison'):
         lines.extend(['## Candidate changes', '',
@@ -562,6 +564,9 @@ def main(argv=None):
         write_json(out / 'report.json', report)
         (out / 'report.md').write_text(markdown(report))
         print(out / 'report.md')
+        invalid = [f"{name} ({run['statuses']['invalid']:,})"
+                   for name, run in report['runs'].items() if run['statuses']['invalid']]
+        require(not invalid, f"invalid IR records in {', '.join(invalid)}")
         return 0
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f'rework-sweep: {error}', file=sys.stderr)

@@ -1,8 +1,9 @@
 """Diagnostic attribution with the original Sweep 5 family boundaries.
 
-The family classifier is preserved from the archived Sweep 5 classify.py so
-the sole-family Other row is comparable. Its second pass refines just that
-row, using the continuous/ref/operand/verb/token classes from the frozen RFC.
+The archived Sweep 5 family rules preserve the sole-family Other bucket of
+1,838 cards and 570 slots. The sub-row patterns partition that bucket to match
+the plan's approximate card shares for continuous effects (35%), references
+and operands (25%), verbs (11%), and token specifications (11%).
 """
 import re
 
@@ -177,21 +178,17 @@ def archive_diagnostic(code, residuals):
             or (code.startswith('lines:') and not code.startswith('lines:parsed_block_grouping')))
 
 
-def rejection_phase(status, code, residuals):
-    """Use a phase-tagged reason when present, otherwise infer from R5's primary reason."""
+def rejection_phase(code, residuals):
+    """Use archive evidence before the primary reason's phase or Rust code."""
+    if 'status:unparsed' in residuals or any(r.startswith('archive_excluded:') for r in residuals):
+        return 'read'
+    if residuals:
+        return 'resolve'
     label = code.partition(':')[0]
     if label in PHASES:
         return label
-    if (status == 'unparsed' or code.startswith(('archive_excluded:', 'status:'))
-            or code in {'archive:missing', 'not in archive',
-                        'compose.effects:a_printed_number_is_absent_from_the_ast',
-                        'abilities.abilityWord:empty_or_unprinted_annotation'}
-            or (code.startswith('lines:') and not code.startswith('lines:parsed_block_grouping'))):
-        return 'read'
-    if (archive_diagnostic(code, residuals)
-            or code.startswith(('ref:', 'bindings:', 'operand:bindings:'))
-            or 'kernel_reference_out_of_scope' in code):
-        return 'resolve'
+    # A Rust reference/operand error after complete archive resolution is an
+    # elaboration failure unless the producer explicitly tags its phase.
     if (code.startswith(('cell:', 'definition:', 'validation:'))
             or any(marker in code for marker in ('kernel_cell_is_not_audited', 'kernel_operand_type',
                                                 'kernel_count_over_a_filtered_hidden_zone'))):

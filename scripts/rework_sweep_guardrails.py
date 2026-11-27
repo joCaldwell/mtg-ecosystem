@@ -104,41 +104,54 @@ def guardrails(crates):
     if not cells:
         raise ValueError('could not find audited cell references in kir::check')
 
-    kernel = sources.get('core/src/engine/kir/mod.rs', '')
+    kernel_path = 'core/src/engine/kir/mod.rs'
+    kernel = sources.get(kernel_path)
+    if kernel is None:
+        raise ValueError(f'routing ladder source is missing: {kernel_path}')
     dispatch = re.search(r'\bfn execute_kernel\s*\(', kernel)
-    routes = []
-    if dispatch:
-        # A pair is one distinct downstream executor reached directly by the
-        # ladder that re-recognizes the forwarded Instruction, either through
-        # a contract helper or by pattern matching the shape again.
-        callees = set(re.findall(r'\bself\s*\.\s*(execute_\w+)\(', body(kernel, dispatch.end())))
-        contracts = sources['contracts/src/lib.rs']
-        instruction = re.search(r'\bimpl Instruction\s*\{', contracts)
-        recognizers = set(re.findall(r'\bfn (\w+)\(&self\)\s*->\s*(?:Option<|bool\b)',
-                                     body(contracts, instruction.start())))
-        for name, code in sources.items():
-            if not name.startswith('core/src/engine/'):
-                continue
-            specs = {match[1]: body(code, match.end())
-                     for match in re.finditer(r'\bfn (\w+_spec)\s*\(', code)}
-            for match in re.finditer(r'\bfn (execute_\w+)\s*\(', code):
-                if match[1] not in callees:
-                    continue
-                executor = body(code, match.end())
-                signature = code[match.end():code.index('{', match.end())]
-                # Some executors re-read a frame through a local shape
-                # spec before invoking the same contract recognizer.
-                spec_calls = set(re.findall(r'\bself\s*\.\s*(\w+_spec)\(', executor))
-                inspected = executor + '\n' + '\n'.join(specs[spec] for spec in spec_calls & specs.keys())
-                helpers = sorted(set(re.findall(r'\.(\w+)\(\)', inspected)) & recognizers)
-                pattern = bool(re.search(r'\b(?:kernel!|Instruction::Kernel)', executor))
-                if (helpers or pattern) and ('Instruction' in signature or 'set_damage' in helpers):
-                    routes.append({'executor': match[1], 'source': name, 'helpers': helpers,
-                                   'matches_instruction_shape': pattern})
+    if dispatch is None:
+        raise ValueError(f'routing ladder dispatcher execute_kernel is missing in {kernel_path}')
+    contracts_path = 'contracts/src/lib.rs'
+    contracts = sources.get(contracts_path, '')
+    instruction = re.search(r'\bimpl Instruction\s*\{', contracts)
+    if instruction is None:
+        raise ValueError(f'routing ladder recognizer declaration impl Instruction is missing in {contracts_path}')
 
-    # Named keyword families come from the Rust vocabularies. Include named
-    # actions, counters and procedures outside those enums. The full variant
-    # inventory also shows additions before their mechanic name is recognized.
+    routes = []
+    # A pair is one distinct downstream executor reached directly by the
+    # ladder that re-recognizes the forwarded Instruction, either through
+    # a contract helper or by pattern matching the shape again.
+    callees = set(re.findall(r'\bself\s*\.\s*(execute_\w+)\(', body(kernel, dispatch.end())))
+    recognizers = set(re.findall(r'\bfn (\w+)\(&self\)\s*->\s*(?:Option<|bool\b)',
+                                 body(contracts, instruction.start())))
+    for name, code in sources.items():
+        if not name.startswith('core/src/engine/'):
+            continue
+        specs = {match[1]: body(code, match.end())
+                 for match in re.finditer(r'\bfn (\w+_spec)\s*\(', code)}
+        for match in re.finditer(r'\bfn (execute_\w+)\s*\(', code):
+            if match[1] not in callees:
+                continue
+            executor = body(code, match.end())
+            signature = code[match.end():code.index('{', match.end())]
+            # Some executors re-read a frame through a local shape
+            # spec before invoking the same contract recognizer.
+            spec_calls = set(re.findall(r'\bself\s*\.\s*(\w+_spec)\(', executor))
+            inspected = executor + '\n' + '\n'.join(specs[spec] for spec in spec_calls & specs.keys())
+            helpers = sorted(set(re.findall(r'\.(\w+)\(\)', inspected)) & recognizers)
+            pattern = bool(re.search(r'\b(?:kernel!|Instruction::Kernel)', executor))
+            # Set damage takes only a frame. Its local spec fetches the same
+            # instruction from the frame and calls set_damage again.
+            if (helpers or pattern) and ('Instruction' in signature or 'set_damage' in helpers):
+                routes.append({'executor': match[1], 'source': name, 'helpers': helpers,
+                               'matches_instruction_shape': pattern})
+
+    # Track words from KeywordAbility and BuiltinId plus the explicit names
+    # below, including named counters and procedures. Fight stays in the
+    # full inventory as a rules verb outside this vocabulary.
+    # DeathtouchWindowConsumed matches Deathtouch from KeywordAbility.
+    # The E1 actuals migration must carry this scan over to canonical actuals
+    # when it retires EventOutcome so the replacement variants stay visible.
     mechanics = set(one_enum(enums, 'KeywordAbility') + one_enum(enums, 'BuiltinId', optional=True))
     mechanics.update(('Dash', 'Dashed', 'Encore', 'Unearth', 'Myriad', 'Saga', 'Lore', 'Stun', 'Populate',
                       'Transform', 'Transformed', 'Scry', 'Scried', 'Surveil', 'Surveilled',
