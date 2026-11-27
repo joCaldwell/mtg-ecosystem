@@ -299,7 +299,9 @@ impl RulesTxn {
             None => TypeLayer {
                 facts: match live {
                     Some(live) => self.copiable_characteristics(live)?,
-                    None => Cow::Borrowed(&self.copiable_definition(object)?.characteristics),
+                    // For a departed card, stack invocations retain their own
+                    // spell facts. The off-stack card has both halves (CR 709.4).
+                    None => self.copiable_definition(object)?.card_characteristics(),
                 },
                 rules_text_removed: false,
                 applied: vec![],

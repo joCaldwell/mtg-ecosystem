@@ -1342,9 +1342,13 @@ impl Strategy<'_> {
         face: CardFace,
         game: Option<&mtg_core::Game>,
     ) -> Option<Action<Viewer>> {
-        if self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
-            matches!(failed, PaymentAction::Cast(id, zone) if id == &d.oracle_id && *zone == o.zone)
-        }) {
+        if self.memory.payment.failed[usize::from(v.viewer.0)]
+            .iter()
+            .any(|failed| {
+                matches!(failed, PaymentAction::Cast(id, zone, failed_face)
+                if id == &d.oracle_id && *zone == o.zone && *failed_face == face)
+            })
+        {
             return None;
         }
         if !self.definition_ready(v, d) {
@@ -1474,7 +1478,7 @@ impl Strategy<'_> {
         self.memory.alternative_cost = alternative;
         self.memory.planned_x = x;
         self.memory.mana_plan = plan;
-        self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
+        self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone, face));
         let card = o.handle.clone();
         Some(match face {
             CardFace::Front => Action::Cast { card },
@@ -1858,26 +1862,44 @@ impl Strategy<'_> {
         self.memory.hybrid_choices.clear();
         self.memory.alternative_cost = None;
         self.memory.planned_x = None;
-        // CR 709.3a: only consider the halves offered by the pending decision.
-        for object in v.objects.iter().filter(|o| {
-            o.faces
-                .as_ref()
-                .is_some_and(|f| f.layout == FaceLayout::Split)
-        }) {
-            let printed = definition(self.catalog, &object.oracle_id)?;
-            for face in printed.faces() {
-                let card = object.handle.clone();
-                let action = match face {
-                    CardFace::Front => Action::Cast { card },
-                    CardFace::Back => Action::CastBackFace { card },
+        // Crew only from engine-offered actions. Wait until the attacking
+        // turn's beginning of combat to avoid tapping creatures prematurely.
+        if v.active == Some(v.viewer)
+            && v.turn.step == TurnStep::BeginningCombat
+            && v.stack.is_empty()
+            && let Some(offered) = &self.memory.offered_activations
+            && let Some(action) = offered.iter().find(|action| {
+                let Action::ActivateAbility { object, ability } = action else {
+                    return false;
                 };
-                if Self::offered(observation, &action)
-                    && let Some(half) = printed.face(face)
-                    && let Some(action) = self.cast_face(v, object, half, face, game)
+                let Some(vehicle) = v.objects.iter().find(|o| o.handle == *object) else {
+                    return false;
+                };
+                if (!vehicle.attack_ready && !vehicle.keywords.contains(&KeywordAbility::Haste))
+                    || vehicle.tapped
+                    || vehicle.phased_out
+                    || vehicle
+                        .characteristics
+                        .as_ref()
+                        .is_none_or(|c| c.has_type(CardKind::Creature))
                 {
-                    return Ok(action);
+                    return false;
                 }
-            }
+                let active_face = vehicle
+                    .faces
+                    .as_ref()
+                    .and_then(|faces| faces.active_face)
+                    .unwrap_or_default();
+                definition(self.catalog, &vehicle.oracle_id)
+                    .ok()
+                    .and_then(|d| d.face(active_face))
+                    .is_some_and(|d| {
+                        matches!(d.activated.get(*ability as usize).map(|a| &a.cost),
+                        Some(ActivationCost::ChooseObjects(cost)) if cost.minimum_power.is_some())
+                    })
+            })
+        {
+            return Ok(action.clone());
         }
         if let Some(r) = self.reactive_spells_with_game(v, game)? {
             return Ok(r);
@@ -2016,8 +2038,24 @@ impl Strategy<'_> {
                 if rank != stage {
                     continue;
                 }
-                if let Some(r) = self.cast(v, o, d, game) {
-                    return Ok(r);
+                if d.layout == FaceLayout::Split {
+                    // CR 709.3a: consider each half at this card's normal
+                    // casting priority, only if the pending decision offers it.
+                    for face in d.faces() {
+                        let card = o.handle.clone();
+                        let action = match face {
+                            CardFace::Front => Action::Cast { card },
+                            CardFace::Back => Action::CastBackFace { card },
+                        };
+                        if Self::offered(observation, &action)
+                            && let Some(half) = d.face(face)
+                            && let Some(action) = self.cast_face(v, o, half, face, game)
+                        {
+                            return Ok(action);
+                        }
+                    }
+                } else if let Some(action) = self.cast(v, o, d, game) {
+                    return Ok(action);
                 }
             }
         }

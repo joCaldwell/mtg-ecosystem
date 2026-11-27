@@ -127,6 +127,9 @@ fn split_halves_use_their_own_payment_targets_text_and_resolution() {
         assert_eq!(half.colors, [color]);
         assert_eq!(half.printed_mana_value(), value.into());
         assert_eq!(stack.view.stack[0].mana_value, Some(value.into()));
+        // The old hand ID has departed while this spell has just one half.
+        assert_eq!(game.color_layer(hand).unwrap().as_ref(), both);
+        let old_spell = game.current(Driver::object(&game, 0)).unwrap().clone();
         let snapshot = game.snapshot().unwrap();
         game = Game::restore(game.prepared.as_ref().clone(), &snapshot).unwrap();
         assert_eq!(view(&game, 1), stack);
@@ -143,6 +146,16 @@ fn split_halves_use_their_own_payment_targets_text_and_resolution() {
             Driver::pass(&mut game);
             Driver::request(&mut game, 1);
         }
+        // A retained stack object still names its own zone and spell half.
+        let departed = game.object_facts(&old_spell);
+        assert_eq!(
+            query::ObjectFacts::current(&departed).unwrap().as_ref(),
+            half
+        );
+        assert_eq!(
+            query::ObjectFacts::structural(&departed).unwrap().as_ref(),
+            half
+        );
         let view = view(&game, 1);
         let card = view
             .view

@@ -1207,6 +1207,12 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<Characteristics, String> {
         let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
+        // CR 208.3, 301.7a–b: outside the battlefield, retain printed
+        // stats. On the battlefield, layer 4 determines their availability.
+        if self.current(object)?.zone == Zone::Battlefield && !c.has_type(CardKind::Creature) {
+            c.power = None;
+            c.toughness = None;
+        }
         self.characteristic_power_toughness(object, &mut c)?;
         if c.has_type(CardKind::Creature) {
             let statics = self.static_changes_by_source(object, Layer::PowerToughnessSet, sources);
@@ -3467,9 +3473,9 @@ impl RulesTxn {
         } else {
             face.characteristics.clone()
         };
-        if c.has_type(CardKind::Creature) != c.power.is_some()
-            || c.power.is_some() != c.toughness.is_some()
-        {
+        let has_stats =
+            c.has_type(CardKind::Creature) || (zone != Zone::Battlefield && base.power.is_some());
+        if has_stats != c.power.is_some() || c.power.is_some() != c.toughness.is_some() {
             return Err("modified source has invalid stat shape".into());
         }
         // Replay authenticates which provider existed at the original capture.
