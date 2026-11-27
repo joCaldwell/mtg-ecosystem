@@ -360,6 +360,54 @@ fn target(domain: TargetDomain, filter: Option<PermanentFilter>) -> TargetSpec {
     }
 }
 
+/// CR 702.122a: crew uses the stack and adds artifact and creature types
+/// until cleanup. CR 301.7b supplies printed stats independently in layer 7.
+pub(super) fn crew(
+    card: &Card<'_>,
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<ActivatedAbility, Failure> {
+    let amount = keyword
+        .amount
+        .filter(|n| *n > 0 && text == format!("Crew {n}"))
+        .filter(|_| card.kind == CardKind::Artifact && card.subtypes == ["Vehicle"])
+        .ok_or_else(|| unsupported("keyword", "keyword:crew:parameters"))?;
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
+    program.instructions.push(Instruction::Kernel {
+        source_block: block,
+        node: kir::Node::Do(kir::Verb::SetCharacteristics {
+            what: kir::SetExpr::One {
+                object: kir::Ref::Source,
+            },
+            values: kir::CharacteristicSet {
+                animation: Some(kir::Animation {
+                    add_artifact: true,
+                    replace_creature_subtypes: false,
+                    creature_subtypes: vec![],
+                }),
+                ..Default::default()
+            },
+            until: kir::Until::EndOfTurn,
+        }),
+    });
+    Ok(ActivatedAbility {
+        modal: None,
+        functioning_zone: FunctioningZone::Battlefield,
+        restriction: None,
+        cost: ActivationCost::ChooseObjects(ChosenObjectCost {
+            action: ChosenCostAction::Tap,
+            filter: ChosenCostFilter::Type(CardKind::Creature),
+            count: 1,
+            minimum_power: Some(amount),
+            another: true,
+            tap_source: false,
+            mana: None,
+        }),
+        program,
+    })
+}
+
 // CR 702.6a: the implicit target and timing belong to the equip activation.
 pub(super) fn equip(
     card: &Card<'_>,

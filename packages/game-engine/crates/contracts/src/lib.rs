@@ -227,7 +227,6 @@ const UNSUPPORTED_RULES_SUBTYPES: &[&str] = &[
     "Saga",
     "Class",
     "Case",
-    "Vehicle",
     "Curse",
     "Spacecraft",
     "Attraction",
@@ -377,6 +376,7 @@ pub enum Capability {
     DiscardSourceCostV1,
     ExileSourceCostV1,
     ChosenObjectCostV1,
+    VehicleV1,
     AnyDamageTargetV1,
 
     PlayerOrPlaneswalkerTargetV1,
@@ -1408,6 +1408,8 @@ pub struct ChosenObjectCost {
     pub filter: ChosenCostFilter,
     #[schemars(range(min = 1))]
     pub count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_power: Option<u32>,
     pub another: bool,
     pub tap_source: bool,
     pub mana: Option<ManaCost>,
@@ -2114,6 +2116,9 @@ impl Definition {
         }
         for program in self.spell_programs() {
             add_program_requirements(&mut set, program);
+        }
+        if self.characteristics.subtypes == ["Vehicle"] {
+            set.insert(Capability::VehicleV1);
         }
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);

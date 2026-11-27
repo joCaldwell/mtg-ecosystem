@@ -675,6 +675,15 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
             use ChosenCostFilter::{Any, ArtifactOrCreature, Subtype, Type};
             a.functioning_zone == FunctioningZone::Battlefield
                 && cost.count > 0
+                && cost.minimum_power.is_none_or(|n| {
+                    n > 0
+                        && cost.count == 1
+                        && cost.action == Tap
+                        && cost.filter == Type(CardKind::Creature)
+                        && cost.another
+                        && !cost.tap_source
+                        && cost.mana.is_none()
+                })
                 && cost.mana.as_ref().is_none_or(mana_ok)
                 && (!cost.another || cost.action != Discard)
                 && match (&cost.action, &cost.filter) {
@@ -757,6 +766,28 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    let crew =
+        matches!(&a.cost, ActivationCost::ChooseObjects(cost) if cost.minimum_power.is_some());
+    let statless_animation = a.programs().any(|program| {
+        program.instructions.iter().any(|i| {
+            matches!(i, Instruction::Kernel {
+            node: kir::Node::Do(kir::Verb::SetCharacteristics { values, .. }), ..
+        } if values.animation.is_some() && values.base_power.is_none())
+        })
+    });
+    if crew != statless_animation
+        || crew
+            && (d.characteristics.subtypes != ["Vehicle"]
+                || a.modal.is_some()
+                || a.restriction.is_some()
+                || a.program.timing != SpellTiming::Instant
+                || !a.program.targets.is_empty()
+                || !matches!(a.program.instructions.as_slice(), [Instruction::Kernel {
+            node: kir::Node::Do(kir::Verb::SetCharacteristics { values, until: kir::Until::EndOfTurn, .. }), ..
+        }] if values.colors.is_none() && values.keywords.is_empty()))
+    {
+        return cell("activated", "crew_shape");
+    }
     // CR 602.2b, 700.2: a modal activation is a battlefield ability whose
     // every selection is checked below as its own program.
     if let Some(modal) = &a.modal {
@@ -1055,7 +1086,12 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
 /// The keyword row (CR 702): evergreen keywords with no parameters.
 fn keyword(d: &Definition, k: KeywordAbility) -> bool {
     use KeywordAbility as K;
-    match d.characteristics.kind {
+    let kind = if d.characteristics.subtypes == ["Vehicle"] {
+        CardKind::Creature
+    } else {
+        d.characteristics.kind
+    };
+    match kind {
         CardKind::Creature => matches!(
             k,
             K::Flash
@@ -1299,6 +1335,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && !(s == "Adventure"
                     && matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
                     && c.subtypes == ["Adventure"]))
+                || (s == "Vehicle" && (c.kind != CardKind::Artifact || c.subtypes != ["Vehicle"]))
                 || (s == "Aura" && (c.kind != CardKind::Enchantment || c.subtypes != ["Aura"]))
                 || (s == "Equipment"
                     && (c.kind != CardKind::Artifact || c.subtypes != ["Equipment"]))
@@ -1382,9 +1419,11 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && d.spell.as_ref().is_some_and(permanent_spell)
         }
         CardKind::Artifact | CardKind::Enchantment => {
-            c.power.is_none()
-                && c.toughness.is_none()
-                && d.intrinsic_zone.is_none()
+            (if c.subtypes == ["Vehicle"] && c.kind == CardKind::Artifact {
+                c.power.is_some() && c.toughness.is_some()
+            } else {
+                c.power.is_none() && c.toughness.is_none()
+            }) && d.intrinsic_zone.is_none()
                 && d.spell.as_ref().is_some_and(permanent_spell)
         }
         // CR 305.1, 305.9: lands are played, never cast, and have no mana cost.

@@ -64,6 +64,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "changeling"
                 | "landwalk"
                 | "prowess"
+                | "crew"
                 | "bushido"
                 | "afterlife"
                 | "soulshift"
@@ -89,7 +90,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "enchant" | "affinity" | "landwalk" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             "protection" => ["keyword", "from"].as_slice(),
-            "bushido" | "afterlife" | "soulshift" | "afflict" | "rampage" => {
+            "crew" | "bushido" | "afterlife" | "soulshift" | "afflict" | "rampage" => {
                 ["keyword", "amount"].as_slice()
             }
             _ => ["keyword"].as_slice(),

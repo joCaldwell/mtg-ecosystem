@@ -659,6 +659,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::PayLifeCostV1
         | C::DiscardSourceCostV1
         | C::ExileSourceCostV1
+        | C::VehicleV1
         | C::ChosenObjectCostV1
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
