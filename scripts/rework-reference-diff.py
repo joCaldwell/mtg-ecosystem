@@ -226,12 +226,17 @@ def main(argv=None):
     parser.add_argument('--candidate-catalog', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True, help='existing output directory')
     parser.add_argument('--explained', type=Path,
-                        help='JSON list of {oracle_id, block, word, reason} reviewed disagreements')
+                        help='JSON list of reviewed {oracle_id, block, word, reason} disagreements '
+                        'and {oracle_id, lost: true, reason} lost definitions')
     args = parser.parse_args(argv)
     kir = compare_kir(args.baseline_catalog, args.candidate_catalog)
     references = compare_references(args.archive, args.trace, kir.pop('unchanged_ids'))
+    reviewed = json.loads(args.explained.read_text()) if args.explained else []
     explained = {(e['oracle_id'], e['block'], e['word']): e['reason']
-                 for e in json.loads(args.explained.read_text())} if args.explained else {}
+                 for e in reviewed if 'block' in e}
+    lost_reasons = {e['oracle_id']: e['reason'] for e in reviewed if e.get('lost')}
+    kir['lost'] = [{'oracle_id': identity, 'explanation': lost_reasons.get(identity)}
+                   for identity in kir['lost']]
     for row in references['disagreements']:
         row['explanation'] = row['explanation'] or explained.get(
             (row['oracle_id'], row['block'], row['word']))
@@ -243,7 +248,7 @@ def main(argv=None):
     summary['kir'] = {k: (len(v) if isinstance(v, list) else v)
                       for k, v in kir.items() if k != 'changed_definitions'}
     print(json.dumps(summary))
-    return 1 if unexplained or kir['lost'] else 0
+    return 1 if unexplained or any(not row['explanation'] for row in kir['lost']) else 0
 
 
 if __name__ == '__main__':
