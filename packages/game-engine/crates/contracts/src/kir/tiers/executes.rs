@@ -118,6 +118,7 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
             | kir::Cond::TurnHistory { .. }
             | kir::Cond::ControlsOwnCommander { .. }
             | kir::Cond::OpponentControlsMore { .. }
+            | kir::Cond::Measured { .. }
             | kir::Cond::ControlledSinceLastUpkeep {} => {}
         }
     }
@@ -853,7 +854,9 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         return cell("activated", "source");
     }
     if let Some(r) = &a.restriction
-        && (r.window.is_none() && !r.once_each_turn && r.condition.is_none()
+        && (r.window.is_none() && r.each_turn_limit().is_none() && r.condition.is_none()
+            || r.once_each_turn && r.times_each_turn.is_some()
+            || r.times_each_turn.is_some_and(|n| n < 2)
             || r.window.is_some() && a.program.timing == SpellTiming::MainPhase
             || r.condition
                 .as_ref()

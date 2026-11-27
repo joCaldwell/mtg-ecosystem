@@ -773,6 +773,7 @@ fn timing_table_lowers_printed_sorcery_speed() {
             Some(ActivationRestriction {
                 window: None,
                 once_each_turn: true,
+                times_each_turn: None,
                 condition: None
             })
         )
@@ -787,6 +788,7 @@ fn timing_table_lowers_printed_sorcery_speed() {
         Some(ActivationRestriction {
             window: Some(ActivationWindow::YourUpkeep),
             once_each_turn: false,
+            times_each_turn: None,
             condition: None
         })
     );

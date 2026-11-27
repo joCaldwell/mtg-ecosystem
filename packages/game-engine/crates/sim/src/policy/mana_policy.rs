@@ -334,7 +334,18 @@ fn condition_holds(
             C::Source { filter } => {
                 decided(vec![matches_pred(&in_view(view, source), you, filter)])
             }
-            C::All(_) | C::Any(_) => None,
+            // Turn history, opponents' boards, names and life are not
+            // planned from the view: the source stays out of the plan.
+            C::TurnHistory { .. }
+            | C::OpponentControlsMore { .. }
+            | C::OpponentControls { .. }
+            | C::SharedName { .. }
+            | C::GraveyardCardTypes { .. }
+            | C::LifeAboveStarting { .. }
+            | C::TotalPower { .. }
+            | C::SourceEnteredThisTurn
+            | C::All(_)
+            | C::Any(_) => None,
         }
     };
     form.leaves()

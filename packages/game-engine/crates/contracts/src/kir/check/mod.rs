@@ -746,6 +746,7 @@ impl Walk<'_, '_> {
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
+            | Cond::Measured { .. }
             | Cond::ControlledSinceLastUpkeep {} => {
                 unaudited("intervening condition in a resolving node")
             }

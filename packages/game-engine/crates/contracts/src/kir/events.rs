@@ -669,6 +669,10 @@ pub enum TurnFact {
     SpellsCastFromHand,
     CardsDrawn,
     LifeGained,
+    /// CR 111.2: tokens this player created this turn.
+    TokensCreated,
+    /// CR 601.2i: instant and sorcery spells this player cast this turn.
+    InstantOrSorcerySpellsCast,
 }
 
 /// The intervening "if" clauses a triggered ability can check (CR 603.4).
