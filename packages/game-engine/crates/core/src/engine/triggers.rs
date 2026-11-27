@@ -108,6 +108,13 @@ pub struct TurnCastHistory {
     pub hand_casts: u32,
     #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
     pub life_gained: Quantity,
+    /// CR 603.6a: each entry counts by its controller and resulting types.
+    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
+    pub artifacts_entered: Quantity,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
+    pub creatures_entered: Quantity,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
+    pub nonlands_entered: Quantity,
     pub any_cast: bool,
     pub exile_cast: bool,
     pub mana_value: Quantity,
@@ -765,6 +772,30 @@ impl RulesTxn {
         // CR 603.2c, 603.10a: every member of a simultaneous occurrence
         // contributes before any member is checked. Departures use LKI.
         for occurrence in occurrences {
+            let entering = match &occurrence.actual {
+                EventOutcome::TokenCopied { object, .. } => std::slice::from_ref(object),
+                EventOutcome::TokensCreated { objects, .. }
+                | EventOutcome::PredefinedTokensCreated { objects, .. }
+                | EventOutcome::EncoreTokensCreated { objects, .. } => objects,
+                actual => movement(actual)
+                    .filter(|m| m.from != Zone::Battlefield && m.destination == Zone::Battlefield)
+                    .map_or(&[][..], |m| std::slice::from_ref(&m.successor)),
+            };
+            for &entrant in entering {
+                let controller = self.current(entrant)?.controller;
+                let types = self.characteristics(entrant)?;
+                let row = &mut self.rules_mut().cast_history[controller.0 as usize];
+                let one = Quantity::from(1);
+                if types.has_type(CardKind::Artifact) {
+                    row.artifacts_entered.add(&one);
+                }
+                if types.has_type(CardKind::Creature) {
+                    row.creatures_entered.add(&one);
+                }
+                if !types.has_type(CardKind::Land) {
+                    row.nonlands_entered.add(&one);
+                }
+            }
             let departure = match &occurrence.actual {
                 EventOutcome::LeftGame { object, .. } => Some((*object, false)),
                 actual => movement(actual)
@@ -1902,6 +1933,9 @@ impl RulesTxn {
             if row.attacked && seat != self.state.rules.turn_owner.0 as usize
                 || row.hand_casts as usize > row.spells.len()
                 || row.creature_died && !row.permanent_left
+                || row.artifacts_entered.is_negative()
+                || row.creatures_entered.is_negative()
+                || row.nonlands_entered.is_negative()
                 || row.life_gained < Quantity::from(i64::from(row.life_gains))
                 || (row.life_gained == Quantity::zero()) != (row.life_gains == 0)
             {

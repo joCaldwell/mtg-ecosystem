@@ -418,7 +418,10 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 Intervening comparisons can read this turn’s declared attacks, creature deaths
 (any seat or under your control), departures under your control, spells cast
 (all, noncreature, or from your hand), draws and total life gained. Departures
-use the pre-move controller and types. Each check reads the current turn from
+use the pre-move controller and types. Artifact, creature and nonland entries
+use the resulting battlefield types and controller, including token entries.
+Creature entry history can also ask whether any opponent had an entry. Each
+check reads the current turn from
 its start, including the event that caused the trigger (CR 603.4, 603.10a).
 
 A per-turn player ledger (spells as frozen stack facts, draws, life-gain

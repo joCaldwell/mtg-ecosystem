@@ -828,6 +828,44 @@ fn turn_history(condition: &serde_json::Value) -> Option<kir::Intervening> {
     {
         return measure(CardsDrawn, &comparison);
     }
+    for (fact, player, filter) in [
+        (
+            ArtifactsEnteredUnderYourControl,
+            "you",
+            json!({"types": ["artifact"]}),
+        ),
+        (
+            CreaturesEnteredUnderYourControl,
+            "you",
+            json!({"types": ["creature"]}),
+        ),
+        (
+            CreaturesEnteredUnderOpponentsControl,
+            "an-opponent",
+            json!({"types": ["creature"]}),
+        ),
+        (
+            NonlandPermanentsEnteredUnderYourControl,
+            "you",
+            json!({"nonTypes": ["land"], "cls": "permanent"}),
+        ),
+    ] {
+        let comparison = &condition["subject"]["comparison"];
+        if *condition
+            == json!({
+                "condition": "zone-change-history", "event": "enters", "during": "this-turn",
+                "to": {"zone": "battlefield"}, "controllerAtMove": {"player": player},
+                "subject": {"match": "filter", "filter": filter, "comparison": comparison}
+            })
+        {
+            // The singular opponent clause is existential, so aggregation
+            // across seats is valid only for this threshold.
+            if fact == CreaturesEnteredUnderOpponentsControl && *comparison != fixed("ge", 1) {
+                return None;
+            }
+            return measure(fact, comparison);
+        }
+    }
     let change = |event, filter| {
         json!({
             "condition": "zone-change-history", "event": event, "during": "this-turn",

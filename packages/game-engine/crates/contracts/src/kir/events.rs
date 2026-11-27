@@ -669,6 +669,10 @@ pub enum TurnFact {
     SpellsCastFromHand,
     CardsDrawn,
     LifeGained,
+    ArtifactsEnteredUnderYourControl,
+    CreaturesEnteredUnderYourControl,
+    CreaturesEnteredUnderOpponentsControl,
+    NonlandPermanentsEnteredUnderYourControl,
 }
 
 /// The intervening "if" clauses a triggered ability can check (CR 603.4).
@@ -883,11 +887,17 @@ impl Intervening {
     /// has none. A condition is admitted only in exactly one of these forms.
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
-            Cond::TurnHistory { fact, cmp, value } if !value.is_negative() => Self::TurnHistory {
-                fact: *fact,
-                cmp: *cmp,
-                value: value.clone(),
-            },
+            Cond::TurnHistory { fact, cmp, value }
+                if !value.is_negative()
+                    && (*fact != TurnFact::CreaturesEnteredUnderOpponentsControl
+                        || (*cmp == Cmp::AtLeast && *value == Quantity::from(1))) =>
+            {
+                Self::TurnHistory {
+                    fact: *fact,
+                    cmp: *cmp,
+                    value: value.clone(),
+                }
+            }
             Cond::CastBy { .. } => Self::SourceCastByController,
             Cond::ControlledSinceLastUpkeep {} => Self::SourceControlledSinceLastUpkeep,
             // CR 702.74a: the one reviewed entry cost an intervening clause reads.

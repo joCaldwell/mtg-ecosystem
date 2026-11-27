@@ -478,6 +478,20 @@ impl RulesTxn {
                     SpellsCastFromHand => quantity(row.hand_casts),
                     CardsDrawn => quantity(row.draws),
                     LifeGained => row.life_gained.clone(),
+                    ArtifactsEnteredUnderYourControl => row.artifacts_entered.clone(),
+                    CreaturesEnteredUnderYourControl => row.creatures_entered.clone(),
+                    NonlandPermanentsEnteredUnderYourControl => row.nonlands_entered.clone(),
+                    CreaturesEnteredUnderOpponentsControl => {
+                        let mut total = Quantity::zero();
+                        // CR 102.3: this is turn history, including a physical
+                        // opponent seat whose player has since left the game.
+                        for (seat, row) in history.iter().enumerate() {
+                            if seat != controller.0 as usize {
+                                total.add(&row.creatures_entered);
+                            }
+                        }
+                        total
+                    }
                 };
                 let passed = compare(&observed, *cmp, value);
                 InterveningCheck::TurnHistory {

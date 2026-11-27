@@ -24,8 +24,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "51ef4657c6a6a05458c2dcd96544e2e5d1533494b53cfb5382663e2757adb748",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    124,
-    "c9ef7e67e6ed915b0294c2edb8f1af018cbda8cc1505985523383bec7c7b77b1",
+    126,
+    "99b86a1ff751f26e5d29b608cbd4b2c8136ca453da5e440efd3a1bf5adeea73a",
 );
 const WORK_PIN: (u32, &str) = (
     63,
@@ -926,6 +926,9 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             history["creature_died"] = true.into();
             history["permanent_left"] = true.into();
             history["hand_casts"] = 1.into();
+            for field in ["artifacts_entered", "creatures_entered", "nonlands_entered"] {
+                history[field] = serde_json::to_value(Quantity::from(1)).unwrap();
+            }
             history["life_gained"] = serde_json::to_value(Quantity::from(2)).unwrap();
             sample["state"]["frame"]["frame"]["condition_check"] =
                 serde_json::to_value(InterveningCheck::TurnHistory {
