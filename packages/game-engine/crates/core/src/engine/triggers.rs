@@ -1057,11 +1057,7 @@ impl RulesTxn {
                     .rules
                     .combat
                     .iter()
-                    .filter(|attack| {
-                        attack.defender == *player
-                            && attack.planeswalker.is_none()
-                            && !attack.blocked
-                    })
+                    .filter(|attack| attack.defender == *player && !attack.blocked)
                     .map(|attack| {
                         let attacker = self.object_before(attack.attacker)?;
                         Ok(TriggerEventWitness::AttackerUnblocked {

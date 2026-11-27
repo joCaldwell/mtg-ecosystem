@@ -61,6 +61,8 @@ reject.
 Single-faced planeswalkers with fixed printed loyalty enter with those counters
 (CR 306.5b). A fixed loyalty cost is paid after targets, at sorcery timing, and
 uses that permanent's single loyalty activation for the turn (CR 606.3–4).
+The public object shows current loyalty and whether that incarnation used
+its loyalty activation this turn.
 Opponents can attack the planeswalker, and damage removes loyalty counters
 (CR 508.1b, 120.3c). Zero loyalty and the legend rule put the affected
 permanent into its owner's graveyard (CR 704.5i–j). “Any target,” “target

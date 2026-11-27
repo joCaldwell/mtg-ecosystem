@@ -21,15 +21,15 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     99,
-    "06733aa29283c22bb6d9b8ff30ca28888b2c3a1d2b80bf0da0af8640b592986e",
+    "f2af5ae205f890ba1b344ed3cb4b5bb6012e76fc967aab21580417084bf707d9",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     129,
-    "7afd24baceef6090c5d8b360cf9724fba1692ea35e2f3a7463d6a0d6be7d4aed",
+    "f26ccc3e861131390e5ab28526e2505dfeedfa7587626a778414d3908f2295e3",
 );
 const WORK_PIN: (u32, &str) = (
     64,
-    "6ae86227ce1f00acb91b9a0ba97903d7962713b40fb8ffdababcbd6bdf697c76",
+    "457d166e0eb8fafe7caadb513d8df47defbd2fb78904b44cf008fef8d55e6e45",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {

@@ -436,6 +436,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
     for owner in [PlayerId(1), PlayerId(3)] {
         view.objects.push(VisibleObject {
             loyalty_counters: Quantity::zero(),
+            loyalty_used_this_turn: false,
             faces: None,
             face_down: false,
             exiled_by: None,

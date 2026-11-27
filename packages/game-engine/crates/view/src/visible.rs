@@ -181,7 +181,10 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "quantity_is_zero")]
     pub loyalty_counters: Quantity,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub loyalty_used_this_turn: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
@@ -211,6 +214,7 @@ impl<H> VisibleObject<H> {
             token: self.token,
             plus_one_counters: self.plus_one_counters,
             loyalty_counters: self.loyalty_counters,
+            loyalty_used_this_turn: self.loyalty_used_this_turn,
             characteristics: self.characteristics,
             marked_damage: self.marked_damage,
             attack_ready: self.attack_ready,

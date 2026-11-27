@@ -224,3 +224,216 @@ fn planeswalker_damage_preserves_the_printed_creature_and_color_filter() {
     );
     checked(&g);
 }
+
+const NIGHTSTALKER: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/phase1-r5/10733767-1c97-4e2e-b02b-54bf346f6583.json"
+));
+const RESCUE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/phase1-r5/f0ae687a-7222-4521-a514-ba10373fed7e.json"
+));
+
+fn attack_planeswalker(g: &mut Game, card: u32) {
+    let d = until(g, &Reason::Attackers);
+    let target = d
+        .index(&Candidate::Object {
+            object: Driver::object(g, card),
+        })
+        .unwrap();
+    g.respond(
+        d.player,
+        d.id,
+        Answer::Pick {
+            picks: vec![vec![target]],
+        },
+    )
+    .unwrap();
+}
+
+fn priority_at(g: &mut Game, step: TurnStep) {
+    for _ in 0..16 {
+        let d = Driver::request(g, u64::MAX);
+        assert_eq!(d.reason, Reason::Priority);
+        if g.state.rules.turn.step == step {
+            return;
+        }
+        Driver::pass(g);
+    }
+    panic!("no priority at {step:?}");
+}
+
+fn rescue(g: &mut Game, spell: u32, target: u32, land: u32) {
+    Driver::cast(g, CardId(spell));
+    let target = Driver::object(g, target);
+    Driver::pick_object(g, target);
+    Driver::pay(g, &[land]);
+    resolve(g);
+}
+
+// CR 509.3g, 506.4c: removal of the attacked permanent doesn't undo the
+// attack or change the defending player who discards at resolution.
+#[test]
+fn planeswalker_unblocked_attack_triggers_for_its_defending_player() {
+    for removed in [false, true] {
+        let mut g = game(
+            &[JACE, NIGHTSTALKER, RESCUE],
+            &[
+                ("Abyssal Nightstalker", 0, Zone::Battlefield),
+                ("Jace Beleren", 1, Zone::Battlefield),
+                ("Rescue", 1, Zone::Hand { owner: PlayerId(1) }),
+                ("Island", 1, Zone::Battlefield),
+                ("Island", 1, Zone::Hand { owner: PlayerId(1) }),
+            ],
+        );
+        attack_planeswalker(&mut g, 1);
+        if removed {
+            Driver::pass(&mut g);
+            rescue(&mut g, 2, 1, 3);
+        }
+        let d = until(&mut g, &Reason::Blockers);
+        g.respond(d.player, d.id, d.block(vec![])).unwrap();
+        let d = until(&mut g, &Reason::ResolveDiscard);
+        assert_eq!(d.player, PlayerId(1));
+        let discard = Driver::object(&g, 4);
+        Driver::pick_object(&mut g, discard);
+        priority_at(&mut g, TurnStep::CombatDamage);
+        assert_eq!(view(&g, 1).players[1].life, 40.into());
+        if removed {
+            assert_eq!(
+                g.state.rules.objects[&CardId(1)].zone,
+                Zone::Hand { owner: PlayerId(1) }
+            );
+        } else {
+            assert_eq!(jace_loyalty(&g, 1), 1.into());
+        }
+        checked(&g);
+    }
+}
+
+// CR 702.19b,d: a legal blocker receives lethal before excess reaches the
+// attacked planeswalker. Its departure gives no excess to the defending player.
+#[test]
+fn planeswalker_trample_excess_follows_the_attacked_permanent() {
+    for removed in [false, true] {
+        let mut g = game(
+            &[JACE, RESCUE],
+            &[
+                ("Colossal Dreadmaw", 0, Zone::Battlefield),
+                ("Jace Beleren", 1, Zone::Battlefield),
+                ("Grizzly Bears", 1, Zone::Battlefield),
+                ("Rescue", 1, Zone::Hand { owner: PlayerId(1) }),
+                ("Island", 1, Zone::Battlefield),
+            ],
+        );
+        attack_planeswalker(&mut g, 1);
+        let d = until(&mut g, &Reason::Blockers);
+        let attacker = Driver::object(&g, 0);
+        let defender = Driver::object(&g, 1);
+        let blocker = Driver::object(&g, 2);
+        g.respond(d.player, d.id, d.block(vec![(blocker, attacker)]))
+            .unwrap();
+        if removed {
+            Driver::pass(&mut g);
+            rescue(&mut g, 3, 1, 4);
+        } else {
+            let d = until(
+                &mut g,
+                &Reason::CombatDamage {
+                    source: attacker,
+                    power: 6.into(),
+                },
+            );
+            assert!(
+                d.candidates
+                    .iter()
+                    .all(|c| matches!(c, Candidate::Object { .. }))
+            );
+            assert!(
+                g.respond(
+                    d.player,
+                    d.id,
+                    d.damage_to(vec![(blocker, 1.into()), (defender, 5.into())])
+                )
+                .is_err()
+            );
+            g.respond(
+                d.player,
+                d.id,
+                d.damage_to(vec![(blocker, 4.into()), (defender, 2.into())]),
+            )
+            .unwrap();
+        }
+        priority_at(&mut g, TurnStep::CombatDamage);
+        assert_eq!(view(&g, 1).players[1].life, 40.into());
+        assert_eq!(
+            g.state.rules.objects[&CardId(2)].zone,
+            Zone::Graveyard { owner: PlayerId(1) }
+        );
+        if !removed {
+            assert_eq!(jace_loyalty(&g, 1), 1.into());
+        }
+        checked(&g);
+    }
+}
+
+#[test]
+fn planeswalker_loyalty_use_is_public_and_resets_on_reentry() {
+    let mut g = game(
+        &[JACE, RESCUE],
+        &[
+            ("Jace Beleren", 0, Zone::Battlefield),
+            ("Rescue", 0, Zone::Hand { owner: PlayerId(0) }),
+            ("Island", 0, Zone::Battlefield),
+            ("Island", 0, Zone::Battlefield),
+            ("Island", 0, Zone::Battlefield),
+            ("Island", 0, Zone::Battlefield),
+        ],
+    );
+    let original = Driver::object(&g, 0);
+    let action = |object| Action::ActivateAbility { object, ability: 0 };
+    Driver::action(&mut g, action(original));
+    Driver::request(&mut g, u64::MAX);
+    let loyalty_is_used = |g: &Game| {
+        view(g, 1)
+            .objects
+            .iter()
+            .any(|o| o.zone == Zone::Battlefield && o.loyalty_used_this_turn)
+    };
+    assert!(loyalty_is_used(&g));
+    checked(&g);
+    let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+    forged["state"]["objects"]["0"]
+        .as_object_mut()
+        .unwrap()
+        .remove("loyalty_used_turn");
+    forged["state_sha256"] = digest(&forged["state"]).unwrap().into();
+    let error = Game::restore(g.prepared.as_ref().clone(), &forged.to_string())
+        .err()
+        .expect("restored paid loyalty activation without its turn marker");
+    assert!(
+        error.contains("snapshot paid loyalty activation lacks its turn marker"),
+        "{error}"
+    );
+
+    resolve(&mut g);
+    rescue(&mut g, 1, 0, 2);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[3, 4, 5]);
+    let d = resolve(&mut g);
+    let returned = Driver::object(&g, 0);
+    assert_ne!(original, returned);
+    assert_eq!(jace_loyalty(&g, 0), 3.into());
+    assert!(!loyalty_is_used(&g));
+    assert!(
+        d.index(&Candidate::Action {
+            action: action(returned)
+        })
+        .is_some()
+    );
+    Driver::action(&mut g, action(returned));
+    resolve(&mut g);
+    assert_eq!(jace_loyalty(&g, 0), 5.into());
+    assert!(loyalty_is_used(&g));
+    checked(&g);
+}

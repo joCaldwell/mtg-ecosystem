@@ -42,6 +42,7 @@ mod board {
             restrictions: vec![],
             token: None,
             loyalty_counters: 0.into(),
+            loyalty_used_this_turn: false,
             plus_one_counters: 0.into(),
             characteristics: Some(d.characteristics.clone()),
             marked_damage: 0.into(),

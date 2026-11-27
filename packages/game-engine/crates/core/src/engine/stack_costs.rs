@@ -835,6 +835,16 @@ impl RulesTxn {
             .activated
             .get(ability as usize)
             .ok_or("snapshot missing activated definition")?;
+        // CR 606.3: payment consumes the turn's activation for this incarnation.
+        if entry.paid.is_some()
+            && matches!(activated.cost, ActivationCost::Loyalty { .. })
+            && self.current(entry.source).is_ok_and(|source| {
+                source.zone == Zone::Battlefield
+                    && source.loyalty_used_turn != Some(self.state.rules.turn.number)
+            })
+        {
+            return Err("snapshot paid loyalty activation lacks its turn marker".into());
+        }
         let expected = match &activated.cost {
             ActivationCost::SacrificePermanent { mana, .. } => {
                 mana.clone().unwrap_or_else(zero_mana_cost)
