@@ -279,6 +279,36 @@ impl RulesTxn {
             .filter(|o| self.state.rules.cards[&o.id.card].owner == player)
             .map(|o| o.id)
             .collect::<Vec<_>>();
+        // CR 708.9: a departing player's face-down spells and permanents are
+        // revealed to all players as they leave, each named by every viewer's
+        // own handle for it, in that viewer's handle order.
+        let revealed: Vec<ObjectId> = removed
+            .iter()
+            .copied()
+            .filter(|o| self.is_face_down(*o))
+            .collect();
+        if !revealed.is_empty() {
+            for viewer in 0..self.state.knowledge.visibility.len() {
+                let viewer = PlayerId(viewer as u8);
+                let mut rows = revealed
+                    .iter()
+                    .map(|o| {
+                        (
+                            self.object_handle_id(viewer, *o).ok().cloned(),
+                            RevealedFaceDown {
+                                handle: self.handle_for(viewer, *o).ok(),
+                                owner: player,
+                                oracle_id: self.state.rules.cards[&o.card].oracle_id.clone(),
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                rows.sort_by(|a, b| a.0.cmp(&b.0));
+                self.state.knowledge.visibility[viewer.0 as usize]
+                    .revealed_face_down
+                    .extend(rows.into_iter().map(|(_, row)| row));
+            }
+        }
         if !removed.is_empty() {
             self.commit_batch(
                 BatchCause::Departure { player },
@@ -491,6 +521,7 @@ impl RulesTxn {
         }
         self.revalidate_sacrifice_departure()?;
         self.revalidate_chosen_cost_departure()?;
+        self.revalidate_face_up_departure()?;
         // A departure can invalidate a pending mode, priority cast or mana
         // activation before its rule step. Keep the input journal, discard
         // only the stale proposal, and leave valid pending actions intact.
@@ -498,6 +529,7 @@ impl RulesTxn {
             self.state.rules.frame,
             Frame::Priority
                 | Frame::ResolutionPayment { .. }
+                | Frame::TurnFaceUp { .. }
                 | Frame::Mana { .. }
                 | Frame::SacrificeCost { .. }
                 | Frame::ChosenObjectCost { .. }

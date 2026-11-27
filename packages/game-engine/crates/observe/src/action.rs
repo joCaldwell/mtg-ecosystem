@@ -123,13 +123,16 @@ impl Composer {
             Shape::Number { min, max } => {
                 // An unbounded rules decision and unknown public supply have no
                 // finite rules maximum. Use the numeric tensor's representable ceiling.
+                // The supply estimate never removes the rules minimum (CR 601.2b-c):
+                // a target filter can require more X than visible mana.
                 let upper = max
                     .as_ref()
                     .into_iter()
                     .chain(bound)
                     .min()
                     .cloned()
-                    .unwrap_or_else(|| Quantity::from(i64::from(i32::MAX)).max(min.clone()));
+                    .unwrap_or_else(|| Quantity::from(i64::from(i32::MAX)))
+                    .max(min.clone());
                 let mut c = Choices::new(0, 0);
                 numbers(&mut c, min, &upper);
                 let action = select!(c);
@@ -388,6 +391,38 @@ mod tests {
         assert!(
             matches!(Composer::compose(&d,&[63],None).unwrap(), Step::Answer(Answer::Distribute{amounts}) if amounts==vec![100.into(),0.into()])
         );
+    }
+    /// CR 601.2b-c: a rules minimum above the visible supply estimate is
+    /// still the encodable answer.
+    #[test]
+    fn number_minimum_above_the_supply_bound_stays_encodable() {
+        let d = Decision {
+            id: DecisionToken("x".into()),
+            player: PlayerId(0),
+            reason: Reason::AnnounceX,
+            candidates: vec![],
+            shape: Shape::Number {
+                min: 6.into(),
+                max: None,
+            },
+        };
+        let bound = Quantity::from(3);
+        let Step::Choose(c) = Composer::compose(&d, &[], Some(&bound)).unwrap() else {
+            panic!("expected mask")
+        };
+        assert_eq!(
+            c.number
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| **v != 0)
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>(),
+            vec![6, MAXIMUM]
+        );
+        assert!(matches!(
+            Composer::compose(&d, &[6], Some(&bound)).unwrap(),
+            Step::Answer(Answer::Number { value }) if value == 6.into()
+        ));
     }
     #[test]
     fn picks_offer_only_prefixes_extending_to_a_joint_solution() {

@@ -60,11 +60,13 @@ impl RulesTxn {
         let o = self.current(object)?;
         Ok(ObjectBefore {
             transforms: o.transforms,
+            face_down: o.face_down,
             battlefield_entry_turn: o.battlefield_entry_turn,
             control_upkeeps: o.control_upkeeps,
             unearthed: o.unearthed,
             dashed: o.dashed,
             keyword_timestamp: o.keyword_timestamp,
+            keyword_rank: o.keyword_rank,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,
             object,
@@ -369,6 +371,7 @@ impl RulesTxn {
             self.validate_characteristic_identity(
                 entry.source,
                 fact.transforms,
+                fact.face_down,
                 &fact.characteristics,
             )?;
         }

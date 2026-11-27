@@ -5,15 +5,15 @@ use super::*;
 impl RulesTxn {
     pub(super) fn intrinsic_mana_colors(&self, source: ObjectId) -> Result<Vec<Color>, String> {
         let object = self.current(source)?;
-        if !object.present_on_battlefield()
-            || !self
-                .copiable_definition(source)?
-                .characteristics
-                .has_type(CardKind::Land)
-        {
+        if !object.present_on_battlefield() {
             return Ok(vec![]);
         }
+        // CR 305.6-7: the intrinsic ability follows the current land types;
+        // only a layer-6 removal takes it away (CR 613.1f).
         let c = self.characteristics(source)?;
+        if !c.has_type(CardKind::Land) || self.intrinsic_mana_lost(source)? {
+            return Ok(vec![]);
+        }
         Ok(c.subtypes
             .iter()
             .filter_map(|s| basic_land_color(s))
@@ -69,6 +69,9 @@ impl RulesTxn {
             Frame::Priority => self.state.rules.priority == player,
             Frame::ResolutionPayment { payment, .. } => {
                 payment.stage == ResolutionPaymentStage::Mana && payment.payer == player
+            }
+            Frame::TurnFaceUp { payment } => {
+                payment.stage == face_down::FaceUpStage::Mana && payment.player == player
             }
             Frame::Mana { .. } => self.top().is_ok_and(|s| s.controller == player),
             Frame::ManaAbility { activation } => {

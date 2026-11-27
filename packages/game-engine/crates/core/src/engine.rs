@@ -32,6 +32,7 @@ pub mod graveyard_group;
 pub mod graveyard_replacement;
 pub mod regeneration;
 pub use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
+pub mod face_down;
 pub mod group_discard;
 pub mod hideaway;
 pub use hideaway::HideawayLink;
@@ -118,6 +119,7 @@ pub const ALLOWED: [(&str, &str); 5] = [
 pub mod choices;
 pub mod graveyard_targets;
 pub use choices::*;
+pub(in crate::engine) mod ability_layers;
 mod damage_rules;
 pub mod effects;
 pub use crate::build_id;
@@ -128,6 +130,7 @@ pub const TEST_OPT_LEVEL: &str = env!("MTG_CORE_OPT_LEVEL");
 #[cfg(feature = "testkit")]
 pub const TEST_PROFILE: &str = env!("MTG_CORE_PROFILE");
 pub use effects::*;
+use graveyard_targets::XBound;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
 use std::{

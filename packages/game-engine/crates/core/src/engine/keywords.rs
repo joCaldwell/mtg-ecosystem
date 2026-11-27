@@ -47,7 +47,7 @@ impl RulesTxn {
         self.copiable_definition(object).is_ok_and(|d| {
             d.keywords
                 .contains(&KeywordAbility::ProtectionFromEverything)
-        })
+        }) && !self.printed_abilities_lost(object)
     }
 
     pub(super) fn effective_protection_colors(
