@@ -569,10 +569,6 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             duration,
             for_each,
         } => pump::lower(cx, what, power, toughness, duration, for_each.as_ref()),
-        Step::Mill { .. } | Step::Discard(_) => Err(unsupported(
-            "compose.step",
-            "discard and mill require a typed effect",
-        )),
         Step::Evaluated(effect) => match effect.as_ref() {
             ast::Effect::Draw(draw) => draw::lower(cx, draw),
             ast::Effect::Mill(action) => mill::lower(cx, action),
