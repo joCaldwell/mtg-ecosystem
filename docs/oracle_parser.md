@@ -38,8 +38,9 @@ and an inert face sidecar. [The wire schema](../packages/oracle-parser/src/print
 keeps physical token order and grammar indices, committed production spans,
 folded clause ranges, and lexical facts. Target indices count introductions
 within the enclosing ability. Removed reminders have original byte ranges
-and may supply original-only citations. Hulls locate containers and
-unlocated nodes flag missing proof. Aliases point to the same printed
+and may supply original-only citations. Hulls locate containers: a hull's
+span is exactly the union of its child extents and the attributed clause
+runs it lists in `clauses`, disjoint from child extents, so Rust recomputes it. Unlocated nodes flag missing proof. Aliases point to the same printed
 operand when coordination shares one subject, duration, or destination.
 Binding and resolution consume the existing parse result.
 
@@ -47,11 +48,13 @@ Implicit evidence identifies an unstated singular target
 (`implied-singular-target`), an omitted imperative actor
 (`imperative-controller`), or an inferred zone (`default-zone`).
 An omitted actor after a printed "you" in the same sentence, and each member
-of a "you may" group, aliases that printed "you".
+of a "you may" group, aliases that printed "you". When the AST drops that
+printed subject (Cruel Ultimatum), the elided actor falls back to
+`implicit: imperative-controller`.
 Printed pronouns, zone names, and amounts retain their own token spans.
 When a later clause changes a recorded node, the parser folds that clause's
 tokens into the claim. At finalization the capture compares the node's own
-keys and scalar values with its last recorded snapshot. An uncovered change
+keys, scalar values and primitive array elements with its last recorded snapshot. An uncovered change
 increments the mutation audit count and leaves only a hull of child or
 folded spans, or an unlocated node when those spans are absent.
 
