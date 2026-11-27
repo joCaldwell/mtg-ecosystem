@@ -343,10 +343,10 @@ impl Walk<'_, '_> {
                     | TargetDomain::OwnGraveyardCreatureCard
                     | TargetDomain::GraveyardCard { .. }
                     | TargetDomain::OwnGraveyardCard => RefKind::Object,
-                    TargetDomain::AnyDamageTarget => RefKind::Entity,
-                    TargetDomain::AnyPlayer
-                    | TargetDomain::OpponentPlayer
-                    | TargetDomain::PlayerOrPlaneswalker => RefKind::Player,
+                    TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => {
+                        RefKind::Entity
+                    }
+                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => RefKind::Player,
                     TargetDomain::StackSpell
                     | TargetDomain::ControlledCreatureSpell
                     | TargetDomain::StackActivatedOrTriggeredAbility => RefKind::StackObject,

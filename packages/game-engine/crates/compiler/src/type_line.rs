@@ -30,6 +30,7 @@ pub(super) fn parse(line: &str, adventure: bool) -> Result<ParsedTypes, Failure>
             "Land" => CardKind::Land,
             "Instant" => CardKind::Instant,
             "Sorcery" => CardKind::Sorcery,
+            "Planeswalker" => CardKind::Planeswalker,
             _ => return Err(unsupported("source.type_line.card_type", word)),
         };
         if !types.insert(kind) {
@@ -43,12 +44,14 @@ pub(super) fn parse(line: &str, adventure: bool) -> Result<ParsedTypes, Failure>
         CardKind::Enchantment,
         CardKind::Instant,
         CardKind::Sorcery,
+        CardKind::Planeswalker,
     ]
     .into_iter()
     .find(|k| types.contains(k))
     .ok_or_else(|| invalid("source.type_line", "missing card type"))?;
     if (types.len() > 1
         && (types.contains(&CardKind::Instant) || types.contains(&CardKind::Sorcery)))
+        || (types.len() > 1 && types.contains(&CardKind::Planeswalker))
         || (types.contains(&CardKind::Creature) && types.contains(&CardKind::Land))
     {
         return Err(unsupported(

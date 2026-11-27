@@ -78,6 +78,10 @@ pub struct Object {
     pub(in crate::engine) control_upkeeps: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub loyalty_counters: Quantity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loyalty_used_turn: Option<u64>,
     /// CR 122.1, 613.7c: the other counter kinds on this permanent, each
     /// positive, in kind order. A zone change starts a new object without
     /// them (CR 122.2, 400.7).
@@ -140,6 +144,9 @@ impl Object {
         if *kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
             return self.plus_one_counters.clone();
         }
+        if *kind == mtg_contracts::kir::CounterKind::Loyalty {
+            return self.loyalty_counters.clone();
+        }
         self.counters
             .iter()
             .find(|stack| stack.kind == *kind)
@@ -150,6 +157,10 @@ impl Object {
         (self.plus_one_counters > Quantity::zero())
             .then_some(mtg_contracts::kir::CounterKind::PlusOnePlusOne)
             .into_iter()
+            .chain(
+                (self.loyalty_counters > Quantity::zero())
+                    .then_some(mtg_contracts::kir::CounterKind::Loyalty),
+            )
             .chain(self.counters.iter().map(|stack| stack.kind.clone()))
     }
     /// CR 122.1, 613.7c: add `amount` counters of `kind`; every counter of
@@ -163,6 +174,11 @@ impl Object {
         if *kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
             let previous = self.plus_one_counters.clone();
             self.plus_one_counters.add(amount);
+            return previous;
+        }
+        if *kind == mtg_contracts::kir::CounterKind::Loyalty {
+            let previous = self.loyalty_counters.clone();
+            self.loyalty_counters.add(amount);
             return previous;
         }
         match self.counters.binary_search_by(|stack| stack.kind.cmp(kind)) {

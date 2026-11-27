@@ -269,7 +269,7 @@ impl DamageRecipient {
     pub(super) fn entity(&self) -> TargetEntity {
         match *self {
             Self::Player { player } => TargetEntity::Player { player },
-            Self::Creature { object } => TargetEntity::Object { object },
+            Self::Permanent { object } => TargetEntity::Object { object },
         }
     }
 }
@@ -1538,7 +1538,7 @@ impl RulesTxn {
             })
             .collect::<Result<Vec<_>, String>>()?;
         self.rules_mut().damage_choices.clear();
-        self.rules_mut().player_damage_choices.clear();
+        self.rules_mut().defender_damage_choices.clear();
         self.begin_damage(
             DamageKind::Combat,
             entries,
@@ -1622,7 +1622,7 @@ impl RulesTxn {
                 controller,
                 recipient: match t {
                     TargetEntity::Player { player } => DamageRecipient::Player { player },
-                    TargetEntity::Object { object } => DamageRecipient::Creature { object },
+                    TargetEntity::Object { object } => DamageRecipient::Permanent { object },
                 },
                 original_amount: amount.clone(),
                 amount: amount.clone(),
@@ -1686,8 +1686,8 @@ impl RulesTxn {
     pub(super) fn recipient_chooser(&self, recipient: &DamageRecipient) -> Option<PlayerId> {
         match recipient {
             DamageRecipient::Player { player } => self.is_live(*player).then_some(*player),
-            DamageRecipient::Creature { object } => self
-                .is_battlefield_creature(*object)
+            DamageRecipient::Permanent { object } => self
+                .is_permanent_damage_recipient(*object)
                 .then(|| self.current(*object).ok().map(|o| o.controller))
                 .flatten(),
         }
@@ -1738,7 +1738,7 @@ impl RulesTxn {
         keywords: &[KeywordAbility],
         damage: &PreparedDamage,
     ) -> bool {
-        matches!(damage.recipient, DamageRecipient::Creature { object } if targets.contains(&object))
+        matches!(damage.recipient, DamageRecipient::Permanent { object } if targets.contains(&object))
             && keywords.contains(&KeywordAbility::ProtectionFromEachColor)
             && Self::has_color(&damage.source.characteristics)
     }
@@ -1746,7 +1746,7 @@ impl RulesTxn {
     // CR 702.16e,g and 616.1: separate printed qualities have separate
     // candidate identities even when a multicolored source matches both.
     fn intrinsic_protection_keys(&self, recipient: &DamageRecipient) -> Vec<EffectKey> {
-        let DamageRecipient::Creature { object } = *recipient else {
+        let DamageRecipient::Permanent { object } = *recipient else {
             return vec![];
         };
         if !self
@@ -1787,7 +1787,7 @@ impl RulesTxn {
         let mut qualification = None;
         let (after, prevented) = match &pair.effect {
             EffectKey::IntrinsicProtectionFromEverything { source } => {
-                if d.recipient != (DamageRecipient::Creature { object: *source })
+                if d.recipient != (DamageRecipient::Permanent { object: *source })
                     || !self
                         .current(*source)
                         .is_ok_and(|o| o.present_on_battlefield())
@@ -1798,7 +1798,7 @@ impl RulesTxn {
                 (Quantity::zero(), d.amount.clone())
             }
             EffectKey::IntrinsicProtectionFromColor { source, color } => {
-                if d.recipient != (DamageRecipient::Creature { object: *source })
+                if d.recipient != (DamageRecipient::Permanent { object: *source })
                     || !self
                         .current(*source)
                         .is_ok_and(|o| o.present_on_battlefield())
@@ -1886,7 +1886,7 @@ impl RulesTxn {
             .iter()
             .filter_map(|d| {
                 self.recipient_chooser(&d.recipient)
-                    .map(|p| (p, d.recipient.clone()))
+                    .map(|p| (p, d.recipient))
             })
             .collect();
         recipients.sort_by_key(|(p, r)| {
@@ -1894,7 +1894,7 @@ impl RulesTxn {
                 order.iter().position(|q| q == p).unwrap_or(4),
                 match r {
                     DamageRecipient::Player { player } => (0, u32::from(player.0), 0),
-                    DamageRecipient::Creature { object } => (1, object.card.0, object.incarnation),
+                    DamageRecipient::Permanent { object } => (1, object.card.0, object.incarnation),
                 },
             )
         });
@@ -2391,7 +2391,7 @@ impl RulesTxn {
                     }
                     (0, u32::from(player.0))
                 }
-                DamageRecipient::Creature { object } => (1, object.card.0),
+                DamageRecipient::Permanent { object } => (1, object.card.0),
             };
             totals.entry(key).or_default().add(&d.amount);
             source_appearances.insert(d.id, self.damage_source_appearance(d)?);
@@ -2399,7 +2399,7 @@ impl RulesTxn {
                 id: d.id,
                 source: d.source.clone(),
                 controller: d.controller,
-                recipient: d.recipient.clone(),
+                recipient: d.recipient,
                 amount: d.amount.clone(),
             });
         }
@@ -2412,18 +2412,15 @@ impl RulesTxn {
                     self.rules_mut().players[player.0 as usize].lose_life(&amount);
                 (DamageRecipient::Player { player }, before, after)
             } else {
-                let o = self
-                    .rules_mut()
+                let object = self
+                    .state
+                    .rules
                     .objects
-                    .get_mut(&CardId(id))
-                    .ok_or("missing final damage object")?;
-                let before = o.marked_damage.clone();
-                o.marked_damage.add(&amount);
-                (
-                    DamageRecipient::Creature { object: o.id },
-                    before,
-                    o.marked_damage.clone(),
-                )
+                    .get(&CardId(id))
+                    .ok_or("missing final damage object")?
+                    .id;
+                let (before, after) = self.apply_permanent_damage(object, &amount)?;
+                (DamageRecipient::Permanent { object }, before, after)
             };
             results.push(DamageResult {
                 recipient,
@@ -3326,7 +3323,7 @@ impl RulesTxn {
         // The grant supplies the durable effect handle. The creature that
         // actually has protection is the source of this prevention ability.
         let origin = if kind == DamageEffectKind::ProtectionFromEachColor {
-            let DamageRecipient::Creature { object } = d.recipient else {
+            let DamageRecipient::Permanent { object } = d.recipient else {
                 return Err("protection requires a creature recipient".into());
             };
             let handle = self.handle_for(viewer, object)?;
@@ -3522,10 +3519,15 @@ impl RulesTxn {
         if face_down && (transforms > 0 || definition.face_down.is_none()) {
             return Err("captured face-down facts for a card that cannot be face down".into());
         }
-        let mut base = self
-            .fact_definition(source, transforms, face_down)?
-            .characteristics
-            .clone();
+        let face = self.fact_definition(source, transforms, face_down)?;
+        let mut base = if definition.layout == FaceLayout::Split && zone != Zone::Stack {
+            if source.face != CardFace::Front {
+                return Err("captured split half outside the stack".into());
+            }
+            definition.card_characteristics().into_owned()
+        } else {
+            face.characteristics.clone()
+        };
         let has_stats =
             c.has_type(CardKind::Creature) || (zone != Zone::Battlefield && base.power.is_some());
         if has_stats != c.power.is_some() || c.power.is_some() != c.toughness.is_some() {
@@ -3988,7 +3990,7 @@ impl RulesTxn {
                     // The recipient may since have departed. The original
                     // occurrence binds its incarnation and retained copiable
                     // identity. Restore replays the accepted inputs.
-                    if d.recipient != (DamageRecipient::Creature { object: *source })
+                    if d.recipient != (DamageRecipient::Permanent { object: *source })
                         || !self.printed_protection_from_everything(*source)
                         || a.qualification.is_some()
                     {
@@ -4006,7 +4008,7 @@ impl RulesTxn {
                     self.validate_source_appearance(d, &qualification.damage_source)?;
                     // Replay proves the already-consumed recipient and damage-time
                     // colors even when either object or its color provider left.
-                    if d.recipient != (DamageRecipient::Creature { object: *source })
+                    if d.recipient != (DamageRecipient::Permanent { object: *source })
                         || protector.object != *source
                         || protector.zone != Zone::Battlefield
                         || !protector.characteristics.has_type(CardKind::Creature)

@@ -392,6 +392,8 @@ pub(super) fn crew(
         }),
     });
     Ok(ActivatedAbility {
+        x_mana_cost: false,
+        hybrid_mana: vec![],
         modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,
@@ -439,6 +441,8 @@ pub(super) fn equip(
         }),
     });
     Ok(ActivatedAbility {
+        x_mana_cost: false,
+        hybrid_mana: vec![],
         modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,
@@ -493,6 +497,8 @@ pub(super) fn cycling(
         block,
     ));
     Ok(ActivatedAbility {
+        x_mana_cost: false,
+        hybrid_mana: vec![],
         modal: None,
         functioning_zone: FunctioningZone::Hand,
         restriction: None,
@@ -559,6 +565,8 @@ pub(super) fn typecycling(
         Instruction::act(Verb::Shuffle { player }, block),
     ];
     Ok(ActivatedAbility {
+        x_mana_cost: false,
+        hybrid_mana: vec![],
         modal: None,
         functioning_zone: FunctioningZone::Hand,
         restriction: None,

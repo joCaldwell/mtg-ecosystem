@@ -76,6 +76,7 @@ impl RulesTxn {
                 offered,
             },
             Reason::OptionalEffect => Reason::OptionalEffect,
+            Reason::MyriadDefender => Reason::MyriadDefender,
             Reason::DamageEffect { recipient } => Reason::DamageEffect {
                 recipient: self.player_entity(viewer, recipient)?,
             },

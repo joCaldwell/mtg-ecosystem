@@ -473,6 +473,8 @@ fn modal_activator() -> Definition {
     let trigger = d.triggered.remove(0);
     d.activated.push(ActivatedAbility {
         functioning_zone: FunctioningZone::Battlefield,
+        x_mana_cost: false,
+        hybrid_mana: vec![],
         restriction: None,
         cost: ActivationCost::Mana {
             cost: ManaCost {

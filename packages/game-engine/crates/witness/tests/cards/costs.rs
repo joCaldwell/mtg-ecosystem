@@ -23,7 +23,9 @@ macro_rules! record {
 mod activation_conditions;
 mod activation_history;
 mod alternative_costs;
+mod announced_activations;
 mod chosen_objects;
+mod monocolored_hybrid;
 mod vehicles;
 
 const BLAZE: &str = record!("0596920f-9946-42f4-a03b-24aab67f9f1b");

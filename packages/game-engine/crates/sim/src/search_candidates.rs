@@ -259,7 +259,7 @@ fn target_plans(
             mtg_core::query::matches_target_domain(
                 &mtg_core::query::in_view(view, o),
                 view.viewer,
-                TargetDomain::BattlefieldCreature,
+                domain,
             )
             .is_yes()
         })
@@ -295,13 +295,11 @@ fn target_plans(
                 objects: vec![o.handle.clone()],
             })
             .collect::<Vec<_>>(),
-        TargetDomain::OpponentPlayer
-        | TargetDomain::AnyPlayer
-        | TargetDomain::PlayerOrPlaneswalker => players
+        TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer => players
             .iter()
             .map(|p| TargetPlan::Players { players: vec![*p] })
             .collect(),
-        TargetDomain::AnyDamageTarget => players
+        TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker => players
             .iter()
             .map(|p| TargetPlan::Entities {
                 entities: vec![PlayerTargetEntity::Player { player: *p }],

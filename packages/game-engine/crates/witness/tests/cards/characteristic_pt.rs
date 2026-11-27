@@ -1,6 +1,7 @@
 //! Characteristic-defining power and toughness from exact frozen R5 source.
 //! Pinned CR 107.3, 208.2a, 604.3, 613.4a, 613.4c, 704.5f:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::planeswalker::JACE;
 use mtg_contracts::kir::{Amount, DistinctCharacteristic, SetExpr, StaticEffect, ZoneExpr};
 use mtg_core::testkit::*;
 
@@ -225,7 +226,7 @@ fn zero_toughness_cda_creature_dies() {
 /// an artifact creature adds no new type.
 #[test]
 fn tarmogoyf_counts_every_represented_card_type() {
-    let g = game(&[TARMOGOYF], |b| {
+    let g = game(&[TARMOGOYF, JACE], |b| {
         let b = b.permanent_or_hand("Tarmogoyf", 0, 0, false);
         [
             "Forest",
@@ -235,6 +236,7 @@ fn tarmogoyf_counts_every_represented_card_type() {
             "Glorious Anthem",
             "Sol Ring",
             "Darksteel Myr",
+            "Jace Beleren",
         ]
         .into_iter()
         .fold(b, |b, name| b.card(name, 1, 1, graveyard(1)))

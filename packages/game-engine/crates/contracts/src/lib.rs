@@ -102,20 +102,22 @@ pub enum CardKind {
     Sorcery,
     Enchantment,
     Artifact,
+    Planeswalker,
 }
 impl CardKind {
     /// CR 205.2a: every card type the engine represents, in declaration
-    /// order. Kindred, battle and planeswalker cards are rejected at
+    /// order. Kindred and battle cards are rejected at
     /// admission, so a counted set of card types (Tarmogoyf's) is complete
     /// over these. Representing another type adds a variant, which
     /// [`CardKind::card_type_index`] then fails to compile without.
-    pub const CARD_TYPES: [CardKind; 6] = [
+    pub const CARD_TYPES: [CardKind; 7] = [
         Self::Land,
         Self::Creature,
         Self::Instant,
         Self::Sorcery,
         Self::Enchantment,
         Self::Artifact,
+        Self::Planeswalker,
     ];
 
     /// This card type's position in [`CardKind::CARD_TYPES`]. Exhaustive,
@@ -128,6 +130,7 @@ impl CardKind {
             Self::Sorcery => 3,
             Self::Enchantment => 4,
             Self::Artifact => 5,
+            Self::Planeswalker => 6,
         }
     }
 }
@@ -158,6 +161,8 @@ pub struct Characteristics {
     pub color_identity: Vec<Color>,
     pub power: Option<Quantity>,
     pub toughness: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loyalty: Option<Quantity>,
     /// CR 202.3b, 712.8e: the back face of a nonmodal double-faced card has
     /// no mana cost, but its mana value is calculated from its front face's
     /// mana cost. Present only on such a back face.
@@ -173,9 +178,10 @@ impl Characteristics {
             return value.clone();
         }
         let mut value = self.mana_cost.generic.clone();
-        value.add(&Quantity::from(
-            (self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64,
-        ));
+        value.add(&Quantity::from(self.mana_cost.colored.len() as i64));
+        for symbol in &self.hybrid_mana {
+            value.add(&symbol.mana_value());
+        }
         value
     }
 
@@ -301,6 +307,7 @@ pub enum Capability {
 
     CompositeActivationCostV1,
     CastEnchantmentV1,
+    PlaneswalkerV1,
 
     TemporaryPowerToughnessV1,
     TemporaryCombatProhibitionV1,
@@ -325,6 +332,8 @@ pub enum Capability {
     TransformingDoubleFacedV1,
     /// CR 715: an adventurer card and its Adventure spell.
     AdventurerV1,
+    /// CR 709.3–4: one split half on the stack, combined elsewhere.
+    SplitV1,
     /// CR 701.27a,f: an ability of a permanent transforms that permanent.
     TransformSourceV1,
 
@@ -535,7 +544,7 @@ pub enum TargetDomain {
     ControlledCreatureSpell,
     StackActivatedOrTriggeredAbility,
     /// CR 115.4: creatures, players, planeswalkers and battles. The closed
-    /// scenario admits only creature/player inhabitants, not a narrower domain.
+    /// scenario admits creature, player and planeswalker inhabitants.
     AnyDamageTarget,
     PlayerOrPlaneswalker,
     AnyPlayer,
@@ -785,6 +794,7 @@ impl CreatureToken {
             color_identity: self.colors.clone(),
             power: Some(self.power.clone()),
             toughness: Some(self.toughness.clone()),
+            loyalty: None,
             front_face_mana_value: None,
         }
     }
@@ -1469,6 +1479,9 @@ pub enum ActivationCost {
     },
     SacrificeSource,
     TapSource,
+    Loyalty {
+        change: Quantity,
+    },
     /// One complete nonmana cost; life payment is loss of life, never damage.
     TapPayLifeSacrificeSource {
         life: Quantity,
@@ -1551,6 +1564,11 @@ pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<kir::Cond>,
     pub costs: PermanentActivationCosts,
+    /// CR 107.4e, 602.2b, 605.3a: two-color hybrid symbols of the mana
+    /// cost, in printed order, each announced as one of its colors before
+    /// the nested payment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     pub production: ManaProduction,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_restriction: Option<ManaSpendRestriction>,
@@ -1604,6 +1622,15 @@ pub enum ActivationWindow {
 #[serde(deny_unknown_fields)]
 pub struct ActivatedAbility {
     pub functioning_zone: FunctioningZone,
+    /// CR 107.3a, 602.2b: the mana cost begins with one `{X}`, announced as
+    /// the ability is activated and added to its generic mana.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub x_mana_cost: bool,
+    /// CR 107.4e-f, 602.2b: two-color hybrid and single-color Phyrexian
+    /// symbols of the mana cost, in printed order, each announced as one of
+    /// its alternatives before targets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ActivationRestriction>,
     pub cost: ActivationCost,
@@ -1624,7 +1651,41 @@ impl ActivationRestriction {
         }
     }
 }
+impl ActivationCost {
+    /// The fixed mana of this cost; a cost without mana has none.
+    pub fn fixed_mana(&self) -> ManaCost {
+        let zero = || ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![],
+        };
+        match self {
+            Self::SacrificePermanent { mana, .. } => mana.clone().unwrap_or_else(zero),
+            Self::ChooseObjects(cost) => cost.mana.clone().unwrap_or_else(zero),
+            Self::Mana { cost }
+            | Self::DiscardSource { mana: cost }
+            | Self::ExileSource { mana: cost } => cost.clone(),
+            Self::Composite { costs } => costs.mana.clone().unwrap_or_else(zero),
+            Self::SacrificeSource
+            | Self::TapSource
+            | Self::Loyalty { .. }
+            | Self::TapPayLifeSacrificeSource { .. } => zero(),
+        }
+    }
+}
 impl ActivatedAbility {
+    /// CR 107.3a, 107.4e-f, 601.2f, 602.2b: the total mana cost of an
+    /// activation: its fixed mana, each announced hybrid color (a 2-life
+    /// Phyrexian payment adds none) and its announced X.
+    pub fn announced_cost(&self, hybrid: &[HybridPayment], x: Option<&Quantity>) -> ManaCost {
+        let mut total = self.cost.fixed_mana();
+        for payment in hybrid {
+            payment.add_to(&mut total);
+        }
+        if let Some(x) = x {
+            total.generic.add(x);
+        }
+        total
+    }
     /// Executable versions of this ability's program: its selections when
     /// modal, otherwise the program itself.
     pub fn programs(&self) -> impl Iterator<Item = &SpellProgram> {
@@ -1945,6 +2006,8 @@ pub enum FaceLayout {
     Transforming,
     /// CR 715.3: cast normally or as its Adventure (the back part).
     Adventurer,
+    /// CR 709.3–4: two spell halves on one card.
+    Split,
 }
 impl FaceLayout {
     pub fn is_single(&self) -> bool {
@@ -1991,7 +2054,7 @@ pub struct Definition {
     #[serde(default, skip_serializing_if = "FaceLayout::is_single")]
     pub layout: FaceLayout,
     /// The other printed part of a two-part card: a double-faced card's back
-    /// face or an adventurer's Adventure. Only a physical card's root
+    /// face, an adventurer's Adventure, or a split card's right half. Only the root
     /// definition owns it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub back_face: Option<Box<Definition>>,
@@ -2058,14 +2121,47 @@ impl Definition {
     }
 
     /// The parts a player may choose to cast or play from a zone other than
-    /// the battlefield (CR 712.11b, 712.12, 715.3). A transforming card's
+    /// the battlefield (CR 709.3a, 712.11b, 712.12, 715.3). A transforming card's
     /// back face is never chosen this way (CR 712.11).
     pub fn faces(&self) -> impl Iterator<Item = CardFace> {
         let back = matches!(
             self.layout,
-            FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer
+            FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer | FaceLayout::Split
         ) && self.back_face.is_some();
         std::iter::once(CardFace::Front).chain(back.then_some(CardFace::Back))
+    }
+
+    /// Printed characteristics of the card outside the stack (CR 709.4,
+    /// 712.8a, 715.4). Spell proposals always look up the chosen face.
+    pub fn card_characteristics(&self) -> std::borrow::Cow<'_, Characteristics> {
+        let Some(right) = self
+            .back_face
+            .as_deref()
+            .filter(|_| self.layout == FaceLayout::Split)
+        else {
+            return std::borrow::Cow::Borrowed(&self.characteristics);
+        };
+        let right = &right.characteristics;
+        let mut both = self.characteristics.clone();
+        both.mana_cost.generic.add(&right.mana_cost.generic);
+        both.mana_cost.colored.extend(&right.mana_cost.colored);
+        both.hybrid_mana.extend_from_slice(&right.hybrid_mana);
+        both.colors.extend(&right.colors);
+        both.colors.sort();
+        both.colors.dedup();
+        for kind in std::iter::once(&right.kind).chain(&right.additional_types) {
+            if !both.has_type(*kind) {
+                both.additional_types.push(*kind);
+            }
+        }
+        for subtype in &right.subtypes {
+            if !both.subtypes.contains(subtype) {
+                both.subtypes.push(subtype.clone());
+            }
+        }
+        both.legendary |= right.legendary;
+        both.snow |= right.snow;
+        std::borrow::Cow::Owned(both)
     }
 
     /// CR 712.9: only a nonmodal double-faced card's permanent transforms.
@@ -2108,6 +2204,9 @@ impl Definition {
             }
             CardKind::Artifact => {
                 set.insert(Capability::CastArtifactV1);
+            }
+            CardKind::Planeswalker => {
+                set.insert(Capability::PlaneswalkerV1);
             }
             CardKind::Enchantment => {
                 set.insert(Capability::CastEnchantmentV1);
@@ -2185,6 +2284,7 @@ impl Definition {
                 ActivationCost::TapPayLifeSacrificeSource { .. } => Capability::PayLifeCostV1,
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
                 ActivationCost::Composite { .. } => Capability::CompositeActivationCostV1,
+                ActivationCost::Loyalty { .. } => Capability::PlaneswalkerV1,
             });
             if matches!(
                 ability.cost,
@@ -2219,6 +2319,7 @@ impl Definition {
             set.insert(match self.layout {
                 FaceLayout::Transforming => Capability::TransformingDoubleFacedV1,
                 FaceLayout::Adventurer => Capability::AdventurerV1,
+                FaceLayout::Split => Capability::SplitV1,
                 FaceLayout::Single | FaceLayout::ModalDoubleFaced => Capability::ModalDoubleFacedV1,
             });
             set.extend(back.requirements());

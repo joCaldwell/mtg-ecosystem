@@ -27,6 +27,9 @@ pub fn zero_mana_cost() -> ManaCost {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ManaStage {
+    /// CR 107.4e, 602.2b, 605.3a: hybrid symbols are announced before the
+    /// nested payment.
+    Hybrid,
     Payment,
     Spend,
     Color,
@@ -49,13 +52,48 @@ pub struct ManaActivation {
     rider: u32,
     decision_id: u64,
     pub stage: ManaStage,
+    /// The announced alternative of each printed hybrid symbol, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hybrid: Vec<HybridPayment>,
     pub(super) resume: FrameLink,
     receipts: Vec<ManaActivationUndo>,
     paid: Option<Box<PermanentManaUndo>>,
 }
 impl ManaActivation {
+    /// CR 601.2f, 602.2b: the fixed mana cost plus each announced hybrid
+    /// color.
     fn payment_cost(&self) -> Option<ManaCost> {
-        self.ability.costs.mana.clone()
+        if self.ability.hybrid_mana.is_empty() {
+            return self.ability.costs.mana.clone();
+        }
+        let mut cost = self
+            .ability
+            .costs
+            .mana
+            .clone()
+            .unwrap_or_else(zero_mana_cost);
+        for payment in &self.hybrid {
+            payment.add_to(&mut cost);
+        }
+        Some(cost)
+    }
+
+    /// The announcement names one allowed alternative per printed symbol,
+    /// and exists exactly after the hybrid stage.
+    fn hybrid_bound(&self) -> bool {
+        let symbols = &self.ability.hybrid_mana;
+        if self.stage == ManaStage::Hybrid || symbols.is_empty() {
+            return self.hybrid.is_empty()
+                && (self.stage == ManaStage::Hybrid) != symbols.is_empty();
+        }
+        // CR 107.4e, 605.3a: only two-color hybrid is admitted on a mana
+        // ability; any other alternative is an invariant failure.
+        symbols.len() == self.hybrid.len()
+            && symbols.iter().zip(&self.hybrid).all(|(symbol, payment)| {
+                payment.color().is_some()
+                    && symbol.colors.contains(payment)
+                    && symbol.colors.iter().all(|c| c.color().is_some())
+            })
     }
 
     /// The printed ability's index; none for a granted one.
@@ -884,8 +922,13 @@ impl RulesTxn {
             granted,
             rider: 0,
             decision_id: input.decision_id,
+            stage: if ability.hybrid_mana.is_empty() {
+                ManaStage::Payment
+            } else {
+                ManaStage::Hybrid
+            },
             ability,
-            stage: ManaStage::Payment,
+            hybrid: vec![],
             resume: self.save_frame(resume),
             receipts: vec![],
             paid: None,
@@ -904,6 +947,7 @@ impl RulesTxn {
         a: &ManaActivation,
     ) -> Result<Decision<Rules>, String> {
         match a.stage {
+            ManaStage::Hybrid => Ok(self.hybrid_pick(a.player, &a.ability.hybrid_mana)),
             ManaStage::Payment | ManaStage::Spend => self.payment_decision(
                 a.player,
                 a.payment_cost().ok_or("missing mana ability cost")?,
@@ -944,6 +988,21 @@ impl RulesTxn {
             .take()
             .ok_or("missing mana ability input")?;
         match &input.answer {
+            Answer::Pick { .. } if a.stage == ManaStage::Hybrid => {
+                if input.player != a.player {
+                    return Err("hybrid announcement player invariant".into());
+                }
+                a.hybrid = input.hybrid_colors()?;
+                a.stage = ManaStage::Payment;
+                if !a.hybrid_bound() {
+                    return Err(
+                        "hybrid announcement requires one allowed color per printed symbol".into(),
+                    );
+                }
+                self.rules_mut().frame = Frame::ManaAbility {
+                    activation: Box::new(a),
+                };
+            }
             Answer::Pay {
                 pay: PayAnswer::Activate { source },
             } if a.stage == ManaStage::Payment => {
@@ -1576,6 +1635,8 @@ impl RulesTxn {
                         marked_damage: r.source.marked_damage.clone(),
                         deathtouch_damage: r.source.deathtouch_damage,
                         plus_one_counters: r.counters.clone(),
+                        loyalty_counters: Quantity::zero(),
+                        loyalty_used_turn: None,
                         counters: r.other_counters.clone(),
                         transforms: 0,
                         adventure_player: None,
@@ -1776,6 +1837,8 @@ impl RulesTxn {
                 || !self.activation_matches(a)?
                 || !self.mana_resume_player(self.saved_frame(a.resume)?, a.player)
                 || (a.stage == ManaStage::Color) != a.paid.is_some()
+                || !a.hybrid_bound()
+                || (a.stage == ManaStage::Hybrid && !a.receipts.is_empty())
                 || a.receipts.iter().any(|r| r.player != a.player)
             {
                 return Err("nested mana snapshot invariant".into());

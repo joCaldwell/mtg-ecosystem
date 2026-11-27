@@ -152,19 +152,19 @@ fn damage_aggregate_sums_shared_recipients_and_preserves_pre_state_facts() {
                         DamageOccurrence {
                             source: b,
                             controller: PlayerId(1),
-                            recipient: DamageRecipient::Creature { object: a },
+                            recipient: DamageRecipient::Permanent { object: a },
                             amount: Quantity::from(1),
                         },
                         DamageOccurrence {
                             source: c,
                             controller: PlayerId(1),
-                            recipient: DamageRecipient::Creature { object: a },
+                            recipient: DamageRecipient::Permanent { object: a },
                             amount: Quantity::from(1),
                         },
                         DamageOccurrence {
                             source: a,
                             controller: PlayerId(0),
-                            recipient: DamageRecipient::Creature { object: b },
+                            recipient: DamageRecipient::Permanent { object: b },
                             amount: Quantity::from(2),
                         },
                     ],
@@ -207,7 +207,7 @@ fn overlapping_clear_damage_composition_and_invalid_aggregate_roll_back_atomical
         damage: vec![DamageOccurrence {
             source: a,
             controller: PlayerId(0),
-            recipient: DamageRecipient::Creature { object: b },
+            recipient: DamageRecipient::Permanent { object: b },
             amount: Quantity::from(1),
         }],
     };
@@ -233,7 +233,7 @@ fn overlapping_clear_damage_composition_and_invalid_aggregate_roll_back_atomical
                             damage: vec![DamageOccurrence {
                                 source: a,
                                 controller: PlayerId(3),
-                                recipient: DamageRecipient::Creature { object: b },
+                                recipient: DamageRecipient::Permanent { object: b },
                                 amount: Quantity::from(1)
                             }]
                         }
@@ -379,6 +379,8 @@ fn zero_power_has_no_positive_damage_occurrence_and_empty_attack_skips_damage() 
         .power = Some(Quantity::zero());
     let a = object(&g, 0);
     g.state.rules.combat = vec![Attacker {
+        planeswalker: None,
+        defender_removed: false,
         attacker: a,
         defender: PlayerId(1),
         blocked: false,

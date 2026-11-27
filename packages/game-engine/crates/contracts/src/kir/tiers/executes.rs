@@ -59,19 +59,14 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         | TargetDomain::ControlledBattlefieldPermanent
         | TargetDomain::BattlefieldCreature => (Route::Object, ANY),
         TargetDomain::AnyDamageTarget => (Route::Entity, ANY),
-        TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
-            (Route::Player, SPELL | TRIGGERED)
-        }
+        TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => (Route::Player, ANY),
         TargetDomain::GraveyardCard { .. }
         | TargetDomain::OwnGraveyardCreatureCard
         | TargetDomain::OwnGraveyardCard => (Route::Object, ANY),
         TargetDomain::StackSpell
         | TargetDomain::ControlledCreatureSpell
         | TargetDomain::StackActivatedOrTriggeredAbility => (Route::Stack, SPELL | ACTIVATED),
-        // CR 115.1, 120.3: planeswalker faces are not admitted (see mechanics), so
-        // the closed scenario's inhabitants are players, announced as
-        // AnyPlayer is.
-        TargetDomain::PlayerOrPlaneswalker => (Route::Player, SPELL | TRIGGERED),
+        TargetDomain::PlayerOrPlaneswalker => (Route::Entity, ANY),
         TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
@@ -750,6 +745,11 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
         ActivationCost::TapPayLifeSacrificeSource { life } => {
             route.is_none() && !life.is_negative()
         }
+        ActivationCost::Loyalty { .. } => {
+            kind == CardKind::Planeswalker
+                && a.functioning_zone == FunctioningZone::Battlefield
+                && p.timing == SpellTiming::MainPhase
+        }
         ActivationCost::DiscardSource { .. } => false,
     };
     if !payable {
@@ -765,7 +765,44 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
     Ok(())
 }
 
+/// The ability's mana cost, when it has a mana window.
+fn activation_mana(cost: &ActivationCost) -> Option<&ManaCost> {
+    match cost {
+        ActivationCost::Mana { cost }
+        | ActivationCost::DiscardSource { mana: cost }
+        | ActivationCost::ExileSource { mana: cost } => Some(cost),
+        ActivationCost::SacrificePermanent { mana, .. } => mana.as_ref(),
+        ActivationCost::ChooseObjects(cost) => cost.mana.as_ref(),
+        ActivationCost::Composite { costs } => costs.mana.as_ref(),
+        ActivationCost::SacrificeSource
+        | ActivationCost::TapSource
+        | ActivationCost::Loyalty { .. }
+        | ActivationCost::TapPayLifeSacrificeSource { .. } => None,
+    }
+}
+
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 107.3a, 107.4e-f, 602.2b: a battlefield ability's X and hybrid or
+    // Phyrexian symbols are announced before its targets and paid in its
+    // mana window; a modal ability or another zone has no announcement.
+    if (a.x_mana_cost || !a.hybrid_mana.is_empty())
+        && (a.functioning_zone != FunctioningZone::Battlefield
+            || a.modal.is_some()
+            || activation_mana(&a.cost).is_none()
+            || !matches!(
+                a.cost,
+                ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
+            )
+            || !a.hybrid_mana.iter().all(hybrid_symbol)
+            // CR 119.4, 601.2h: a Phyrexian life payment beside a printed
+            // "Pay N life" would need one combined life check.
+            || (a.hybrid_mana
+                .iter()
+                .any(|s| s.colors.contains(&HybridPayment::PayTwoLife))
+                && matches!(&a.cost, ActivationCost::Composite { costs } if costs.pay_life.is_some())))
+    {
+        return cell("activated", "announced_mana");
+    }
     let crew =
         matches!(&a.cost, ActivationCost::ChooseObjects(cost) if cost.minimum_power.is_some());
     let statless_animation = a.programs().any(|program| {
@@ -881,7 +918,11 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     if a.functioning_zone != FunctioningZone::Battlefield
         || !matches!(
             d.characteristics.kind,
-            CardKind::Creature | CardKind::Artifact | CardKind::Enchantment | CardKind::Land
+            CardKind::Creature
+                | CardKind::Artifact
+                | CardKind::Enchantment
+                | CardKind::Land
+                | CardKind::Planeswalker
         )
     {
         return cell("activated", "source");
@@ -921,7 +962,7 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     for p in a.programs() {
         cost(d, a, p)?;
         if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
-            program(p, Context::Activated, None, false)?;
+            program(p, Context::Activated, None, a.x_mana_cost)?;
         }
     }
     Ok(())
@@ -1077,15 +1118,31 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
     {
         return cell("mana", name(&a.production));
     }
+    // CR 107.4e, 605.3a: each hybrid symbol names two distinct colors and is
+    // announced before the nested payment; a Phyrexian life alternative is
+    // not admitted on a mana ability.
+    if !a.hybrid_mana.iter().all(|symbol| {
+        matches!(symbol.colors, [HybridPayment::Mana(x), HybridPayment::Mana(y)]
+            if x != y && x != Color::C && y != Color::C)
+    }) || a.costs.mana.as_ref().is_some_and(|m| {
+        *m == ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![],
+        }
+    }) && !a.hybrid_mana.is_empty()
+    {
+        return cell("mana", "hybrid");
+    }
     if let Some(error) = a.riders.iter().find_map(|r| kir::mana_rider(r).err()) {
         return cell("mana", format!("rider:{error}"));
     }
     // A mana cost would pay nested mana after the condition was read; no
     // admitted conditioned mana ability needs that order.
-    if a.condition
-        .as_ref()
-        .is_some_and(|c| kir::ActivationCondition::of(c).is_err() || a.costs.mana.is_some())
-    {
+    if a.condition.as_ref().is_some_and(|c| {
+        kir::ActivationCondition::of(c).is_err()
+            || a.costs.mana.is_some()
+            || !a.hybrid_mana.is_empty()
+    }) {
         return cell("mana", "condition");
     }
     Ok(())
@@ -1139,7 +1196,7 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
-        CardKind::Instant | CardKind::Sorcery => false,
+        CardKind::Instant | CardKind::Sorcery | CardKind::Planeswalker => false,
     }
 }
 
@@ -1170,6 +1227,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         Some("modal_dfc") => FaceLayout::ModalDoubleFaced,
         Some("transform") => FaceLayout::Transforming,
         Some("adventure") => FaceLayout::Adventurer,
+        Some("split") => FaceLayout::Split,
         _ => FaceLayout::Single,
     };
     if d.layout != layout || d.back_face.is_some() == layout.is_single() {
@@ -1255,6 +1313,26 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
                 && back.static_abilities.is_empty()
                 && back.keywords.is_empty()
         }
+        // CR 709.3–4: both parts must be complete spell programs.
+        // Permanent splits, fused casts and Aftermath each need distinct rules.
+        FaceLayout::Split => {
+            let unsupported_keyword = source["keywords"].as_array().is_some_and(|ks| {
+                ks.iter()
+                    .any(|k| matches!(k.as_str(), Some("Fuse" | "Aftermath")))
+            });
+            !unsupported_keyword
+                && [d, back].iter().all(|half| {
+                    !permanent(half)
+                        && !adventure_subtype(half)
+                        && half.characteristics.front_face_mana_value.is_none()
+                        && half.spell.is_some()
+                        && half.activated.is_empty()
+                        && half.triggered.is_empty()
+                        && half.static_abilities.is_empty()
+                        && half.mana_abilities.is_empty()
+                        && half.keywords.is_empty()
+                })
+        }
         FaceLayout::Single => false,
     };
     if !shape {
@@ -1311,6 +1389,21 @@ fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), Strin
     surfaces(d)
 }
 
+/// CR 107.4e-f: a two-color hybrid symbol names two distinct colors and a
+/// Phyrexian symbol one color and its 2-life alternative.
+fn hybrid_symbol(symbol: &ColorHybridSymbol) -> bool {
+    match symbol.colors {
+        [HybridPayment::Mana(a), HybridPayment::Mana(b)] => {
+            a != b && a != Color::C && b != Color::C
+        }
+        [
+            HybridPayment::Mana(a),
+            HybridPayment::PayTwoLife | HybridPayment::PayTwoGeneric,
+        ] => a != Color::C,
+        _ => false,
+    }
+}
+
 /// The surface rows alone: card shell, keywords, statics, mana abilities,
 /// activated and triggered abilities and the spell program. The public tier
 /// queries run these, so a definition whose surface no runtime executes
@@ -1339,15 +1432,10 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     // below then requires the land's intrinsic mana (CR 305.6).
     // CR 107.4e-f: a two-color hybrid symbol names two distinct colors and a
     // Phyrexian symbol one color and its 2-life alternative.
-    let hybrid_symbol = |symbol: &ColorHybridSymbol| match symbol.colors {
-        [HybridPayment::Mana(a), HybridPayment::Mana(b)] => {
-            a != b && a != Color::C && b != Color::C
-        }
-        [HybridPayment::Mana(a), HybridPayment::PayTwoLife] => a != Color::C,
-        _ => false,
-    };
     if ((!c.hybrid_mana.is_empty() || d.x_mana_cost) && d.spell.is_none())
         || !c.hybrid_mana.iter().all(hybrid_symbol)
+        || (c.kind == CardKind::Planeswalker) != c.loyalty.is_some()
+        || c.loyalty.as_ref().is_some_and(Quantity::is_negative)
         || c.snow
         || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
@@ -1441,7 +1529,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && d.intrinsic_zone.is_none()
                 && d.spell.as_ref().is_some_and(permanent_spell)
         }
-        CardKind::Artifact | CardKind::Enchantment => {
+        CardKind::Artifact | CardKind::Enchantment | CardKind::Planeswalker => {
             (if c.subtypes == ["Vehicle"] && c.kind == CardKind::Artifact {
                 c.power.is_some() && c.toughness.is_some()
             } else {
@@ -1786,6 +1874,8 @@ mod tests {
     }
     fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
         ActivatedAbility {
+            x_mana_cost: false,
+            hybrid_mana: vec![],
             modal: None,
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
@@ -1881,6 +1971,7 @@ mod tests {
                             sacrifice: false,
                             pay_life,
                         },
+                        hybrid_mana: vec![],
                         production,
                         spend_restriction: None,
                         riders,
@@ -2108,6 +2199,92 @@ mod tests {
             },
             0,
         )
+    }
+
+    /// CR 107.4e, 605.3a: printed mana abilities admit only two-color
+    /// hybrid; a granted mana ability admits no hybrid mana cost at all.
+    #[test]
+    fn mana_ability_hybrid_admits_only_two_color_pairs() {
+        use HybridPayment::{Mana, PayTwoGeneric, PayTwoLife};
+        let ability = |colors| ManaAbility {
+            restriction: None,
+            condition: None,
+            costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
+                tap: true,
+                mana: None,
+                sacrifice: false,
+                pay_life: None,
+            },
+            hybrid_mana: vec![ColorHybridSymbol { colors }],
+            production: ManaProduction::Fixed {
+                symbols: vec![Color::G, Color::G],
+            },
+            spend_restriction: None,
+            riders: vec![],
+            source_block: 0,
+        };
+        let printed = |colors| with(|d| d.mana_abilities.push(ability(colors)));
+        printed([Mana(Color::G), Mana(Color::U)])
+            .validate()
+            .unwrap();
+        for colors in [
+            [Mana(Color::W), PayTwoGeneric],
+            [Mana(Color::G), PayTwoLife],
+        ] {
+            assert!(
+                printed(colors)
+                    .validate()
+                    .unwrap_err()
+                    .contains("cell:mana:hybrid"),
+                "{colors:?}"
+            );
+        }
+        let scope = kir::Scope::Source;
+        for colors in [
+            [Mana(Color::W), PayTwoGeneric],
+            [Mana(Color::G), Mana(Color::U)],
+        ] {
+            assert!(!kir::granted_mana_supported(
+                &scope,
+                None,
+                &[ability(colors)]
+            ));
+        }
+        let mut plain = ability([Mana(Color::G), Mana(Color::U)]);
+        plain.hybrid_mana.clear();
+        assert!(kir::granted_mana_supported(&scope, None, &[plain]));
+    }
+
+    /// CR 119.4, 601.2h: a Phyrexian symbol beside a printed "Pay N life"
+    /// rejects at admission rather than checking the two life payments
+    /// separately.
+    #[test]
+    fn phyrexian_activation_with_a_printed_life_payment_rejects() {
+        let mut a = ability(
+            ActivationCost::Composite {
+                costs: PermanentActivationCosts {
+                    remove_source_plus_one_counters: None,
+                    tap: false,
+                    mana: Some(ManaCost {
+                        generic: Quantity::zero(),
+                        colored: vec![],
+                    }),
+                    sacrifice: false,
+                    pay_life: Some(2.into()),
+                },
+            },
+            SpellProgram::instructions(SpellTiming::Instant),
+        );
+        a.hybrid_mana = vec![ColorHybridSymbol {
+            colors: [HybridPayment::Mana(Color::G), HybridPayment::PayTwoLife],
+        }];
+        let d = with(|d| d.activated.push(a));
+        assert!(
+            surfaces(&d)
+                .unwrap_err()
+                .contains("cell:activated:announced_mana")
+        );
     }
 
     #[test]

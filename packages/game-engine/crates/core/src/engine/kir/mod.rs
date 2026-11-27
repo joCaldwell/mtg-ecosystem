@@ -607,9 +607,8 @@ impl RulesTxn {
                     i64::try_from(count).map_err(|_| "blocker count limit")?,
                 ))
             }
-            // CR 702.121a, 508.4: the declared defenders this combat that are
-            // still opponents in the game, when the controller is the
-            // attacking player.
+            // CR 702.121a, 508.6: count opponents attacked directly by the
+            // controller's declared attackers this combat.
             Amount::OpponentsAttacked {} => {
                 let controller = self.entry(frame.stack_id)?.controller;
                 let count = if self.state.rules.active == Some(controller) {

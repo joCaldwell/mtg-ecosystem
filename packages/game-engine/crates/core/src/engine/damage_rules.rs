@@ -246,7 +246,7 @@ impl RulesTxn {
                 .players
                 .as_ref()
                 .is_some_and(|who| self.static_player(who, holder.controller, player)),
-            DamageRecipient::Creature { object } => recipients
+            DamageRecipient::Permanent { object } => recipients
                 .permanents
                 .as_ref()
                 .is_some_and(|scope| self.declaration_scope(scope, holder, object)),
@@ -276,7 +276,7 @@ impl RulesTxn {
             return Ok(false);
         }
         if let Some(scope) = &event.involving {
-            let to = matches!(d.recipient, DamageRecipient::Creature { object }
+            let to = matches!(d.recipient, DamageRecipient::Permanent { object }
                 if self.declaration_scope(scope, holder, object));
             if !to && !self.damage_source_in(scope, holder, d)? {
                 return Ok(false);

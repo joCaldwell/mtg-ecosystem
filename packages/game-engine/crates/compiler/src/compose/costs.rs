@@ -14,6 +14,8 @@ mod chosen;
 struct Terms {
     tap: bool,
     mana: Option<ManaCost>,
+    hybrid: Vec<ColorHybridSymbol>,
+    x: bool,
     sacrifice_source: bool,
     sacrifice_other: Option<SacrificeOther>,
     chosen: Option<ChosenObjectCost>,
@@ -164,25 +166,15 @@ fn term(card: &Card<'_>, terms: &mut Terms, cost: &SourceCost) -> Result<(), Fai
         SourceCost::Mana { symbols } => {
             // Each parser symbol is one complete mana symbol; reject injected
             // braces instead of reinterpreting them.
-            if symbols.is_empty()
-                || symbols
-                    .iter()
-                    .any(|s| s.is_empty() || s.contains(['{', '}']))
-            {
-                return Err(unsupported("compose.cost", "invalid mana-cost symbol"));
-            }
-            let mana = mana_cost(
-                &symbols
-                    .iter()
-                    .map(|s| format!("{{{s}}}"))
-                    .collect::<String>(),
-            )?;
-            if mana.colored.contains(&Color::C) {
+            let mana = activation_mana(symbols, "compose.cost")?;
+            if mana.base.colored.contains(&Color::C) {
                 return Err(unsupported("compose.cost", "colorless-specific cost"));
             }
-            if terms.mana.replace(mana).is_some() {
+            if terms.mana.replace(mana.base).is_some() {
                 return Err(duplicate());
             }
+            terms.hybrid = mana.hybrid;
+            terms.x = mana.x;
         }
         SourceCost::Sacrifice { what } => {
             let this = what.as_object().is_some_and(|o| o.len() == 2)
@@ -323,7 +315,24 @@ pub(super) fn exile_source(
     )))
 }
 
+/// A cost whose mana term announces nothing: a keyword or graveyard
+/// activation has no announcement route for X or hybrid symbols.
 pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationCost, Failure> {
+    match announced(card, costs)? {
+        (cost, hybrid, false) if hybrid.is_empty() => Ok(cost),
+        _ => Err(unsupported(
+            "source.mana_cost",
+            "variable/hybrid/Phyrexian/special mana is not supported",
+        )),
+    }
+}
+
+/// CR 107.3a, 107.4e-f, 602.2b: the cost with its fixed mana, and the hybrid
+/// symbols and leading X its activation announces.
+pub(super) fn announced(
+    card: &Card<'_>,
+    costs: &[SourceCost],
+) -> Result<(ActivationCost, Vec<ColorHybridSymbol>, bool), Failure> {
     if costs.is_empty() {
         return Err(unsupported("compose.cost", "missing activation cost"));
     }
@@ -334,6 +343,8 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
     let Terms {
         tap,
         mana,
+        hybrid,
+        x,
         sacrifice_source,
         sacrifice_other,
         chosen,
@@ -349,7 +360,7 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
         }
         cost.tap_source = tap;
         cost.mana = mana;
-        return Ok(ActivationCost::ChooseObjects(cost));
+        return Ok((ActivationCost::ChooseObjects(cost), hybrid, x));
     }
     if life.is_some() || counters.is_some() {
         if sacrifice_other.is_some() {
@@ -361,7 +372,7 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
         // CR 602.2b, 118.3: "{T}, Pay N life, Sacrifice [this]" keeps its
         // atomic ordered batch; every other source-bound term set is paid
         // by the composite cost after its mana (CR 601.2h, 119.4, 122.1).
-        return Ok(match (tap, mana, sacrifice_source, life, counters) {
+        let cost = match (tap, mana, sacrifice_source, life, counters) {
             (true, None, true, Some(life), None) => {
                 ActivationCost::TapPayLifeSacrificeSource { life }
             }
@@ -374,9 +385,10 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
                     pay_life,
                 },
             },
-        });
+        };
+        return Ok((cost, hybrid, x));
     }
-    Ok(match (tap, mana, sacrifice_source, sacrifice_other) {
+    let cost = match (tap, mana, sacrifice_source, sacrifice_other) {
         // CR 602.2b: tapping the source and mana are paid with the chosen
         // sacrifice as one complete cost.
         (
@@ -415,7 +427,8 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
                 pay_life: None,
             },
         },
-    })
+    };
+    Ok((cost, hybrid, x))
 }
 
 /// CR 601.2b, 601.2f-h, 701.21a: "As an additional cost to cast this spell,

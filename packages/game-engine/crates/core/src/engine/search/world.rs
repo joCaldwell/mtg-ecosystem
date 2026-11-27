@@ -389,6 +389,8 @@ impl SampleBuildWork {
                     keyword_timestamp: None,
                     keyword_rank: 0,
                     plus_one_counters: Quantity::zero(),
+                    loyalty_counters: Quantity::zero(),
+                    loyalty_used_turn: None,
                     counters: vec![],
                     transforms: 0,
                     adventure_player: None,

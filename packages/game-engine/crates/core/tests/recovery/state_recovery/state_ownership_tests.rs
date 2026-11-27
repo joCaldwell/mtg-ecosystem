@@ -33,7 +33,7 @@ struct FlatStateReference {
     combat_declared: bool,
     damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    player_damage_choices: BTreeMap<ObjectId, (PlayerId, Quantity)>,
+    defender_damage_choices: BTreeMap<ObjectId, (DamageRecipient, Quantity)>,
     /// CR510.4/702.7b: incarnation-bound first-step eligibility, retained even
     /// after combat departure. Empty in every historical profile.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]

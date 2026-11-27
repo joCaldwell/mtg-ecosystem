@@ -132,6 +132,8 @@ impl RulesTxn {
                     if ability.spend_restriction.is_some()
                         || !ability.costs.tap
                         || ability.costs.mana.is_some()
+                        // CR 107.4e: a hybrid input is a mana cost too.
+                        || !ability.hybrid_mana.is_empty()
                         || ability.costs.pay_life.is_some()
                         || !ability.riders.is_empty()
                         || ability.costs.remove_source_plus_one_counters.is_some()

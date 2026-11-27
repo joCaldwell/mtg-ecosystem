@@ -24,7 +24,7 @@ pub(super) fn lower(
             if cx.context != Context::Spell
                 && matches!(
                     noun.as_str(),
-                    "creature" | "artifact" | "enchantment" | "land" | "permanent"
+                    "creature" | "artifact" | "enchantment" | "land" | "permanent" | "planeswalker"
                 ) => {}
         DamageSource::It {} | DamageSource::This { .. } => return Err(step("damage", "source")),
     }
@@ -39,10 +39,14 @@ pub(super) fn lower(
                     selection_id,
                     TargetDomain::AnyDamageTarget,
                 )?,
-                // CR 107.3a: a spell's X is the value announced for it;
-                // definition admission scopes X to a spell whose cost has it.
+                // CR 107.3a, 602.2b: X is the value announced for the spell or
+                // ability; definition admission scopes X to a cost that has it.
                 match amount {
-                    ast::Amount::X(_) if cx.context == Context::Spell => kir::Amount::announced_x(),
+                    ast::Amount::X(_)
+                        if matches!(cx.context, Context::Spell | Context::Activated) =>
+                    {
+                        kir::Amount::announced_x()
+                    }
                     _ => kir::Amount::Fixed {
                         value: fixed_positive_amount(&amount)?,
                     },
@@ -55,7 +59,11 @@ pub(super) fn lower(
                 let what = object(reference)?;
                 uncounted(cx)?;
                 let amount = match amount {
-                    ast::Amount::X(_) if cx.context == Context::Spell => kir::Amount::announced_x(),
+                    ast::Amount::X(_)
+                        if matches!(cx.context, Context::Spell | Context::Activated) =>
+                    {
+                        kir::Amount::announced_x()
+                    }
                     _ => kir::Amount::Fixed {
                         value: fixed_positive_amount(&amount)?,
                     },

@@ -45,6 +45,8 @@ fn rich_fixture() -> PermittedView {
         expires_in_cleanup_of_turn: 777,
     }];
     v.combat = vec![VisibleAttacker {
+        planeswalker: None,
+        defender_removed: false,
         attacker: h.clone(),
         defender: PlayerId(3),
         blocked: true,

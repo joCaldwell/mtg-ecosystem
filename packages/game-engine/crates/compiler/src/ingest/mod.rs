@@ -62,6 +62,8 @@ pub(crate) struct Source {
     layout: String,
     pub(crate) color_identity: Vec<Color>,
     colors: Option<Vec<Color>>,
+    #[serde(default)]
+    keywords: Vec<String>,
     card_faces: Option<Box<RawValue>>,
     loyalty: Option<Box<RawValue>>,
     defense: Option<Box<RawValue>>,
@@ -73,11 +75,11 @@ pub(crate) struct SourceFace {
     pub(crate) oracle_text: String,
     pub(crate) mana_cost: String,
     pub(crate) type_line: String,
-    /// Absent on an adventurer's parts, whose colors follow their mana costs.
+    /// Split and adventurer parts derive colors from their mana costs.
     pub(crate) colors: Option<Vec<Color>>,
     pub(crate) power: Option<String>,
     pub(crate) toughness: Option<String>,
-    loyalty: Option<Box<RawValue>>,
+    pub(crate) loyalty: Option<String>,
     defense: Option<Box<RawValue>>,
     color_indicator: Option<Vec<Color>>,
 }
@@ -114,6 +116,45 @@ pub(crate) fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
         rest = token.1;
     }
     Ok(cost)
+}
+
+/// The mana symbols of one printed activation cost (CR 107.3, 107.4e-f,
+/// 602.1a): its fixed symbols, its ordered two-color hybrid and
+/// single-color Phyrexian symbols, and whether it begins with one `{X}`.
+pub(crate) struct ActivationMana {
+    pub(crate) base: ManaCost,
+    pub(crate) hybrid: Vec<ColorHybridSymbol>,
+    pub(crate) x: bool,
+}
+
+/// CR 107.3, 107.4e-f, 602.2b: each parser symbol is one complete mana
+/// symbol. One leading X and two-color hybrid or single-color Phyrexian
+/// symbols are announced; any other special symbol rejects.
+pub(crate) fn activation_mana(symbols: &[String], field: &str) -> Result<ActivationMana, Failure> {
+    if symbols.is_empty()
+        || symbols
+            .iter()
+            .any(|s| s.is_empty() || s.contains(['{', '}']))
+    {
+        return Err(unsupported(field, "invalid mana-cost symbol"));
+    }
+    let x = symbols[0] == "X";
+    let rest = &symbols[usize::from(x)..];
+    if rest.iter().any(|s| s == "X") {
+        return Err(unsupported("source.mana_cost", "repeated or trailing X"));
+    }
+    let text: String = rest.iter().map(|s| format!("{{{s}}}")).collect();
+    let (base, hybrid) = if text.contains('/') {
+        color_hybrid_cost(&text).ok_or_else(|| {
+            unsupported(
+                "source.mana_cost",
+                "variable/hybrid/Phyrexian/special mana is not supported",
+            )
+        })?
+    } else {
+        (mana_cost(&text)?, vec![])
+    };
+    Ok(ActivationMana { base, hybrid, x })
 }
 
 pub(crate) struct CardSource {
@@ -157,10 +198,13 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
         "modal_dfc" => FaceLayout::ModalDoubleFaced,
         "transform" => FaceLayout::Transforming,
         "adventure" => FaceLayout::Adventurer,
+        "split" => FaceLayout::Split,
         layout => return Err(unsupported("source.layout", format!("layout:{layout}"))),
     };
     let printed: Vec<SourceFace> = match (layout, &source.card_faces) {
-        _ if source.loyalty.is_some() || source.defense.is_some() => {
+        _ if (layout != FaceLayout::Single && source.loyalty.is_some())
+            || source.defense.is_some() =>
+        {
             return Err(unsupported(
                 "source.layout",
                 "unsupported normal or two-part face shell",
@@ -174,20 +218,43 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
             ));
         }
         (_, Some(faces)) => {
+            if layout == FaceLayout::Split && r.faces.len() != 2 {
+                return Err(unsupported(
+                    "source.card_faces",
+                    "expected two split halves",
+                ));
+            }
             let faces: [SourceFace; 2] = decode(faces.get(), "source.card_faces")?;
+            if layout == FaceLayout::Split {
+                // CR 709.5, 702.102, 702.127: each shell needs its own rules.
+                if faces
+                    .iter()
+                    .any(|f| f.type_line.split_whitespace().any(|t| t == "Room"))
+                {
+                    return Err(unsupported("source.type_line", "subtype:Room"));
+                }
+                for (printed, reason) in
+                    [("Fuse", "keyword:fuse"), ("Aftermath", "keyword:aftermath")]
+                {
+                    if source.keywords.iter().any(|k| k == printed) {
+                        return Err(unsupported("source.keywords", reason));
+                    }
+                }
+            }
             if source.name != format!("{} // {}", faces[0].name, faces[1].name) {
                 return Err(invalid(
                     "source.name",
                     "card name does not match its printed parts",
                 ));
             }
-            // CR 715.2, 202.2: an adventurer's parts have no color indicator,
+            // CR 709.4b, 715.2, 202.2: split and adventurer parts have no color indicator,
             // and each part's colors follow its own mana cost; double-faced
             // faces print their colors (CR 712.8).
-            let adventure = layout == FaceLayout::Adventurer;
+            let colors_from_cost = matches!(layout, FaceLayout::Adventurer | FaceLayout::Split);
             if faces.iter().any(|face| {
-                face.colors.is_some() == adventure || (adventure && face.color_indicator.is_some())
-            }) || (adventure && source.colors.is_none())
+                face.colors.is_some() == colors_from_cost
+                    || (colors_from_cost && face.color_indicator.is_some())
+            }) || (colors_from_cost && source.colors.is_none())
             {
                 return Err(unsupported(
                     "source.face",
@@ -234,7 +301,7 @@ pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
             if face.source_face_index as usize != index || face.status != "attempted" {
                 return Err(invalid("faces", "missing or duplicated source face"));
             }
-            if source.loyalty.is_some()
+            if (layout != FaceLayout::Single && source.loyalty.is_some())
                 || source.defense.is_some()
                 || source.color_indicator.as_ref().is_some_and(|colors| {
                     colors.is_empty()

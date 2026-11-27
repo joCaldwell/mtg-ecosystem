@@ -67,7 +67,7 @@ impl RulesTxn {
                 id: DamageId(entries.len() as u32),
                 source: source.clone(),
                 controller: source.controller,
-                recipient: DamageRecipient::Creature { object: target },
+                recipient: DamageRecipient::Permanent { object: target },
                 original_amount: amount.clone(),
                 amount,
                 applied: vec![],
@@ -136,7 +136,7 @@ impl RulesTxn {
                 .zip(expected)
                 .any(|(d, (source, target, amount))| {
                     &d.source != source
-                        || d.recipient != (DamageRecipient::Creature { object: target })
+                        || d.recipient != (DamageRecipient::Permanent { object: target })
                         || d.original_amount != amount
                         || d.controller != source.controller
                         || d.source_handles.iter().enumerate().any(|(viewer, handle)| {

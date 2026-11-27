@@ -28,6 +28,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         color_identity: vec![],
         power: None,
         toughness: None,
+        loyalty: None,
         front_face_mana_value: None,
     };
     d.intrinsic_zone = None;
@@ -58,6 +59,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     if mana_token {
         d.mana_abilities.push(ManaAbility {
             costs,
+            hybrid_mana: vec![],
             production: ManaProduction::AnyColor,
             spend_restriction: None,
             riders: vec![],
@@ -80,6 +82,8 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
             PredefinedToken::Treasure | PredefinedToken::Gold => unreachable!(),
         };
         d.activated.push(ActivatedAbility {
+            x_mana_cost: false,
+            hybrid_mana: vec![],
             modal: None,
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,

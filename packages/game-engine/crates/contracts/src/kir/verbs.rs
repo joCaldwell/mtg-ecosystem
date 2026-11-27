@@ -72,6 +72,9 @@ pub enum CounterKind {
     /// CR 122.1a.
     #[serde(deserialize_with = "no_operands")]
     PlusOnePlusOne,
+    /// CR 122.1e: intrinsic entry, loyalty payment, damage and proliferate.
+    #[serde(deserialize_with = "no_operands")]
+    Loyalty,
     #[serde(deserialize_with = "no_operands")]
     MinusOneMinusOne,
     /// CR 122.1b: the permanent has this keyword.
@@ -150,6 +153,9 @@ impl CounterKind {
             Self::Keyword { keyword } => {
                 crate::supported_temporary_keywords(std::slice::from_ref(keyword))
             }
+            // Loyalty placement is derived by the rules. Printed counter
+            // instructions still require their own reviewed lowering.
+            Self::Loyalty => false,
             Self::Named { name } => plain_counter_name(name),
         }
     }
