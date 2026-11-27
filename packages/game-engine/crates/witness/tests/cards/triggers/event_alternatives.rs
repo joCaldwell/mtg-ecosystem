@@ -405,3 +405,44 @@ fn event_alternatives_cast_spell_targeting_a_filtered_creature() {
     assert!(g.current(theirs).is_err());
     assert_recoverable((&g).into());
 }
+
+const IMPERIAL_COSMOGRAPHER: &str = record!("b2aa052c-08b7-4334-9ea7-e78da57ff9ea");
+
+/// Imperial Cosmographer: "Whenever another creature you control leaves
+/// the battlefield without dying, put two +1/+1 counters on this creature."
+/// Returning one Grizzly Bears to hand triggers it; Lightning Bolt killing
+/// the other does not (CR 603.6c, 700.4).
+#[test]
+fn event_alternatives_leaves_without_dying() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[IMPERIAL_COSMOGRAPHER], TurnStep::PrecombatMain)
+                .permanent_or_hand("Imperial Cosmographer", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, false)
+                .permanent_or_hand("Unsummon", 0, 0, true)
+                .permanent_or_hand("Lightning Bolt", 0, 0, true)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Mountain", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (cosmographer, bounced, killed) = (
+        Driver::object(&g, 0),
+        Driver::object(&g, 1),
+        Driver::object(&g, 2),
+    );
+    for (card, target, land) in [(3, bounced, 5), (4, killed, 6)] {
+        Driver::cast(&mut g, CardId(card));
+        Driver::pick_object(&mut g, target);
+        Driver::pay(&mut g, &[land]);
+        settle(&mut g);
+        assert!(g.current(target).is_err());
+    }
+    assert_eq!(collected(&g, cosmographer), 1);
+    assert_eq!(
+        g.current(cosmographer).unwrap().plus_one_counters,
+        2.into()
+    );
+    assert_recoverable((&g).into());
+}

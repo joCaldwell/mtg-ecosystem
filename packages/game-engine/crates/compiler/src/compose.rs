@@ -539,6 +539,15 @@ fn trigger(
         } => *slot = Some(ordinal(caster, true)?),
         EventPattern::Draws { player, nth: slot }
         | EventPattern::GainsLife { player, nth: slot } => *slot = Some(ordinal(player, false)?),
+        // CR 702.29a: the turn's cycles, any card ("another" excludes none).
+        EventPattern::Discards {
+            player,
+            nth: slot,
+            cycled: true,
+            card,
+        } if !card.reads_characteristics() && !card.is_ref(kir::Ref::Source) => {
+            *slot = Some(ordinal(player, false)?)
+        }
         other => return Err(reject(other.reporting_key())),
     }
     Ok(ability)

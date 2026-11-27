@@ -121,6 +121,9 @@ pub struct TurnCastHistory {
     /// CR 119.9: life-gain events of this player this turn.
     #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub life_gains: u32,
+    /// CR 702.29a: cards this player cycled this turn.
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
+    pub cycles: u32,
 }
 impl TurnCastHistory {
     fn quantity_is_zero(value: &Quantity) -> bool {
@@ -253,6 +256,9 @@ pub enum TriggerEventWitness {
         /// when the pattern read its characteristics.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         card: Option<Box<ObjectBefore>>,
+        /// The cycle's count this turn, recorded for a turn-ordinal observer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<u32>,
     },
     /// CR 509.3a: a declared blocker, as it was before the declaration.
     Blocked {
@@ -1105,6 +1111,7 @@ impl RulesTxn {
                         controller_at_match: *player,
                         cycled,
                         card: None,
+                        nth: None,
                     });
                 }
                 _ => {}
@@ -1245,6 +1252,20 @@ impl RulesTxn {
                 &mut row.life_gains
             };
             *count = count.checked_add(1).ok_or("turn history count limit")?;
+        }
+        // CR 702.29a: count the turn's cycles.
+        if let TriggerEventWitness::Discarded {
+            player,
+            cycled: true,
+            ..
+        } = &witness
+        {
+            let row = self
+                .rules_mut()
+                .cast_history
+                .get_mut(player.0 as usize)
+                .ok_or("invalid turn history seat")?;
+            row.cycles = row.cycles.checked_add(1).ok_or("turn history count limit")?;
         }
         let dies = witness.dies();
         let enters = witness.enters();
@@ -1427,7 +1448,7 @@ impl RulesTxn {
                     }
                     // CR 603.10, 702.29d: the discarded card as it is now;
                     // a cycle is a discard.
-                    EventPattern::Discards { player, card, cycled } => {
+                    EventPattern::Discards { player, card, cycled, .. } => {
                         matches!(&witness, TriggerEventWitness::Discarded {
                                 player: discarding, movement, cycled: was_cycled, ..
                             }
@@ -1454,8 +1475,9 @@ impl RulesTxn {
                                     live: observers.is_live(sacrificed.controller),
                                 }), you, sacrificed.object, &identity))
                     }
-                    EventPattern::LeavesBattlefield { object: pred } => {
+                    EventPattern::LeavesBattlefield { object: pred, without_dying } => {
                         witness.leaves()
+                            && !(*without_dying && witness.dies())
                             && dying.is_some_and(|leaving| {
                                 holds(pred, Some(&observers.object_facts(leaving)), you, leaving.id, &identity)
                             })
@@ -1554,7 +1576,8 @@ impl RulesTxn {
                     }
                     match &mut matched_witness {
                         TriggerEventWitness::CardDrawn { nth: slot, .. }
-                        | TriggerEventWitness::LifeGained { nth: slot, .. } => *slot = nth,
+                        | TriggerEventWitness::LifeGained { nth: slot, .. }
+                        | TriggerEventWitness::Discarded { nth: slot, .. } => *slot = nth,
                         TriggerEventWitness::SpellCast { cast } => cast.nth = nth,
                         _ => {}
                     }
@@ -1799,6 +1822,14 @@ impl RulesTxn {
             (EventPattern::GainsLife { .. }, TriggerEventWitness::LifeGained { player, .. }) => {
                 Some(row(*player)?.life_gains)
             }
+            (
+                EventPattern::Discards { cycled: true, .. },
+                TriggerEventWitness::Discarded {
+                    player,
+                    cycled: true,
+                    ..
+                },
+            ) => Some(row(*player)?.cycles),
             _ => None,
         })
     }
@@ -2475,7 +2506,7 @@ impl RulesTxn {
                     .get(&object.card)
                     .is_some_and(|card| card.owner == *owner)
                     && !self.is_live(*owner)
-                    && matches!(pattern, EventPattern::LeavesBattlefield { object: pred }
+                    && matches!(pattern, EventPattern::LeavesBattlefield { object: pred, .. }
                         if identity_holds(pred, *object, &identity(*object)))
             }
             TriggerEventWitness::DamageDealt {
@@ -2661,6 +2692,7 @@ impl RulesTxn {
                 controller_at_match,
                 cycled,
                 card,
+                nth,
             } => {
                 if let Some(facts) = card {
                     self.validate_fact_identity(facts)?;
@@ -2669,7 +2701,9 @@ impl RulesTxn {
                     && self.state.rules.original_seating.contains(player)
                     && movement.from == (Zone::Hand { owner: *player })
                     && matches!(movement.destination, Zone::Graveyard { .. })
-                    && matches!(pattern, EventPattern::Discards { player: expected, card: pred, cycled: cycle }
+                    && ordinal_evidence(pattern, *nth)
+                    && (nth.is_none() || *cycled)
+                    && matches!(pattern, EventPattern::Discards { player: expected, card: pred, cycled: cycle, .. }
                         if player_in(expected, Some(*player), controller)
                             && (!*cycle || *cycled)
                             // Accepted-input replay proves the cost that
@@ -2929,8 +2963,10 @@ impl RulesTxn {
                                 && creature_card(pred, subject)?
                         }
                         // CR 603.6c: replay proves the departed facts.
-                        EventPattern::LeavesBattlefield { object: pred } => {
-                            witness.leaves() && identity_holds(pred, subject, &identity(subject))
+                        EventPattern::LeavesBattlefield { object: pred, without_dying } => {
+                            witness.leaves()
+                                && !(*without_dying && witness.dies())
+                                && identity_holds(pred, subject, &identity(subject))
                         }
                         // An entry whose pattern read characteristics
                         // retains them as `Entered`.

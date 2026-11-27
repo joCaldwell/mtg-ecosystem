@@ -114,10 +114,20 @@ pub enum EventPattern {
         card: Pred,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         cycled: bool,
+        /// CR 603.2: with `cycled`, "cycle [a card] for the first time each
+        /// turn" counts the event player's cycles this turn.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<TurnOrdinal>,
     },
     /// CR 603.6c, 603.10a: a permanent moves from the battlefield to another
     /// zone, matched on the battlefield immediately before the move.
-    LeavesBattlefield { object: Pred },
+    LeavesBattlefield {
+        object: Pred,
+        /// "Leaves the battlefield without dying": not put into a graveyard
+        /// from the battlefield (CR 700.4).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        without_dying: bool,
+    },
     /// CR 509.3a: a creature is declared as a blocker, once per declaration
     /// however many attackers it blocks; matched as it was before.
     Blocks { blocker: Pred },
@@ -169,7 +179,10 @@ impl EventPattern {
     /// The turn ordinal this event is counted against, if any.
     pub fn nth(&self) -> Option<TurnOrdinal> {
         match self {
-            Self::Cast { nth, .. } | Self::Draws { nth, .. } | Self::GainsLife { nth, .. } => *nth,
+            Self::Cast { nth, .. }
+            | Self::Draws { nth, .. }
+            | Self::GainsLife { nth, .. }
+            | Self::Discards { nth, .. } => *nth,
             _ => None,
         }
     }
@@ -217,7 +230,7 @@ impl EventPattern {
             | Self::BecomesTarget { object, .. }
             | Self::Sacrifices { object, .. }
             | Self::Discards { card: object, .. }
-            | Self::LeavesBattlefield { object }
+            | Self::LeavesBattlefield { object, .. }
             | Self::IsDealtDamage { object, .. } => Some(object),
             Self::Blocks { blocker } | Self::BlocksCreature { blocker, .. } => Some(blocker),
             Self::BecomesBlocked { attacker } | Self::BlockedByCreature { attacker, .. } => {
@@ -426,7 +439,7 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             | (EventPattern::Enters { object }, EventPattern::Attacks { attacker: other })
             | (
                 EventPattern::Enters { object },
-                EventPattern::LeavesBattlefield { object: other },
+                EventPattern::LeavesBattlefield { object: other, .. },
             )
                 if *object == Pred::source() && *other == Pred::source() =>
             {
@@ -496,6 +509,21 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
                 )))
     {
         return Err(KirError::Unaudited("event turn ordinal".into()));
+    }
+    // The ledger counts every cycle, so an ordinal discard is an unfiltered
+    // cycle ("another card" excludes nothing a battlefield source cycles).
+    if let EventPattern::Discards {
+        nth: Some(ordinal),
+        cycled,
+        card,
+        ..
+    } = pattern
+        && (!*cycled
+            || ordinal.any_player
+            || card.reads_characteristics()
+            || card.is_ref(Ref::Source))
+    {
+        return Err(KirError::Unaudited("discard turn ordinal".into()));
     }
     // CR 601.2c: a cast spell's targeted permanent is read as the spell
     // becomes cast; "this permanent" is `targets_source`.

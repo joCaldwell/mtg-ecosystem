@@ -215,3 +215,47 @@ fn discard_events_discarded_card_triggers_and_a_plain_discard_is_no_cycle() {
     assert_eq!(life(&g, 0), plus(&before, 3));
     assert_recoverable((&g).into());
 }
+
+const VALIANT_RESCUER: &str = record!("c9de9f0b-bf07-4171-b54d-69033424a212");
+
+/// Valiant Rescuer: "Whenever you cycle another card for the first time
+/// each turn, create a 1/1 white Human Soldier creature token." Cycling two
+/// Flourishing Foxes creates one token; the turn ledger counts both cycles
+/// (CR 603.2, 702.29a).
+#[test]
+fn discard_events_first_cycle_each_turn_triggers_once() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[VALIANT_RESCUER, FLOURISHING_FOX], TurnStep::PrecombatMain)
+                .permanent_or_hand("Valiant Rescuer", 0, 0, false)
+                .permanent_or_hand("Flourishing Fox", 0, 0, true)
+                .permanent_or_hand("Flourishing Fox", 0, 0, true)
+                .permanent_or_hand("Plains", 0, 0, false)
+                .permanent_or_hand("Plains", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let rescuer = Driver::object(&g, 0);
+    assert!(matches!(
+        g.definition(CardId(0)).unwrap().triggered[0].condition.pattern(),
+        EventPattern::Discards { cycled: true, nth: Some(ordinal), .. } if ordinal.nth == 1
+    ));
+    for (card, land) in [(1, 3), (2, 4)] {
+        let object = Driver::object(&g, card);
+        Driver::action(&mut g, Action::ActivateAbility { object, ability: 0 });
+        Driver::pay(&mut g, &[land]);
+        checked(&g);
+        settle(&mut g);
+    }
+    assert_eq!(g.state.rules.cast_history[0].cycles, 2);
+    assert_eq!(collected(&g, rescuer), 1);
+    let tokens = g
+        .state
+        .rules
+        .objects
+        .values()
+        .filter(|o| o.zone == Zone::Battlefield && g.state.rules.tokens.contains_key(&o.id.card))
+        .count();
+    assert_eq!(tokens, 1);
+    assert_recoverable((&g).into());
+}

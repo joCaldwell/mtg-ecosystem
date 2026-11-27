@@ -243,6 +243,7 @@ pub(super) fn general(
         Dies,
         Attacks,
         Leaves,
+        LeavesWithoutDying,
         Blocks,
     }
     impl Kind {
@@ -251,7 +252,14 @@ pub(super) fn general(
                 Self::Enters => EventPattern::Enters { object },
                 Self::Dies => EventPattern::Dies { object },
                 Self::Attacks => EventPattern::Attacks { attacker: object },
-                Self::Leaves => EventPattern::LeavesBattlefield { object },
+                Self::Leaves => EventPattern::LeavesBattlefield {
+                    object,
+                    without_dying: false,
+                },
+                Self::LeavesWithoutDying => EventPattern::LeavesBattlefield {
+                    object,
+                    without_dying: true,
+                },
                 Self::Blocks => EventPattern::Blocks { blocker: object },
             }
         }
@@ -267,6 +275,9 @@ pub(super) fn general(
                 Some("attacks") => (Kind::Attacks, &[]),
                 // CR 603.6c, 509.3a: an alternative of an any-of event; the
                 // single events lower in their own rows below.
+                Some("leaves") if object.get("withoutDying") == Some(&serde_json::json!(true)) => {
+                    (Kind::LeavesWithoutDying, &[("withoutDying", serde_json::Value::Null)])
+                }
                 Some("leaves") => (Kind::Leaves, &[]),
                 Some("blocks") => (Kind::Blocks, &[]),
                 Some("put-into-graveyard") => (
@@ -285,7 +296,7 @@ pub(super) fn general(
         }) {
             return Ok(None);
         }
-        if !extra.is_empty()
+        if extra.iter().any(|(field, _)| *field == "from")
             && (object.get("from") != Some(&serde_json::json!("battlefield"))
                 || object.get("to") != Some(&serde_json::json!({"zone":"graveyard","owner":"any"})))
         {
@@ -379,6 +390,7 @@ pub(super) fn general(
         let extra = match kind {
             "blocks" => "orBecomesBlocked",
             "is-dealt-damage" => "combat",
+            "leaves" => "withoutDying",
             _ => "",
         };
         if fields
@@ -392,7 +404,10 @@ pub(super) fn general(
         }
         let object = subject(card, &typed(&trigger["what"], "trigger.what")?)?;
         return Ok(Some(match kind {
-            "leaves" => EventPattern::LeavesBattlefield { object },
+            "leaves" => EventPattern::LeavesBattlefield {
+                object,
+                without_dying: fields.contains_key("withoutDying"),
+            },
             "becomes-blocked" => EventPattern::BecomesBlocked { attacker: object },
             "is-dealt-damage" => EventPattern::IsDealtDamage {
                 object,
@@ -707,6 +722,7 @@ fn discard_event(trigger: &serde_json::Value) -> Result<Option<EventPattern>, Fa
         player,
         card,
         cycled,
+        nth: None,
     }))
 }
 
