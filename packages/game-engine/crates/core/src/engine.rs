@@ -139,7 +139,7 @@ use std::{
 // Reviewed canonical definition digests, independent of compiler success.
 pub mod damage_life;
 mod kir;
-pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
+pub use damage_life::TargetEntity;
 
 pub use triggers::EffectiveTriggerAbility;
 mod resolution_triggers;

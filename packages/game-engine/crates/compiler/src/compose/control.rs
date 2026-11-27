@@ -376,7 +376,10 @@ impl Site<'_> {
                     if !single_card(&step["what"], serde_json::json!({"types": ["creature"]})) {
                         return reject("payment_sacrifice");
                     }
-                    Payment::SacrificeCreature {}
+                    Payment::Sacrifice {
+                        count: 1,
+                        filter: kir::Pred::creatures(),
+                    }
                 } else {
                     self.implicit_payer(&format!("{path}/costs/0/payer"), &payer)?;
                     payment(&step["costs"])?

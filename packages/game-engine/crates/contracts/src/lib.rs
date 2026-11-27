@@ -874,40 +874,6 @@ pub enum Instruction {
     /// the core kernel interpreter its only executor.
     Kernel { node: kir::Node, source_block: u32 },
 }
-/// The parts of a board-wide damage instruction ([`Instruction::set_damage`]).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SetDamage<'a> {
-    pub sets: Vec<&'a SetExpr>,
-    pub each_player: bool,
-    pub selective_players: Option<&'a kir::PlayerExpr>,
-    pub amount: &'a kir::Amount,
-    pub source_block: u32,
-}
-impl SetDamage<'_> {
-    /// The board-wide damage instruction of these parts.
-    pub fn instruction(
-        sets: Vec<SetExpr>,
-        each_player: bool,
-        amount: kir::Amount,
-        source_block: u32,
-    ) -> Instruction {
-        let mut parts: Vec<_> = sets
-            .into_iter()
-            .map(|set| kir::DamageTo::Objects { set })
-            .collect();
-        if each_player {
-            parts.push(kir::DamageTo::Players {
-                players: kir::PlayerExpr::EachPlayer,
-            });
-        }
-        let to = if parts.len() == 1 {
-            parts.pop().unwrap()
-        } else {
-            kir::DamageTo::All { parts }
-        };
-        Instruction::damage(to, amount, source_block)
-    }
-}
 impl Instruction {
     /// One kernel verb as an instruction.
     pub fn act(verb: kir::Verb, source_block: u32) -> Self {
@@ -943,31 +909,6 @@ impl Instruction {
             }) => Some((token, count.to_u32()?)),
             _ => None,
         }
-    }
-    /// CR 122.1: put `amount` +1/+1 counters on `on`.
-    pub fn plus_one_counters(on: kir::SetExpr, amount: Quantity, source_block: u32) -> Self {
-        Self::counters(
-            on,
-            kir::CounterKind::PlusOnePlusOne,
-            kir::Amount::Fixed { value: amount },
-            source_block,
-        )
-    }
-    /// CR 122.1: put `amount` counters of `counter` on `on`.
-    pub fn counters(
-        on: kir::SetExpr,
-        counter: kir::CounterKind,
-        amount: kir::Amount,
-        source_block: u32,
-    ) -> Self {
-        Self::act(
-            kir::Verb::PutCounters {
-                on,
-                counter,
-                amount,
-            },
-            source_block,
-        )
     }
     /// CR 611.2c, 613.4c, 514.2: `what` gets +`power`/+`toughness` until end
     /// of turn.
@@ -1018,18 +959,6 @@ impl Instruction {
                 player,
                 amount,
                 random,
-            },
-            source_block,
-        )
-    }
-    /// CR 701.21a: `player` sacrifices one creature.
-    pub fn sacrifice_creature(player: kir::PlayerExpr, source_block: u32) -> Self {
-        Self::act(
-            kir::Verb::Sacrifice {
-                player,
-                count: kir::Amount::fixed(1),
-                filter: kir::Pred::creatures(),
-                greatest_power: false,
             },
             source_block,
         )
@@ -1135,57 +1064,6 @@ impl Instruction {
             },
             source_block,
         )
-    }
-    /// CR 120.2b: the resolving object's source deals `amount` damage `to`.
-    pub fn damage(to: kir::DamageTo, amount: kir::Amount, source_block: u32) -> Self {
-        Self::act(
-            kir::Verb::Damage {
-                source: kir::Ref::Source,
-                to,
-                amount,
-            },
-            source_block,
-        )
-    }
-    /// CR 120.2b: damage to the target of `slot`.
-    pub fn damage_target(slot: u32, amount: kir::Amount, source_block: u32) -> Self {
-        Self::damage(
-            kir::DamageTo::Ref {
-                who: kir::Ref::Target { slot },
-            },
-            amount,
-            source_block,
-        )
-    }
-    /// CR 608.2h: damage to every member of board-wide creature sets and,
-    /// optionally, each player.
-    pub fn set_damage(&self) -> Option<SetDamage<'_>> {
-        let kernel!(Damage { to, amount, .. } @ source_block) = self else {
-            return None;
-        };
-        let parts = match to {
-            kir::DamageTo::Ref { .. } => return None,
-            kir::DamageTo::All { parts } => parts.as_slice(),
-            part => std::slice::from_ref(part),
-        };
-        let mut damage = SetDamage {
-            sets: vec![],
-            each_player: false,
-            selective_players: None,
-            amount,
-            source_block: *source_block,
-        };
-        for part in parts {
-            match part {
-                kir::DamageTo::Objects { set } => damage.sets.push(set),
-                kir::DamageTo::Players {
-                    players: kir::PlayerExpr::EachPlayer,
-                } => damage.each_player = true,
-                kir::DamageTo::Players { players } => damage.selective_players = Some(players),
-                _ => return None,
-            }
-        }
-        Some(damage)
     }
     /// The verb of a single-verb kernel instruction.
     pub fn verb(&self) -> Option<&kir::Verb> {

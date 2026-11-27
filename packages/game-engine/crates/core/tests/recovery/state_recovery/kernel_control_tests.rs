@@ -1238,7 +1238,10 @@ fn creature_payment_game(has_creature: bool) -> Game {
     program.instructions = vec![Instruction::Kernel {
         node: Node::IfPays {
             payer: controller(),
-            payment: Payment::SacrificeCreature {},
+            payment: Payment::Sacrifice {
+                count: 1,
+                filter: kir::Pred::creatures(),
+            },
             node: Box::new(gain(controller(), Amount::fixed(5))),
         },
         source_block: 0,

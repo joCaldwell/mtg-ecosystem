@@ -35,40 +35,6 @@ pub struct CounterPlacementTransaction {
     pub kernel: Option<FrameLink>,
 }
 impl RulesTxn {
-    pub(super) fn begin_counter_placement(
-        &mut self,
-        frame: Resolving,
-        object: ObjectId,
-        counter: CounterKind,
-        amount: Quantity,
-        cause: BatchCause,
-    ) -> Result<(), String> {
-        if amount.is_negative() {
-            return Err("negative counter placement".into());
-        }
-        if amount == Quantity::zero() || !self.counter_recipient(object, &counter) {
-            return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-        }
-        self.begin_counter_placements(frame, counter, vec![(object, amount)], cause)
-    }
-    pub(super) fn begin_counter_placements(
-        &mut self,
-        frame: Resolving,
-        counter: CounterKind,
-        allocations: Vec<(ObjectId, Quantity)>,
-        cause: BatchCause,
-    ) -> Result<(), String> {
-        let members = allocations
-            .into_iter()
-            .map(|(object, amount)| CounterPlacementMember {
-                object,
-                counter: counter.clone(),
-                amount,
-            })
-            .collect();
-        self.begin_counter_transaction(frame, members, vec![], cause, None)
-    }
-
     /// CR 122.6: an evaluated kernel step's placement, which resumes `kernel`.
     pub(super) fn begin_kernel_counter_placements(
         &mut self,
@@ -285,49 +251,6 @@ impl RulesTxn {
             return self.validate_kernel_counters(members, cause, kernel);
         }
         let block = match self.counter_instruction(frame)? {
-            kernel!(PutCounters {
-                on,
-                counter,
-                amount,
-            } @ source_block) => {
-                let amount = &self.kernel_amount(frame, amount)?;
-                if members.iter().any(|m| m.counter != *counter) {
-                    return Err("counter placement kind mismatch".into());
-                }
-                let matches = match on {
-                    mtg_contracts::kir::SetExpr::Matching { zone, filter } => {
-                        let expected = self.kernel_set(frame, zone, filter)?.0;
-                        expected.len() == members.len()
-                            && expected
-                                .iter()
-                                .zip(members)
-                                .all(|(id, m)| *id == m.object && &m.amount == amount)
-                    }
-                    mtg_contracts::kir::SetExpr::One {
-                        object: mtg_contracts::kir::Ref::EventObject { .. },
-                    } => {
-                        let object = self
-                            .entry(frame.stack_id)?
-                            .kind
-                            .observed_object()?
-                            .last_known
-                            .object;
-                        matches!(members.as_slice(), [m] if m.object == object && &m.amount == amount)
-                    }
-                    source_object!() => {
-                        matches!(members.as_slice(), [m] if m.object == self.entry(frame.stack_id)?.source && &m.amount == amount)
-                    }
-                    target_object!(slot) => {
-                        frame.legal_targets.get(*slot as usize) == Some(&true)
-                            && matches!(members.as_slice(), [m] if Some(&m.object) == self.bound_object_target(self.entry(frame.stack_id)?, *slot as usize) && &m.amount == amount)
-                    }
-                    _ => false,
-                };
-                if !matches || !players.is_empty() {
-                    return Err("fixed counter allocation mismatch".into());
-                }
-                source_block
-            }
             kernel!(GiveCounters { player, counter, amount: fixed!(amount) } @ source_block) => {
                 if !members.is_empty()
                     || *players

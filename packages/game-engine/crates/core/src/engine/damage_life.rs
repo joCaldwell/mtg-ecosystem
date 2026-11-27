@@ -6,21 +6,15 @@ pub enum TargetEntity {
     Player { player: PlayerId },
     Object { object: ObjectId },
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NoncombatDamageOccurrence {
-    pub source: ObjectBefore,
-    /// Controller of the resolving invocation; source.controller remains its
-    /// current or last-known controller (CR 608.2h, 113.7a).
-    pub controller: PlayerId,
-    pub recipient: DamageRecipient,
-    pub amount: Quantity,
-}
 fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
     for target in &mut entry.target_triggers {
         target.refresh_source(fact);
     }
-    if let StackKind::Triggered { witness, .. } = &mut entry.kind {
+    if let StackKind::Triggered {
+        witness, binding, ..
+    } = &mut entry.kind
+    {
+        binding.refresh(fact);
         witness.refresh_observed_object(fact);
     }
     if entry.source == fact.object && entry.source_facts.is_some() {
@@ -34,8 +28,9 @@ fn reads_last_known(entry: &StackInstance, fact: &ObjectBefore) -> bool {
         .iter()
         .any(|target| target.source() == fact.object)
         || (entry.source == fact.object && entry.source_facts.is_some())
-        || matches!(&entry.kind, StackKind::Triggered { witness, .. }
-            if witness.observed_object().is_some_and(|binding| binding.last_known.object == fact.object))
+        || matches!(&entry.kind, StackKind::Triggered { witness, binding, .. }
+            if binding.object.as_ref().is_some_and(|object| object.object == fact.object && object.zone == Zone::Battlefield)
+                || witness.observed_object().is_some_and(|binding| binding.last_known.object == fact.object))
 }
 fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &ObjectBefore) {
     for entry in entries {
@@ -119,6 +114,7 @@ impl RulesTxn {
             }
         }
         for trigger in &mut rules.pending_triggers {
+            trigger.binding.refresh(fact);
             trigger.witness.refresh_observed_object(fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
@@ -503,57 +499,6 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(super) fn damage_source(
-        &self,
-        entry: &StackInstance,
-        source: mtg_contracts::kir::Ref,
-    ) -> Result<(ObjectBefore, PlayerId), String> {
-        use mtg_contracts::kir::Ref;
-        match (source, &entry.kind) {
-            (Ref::Source, _) => Ok((self.source_facts(entry)?, entry.controller)),
-            (Ref::EventObject { .. }, StackKind::Triggered { witness, .. }) => {
-                let binding = witness
-                    .observed_object()
-                    .ok_or("missing event object binding")?;
-                let facts = self
-                    .current_source_facts(binding.last_known.object)
-                    .unwrap_or_else(|_| (*binding.last_known).clone());
-                let controller = facts.controller;
-                Ok((facts, controller))
-            }
-            _ => Err("unbound damage source".into()),
-        }
-    }
-
-    // CR 608.2h, 107.1b, 107.2, 208.3: use the creature's power at resolution
-    // or departure. A noncreature permanent's printed power is unavailable.
-    pub(super) fn directed_damage_amount(
-        spell: &StackInstance,
-        amount: &mtg_contracts::kir::Amount,
-        source: &ObjectBefore,
-    ) -> Result<Quantity, String> {
-        use mtg_contracts::kir::{Amount, Ref, Stat};
-        match amount {
-            Amount::Fixed { value } => Ok(value.clone()),
-            Amount::Var {
-                of: Ref::AnnouncedX,
-            } => spell.x.clone().ok_or("missing announced X".into()),
-            Amount::StatOf {
-                object: Ref::EventObject { .. },
-                stat: Stat::Power,
-            } => Ok(source
-                .characteristics
-                .power
-                .as_ref()
-                .filter(|_| source.characteristics.has_type(CardKind::Creature))
-                .cloned()
-                .unwrap_or_default()
-                .max(Quantity::zero())),
-            _ => Err("unbound directed damage amount".into()),
-        }
-    }
-
-    // Use the same announced target when preparing or restoring damage.
     pub(super) fn directed_damage_target(
         &self,
         spell: &StackInstance,
@@ -590,5 +535,4 @@ impl RulesTxn {
         };
         Ok(target)
     }
-
 }

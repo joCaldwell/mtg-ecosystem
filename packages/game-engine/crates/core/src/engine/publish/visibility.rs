@@ -1055,10 +1055,8 @@ impl RulesTxn {
             revealed_face_down: self.state.knowledge.visibility[viewer.0 as usize]
                 .revealed_face_down
                 .clone(),
-            sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
-                &self.state.rules.frame
-            {
-                choices
+            sacrifice_choices: if let Frame::Kernel { task } = &self.state.rules.frame {
+                task.sacrifice_choices()
                     .iter()
                     .filter(|(p, o)| self.is_live(*p) && self.current(*o).is_ok())
                     .map(|(p, o)| Ok((*p, self.object_handle_id(viewer, *o).map(O::from)?)))

@@ -45,13 +45,6 @@ pub struct ManaActivationUndo {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SetDamageFacts {
-    pub(in crate::engine) cursor: u32,
-    pub(in crate::engine) amount: Quantity,
-    pub(in crate::engine) targets: Vec<TargetEntity>,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entrant_draw: Option<Box<ObjectBefore>>,
@@ -59,8 +52,6 @@ pub struct Resolving {
     pub group_discard: Option<group_discard::GroupDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub random_discard: Option<random_discard::RandomDiscardProgress>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fight: Option<Box<[ObjectBefore; 2]>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,12 +107,6 @@ pub enum Frame {
     ChosenObjectCost {
         cast: Casting,
         selected: Vec<ObjectId>,
-    },
-    ForcedSacrifice {
-        frame: Resolving,
-        remaining: Vec<PlayerId>,
-        choices: Vec<(PlayerId, ObjectId)>,
-        source_block: u32,
     },
     ResolutionPayment {
         frame: Resolving,

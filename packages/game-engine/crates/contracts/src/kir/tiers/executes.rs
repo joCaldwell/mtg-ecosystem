@@ -1892,7 +1892,16 @@ mod tests {
         }
     }
     fn damage() -> Instruction {
-        Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
+        Instruction::act(
+            kir::Verb::Damage {
+                source: kir::Ref::Source,
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: 0 },
+                },
+                amount: kir::Amount::fixed(1),
+            },
+            0,
+        )
     }
 
     /// CR 118.3, 119.4: a life payment is a mana-ability cost only. A

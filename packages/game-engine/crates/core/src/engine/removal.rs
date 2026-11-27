@@ -108,9 +108,7 @@ impl RulesTxn {
         }
 
         match frame {
-            Frame::Resolve { frame }
-            | Frame::ResolutionChoice { frame, .. }
-            | Frame::ForcedSacrifice { frame, .. } => Some(frame),
+            Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } => Some(frame),
             Frame::GraveyardGroup { tx } => tx.finish.frame_mut(),
             Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } => match &mut transaction.continuation {

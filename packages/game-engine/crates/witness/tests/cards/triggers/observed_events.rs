@@ -71,18 +71,22 @@ fn observed_events_warstorm_uses_the_entrants_departure_power() {
         .last_mut()
         .unwrap()
         .controller = PlayerId(1);
-    assert_forgery_rejected(&g, wrong_controller, "event object binding invariant");
+    assert_forgery_rejected(
+        &g,
+        wrong_controller,
+        "snapshot trigger event witness invariant",
+    );
 
     let mut wrong_subject: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
-    let StackKind::Triggered { witness, .. } =
+    let StackKind::Triggered { binding, .. } =
         &mut wrong_subject.state.rules.stack.last_mut().unwrap().kind
     else {
         unreachable!();
     };
-    let mut wire = serde_json::to_value(&*witness).unwrap();
-    wire["binding"]["last_known"]["object"] = serde_json::to_value(Driver::object(&g, 0)).unwrap();
-    *witness = serde_json::from_value(wire).unwrap();
-    assert_forgery_rejected(&g, wrong_subject, "event object binding invariant");
+    let mut wire = serde_json::to_value(&*binding).unwrap();
+    wire["object"]["object"] = serde_json::to_value(Driver::object(&g, 0)).unwrap();
+    *binding = serde_json::from_value(wire).unwrap();
+    assert_forgery_rejected(&g, wrong_subject, "invalid triggered event binding");
 
     Driver::cast(&mut g, CardId(2));
     Driver::pick_object(&mut g, entrant);

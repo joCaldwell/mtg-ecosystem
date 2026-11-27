@@ -98,12 +98,6 @@ macro_rules! frame_walk {
                 | Frame::Targets { cast: _ }
                 | Frame::Mana { cast: _ }
                 | Frame::Payment { cast: _ } => {},
-                Frame::ForcedSacrifice {
-                    frame,
-                    remaining: _,
-                    choices: _,
-                    source_block: _,
-                } => visit($Held::Invocation(frame.stack_id)),
                 Frame::ResolutionPayment { frame, payment: _ } => visit($Held::Invocation(frame.stack_id)),
                 Frame::ManaAbility { activation: _ } => {}
                 Frame::TurnFaceUp { payment: _ } => {}
@@ -236,7 +230,6 @@ macro_rules! frame_parent {
             | Self::SacrificeCost { .. }
             | Self::ChosenObjectCost { .. }
             | Self::TurnFaceUp { .. }
-            | Self::ForcedSacrifice { .. }
             | Self::Setup
             | Self::EntityTargets { .. }
             | Self::StackTargets { .. }
@@ -326,12 +319,6 @@ impl Frame {
                 resume: _,
                 groups: _,
                 kept: _,
-            }
-            | Frame::ForcedSacrifice {
-                frame: _,
-                remaining: _,
-                choices: _,
-                source_block: _,
             }
             | Frame::ResolutionPayment {
                 frame: _,
@@ -475,7 +462,7 @@ impl RulesTxn {
 
     /// Rule routines may still read the installed frame while preparing its
     /// successor. Drop abandoned branches only once that successor is installed.
-    pub(in crate::engine) fn retire_returned_frames(&mut self) -> Result<(), String> {
+    pub(crate) fn retire_returned_frames(&mut self) -> Result<(), String> {
         let base = self
             .kernel_leaf
             .as_ref()

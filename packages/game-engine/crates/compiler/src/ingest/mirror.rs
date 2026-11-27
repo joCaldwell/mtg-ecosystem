@@ -604,11 +604,6 @@ pub(crate) enum Step {
         counter: SourceCounter,
         count: serde_json::Value,
     },
-    PutCounters {
-        on: serde_json::Value,
-        counter: SourceCounter,
-        count: serde_json::Value,
-    },
     RemoveCounters {
         from: serde_json::Value,
         counter: SourceCounter,
@@ -651,13 +646,6 @@ pub(crate) enum Step {
     Counter {
         what: CounterTarget,
     },
-    Damage {
-        source: DamageSource,
-        amount: serde_json::Value,
-        to: DamageDestination,
-        #[serde(default, deserialize_with = "present_bool_field")]
-        optional: Option<bool>,
-    },
     #[serde(skip)]
     Evaluated(Box<ast::Effect>),
     ReturnToHand {
@@ -679,12 +667,6 @@ pub(crate) enum Step {
         #[serde(default, deserialize_with = "present_json_operand")]
         who: Option<serde_json::Value>,
     },
-    Sacrifice {
-        who: PlayerSelector,
-        what: FilterObject<Count, ast::ObjectFilter>,
-        #[serde(rename = "chosenBy", default, deserialize_with = "present_ast_field")]
-        chosen_by: Option<PlayerSelector>,
-    },
     Discard(DiscardStep),
 }
 
@@ -693,7 +675,7 @@ impl<'de> Deserialize<'de> for Step {
         let raw = serde_json::Value::deserialize(decoder)?;
         if matches!(
             raw["effect"].as_str(),
-            Some("draw" | "gain-life" | "lose-life")
+            Some("draw" | "gain-life" | "lose-life" | "damage" | "put-counters" | "sacrifice")
         ) {
             if raw
                 .as_object()
@@ -712,6 +694,13 @@ impl<'de> Deserialize<'de> for Step {
 }
 
 impl Step {
+    pub(crate) fn damage(&self) -> Option<&ast::EffectDamage> {
+        match self.effect()? {
+            ast::Effect::Damage(effect) => Some(effect),
+            _ => None,
+        }
+    }
+
     pub(crate) fn effect(&self) -> Option<&ast::Effect> {
         match self {
             Self::Evaluated(effect) => Some(effect),
@@ -803,37 +792,6 @@ pub(crate) enum SourceCost {
     },
     Mana {
         symbols: Vec<String>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum DamageSource {
-    It {},
-    #[serde(rename = "self")]
-    SelfReference {},
-    This {
-        noun: String,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "to", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum DamageDestination {
-    Object {
-        #[serde(rename = "ref")]
-        reference: serde_json::Value,
-    },
-    Each {
-        refs: Vec<serde_json::Value>,
-    },
-    Player {
-        #[serde(rename = "ref")]
-        reference: serde_json::Value,
-    },
-    AnyTarget {
-        #[serde(rename = "selectionId")]
-        selection_id: String,
     },
 }
 

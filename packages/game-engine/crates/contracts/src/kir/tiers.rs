@@ -111,11 +111,7 @@ pub enum Cell {
     DrawTargetPlayer,
     // CR 120: damage.
     DamageTarget,
-    DamageTargetX,
-    DamageEventObject,
     DamageController,
-    DamageSet,
-    DamageSelectedPlayers,
     // CR 701.8: destroy.
     DestroyTargetPermanent,
     DestroyTargetCreature,
@@ -174,18 +170,10 @@ pub enum Cell {
     DiscardTargetRandom,
     DiscardGroup,
     // CR 701.21: sacrifice.
-    SacrificeController,
-    SacrificeDamagedPlayer,
-    SacrificeActivePlayer,
     /// CR 702.86a, 508.5: an attack trigger's defending player sacrifices N
     /// permanents of their choice, or every one they control if fewer.
-    SacrificeDefendingPlayer,
-    SacrificeEachPlayer,
-    SacrificeEachOpponent,
-    SacrificeEachOpponentGreatestPower,
     /// CR 701.21a: the source's current controller, or the ability's
     /// controller, sacrifices that exact permanent if they control it.
-    SacrificeSource,
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
@@ -202,14 +190,9 @@ pub enum Cell {
     CountedTokens,
     // CR 122: counters.
     PlusOneCountersSource,
-    PlusOneCountersEventObject,
     PlusOneCountersTarget,
-    PlusOneCountersSet,
     /// CR 122.1: counters of another kind on the same recipients.
-    KindCountersSource,
     KindCountersEventObject,
-    KindCountersTarget,
-    KindCountersSet,
     // CR 611.2c, 613: until end of turn.
     PumpSource,
     PumpTarget,
@@ -375,10 +358,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::PlusOneCountersSource
         | C::PlusOneCountersTarget => Tiers::HOSTING,
         C::Evaluated(_)
-        | C::DamageTargetX
-        | C::DamageEventObject
-        | C::DamageSet
-        | C::DamageSelectedPlayers
         | C::DestroyTargetPermanent
         | C::OptionalTargetDestroy
         | C::DestroySet
@@ -419,13 +398,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DiscardTarget
         | C::DiscardTargetRandom
         | C::DiscardGroup
-        | C::SacrificeController
-        | C::SacrificeDamagedPlayer
-        | C::SacrificeActivePlayer
-        | C::SacrificeDefendingPlayer
-        | C::SacrificeEachPlayer
-        | C::SacrificeEachOpponent
-        | C::SacrificeEachOpponentGreatestPower
         | C::PredefinedTokens
         | C::Fight
         | C::Populate
@@ -435,8 +407,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::CountedTokens
-        | C::PlusOneCountersSet
-        | C::PlusOneCountersEventObject
         | C::PumpEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
@@ -506,11 +476,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Encore
         | C::Dash
         | C::Myriad
-        | C::SacrificeSource
-        | C::KindCountersSource
-        | C::KindCountersEventObject
-        | C::KindCountersTarget
-        | C::KindCountersSet => Tiers::EXECUTES,
+        | C::KindCountersEventObject => Tiers::EXECUTES,
     }
 }
 
@@ -743,18 +709,22 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             if !matches!(
                 a.cost,
                 ActivationCost::ChooseObjects(_) | ActivationCost::SacrificePermanent { .. }
-            ) && p.instructions.iter().any(|Instruction::Kernel { node, .. }| {
-                let mut found = false;
-                visit_verbs(node, &mut |verb| {
-                    found |= matches!(verb, Verb::Damage {
+            ) && p
+                .instructions
+                .iter()
+                .any(|Instruction::Kernel { node, .. }| {
+                    let mut found = false;
+                    visit_verbs(node, &mut |verb| {
+                        found |= matches!(verb, Verb::Damage {
                         source: Ref::Source,
                         to: DamageTo::Ref { who: Ref::Target { slot } },
                         ..
                     } if p.targets.get(*slot as usize)
                         .is_some_and(|t| t.domain == crate::TargetDomain::AnyDamageTarget));
-                });
-                found
-            }) {
+                    });
+                    found
+                })
+            {
                 pinger = true;
             }
         }

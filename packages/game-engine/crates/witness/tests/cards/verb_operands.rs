@@ -224,7 +224,7 @@ fn verb_operands_guttersnipe_damages_every_opponent_and_concentrate_draws_three(
     let prepared = board(&[
         (
             record!("c6bdaf76-6a03-4695-9c4b-f040e73435af"),
-            Cell::DamageSelectedPlayers,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Damage),
         ),
         (
             record!("a3d287ec-1a39-4f91-acf1-7c1d2c00ed89"),
@@ -258,23 +258,26 @@ fn verb_operands_guttersnipe_damages_every_opponent_and_concentrate_draws_three(
     let Frame::DamageEffects { transaction } = &mut wrong_scope.state.rules.frame else {
         panic!("prepared set damage");
     };
-    let DamageContinuation::Instruction { frame } = &mut transaction.continuation else {
-        panic!("instruction damage continuation");
+    let DamageContinuation::Kernel { resume } = transaction.continuation else {
+        panic!("kernel damage continuation");
     };
-    let mut facts = serde_json::to_value(frame.set_damage.as_ref().unwrap()).unwrap();
-    facts["targets"][0] = serde_json::to_value(TargetEntity::Player {
-        player: PlayerId(0),
-    })
-    .unwrap();
-    frame.set_damage = Some(serde_json::from_value(facts).unwrap());
     transaction.entries[0].recipient = DamageRecipient::Player {
         player: PlayerId(0),
     };
+    let Frame::Kernel { task } = &mut wrong_scope.state.rules.frames[resume.0] else {
+        panic!("saved damage task");
+    };
+    let mut facts = serde_json::to_value(&**task).unwrap();
+    facts["stage"]["recipients"][0] = serde_json::to_value(TargetEntity::Player {
+        player: PlayerId(0),
+    })
+    .unwrap();
+    **task = serde_json::from_value(facts).unwrap();
     assert!(
         wrong_scope
             .validate_state()
             .unwrap_err()
-            .contains("set damage player")
+            .contains("kernel damage")
     );
 
     // A previously captured opponent may leave before damage is committed.
@@ -516,4 +519,138 @@ fn verb_operands_proper_burial_reads_the_dying_creature() {
     expected.add(&3.into());
     assert_eq!(game.state.rules.players[0].life, expected);
     assert_recoverable((&game).into());
+}
+
+#[test]
+fn verb_operands_damage_and_counters_share_the_death_event_power() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let prepared = board(&[
+        (
+            record!("5f4ff27f-ebc1-4a86-8b0b-eeea470a25fb"),
+            Cell::Evaluated(EvaluatedVerb::Damage),
+        ),
+        (
+            record!("6343cf6f-b1e3-49ce-8933-8fe6c9dc83f3"),
+            Cell::Evaluated(EvaluatedVerb::PutCounters),
+        ),
+        (
+            record!("993e41e6-0643-4a1f-8ada-b7a4aae486d9"),
+            Cell::Evaluated(EvaluatedVerb::Damage),
+        ),
+    ])
+    .seats(4)
+    .permanent_or_hand("Stalking Vengeance", 0, 0, false)
+    .permanent_or_hand("Kresh the Bloodbraided", 1, 1, false)
+    .permanent_or_hand("Jackal Pup", 0, 0, false)
+    .permanent_or_hand("Giant Growth", 0, 0, true)
+    .permanent_or_hand("Lightning Bolt", 0, 0, true)
+    .permanent_or_hand("Murder", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let creature = Driver::object(&game, 2);
+    let before = game
+        .state
+        .rules
+        .players
+        .iter()
+        .map(|row| row.life.clone())
+        .collect::<Vec<_>>();
+    Driver::cast(&mut game, CardId(3));
+    Driver::pick_object(&mut game, creature);
+    Driver::pay(&mut game, &[6]);
+    resolve(&mut game);
+
+    Driver::cast(&mut game, CardId(4));
+    Driver::pick_object(&mut game, creature);
+    Driver::pay(&mut game, &[7]);
+    resolve(&mut game);
+    let mut damaged = before[0].clone();
+    damaged.subtract(&3.into());
+    assert_eq!(game.state.rules.players[0].life, damaged);
+    assert_eq!(
+        game.characteristics(creature).unwrap().power,
+        Some(5.into())
+    );
+
+    Driver::cast(&mut game, CardId(5));
+    Driver::pick_object(&mut game, creature);
+    Driver::pay(&mut game, &[8, 9, 10]);
+    loop {
+        let request = Driver::request(&mut game, 1);
+        let answer = match &request.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&request),
+            Reason::Targets { .. } => request.entity_targets(vec![TargetEntity::Player {
+                player: PlayerId(2),
+            }]),
+            Reason::OptionalEffect => {
+                assert_eq!(request.player, PlayerId(1));
+                assert_recoverable((&game).into());
+                let answer = request
+                    .pick_one(&Candidate::Flag { flag: Flag::Accept })
+                    .unwrap();
+                game.respond(request.player, request.id, answer).unwrap();
+                break;
+            }
+            reason => panic!("unexpected decision {reason:?}"),
+        };
+        game.respond(request.player, request.id, answer).unwrap();
+    }
+    resolve(&mut game);
+    assert!(game.current(creature).is_err());
+    assert_eq!(
+        game.current(Driver::object(&game, 1))
+            .unwrap()
+            .plus_one_counters,
+        5.into()
+    );
+    let mut hit = before[2].clone();
+    hit.subtract(&5.into());
+    assert_eq!(game.state.rules.players[2].life, hit);
+    assert_eq!(game.state.rules.players[3].life, before[3]);
+}
+
+#[test]
+fn verb_operands_damage_rechecks_hexproof_at_resolution() {
+    let prepared = board(&[(
+        record!("24882fa2-3fe9-4c1b-aa3d-0e6488b9db27"),
+        Cell::SetKeywordsUntilEndOfTurn,
+    )])
+    .seats(4)
+    .permanent_or_hand("Lightning Bolt", 0, 0, true)
+    .permanent_or_hand("Heroic Intervention", 1, 1, true)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Forest", 1, 1, false)
+    .permanent_or_hand("Forest", 1, 1, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let target = Driver::object(&game, 2);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pick_object(&mut game, target);
+    Driver::pay(&mut game, &[3]);
+    Driver::pass(&mut game);
+    Driver::cast(&mut game, CardId(1));
+    Driver::pay(&mut game, &[4, 5]);
+    resolve(&mut game);
+    let remaining = game.current(target).unwrap();
+    assert_eq!(remaining.zone, Zone::Battlefield);
+    assert_eq!(remaining.marked_damage, Quantity::zero());
+    assert!(
+        game.current_keywords(target)
+            .contains(&KeywordAbility::Hexproof)
+    );
+    assert!(game.trace().events.iter().any(|event| matches!(
+        event,
+        Event::SpellCompleted {
+            resolved: false,
+            ..
+        }
+    )));
 }

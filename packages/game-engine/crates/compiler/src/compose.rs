@@ -343,13 +343,10 @@ fn append_effects(
         match part {
             Part::Typed(sentence) => {
                 if sentence.steps.iter().any(|step| {
-                    matches!(
-                        step,
-                        Step::Damage {
-                            source: DamageSource::It {},
-                            ..
-                        } | Step::Modal { .. }
-                    )
+                    matches!(step, Step::Modal { .. })
+                        || step.damage().is_some_and(|damage| {
+                            matches!(damage.source.as_ref(), ast::ObjectRef::It(_))
+                        })
                 }) {
                     return Err(unsupported(
                         "compose.effects",
@@ -410,24 +407,6 @@ fn activation(
         &mut BTreeMap::new(),
         Context::Activated,
         |typed| {
-            // The newly audited activated source form covers choosing objects
-            // to pay a cost (including sacrificing the damage source itself).
-            // Simple tap/mana pingers share previously qualified tier rows.
-            if !matches!(
-                cost,
-                ActivationCost::ChooseObjects(_) | ActivationCost::SacrificePermanent { .. }
-            ) && typed.iter().flat_map(|s| &s.steps).any(|step| {
-                matches!(
-                    step,
-                    Step::Damage {
-                        source: DamageSource::This { .. } | DamageSource::It {},
-                        to: DamageDestination::AnyTarget { .. },
-                        ..
-                    }
-                )
-            }) {
-                return Err(unsupported("effects.steps", "verb:damage:source:directed"));
-            }
             validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self })
         },
         PlayerBinding::Unbound,

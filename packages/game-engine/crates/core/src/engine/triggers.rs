@@ -30,7 +30,7 @@ pub struct PendingTrigger {
     pub(super) source_handles: Vec<publish::StoredObjectHandle>,
     event: TriggerOccurrenceId,
     pub witness: TriggerEventWitness,
-    binding: EventBinding,
+    pub(super) binding: EventBinding,
 }
 impl PendingTrigger {
     /// CR 733.1: whether this trigger came from one of these members'
@@ -266,12 +266,27 @@ pub struct EventBinding {
     pub(super) player: Option<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) object: Option<Box<ObjectBefore>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) amount: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) last_known: Option<Box<ObjectBefore>>,
 }
 
 impl EventBinding {
+    pub(super) fn refresh(&mut self, facts: &ObjectBefore) {
+        if self
+            .object
+            .as_ref()
+            .is_some_and(|object| object.object == facts.object && object.zone == Zone::Battlefield)
+        {
+            self.last_known = Some(Box::new(facts.clone()));
+        }
+    }
+
     fn validate(&self, game: &RulesTxn, witness: &TriggerEventWitness) -> Result<(), String> {
         let expected = witness.binding_subject();
         if self.player != witness.binding_player()
+            || self.amount.as_ref() != witness.event_amount()
             || self.object.as_ref().map(|facts| facts.object) != expected
             || self
                 .player
@@ -291,6 +306,16 @@ impl EventBinding {
             {
                 return Err("invalid triggered event object facts".into());
             }
+        }
+        if let Some(facts) = &self.last_known {
+            if self.object.as_ref().is_none_or(|original| {
+                original.object != facts.object || original.zone != Zone::Battlefield
+            }) || facts.zone != Zone::Battlefield
+                || witness.looks_back()
+            {
+                return Err("invalid event object last-known facts".into());
+            }
+            game.validate_fact_identity(facts)?;
         }
         Ok(())
     }
@@ -827,27 +852,17 @@ pub(crate) fn binds_death_controller(ability: &TriggeredAbility) -> bool {
 
 /// The entry evidence of an entering permanent whose characteristics a
 /// pattern read (CR 603.6a, 603.10).
-fn binds_observed_object(ability: &TriggeredAbility) -> bool {
+fn binds_legacy_observed_object(ability: &TriggeredAbility) -> bool {
     ability.programs().any(|program| {
         program.instructions.iter().any(|i| {
             matches!(
                 i.verb(),
-                Some(
-                    kir::Verb::Damage {
-                        source: Ref::EventObject { .. },
-                        ..
-                    } | kir::Verb::PutCounters {
-                        on: kir::SetExpr::One {
-                            object: Ref::EventObject { .. }
-                        },
-                        ..
-                    } | kir::Verb::ModifyUntil {
-                        what: kir::SetExpr::One {
-                            object: Ref::EventObject { .. }
-                        },
-                        ..
-                    }
-                )
+                Some(kir::Verb::ModifyUntil {
+                    what: kir::SetExpr::One {
+                        object: Ref::EventObject { .. }
+                    },
+                    ..
+                })
             )
         })
     })
@@ -868,15 +883,6 @@ impl StackKind {
         match self {
             Self::Triggered { binding, .. } => Ok(binding),
             _ => Err("event binding outside a triggered invocation".into()),
-        }
-    }
-
-    /// CR 603.2, 608.2h: the triggering event's number, read from its
-    /// immutable evidence.
-    pub(super) fn event_amount(&self) -> Result<Option<&Quantity>, String> {
-        match self {
-            Self::Triggered { witness, .. } => Ok(witness.event_amount()),
-            _ => Err("event amount outside a triggered invocation".into()),
         }
     }
 
@@ -1268,7 +1274,9 @@ impl RulesTxn {
                         .iter()
                         .filter(|d| d.amount > Quantity::zero())
                         .filter_map(|d| match d.recipient {
-                            DamageRecipient::Permanent { object } => Some((kind, object, &d.amount)),
+                            DamageRecipient::Permanent { object } => {
+                                Some((kind, object, &d.amount))
+                            }
                             DamageRecipient::Player { .. } => None,
                         })
                         .collect()
@@ -1601,7 +1609,9 @@ impl RulesTxn {
                     EventPattern::Enters { object: pred } => {
                         enters && {
                             let subject = subject.ok_or("missing entrant identity")?;
-                            if pred.reads_characteristics() || binds_observed_object(definition) {
+                            if pred.reads_characteristics()
+                                || binds_legacy_observed_object(definition)
+                            {
                                 if entry_facts.is_none() {
                                     entry_facts = Some(observers.object_before(subject)?);
                                 }
@@ -1973,6 +1983,8 @@ impl RulesTxn {
                     if event_binding.is_none() {
                         event_binding = Some(EventBinding {
                             player: witness.binding_player(),
+                            amount: witness.event_amount().cloned(),
+                            last_known: None,
                             object: damage_match_source
                                 .as_deref()
                                 .or_else(|| witness.bound_facts())
@@ -1987,7 +1999,7 @@ impl RulesTxn {
                                 .map(Box::new),
                         });
                     }
-                    let observed = if binds_observed_object(definition) {
+                    let observed = if binds_legacy_observed_object(definition) {
                         let object = subject.ok_or("missing bound event object")?;
                         Some(observers.object_before(object)?)
                     } else {
@@ -2240,6 +2252,8 @@ impl RulesTxn {
     ) -> Result<EventBinding, String> {
         Ok(EventBinding {
             player: witness.binding_player(),
+            amount: witness.event_amount().cloned(),
+            last_known: None,
             object: witness
                 .bound_facts()
                 .cloned()
@@ -2744,7 +2758,7 @@ impl RulesTxn {
                             || controller != fact.owner))
                     || (!graveyard && fact.zone != Zone::Battlefield)
                     || (*definition.condition.pattern() == EventPattern::self_enters()
-                        && !binds_observed_object(&definition)
+                        && !binds_legacy_observed_object(&definition)
                         && fact.controller != controller)
             })
             || handles.len() != 4
@@ -2879,7 +2893,7 @@ impl RulesTxn {
         };
         // CR 603.10a: exactly the reviewed opponent-death row freezes the
         // dying creature's controller, pending or on the stack alike.
-        let binds_object = binds_observed_object(&definition);
+        let binds_object = binds_legacy_observed_object(&definition);
         match witness.observed_object() {
             Some(binding) if binds_object => {
                 let facts = &binding.last_known;

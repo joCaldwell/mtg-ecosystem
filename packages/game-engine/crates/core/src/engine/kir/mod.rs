@@ -80,7 +80,7 @@ impl RulesTxn {
             let player = self.entry(frame.stack_id)?.controller;
             self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
-                choice: ResolutionChoice::Sacrifice {
+                choice: ResolutionChoice::TappedReturnPayment {
                     player,
                     source_block,
                 },
@@ -238,15 +238,9 @@ impl RulesTxn {
         }
         if matches!(node, Node::Do(Verb::ModifyUntil { .. })) {
             let instruction = Instruction::Kernel { node, source_block };
-            let (set, source) = match instruction.pumped() {
-                Some((SetExpr::Matching { .. }, ..)) => (true, false),
-                Some((what, ..)) => (false, *what == SetExpr::source()),
-                None => (false, false),
-            };
+            let set = matches!(instruction.pumped(), Some((SetExpr::Matching { .. }, ..)));
             return if set {
                 self.execute_wipes_instruction(frame, instruction)
-            } else if source {
-                self.execute_sacrifice_instruction(frame, instruction)
             } else {
                 self.execute_effect_instruction(frame, instruction)
             };

@@ -64,12 +64,6 @@ impl Frame {
                     cast: _,
                     selected: _,
                 }
-                | Frame::ForcedSacrifice {
-                    frame: _,
-                    remaining: _,
-                    choices: _,
-                    source_block: _,
-                }
                 | Frame::ResolutionPayment {
                     frame: _,
                     payment: _,

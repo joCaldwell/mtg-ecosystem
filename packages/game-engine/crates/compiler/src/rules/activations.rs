@@ -229,26 +229,37 @@ fn production(mana: &SourceMana, you: &PlayerSelector) -> Result<ManaProduction,
 fn rider(step: &Step, is_self: &dyn Fn(&str) -> bool) -> Result<kir::Node, Failure> {
     let controller = || kir::Ref::controller(Context::Activated);
     let node = match step {
-        Step::Damage {
-            source,
-            amount,
-            to: DamageDestination::Player { reference },
-            optional: None,
-        } if match source {
-            DamageSource::This { noun } => is_self(noun),
-            DamageSource::SelfReference {} => true,
-            DamageSource::It {} => false,
-        } && *reference == serde_json::json!({"player": "you"}) =>
-        {
-            kir::Node::Do(Verb::Damage {
-                source: kir::Ref::Source,
-                to: kir::DamageTo::Ref { who: controller() },
-                amount: kir::Amount::Fixed {
-                    value: fixed_amount(amount)?,
-                },
-            })
-        }
         Step::Evaluated(effect) => {
+            if let ast::Effect::Damage(damage) = effect.as_ref()
+                && let ast::EffectDamage {
+                    optional: None,
+                    decided_by: None,
+                    starting_with: None,
+                    for_each: None,
+                    for_each_beyond: None,
+                    for_each_vote: None,
+                    duration: None,
+                    source,
+                    amount,
+                    to,
+                    unpreventable: None,
+                    excess_to: None,
+                } = damage.as_ref()
+                && match source.as_ref() {
+                    ast::ObjectRef::This(this) => is_self(&this.noun),
+                    ast::ObjectRef::SelfObject(_) => true,
+                    _ => false,
+                }
+                && matches!(to.as_ref(), ast::DamageTarget::Player(to) if matches!(to.r#ref.as_ref(), ast::PlayerRef::You(_)))
+            {
+                return Ok(kir::Node::Do(Verb::Damage {
+                    source: kir::Ref::Source,
+                    to: kir::DamageTo::Ref { who: controller() },
+                    amount: Amount::Fixed {
+                        value: fixed_positive_amount(amount)?,
+                    },
+                }));
+            }
             let ast::Effect::Variant99(life) = effect.as_ref() else {
                 return Err(unsupported("mana", "unsupported mana ability rider"));
             };

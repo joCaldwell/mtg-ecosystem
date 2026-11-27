@@ -15,7 +15,9 @@ impl Walk<'_, '_> {
                 self.audit_evaluated_player(player)?;
                 Ok(self.player_amount_cell(signature.verb, player, amount)?)
             }
-            Evaluated::Damage { source, to, amount } => self.audit_evaluated_damage(source, to, amount),
+            Evaluated::Damage { source, to, amount } => {
+                self.audit_evaluated_damage(source, to, amount)
+            }
             Evaluated::Counters {
                 on,
                 counter,
@@ -386,10 +388,8 @@ impl Walk<'_, '_> {
         self.audit_evaluated_player(player)?;
         match count {
             Amount::Fixed { value } if *value >= Quantity::from(1) => {}
-            Amount::Var {
-                of: Ref::AnnouncedX,
-            } => {}
-            _ => return unaudited("sacrifice count"),
+            Amount::Fixed { .. } => return unaudited("sacrifice count"),
+            _ => {}
         }
         if let Some(object) = operands.designated() {
             if count.as_fixed() != Some(&Quantity::from(1)) || greatest_power {
@@ -399,9 +399,6 @@ impl Walk<'_, '_> {
                 return unaudited("designated sacrifice object");
             }
             return Ok(Cell::Evaluated(EvaluatedVerb::Sacrifice));
-        }
-        if filter.0.is_empty() {
-            return unaudited("empty sacrifice filter");
         }
         for atom in &filter.0 {
             // Top-level source exclusion is evaluated by exact object ID.

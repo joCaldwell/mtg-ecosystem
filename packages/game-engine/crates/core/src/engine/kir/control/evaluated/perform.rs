@@ -86,12 +86,13 @@ impl RulesTxn {
         Ok(Some(match source {
             Ref::Source => (self.source_facts(entry)?, entry.controller),
             Ref::EventObject { .. } => {
-                let Some(facts) = entry.kind.event_binding()?.object.as_deref() else {
+                let binding = entry.kind.event_binding()?;
+                let Some(facts) = binding.object.as_deref() else {
                     return Ok(None);
                 };
                 let facts = self
                     .current_source_facts(facts.object)
-                    .unwrap_or_else(|_| facts.clone());
+                    .unwrap_or_else(|_| binding.last_known.as_deref().unwrap_or(facts).clone());
                 let controller = facts.controller;
                 (facts, controller)
             }
@@ -134,7 +135,7 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let frame = self.kernel_root()?;
         let entry = self.entry(frame.stack_id)?;
-        let mut push = |recipient: TargetEntity, out: &mut Vec<TargetEntity>| {
+        let push = |recipient: TargetEntity, out: &mut Vec<TargetEntity>| {
             let legal = match recipient {
                 TargetEntity::Player { player } => self.is_live(player),
                 TargetEntity::Object { object } => self.is_permanent_damage_recipient(object),
@@ -290,7 +291,11 @@ impl RulesTxn {
             ..StepResult::default()
         };
         for damage in actual.iter().filter(|d| d.amount > Quantity::zero()) {
-            result.amount.as_mut().expect("damage projection").add(&damage.amount);
+            result
+                .amount
+                .as_mut()
+                .expect("damage projection")
+                .add(&damage.amount);
             match damage.recipient {
                 DamageRecipient::Player { player } => {
                     if !result.players.contains(&player) {
@@ -328,51 +333,78 @@ impl RulesTxn {
             return Err("kernel damage task is not dealing damage".into());
         };
         let (node, block) = self.node_at(task)?;
-        let Some((_, Evaluated::Damage { source, .. })) = node.verb().and_then(Verb::evaluated)
+        let Some((
+            _,
+            Evaluated::Damage {
+                source,
+                to,
+                amount: expression,
+            },
+        )) = node.verb().and_then(Verb::evaluated)
         else {
             return Err("kernel damage task does not name damage".into());
         };
+        let frame = self.kernel_root()?;
         if tx.kind != DamageKind::Noncombat
-            || tx.cause != self.instruction_cause(self.kernel_root()?, block)?
+            || tx.cause != self.instruction_cause(frame, block)?
             || *amount <= Quantity::zero()
             || recipients.is_empty()
             || recipients.len() > self.damage_limit()
+            || recipients.iter().collect::<BTreeSet<_>>().len() != recipients.len()
+            || tx.entries.len() != recipients.len()
         {
             return Err("invalid kernel damage transaction".into());
         }
-        let expected = match source {
-            Ref::Source => Some(self.entry(self.kernel_root()?.stack_id)?.source),
-            _ => match self.evaluated_object(task, source)? {
-                Resolved::Present(object) => Some(object),
-                Resolved::Absent(_) => None,
-            },
+        let invocation = self.entry(frame.stack_id)?;
+        let (source_id, controller) = if matches!(source, Ref::Source) {
+            (Some(invocation.source), Some(invocation.controller))
+        } else {
+            (
+                match self.evaluated_object(task, source)? {
+                    Resolved::Present(object) => Some(object),
+                    Resolved::Absent(_) => None,
+                },
+                None,
+            )
         };
-        for (n, entry) in tx.entries.iter().enumerate() {
-            let recipient = match entry.recipient {
-                DamageRecipient::Player { player } => TargetEntity::Player { player },
-                DamageRecipient::Permanent { object } => TargetEntity::Object { object },
-            };
+        for (n, (entry, recipient)) in tx.entries.iter().zip(recipients).enumerate() {
             if entry.id != DamageId(n as u32)
-                || Some(entry.source.object) != expected
+                || Some(entry.source.object) != source_id
+                || entry.controller != controller.unwrap_or(entry.source.controller)
                 || entry.original_amount != *amount
-                || !recipients.contains(&recipient)
+                || entry.recipient.entity() != *recipient
             {
                 return Err("kernel damage entry differs from its step".into());
             }
         }
-        for recipient in recipients {
-            match recipient {
-                TargetEntity::Player { player } => {
-                    if !self.state.rules.original_seating.contains(player) {
-                        return Err("invalid kernel damage player".into());
-                    }
-                }
-                TargetEntity::Object { object } => {
-                    if !self.state.rules.cards.contains_key(&object.card) {
-                        return Err("invalid kernel damage object".into());
-                    }
-                }
+        // CR 800.4a: removed seats and incarnations may still occur in the
+        // proposal. The live portion must still agree with the step's scope.
+        let surviving = recipients
+            .iter()
+            .copied()
+            .filter(|recipient| match recipient {
+                TargetEntity::Player { player } => self.is_live(*player),
+                TargetEntity::Object { object } => self.is_permanent_damage_recipient(*object),
+            });
+        if !surviving.eq(self.evaluated_recipients(task, to)?) {
+            return Err("kernel damage recipient differs from its step".into());
+        }
+        let departure = self
+            .state
+            .rules
+            .original_seating
+            .iter()
+            .any(|p| !self.is_live(*p));
+        if departure && expression.is_resolution_count() {
+            if crate::engine::kir::resolution_count_bound(expression)
+                .is_some_and(|bound| *amount > bound)
+            {
+                return Err("kernel damage amount exceeds its step's bound".into());
             }
+        } else if matches!(expression, Amount::Fixed { .. } | Amount::Var { .. })
+            && self.evaluated_amount(task, expression)? != Resolved::Present(amount.clone())
+        {
+            return Err("kernel damage amount differs from its step".into());
         }
         Ok(())
     }
@@ -557,27 +589,35 @@ impl RulesTxn {
             return Ok(None);
         };
         let (node, _) = self.node_at(task)?;
-        let (_, operands) = node.verb().and_then(Verb::evaluated).ok_or("missing sacrifice")?;
+        let Some((_, operands @ Evaluated::Sacrifice { player: scope, .. })) =
+            node.verb().and_then(Verb::evaluated)
+        else {
+            return Err("missing sacrifice".into());
+        };
         let options = self.kernel_sacrifice_candidates(task, &operands, player)?;
         let count = (count.to_u32().unwrap_or(u32::MAX) as usize).min(options.len());
-        Ok((count != 0).then(|| {
-            self.pick_objects(
-                player,
-                Reason::ForcedSacrifice {
-                    previous: chosen.clone(),
-                },
-                options,
-                count,
-            )
-        }))
+        let reason = if matches!(scope, PlayerExpr::EachPlayer | PlayerExpr::EachOpponent) {
+            Reason::ForcedSacrifice {
+                previous: chosen.clone(),
+            }
+        } else {
+            Reason::Sacrifice
+        };
+        Ok((count != 0).then(|| self.pick_objects(player, reason, options, count)))
     }
 
     /// CR 101.4: take the next player's choice, then sacrifice every chosen
     /// permanent still controlled by its chooser in one event.
-    pub(in crate::engine::kir::control) fn step_collect(&mut self, mut task: Task) -> Result<(), String> {
+    pub(in crate::engine::kir::control) fn step_collect(
+        &mut self,
+        mut task: Task,
+    ) -> Result<(), String> {
         let (node, block) = self.node_at(&task)?;
         let node = node.clone();
-        let (_, operands) = node.verb().and_then(Verb::evaluated).ok_or("missing sacrifice")?;
+        let (_, operands) = node
+            .verb()
+            .and_then(Verb::evaluated)
+            .ok_or("missing sacrifice")?;
         let Stage::Step(StepProgress::Collect {
             mut remaining,
             mut chosen,
@@ -743,24 +783,28 @@ impl RulesTxn {
         let per_player = count.to_u32().unwrap_or(u32::MAX) as usize;
         if *count <= Quantity::zero()
             || operands.designated().is_some()
-            || remaining.iter().chain(chosen.iter().map(|(p, _)| p)).any(|p| !seating.contains(p))
-            || remaining.windows(2).any(|w| position(&w[0]) >= position(&w[1]))
+            || remaining
+                .iter()
+                .chain(chosen.iter().map(|(p, _)| p))
+                .any(|p| !seating.contains(p))
+            || remaining
+                .windows(2)
+                .any(|w| position(&w[0]) >= position(&w[1]))
             || chosen.iter().any(|(p, _)| remaining.contains(p))
             || chosen
                 .chunk_by(|a, b| a.0 == b.0)
                 .any(|group| group.len() > per_player)
+            || chosen.iter().map(|(_, o)| o).collect::<BTreeSet<_>>().len() != chosen.len()
             || chosen
                 .iter()
-                .map(|(_, o)| o)
-                .collect::<BTreeSet<_>>()
-                .len()
-                != chosen.len()
-            || chosen.iter().any(|(_, o)| !self.state.rules.cards.contains_key(&o.card))
+                .any(|(_, o)| !self.state.rules.cards.contains_key(&o.card))
         {
             return Err("invalid sacrifice collection".into());
         }
         if let Resolved::Present(players) = self.evaluated_players(task, player)?
-            && remaining.iter().any(|p| !players.contains(p) && self.is_live(*p))
+            && remaining
+                .iter()
+                .any(|p| !players.contains(p) && self.is_live(*p))
         {
             return Err("sacrifice collection names another player".into());
         }

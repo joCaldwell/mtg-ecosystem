@@ -88,6 +88,13 @@ where
 }
 
 impl Task {
+    pub(in crate::engine) fn sacrifice_choices(&self) -> &[(PlayerId, ObjectId)] {
+        match &self.stage {
+            Stage::Step(StepProgress::Collect { chosen, .. }) => chosen,
+            _ => &[],
+        }
+    }
+
     fn child(&self, index: u32) -> Self {
         let mut path = self.path.clone();
         path.push(index);
@@ -498,10 +505,10 @@ impl RulesTxn {
         matches!(
             node,
             Node::IfPays {
-                payment: Payment::SacrificeCreature {},
+                payment: Payment::Sacrifice { .. },
                 ..
             } | Node::UnlessPays {
-                payment: Payment::SacrificeCreature {},
+                payment: Payment::Sacrifice { .. },
                 ..
             }
         )
@@ -581,11 +588,10 @@ impl RulesTxn {
             {
                 self.validate_sequence(task, progress, verb)
             }
-            (Stage::Step(progress @ StepProgress::Collect { .. }), Node::Do(Verb::Sacrifice { .. }))
-                if depth == self.state.rules.frames.len() =>
-            {
-                self.validate_collect(task, progress)
-            }
+            (
+                Stage::Step(progress @ StepProgress::Collect { .. }),
+                Node::Do(Verb::Sacrifice { .. }),
+            ) if depth == self.state.rules.frames.len() => self.validate_collect(task, progress),
             // A specialist transaction holds this saved task as its parent.
             (
                 Stage::Step(
@@ -642,7 +648,7 @@ impl RulesTxn {
                 },
             ) if matches!(
                 payment,
-                Payment::SacrificeCreature {} | Payment::DiscardArtifact {}
+                Payment::Sacrifice { .. } | Payment::DiscardArtifact {}
             ) =>
             {
                 if self.control_players(task, named)? != [*payer] {
@@ -933,7 +939,7 @@ impl RulesTxn {
                 match payment {
                     // Keep a private discard offer even with no matching card.
                     // CR 400.2: only the payer may see the eligible hand objects.
-                    Payment::SacrificeCreature {} | Payment::DiscardArtifact {} => {
+                    Payment::Sacrifice { .. } | Payment::DiscardArtifact {} => {
                         task.stage = Stage::Ask(AskKind::ObjectPayment { payer: player });
                         self.install_kernel(task);
                     }
@@ -1196,7 +1202,7 @@ impl RulesTxn {
                     },
                     Payment::Mana { mana: cost } => cost.clone(),
                     Payment::Life { .. }
-                    | Payment::SacrificeCreature {}
+                    | Payment::Sacrifice { .. }
                     | Payment::DiscardArtifact {} => {
                         return Err("invalid kernel mana payment".into());
                     }

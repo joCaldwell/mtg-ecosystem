@@ -31,40 +31,59 @@ pub(crate) mod controller_library {
         else {
             return Ok(None);
         };
-        let [
-            Step::Damage {
-                optional: None,
-                amount,
-                to: DamageDestination::Player { reference },
-                ..
-            },
-        ] = steps.as_slice()
+        let [effect] = steps.as_slice() else {
+            return Ok(None);
+        };
+        let Some(ast::EffectDamage {
+            optional: None,
+            decided_by: None,
+            starting_with: None,
+            for_each: None,
+            for_each_beyond: None,
+            for_each_vote: None,
+            duration: None,
+            amount,
+            to,
+            unpreventable: None,
+            excess_to: None,
+            ..
+        }) = effect.damage()
         else {
             return Ok(None);
         };
-        if !bindings.is_empty() || reference["player"] != "target-opponent" {
+        let ast::DamageTarget::Player(to) = to.as_ref() else {
+            return Ok(None);
+        };
+        let ast::PlayerRef::TargetOpponent(target) = to.r#ref.as_ref() else {
+            return Ok(None);
+        };
+        if !bindings.is_empty()
+            || target.count.is_some()
+            || target.up_to.is_some()
+            || target.random.is_some()
+        {
             return Ok(None);
         }
-        let selection = reference["selectionId"]
-            .as_str()
+        let selection = target
+            .selection_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
             .ok_or_else(|| unsupported("damage.target", "missing bound opponent occurrence"))?;
-        if selection.is_empty()
-            || *reference != json!({"player":"target-opponent", "selectionId":selection})
-        {
-            return Err(unsupported(
-                "damage.target",
-                "unexpected opponent selector fields",
-            ));
-        }
-        Ok(Some(Instruction::damage_target(
-            bind_target(
-                program,
-                &mut BTreeMap::new(),
-                selection,
-                TargetDomain::OpponentPlayer,
-            )?,
-            kir::Amount::Fixed {
-                value: fixed_positive_amount(&typed(amount, "amount")?)?,
+        let slot = bind_target(
+            program,
+            &mut BTreeMap::new(),
+            selection,
+            TargetDomain::OpponentPlayer,
+        )?;
+        Ok(Some(Instruction::act(
+            Verb::Damage {
+                source: Ref::Source,
+                to: kir::DamageTo::Ref {
+                    who: Ref::Target { slot },
+                },
+                amount: kir::Amount::Fixed {
+                    value: fixed_positive_amount(amount)?,
+                },
             },
             block,
         )))

@@ -386,12 +386,9 @@ impl RulesTxn {
                         ..Default::default()
                     });
             }
-            (
-                Frame::ResolutionPayment { frame, .. }
-                | Frame::ResolutionChoice { frame, .. }
-                | Frame::ForcedSacrifice { frame, .. },
-                _,
-            ) => self.entry(frame.stack_id).ok()?,
+            (Frame::ResolutionPayment { frame, .. } | Frame::ResolutionChoice { frame, .. }, _) => {
+                self.entry(frame.stack_id).ok()?
+            }
             (
                 _,
                 Reason::HybridCost
@@ -419,7 +416,6 @@ impl RulesTxn {
                     .get(frame.cursor as usize)
                     .map(Instruction::source_block)
             }
-            Frame::ForcedSacrifice { source_block, .. } => Some(*source_block),
             _ => None,
         };
         context.instruction = block.and_then(|source_block| {

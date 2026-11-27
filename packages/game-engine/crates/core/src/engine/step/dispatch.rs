@@ -40,9 +40,7 @@ impl RulesTxn {
             }
             Frame::TurnFaceUp { payment } => self.face_up_step(payment)?,
             frame @ Frame::LegendRule { .. } => self.legend_step(frame)?,
-            frame @ (Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }) => {
-                self.sacrifice_step(frame)?
-            }
+            frame @ Frame::SacrificeCost { .. } => self.sacrifice_step(frame)?,
             Frame::ChosenObjectCost { cast, selected } => self.chosen_cost_step(cast, selected)?,
             Frame::Setup => self.setup_step()?,
 

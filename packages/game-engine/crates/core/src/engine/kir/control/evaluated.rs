@@ -1,8 +1,8 @@
 //! Evaluate the checked operands once, then apply the verb's distribution.
 use super::*;
 use mtg_contracts::kir::{
-    self, Absent, AbsentReason, Atom, DamageTo, Distribution, Evaluated, EvaluatedVerb, OperandSlot,
-    QuantityDomain, Resolved, Stat, StepRole,
+    self, Absent, AbsentReason, Atom, DamageTo, Distribution, Evaluated, EvaluatedVerb,
+    OperandSlot, QuantityDomain, Resolved, Stat, StepRole,
 };
 mod perform;
 
@@ -88,9 +88,7 @@ pub(super) enum StepProgress {
     },
     /// CR 701.21a: the collected or designated permanents are being
     /// sacrificed in one simultaneous event.
-    Sacrifice {
-        chosen: Vec<(PlayerId, ObjectId)>,
-    },
+    Sacrifice { chosen: Vec<(PlayerId, ObjectId)> },
 }
 
 impl RulesTxn {
@@ -249,9 +247,28 @@ impl RulesTxn {
         let entry = self.entry(self.kernel_root()?.stack_id)?;
         match object {
             Ref::Source => self.source_facts(entry).map(Some),
-            // This is the occurrence's immutable subject, including death
-            // look-back facts (CR 603.10a), never its new incarnation.
-            Ref::EventObject { .. } => Ok(entry.kind.event_binding()?.object.as_deref().cloned()),
+            Ref::EventObject { role } => {
+                let binding = entry.kind.event_binding()?;
+                let Some(object) = binding.object.as_deref() else {
+                    return Ok(None);
+                };
+                if matches!(
+                    role,
+                    kir::EventObjectRole::Entered | kir::EventObjectRole::Attacked
+                ) {
+                    // CR 608.2h: an entrant or attacker may have changed
+                    // power before resolving, including before leaving.
+                    Ok(Some(
+                        self.current_source_facts(object.object)
+                            .unwrap_or_else(|_| {
+                                binding.last_known.as_deref().unwrap_or(object).clone()
+                            }),
+                    ))
+                } else {
+                    // CR 603.10a: a death reads the common prior battlefield.
+                    Ok(Some(object.clone()))
+                }
+            }
             Ref::BoundVar { id } => {
                 let Some(Binding::Objects(ids)) = task.bindings.get(id) else {
                     return Err("missing measured binding".into());
@@ -361,7 +378,7 @@ impl RulesTxn {
         let value = match amount {
             Amount::Var {
                 of: Ref::EventAmount,
-            } => match self.entry(frame.stack_id)?.kind.event_amount()? {
+            } => match &self.entry(frame.stack_id)?.kind.event_binding()?.amount {
                 Some(amount) => amount.clone(),
                 None => return Ok(Resolved::Absent(AbsentReason::NoEventMember)),
             },
@@ -481,16 +498,18 @@ impl RulesTxn {
                 self.damage_source_facts(task, source)?.is_some()
                     && !self.evaluated_recipients(task, to)?.is_empty()
             }
-            Evaluated::Counters { on, counter, .. } => !self
-                .counter_recipients(task, on, counter)?
-                .is_empty(),
+            Evaluated::Counters { on, counter, .. } => {
+                !self.counter_recipients(task, on, counter)?.is_empty()
+            }
             Evaluated::Sacrifice { player, .. } => {
                 let Resolved::Present(players) = self.evaluated_players(task, player)? else {
                     return Ok(false);
                 };
                 let mut any = false;
                 for player in players {
-                    any |= !self.kernel_sacrifice_candidates(task, &operands, player)?.is_empty();
+                    any |= !self
+                        .kernel_sacrifice_candidates(task, &operands, player)?
+                        .is_empty();
                 }
                 any
             }
@@ -821,7 +840,14 @@ impl RulesTxn {
         else {
             return Err("missing draw sequence progress".into());
         };
-        let Some((_, Evaluated::PlayerAmount { player: operand, amount })) = verb.evaluated() else {
+        let Some((
+            _,
+            Evaluated::PlayerAmount {
+                player: operand,
+                amount,
+            },
+        )) = verb.evaluated()
+        else {
             return Err("missing sequence signature".into());
         };
         let row = players.get(*at).ok_or("invalid draw sequence position")?;
@@ -895,8 +921,7 @@ impl RulesTxn {
                         continuation: DamageContinuation::Kernel { resume },
                         ..
                     },
-            }
-            => Some(*resume),
+            } => Some(*resume),
             Frame::GraveyardGroup { tx } => match tx.finish {
                 GroupFinish::Kernel { resume } => Some(resume),
                 _ => None,
@@ -911,10 +936,7 @@ impl RulesTxn {
     pub(super) fn specialist_resumes(&self, depth: usize) -> bool {
         self.specialist_resume(&self.state.rules.frame)
             .is_some_and(|resume| resume.0 == depth)
-            && !matches!(
-                self.state.rules.frame,
-                Frame::CommanderReturn { .. }
-            )
+            && !matches!(self.state.rules.frame, Frame::CommanderReturn { .. })
     }
 
     fn step_order(&self, task: &Task) -> Result<Vec<(u32, u32)>, String> {
@@ -1078,8 +1100,7 @@ impl RulesTxn {
                     || match (moved, object.successor) {
                         (true, Some(next)) => {
                             next.card != object.prior.card
-                                || object.prior.incarnation.checked_add(1)
-                                    != Some(next.incarnation)
+                                || object.prior.incarnation.checked_add(1) != Some(next.incarnation)
                         }
                         (false, None) => false,
                         _ => true,

@@ -593,9 +593,7 @@ impl Walk<'_, '_> {
             | Amount::LifeOf { player }
             | Amount::OtherCastsManaValue { caster: player } => self.player(player),
             // CR 604.3: characteristic-defining values have no kernel reader.
-            Amount::Distinct { .. } => {
-                kind("characteristic-defining amount outside its static")
-            }
+            Amount::Distinct { .. } => kind("characteristic-defining amount outside its static"),
         }
     }
 
@@ -1336,7 +1334,10 @@ impl Walk<'_, '_> {
                     Payment::Mana { mana: cost }
                         if !cost.generic.is_negative() && !cost.colored.is_empty() => {}
                     Payment::Mana { .. } => return unaudited("invalid fixed mana payment"),
-                    Payment::SacrificeCreature {} | Payment::DiscardArtifact {} => {
+                    Payment::Sacrifice { count: 1, filter }
+                        if payer.is_you() && *filter == Pred::creatures() => {}
+                    Payment::Sacrifice { .. } => return unaudited("unsupported sacrifice payment"),
+                    Payment::DiscardArtifact {} => {
                         if !payer.is_you() {
                             return unaudited("object payment payer");
                         }

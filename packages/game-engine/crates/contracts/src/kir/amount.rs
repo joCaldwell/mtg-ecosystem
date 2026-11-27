@@ -135,6 +135,11 @@ impl Amount {
                 set: SetExpr::Matching { zone, .. },
             } => matches!(zone, ZoneExpr::Hand { .. }),
             Self::Times { of, .. } => of.counts_hand(),
+            Self::Sum { terms } => terms.iter().any(Self::counts_hand),
+            Self::Difference {
+                minuend,
+                subtrahend,
+            } => minuend.counts_hand() || subtrahend.counts_hand(),
             _ => false,
         }
     }

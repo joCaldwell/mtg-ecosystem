@@ -192,19 +192,6 @@ fn amounts_players_destinations_and_durations_are_typed() {
             expected
         );
     }
-    // CR 107.3, 608.2h: X is the announced X, or the sentence's bound X.
-    let x = amount(json!({"amount":"x"}));
-    assert_eq!(
-        lower_damage_amount(&x, None, Context::Spell).unwrap(),
-        kir::Amount::announced_x()
-    );
-    let creatures = kir::Amount::Count {
-        set: SetExpr::battlefield(kir::Pred::creatures()),
-    };
-    assert_eq!(
-        lower_damage_amount(&x, Some(&creatures), Context::Spell).unwrap(),
-        creatures
-    );
     let selector = |v| serde_json::from_value::<ast::PlayerRef>(v).unwrap();
     let player = |v| {
         lower_player_ref(

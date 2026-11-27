@@ -75,9 +75,13 @@ fn stable_rereads(sentence: &Sentence, x: &kir::Amount) -> Result<(), Failure> {
         return Ok(());
     }
     if x.counts_hand()
-        || !sentence.steps[first..last]
-            .iter()
-            .all(|step| matches!(step, Step::Evaluated(_) | Step::Damage { .. }))
+        || !sentence.steps[first..last].iter().all(|step| match step {
+            Step::Evaluated(effect) => matches!(
+                effect.as_ref(),
+                ast::Effect::Draw(_) | ast::Effect::Variant99(_) | ast::Effect::Damage(_)
+            ),
+            _ => false,
+        })
     {
         return Err(operand("bindings", "reread_after_change"));
     }
@@ -86,6 +90,24 @@ fn stable_rereads(sentence: &Sentence, x: &kir::Amount) -> Result<(), Failure> {
 
 fn pilot_player(cx: &mut StepCx<'_>, who: &ast::PlayerRef) -> Result<PlayerExpr, Failure> {
     match who {
+        ast::PlayerRef::ThatPlayer(_) | ast::PlayerRef::They(_) => cx
+            .player_binding
+            .event_role()
+            .map(PlayerExpr::event)
+            .ok_or_else(|| operand("player", "unbound event player")),
+        ast::PlayerRef::DefendingPlayer(_)
+            if cx.player_binding.event_object_role() == Some(kir::EventObjectRole::Attacked)
+                || cx.player_binding.event_role()
+                    == Some(kir::EventPlayerRole::DefendingPlayer) =>
+        {
+            Ok(PlayerExpr::event(kir::EventPlayerRole::DefendingPlayer))
+        }
+        ast::PlayerRef::Controller(relation) => Ok(PlayerExpr::ControllerOf {
+            object: pilot_object(cx, &relation.of)?,
+        }),
+        ast::PlayerRef::Owner(relation) => Ok(PlayerExpr::OwnerOf {
+            object: pilot_object(cx, &relation.of)?,
+        }),
         ast::PlayerRef::EachPlayer(_) => Ok(PlayerExpr::EachPlayer),
         ast::PlayerRef::TargetOpponent(target) => match target.as_ref() {
             ast::PlayerRefTargetOpponent {
@@ -128,11 +150,97 @@ fn check_optional_chooser(
     Ok(())
 }
 
+fn pilot_object(cx: &mut StepCx<'_>, object: &ast::ObjectRef) -> Result<Ref, Failure> {
+    match object {
+        ast::ObjectRef::This(_) | ast::ObjectRef::SelfObject(_) => Ok(Ref::Source),
+        ast::ObjectRef::Target(_) => Ok(Ref::Target {
+            slot: bind_permanent_target(cx.program, cx.slots, object)?,
+        }),
+        ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => {
+            if let Ok(slot) = preceding_target(cx.program, cx.source_block, object) {
+                return Ok(Ref::Target { slot });
+            }
+            cx.player_binding
+                .event_object_role()
+                .map(|role| Ref::EventObject { role })
+                .ok_or_else(|| operand("object", "unbound event object"))
+        }
+        _ => Err(operand("object", variant(object))),
+    }
+}
+
+fn pilot_filter(cx: &mut StepCx<'_>, filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
+    let mut filter = filter.clone();
+    let controller = match filter.control {
+        Some(ast::ObjectFilterControl::ThatPlayer) => {
+            filter.control = None;
+            Some(
+                cx.player_binding
+                    .event_role()
+                    .map(PlayerExpr::event)
+                    .ok_or_else(|| operand("filter", "unbound event player"))?,
+            )
+        }
+        _ => filter
+            .controlled_by
+            .take()
+            .map(|who| pilot_player(cx, &who))
+            .transpose()?,
+    };
+    let other = filter.other.take().unwrap_or(false);
+    let mut result = lower_filter(&filter, cx.context)?;
+    if let Some(player) = controller {
+        result.0.push(Atom::ControlledBy { player });
+    }
+    if other {
+        result.0.push(Atom::IsNot {
+            object: Ref::Source,
+        });
+    }
+    Ok(result)
+}
+
+fn pilot_board_set(cx: &mut StepCx<'_>, set: &ast::ObjectRef) -> Result<SetExpr, Failure> {
+    let filter = match set {
+        ast::ObjectRef::All(set) => &set.filter,
+        ast::ObjectRef::Each(set) => &set.filter,
+        _ => return Err(operand("set", variant(set))),
+    };
+    Ok(SetExpr::battlefield(pilot_filter(cx, filter)?))
+}
+
 fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Failure> {
     match amount {
         ast::Amount::Fixed(number) if number.value >= 0 => Ok(Amount::fixed(number.value)),
         ast::Amount::X(_) => Ok(cx.bound_x().unwrap_or_else(Amount::announced_x)),
-        ast::Amount::Count(count) => lower_count(count, cx.context),
+        ast::Amount::ThatMuch(_) if cx.player_binding.supplies_amount() => Ok(Amount::Var {
+            of: Ref::EventAmount,
+        }),
+        ast::Amount::Plus(sum) => Ok(Amount::Sum {
+            terms: vec![pilot_amount(cx, &sum.a)?, pilot_amount(cx, &sum.b)?],
+        }),
+        ast::Amount::Minus(difference) => Ok(Amount::Difference {
+            minuend: Box::new(pilot_amount(cx, &difference.a)?),
+            subtrahend: Box::new(pilot_amount(cx, &difference.b)?),
+        }),
+        ast::Amount::Twice(twice) => Ok(Amount::Times {
+            factor: 2.into(),
+            of: Box::new(pilot_amount(cx, &twice.of)?),
+        }),
+        ast::Amount::Product(product) => {
+            let factors: Vec<_> = product
+                .factors
+                .iter()
+                .map(|factor| pilot_amount(cx, factor))
+                .collect::<Result<_, _>>()?;
+            crate::operands::fixed_product(factors)
+        }
+        ast::Amount::Devotion(devotion) => lower_devotion(devotion, cx.context),
+        ast::Amount::CastManaValueSum(sum) => lower_other_casts_mana_value(sum, cx.context),
+        ast::Amount::CounterCount(_) => source_counter_amount(amount),
+        ast::Amount::Count(count) => {
+            lower_count_with(count, cx.context, |filter| pilot_filter(cx, filter))
+        }
         ast::Amount::Attribute(attribute) => {
             use ast::PropertyConstraintProperty as Property;
             let stat = match attribute.attribute {
@@ -141,26 +249,7 @@ fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Fai
                 Property::ManaValue => kir::Stat::ManaValue,
                 _ => return Err(operand("amount", "unsupported object measure")),
             };
-            let object = match attribute.of.as_ref() {
-                ast::ObjectRef::This(_) | ast::ObjectRef::SelfObject(_) => kir::Ref::Source,
-                ast::ObjectRef::Target(_) => kir::Ref::Target {
-                    slot: bind_permanent_target(cx.program, cx.slots, &attribute.of)?,
-                },
-                ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => {
-                    if let Ok(slot) = preceding_target(cx.program, cx.source_block, &attribute.of) {
-                        kir::Ref::Target { slot }
-                    } else if cx.program.targets.is_empty() {
-                        kir::Ref::EventObject {
-                            role: cx.player_binding.event_object_role().ok_or_else(|| {
-                                operand("amount", "object measure lacks antecedent")
-                            })?,
-                        }
-                    } else {
-                        return Err(operand("amount", "ambiguous measured object"));
-                    }
-                }
-                _ => return Err(operand("amount", "unsupported measured object")),
-            };
+            let object = pilot_object(cx, &attribute.of)?;
             Ok(Amount::StatOf { object, stat })
         }
         ast::Amount::LifeTotal(total) => Ok(Amount::LifeOf {
@@ -168,6 +257,43 @@ fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Fai
         }),
         _ => Err(operand("amount", variant(amount))),
     }
+}
+
+fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Amount>, Failure> {
+    fn contains_x(amount: &Amount) -> bool {
+        match amount {
+            Amount::Var {
+                of: Ref::AnnouncedX,
+            } => true,
+            Amount::Times { of, .. } => contains_x(of),
+            Amount::Sum { terms } => terms.iter().any(contains_x),
+            Amount::Difference {
+                minuend,
+                subtrahend,
+            } => contains_x(minuend) || contains_x(subtrahend),
+            _ => false,
+        }
+    }
+    let original = match lower_x_binding(&sentence.bindings, cx.context) {
+        Ok(amount) => return Ok(amount),
+        Err(failure) => failure,
+    };
+    if !sentence.steps.iter().all(|step| step.effect().is_some()) {
+        return Err(original);
+    }
+    let [binding] = sentence.bindings.as_slice() else {
+        return Err(original);
+    };
+    let binding: ast::SentenceBindingsItem = typed(binding, "bindings")?;
+    if binding.as_of.is_some() {
+        return Err(original);
+    }
+    let target_count = cx.program.targets.len();
+    let amount = pilot_amount(cx, &binding.value)?;
+    if contains_x(&amount) || cx.program.targets.len() != target_count {
+        return Err(original);
+    }
+    Ok(Some(amount))
 }
 
 /// A step outside every verb module's rows: `verb:<effect>:<detail>`.
@@ -207,7 +333,18 @@ pub(crate) fn append_spell_effects(
         if sentence.steps.is_empty() {
             return Err(invalid("effects.steps", "empty instruction group"));
         }
-        let bound = lower_x_binding(&sentence.bindings, context)?;
+        let bound = pilot_x_binding(
+            &mut StepCx {
+                program,
+                slots,
+                context,
+                player_binding,
+                source_block,
+                x: None,
+                x_consumed: false,
+            },
+            sentence,
+        )?;
         if let Some(x) = &bound {
             stable_rereads(sentence, x)?;
         }
@@ -335,7 +472,6 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             counter,
             count,
         } => counters::player(cx, who, counter, count),
-        Step::PutCounters { on, counter, count } => counters::lower(cx, on, counter, count),
         Step::RemoveCounters {
             from,
             counter,
@@ -348,17 +484,14 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             duration,
             for_each,
         } => pump::lower(cx, what, power, toughness, duration, for_each.as_ref()),
-        Step::Damage {
-            source,
-            amount,
-            to,
-            optional,
-        } => damage::lower(cx, source, amount, to, *optional),
         Step::Mill { who, amount } => mill::lower(cx, who, amount),
         Step::Discard(discard) => discard::lower(cx, discard),
         Step::Evaluated(effect) => match effect.as_ref() {
             ast::Effect::Draw(draw) => draw::lower(cx, draw),
             ast::Effect::Variant99(life) => life::lower(cx, life),
+            ast::Effect::Sacrifice(action) => sacrifice::lower(cx, action),
+            ast::Effect::Damage(action) => damage::lower(cx, action),
+            ast::Effect::PutCounters(action) => counters::lower(cx, action),
             _ => unreachable!("evaluated AST effect"),
         },
         Step::ReturnToHand { what, to, optional } => return_to_hand::lower(cx, what, to, *optional),
@@ -378,11 +511,6 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             who.as_ref(),
             controller.as_deref(),
         ),
-        Step::Sacrifice {
-            who,
-            what,
-            chosen_by,
-        } => sacrifice::lower(cx, who, what, chosen_by.as_ref()),
         Step::CreateReplacement { .. } => Err(step("create-replacement", "replacement")),
         Step::LoseAbilities { .. } => Err(step("lose-abilities", "unlowered")),
         Step::PlayCard { .. } => Err(step("play-card", "unlowered")),

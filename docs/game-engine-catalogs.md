@@ -190,9 +190,10 @@ tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Stage 1 [rework](game-engine-rework.md) contract. Life and Draw use
-`kir::signatures`. Damage, counters and sacrifice still use their audited
-legacy cells. `kir::Verb` remains the sole action representation on the wire.
+Stage 1 [rework](game-engine-rework.md) contract. Draw, life, damage, permanent
+counter placement and sacrifice use `kir::signatures`. `kir::Verb` remains
+the action representation on the wire. Damage prevention and commit, counter
+placement and graveyard moves retain their transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env`
@@ -216,6 +217,12 @@ Each slot declares:
 
 Last-known information answers a read and never authorizes acting on a new
 incarnation (CR 400.7, 608.2h).
+
+A triggered invocation stores an `EventBinding` for the event's player, object
+and quantity when supplied. Death reads the common prior battlefield. An
+entrant or attacker whose power is read at resolution uses the exact live
+incarnation or its departure facts. A later incarnation cannot receive an
+action for the original one.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write. One

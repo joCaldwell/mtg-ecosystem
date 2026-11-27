@@ -401,7 +401,10 @@ impl<'a> Evaluated<'a> {
     }
 
     /// Each slot with the classes of the operands it holds, in slot order.
-    pub fn classes(&self, signature: &'static VerbSignature) -> Vec<(&'static OperandSlot, Option<OperandClass>)> {
+    pub fn classes(
+        &self,
+        signature: &'static VerbSignature,
+    ) -> Vec<(&'static OperandSlot, Option<OperandClass>)> {
         let slot = |index: usize| &signature.slots[index];
         match *self {
             Self::PlayerAmount { player, amount } => vec![
@@ -410,7 +413,11 @@ impl<'a> Evaluated<'a> {
             ],
             Self::Damage { source, to, amount } => {
                 let mut out = vec![(slot(0), OperandClass::reference(source))];
-                out.extend(OperandClass::recipients(to).into_iter().map(|c| (slot(1), c)));
+                out.extend(
+                    OperandClass::recipients(to)
+                        .into_iter()
+                        .map(|c| (slot(1), c)),
+                );
                 out.push((slot(2), OperandClass::amount(amount)));
                 out
             }
@@ -437,7 +444,9 @@ impl Verb {
     /// The signature and operands of a verb the resolving evaluator performs.
     pub fn evaluated(&self) -> Option<(&'static VerbSignature, Evaluated<'_>)> {
         match self {
-            Self::Draw { player, amount } => Some((&DRAW, Evaluated::PlayerAmount { player, amount })),
+            Self::Draw { player, amount } => {
+                Some((&DRAW, Evaluated::PlayerAmount { player, amount }))
+            }
             Self::GainLife { player, amount } => {
                 Some((&GAIN, Evaluated::PlayerAmount { player, amount }))
             }
@@ -447,9 +456,18 @@ impl Verb {
             Self::Damage { source, to, amount } => {
                 Some((&DAMAGE, Evaluated::Damage { source, to, amount }))
             }
-            Self::PutCounters { on, counter, amount } => {
-                Some((&COUNTERS, Evaluated::Counters { on, counter, amount }))
-            }
+            Self::PutCounters {
+                on,
+                counter,
+                amount,
+            } => Some((
+                &COUNTERS,
+                Evaluated::Counters {
+                    on,
+                    counter,
+                    amount,
+                },
+            )),
             Self::Sacrifice {
                 player,
                 count,

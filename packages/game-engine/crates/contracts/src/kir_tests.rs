@@ -1079,7 +1079,7 @@ fn every_audited_verb_names_the_cell_it_occupies() {
     };
     assert_eq!(
         cells(&damage(Amount::announced_x()), &x),
-        BTreeSet::from([Cell::DamageTargetX])
+        BTreeSet::from([Cell::Evaluated(crate::kir::EvaluatedVerb::Damage)])
     );
     // A control node occupies the continuation cell and its leaves' cells.
     let sequence = Node::Seq(vec![
