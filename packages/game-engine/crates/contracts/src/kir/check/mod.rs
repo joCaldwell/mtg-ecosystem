@@ -556,6 +556,10 @@ impl Walk<'_, '_> {
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
             Amount::Greatest { set, .. } => self.set(set),
+            Amount::BlockersOf { object, .. } => self
+                .expect(object, &[RefKind::Object], "blocked object")
+                .map(drop),
+            Amount::OpponentsAttacked {} => Ok(()),
             Amount::Times { of, .. } => self.amount(of),
             Amount::Devotion { player, .. }
             | Amount::LifeOf { player }
@@ -776,7 +780,9 @@ impl Walk<'_, '_> {
             Verb::ReturnCapturedExile {}
             | Verb::ExileCapturedReturn {}
             | Verb::SacrificeEncoreTokens {}
+            | Verb::ExileMyriadTokens {}
             | Verb::ReturnDashedToHand {} => Ok(()),
+            Verb::CreateMyriadToken { defender } => self.player(defender),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::GiveCounters { player, amount, .. }
@@ -1009,6 +1015,31 @@ impl Walk<'_, '_> {
                     {
                         self.control_player(player, false)?;
                         self.nonnegative_control_amount(amount)?;
+                    }
+                    // CR 702.116a: one opponent bound by the myriad
+                    // iteration; the whole ability is the reviewed builder
+                    // (`TriggeredAbility::is_myriad`).
+                    Verb::CreateMyriadToken { defender } if in_control => {
+                        self.control_player(defender, true)?;
+                        if !self.scan {
+                            if self.env.context != Context::Triggered
+                                || !matches!(
+                                    defender,
+                                    PlayerExpr::Is {
+                                        who: Ref::BoundVar { .. }
+                                    }
+                                )
+                                || !self.env.event.is_some_and(|event| {
+                                    *event.pattern()
+                                        == (EventPattern::Attacks {
+                                            attacker: Pred::source(),
+                                        })
+                                })
+                            {
+                                return unaudited("myriad token creation");
+                            }
+                            self.out.cells.insert(Cell::Myriad);
+                        }
                     }
                     _ => {
                         let enclosing_leaf = std::mem::replace(&mut self.plain_leaf, in_control);
@@ -1324,6 +1355,11 @@ impl Walk<'_, '_> {
                         if self.env.context == Context::Activated && program.targets.is_empty() => {
                         self.out.cells.insert(Cell::Unearth);
                     }
+                    // CR 702.116a: a myriad ability's end-of-combat exile.
+                    (DelayedEvent::EndOfCombat, Node::Do(Verb::ExileMyriadTokens {}))
+                        if self.env.context == Context::Triggered && program.targets.is_empty() => {
+                        self.out.cells.insert(Cell::Myriad);
+                    }
                     // CR 702.141a: a graveyard source's own encore ability.
                     (DelayedEvent::NextEndStepAfterEncore, Node::Do(Verb::SacrificeEncoreTokens {}))
                         if self.env.context == Context::Activated && program.targets.is_empty() => {
@@ -1513,6 +1549,7 @@ impl Walk<'_, '_> {
             EventPlayerRole::Caster
                 | EventPlayerRole::ActivePlayer
                 | EventPlayerRole::DrawingPlayer
+                | EventPlayerRole::DefendingPlayer
         )
     }
 
@@ -1573,6 +1610,13 @@ impl Walk<'_, '_> {
                 object: Ref::Source,
                 counter,
             } if counter.admitted() => Ok(()),
+            // CR 702.23a: creatures blocking the ability's own source.
+            // CR 702.121a: the combat's declared defenders.
+            Amount::BlockersOf {
+                object: Ref::Source,
+                ..
+            }
+            | Amount::OpponentsAttacked {} => Ok(()),
             _ => unaudited("resolution count"),
         }
     }
@@ -1703,6 +1747,8 @@ impl Walk<'_, '_> {
             | Verb::ReturnCapturedExile {}
             | Verb::ExileCapturedReturn {}
             | Verb::SacrificeEncoreTokens {}
+            | Verb::CreateMyriadToken { .. }
+            | Verb::ExileMyriadTokens {}
             | Verb::ReturnDashedToHand {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
@@ -1852,12 +1898,16 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::ReturnCapturedExile {}
         | Verb::ExileCapturedReturn {}
         | Verb::SacrificeEncoreTokens {}
+        | Verb::ExileMyriadTokens {}
         | Verb::ReturnDashedToHand {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::SetDesignation { .. }
         | Verb::Shuffle { .. }
         | Verb::Builtin { .. } => {}
+        Verb::CreateMyriadToken { .. } => {
+            out.insert(Capability::MyriadV1);
+        }
     }
 }
 
@@ -1970,7 +2020,10 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
         // CR 601.2: the caster of the triggering spell.
         EventPattern::Cast { .. } => &[EventPlayerRole::Caster],
         EventPattern::Draws { .. } => &[EventPlayerRole::DrawingPlayer],
-        EventPattern::AttacksUnblocked { .. } => &[EventPlayerRole::DefendingPlayer],
+        // CR 506.2: the player the attacking creature was attacking.
+        EventPattern::AttacksUnblocked { .. } | EventPattern::BecomesBlocked { .. } => {
+            &[EventPlayerRole::DefendingPlayer]
+        }
         // CR 500: the player whose step began.
         EventPattern::StepBegins { .. } => &[EventPlayerRole::ActivePlayer],
         _ => &[],

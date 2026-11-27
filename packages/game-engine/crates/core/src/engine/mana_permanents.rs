@@ -320,9 +320,14 @@ impl RulesTxn {
         // CR 122.1, 733.1: reversal restores exactly the counters the source
         // had as the activation began, which its captured facts also hold.
         // A ceased token keeps no definition to compare its identity with.
+        if receipt.source.object != source {
+            return Err("mana receipt source mismatch".into());
+        }
         Self::validate_fact_counters(&receipt.source)?;
-        if self.current(receipt.source.object).is_ok() {
+        if self.definition(source.card).is_ok() {
             self.validate_fact_identity(&receipt.source)?;
+        } else if self.current(source).is_ok() {
+            return Err("unknown mana receipt source".into());
         }
         if receipt.counters.is_negative()
             || receipt.counters != receipt.source.plus_one_counters

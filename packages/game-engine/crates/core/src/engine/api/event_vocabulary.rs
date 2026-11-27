@@ -115,6 +115,15 @@ pub enum ProposedEvent {
         source: ObjectId,
         defenders: Vec<PlayerId>,
     },
+    /// CR 702.116a, 508.4, 608.2f: one token copy of the myriad source
+    /// `source` for each accepted defender, tapped and attacking that
+    /// player, all created at once for the invocation `creator`.
+    CreateMyriadTokens {
+        controller: PlayerId,
+        source: ObjectId,
+        defenders: Vec<PlayerId>,
+        creator: StackId,
+    },
     CreatePredefinedTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -350,6 +359,11 @@ pub enum EventOutcome {
     CounterPrevented {
         target: StackId,
     },
+    /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
+    /// opponent; the copies are created together afterwards (CR 608.2f).
+    MyriadAccepted {
+        defender: PlayerId,
+    },
     AttachmentChanged {
         object: ObjectId,
         previous: Option<ObjectId>,
@@ -379,6 +393,14 @@ pub enum EventOutcome {
         objects: Vec<ObjectId>,
         controller: PlayerId,
         original: ObjectId,
+    },
+    MyriadTokensCreated {
+        objects: Vec<ObjectId>,
+        controller: PlayerId,
+        original: ObjectId,
+        /// Each token's attacked player, or `None` when it entered without
+        /// attacking (CR 506.3b, 508.4a).
+        attacking: Vec<Option<PlayerId>>,
     },
     PredefinedTokensCreated {
         objects: Vec<ObjectId>,
@@ -577,6 +599,11 @@ pub enum InstructionOutcome {
     },
     CounterPrevented {
         target: StackId,
+    },
+    /// CR 702.116a, 608.2d: the controller accepted a myriad copy for this
+    /// opponent; the copies are created together afterwards (CR 608.2f).
+    MyriadAccepted {
+        defender: PlayerId,
     },
     SetMoved {
         movements: Vec<MoveOutcome>,

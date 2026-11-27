@@ -981,4 +981,27 @@ fn mana_undo_receipt_counter_kinds_are_admitted() {
         let err = restore_rejection(&forged, |_| {});
         assert!(err.contains("counter kind admission"), "{kind:?}: {err}");
     }
+    // Stale incarnation mismatch: inner receipt source differs from outer activation object.
+    let mut forged = g.fork();
+    if let Frame::Mana { cast } | Frame::Payment { cast } = &mut forged.state.rules.frame {
+        let p = cast.mana_activations[index].permanent.as_mut().unwrap();
+        p.source.object.incarnation += 1;
+    }
+    let err = forged.validate_state().unwrap_err();
+    assert!(err.contains("mana receipt source mismatch"), "{err}");
+    let err = restore_rejection(&forged, |_| {});
+    assert!(err.contains("mana receipt source mismatch"), "{err}");
+    // Matching stale incarnation on a retained physical definition still validates identity.
+    let mut forged = g.fork();
+    if let Frame::Mana { cast } | Frame::Payment { cast } = &mut forged.state.rules.frame {
+        let entry = &mut cast.mana_activations[index];
+        entry.object.incarnation += 1;
+        let p = entry.permanent.as_mut().unwrap();
+        p.source.object.incarnation += 1;
+        p.source.characteristics.kind = CardKind::Instant;
+    }
+    let err = forged.validate_state().unwrap_err();
+    assert!(!err.is_empty());
+    let err = restore_rejection(&forged, |_| {});
+    assert!(!err.is_empty());
 }

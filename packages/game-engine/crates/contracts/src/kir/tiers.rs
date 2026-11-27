@@ -223,6 +223,8 @@ pub enum Cell {
     // CR 611.2c, 613: until end of turn.
     PumpSource,
     PumpTarget,
+    /// CR 603.10, 611.2c: the creature an attack event names.
+    PumpEventObject,
     PumpSet,
     PumpAnnouncedX,
     /// CR 608.2h: a P/T change by a resolution count, read once.
@@ -352,6 +354,9 @@ pub enum Cell {
     /// CR 702.109a: the dash alternative cost, the haste it grants and the
     /// end-step return of the permanent the spell became.
     Dash,
+    /// CR 702.116a: per-opponent token copies of an attacking source, tapped
+    /// and attacking, and their end-of-combat exile.
+    Myriad,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -453,6 +458,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::CountedTokens
         | C::PlusOneCountersSet
         | C::PlusOneCountersEventObject
+        | C::PumpEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
         | C::PumpCounted
@@ -521,6 +527,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Unearth
         | C::Encore
         | C::Dash
+        | C::Myriad
         | C::SacrificeSource
         | C::KindCountersSource
         | C::KindCountersEventObject
@@ -682,6 +689,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ActivatedSourceKeywordGrantV1
         | C::FightV1
         | C::PopulateV1
+        | C::MyriadV1
+        | C::FlankingV1
         | C::PlayerCountersV1
         | C::RegenerationShieldV1
         | C::ProliferateV1

@@ -43,6 +43,7 @@ impl RulesTxn {
             || !self.state.rules.effects.is_empty()
             || !self.state.rules.combat.is_empty()
             || self.state.rules.combat_declared
+            || !self.state.rules.combat_defenders.is_empty()
             || !self.state.rules.damage_choices.is_empty()
             || !self.state.rules.commander_returns.is_empty()
             || !self.state.rules.control_effects.is_empty()

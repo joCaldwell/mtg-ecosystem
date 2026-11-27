@@ -136,6 +136,9 @@ impl RulesTxn {
         if matches!(node, Node::Do(Verb::SacrificeEncoreTokens {})) {
             return self.execute_encore_sacrifice(frame, source_block);
         }
+        if matches!(node, Node::Do(Verb::ExileMyriadTokens {})) {
+            return self.execute_myriad_exile(frame, source_block);
+        }
         // CR 119.3: the standalone drain pair uses the actual loss total.
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;
@@ -383,14 +386,36 @@ impl RulesTxn {
             ZoneExpr::Graveyards => true,
             _ => return Err("kernel set zone has no audited evaluation".into()),
         };
-        let you = self.entry(frame.stack_id)?.controller;
+        let entry = self.entry(frame.stack_id)?;
+        let you = entry.controller;
+        // CR 109.1: a top-level "other" excludes the exact source; the rest
+        // of the filter is read as performed.
+        let other = mtg_contracts::kir::Atom::IsNot {
+            object: Ref::Source,
+        };
+        let excluded = filter.0.contains(&other).then_some(entry.source);
+        let rest;
+        let filter = if excluded.is_some() {
+            rest = mtg_contracts::kir::Pred(
+                filter.0.iter().filter(|a| **a != other).cloned().collect(),
+            );
+            &rest
+        } else {
+            filter
+        };
         let objects = self
             .state
             .rules
             .objects
             .values()
             .filter(|object| {
-                crate::query::matches_zone_pred(&self.object_facts(object), you, zone, filter)
+                Some(object.id) != excluded
+                    && crate::query::matches_zone_pred(
+                        &self.object_facts(object),
+                        you,
+                        zone,
+                        filter,
+                    )
                     .is_yes()
             })
             .map(|object| object.id)
@@ -548,6 +573,55 @@ impl RulesTxn {
                 .ok_or_else(|| "missing devotion definition".into()),
             Amount::OtherCastsManaValue { caster } if caster.is_you() => {
                 self.other_casts_mana_value(self.entry(frame.stack_id)?)
+            }
+            // CR 509.1g, 506.4, 702.23a-b: the creatures still blocking the
+            // exact source now, read once; a blocker removed from combat or
+            // phased out no longer blocks it (CR 702.26b).
+            Amount::BlockersOf {
+                object: Ref::Source,
+                beyond,
+            } => {
+                let source = self.entry(frame.stack_id)?.source;
+                let blocking = self
+                    .state
+                    .rules
+                    .combat
+                    .iter()
+                    .find(|a| a.attacker == source)
+                    .map_or(0, |a| {
+                        a.blockers
+                            .iter()
+                            .filter(|b| {
+                                self.state.rules.blocking_creatures.contains(b)
+                                    && self
+                                        .current(**b)
+                                        .is_ok_and(|o| o.id == **b && o.present_on_battlefield())
+                            })
+                            .count()
+                    });
+                let count = blocking.saturating_sub(*beyond as usize);
+                Ok(Quantity::from(
+                    i64::try_from(count).map_err(|_| "blocker count limit")?,
+                ))
+            }
+            // CR 702.121a, 508.4: the declared defenders this combat that are
+            // still opponents in the game, when the controller is the
+            // attacking player.
+            Amount::OpponentsAttacked {} => {
+                let controller = self.entry(frame.stack_id)?.controller;
+                let count = if self.state.rules.active == Some(controller) {
+                    self.state
+                        .rules
+                        .combat_defenders
+                        .iter()
+                        .filter(|p| **p != controller && self.is_live(**p))
+                        .count()
+                } else {
+                    0
+                };
+                Ok(Quantity::from(
+                    i64::try_from(count).map_err(|_| "defender count limit")?,
+                ))
             }
             Amount::StatOf {
                 object: Ref::Target { slot },

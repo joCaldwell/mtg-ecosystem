@@ -670,6 +670,7 @@ impl RulesTxn {
         self.rules_mut().first_strike_participants.clear();
         self.rules_mut().damage_choices.clear();
         self.rules_mut().player_damage_choices.clear();
+        self.rules_mut().combat_defenders.clear();
     }
     pub(super) fn grant_turn_priority(&mut self) -> Result<(), String> {
         if matches!(self.state.rules.frame, Frame::Finished { .. } | Frame::Draw) {
@@ -1358,6 +1359,20 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
+        // CR 508.1: declared defenders exist only after a declaration this
+        // combat, in seat order, never the attacking player.
+        let defenders = &self.state.rules.combat_defenders;
+        if (!defenders.is_empty()
+            && (!self.state.rules.combat_declared
+                || self.state.rules.turn.step.phase() != Phase::Combat))
+            || defenders.windows(2).any(|pair| pair[0] >= pair[1])
+            || defenders.iter().any(|p| {
+                !self.state.rules.original_seating.contains(p)
+                    || Some(*p) == self.state.rules.active
+            })
+        {
+            return Err("declared combat defender invariant".into());
+        }
         // CR509.1g/506.4: an orphan blocker may have no damage link, but every
         // retained member is the exact creature still in combat. Declaration
         // provenance (including coherent extra members) is proved by replay.

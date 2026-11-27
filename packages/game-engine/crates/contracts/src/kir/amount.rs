@@ -48,6 +48,17 @@ pub enum Amount {
         object: Ref,
         counter: CounterKind,
     },
+    /// CR 509.1g, 702.23a: the number of creatures blocking `object` as the
+    /// verb is performed, less `beyond`, never below zero.
+    BlockersOf {
+        object: Ref,
+        beyond: u32,
+    },
+    /// CR 702.121a, 508.1: the number of opponents of the invocation's
+    /// controller that player declared a creature attacking this combat.
+    /// A creature put onto the battlefield attacking never attacked
+    /// (CR 508.4).
+    OpponentsAttacked {},
     /// CR 202.3, 601.2i: the total mana value of the spells `caster` cast
     /// this turn other than the resolving spell.
     OtherCastsManaValue {
@@ -100,7 +111,9 @@ impl Amount {
             Self::Count { .. }
             | Self::Greatest { .. }
             | Self::Devotion { .. }
-            | Self::CountersOn { .. } => true,
+            | Self::CountersOn { .. }
+            | Self::BlockersOf { .. }
+            | Self::OpponentsAttacked {} => true,
             Self::Times { of, .. } => of.is_resolution_count(),
             _ => false,
         }

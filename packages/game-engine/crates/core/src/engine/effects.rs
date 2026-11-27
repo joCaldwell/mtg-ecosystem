@@ -1379,10 +1379,38 @@ impl RulesTxn {
                     source_block,
                 )
             }
+            // CR 603.10, 611.2c: the exact creature the event named, while it
+            // is still that creature on the battlefield (CR 400.7).
+            kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
+            {
+                let target = self.event_object_target(&frame)?;
+                if !self.is_battlefield_creature(target) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::ModifyPowerToughness {
+                        target,
+                        power,
+                        toughness,
+                    },
+                    source_block,
+                )
+            }
 
             _ => return Err("unexpected effect instruction".into()),
         };
         self.commit_resolved_effect(frame, kind, block)
+    }
+
+    /// CR 603.10: the exact incarnation the resolving trigger's event bound.
+    pub(super) fn event_object_target(&self, frame: &Resolving) -> Result<ObjectId, String> {
+        Ok(self
+            .entry(frame.stack_id)?
+            .kind
+            .observed_object()?
+            .last_known
+            .object)
     }
 
     pub(super) fn commit_resolved_effect(
@@ -2164,6 +2192,20 @@ impl RulesTxn {
                             && toughness == t
                             && *source_block == effect.origin.source_block
                     }
+                    (
+                        kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
+                        ResolvedEffectKind::ModifyPowerToughness {
+                            target,
+                            power: p,
+                            toughness: t,
+                        },
+                    ) => {
+                        self.event_object_target(frame).ok() == Some(*target)
+                            && self.is_battlefield_creature(*target)
+                            && power == p
+                            && toughness == t
+                            && *source_block == effect.origin.source_block
+                    }
 
                     _ => false,
                 };
@@ -2744,7 +2786,7 @@ impl RulesTxn {
                     }
 
                     (
-                        kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
+                        kernel!(ModifyUntil { what: target_object!(_) | event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,

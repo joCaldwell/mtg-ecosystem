@@ -18,6 +18,7 @@ macro_rules! record {
     };
 }
 
+mod combat_keywords;
 mod discard_events;
 mod event_alternatives;
 mod intervening_history;

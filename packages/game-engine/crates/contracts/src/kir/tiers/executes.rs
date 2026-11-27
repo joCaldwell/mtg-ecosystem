@@ -984,6 +984,28 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     if let Some(modal) = &a.modal {
         modal_shape(&a.program, modal, true)?;
     }
+    // CR 702.116a: myriad is exactly the reviewed ability of a single-faced
+    // creature card; its tokens copy that card. CR 614.1c, 614.12: the
+    // copies' own entry replacements would modify their creation, which has
+    // no entry stage.
+    if a.names_myriad()
+        && (!a.is_myriad()
+            || kind != CardKind::Creature
+            || d.layout != FaceLayout::Single
+            || d.back_face.is_some()
+            || d.static_abilities.iter().any(|s| {
+                matches!(
+                    s.effect,
+                    StaticEffect::EntersTapped
+                        | StaticEffect::PayLifeOrEnterTapped { .. }
+                        | StaticEffect::RevealOrEnterTapped { .. }
+                        | StaticEffect::EntersTappedIf { .. }
+                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                )
+            }))
+    {
+        return cell("trigger", "myriad");
+    }
     for p in a.programs() {
         if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
             program(p, Context::Triggered, Some(&a.condition), false)?;
@@ -1104,6 +1126,8 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
                 | K::Horsemanship
                 | K::Fear
                 | K::Skulk
+                // CR 702.25a: with its trigger (`triggered`).
+                | K::Flanking
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
@@ -1114,6 +1138,12 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
 /// Complete admission of a composed definition. Nothing here defers to a
 /// whole-card family, so a rejected row can never be reached another way.
 pub(crate) fn validate(d: &Definition) -> Result<(), String> {
+    // CR 702.25a: the flanking marker and the flanking trigger come together.
+    if d.keywords.contains(&KeywordAbility::Flanking)
+        != d.triggered.iter().any(TriggeredAbility::is_flanking)
+    {
+        return cell("keyword", "flanking");
+    }
     let p = &d.provenance;
     let source: serde_json::Value = strict_read(&p.source_json)?;
     let abilities_json = match &d.back_face {

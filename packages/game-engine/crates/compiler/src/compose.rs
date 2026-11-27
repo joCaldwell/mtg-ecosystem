@@ -1332,6 +1332,13 @@ fn compose_face(
                                     .triggered
                                     .push(keywords::triggered(&card, keyword, label)?);
                                 labels.triggered.push(label);
+                                // CR 702.25a: "a creature without flanking"
+                                // reads this marker.
+                                if keyword.keyword == "flanking"
+                                    && !definition.keywords.contains(&KeywordAbility::Flanking)
+                                {
+                                    definition.keywords.push(KeywordAbility::Flanking);
+                                }
                             }
                         }
                         _ => definition

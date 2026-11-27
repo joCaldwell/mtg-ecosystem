@@ -279,6 +279,16 @@ pub enum TriggerEventWitness {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         binding: Option<ObservedObject>,
         defender_player_id: PlayerId,
+        /// CR 506.5: the only creature declared as an attacker.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        alone: bool,
+        /// CR 702.149a: another creature of greater power was declared too.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        outpowered: bool,
+        /// CR 702.105a: the defender had the most life or tied for most
+        /// life among the players in the game.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        most_life: bool,
     },
     AttackerUnblocked {
         attacker: Box<ObjectBefore>,
@@ -333,6 +343,8 @@ pub enum TriggerEventWitness {
     BecameBlocked {
         attacker: Box<ObjectBefore>,
         controller_at_match: PlayerId,
+        /// CR 506.2, 702.130a: the player it was attacking.
+        defender: PlayerId,
     },
     /// CR 509.3b, 509.3f: one declared blocking pair, both as they were
     /// before the declaration, observed from the blocker's side.
@@ -346,6 +358,10 @@ pub enum TriggerEventWitness {
         attacker: Box<ObjectBefore>,
         blocker: Box<ObjectBefore>,
         controller_at_match: PlayerId,
+        /// CR 702.25a, 603.10: the blocker an effect names ("the blocking
+        /// creature"), bound when the ability triggers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binding: Option<ObservedObject>,
     },
     /// CR 120.3, 603.2c: a permanent dealt positive damage by one
     /// simultaneous damage event, as it was when the damage was dealt.
@@ -396,16 +412,18 @@ pub enum TriggerEventWitness {
 impl TriggerEventWitness {
     pub(super) fn observed_object(&self) -> Option<&ObservedObject> {
         match self {
-            Self::Entered { binding, .. } | Self::CreatureAttacked { binding, .. } => {
-                binding.as_ref()
-            }
+            Self::Entered { binding, .. }
+            | Self::CreatureAttacked { binding, .. }
+            | Self::BlockedByCreature { binding, .. } => binding.as_ref(),
             _ => None,
         }
     }
 
     pub(super) fn refresh_observed_object(&mut self, facts: &ObjectBefore) {
         match self {
-            Self::Entered { binding, .. } | Self::CreatureAttacked { binding, .. } => {
+            Self::Entered { binding, .. }
+            | Self::CreatureAttacked { binding, .. }
+            | Self::BlockedByCreature { binding, .. } => {
                 if let Some(binding) = binding
                     && binding.last_known.object == facts.object
                 {
@@ -456,7 +474,9 @@ impl TriggerEventWitness {
             | Self::LifeGained { player, .. }
             | Self::Discarded { player, .. }
             | Self::Sacrificed { player, .. } => Some(*player),
-            Self::AttackerUnblocked { defender, .. } => Some(*defender),
+            Self::AttackerUnblocked { defender, .. } | Self::BecameBlocked { defender, .. } => {
+                Some(*defender)
+            }
             Self::SpellCast { cast } => Some(cast.caster),
             _ => None,
         }
@@ -711,6 +731,11 @@ fn binds_observed_object(ability: &TriggeredAbility) -> bool {
                             object: Ref::EventObject { .. }
                         },
                         ..
+                    } | kir::Verb::ModifyUntil {
+                        what: kir::SetExpr::One {
+                            object: Ref::EventObject { .. }
+                        },
+                        ..
                     }
                 )
             )
@@ -836,7 +861,8 @@ impl RulesTxn {
                 EventOutcome::TokenCopied { object, .. } => std::slice::from_ref(object),
                 EventOutcome::TokensCreated { objects, .. }
                 | EventOutcome::PredefinedTokensCreated { objects, .. }
-                | EventOutcome::EncoreTokensCreated { objects, .. } => objects,
+                | EventOutcome::EncoreTokensCreated { objects, .. }
+                | EventOutcome::MyriadTokensCreated { objects, .. } => objects,
                 actual => movement(actual)
                     .filter(|m| m.from != Zone::Battlefield && m.destination == Zone::Battlefield)
                     .map_or(&[][..], |m| std::slice::from_ref(&m.successor)),
@@ -887,6 +913,11 @@ impl RulesTxn {
                     ..
                 }
                 | EventOutcome::PredefinedTokensCreated {
+                    objects,
+                    controller,
+                    ..
+                }
+                | EventOutcome::MyriadTokensCreated {
                     objects,
                     controller,
                     ..
@@ -1033,8 +1064,27 @@ impl RulesTxn {
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 EventOutcome::AttackersDeclared { attacks } => {
                     let mut witnesses = Vec::new();
+                    // CR 508.1m, 603.10, 702.149a, 702.105a: training and
+                    // dethrone read the completed declaration, with the
+                    // continuous effects that apply once the attackers have
+                    // tapped; the attack itself is matched on prior facts.
+                    let power = |object: ObjectId| -> Result<Option<Quantity>, String> {
+                        Ok(self.characteristics(object)?.power)
+                    };
+                    let life = |p: PlayerId| &self.state.rules.players[p.0 as usize].life;
+                    let most = self.apnap_players().into_iter().map(life).max().cloned();
                     for (attacker, defender) in attacks {
                         let prior = before.object_before(*attacker)?;
+                        let mut outpowered = false;
+                        if let Some(own) = power(*attacker)? {
+                            for (other, _) in attacks {
+                                if other != attacker && power(*other)?.is_some_and(|p| p > own) {
+                                    outpowered = true;
+                                }
+                            }
+                        }
+                        let most_life =
+                            self.is_live(*defender) && most.as_ref() == Some(life(*defender));
                         // The declaration leaf applies its taps internally
                         // (508.1f). Vigilance leaves the source untapped.
                         if !prior.tapped
@@ -1046,6 +1096,10 @@ impl RulesTxn {
                             attacker: Box::new(prior),
                             binding: None,
                             defender_player_id: *defender,
+                            // CR 506.5: only the declaration's sole attacker.
+                            alone: attacks.len() == 1,
+                            outpowered,
+                            most_life,
                         });
                     }
                     witnesses
@@ -1081,6 +1135,7 @@ impl RulesTxn {
                 }
                 EventOutcome::TokensCreated { objects, .. }
                 | EventOutcome::EncoreTokensCreated { objects, .. }
+                | EventOutcome::MyriadTokensCreated { objects, .. }
                 | EventOutcome::PredefinedTokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })
@@ -1171,6 +1226,7 @@ impl RulesTxn {
                         controller_at_match: a.controller,
                         attacker: a,
                         blocker: b,
+                        binding: None,
                     });
                     if blockers.insert(*blocker) {
                         let facts = before.object_before(*blocker)?;
@@ -1180,17 +1236,18 @@ impl RulesTxn {
                         });
                     }
                     if attackers.insert(*attacker)
-                        && before
+                        && let Some(attack) = before
                             .state
                             .rules
                             .combat
                             .iter()
-                            .any(|a| a.attacker == *attacker && !a.blocked)
+                            .find(|a| a.attacker == *attacker && !a.blocked)
                     {
                         let facts = before.object_before(*attacker)?;
                         witnesses.push(TriggerEventWitness::BecameBlocked {
                             controller_at_match: facts.controller,
                             attacker: Box::new(facts),
+                            defender: attack.defender,
                         });
                     }
                 }
@@ -1578,6 +1635,23 @@ impl RulesTxn {
                     EventPattern::Attacks { attacker: pred } => {
                         matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, .. }
                             if holds(pred, Some(&Frozen {
+                                facts: attacker,
+                                token: token(attacker.object),
+                                live: observers.is_live(attacker.controller),
+                            }), you, attacker.object, &identity))
+                    }
+                    // CR 506.5, 702.83a: "attacks alone"; CR 702.149a: with a
+                    // greater-power attacker; CR 702.105a: the player with
+                    // the most life.
+                    EventPattern::AttacksAlone { attacker: pred }
+                    | EventPattern::AttacksWithGreaterPower { attacker: pred }
+                    | EventPattern::AttacksPlayerWithMostLife { attacker: pred } => {
+                        matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, alone, outpowered, most_life, .. }
+                            if match pattern {
+                                EventPattern::AttacksAlone { .. } => *alone,
+                                EventPattern::AttacksWithGreaterPower { .. } => *outpowered,
+                                _ => *most_life,
+                            } && holds(pred, Some(&Frozen {
                                 facts: attacker,
                                 token: token(attacker.object),
                                 live: observers.is_live(attacker.controller),
@@ -1979,7 +2053,8 @@ impl RulesTxn {
             if let Some(facts) = observed {
                 let binding = match &mut witness {
                     TriggerEventWitness::Entered { binding, .. }
-                    | TriggerEventWitness::CreatureAttacked { binding, .. } => binding,
+                    | TriggerEventWitness::CreatureAttacked { binding, .. }
+                    | TriggerEventWitness::BlockedByCreature { binding, .. } => binding,
                     _ => return Err("bound event object has no typed witness".into()),
                 };
                 *binding = Some(ObservedObject {
@@ -2866,6 +2941,9 @@ impl RulesTxn {
             TriggerEventWitness::CreatureAttacked {
                 attacker,
                 defender_player_id,
+                alone,
+                outpowered,
+                most_life,
                 ..
             } => {
                 // CR 603.3a: the controller of the attacking source at the
@@ -2889,9 +2967,31 @@ impl RulesTxn {
                         .get(&attacker.object.card)
                         .is_some_and(|c| c.owner == attacker.owner)
                     && attacker.characteristics.has_type(CardKind::Creature)
-                    && matches!(pattern, EventPattern::Attacks { attacker: pred }
-                        if holds(pred, Some(&frozen(attacker)), controller, attacker.object,
-                            &identity(attacker.object)))
+                    && match pattern {
+                        EventPattern::Attacks { attacker: pred } => holds(
+                            pred,
+                            Some(&frozen(attacker)),
+                            controller,
+                            attacker.object,
+                            &identity(attacker.object),
+                        ),
+                        EventPattern::AttacksAlone { attacker: pred }
+                        | EventPattern::AttacksWithGreaterPower { attacker: pred }
+                        | EventPattern::AttacksPlayerWithMostLife { attacker: pred } => {
+                            (match pattern {
+                                EventPattern::AttacksAlone { .. } => *alone,
+                                EventPattern::AttacksWithGreaterPower { .. } => *outpowered,
+                                _ => *most_life,
+                            }) && holds(
+                                pred,
+                                Some(&frozen(attacker)),
+                                controller,
+                                attacker.object,
+                                &identity(attacker.object),
+                            )
+                        }
+                        _ => false,
+                    }
                     && death_controller.is_none()
                 // Deliberately no current combat/player-liveness requirement:
                 // CR 113.7a/800.4 preserve a surviving controller's invocation.
@@ -3017,6 +3117,7 @@ impl RulesTxn {
                 blocker,
                 attacker,
                 controller_at_match,
+                ..
             } => {
                 self.validate_fact_identity(blocker)?;
                 self.validate_fact_identity(attacker)?;
@@ -3081,6 +3182,7 @@ impl RulesTxn {
             | TriggerEventWitness::BecameBlocked {
                 attacker: facts,
                 controller_at_match,
+                ..
             }
             | TriggerEventWitness::PermanentDamaged {
                 recipient: facts,
@@ -3088,6 +3190,12 @@ impl RulesTxn {
                 ..
             } => {
                 self.validate_fact_identity(facts)?;
+                if let TriggerEventWitness::BecameBlocked { defender, .. } = witness
+                    && (!self.state.rules.original_seating.contains(defender)
+                        || *defender == facts.controller)
+                {
+                    return Err("snapshot blocked attacker defender invariant".into());
+                }
                 let matched = match (witness, pattern) {
                     (
                         TriggerEventWitness::Blocked { .. },

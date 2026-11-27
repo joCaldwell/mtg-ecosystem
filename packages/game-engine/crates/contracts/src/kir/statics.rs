@@ -592,6 +592,8 @@ fn cda_amount(amount: &Amount) -> bool {
         | Amount::CountersOn { .. }
         | Amount::Greatest { .. }
         | Amount::LifeOf { .. }
+        | Amount::BlockersOf { .. }
+        | Amount::OpponentsAttacked {}
         | Amount::OtherCastsManaValue { .. } => false,
     }
 }
@@ -749,6 +751,7 @@ fn removable_keywords(keywords: &[KeywordAbility]) -> bool {
                 KeywordAbility::Flash
                     | KeywordAbility::ProtectionFromEverything
                     | KeywordAbility::ProtectionFromEachColor
+                    | KeywordAbility::Flanking
             )
         })
 }
@@ -1005,7 +1008,8 @@ impl crate::StaticAbility {
                                         | KeywordAbility::Shroud => true,
                                         KeywordAbility::Flash
                                         | KeywordAbility::ProtectionFromEverything
-                                        | KeywordAbility::ProtectionFromEachColor => false,
+                                        | KeywordAbility::ProtectionFromEachColor
+                                        | KeywordAbility::Flanking => false,
                                         _ => creature_scope(affects, kind),
                                     }
                                 })
