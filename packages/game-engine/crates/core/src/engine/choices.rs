@@ -41,12 +41,13 @@ pub enum ControllerMeasurement {
     Life(Quantity),
     HandCount(u32),
     GraveyardCount(u32),
+    CreatureTotalPower(Quantity),
 }
 
 impl ControllerMeasurement {
     fn quantity(&self) -> Quantity {
         match self {
-            Self::Life(life) => life.clone(),
+            Self::Life(value) | Self::CreatureTotalPower(value) => value.clone(),
             Self::HandCount(count) | Self::GraveyardCount(count) => {
                 Quantity::from(i64::from(*count))
             }
@@ -251,6 +252,14 @@ impl InterveningCheck {
                     passed,
                 },
             ) => *c == controller && *hand_count <= card_bound && *passed == (*hand_count == 0),
+            (
+                Intervening::ControllerCreatureTotalPower { cmp, value },
+                Self::ControllerComparison {
+                    controller: checked,
+                    observed: ControllerMeasurement::CreatureTotalPower(total),
+                    passed,
+                },
+            ) => *checked == controller && *passed == compare(total, *cmp, value),
             (
                 Intervening::ControllerComparison {
                     measure,
@@ -593,6 +602,30 @@ impl RulesTxn {
                     controller,
                     hand_count,
                     passed: hand_count == 0,
+                }
+            }
+            Intervening::ControllerCreatureTotalPower { cmp, value } => {
+                let mut total = Quantity::zero();
+                for object in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield() && o.controller == controller)
+                {
+                    let characteristics = self.characteristics(object.id)?;
+                    if characteristics.has_type(CardKind::Creature) {
+                        total.add(
+                            &characteristics
+                                .power
+                                .ok_or("missing battlefield creature power")?,
+                        );
+                    }
+                }
+                InterveningCheck::ControllerComparison {
+                    controller,
+                    passed: compare(&total, *cmp, value),
+                    observed: ControllerMeasurement::CreatureTotalPower(total),
                 }
             }
             Intervening::ControllerComparison {

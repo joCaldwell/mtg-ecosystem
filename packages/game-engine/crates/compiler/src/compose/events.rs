@@ -940,6 +940,21 @@ pub(super) fn intervening(
             }
         }
     }
+    if *condition
+        == serde_json::json!({
+            "condition": "compare", "comparison": &condition["comparison"],
+            "value": {"amount": "attribute-sum", "attribute": "power",
+                "among": {"ref": "each", "filter": {"types": ["creature"], "control": "you"}}}
+        })
+    {
+        let (cmp, value) =
+            control::comparison(&condition["comparison"]).map_err(|_| unsupported_intervening())?;
+        let candidate = kir::Intervening::ControllerCreatureTotalPower { cmp, value };
+        return candidate
+            .admits(pattern)
+            .then_some(candidate)
+            .ok_or_else(unsupported_intervening);
+    }
     let measure = match shape {
         Some("life-total" | "cards-in-hand") if fields == Some(3) && condition["who"] == you => {
             if shape == Some("life-total") {

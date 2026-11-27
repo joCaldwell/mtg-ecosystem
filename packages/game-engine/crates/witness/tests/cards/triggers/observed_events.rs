@@ -587,3 +587,44 @@ fn observed_events_map_compares_only_the_entering_lands_controller() {
     settle(&mut game);
     assert_eq!(intervening(&game, map), [(true, true), (false, true)]);
 }
+
+#[test]
+fn observed_events_surrak_rechecks_total_creature_power() {
+    const SURRAK: &str = record!("fa56a5fa-ef96-404c-8fb6-d1f5fcebb52e");
+    for enough_power in [false, true] {
+        let mut setup = board_with(compiled(&[SURRAK], false), TurnStep::PrecombatMain)
+            .permanent_or_hand("Surrak, the Hunt Caller", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false);
+        if enough_power {
+            setup = setup.permanent_or_hand("Grizzly Bears", 0, 0, false);
+        }
+        let mut game = Game::with_trace(prepare(setup), TraceMode::Detailed);
+        let surrak = Driver::object(&game, 0);
+        let target = Driver::object(&game, 1);
+        drive(&mut game, &[], |g| {
+            g.state.rules.turn.step == TurnStep::BeginningCombat
+        });
+        if enough_power {
+            Driver::pick_object(&mut game, target);
+            drive(&mut game, &[], triggered);
+            checked(&game);
+            let other = Driver::object(&game, 5);
+            Driver::cast(&mut game, CardId(2));
+            Driver::pick_object(&mut game, other);
+            Driver::pay(&mut game, &[3]);
+            settle(&mut game);
+        }
+        assert_eq!(
+            intervening(&game, surrak),
+            if enough_power {
+                vec![(true, true), (false, false)]
+            } else {
+                vec![(true, false)]
+            }
+        );
+        checked(&game);
+    }
+}

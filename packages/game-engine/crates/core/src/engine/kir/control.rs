@@ -307,6 +307,7 @@ impl RulesTxn {
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
             | Cond::EventOpponentControlsMore { .. }
+            | Cond::ControllerCreatureTotalPower { .. }
             | Cond::ControlledSinceLastUpkeep {} => {
                 return Err("intervening condition in a resolving node".into());
             }

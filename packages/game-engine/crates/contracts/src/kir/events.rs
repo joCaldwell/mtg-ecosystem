@@ -717,6 +717,11 @@ pub enum Intervening {
     EventOpponentControlsMore {
         kind: CardKind,
     },
+    /// CR 107.1b, 603.4: total signed power of creatures you control.
+    ControllerCreatureTotalPower {
+        cmp: Cmp,
+        value: Quantity,
+    },
     /// "if you control a creature with power N or greater" (CR 208).
     ControllerHasCreatureWithPower {
         minimum_power: Quantity,
@@ -823,6 +828,12 @@ impl Intervening {
                 identity: identity.clone(),
             },
             Self::SourceControlledSinceLastUpkeep => Cond::ControlledSinceLastUpkeep {},
+            Self::ControllerCreatureTotalPower { cmp, value } => {
+                Cond::ControllerCreatureTotalPower {
+                    cmp: *cmp,
+                    value: value.clone(),
+                }
+            }
             Self::ControllerHandEmpty => Cond::Compare {
                 left: Amount::Count {
                     set: SetExpr::Matching {
@@ -911,6 +922,12 @@ impl Intervening {
             Cond::EventOpponentControlsMore {
                 kind: kind @ (CardKind::Land | CardKind::Creature),
             } => Self::EventOpponentControlsMore { kind: *kind },
+            Cond::ControllerCreatureTotalPower { cmp, value } if !value.is_negative() => {
+                Self::ControllerCreatureTotalPower {
+                    cmp: *cmp,
+                    value: value.clone(),
+                }
+            }
             Cond::Compare {
                 left:
                     Amount::Count {

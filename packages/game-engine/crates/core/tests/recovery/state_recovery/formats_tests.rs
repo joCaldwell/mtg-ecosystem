@@ -20,12 +20,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    94,
-    "51ef4657c6a6a05458c2dcd96544e2e5d1533494b53cfb5382663e2757adb748",
+    96,
+    "7cddcd166178cf4280eabdb08f62030367adcd9d627fd553dd84ace40cccd18d",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    126,
-    "99b86a1ff751f26e5d29b608cbd4b2c8136ca453da5e440efd3a1bf5adeea73a",
+    127,
+    "f269c9cec0bb3e7a929e3ce72869f07aafa78339026a151f7b680213006b26eb",
 );
 const WORK_PIN: (u32, &str) = (
     63,
@@ -667,6 +667,7 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
         ControllerMeasurement::Life(5.into()),
         ControllerMeasurement::HandCount(7),
         ControllerMeasurement::GraveyardCount(3),
+        ControllerMeasurement::CreatureTotalPower(9.into()),
     ]
     .into_iter()
     .map(move |observed| InterveningCheck::ControllerComparison {

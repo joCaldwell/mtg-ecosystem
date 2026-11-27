@@ -645,6 +645,7 @@ impl RulesTxn {
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
             | Cond::EventOpponentControlsMore { .. }
+            | Cond::ControllerCreatureTotalPower { .. }
             | Cond::ControlledSinceLastUpkeep {} => false,
         }
     }

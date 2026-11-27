@@ -747,6 +747,7 @@ impl Walk<'_, '_> {
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
             | Cond::EventOpponentControlsMore { .. }
+            | Cond::ControllerCreatureTotalPower { .. }
             | Cond::ControlledSinceLastUpkeep {} => {
                 unaudited("intervening condition in a resolving node")
             }
