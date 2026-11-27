@@ -1,0 +1,13 @@
+[project]
+name = "mtg-pilot"
+version = "0.1.0"
+description = "PPO training for the mtg-env Commander pilot"
+requires-python = ">=3.11"
+dependencies = ["numpy", "torch>=2.4"]
+
+[project.scripts]
+mtg-pilot-train = "pilot.train:main"
+mtg-pilot-evaluate = "pilot.evaluate:main"
+
+[tool.setuptools]
+packages = ["pilot"]
