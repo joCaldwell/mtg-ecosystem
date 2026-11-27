@@ -17,6 +17,60 @@ pub struct BulkBuildReport {
     pub manifest: BulkManifest,
 }
 
+/// Where a record's outcome was decided: archive scope/exclusion, the
+/// archived reader result, compiler lowering, or IR validation after lowering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutcomePhase {
+    Scope,
+    Read,
+    Lower,
+    Validate,
+}
+
+/// One `outcomes.jsonl` row per archive identity, in index order and joined
+/// to the index by `oracle_id`, `source_index` and `archive_line`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutcomeRow {
+    pub oracle_id: String,
+    pub source_index: u32,
+    pub archive_line: usize,
+    pub status: BulkStatus,
+    pub phase: OutcomePhase,
+    pub reason_code: Option<String>,
+    /// A JSON pointer into the archive record for read failures, or the
+    /// compiler field path for lowering failures.
+    pub location: Option<String>,
+}
+
+pub const OUTCOMES_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// Each published file name with the proof of its staged bytes.
+pub(crate) type StagedFiles = Vec<(&'static str, JsonByteProof)>;
+
+/// A read, verified and assessed archive, ready to publish.
+pub(crate) struct Intake {
+    pub identity: &'static AcceptedArchive,
+    pub catalog: Catalog,
+    pub index: BulkIndex,
+    pub counts: BTreeMap<BulkStatus, usize>,
+    pub outcomes: Vec<OutcomeRow>,
+}
+
+/// Failure of the archive read (`Reader`) or of catalog validation (`Compiler`).
+#[derive(Debug)]
+pub(crate) enum IntakeError {
+    Reader(String),
+    Compiler(String),
+}
+impl IntakeError {
+    pub fn into_message(self) -> String {
+        match self {
+            Self::Reader(e) | Self::Compiler(e) => e,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SourceBytes {
@@ -50,11 +104,19 @@ fn line_text(bytes: &[u8]) -> Result<&str, String> {
     std::str::from_utf8(trimmed).map_err(|e| e.to_string())
 }
 
+/// The assessed catalog, index, status counts and outcomes of one archive.
+type IntakeRows = (
+    Catalog,
+    BulkIndex,
+    BTreeMap<BulkStatus, usize>,
+    Vec<OutcomeRow>,
+);
+
 fn intake(
     mut reader: impl BufRead,
     mut bytes: Vec<u8>,
     archive: &AcceptedArchive,
-) -> Result<(Catalog, BulkIndex, BTreeMap<BulkStatus, usize>), String> {
+) -> Result<IntakeRows, String> {
     let file_pin = archive
         .file_sha256
         .as_deref()
@@ -65,6 +127,7 @@ fn intake(
     let mut definitions = Vec::new();
     let mut counts = BTreeMap::new();
     let mut rows = Vec::new();
+    let mut outcomes = Vec::new();
     let mut ids = BTreeSet::new();
     loop {
         let read = read_line(&mut reader, &mut bytes, ARCHIVE_MAX_LINE_BYTES)?;
@@ -106,20 +169,44 @@ fn intake(
             return Err(format!("source hash drift on archive line {archive_line}"));
         }
         let facts = BulkCardFacts::from_source(source)?;
-        let (status, reason_code) = match assess_record(archive, raw, &row) {
+        let (status, reason_code, phase, location) = match assess_record(archive, raw, &row) {
             RecordAssessment::Definition(definition) => {
                 definitions.push(definition);
-                (BulkStatus::LoweredValidated, None)
+                (
+                    BulkStatus::LoweredValidated,
+                    None,
+                    OutcomePhase::Validate,
+                    None,
+                )
             }
-            RecordAssessment::Gap { status, reason } => {
-                if reason.is_empty() || reason.len() > REASON_MAX_BYTES {
+            RecordAssessment::Gap {
+                status,
+                reason,
+                phase,
+                location,
+            } => {
+                if reason.is_empty()
+                    || reason.len() > REASON_MAX_BYTES
+                    || location
+                        .as_ref()
+                        .is_some_and(|l| l.is_empty() || l.len() > REASON_MAX_BYTES)
+                {
                     return Err(format!(
                         "coverage reason size on archive line {archive_line}"
                     ));
                 }
-                (status, Some(reason))
+                (status, Some(reason), phase, location)
             }
         };
+        outcomes.push(OutcomeRow {
+            oracle_id: id.into(),
+            source_index: source_bytes.source_index,
+            archive_line,
+            status,
+            phase,
+            reason_code: reason_code.clone(),
+            location,
+        });
         rows.push(BulkIndexRow {
             oracle_id: id.into(),
             facts,
@@ -140,73 +227,131 @@ fn intake(
     }
     definitions.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     rows.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    outcomes.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     let catalog = Catalog {
         schema_version: CURRENT_IR_VERSION,
         rules_edition: RULES_EDITION.into(),
         rules_sha256: RULES_SHA256.into(),
         definitions,
     };
-    catalog.validate()?;
-    Ok((catalog, BulkIndex { rows }, counts))
+    Ok((catalog, BulkIndex { rows }, counts, outcomes))
 }
 
-pub fn build_ir(archive: &Path, out: &Path, producer: &str) -> Result<BulkBuildReport, String> {
+/// Open, verify and assess an accepted archive. `Compiler` marks only the
+/// final catalog validation; every other failure is the archive read.
+pub(crate) fn read_archive(archive: &Path) -> Result<Intake, IntakeError> {
+    let reader_error = IntakeError::Reader;
     let check = |metadata: fs::Metadata| {
         if !metadata.is_file() || metadata.len() > ARCHIVE_MAX_BYTES {
             return Err("invalid archive file or size".to_owned());
         }
         Ok(())
     };
-    if !is_sha256(producer) {
-        return Err("invalid producer identity".into());
-    }
-    check(fs::symlink_metadata(archive).map_err(|e| e.to_string())?)?;
-    let file = File::open(archive).map_err(|e| e.to_string())?;
-    check(file.metadata().map_err(|e| e.to_string())?)?;
+    check(
+        fs::symlink_metadata(archive)
+            .map_err(|e| e.to_string())
+            .map_err(reader_error)?,
+    )
+    .map_err(reader_error)?;
+    let file = File::open(archive).map_err(|e| reader_error(e.to_string()))?;
+    check(file.metadata().map_err(|e| reader_error(e.to_string()))?).map_err(reader_error)?;
     let mut reader = BufReader::with_capacity(BUFFER, file);
     let mut header = Vec::new();
-    read_line(&mut reader, &mut header, ARCHIVE_MAX_LINE_BYTES)?;
-    let identity = accepted_manifest(line_text(&header)?)?;
-    let (catalog, index, counts) = intake(reader, header, identity)?;
-    publish(out, |stage| {
-        let catalog_proof = write_payload(&stage.join("catalog.json"), CATALOG_MAX_BYTES, |w| {
-            write_catalog_canonical(&catalog, w)
-        })?;
-        let index_proof = write_payload(&stage.join("index.json"), INDEX_MAX_BYTES, |w| {
-            serde_json::to_writer(w, &index).map_err(|e| e.to_string())
-        })?;
-        let manifest = BulkManifest {
-            format_version: BULK_FORMAT_VERSION,
-            ir_version: CURRENT_IR_VERSION,
-            rules_edition: RULES_EDITION.into(),
-            rules_sha256: RULES_SHA256.into(),
-            producer_build_id: producer.into(),
-            archive_sha256: identity
-                .file_sha256
-                .clone()
-                .ok_or("archive is missing a full-file pin")?,
-            archive_manifest_sha256: identity.manifest_sha256.clone(),
-            parser_revision: identity.parser_revision.clone(),
-            parser_source_sha256: identity.parser_source_sha256.clone(),
-            catalog_digest: catalog_proof.sha256.clone(),
-            catalog: catalog_proof,
-            index: index_proof,
-            outcome_counts: counts,
-        };
-        manifest.validate(producer)?;
-        validate_index(&manifest, &catalog, &index)?;
-        let proof = write_payload(&stage.join("manifest.json"), MANIFEST_MAX_BYTES, |w| {
-            w.write_all(canonical(&manifest)?.as_bytes())
-                .map_err(|e| e.to_string())
-        })?;
-        Ok(BulkBuildReport {
-            manifest_sha256: proof.sha256,
-            manifest,
-        })
+    read_line(&mut reader, &mut header, ARCHIVE_MAX_LINE_BYTES).map_err(reader_error)?;
+    let identity =
+        accepted_manifest(line_text(&header).map_err(reader_error)?).map_err(reader_error)?;
+    let (catalog, index, counts, outcomes) =
+        intake(reader, header, identity).map_err(reader_error)?;
+    catalog.validate().map_err(IntakeError::Compiler)?;
+    Ok(Intake {
+        identity,
+        catalog,
+        index,
+        counts,
+        outcomes,
     })
 }
 
-struct ProofWriter {
+/// Write the three bulk format-2 files into `stage`.
+pub(crate) fn write_bulk(
+    stage: &Path,
+    intake: &Intake,
+    producer: &str,
+) -> Result<BulkBuildReport, String> {
+    let Intake {
+        identity,
+        catalog,
+        index,
+        counts,
+        ..
+    } = intake;
+    let catalog_proof = write_payload(&stage.join("catalog.json"), CATALOG_MAX_BYTES, |w| {
+        write_catalog_canonical(catalog, w)
+    })?;
+    let index_proof = write_payload(&stage.join("index.json"), INDEX_MAX_BYTES, |w| {
+        serde_json::to_writer(w, index).map_err(|e| e.to_string())
+    })?;
+    let manifest = BulkManifest {
+        format_version: BULK_FORMAT_VERSION,
+        ir_version: CURRENT_IR_VERSION,
+        rules_edition: RULES_EDITION.into(),
+        rules_sha256: RULES_SHA256.into(),
+        producer_build_id: producer.into(),
+        archive_sha256: identity
+            .file_sha256
+            .clone()
+            .ok_or("archive is missing a full-file pin")?,
+        archive_manifest_sha256: identity.manifest_sha256.clone(),
+        parser_revision: identity.parser_revision.clone(),
+        parser_source_sha256: identity.parser_source_sha256.clone(),
+        catalog_digest: catalog_proof.sha256.clone(),
+        catalog: catalog_proof,
+        index: index_proof,
+        outcome_counts: counts.clone(),
+    };
+    manifest.validate(producer)?;
+    validate_index(&manifest, catalog, index)?;
+    let proof = write_payload(&stage.join("manifest.json"), MANIFEST_MAX_BYTES, |w| {
+        w.write_all(canonical(&manifest)?.as_bytes())
+            .map_err(|e| e.to_string())
+    })?;
+    Ok(BulkBuildReport {
+        manifest_sha256: proof.sha256,
+        manifest,
+    })
+}
+
+/// Published file names and proofs of the three bulk format-2 files.
+pub(crate) fn bulk_files(stage: &Path, report: &BulkBuildReport) -> Result<StagedFiles, String> {
+    Ok(vec![
+        ("catalog.json", report.manifest.catalog.clone()),
+        ("index.json", report.manifest.index.clone()),
+        (
+            "manifest.json",
+            JsonByteProof {
+                bytes: fs::metadata(stage.join("manifest.json"))
+                    .map_err(|e| e.to_string())?
+                    .len(),
+                sha256: report.manifest_sha256.clone(),
+            },
+        ),
+    ])
+}
+
+pub fn build_ir(archive: &Path, out: &Path, producer: &str) -> Result<BulkBuildReport, String> {
+    if !is_sha256(producer) {
+        return Err("invalid producer identity".into());
+    }
+    let intake = read_archive(archive).map_err(IntakeError::into_message)?;
+    publish(out, false, |stage| {
+        let report = write_bulk(stage, &intake, producer)?;
+        let files = bulk_files(stage, &report)?;
+        Ok((report, files))
+    })
+    .map_err(PublishError::into_message)
+}
+
+pub(crate) struct ProofWriter {
     file: BufWriter<File>,
     limit: u64,
     bytes: u64,
@@ -226,7 +371,7 @@ impl Write for ProofWriter {
         self.file.flush()
     }
 }
-fn write_payload(
+pub(crate) fn write_payload(
     path: &Path,
     limit: u64,
     encode: impl FnOnce(&mut ProofWriter) -> Result<(), String>,
@@ -268,17 +413,66 @@ fn matches_payload(path: &Path, proof: &JsonByteProof) -> bool {
     read().unwrap_or(false)
 }
 
-fn publish(
+/// A publication failure: the staged write itself, or exposing the bundle.
+#[derive(Debug)]
+pub(crate) enum PublishError<E> {
+    Write(E),
+    Destination(String),
+}
+impl PublishError<String> {
+    fn into_message(self) -> String {
+        match self {
+            Self::Write(e) | Self::Destination(e) => e,
+        }
+    }
+}
+
+/// Whether `out` already holds exactly these published bytes. With `exact`,
+/// the directory must contain no other entry.
+fn matches_bundle(out: &Path, files: &StagedFiles, exact: bool) -> bool {
+    fs::symlink_metadata(out).is_ok_and(|m| m.is_dir())
+        && files
+            .iter()
+            .all(|(name, proof)| matches_payload(&out.join(name), proof))
+        && (!exact
+            || fs::read_dir(out).is_ok_and(|entries| {
+                let names = entries
+                    .map(|e| e.map(|e| e.file_name()))
+                    .collect::<Result<BTreeSet<_>, _>>();
+                names.is_ok_and(|names| {
+                    names.len() == files.len()
+                        && files
+                            .iter()
+                            .all(|(name, _)| names.contains(std::ffi::OsStr::new(name)))
+                })
+            }))
+}
+
+fn sync_dir(path: &Path) -> Result<(), String> {
+    File::open(path)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| format!("cannot sync {}: {e}", path.display()))
+}
+
+/// Write files into a private 0700 sibling stage, re-verify each against its
+/// proof, sync the stage, rename it onto `out` once and sync the parent.
+/// When the rename fails, success requires `out` to already hold the same
+/// files (exactly those files when `exact`): an identical retry or a
+/// concurrent identical writer. A failure never exposes a partial `out`;
+/// a killed process can leave only private `.bulk-stage-*` debris.
+pub(crate) fn publish<R, E>(
     out: &Path,
-    write: impl FnOnce(&Path) -> Result<BulkBuildReport, String>,
-) -> Result<BulkBuildReport, String> {
+    exact: bool,
+    write: impl FnOnce(&Path) -> Result<(R, StagedFiles), E>,
+) -> Result<R, PublishError<E>> {
     use std::os::unix::fs::DirBuilderExt;
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    let destination = |e: String| PublishError::Destination(e);
     let parent = out
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    fs::create_dir_all(parent).map_err(|e| destination(e.to_string()))?;
     let stage = loop {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = parent.join(format!(".bulk-stage-{}-{n}", std::process::id()));
@@ -288,38 +482,39 @@ fn publish(
         match fs::DirBuilder::new().mode(0o700).create(&path) {
             Ok(()) => break path,
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(destination(e.to_string())),
         }
     };
     let result = (|| {
-        let report = write(&stage)?;
-        File::open(&stage)
-            .and_then(|dir| dir.sync_all())
-            .map_err(|e| e.to_string())?;
-        if let Err(error) = fs::rename(&stage, out) {
-            let manifest = JsonByteProof {
-                bytes: fs::metadata(stage.join("manifest.json"))
-                    .map_err(|e| e.to_string())?
-                    .len(),
-                sha256: report.manifest_sha256.clone(),
-            };
-            if !fs::symlink_metadata(out).is_ok_and(|m| m.is_dir())
-                || !matches_payload(&out.join("manifest.json"), &manifest)
-                || !matches_payload(&out.join("catalog.json"), &report.manifest.catalog)
-                || !matches_payload(&out.join("index.json"), &report.manifest.index)
-            {
-                return Err(format!(
-                    "cannot publish bulk artifact to {}: {error}",
-                    out.display()
-                ));
-            }
+        let (report, files) = write(&stage).map_err(PublishError::Write)?;
+        if let Some((name, _)) = files
+            .iter()
+            .find(|(name, proof)| !matches_payload(&stage.join(name), proof))
+        {
+            return Err(destination(format!(
+                "staged {name} does not match its proof"
+            )));
         }
+        sync_dir(&stage).map_err(destination)?;
+        if let Err(error) = fs::rename(&stage, out)
+            && !matches_bundle(out, &files, exact)
+        {
+            return Err(destination(format!(
+                "cannot publish bulk artifact to {}: {error}",
+                out.display()
+            )));
+        }
+        sync_dir(parent).map_err(destination)?;
         Ok(report)
     })();
     match fs::remove_dir_all(&stage) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(format!("cannot remove bulk staging directory: {e}")),
+        Err(e) => {
+            return Err(destination(format!(
+                "cannot remove bulk staging directory: {e}"
+            )));
+        }
     }
     result
 }
@@ -346,7 +541,13 @@ mod tests {
         let raw =
             include_str!("../../../tests/fixtures/phase1-r5/compose-strip-mine.json").as_bytes();
         accepted.file_sha256 = Some(sha256(&[header.as_slice(), raw].concat()));
-        let (catalog, index, _) = intake(Cursor::new(raw), header.clone(), &accepted).unwrap();
+        let (catalog, index, _, outcomes) =
+            intake(Cursor::new(raw), header.clone(), &accepted).unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(
+            (outcomes[0].archive_line, outcomes[0].phase),
+            (index.rows[0].archive_line, OutcomePhase::Validate)
+        );
         assert_eq!(catalog.definitions.len(), 1);
         assert_eq!(index.rows[0].raw_row_sha256, sha256(raw));
         assert!(
@@ -362,48 +563,126 @@ mod tests {
         );
     }
 
+    /// Stage `names`, each holding `body` followed by its own name.
+    fn stage_files(
+        stage: &Path,
+        names: &[&'static str],
+        body: &str,
+    ) -> Result<((), StagedFiles), String> {
+        let mut files = vec![];
+        for name in names {
+            let proof = write_payload(&stage.join(name), 64, |w| {
+                w.write_all(format!("{body}{name}").as_bytes())
+                    .map_err(|e| e.to_string())
+            })?;
+            files.push((*name, proof));
+        }
+        Ok(((), files))
+    }
+
+    fn scratch(label: &str) -> std::path::PathBuf {
+        let parent = std::env::temp_dir().join(format!("mtg-{label}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        fs::create_dir(&parent).unwrap();
+        parent
+    }
+
     #[test]
     fn stage1d_bulk_publication_keeps_occupied_receipts_and_cleans_failed_stage() {
-        let parent = std::env::temp_dir().join(format!("mtg-bulk-publish-{}", std::process::id()));
-        fs::create_dir(&parent).unwrap();
+        let parent = scratch("bulk-publish");
         let dest = parent.join("bulk");
-        let write = |stage: &Path| {
-            let proof = |file: &str| {
-                write_payload(&stage.join(file), 64, |w| {
-                    w.write_all(file.as_bytes()).map_err(|e| e.to_string())
-                })
-            };
-            let catalog = proof("catalog.json")?;
-            let index = proof("index.json")?;
-            let manifest_proof = proof("manifest.json")?;
-            Ok(BulkBuildReport {
-                manifest_sha256: manifest_proof.sha256,
-                manifest: BulkManifest {
-                    format_version: BULK_FORMAT_VERSION,
-                    ir_version: CURRENT_IR_VERSION,
-                    rules_edition: RULES_EDITION.into(),
-                    rules_sha256: RULES_SHA256.into(),
-                    producer_build_id: String::new(),
-                    archive_sha256: String::new(),
-                    archive_manifest_sha256: String::new(),
-                    parser_revision: String::new(),
-                    parser_source_sha256: String::new(),
-                    catalog_digest: catalog.sha256.clone(),
-                    catalog,
-                    index,
-                    outcome_counts: BTreeMap::new(),
-                },
-            })
-        };
-        publish(&dest, write).unwrap();
-        publish(&dest, write).unwrap();
+        let write =
+            |stage: &Path| stage_files(stage, &["catalog.json", "index.json", "manifest.json"], "");
+        publish(&dest, false, write).unwrap();
+        publish(&dest, false, write).unwrap();
         fs::write(dest.join("index.json"), b"preserve").unwrap();
-        assert!(
-            publish(&dest, write)
-                .unwrap_err()
-                .contains("cannot publish")
-        );
+        let PublishError::Destination(error) = publish(&dest, false, write).unwrap_err() else {
+            panic!("expected a destination failure");
+        };
+        assert!(error.contains("cannot publish"));
         assert_eq!(fs::read(dest.join("index.json")).unwrap(), b"preserve");
+        assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    const BUNDLE: [&str; 5] = [
+        "catalog.json",
+        "index.json",
+        "manifest.json",
+        "outcomes.jsonl",
+        "compile-manifest.json",
+    ];
+
+    #[test]
+    fn bundle_retry_requires_all_five_files_and_nothing_else() {
+        let parent = scratch("bundle-retry");
+        let dest = parent.join("bundle");
+        let write = |stage: &Path| stage_files(stage, &BUNDLE, "");
+        publish(&dest, true, write).unwrap();
+        // An identical retry succeeds and leaves no staging debris.
+        publish(&dest, true, write).unwrap();
+        assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+        // The same three bulk files with a corrupt outcomes file reject.
+        fs::write(dest.join("outcomes.jsonl"), b"corrupt").unwrap();
+        assert!(matches!(
+            publish(&dest, true, write),
+            Err(PublishError::Destination(_))
+        ));
+        assert_eq!(fs::read(dest.join("outcomes.jsonl")).unwrap(), b"corrupt");
+        fs::write(dest.join("outcomes.jsonl"), b"outcomes.jsonl").unwrap();
+        publish(&dest, true, write).unwrap();
+        // An extra entry is a conflicting destination for an exact bundle.
+        fs::write(dest.join("notes"), b"keep").unwrap();
+        assert!(matches!(
+            publish(&dest, true, write),
+            Err(PublishError::Destination(_))
+        ));
+        assert_eq!(fs::read(dest.join("notes")).unwrap(), b"keep");
+        // A different bundle never replaces an occupied destination.
+        fs::remove_file(dest.join("notes")).unwrap();
+        let other = |stage: &Path| stage_files(stage, &BUNDLE, "other ");
+        assert!(publish(&dest, true, other).is_err());
+        assert_eq!(
+            fs::read(dest.join("catalog.json")).unwrap(),
+            b"catalog.json"
+        );
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn bundle_interrupted_write_exposes_nothing_and_concurrent_writers_agree() {
+        let parent = scratch("bundle-race");
+        let dest = parent.join("bundle");
+        // A failure after some files were staged publishes nothing.
+        let failed = publish(&dest, true, |stage: &Path| {
+            stage_files(stage, &BUNDLE[..3], "")?;
+            Err::<((), StagedFiles), _>("interrupted".to_owned())
+        });
+        assert!(matches!(failed, Err(PublishError::Write(e)) if e == "interrupted"));
+        assert!(!dest.exists());
+        assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
+        // A staged file that no longer matches its proof is never exposed.
+        let tampered = publish(&dest, true, |stage: &Path| {
+            let staged = stage_files(stage, &BUNDLE, "")?;
+            fs::write(stage.join("outcomes.jsonl"), b"tampered").map_err(|e| e.to_string())?;
+            Ok::<_, String>(staged)
+        });
+        assert!(matches!(tampered, Err(PublishError::Destination(_))));
+        assert!(!dest.exists());
+        // Identical concurrent writers all succeed with one complete bundle.
+        std::thread::scope(|scope| {
+            let writers: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        publish(&dest, true, |stage: &Path| stage_files(stage, &BUNDLE, ""))
+                    })
+                })
+                .collect();
+            for writer in writers {
+                writer.join().unwrap().unwrap();
+            }
+        });
+        assert_eq!(fs::read_dir(&dest).unwrap().count(), BUNDLE.len());
         assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
         fs::remove_dir_all(parent).unwrap();
     }

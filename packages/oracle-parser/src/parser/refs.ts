@@ -82,16 +82,17 @@ export function targetSelectionProvenance(token: Token | undefined): TargetSelec
 /** "a"/"an"/"three"/"3"/"X" — counting words used before nouns. */
 export function parseCount(c: Cursor): Amount | null {
   return c.attempt((c): Amount | null => {
+    const start = c.pos;
     const n = c.number();
-    if (n !== null) return { amount: "fixed", value: n };
-    if (c.word("a", "an") !== null) return { amount: "fixed", value: 1 };
+    if (n !== null) return c.mark({ amount: "fixed", value: n }, start);
+    if (c.word("a", "an") !== null) return c.mark({ amount: "fixed", value: 1 }, start);
     if (c.word("x") !== null) return { amount: "x" };
     const t = c.peek();
     if (t?.kind === "word" && !t.possessive) {
       const wn = wordNumber(t.value);
       if (wn !== undefined) {
         c.pos++;
-        return { amount: "fixed", value: wn };
+        return c.mark({ amount: "fixed", value: wn }, start);
       }
     }
     return c.fail("count");
@@ -1028,7 +1029,7 @@ function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false,
         || ["the", "those", "these", "that", "this", "its", "their"].includes(determiner.value);
       if (v === "exiled" && !sawNominal && !definite && !f.zone && following?.kind === "word" && !following.possessive) {
         c.pos++;
-        f.zone = { zone: "exile" };
+        f.zone = c.mark({ zone: "exile" }, c.pos - 1);
         exiledPrefix = true;
         continue;
       }
@@ -1158,6 +1159,7 @@ function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false,
           const nxt = c.peek(1);
           if (!(nxt?.kind === "word" && nxt.value === "or")) break;
         }
+        const nominalStart = c.pos;
         c.pos++;
         sawNominal = true;
         const record = (n: { cls: NominalClass; word: string }) => {
@@ -1174,6 +1176,7 @@ function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false,
           }
         };
         const alternatives = [nominal];
+        const positions = [nominalStart];
         let ambiguousAlternative = false;
         let listJoined = false;
         const listStart = c.pos;
@@ -1211,6 +1214,7 @@ function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false,
               && t.value === nominal.word.toLowerCase() && nt.value === n2.word.toLowerCase();
             if (!sharedHead && !plural && !singularUnion) return null;
           }
+          positions.push(c.pos);
           c.pos++;
           alternatives.push(n2);
           if (join) listJoined = true;
@@ -1239,9 +1243,10 @@ function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false,
           if (alternatives.length !== 2 || alternatives.every(n => n.cls === "player")) return c.fail("simple object-or-player union");
           alternatives.forEach(record);
         } else {
-          const branches = alternatives.map((n): ObjectFilter =>
-            n.cls === "type" ? { types: [n.word] } : n.cls === "class" ? { cls: n.word as ObjectFilter["cls"] } : { subtypes: [n.word] });
-          (f.allOf ??= []).push({ anyOf: branches });
+          const branches = alternatives.map((n, index): ObjectFilter => c.mark(
+            n.cls === "type" ? { types: [n.word] } : n.cls === "class" ? { cls: n.word as ObjectFilter["cls"] } : { subtypes: [n.word] },
+            positions[index], positions[index] + 1));
+          (f.allOf ??= []).push(c.hull({ anyOf: branches }, nominalStart));
           // "artifact, enchantment, or creature with flying": a keyword or
           // power/toughness test after bare card types that end in "creature"
           // describes the creature alternative only (Broken Wings can destroy
@@ -1266,6 +1271,7 @@ function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false,
     // assigning a second controller or zone would otherwise erase the first.
     let qualified = false;
     for (;;) {
+      const qualifierStart = c.pos;
       const qualifier = c.attempt(c => {
         // A connector belongs here only if a complete qualifier follows.
         const connector = c.word("and", "or");
@@ -1291,7 +1297,12 @@ function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false,
       const keys = Object.keys(qualifier) as (keyof ObjectFilter)[];
       const creatureOnly = keys.length === 1 && (keys[0] === "withAbility" || keys[0] === "withoutAbility"
         || (keys[0] === "properties" && qualifier.properties!.every(property => property.property !== "mana-value")));
-      if (creatureTail && creatureOnly) { Object.assign(creatureTail, qualifier); creatureTail = null; continue; }
+      if (creatureTail && creatureOnly) {
+        Object.assign(creatureTail, qualifier);
+        c.fold(creatureTail, qualifierStart);
+        creatureTail = null;
+        continue;
+      }
       creatureTail = null;
       if (keys.length === 1 && qualifier.zone && f.zone) {
         // No object is in two zones at once: "cards you own in exile and in
@@ -1486,13 +1497,13 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
       const name = c.peek();
       if (name?.kind !== "card-name") return null;
       c.pos++;
-      return { notName: { name: "literal", value: name.value } };
+      return { notName: c.mark({ name: "literal", value: name.value }, c.pos - 1) };
     }
     if (c.word("named") !== null) {
       const name = c.peek();
       if (name?.kind !== "card-name") return null;
       c.pos++;
-      return { name: { name: "literal", value: name.value } };
+      return { name: c.mark({ name: "literal", value: name.value }, c.pos - 1) };
     }
     // Control (CR 108.4) and ownership (108.3) are independent; "but" joins
     // the two requirements on the same object.
@@ -1601,7 +1612,7 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
     // "in the pile of their choice" / "from the chosen pile" (CR 700.3b).
     const inPile = c.attempt(c => c.word("in", "from") !== null ? parsePileRef(c, parsePossessivePlayer) : null);
     if (inPile) return { fromAmong: inPile };
-    if (c.words("on", "the", "battlefield")) return { zone: { zone: "battlefield" } };
+    if (c.words("on", "the", "battlefield")) return { zone: c.mark({ zone: "battlefield" }, c.pos - 2) };
     if (c.words("that", "aren't", "on", "the", "battlefield") || c.words("that", "isn't", "on", "the", "battlefield"))
       return { outsideZone: { zone: "battlefield" } };
     // "with power or toughness 4 or greater": either value satisfies the
@@ -1994,7 +2005,7 @@ function parsePlayerBase(c: Cursor): PlayerRef | null {
     // "Enchant opponent" (a separate line) already restricts what the Aura can
     // enchant, so "enchanted opponent" is the same player as "enchanted player".
     if (c.words("enchanted", "player") || c.words("enchanted", "opponent")) return { player: "enchanted-player" };
-    if (c.word("you") !== null) return { player: "you" };
+    if (c.word("you") !== null) return c.mark({ player: "you" }, c.pos - 1);
     const relational = parseRelationalPlayer(c, parseObjectRef);
     if (relational) return relational;
     const of = parsePossessiveObject(c);
@@ -2046,8 +2057,10 @@ function parseSelectionFilter(c: Cursor, enabled: boolean, singleTarget = false)
     const groupConstraints: GroupConstraint[] = [];
     // "controlled by the same opponent": each is controlled by an opponent,
     // and one player controls them all.
+    const controlAt = c.pos;
     if (!filter.control && !filter.controlledBy && c.words("controlled", "by", "the", "same", "opponent")) {
       filter.control = "opponent";
+      c.fold(filter, controlAt);
       groupConstraints.push({ constraint: "same-controller" });
     }
     for (;;) {
@@ -2059,6 +2072,7 @@ function parseSelectionFilter(c: Cursor, enabled: boolean, singleTarget = false)
       // After a collective constraint, later qualifiers still restrict each
       // candidate, e.g. "different names that each have mana value X or less".
       if (!groupConstraints.length) break;
+      const qualifierAt = c.pos;
       const qualifier = c.attempt((c): ObjectFilter | null => {
         const conjunction = c.word("and") !== null;
         const each = c.attempt(c => {
@@ -2079,6 +2093,7 @@ function parseSelectionFilter(c: Cursor, enabled: boolean, singleTarget = false)
       if ((qualifier.otherThan && filter.other) || keys.some(key => filter[key] !== undefined))
         (filter.allOf ??= []).push(qualifier);
       else Object.assign(filter, qualifier);
+      c.fold(filter, qualifierAt);
     }
     return { filter, ...(groupConstraints.length ? { groupConstraints } : {}) };
   });
@@ -2199,8 +2214,13 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       if (c.word("the") === null) return null;
       const position = c.word("top", "bottom");
       if (!position) return null;
-      const count = parseAmount(c) ?? { amount: "fixed", value: 1 };
-      if (c.word("card", "cards") === null || c.word("of") === null) return null;
+      const stated = parseAmount(c);
+      const noun = c.word("card", "cards");
+      if (noun === null) return null;
+      // A bare plural "cards" prints no count; that node stays unlocated.
+      const count = stated ?? (noun === "card" ? c.mark({ amount: "fixed", value: 1 }, c.pos - 1)
+        : { amount: "fixed" as const, value: 1 });
+      if (c.word("of") === null) return null;
       const of = parseZoneRef(c);
       if (of?.zone !== "library" || of.position) return null;
       return { ref: "library-cards", position: position as "top" | "bottom", count, of };
@@ -2237,6 +2257,7 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
     if (anyTarget) return anyTarget;
 
     const chosenTargets = c.attempt((c): ObjectRef | null => {
+      const countAt = c.pos;
       const count: Amount | null = c.words("any", "number", "of")
         ? { amount: "chosen", minimum: 0 }
         : c.words("one", "or", "two")
@@ -2244,14 +2265,19 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
           : (groups || isTargetWord(c.peek(3)) || isTargetWord(c.peek(4)) && c.peek(3)?.kind === "word" && (c.peek(3) as { value: string }).value === "other") && c.words("one", "or", "more")
             ? { amount: "chosen", minimum: 1 } : null;
       if (!count) return null;
+      c.mark(count, countAt);
       const pluralTarget = c.peek();
       if (c.word("targets") !== null) return { ref: "any-target", count, ...targetSelectionProvenance(pluralTarget) };
+      const otherAt = c.pos;
       const other = c.word("other") !== null;
       const targetToken = c.peek();
       const target = c.word("target") !== null;
       const selected = parseSelectionFilter(c, groups);
       if (!selected) return null;
-      if (other) selected.filter.other = true;
+      if (other) {
+        selected.filter.other = true;
+        c.fold(selected.filter, otherAt, otherAt + 1);
+      }
       return target ? { ref: "target", ...selected, count, ...targetSelectionProvenance(targetToken) } : { ref: "filter", ...selected, count };
     });
     if (chosenTargets) return chosenTargets;
@@ -2295,19 +2321,26 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
     if (theOther) return theOther;
 
     const targetRef = c.attempt((c): ObjectRef | null => {
+      const anotherAt = c.pos;
       const another = c.word("another") !== null;
       const upTo = c.words("up", "to");
       // "Up to that many target ...": the count is the symbolic anaphoric amount
       // (a repeated payment's count, the previous instruction's number).
       const thatMany = upTo ? c.attempt((c): Amount | null => c.words("that", "many") ? { amount: "that-much" } : null) : null;
-      const count: Amount = thatMany ?? c.attempt(parseCount) ?? { amount: "fixed", value: 1 };
+      const stated = thatMany ?? c.attempt(parseCount);
+      const count: Amount = stated ?? { amount: "fixed", value: 1 };
+      const otherAt = c.pos;
       const other = c.word("other") !== null;
       const token = c.peek();
       if (c.word("target") === null) return null;
       const singleTarget = !another && !other && !upTo && count.amount === "fixed" && count.value === 1;
       const selected = parseSelectionFilter(c, groups, singleTarget);
       if (!selected || !validSelectionCount(count)) return null;
-      if (another || other) selected.filter.other = true;
+      if (another || other) {
+        selected.filter.other = true;
+        const exclusionAt = another ? anotherAt : otherAt;
+        c.fold(selected.filter, exclusionAt, exclusionAt + 1);
+      }
       if (another && (upTo || count.amount !== "fixed" || count.value !== 1)) return null;
       // "up to four target cards from a player's graveyard": one player's
       // graveyard holds every target, as "from a single graveyard" says.
@@ -2317,6 +2350,7 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
         && (upTo || count.amount !== "fixed" || count.value !== 1)) selected.filter.zone = { ...zone, owner: "any-single" };
       const chosenBy = !selected.groupConstraints ? parseTargetChooser(c) : null;
       if (chosenBy) selected.filter = parseResumedFilterQualifiers(c, selected.filter);
+      if (!stated) c.implicit(count, "implied-singular-target");
       return { ref: "target", ...selected, count, ...(upTo ? { upTo: true } : {}), ...(chosenBy ? { chosenBy } : {}), ...targetSelectionProvenance(token) };
     });
     if (targetRef) return targetRef;
@@ -2377,11 +2411,16 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
     const countedRef = c.attempt((c): ObjectRef | null => {
       const upTo = c.words("up", "to");
       const another = c.word("another") !== null;
-      const count: Amount | null = another ? { amount: "fixed", value: 1 } : parseAmount(c);
+      const count: Amount | null = another ? c.mark({ amount: "fixed", value: 1 }, c.pos - 1) : parseAmount(c);
       if (!count) return null;
       const selected = parseSelectionFilter(c, groups);
       if (!selected || !validSelectionCount(count)) return null;
-      if (another) selected.filter.other = true;
+      if (another) {
+        selected.filter.other = true;
+        // The same "another" token is already the recorded count. The
+        // filter keeps its noun phrase and the containing reference owns both.
+        c.hull(selected.filter);
+      }
       return { ref: "filter", ...selected, count, ...(upTo ? { upTo: true } : {}) };
     });
     if (countedRef) return countedRef;
@@ -2412,7 +2451,7 @@ export function parsePossessivePlayer(c: Cursor): PlayerRef | null {
       return { player: "enchanted-player" };
     if (c.attempt(c => c.word("defending") !== null && c.possessive("player") !== null ? true : null))
       return { player: "defending-player" };
-    if (c.word("your") !== null) return { player: "you" };
+    if (c.word("your") !== null) return c.mark({ player: "you" }, c.pos - 1);
     if (c.word("their") !== null) return { player: "they" };
     const target = c.peek();
     if (c.word("target") !== null) {

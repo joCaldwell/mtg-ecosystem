@@ -97,7 +97,9 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
 } | null {
   return c.attempt((c) => {
     const modifiers: StaticModifier[] = [];
+    const claims: { modifier: StaticModifier; start: number; end: number; beforeCondition: number }[] = [];
     for (;;) {
+      let start = c.pos;
       let modifier: StaticModifier;
       const characteristics = parseCharacteristicModifiers(c, what, parseGainedAbilities);
       const combat = c.attempt(c => {
@@ -162,7 +164,7 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
             if (!stat) return null;
             const value = c.number();
             if (value === null) return null;
-            const amount = { amount: "fixed" as const, value };
+            const amount = c.mark({ amount: "fixed", value }, c.pos - 1);
             return stat === "power" ? { power: amount } : { toughness: amount };
           }) : null;
           if (pt) {
@@ -170,6 +172,7 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
               ...(pt.power && pt.power.amount !== "fixed" || pt.toughness && pt.toughness.amount !== "fixed" ? { valueScope: "each-affected-object" as const } : {}) };
             // "has base power and toughness 5/5 and vigilance": the one verb
             // also grants the listed abilities (CR 613.1f, 613.4b).
+            const statsEnd = c.pos;
             const alsoGranted = c.attempt(c => {
               const comma = c.punct(",");
               if (c.word("and") === null && !comma) return null;
@@ -177,7 +180,8 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
               return abilities && (allowFreshChoice || !hasFreshProtectionChoice(abilities)) ? abilities : null;
             });
             if (alsoGranted) {
-              modifiers.push(modifier);
+              modifiers.push(c.mark(modifier, start, statsEnd));
+              start = statsEnd;
               modifier = { modifier: "abilities", abilities: alsoGranted };
             }
           } else {
@@ -187,6 +191,7 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
           }
         }
       }
+      let beforeCondition = c.pos;
       for (;;) {
         if (!modifier.forEach && !modifier.multiplier && c.words("for", "each")) {
           const multiplier = modifier.modifier === "pt" ? parseStaticMultiplier(c) : null;
@@ -201,6 +206,7 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
           continue;
         }
         if (!modifier.condition) {
+          beforeCondition = c.pos;
           if (c.word("if") !== null) {
             const condition = parseCondition(c);
             if (!condition) return null;
@@ -242,6 +248,7 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
         break;
       }
       modifiers.push(modifier);
+      claims.push({ modifier, start, end: c.pos, beforeCondition });
       const next = c.attempt((c) => {
         const comma = c.punct(",");
         const and = c.word("and") !== null;
@@ -261,8 +268,11 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
       const conditionScope = last.conditionScope;
       delete last.condition;
       delete last.conditionScope;
+      for (const claim of claims)
+        c.mark(claim.modifier, claim.start, claim.modifier === last ? claim.beforeCondition : claim.end);
       return { modifiers, condition, ...(conditionScope ? { conditionScope } : {}) };
     }
+    for (const claim of claims) c.mark(claim.modifier, claim.start, claim.end);
     return { modifiers };
   });
 }
@@ -985,8 +995,9 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
       });
       const protectionModifiers = parseProtectionAttachmentException(c, what, group.modifiers);
       // "…has flashback. The flashback cost is equal to its mana cost."
+      const costAt = c.pos;
       const costDefinition = c.attempt(c => c.punct(".") ? parseKeywordCostDefinition(c) : null);
-      if (costDefinition && !attachKeywordCostDefinition(group.modifiers, costDefinition)) return c.fail("one preceding grant of that cost keyword");
+      if (costDefinition && !attachKeywordCostDefinition(c, costAt, group.modifiers, costDefinition)) return c.fail("one preceding grant of that cost keyword");
       c.punct(".");
       const sameIsTrue = !group.condition && !binding && !protectionModifiers ? parseSameIsTrueSubjects(c, what, group.modifiers) : null;
       if (sameIsTrue) {

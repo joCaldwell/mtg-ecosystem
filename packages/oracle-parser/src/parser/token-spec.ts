@@ -84,6 +84,7 @@ function parseCopyModification(c: Cursor, parseAbilities: AbilityParser, parseCh
     c.word("a", "an");
     const spec = parseCharacteristics(c);
     if (!spec) return null;
+    const rider = c.pos;
     if (c.words("in", "addition", "to")) {
       if (c.word("its", "their") === null || c.word("other") === null) return null;
       const inAddition = c.word("types", "colors");
@@ -91,6 +92,7 @@ function parseCopyModification(c: Cursor, parseAbilities: AbilityParser, parseCh
       if (inAddition === "types" && !spec.types?.length && !spec.subtypes?.length) return null;
       if (inAddition === "colors" && !spec.colors?.length) return null;
       spec.inAddition = inAddition;
+      c.fold(spec, rider);
     }
     return { modification: "characteristics", spec };
   });
@@ -162,7 +164,7 @@ function parseSpecified(c: Cursor, parseAbilities: AbilityParser): SpecifiedToke
     const parseStats = (c: Cursor) => c.attempt(c => {
       const value = (c: Cursor): Amount | null => {
         const n = c.number();
-        if (n !== null) return { amount: "fixed", value: n };
+        if (n !== null) return c.mark({ amount: "fixed", value: n }, c.pos - 1);
         return c.word("x") !== null ? { amount: "x" } : null;
       };
       const power = value(c);

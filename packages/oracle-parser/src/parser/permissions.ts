@@ -247,7 +247,11 @@ function parsePlay(c: Cursor, options: PlayInstructionOptions): ParsedPlay | nul
       return condition;
     });
     let optional = options.optionalConsumed === true;
-    let who: PlayerRef = { player: "you" };
+    const prefix = optional ? c.tokens[c.pos - 2] : undefined;
+    const may = c.tokens[c.pos - 1];
+    let who: PlayerRef = prefix?.kind === "word" && prefix.value === "you" && may?.kind === "word" && may.value === "may"
+      ? c.mark({ player: "you" }, c.pos - 2, c.pos - 1)
+      : c.imperativeController();
     const explicitPlayer = c.attempt((c): PlayerRef | null => {
       // "Any player may": every player has the permission; nobody is chosen.
       if (c.words("any", "player", "may")) return { player: "each-player" };
@@ -472,13 +476,15 @@ function parseNextSpellPermission(c: Cursor): Effect[] | null {
     c.pos = end + 1;
     const action = c.word("cast", "play") as "cast" | "play" | null;
     if (!action || filter.cls !== (action === "cast" ? "spell" : "card") || !c.words("this", "turn")) return null;
+    const choiceAt = c.pos;
     // Eye of Ojer Taq prints the linked-choice qualifier after the period.
     if (c.words("of", "the", "chosen", "type")) {
       if (filter.chosenType) return null;
       filter.chosenType = { choice: "chosen-type" };
+      c.fold(filter, choiceAt);
     }
     if (!c.words("can", "be") || c.word(action === "cast" ? "cast" : "played") === null) return null;
-    const permission: CardPlayInstruction = { who: { player: "you" }, action, what: { ref: "each", filter }, occurrence: { next: true } };
+    const permission: CardPlayInstruction = { who: c.mark({ player: "you" }, end, end + 1), action, what: { ref: "each", filter }, occurrence: { next: true } };
     if (c.words("as", "though", "it", "had", "flash")) permission.timing = "as-though-flash";
     else if (c.words("without", "paying", "its", "mana", "cost")) permission.alternativeCost = { cost: "without-mana-cost" };
     else return null;

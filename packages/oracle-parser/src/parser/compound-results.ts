@@ -14,12 +14,16 @@ export function foldMillRepetition(c: Cursor, previous: Sentence): boolean {
     mill.effect !== "mill" || mill.optional || mill.forEach || mill.repeatWhile ||
     mill.who.player === "they" || mill.who.player === "your-team" || isPluralPlayerRef(mill.who) ||
     mill.amount.amount !== "fixed" || mill.amount.value !== 2) return false;
+  const start = c.pos;
   const repeat = c.attempt(c => {
     if (!c.words("if", "two", "cards", "that", "share", "a", "color", "were", "milled", "this", "way")
       || !c.punct(",") || !c.words("repeat", "this", "process") || !c.punct(".") || !c.done()) return null;
     return true;
   });
-  if (repeat) mill.repeatWhile = { from: "last-iteration", condition: "two-cards-share-color" };
+  if (repeat) {
+    mill.repeatWhile = { from: "last-iteration", condition: "two-cards-share-color" };
+    c.fold(mill, start);
+  }
   return Boolean(repeat);
 }
 
@@ -191,6 +195,7 @@ export function parseGroupedSearchPlacement(c: Cursor, previous: Sentence, sourc
       !c.punct(",") || !c.words("then", "shuffle") || !c.punct(".") || !c.done()) return null;
     const who: PlayerRef = { player: "those-players" };
     loop.groupedSearch = "last-controllers-of-exiled-creatures";
+    c.hull(loop);
     settleScopedContinuation(loop);
     return { steps: [{
       effect: "move-zone", what: { ref: "related", number: "plural", filter: { cls: "card" },

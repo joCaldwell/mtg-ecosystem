@@ -106,6 +106,7 @@ export function parseSameIsTrueSubjects(c: Cursor, what: ObjectRef, modifiers: S
 
 export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseAbilities: AbilityParser): StaticModifier[] | null {
   return c.attempt(c => {
+    const start = c.pos;
     // A pronoun subject can carry its verb: "it's a creature in addition ...".
     const verb = c.word("isn't", "aren't", 'is', 'are') ?? (_what.ref === 'it' ? c.word("it's") && 'is'
       : _what.ref === 'them' ? c.word("they're") && 'are' : null);
@@ -125,7 +126,10 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
       const power = c.number();
       if (power === null || !c.punct('/')) return null;
       const toughness = c.number();
-      return toughness === null ? null : { power: { amount: 'fixed' as const, value: power }, toughness: { amount: 'fixed' as const, value: toughness } };
+      return toughness === null ? null : {
+        power: c.mark({ amount: 'fixed', value: power }, c.pos - 3, c.pos - 2),
+        toughness: c.mark({ amount: 'fixed', value: toughness }, c.pos - 1),
+      };
     });
     if (earlyStats) stats = earlyStats;
     if (c.words('all', 'colors')) colors = ['white', 'blue', 'black', 'red', 'green'];
@@ -247,6 +251,7 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
       ...(stats.power.amount !== 'fixed' || stats.toughness.amount !== 'fixed' ? { valueScope: 'each-affected-object' as const } : {}) });
     if (abilities) modifiers.push({ modifier: 'abilities', abilities });
     if (othersLost?.abilities) modifiers.push({ modifier: 'lose-abilities', removal: { removal: 'all-other', than: 'abilities-granted-by-this-effect' } });
+    if (modifiers.length === 1) c.mark(modifiers[0], start);
     return modifiers.length ? modifiers : null;
   });
 }

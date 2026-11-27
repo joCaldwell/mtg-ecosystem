@@ -21,10 +21,15 @@ function damageOf(steps: Effect[]): Damage[] | null {
   return found.length ? found : null;
 }
 
-function mark(steps: Effect[]): boolean {
+function mark(c: Cursor, steps: Effect[], start: number): boolean {
   const damage = damageOf(steps);
   if (!damage) return false;
-  for (const effect of damage) effect.unpreventable = true;
+  for (const effect of damage) {
+    effect.unpreventable = true;
+    if (damage.length === 1) c.fold(effect, start);
+    else c.hull(effect);
+  }
+  if (steps.length === 1 && steps[0].effect === "simultaneous") c.fold(steps[0], start);
   return true;
 }
 
@@ -32,8 +37,9 @@ function mark(steps: Effect[]): boolean {
  * call with the instruction just parsed, before it joins its sentence. */
 export function foldUnpreventableClause(c: Cursor, parsed: Effect[]): boolean {
   return c.attempt(c => {
+    const start = c.pos;
     if (c.word("and") === null || !c.words("the", "damage", "can't", "be", "prevented")) return null;
-    return mark(parsed) ? true : c.fail("damage instruction whose damage can't be prevented");
+    return mark(c, parsed, start) ? true : c.fail("damage instruction whose damage can't be prevented");
   }) === true;
 }
 
@@ -41,8 +47,9 @@ export function foldUnpreventableClause(c: Cursor, parsed: Effect[]): boolean {
  * deals damage. */
 export function foldUnpreventableSentence(c: Cursor, previous: Sentence): boolean {
   return c.attempt(c => {
+    const start = c.pos;
     if (!c.words("the", "damage", "can't", "be", "prevented") || (!c.punct(".") && !c.done())) return null;
     if (previous.otherwise) return c.fail("unambiguous damage instruction before its rider");
-    return mark(previous.steps) ? true : c.fail("damage instruction whose damage can't be prevented");
+    return mark(c, previous.steps, start) ? true : c.fail("damage instruction whose damage can't be prevented");
   }) === true;
 }

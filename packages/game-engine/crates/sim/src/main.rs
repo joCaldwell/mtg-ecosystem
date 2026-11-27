@@ -15,6 +15,8 @@ mod pod_cli;
 const USAGE: &str = "usage: mtg-sim COMMAND
   catalog coverage ARCHIVE [--out DIR] [--only-oracle-ids FILE | --only-deck-snapshot FILE]
   catalog build-ir ARCHIVE --out NEW_DIR
+  catalog identity --inputs FROZEN_MANIFEST --cache DIR
+  catalog compile --inputs FROZEN_MANIFEST --cache DIR --out NEW_DIR
   catalog build MANIFEST [--write]
   catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID...
   catalog verify ARCHIVE PROVENANCE
@@ -33,6 +35,43 @@ fn embedded_profile_catalog(name: &str) -> Result<mtg_contracts::Catalog, String
         .and_then(|n| n.to_str())
         .ok_or("catalog manifest name")?;
     mtg_compiler::catalog::embedded_catalog(manifest_name).map_err(|e| e.to_string())
+}
+
+/// `catalog identity|compile`: exact named options, each once. Usage errors
+/// exit 2; located compile failures print `KIND: REASON` and exit 1.
+fn frozen_compile(args: &[String]) -> ! {
+    let compile = args[0] == "compile";
+    let names: &[&str] = if compile {
+        &["--inputs", "--cache", "--out"]
+    } else {
+        &["--inputs", "--cache"]
+    };
+    let mut options = std::collections::BTreeMap::new();
+    let mut rest = args[1..].chunks(2);
+    let parsed = rest.all(|pair| {
+        matches!(pair, [name, value] if names.contains(&name.as_str())
+            && options.insert(name.as_str(), Path::new(value)).is_none())
+    }) && options.len() == names.len();
+    if !parsed {
+        eprintln!("{USAGE}");
+        std::process::exit(2);
+    }
+    let (inputs, cache) = (options["--inputs"], options["--cache"]);
+    let result = if compile {
+        mtg_compiler::compile::compile(inputs, cache, options["--out"], BUILD.id)
+            .map(|report| canonical(&report))
+    } else {
+        mtg_compiler::compile::identity(inputs, cache, BUILD.id).map(|report| canonical(&report))
+    };
+    match result {
+        Ok(Ok(report)) => {
+            println!("{report}");
+            std::process::exit(0)
+        }
+        Ok(Err(error)) => eprintln!("compiler: {error}"),
+        Err(error) => eprintln!("{error}"),
+    }
+    std::process::exit(1)
 }
 
 fn catalog(args: &[String]) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
@@ -82,6 +121,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     mtg_core::install_build_identity(BUILD)?;
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("catalog")
+            if matches!(
+                args.get(1).map(String::as_str),
+                Some("identity" | "compile")
+            ) =>
+        {
+            frozen_compile(&args[1..])
+        }
         Some("catalog") => println!("{}", canonical(&catalog(&args[1..])?)?),
         Some("schema") if args.len() == 1 => println!(
             "{}",

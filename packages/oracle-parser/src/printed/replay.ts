@@ -24,6 +24,12 @@ function gapReplacement(bytes: Buffer, gap: Gap, printed: string): string {
   return replacement;
 }
 
+function isJsonStringLiteral(text: string): boolean {
+  if (!text.startsWith('"') || !text.endsWith('"')) return false;
+  try { return typeof JSON.parse(text) === "string"; }
+  catch { return false; }
+}
+
 /** Replay the wire edits from their original slices, without using the tracked normalizer. */
 export function replayNormalizationEdits(
   text: string, trace: MappedNormalization, cardName?: string, catalog?: CardNameCatalog, typeLine?: string,
@@ -31,6 +37,13 @@ export function replayNormalizationEdits(
   if (/[~\0]/u.test(text)) throw new Error("Reserved character in original text");
   const original = Buffer.from(text);
   const normalized = Buffer.from(trace.lines.join("\n"));
+  // The wire carries no generatedQuotes array. A verifier reconstructs it
+  // from the literal edit's original bytes, before projecting quote anchors.
+  const generatedQuotes = trace.edits.flatMap((edit, index) => edit.edit === "literal-name" &&
+    !isJsonStringLiteral(canonicalizeNamePunctuation(original.toString("utf8", ...edit.o))) ? [index] : []);
+  if (trace.generatedQuotes.length !== generatedQuotes.length ||
+      generatedQuotes.some((index, i) => trace.generatedQuotes[i] !== index))
+    throw new Error("Generated literal quote metadata disagrees with the original spelling");
   const name = cardName ? canonicalizeNamePunctuation(cardName) : "";
   const article = name.startsWith("The ") ? `the ${name.slice(4)}` : undefined;
   const short = name ? shortNameForm(name, typeLine) : undefined;

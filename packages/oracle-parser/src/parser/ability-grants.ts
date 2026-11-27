@@ -189,10 +189,11 @@ function unresolvedCostGrants(value: unknown, keyword: string | undefined, found
 
 /** Bind a cost sentence to the single grant of that keyword in the directly
  * preceding instruction. Returns false when no unique grant awaits it. */
-export function attachKeywordCostDefinition(scope: unknown, definition: { keyword: string; cost: GrantedKeywordCost }): boolean {
+export function attachKeywordCostDefinition(c: Cursor, start: number, scope: unknown, definition: { keyword: string; cost: GrantedKeywordCost }): boolean {
   const grants = unresolvedCostGrants(scope, definition.keyword, []);
   if (grants.length !== 1) return false;
   grants[0].costDefinition = definition.cost;
+  c.fold(grants[0], start);
   return true;
 }
 

@@ -26,20 +26,26 @@ function isPermanentAbility(ability: Ability): boolean {
  * in the text at all, so it must be present for the card to be certified.
  * Returns the named threshold, null for a reminder that names none, and
  * undefined when the station line has no usable reminder. */
-function creatureThreshold(rawText: string): number | null | undefined {
-  const reminder = /^Station[ \t]*\(([^()\n]*)\)[ \t]*$/m.exec(rawText)?.[1];
+function creatureThreshold(rawText: string): { value: number; start: number; end: number } | null | undefined {
+  const station = /^Station[ \t]*\(([^()\n]*)\)[ \t]*$/dm.exec(rawText);
+  const reminder = station?.[1];
   if (reminder === undefined || !/\bStation only as a sorcery\./.test(reminder)) return undefined;
   const named = [...reminder.matchAll(/\bIt['’]s an? (?:artifact )?creature at (\d+)\+\./g)];
   if (named.length > 1 || /\bcreature\b/.test(reminder.replace(/\bIt['’]s an? (?:artifact )?creature at \d+\+\./, '')
       .replace(/Tap another creature you control:/, ''))) return undefined;
-  return named.length ? Number(named[0][1]) : null;
+  if (!named.length) return null;
+  const start = station!.indices![1][0] + named[0].index;
+  return { value: Number(named[0][1]), start, end: start + named[0][0].length };
 }
 
 /** Null means the lines hold no station symbols, not a failed station card.
  * A recognized but malformed structure returns explicit failures, so that
  * ordinary line parsing cannot turn a striation's contents into
  * unconditional abilities or a dice results table. */
-export function parseStationCard(lines: readonly string[], parseBlocks: BlockParser, rawText: string): ParsedLine[] | null {
+export type StationReminderReader = (line: number, start: number, end: number, creature: NonNullable<StationBand["creature"]>) => void;
+
+export function parseStationCard(lines: readonly string[], parseBlocks: BlockParser, rawText: string,
+  recordReminder?: StationReminderReader): ParsedLine[] | null {
   const keyword = lines.findIndex((line, index) => /^station$/i.test(line) && STATION_ROW.test(lines[index + 1] ?? ''));
   if (keyword < 0) return null;
   const first = keyword + 1;
@@ -53,7 +59,7 @@ export function parseStationCard(lines: readonly string[], parseBlocks: BlockPar
       (index > 0 && value <= thresholds[index - 1])))
     return fail('unsupported or unordered station symbols');
   const creatureAt = creatureThreshold(rawText);
-  if (creatureAt === undefined || (creatureAt !== null && !thresholds.includes(creatureAt)))
+  if (creatureAt === undefined || (creatureAt !== null && !thresholds.includes(creatureAt.value)))
     return fail('station reminder text does not identify the striation with the power/toughness box');
   for (let band = 0; band < headers.length; band++) {
     const start = headers[band], end = headers[band + 1] ?? lines.length;
@@ -70,7 +76,8 @@ export function parseStationCard(lines: readonly string[], parseBlocks: BlockPar
       continue;
     }
     const effect: StationBand = { static: 'station-band', threshold: thresholds[band], abilities,
-      ...(creatureAt === thresholds[band] ? { creature: { basePT: 'printed-box' as const } } : {}) };
+      ...(creatureAt?.value === thresholds[band] ? { creature: { basePT: 'printed-box' as const } } : {}) };
+    if (effect.creature && creatureAt) recordReminder?.(start, creatureAt.start, creatureAt.end, effect.creature);
     results.push({ text, ok: true, ability: finalizeCharacteristicDefinitions({ kind: 'static', effect }) });
   }
   return results;
