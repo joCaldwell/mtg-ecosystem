@@ -36,6 +36,7 @@ fn spell<'a>(targets: &'a [TargetSpec]) -> Env<'a> {
         targets,
         event: None,
         announced_x: false,
+        single_sacrifice_cost: false,
     }
 }
 fn gain(player: PlayerExpr, amount: Amount) -> Node {
@@ -123,6 +124,7 @@ fn event_players_exist_only_for_events_that_supply_the_role() {
         targets: &[],
         event,
         announced_x: false,
+        single_sacrifice_cost: false,
     };
     let requirements = check(&caster, &triggered(Some(&cast))).unwrap();
     assert!(requirements.event_player);
@@ -180,6 +182,7 @@ fn announced_x_is_in_scope_only_when_the_object_has_x() {
     let targets = player_target();
     let targeted = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&targets)
     };
     for (player, env) in [
@@ -241,6 +244,7 @@ fn life_loss_projects_actual_amount_to_a_later_verb() {
     assert!(check(&pair(Amount::announced_x()), &spell(&[])).is_err());
     let env = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&[])
     };
     assert!(
@@ -398,6 +402,7 @@ fn control_checks_branches_bindings_payments_and_capabilities() {
     };
     let env = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&[])
     };
     let requirements = check(&control, &env).unwrap();
@@ -578,6 +583,7 @@ fn control_admits_counted_draw_leaves() {
     let targets = [TargetSpec::new(0, "line:0:0", TargetDomain::AnyPlayer)];
     let env = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&targets)
     };
     let you = PlayerExpr::you(Context::Spell);
@@ -1075,6 +1081,7 @@ fn every_audited_verb_names_the_cell_it_occupies() {
     );
     let x = Env {
         announced_x: true,
+        single_sacrifice_cost: false,
         ..spell(&targets)
     };
     assert_eq!(

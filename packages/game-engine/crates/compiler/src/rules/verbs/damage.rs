@@ -53,7 +53,7 @@ pub(super) fn lower(
         _ => return Err(step("damage", "source")),
     };
     let amount = if let Some(filter) = for_each {
-        lower_each_filter((**filter).clone(), amount, cx.context)?
+        pilot_each_filter(cx, filter, amount)?
     } else {
         pilot_amount(cx, amount)?
     };

@@ -165,6 +165,14 @@ fn pilot_object(cx: &mut StepCx<'_>, object: &ast::ObjectRef) -> Result<Ref, Fai
                 .map(|role| Ref::EventObject { role })
                 .ok_or_else(|| operand("object", "unbound event object"))
         }
+        ast::ObjectRef::Related(related)
+            if cx.context == Context::Activated
+                && crate::resolution::sacrifice_cost_object(related) =>
+        {
+            Ok(Ref::CostResult {
+                role: kir::StepRole::Objects,
+            })
+        }
         _ => Err(operand("object", variant(object))),
     }
 }
@@ -209,6 +217,32 @@ fn pilot_board_set(cx: &mut StepCx<'_>, set: &ast::ObjectRef) -> Result<SetExpr,
     Ok(SetExpr::battlefield(pilot_filter(cx, filter)?))
 }
 
+fn pilot_each_filter(
+    cx: &mut StepCx<'_>,
+    filter: &ast::ObjectFilter,
+    factor: &ast::Amount,
+) -> Result<Amount, Failure> {
+    let factor = fixed_positive_amount(factor)?;
+    let count = pilot_count(
+        cx,
+        &ast::AmountCount {
+            of: Box::new(filter.clone()),
+        },
+    )?;
+    Ok(if factor == Quantity::from(1) {
+        count
+    } else {
+        Amount::Times {
+            factor,
+            of: Box::new(count),
+        }
+    })
+}
+
+fn pilot_count(cx: &mut StepCx<'_>, count: &ast::AmountCount) -> Result<Amount, Failure> {
+    lower_count_with(count, cx.context, |filter| pilot_filter(cx, filter))
+}
+
 fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Failure> {
     match amount {
         ast::Amount::Fixed(number) if number.value >= 0 => Ok(Amount::fixed(number.value)),
@@ -238,9 +272,7 @@ fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Fai
         ast::Amount::Devotion(devotion) => lower_devotion(devotion, cx.context),
         ast::Amount::CastManaValueSum(sum) => lower_other_casts_mana_value(sum, cx.context),
         ast::Amount::CounterCount(_) => source_counter_amount(amount),
-        ast::Amount::Count(count) => {
-            lower_count_with(count, cx.context, |filter| pilot_filter(cx, filter))
-        }
+        ast::Amount::Count(count) => pilot_count(cx, count),
         ast::Amount::Attribute(attribute) => {
             use ast::PropertyConstraintProperty as Property;
             let stat = match attribute.attribute {

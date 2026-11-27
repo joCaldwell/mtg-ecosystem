@@ -23,16 +23,9 @@ pub(super) fn lower(cx: &mut StepCx<'_>, draw: &ast::EffectDraw) -> Result<Instr
         return Err(step("draw", "qualified"));
     }
     check_optional_chooser("draw", optional.is_some(), who, decided_by.as_deref())?;
-    let player = match who.as_ref() {
-        ast::PlayerRef::Owner(owner) => PlayerExpr::OwnerOf {
-            object: kir::Ref::Target {
-                slot: bind_permanent_target(cx.program, cx.slots, &owner.of)?,
-            },
-        },
-        who => pilot_player(cx, who)?,
-    };
+    let player = pilot_player(cx, who)?;
     let amount = match for_each {
-        Some(filter) => lower_each_filter((**filter).clone(), amount, cx.context)?,
+        Some(filter) => pilot_each_filter(cx, filter, amount)?,
         None => pilot_amount(cx, amount)?,
     };
     let verb = Verb::Draw { player, amount };

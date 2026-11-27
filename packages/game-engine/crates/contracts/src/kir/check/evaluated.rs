@@ -39,11 +39,21 @@ impl Walk<'_, '_> {
         match amount {
             Amount::Fixed { value } if value.is_negative() => kind("negative quantity"),
             Amount::Fixed { .. } | Amount::Var { .. } => Ok(()),
+            Amount::Count {
+                set:
+                    SetExpr::Pool {
+                        pool: Ref::StepResult { .. },
+                    },
+            } => Ok(()),
             Amount::Count { set } if self.audit_control_set(set).is_ok() => Ok(()),
             Amount::Count { set } => self.audit_counted_set(set),
             Amount::StatOf {
                 object:
-                    Ref::Source | Ref::Target { .. } | Ref::EventObject { .. } | Ref::BoundVar { .. },
+                    Ref::Source
+                    | Ref::Target { .. }
+                    | Ref::EventObject { .. }
+                    | Ref::BoundVar { .. }
+                    | Ref::CostResult { .. },
                 ..
             } => Ok(()),
             Amount::LifeOf { player }
@@ -115,7 +125,11 @@ impl Walk<'_, '_> {
             ),
             PlayerExpr::ControllerOf { object } | PlayerExpr::OwnerOf { object } => matches!(
                 object,
-                Ref::Source | Ref::EventObject { .. } | Ref::BoundVar { .. } | Ref::Target { .. }
+                Ref::Source
+                    | Ref::EventObject { .. }
+                    | Ref::BoundVar { .. }
+                    | Ref::Target { .. }
+                    | Ref::CostResult { .. }
             ),
             PlayerExpr::EachOpponent | PlayerExpr::EachPlayer => false,
         }
@@ -124,7 +138,10 @@ impl Walk<'_, '_> {
     fn audit_evaluated_player(&self, player: &PlayerExpr) -> Result<(), KirError> {
         if let PlayerExpr::OwnerOf { object } | PlayerExpr::ControllerOf { object } = player {
             match object {
-                Ref::Source | Ref::EventObject { .. } | Ref::BoundVar { .. } => {}
+                Ref::Source
+                | Ref::EventObject { .. }
+                | Ref::BoundVar { .. }
+                | Ref::CostResult { .. } => {}
                 Ref::Target { slot }
                     if !matches!(
                         self.domain(*slot)?,
@@ -286,7 +303,7 @@ impl Walk<'_, '_> {
                     filter,
                 } if damageable_set(filter) => self.audited_relative_filter(filter),
                 SetExpr::Pool {
-                    pool: Ref::BoundVar { .. },
+                    pool: Ref::BoundVar { .. } | Ref::StepResult { .. },
                 } => Ok(()),
                 _ => unaudited("set damage recipient"),
             },
@@ -316,7 +333,9 @@ impl Walk<'_, '_> {
             | Ref::Controller { .. }
             | Ref::EventPlayer { .. }
             | Ref::EventObject { .. }
-            | Ref::BoundVar { .. } => Ok(()),
+            | Ref::BoundVar { .. }
+            | Ref::StepResult { .. }
+            | Ref::CostResult { .. } => Ok(()),
             _ => unaudited("damage recipient"),
         }
     }
@@ -334,7 +353,10 @@ impl Walk<'_, '_> {
         }
         match on {
             SetExpr::One { object } => match object {
-                Ref::Source | Ref::EventObject { .. } | Ref::BoundVar { .. } => {}
+                Ref::Source
+                | Ref::EventObject { .. }
+                | Ref::BoundVar { .. }
+                | Ref::CostResult { .. } => {}
                 Ref::Target { slot } => match self.domain(*slot)? {
                     TargetDomain::ControlledBattlefieldCreature
                     | TargetDomain::BattlefieldCreature
@@ -354,7 +376,7 @@ impl Walk<'_, '_> {
                 filter,
             } => self.audited_relative_filter(filter)?,
             SetExpr::Pool {
-                pool: Ref::BoundVar { .. },
+                pool: Ref::BoundVar { .. } | Ref::StepResult { .. },
             } => {}
             _ => return unaudited("counter recipient"),
         }

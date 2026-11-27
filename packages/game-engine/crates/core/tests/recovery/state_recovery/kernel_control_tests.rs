@@ -254,6 +254,7 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
             targets: &program.targets,
             event: None,
             announced_x: false,
+            single_sacrifice_cost: false,
         },
     )
     .unwrap();
@@ -625,6 +626,7 @@ fn one_event_player_binding_feeds_life_and_draw() {
         targets: &[],
         event: Some(&condition),
         announced_x: false,
+        single_sacrifice_cost: false,
     };
     assert!(mtg_contracts::kir::check(&node, &env).is_ok());
     bears.source_labels = None;
@@ -751,6 +753,7 @@ fn edict_with_kernel(node: Node, target_domain: TargetDomain) -> Prepared {
             targets: &program.targets,
             event: None,
             announced_x: false,
+            single_sacrifice_cost: false,
         },
     )
     .unwrap();
@@ -816,6 +819,7 @@ fn if_pays_scenario() -> Prepared {
             targets: &program.targets,
             event: None,
             announced_x: false,
+            single_sacrifice_cost: false,
         },
     )
     .unwrap();
@@ -1289,4 +1293,51 @@ fn creature_payment_checks_feasibility_and_restores_the_exact_choice() {
         }
         assert_eq!(game.state.rules.players[0].life, expected);
     }
+}
+
+#[test]
+fn sacrifice_siblings_read_actual_amount_objects_and_player() {
+    use mtg_contracts::kir::StepRole;
+    let result = |role| Ref::StepResult { step: 0, role };
+    let node = Node::Seq(vec![
+        Node::Do(Verb::Sacrifice {
+            player: PlayerExpr::target(0),
+            count: Amount::fixed(1),
+            filter: Pred::creatures(),
+            greatest_power: false,
+        }),
+        gain(
+            PlayerExpr::Is {
+                who: result(StepRole::Player),
+            },
+            Amount::Var {
+                of: result(StepRole::Amount),
+            },
+        ),
+        gain(
+            controller(),
+            Amount::Count {
+                set: SetExpr::Pool {
+                    pool: result(StepRole::Objects),
+                },
+            },
+        ),
+    ]);
+    let prepared = edict_with_kernel(node, TargetDomain::OpponentPlayer);
+    let mut game = super::formats_tests::cast_edict(prepared);
+    let before = [0, 1].map(|seat| game.state.rules.players[seat].life.clone());
+    let request = Driver::request(&mut game, 1);
+    assert_eq!(request.reason, Reason::Sacrifice);
+    assert_eq!(request.player, PlayerId(1));
+    assert_recoverable((&game).into());
+    let sacrificed = Driver::object(&game, 1);
+    let answer = request.pick_object(sacrificed);
+    game.respond(request.player, request.id, answer).unwrap();
+    assert_eq!(next_reason(&mut game), Reason::Priority);
+    for (seat, mut life) in before.into_iter().enumerate() {
+        life.add(&1.into());
+        assert_eq!(game.state.rules.players[seat].life, life);
+    }
+    assert!(game.current(sacrificed).is_err());
+    assert_recoverable((&game).into());
 }

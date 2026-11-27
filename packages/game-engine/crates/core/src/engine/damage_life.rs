@@ -510,18 +510,23 @@ impl RulesTxn {
             Some(TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker) => *self
                 .bound_damage_target(spell, index)
                 .ok_or("missing damage binding")?,
-            Some(TargetDomain::OpponentPlayer) => {
+            Some(domain @ (TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)) => {
                 let player = *spell
                     .player_targets
                     .get(index)
                     .ok_or("missing opponent damage binding")?;
-                if player == spell.controller || player.0 >= 4 {
+                if (domain == TargetDomain::OpponentPlayer && player == spell.controller)
+                    || player.0 >= 4
+                {
                     return Err("invalid announced opponent damage binding".into());
                 }
                 TargetEntity::Player { player }
             }
             Some(
                 TargetDomain::BattlefieldCreature
+                | TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::BlockingBattlefieldCreature
+                | TargetDomain::CreatureOrPlaneswalker
                 | TargetDomain::BattlefieldPermanent
                 | TargetDomain::ControlledBattlefieldPermanent,
             ) => TargetEntity::Object {

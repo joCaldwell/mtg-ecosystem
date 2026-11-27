@@ -953,6 +953,20 @@ fn operand_site<'a>(
     operand_site(child, parts)
 }
 
+pub(crate) fn sacrifice_cost_object(related: &ast::ObjectRefRelated) -> bool {
+    related.number == ast::ObjectRefCopyResultNumber::Singular
+        && matches!(related.relation.as_ref(), ast::ObjectRelation::EventResult(event)
+            if event.event == ast::ObjectRelationEventResultEvent::Sacrifice
+                && event.scope == ast::ObjectRelationEventResultScope::Contextual
+                && event.period.is_none() && event.who.is_none())
+        && present_fields(&related.filter) == ["types"]
+        && related
+            .filter
+            .types
+            .as_deref()
+            .is_some_and(|types| types == ["creature"])
+}
+
 fn class_of(reference: &ResolvedRef, site: SiteKind<'_>) -> Option<kir::OperandClass> {
     use kir::OperandClass as Class;
     match (reference, site) {
@@ -997,6 +1011,11 @@ fn class_of(reference: &ResolvedRef, site: SiteKind<'_>) -> Option<kir::OperandC
         {
             Some(Class::EventAmount)
         }
+        (ResolvedRef::StepResult(step), SiteKind::Object(ast::ObjectRef::Related(related)))
+            if step.role.as_str() == "selection" && sacrifice_cost_object(related) =>
+        {
+            Some(Class::CostResult)
+        }
         _ => None,
     }
 }
@@ -1023,6 +1042,27 @@ fn evaluated_reference(reference: &ResolvedRef, kind: SiteKind<'_>, at: &Site<'_
         (Some(Class::EventObject), ResolvedRef::EventObject(event)) => {
             at.kind == BlockKind::Triggered && trigger == Some(event.role.as_str())
         }
+        (Some(Class::CostResult), ResolvedRef::StepResult(step)) => {
+            at.kind == BlockKind::Activated
+                && step
+                    .step
+                    .strip_prefix("/costs/")
+                    .and_then(|cost| cost.strip_suffix("/what"))
+                    .and_then(|index| index.parse::<usize>().ok())
+                    .is_some_and(|index| {
+                        let costs = at.ability["costs"].as_array();
+                        costs.is_some_and(|costs| {
+                            costs
+                                .get(index)
+                                .is_some_and(|cost| cost["cost"] == "sacrifice")
+                                && costs
+                                    .iter()
+                                    .filter(|cost| cost["cost"] == "sacrifice")
+                                    .count()
+                                    == 1
+                        })
+                    })
+        }
         (Some(Class::EventAmount), _) => {
             at.kind == BlockKind::Triggered
                 && matches!(
@@ -1032,6 +1072,7 @@ fn evaluated_reference(reference: &ResolvedRef, kind: SiteKind<'_>, at: &Site<'_
         }
         (Some(Class::Source | Class::Target | Class::AnnouncedX), _) => true,
         (Some(Class::Bound), ResolvedRef::BoundVar(var)) => var.id.starts_with("/effects/"),
+        _ if matches!(kind, SiteKind::Amount(ast::Amount::ThatMuch(_))) => false,
         _ => reference_row(Role::Resolved(reference), at),
     }
 }

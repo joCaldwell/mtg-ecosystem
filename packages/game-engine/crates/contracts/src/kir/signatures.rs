@@ -29,6 +29,7 @@ pub enum OperandClass {
     AnnouncedX,
     Measure,
     StepResult,
+    CostResult,
 }
 
 impl OperandClass {
@@ -43,6 +44,7 @@ impl OperandClass {
             Ref::BoundVar { .. } => Self::Bound,
             Ref::AnnouncedX => Self::AnnouncedX,
             Ref::StepResult { .. } => Self::StepResult,
+            Ref::CostResult { .. } => Self::CostResult,
             _ => return None,
         })
     }
@@ -186,6 +188,7 @@ const PLAYER_CLASSES: &[OperandClass] = &[
     OperandClass::Bound,
     OperandClass::PlayerDomain,
     OperandClass::StepResult,
+    OperandClass::CostResult,
 ];
 
 const QUANTITY_CLASSES: &[OperandClass] = &[
@@ -193,6 +196,7 @@ const QUANTITY_CLASSES: &[OperandClass] = &[
     OperandClass::AnnouncedX,
     OperandClass::Measure,
     OperandClass::StepResult,
+    OperandClass::CostResult,
     OperandClass::EventAmount,
 ];
 
@@ -256,6 +260,8 @@ const DAMAGE_SLOTS: &[OperandSlot] = &[
             OperandClass::Bound,
             OperandClass::PlayerDomain,
             OperandClass::Measure,
+            OperandClass::StepResult,
+            OperandClass::CostResult,
         ],
         quantity: None,
         read: ReadTime::StepStart,
@@ -277,6 +283,8 @@ const COUNTER_SLOTS: &[OperandSlot] = &[
             OperandClass::EventObject,
             OperandClass::Bound,
             OperandClass::Measure,
+            OperandClass::StepResult,
+            OperandClass::CostResult,
         ],
         quantity: None,
         read: ReadTime::StepStart,

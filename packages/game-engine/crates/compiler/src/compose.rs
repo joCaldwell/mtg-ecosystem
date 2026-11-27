@@ -831,6 +831,7 @@ fn control_env<'a>(
         targets,
         event,
         announced_x: true,
+        single_sacrifice_cost: false,
     }
 }
 

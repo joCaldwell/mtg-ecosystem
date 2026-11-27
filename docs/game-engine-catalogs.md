@@ -197,7 +197,7 @@ placement and graveyard moves retain their transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env`
-(`context`, `targets`, `event`, `announced_x`); lexical bindings live in checker
+(context, announced targets, triggering event, X and the checked cost); lexical bindings live in checker
 scope, not `Env`. Sorts must match. One verb-independent classifier maps a
 resolved reference and its typed AST site to a class. Required capabilities are
 the union over the verb, its operand classes, distribution and projections.
@@ -251,6 +251,11 @@ wait for Stage 2. **Absent is not zero.** A producer that did not run yields
 `Resolved::Absent` with its reason (illegal target, not chosen, departed player,
 no event member or not performed); one that ran and affected nothing yields an
 empty result.
+
+A `CostResult` for an activated ability is scoped to a mandatory cost that
+sacrifices one selected permanent. It exposes the paid object's last-known
+facts, the payer and the number paid. A sacrifice action exposes the actual
+number, objects and players through the ordinary step collector.
 
 **Tier preservation.** The 17 previously qualified higher-tier shapes in
 `kir::tiers` keep their legacy cells and tiers; every other evaluator-admitted

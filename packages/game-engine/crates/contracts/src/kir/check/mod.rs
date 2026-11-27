@@ -35,6 +35,8 @@ pub struct Env<'a> {
     /// The event of a triggered ability (CR 603.2).
     pub event: Option<&'a TriggerCondition>,
     /// CR 107.3: the object has {X} in its cost.
+    /// The activation pays a mandatory cost of sacrificing one selected permanent.
+    pub single_sacrifice_cost: bool,
     pub announced_x: bool,
 }
 
@@ -228,6 +230,7 @@ pub fn target_slots(node: &Node) -> BTreeSet<u32> {
         targets: &[],
         event: None,
         announced_x: false,
+        single_sacrifice_cost: false,
     };
     let mut walk = Walk {
         env: &env,
@@ -395,6 +398,16 @@ impl Walk<'_, '_> {
                 Some((_, kind)) => *kind,
                 None => return scope(format!("variable {id} is not bound")),
             },
+            Ref::CostResult { role } => {
+                if self.env.context != Context::Activated || !self.env.single_sacrifice_cost {
+                    return scope("invocation has no single sacrifice cost result");
+                }
+                match role {
+                    StepRole::Objects => RefKind::Object,
+                    StepRole::Player => RefKind::Player,
+                    StepRole::Amount => RefKind::Number,
+                }
+            }
             Ref::StepResult { step, role } => {
                 let Some(producer) = self.steps.get(*step as usize) else {
                     return scope(format!("step {step} has no dominating projection"));
@@ -1468,6 +1481,7 @@ impl Walk<'_, '_> {
                 targets: &program.targets,
                 event: None,
                 announced_x: false,
+                single_sacrifice_cost: false,
             },
         )?;
         if admitted

@@ -164,7 +164,7 @@ fn program(
     event: Option<&TriggerCondition>,
     announced_x: bool,
 ) -> Result<(), String> {
-    validate_program(p, context, event, announced_x, false)
+    validate_program(p, context, event, announced_x, false, false)
 }
 
 fn validate_program(
@@ -173,6 +173,7 @@ fn validate_program(
     event: Option<&TriggerCondition>,
     announced_x: bool,
     modal: bool,
+    single_sacrifice_cost: bool,
 ) -> Result<(), String> {
     if p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
@@ -230,6 +231,7 @@ fn validate_program(
         targets: &p.targets,
         event,
         announced_x,
+        single_sacrifice_cost,
     };
     // CR 608.2c, n: the resolving spell's own shuffle completes the
     // invocation when its source leaves the stack.
@@ -953,7 +955,14 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     for p in a.programs() {
         cost(d, a, p)?;
         if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
-            program(p, Context::Activated, None, a.x_mana_cost)?;
+            validate_program(
+                p,
+                Context::Activated,
+                None,
+                a.x_mana_cost,
+                false,
+                matches!(a.cost, ActivationCost::SacrificePermanent { count: 1, .. }),
+            )?;
         }
     }
     Ok(())
@@ -1749,6 +1758,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                     None,
                     d.x_mana_cost,
                     d.modal_spell.is_some(),
+                    false,
                 )?;
             }
         }

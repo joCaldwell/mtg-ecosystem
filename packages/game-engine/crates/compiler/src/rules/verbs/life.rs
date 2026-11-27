@@ -33,17 +33,9 @@ pub(super) fn lower(
         decided_by.as_deref(),
     )?;
     let gain = *effect == ast::ReplacementEventVariant4Event::GainLife;
-    let player = match who.as_ref() {
-        ast::PlayerRef::Controller(controller) => {
-            let slot = preceding_target(cx.program, cx.source_block, &controller.of)?;
-            PlayerExpr::ControllerOf {
-                object: kir::Ref::Target { slot },
-            }
-        }
-        who => pilot_player(cx, who)?,
-    };
+    let player = pilot_player(cx, who)?;
     let amount = match (for_each, amount.as_ref()) {
-        (Some(filter), amount) => lower_each_filter((**filter).clone(), amount, cx.context)?,
+        (Some(filter), amount) => pilot_each_filter(cx, filter, amount)?,
         (None, ast::Amount::Variant(quantity)) => {
             let ast::AmountVariant::LifeChange(change) = quantity.as_ref() else {
                 return Err(operand("amount", variant(quantity)));

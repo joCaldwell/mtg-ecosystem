@@ -40,7 +40,7 @@ pub(super) fn lower(
     }
     let counter = object_counter_kind(&counter.r#type)?;
     let amount = if let Some(filter) = for_each {
-        lower_each_filter((**filter).clone(), count, cx.context)?
+        pilot_each_filter(cx, filter, count)?
     } else {
         pilot_amount(cx, count)?
     };

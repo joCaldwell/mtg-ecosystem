@@ -654,3 +654,73 @@ fn verb_operands_damage_rechecks_hexproof_at_resolution() {
         }
     )));
 }
+
+#[test]
+fn verb_operands_damage_and_life_share_the_paid_sacrifice_object() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let prepared = board(&[
+        (
+            record!("84d47913-53ac-4d4d-bac3-bc0306d43e12"),
+            Cell::Evaluated(EvaluatedVerb::Damage),
+        ),
+        (
+            record!("2d92a035-dd7a-4426-a8c0-f04e0b836dad"),
+            Cell::Evaluated(EvaluatedVerb::GainLife),
+        ),
+    ])
+    .seats(4)
+    .permanent_or_hand("Bloodshot Cyclops", 0, 0, false)
+    .permanent_or_hand("Disciple of Griselbrand", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Giant Growth", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let [pumped, other] = [2, 3].map(|card| Driver::object(&game, card));
+    let initial = [0, 2].map(|seat| game.state.rules.players[seat].life.clone());
+    Driver::cast(&mut game, CardId(4));
+    Driver::pick_object(&mut game, pumped);
+    Driver::pay(&mut game, &[5]);
+    resolve(&mut game);
+
+    let cyclops = Driver::object(&game, 0);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: cyclops,
+            ability: 0,
+        },
+    );
+    let targets = Driver::request(&mut game, 1);
+    let answer = targets.entity_targets(vec![TargetEntity::Player {
+        player: PlayerId(2),
+    }]);
+    game.respond(targets.player, targets.id, answer).unwrap();
+    Driver::pick_object(&mut game, pumped);
+    assert_recoverable((&game).into());
+    resolve(&mut game);
+
+    let disciple = Driver::object(&game, 1);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: disciple,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut game, &[6]);
+    Driver::pick_object(&mut game, other);
+    assert_recoverable((&game).into());
+    resolve(&mut game);
+
+    let [mut life, mut hit] = initial;
+    life.add(&2.into());
+    hit.subtract(&5.into());
+    assert_eq!(game.state.rules.players[0].life, life);
+    assert_eq!(game.state.rules.players[2].life, hit);
+    assert!(game.current(pumped).is_err());
+    assert!(game.current(other).is_err());
+}

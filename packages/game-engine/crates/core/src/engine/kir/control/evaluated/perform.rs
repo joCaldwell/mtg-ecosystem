@@ -156,7 +156,16 @@ impl RulesTxn {
                 }
             }
             DamageTo::Ref {
-                who: who @ (Ref::Controller { .. } | Ref::EventPlayer { .. }),
+                who:
+                    who @ (Ref::Controller { .. }
+                    | Ref::EventPlayer { .. }
+                    | Ref::StepResult {
+                        role: StepRole::Player,
+                        ..
+                    }
+                    | Ref::CostResult {
+                        role: StepRole::Player,
+                    }),
             } => {
                 if let Resolved::Present(players) =
                     self.evaluated_players(task, &PlayerExpr::Is { who: *who })?

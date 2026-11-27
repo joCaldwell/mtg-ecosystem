@@ -202,6 +202,17 @@ impl RulesTxn {
                 vec![player]
             }
             PlayerExpr::Is {
+                who: Ref::CostResult {
+                    role: StepRole::Player,
+                },
+            } => {
+                let facts = entry
+                    .sacrificed
+                    .as_ref()
+                    .ok_or("missing sacrifice cost result")?;
+                vec![facts.controller]
+            }
+            PlayerExpr::Is {
                 who: Ref::StepResult { step, .. },
             } => {
                 let Some(result) = self.read_step_result(task, *step)? else {
@@ -247,6 +258,13 @@ impl RulesTxn {
         let entry = self.entry(self.kernel_root()?.stack_id)?;
         match object {
             Ref::Source => self.source_facts(entry).map(Some),
+            Ref::CostResult {
+                role: StepRole::Objects,
+            } => entry
+                .sacrificed
+                .clone()
+                .map(Some)
+                .ok_or_else(|| "missing sacrifice cost result".into()),
             Ref::EventObject { role } => {
                 let binding = entry.kind.event_binding()?;
                 let Some(object) = binding.object.as_deref() else {
@@ -296,6 +314,15 @@ impl RulesTxn {
         let entry = self.entry(frame.stack_id)?;
         Ok(Resolved::Present(match object {
             Ref::Source => entry.source,
+            Ref::CostResult {
+                role: StepRole::Objects,
+            } => {
+                entry
+                    .sacrificed
+                    .as_ref()
+                    .ok_or("missing sacrifice cost result")?
+                    .object
+            }
             Ref::Target { slot } => {
                 if frame.legal_targets.get(*slot as usize) != Some(&true) {
                     return Ok(Resolved::Absent(AbsentReason::IllegalTarget));
@@ -330,6 +357,18 @@ impl RulesTxn {
                 Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
             },
             SetExpr::Matching { zone, filter } => self.evaluated_set(task, zone, filter)?,
+            SetExpr::Pool {
+                pool:
+                    Ref::StepResult {
+                        step,
+                        role: StepRole::Objects,
+                    },
+            } => {
+                let Some(result) = self.read_step_result(task, *step)? else {
+                    return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+                };
+                result.objects.iter().map(|object| object.prior).collect()
+            }
             SetExpr::Pool { .. } => self.control_objects(task, set)?,
         }))
     }
@@ -376,6 +415,26 @@ impl RulesTxn {
     fn evaluated_amount(&self, task: &Task, amount: &Amount) -> Result<Resolved<Quantity>, String> {
         let frame = self.kernel_root()?;
         let value = match amount {
+            Amount::Var {
+                of: Ref::CostResult {
+                    role: StepRole::Amount,
+                },
+            } => {
+                self.entry(frame.stack_id)?
+                    .sacrificed
+                    .as_ref()
+                    .ok_or("missing sacrifice cost result")?;
+                Quantity::from(1)
+            }
+            Amount::Count {
+                set:
+                    set @ SetExpr::Pool {
+                        pool: Ref::StepResult { .. },
+                    },
+            } => match self.evaluated_objects(task, set)? {
+                Resolved::Present(objects) => Quantity::from(objects.len() as i64),
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
             Amount::Var {
                 of: Ref::EventAmount,
             } => match &self.entry(frame.stack_id)?.kind.event_binding()?.amount {
