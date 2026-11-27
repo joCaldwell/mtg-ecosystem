@@ -138,6 +138,7 @@ pub(crate) fn cast_event(
         spell: lower_type_predicate(what, Some("spell"), true, 0)?,
         nth: None,
         targets_source: false,
+        target: Pred::default(),
     })
 }
 

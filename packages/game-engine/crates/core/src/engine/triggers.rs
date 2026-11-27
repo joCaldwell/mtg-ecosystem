@@ -167,6 +167,10 @@ testkit_fields! {
         /// CR 601.2c: the permanents the spell targets as it becomes cast.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub targets: Vec<ObjectId>,
+        /// Those permanents' facts as the spell became cast, recorded only
+        /// for an observer whose pattern reads them.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub(crate) target_facts: Vec<ObjectBefore>,
     }
 }
 /// The event subject's resolving binding (CR 400.7, 608.2h).
@@ -1167,6 +1171,7 @@ impl RulesTxn {
                 spell: self.object_before(entry.source)?,
                 nth: None,
                 targets: Self::targeted_permanents(entry).into_iter().collect(),
+                target_facts: vec![],
             }),
         };
         self.collect_trigger_witness(
@@ -1355,10 +1360,16 @@ impl RulesTxn {
                                 live: observers.is_live(attacker.controller),
                             }), you, attacker.object, &identity))
                     }
-                    EventPattern::Cast { caster, spell, targets_source, .. } => {
+                    EventPattern::Cast { caster, spell, targets_source, target, .. } => {
                         matches!(&witness, TriggerEventWitness::SpellCast { cast }
                             if player_in(caster, Some(cast.caster), you)
                                 && (!*targets_source || cast.targets.contains(&object.id))
+                                // CR 601.2c: a targeted permanent as cast.
+                                && (target.is_empty() || cast.targets.iter().any(|t| {
+                                    observers.current(*t).is_ok_and(|o| {
+                                        holds(target, Some(&observers.object_facts(o)), you, *t, &identity)
+                                    })
+                                }))
                                 && holds(spell, Some(&Frozen {
                                     facts: &cast.spell,
                                     token: false,
@@ -1546,6 +1557,15 @@ impl RulesTxn {
                         | TriggerEventWitness::LifeGained { nth: slot, .. } => *slot = nth,
                         TriggerEventWitness::SpellCast { cast } => cast.nth = nth,
                         _ => {}
+                    }
+                    if let TriggerEventWitness::SpellCast { cast } = &mut matched_witness
+                        && matches!(pattern, EventPattern::Cast { target, .. } if !target.is_empty())
+                    {
+                        cast.target_facts = cast
+                            .targets
+                            .iter()
+                            .map(|t| observers.object_before(*t))
+                            .collect::<Result<_, _>>()?;
                     }
                     // The discarded card is evidence only when the pattern
                     // read its characteristics.
@@ -2807,11 +2827,31 @@ impl RulesTxn {
                     && death_controller.is_none()
             }
             TriggerEventWitness::SpellCast { cast } => {
+                for facts in &cast.target_facts {
+                    self.validate_fact_identity(facts)?;
+                }
+                // The recorded facts are exactly the targeted permanents,
+                // and only for an observer that read them.
+                let reads_targets =
+                    matches!(pattern, EventPattern::Cast { target, .. } if !target.is_empty());
                 self.valid_cast_facts(cast)?
                     && ordinal_evidence(pattern, cast.nth)
-                    && matches!(pattern, EventPattern::Cast { caster, spell, targets_source, .. }
+                    && if reads_targets {
+                        cast.target_facts
+                            .iter()
+                            .map(|f| f.object)
+                            .eq(cast.targets.iter().copied())
+                    } else {
+                        cast.target_facts.is_empty()
+                    }
+                    && matches!(pattern, EventPattern::Cast { caster, spell, targets_source, target, .. }
                         if player_in(caster, Some(cast.caster), controller)
                             && (!*targets_source || cast.targets.contains(&source))
+                            && (target.is_empty() || cast.target_facts.iter().any(|f| {
+                                f.zone == Zone::Battlefield
+                                    && holds(target, Some(&frozen(f)), controller, f.object,
+                                        &identity(f.object))
+                            }))
                             && holds(spell, Some(&Frozen { facts: &cast.spell, token: false,
                                 live: true }), controller,
                                 cast.spell.object, &identity(cast.spell.object)))

@@ -467,6 +467,29 @@ fn trigger(
         *targets_source = true;
         return Ok(ability);
     }
+    // CR 115.1, 601.2c: "a spell that targets a [filtered permanent]"
+    // lowers the cast event without the target clause, then reads some
+    // permanent the spell targets as it became cast.
+    if raw["trigger"] == "cast"
+        && let Some(targets) = raw["what"].get("targets")
+        && targets["ref"] == "filter"
+        && targets.as_object().map(serde_json::Map::len) == Some(3)
+        && targets["count"] == serde_json::json!({"amount": "fixed", "value": 1})
+    {
+        let filter: ast::ObjectFilter = events::typed_filter(&targets["filter"])?;
+        let target = lower_event_filter(&filter)?;
+        let mut stripped = raw.clone();
+        if let Some(what) = stripped["what"].as_object_mut() {
+            what.remove("targets");
+        }
+        let mut ability = trigger(card, &stripped, parts, condition, block)?;
+        let TriggerCondition::Event { pattern, .. } = &mut ability.condition;
+        let EventPattern::Cast { target: slot, .. } = pattern else {
+            return Err(unsupported("compose.block", "trigger:targets:event"));
+        };
+        *slot = target;
+        return Ok(ability);
+    }
     let Some(occurrence) = raw.get("occurrence") else {
         return trigger_event(card, raw, parts, condition, block);
     };

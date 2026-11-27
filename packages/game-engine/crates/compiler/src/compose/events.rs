@@ -313,6 +313,26 @@ pub(super) fn general(
     {
         return discard_event(discard);
     }
+    // CR 603.2, 701.21a: one player's sacrifice of either of two objects is
+    // one event, matched by whichever alternative the permanent satisfies.
+    if trigger["trigger"] == "any-of"
+        && trigger.as_object().is_some_and(|fields| fields.len() == 2)
+        && let Some([a, b]) = trigger["events"].as_array().map(Vec::as_slice)
+        && a["trigger"] == "sacrifices"
+        && b["trigger"] == "sacrifices"
+        && a["who"] == b["who"]
+        && let (
+            Some(EventPattern::Sacrifices { player, object: first }),
+            Some(EventPattern::Sacrifices { object: second, .. }),
+        ) = (general(card, a)?, general(card, b)?)
+    {
+        return Ok(Some(EventPattern::Sacrifices {
+            player,
+            object: Pred(vec![Atom::AnyOf {
+                alternatives: vec![first, second],
+            }]),
+        }));
+    }
     // CR 119.9, 701.21a: a player event named by "you", "an opponent" or
     // "a player". A sacrificed permanent is matched on the battlefield
     // immediately before it moved (CR 603.10a).
@@ -604,6 +624,11 @@ fn blocking_pair(
         });
     }
     one(trigger)
+}
+
+/// A printed object filter, typed as the AST names it.
+pub(super) fn typed_filter(filter: &serde_json::Value) -> Result<ast::ObjectFilter, Failure> {
+    typed(filter, "trigger.what")
 }
 
 /// The event player "you", "an opponent" or "a player" (CR 109.5, 102.3).

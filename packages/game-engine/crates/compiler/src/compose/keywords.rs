@@ -1137,6 +1137,7 @@ pub(super) fn triggered(
                 }]),
                 nth: None,
                 targets_source: false,
+                target: Pred::default(),
             }
         }
         // CR 702.45a: "Whenever this creature blocks or becomes blocked, it

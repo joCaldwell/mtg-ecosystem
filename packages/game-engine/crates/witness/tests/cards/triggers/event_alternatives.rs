@@ -351,3 +351,57 @@ fn event_alternatives_first_life_gain_during_your_turn() {
     assert_eq!((tokens(&g, 0), tokens(&g, 1)), (1, 0));
     assert_recoverable((&g).into());
 }
+
+const MOCKINGBIRD: &str = record!("1fd00656-83ba-4feb-b089-224007936b99");
+const REHEARSED_DEBATER: &str = record!("e30ccf07-0969-4e81-ba43-c50a2ff9c040");
+
+/// Mockingbird, Ace Agent: "Whenever you cast a spell that targets a
+/// creature you control, put a +1/+1 counter on Mockingbird." Rehearsed
+/// Debater: "Repartee — Whenever you cast an instant or sorcery spell that
+/// targets a creature, this creature gets +1/+1 until end of turn." Giant
+/// Growth on your Grizzly Bears triggers both; Lightning Bolt on the
+/// opponent's triggers only the Debater. Targets are read as the spell
+/// becomes cast (CR 115.1, 601.2c, 601.2i).
+#[test]
+fn event_alternatives_cast_spell_targeting_a_filtered_creature() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[MOCKINGBIRD, REHEARSED_DEBATER], TurnStep::PrecombatMain)
+                .permanent_or_hand("Mockingbird, Ace Agent", 0, 0, false)
+                .permanent_or_hand("Rehearsed Debater", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 1, 1, false)
+                .permanent_or_hand("Giant Growth", 0, 0, true)
+                .permanent_or_hand("Lightning Bolt", 0, 0, true)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .permanent_or_hand("Mountain", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (mockingbird, debater, mine, theirs) = (
+        Driver::object(&g, 0),
+        Driver::object(&g, 1),
+        Driver::object(&g, 2),
+        Driver::object(&g, 3),
+    );
+    assert!(matches!(
+        g.definition(CardId(0)).unwrap().triggered[0].condition.pattern(),
+        EventPattern::Cast { target, .. } if target.reads_characteristics()
+    ));
+    for (card, target, land, expected) in [(4, mine, 6, (1, 1)), (5, theirs, 7, (1, 2))] {
+        Driver::cast(&mut g, CardId(card));
+        Driver::pick_object(&mut g, target);
+        Driver::pay(&mut g, &[land]);
+        drive(&mut g, &[], triggered);
+        // The pending trigger retains the targeted permanents' facts.
+        checked(&g);
+        settle(&mut g);
+        assert_eq!(
+            (collected(&g, mockingbird), collected(&g, debater)),
+            expected
+        );
+    }
+    assert_eq!(g.current(mockingbird).unwrap().plus_one_counters, 1.into());
+    assert!(g.current(theirs).is_err());
+    assert_recoverable((&g).into());
+}

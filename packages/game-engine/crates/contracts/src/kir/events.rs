@@ -76,6 +76,10 @@ pub enum EventPattern {
         /// cast.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         targets_source: bool,
+        /// CR 115.1, 601.2c: "a spell that targets a [filtered permanent]":
+        /// some permanent the spell targets as it becomes cast matches.
+        #[serde(default, skip_serializing_if = "Pred::is_empty")]
+        target: Pred,
     },
     /// CR 115.1, 601.2c, 602.2b, 603.3d: a stack object targets a permanent.
     BecomesTarget {
@@ -492,6 +496,16 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
                 )))
     {
         return Err(KirError::Unaudited("event turn ordinal".into()));
+    }
+    // CR 601.2c: a cast spell's targeted permanent is read as the spell
+    // becomes cast; "this permanent" is `targets_source`.
+    if let EventPattern::Cast { target, .. } = pattern
+        && !target.is_empty()
+    {
+        event_pred(target, 0)?;
+        if mentions(target, Ref::Source) || mentions(target, Ref::AttachedTo) {
+            return Err(KirError::Unaudited("cast target identity".into()));
+        }
     }
     // CR 509.3f: the other creature of a blocking pair is read as it was
     // declared; it is never the source or its host, and has no status here.
