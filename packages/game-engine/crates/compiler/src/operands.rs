@@ -2247,7 +2247,10 @@ pub(crate) fn lower_x_binding(
         ast::Amount::Count(count) => lower_count(count, context).map(Some),
         amount @ ast::Amount::CounterCount(_) => source_counter_amount(amount).map(Some),
         ast::Amount::AttributeExtremum(extremum) => {
-            lower_greatest(extremum, context, |filter| lower_filter(filter, context)).map(Some)
+            lower_greatest(extremum, context, "bindings", |filter| {
+                lower_filter(filter, context)
+            })
+            .map(Some)
         }
         ast::Amount::Devotion(devotion) => lower_devotion(devotion, context).map(Some),
         other => Err(operand("bindings", variant(other))),
@@ -2259,10 +2262,11 @@ pub(crate) fn lower_x_binding(
 pub(crate) fn lower_greatest(
     extremum: &ast::AmountAttributeExtremum,
     context: Context,
+    operand_kind: &str,
     lower: impl FnOnce(&ast::ObjectFilter) -> Result<Pred, Failure>,
 ) -> Result<Amount, Failure> {
     if extremum.extremum != ast::AmountAttributeExtremumExtremum::Maximum {
-        return Err(operand("amount", "attribute_extremum:minimum"));
+        return Err(operand(operand_kind, "attribute_extremum:minimum"));
     }
     let Amount::Count {
         set:
@@ -2279,7 +2283,7 @@ pub(crate) fn lower_greatest(
         lower,
     )?
     else {
-        return Err(operand("amount", "attribute_extremum:zone"));
+        return Err(operand(operand_kind, "attribute_extremum:zone"));
     };
     Ok(Amount::Greatest {
         set,

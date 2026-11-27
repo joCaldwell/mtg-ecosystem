@@ -382,7 +382,9 @@ fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Fai
         }),
         ast::Amount::Count(count) => pilot_count(cx, count, None),
         ast::Amount::AttributeExtremum(extremum) => {
-            crate::operands::lower_greatest(extremum, cx.context, |filter| pilot_filter(cx, filter))
+            crate::operands::lower_greatest(extremum, cx.context, "amount", |filter| {
+                pilot_filter(cx, filter)
+            })
         }
         ast::Amount::Attribute(attribute) => {
             use ast::PropertyConstraintProperty as Property;
