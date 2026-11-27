@@ -150,6 +150,40 @@ pub(crate) fn cast_event(
     })
 }
 
+/// CR 201.5, 603.2: the trigger's bindings, and whether its event object is
+/// the source itself ("when this creature enters").
+pub(crate) fn trigger_scope(condition: &TriggerCondition) -> Scope {
+    let player = trigger_player_binding(condition);
+    // The pattern of the object the event role names: a blocked-by trigger
+    // names the blocker, though its matched object is the attacker.
+    let object = match condition.pattern() {
+        EventPattern::BlockedByCreature { blocker, .. } => Some(blocker),
+        pattern => pattern.object(),
+    };
+    let event_is_source = player.event_object_role().is_some()
+        && object.is_some_and(|object| {
+            object.0.contains(&Atom::Is {
+                object: Ref::Source,
+            })
+        });
+    let event_types = object.map_or(0, |object| {
+        object
+            .0
+            .iter()
+            .flat_map(|atom| match atom {
+                Atom::Type { kind } => std::slice::from_ref(kind),
+                Atom::AnyType { kinds } => kinds.as_slice(),
+                _ => &[],
+            })
+            .fold(0u8, |bits, kind| bits | 1 << kind.card_type_index())
+    });
+    Scope {
+        event_is_source,
+        event_types,
+        ..player.into()
+    }
+}
+
 pub(crate) fn trigger_player_binding(condition: &TriggerCondition) -> PlayerBinding {
     if let Some(role) = kir::event_player_role(condition) {
         PlayerBinding::EventPlayer(role, condition.pattern().object_role())
@@ -354,7 +388,7 @@ pub(crate) fn lower_trigger(
             effects,
             block,
             &mut BTreeMap::new(),
-            trigger_player_binding(&condition),
+            trigger_scope(&condition),
             Context::Triggered,
         )?;
     }

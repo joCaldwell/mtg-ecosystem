@@ -1103,6 +1103,33 @@ fn every_audited_verb_names_the_cell_it_occupies() {
 }
 
 #[test]
+fn damage_recipients_read_only_a_step_results_player() {
+    // CR 120.1, 608.2c: a step's acting player can be dealt damage; its
+    // amount or object set names no recipient, so the check rejects them
+    // instead of leaving the interpreter to fail at resolution.
+    let you = PlayerExpr::you(Context::Spell);
+    let to = |role| {
+        Node::Seq(vec![
+            Node::Do(Verb::Draw {
+                player: you.clone(),
+                amount: Amount::fixed(1),
+            }),
+            Node::Do(Verb::Damage {
+                source: Ref::Source,
+                to: DamageTo::Ref {
+                    who: Ref::StepResult { step: 0, role },
+                },
+                amount: Amount::fixed(1),
+            }),
+        ])
+    };
+    assert!(check(&to(StepRole::Player), &spell(&[])).is_ok());
+    for role in [StepRole::Objects, StepRole::Amount] {
+        assert!(check(&to(role), &spell(&[])).is_err(), "{role:?}");
+    }
+}
+
+#[test]
 fn one_and_two_fixed_draws_keep_the_reviewed_cells_and_capabilities() {
     use crate::Capability;
 

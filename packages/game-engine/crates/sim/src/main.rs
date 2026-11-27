@@ -15,6 +15,7 @@ mod pod_cli;
 const USAGE: &str = "usage: mtg-sim COMMAND
   catalog coverage ARCHIVE [--out DIR] [--only-oracle-ids FILE | --only-deck-snapshot FILE]
   catalog build-ir ARCHIVE --out NEW_DIR
+  catalog reference-trace ARCHIVE --out FILE
   catalog identity --inputs FROZEN_MANIFEST --cache DIR
   catalog compile --inputs FROZEN_MANIFEST --cache DIR --out NEW_DIR
   catalog build MANIFEST [--write]
@@ -88,6 +89,9 @@ fn catalog(args: &[String]) -> Result<serde_json::Value, Box<dyn std::error::Err
                 &cli.out,
                 only.as_ref(),
             )?)?
+        }
+        Some("reference-trace") if args.len() == 4 && args[2] == "--out" => {
+            mtg_compiler::coverage::reference_trace(Path::new(&args[1]), Path::new(&args[3]))?
         }
         Some("build-ir") if args.len() == 4 && args[2] == "--out" => serde_json::to_value(
             mtg_compiler::bulk::build_ir(Path::new(&args[1]), Path::new(&args[3]), BUILD.id)?,

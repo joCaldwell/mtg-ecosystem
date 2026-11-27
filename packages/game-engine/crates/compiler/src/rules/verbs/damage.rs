@@ -32,15 +32,19 @@ pub(super) fn lower(
     {
         return Err(step("damage", "qualified"));
     }
+    // CR 608.2c: a pronoun source is the first step's event object, which
+    // the trigger validator proved; an activation's is its sacrificed self.
     let source = match source.as_ref() {
         ast::ObjectRef::SelfObject(_) => Ref::Source,
-        ast::ObjectRef::It(_) if cx.context == Context::Triggered => Ref::EventObject {
-            role: cx
-                .player_binding
-                .event_object_role()
-                .ok_or_else(|| step("damage", "unbound source"))?,
-        },
-        ast::ObjectRef::It(_) if cx.context == Context::Activated => Ref::Source,
+        ast::ObjectRef::It(_) if cx.context == Context::Triggered => {
+            match antecedent::resolve(cx, source) {
+                Ok(event @ Ref::EventObject { .. }) => event,
+                _ => return Err(step("damage", "unbound source")),
+            }
+        }
+        ast::ObjectRef::It(_) if cx.context == Context::Activated => {
+            antecedent::record(cx, "it", Ref::Source)
+        }
         ast::ObjectRef::This(this)
             if cx.context != Context::Spell
                 && matches!(
@@ -52,11 +56,15 @@ pub(super) fn lower(
         }
         _ => return Err(step("damage", "source")),
     };
+    // CR 608.2c: "its" in the amount is the object dealing the damage.
+    cx.subject = Some(source);
     let amount = if let Some(filter) = for_each {
-        pilot_each_filter(cx, filter, amount)?
+        pilot_each_filter(cx, filter, amount)
     } else {
-        pilot_amount(cx, amount)?
+        pilot_amount(cx, amount)
     };
+    cx.subject = None;
+    let amount = amount?;
     let to = match to.as_ref() {
         ast::DamageTarget::AnyTarget(target) if target.random.is_none() => kir::DamageTo::Ref {
             who: Ref::Target {
@@ -117,12 +125,12 @@ fn recipient_object(
             set: pilot_board_set(cx, object)?,
         });
     }
-    let who = if matches!(object, ast::ObjectRef::Target(_)) {
-        Ref::Target {
+    let who = match object {
+        ast::ObjectRef::Target(_) => Ref::Target {
             slot: bind_damage_object_target(cx.program, cx.slots, object)?,
-        }
-    } else {
-        pilot_object(cx, object)?
+        },
+        ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => antecedent::permanent(cx, object)?,
+        _ => pilot_object(cx, object)?,
     };
     Ok(kir::DamageTo::Ref { who })
 }

@@ -1,5 +1,6 @@
 mod ability_loss;
 mod actuals;
+mod antecedents;
 mod attachments;
 mod card_movement;
 mod changeling;

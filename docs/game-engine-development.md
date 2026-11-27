@@ -258,6 +258,9 @@ npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --pod-d
 ```
 
 Use [rework-sweep.py](../scripts/rework-sweep.py) to compare fixed rework cohorts and source guardrails.
+While Stage 1 reads unchanged R5, [rework-reference-diff.py](../scripts/rework-reference-diff.py)
+compares `mtg-sim catalog reference-trace` with the frozen resolution, and each
+baseline definition's IR with the candidate's. It exits 1 on an unexplained difference.
 
 The script docstring (`scripts/engine-decks.py`) owns options and report
 contents. `coverage` joins `catalog coverage` receipts to the deck snapshot

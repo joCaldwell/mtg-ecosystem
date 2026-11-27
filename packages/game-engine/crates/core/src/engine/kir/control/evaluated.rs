@@ -508,6 +508,14 @@ impl RulesTxn {
                     Stat::Toughness => facts.toughness().cloned().unwrap_or_default(),
                 }
             }
+            // CR 202.3e: a spell's mana value counts its X while on the stack.
+            Amount::StatOf {
+                object:
+                    Ref::EventObject {
+                        role: kir::EventObjectRole::CastSpell,
+                    },
+                stat: Stat::ManaValue,
+            } => self.entry(frame.stack_id)?.kind.cast_mana_value()?,
             Amount::StatOf { object, stat } => {
                 let Some(facts) = self.measured_object(task, object)? else {
                     return Ok(Resolved::Absent(AbsentReason::NoEventMember));

@@ -49,12 +49,12 @@ pub(super) fn lower(
         pilot_board_set(cx, on)?
     } else if is_this_creature(on) || (!counter.needs_creature() && is_this_permanent(on)) {
         kir::SetExpr::source()
-    } else if matches!(on, ast::ObjectRef::It(_) | ast::ObjectRef::That(_))
-        && let Ok(object @ Ref::EventObject { .. }) = pilot_object(cx, on)
-    {
-        SetExpr::One { object }
-    } else if let Some(slot) = continuous::followup_target(cx, on) {
-        SetExpr::target(slot)
+    } else if matches!(on, ast::ObjectRef::It(_) | ast::ObjectRef::That(_)) {
+        // CR 608.2c: the one permanent the pronoun names.
+        match antecedent::permanent(cx, on)? {
+            Ref::Target { slot } => SetExpr::target(slot),
+            object => SetExpr::One { object },
+        }
     } else if counter.needs_creature() {
         kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, on)?)
     } else {
