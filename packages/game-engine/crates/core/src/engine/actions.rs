@@ -306,7 +306,8 @@ impl RulesTxn {
                             Err("action event requires a player damage recipient".into())
                         }
                     },
-                    TriggerEventWitness::AttackerUnblocked { defender, .. } => Ok(*defender),
+                    TriggerEventWitness::AttackerUnblocked { defender, .. }
+                    | TriggerEventWitness::BecameBlocked { defender, .. } => Ok(*defender),
                     _ => Err("unbound damage-recipient action".into()),
                 }
             }

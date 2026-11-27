@@ -20,6 +20,7 @@ const AERATHI_BERSERKER: &str = record!("5cb495a2-c683-4066-b6ee-d0b7d8843cb9");
 const DEPUTIZED_PROTESTER: &str = record!("09947592-1730-4c1c-bfa5-be53a68d6919");
 const ACCORDER_PALADIN: &str = record!("6891c8b7-7112-40dc-8b94-b84ad1885e5e");
 const BENALISH_CAVALRY: &str = record!("0bf619f9-4b19-404c-995f-f23a4b859dd4");
+const ALLEY_GRIFTERS: &str = record!("399af8ea-7a6f-4f43-bd39-dc29a6e75e06");
 
 fn power_toughness(g: &Game, object: ObjectId) -> (Option<Quantity>, Option<Quantity>) {
     let c = g.characteristics(object).unwrap();
@@ -432,6 +433,9 @@ fn blocked_combat(g: &mut Game, attacks: &[(ObjectId, PlayerId)], blocks: &[(Obj
             Reason::OrderTriggers => Answer::Order {
                 order: (0..u32::try_from(d.candidates.len()).unwrap()).collect(),
             },
+            Reason::Discard | Reason::ResolveDiscard => {
+                d.pick_one(&d.candidates[0].clone()).unwrap()
+            }
             other => panic!("unexpected decision {other:?}"),
         };
         g.respond(d.player, d.id, answer).unwrap();
@@ -593,6 +597,31 @@ fn flanking_shrinks_each_blocker_without_flanking() {
     assert_eq!(power_toughness(&g, bears), pt(1, 1));
     assert_eq!(power_toughness(&g, other), pt(2, 2));
     assert_eq!(power_toughness(&g, cavalry), pt(2, 2));
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// Alley Grifters ("Whenever this creature becomes blocked, defending player
+/// discards a card") reads the same becomes-blocked defending player as
+/// afflict (CR 506.2): in four seats only the blocking seat 2 discards.
+#[test]
+fn becomes_blocked_defending_player_discards() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(&[ALLEY_GRIFTERS], TurnStep::BeginningCombat)
+                .seats(4)
+                .permanent_or_hand("Alley Grifters", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 2, 2, false)
+                .permanent_or_hand("Island", 2, 2, true)
+                .permanent_or_hand("Island", 1, 1, true),
+        ),
+        TraceMode::Detailed,
+    );
+    let [grifters, bears, held, other] = [0, 1, 2, 3].map(|i| Driver::object(&g, i));
+    blocked_combat(&mut g, &[(grifters, PlayerId(2))], &[(bears, grifters)]);
+    let zone = |object: ObjectId| g.state.rules.objects[&object.card].zone;
+    assert_eq!(zone(held), Zone::Graveyard { owner: PlayerId(2) });
+    assert_eq!(zone(other), Zone::Hand { owner: PlayerId(1) });
     checked(&g);
     assert_recoverable((&g).into());
 }
