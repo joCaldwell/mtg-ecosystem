@@ -443,3 +443,282 @@ fn bloodline_keeper_counts_five_vampires() {
         assert_eq!(may(&g, 0, keeper, 1), nighthawks == 4);
     }
 }
+
+const RAPACIOUS_DRAGON: &str = record!("0944ec2e-1dd9-459f-8f1d-667242cf52fe");
+
+/// Cast Murder on `target`, sacrifice `source` for black mana in its mana
+/// window and finish with too little mana, so the cast and every mana
+/// activation are reversed (CR 733.1). `during` sees the held receipt.
+fn failed_murder(
+    g: &mut Game,
+    murder: ObjectId,
+    target: ObjectId,
+    source: ObjectId,
+    during: impl Fn(&Game),
+) {
+    Driver::cast(g, murder.card);
+    Driver::pick_object(g, target);
+    let d = Driver::request(g, u64::MAX);
+    let slot = d
+        .index(&Candidate::Action {
+            action: Action::ActivateMana { object: source },
+        })
+        .unwrap();
+    Driver::answer(
+        g,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source: slot },
+        },
+    );
+    let d = Driver::request(g, u64::MAX);
+    if matches!(d.reason, Reason::ManaColor { .. }) {
+        let black = d.pick_one(&Candidate::Color { color: Color::B }).unwrap();
+        g.respond(d.player, d.id, black).unwrap();
+        Driver::request(g, u64::MAX);
+    }
+    during(g);
+    Driver::answer(
+        g,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    assert_eq!(Driver::request(g, u64::MAX).reason, Reason::Priority);
+    assert_eq!(g.state.rules.stack.len(), 0);
+}
+
+/// The held mana receipts of the current payment frame.
+fn held_turn_history(g: &Game) -> Vec<mtg_core::TurnHistoryUndo> {
+    let (Frame::Mana { cast } | Frame::Payment { cast }) = &g.state.rules.frame else {
+        panic!("expected a mana window")
+    };
+    cast.mana_activations
+        .iter()
+        .filter_map(|r| r.permanent.as_ref())
+        .flat_map(|p| p.turn_history.clone())
+        .collect()
+}
+
+/// Rapacious Dragon's Treasure: "{T}, Sacrifice this artifact: Add one mana
+/// of any color." Sacrificed to pay for a Murder that then cannot be paid,
+/// the Treasure's departure is reversed with it (CR 733.1), so this turn no
+/// longer records a permanent leaving under its controller's control. A
+/// departure before the payment is kept.
+#[test]
+fn reversed_treasure_sacrifice_clears_only_its_own_departure() {
+    for earlier in [false, true] {
+        let mut b = board(&[(RAPACIOUS_DRAGON, &[])])
+            .permanent_or_hand("Rapacious Dragon", 0, 0, true)
+            .permanent_or_hand("Murder", 0, 0, true);
+        for _ in 0..5 {
+            b = b.permanent_or_hand("Mountain", 0, 0, false);
+        }
+        let mut g = Game::with_trace(
+            b.permanent_or_hand("Grizzly Bears", 1, 1, false)
+                .permanent_or_hand("Unsummon", 0, 0, true)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Grizzly Bears", 0, 0, false)
+                .prepare(),
+            TraceMode::Detailed,
+        );
+        let murder = Driver::object(&g, 1);
+        let theirs = Driver::object(&g, 7);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[2, 3, 4, 5, 6]);
+        settle(&mut g);
+        if earlier {
+            // Unsummon my own Bears: a permanent left under my control.
+            let target = Driver::object(&g, 10);
+            cast_and_resolve(&mut g, 8, Some(target), &[9]);
+        }
+        assert_eq!(g.state.rules.cast_history[0].permanent_left, earlier);
+        let treasure = g
+            .state
+            .rules
+            .objects
+            .values()
+            .find(|o| g.state.rules.tokens.contains_key(&o.id.card))
+            .unwrap()
+            .id;
+        failed_murder(&mut g, murder, theirs, treasure, |g| {
+            assert!(g.state.rules.cast_history[0].permanent_left);
+            let undo = held_turn_history(g);
+            assert_eq!(undo.len(), usize::from(!earlier));
+            checked(g);
+            // A receipt claiming a fact the turn no longer records.
+            let mut f = g.fork();
+            f.state.rules.cast_history[0].permanent_left = false;
+            assert_eq!(f.validate_state().is_err(), !earlier);
+        });
+        assert_eq!(g.state.rules.cast_history[0].permanent_left, earlier);
+        assert_eq!(g.current(treasure).map(|o| o.zone), Ok(Zone::Battlefield));
+        checked(&g);
+    }
+}
+
+/// CR 733.1, 700.4: an animated Treasure (its token definition made a 1/1
+/// artifact creature on this private board, standing in for an animation
+/// effect) dies paying for a Murder that then fails. Reversed, no creature
+/// died this turn, so Skirsdag High Priest is not offered; an opponent's
+/// creature's death before the payment still counts. The edited token is not a reachable state,
+/// so only the rules outcome is asserted here.
+#[test]
+fn reversed_mana_sacrifice_does_not_enable_morbid() {
+    for earlier in [false, true] {
+        let mut b = board(&[(RAPACIOUS_DRAGON, &[]), (PRIEST, CONDITIONED)])
+            .permanent_or_hand("Rapacious Dragon", 0, 0, true)
+            .permanent_or_hand("Skirsdag High Priest", 0, 0, false)
+            .permanent_or_hand("Murder", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Lightning Bolt", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false);
+        for _ in 0..6 {
+            b = b.permanent_or_hand("Mountain", 0, 0, false);
+        }
+        let mut g = Game::with_trace(b.prepare(), TraceMode::Detailed);
+        let [priest, murder, theirs] = [1, 2, 3].map(|i| Driver::object(&g, i));
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[6, 7, 8, 9, 10]);
+        settle(&mut g);
+        if earlier {
+            let target = Driver::object(&g, 5);
+            cast_and_resolve(&mut g, 4, Some(target), &[11]);
+        }
+        let treasure = g
+            .state
+            .rules
+            .objects
+            .values()
+            .find(|o| g.state.rules.tokens.contains_key(&o.id.card))
+            .unwrap()
+            .id;
+        let animated = &mut std::sync::Arc::make_mut(&mut g.state.rules.tokens)
+            .get_mut(&treasure.card)
+            .unwrap()
+            .definition
+            .characteristics;
+        animated.kind = CardKind::Creature;
+        animated.additional_types = vec![CardKind::Artifact];
+        animated.power = Some(1.into());
+        animated.toughness = Some(1.into());
+        // Controlled since the turn began, so it may pay its own {T}.
+        g.state
+            .rules
+            .objects
+            .get_mut(&treasure.card)
+            .unwrap()
+            .attack_ready = true;
+        assert_eq!(may(&g, 0, priest, 0), earlier);
+        failed_murder(&mut g, murder, theirs, treasure, |g| {
+            assert!(g.state.rules.cast_history[0].creature_died);
+            let undo = held_turn_history(g);
+            assert_eq!(undo.len(), 1);
+            assert!(undo[0].creature_died && undo[0].seat == PlayerId(0));
+        });
+        // The Treasure's death is undone; the Bears' death, recorded for
+        // its controller, is independent and kept.
+        assert!(!g.state.rules.cast_history[0].creature_died);
+        assert_eq!(g.state.rules.cast_history[1].creature_died, earlier);
+        assert_eq!(g.current(treasure).map(|o| o.zone), Ok(Zone::Battlefield));
+        assert_eq!(may(&g, 0, priest, 0), earlier);
+    }
+}
+
+/// CR 201.2a, 708.2a: face-down permanents have no name, so they share no
+/// name. Endless Atlas's shared-name condition is pointed at creatures on
+/// this private board: three Grizzly Bears satisfy "three or more creatures
+/// with the same name"; turned face down, the same three do not.
+#[test]
+fn face_down_permanents_share_no_name() {
+    use mtg_contracts::kir::{Atom, Cmp, Cond, Measure, Pred};
+    let mtg_compiler::CompileResult::Lowered { definition } =
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, ATLAS)
+    else {
+        panic!("Endless Atlas did not lower");
+    };
+    let mut atlas = *definition;
+    let restriction = atlas.activated[0].restriction.as_mut().unwrap();
+    restriction.condition = Some(Cond::Measured {
+        measure: Measure::SharedName {
+            filter: Pred(vec![
+                Atom::Type {
+                    kind: CardKind::Creature,
+                },
+                Atom::ControlledBy {
+                    player: mtg_contracts::kir::PlayerExpr::you(
+                        mtg_contracts::kir::Context::Activated,
+                    ),
+                },
+            ]),
+        },
+        cmp: Cmp::AtLeast,
+        value: 3.into(),
+    });
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog.definitions.push(atlas);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let mut b = Board::new(catalog, "r5-shared-name-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .permanent_or_hand("Endless Atlas", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 0, 0, false);
+    for _ in 0..3 {
+        b = b.permanent_or_hand("Grizzly Bears", 0, 0, false);
+    }
+    let mut g = Game::with_trace(b.libraries("Forest", 2).prepare(), TraceMode::Detailed);
+    let atlas = Driver::object(&g, 0);
+    assert!(may(&g, 0, atlas, 0));
+    for i in 2..5 {
+        let bears = Driver::object(&g, i);
+        g.state
+            .rules
+            .objects
+            .get_mut(&bears.card)
+            .unwrap()
+            .face_down = true;
+    }
+    assert!(!may(&g, 0, atlas, 0));
+}
+
+/// Pit Imp activated twice in a row, both on the stack (CR 602.5b): each
+/// paid entry recorded its use, the pair round-trips and replays, and both
+/// resolve.
+#[test]
+fn two_pit_imp_activations_wait_on_the_stack_together() {
+    let prepared = board(&[(PIT_IMP, CONDITIONED)])
+        .permanent_or_hand("Pit Imp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let imp = Driver::object(&g, 0);
+    for swamp in [1, 2] {
+        Driver::action(&mut g, activate(imp, 0));
+        Driver::pay(&mut g, &[swamp]);
+        Driver::request(&mut g, u64::MAX);
+    }
+    assert_eq!(g.state.rules.stack.len(), 2);
+    let nth: Vec<_> = g
+        .state
+        .rules
+        .activation_uses
+        .iter()
+        .map(|k| k.nth)
+        .collect();
+    assert_eq!(nth, [0, 1]);
+    assert!(!actions(&mut g).contains(&activate(imp, 0)));
+    checked(&g);
+    assert_recoverable((&g).into());
+    // Dropping the second use while its paid entry waits is rejected.
+    let mut f = g.fork();
+    f.state.rules.activation_uses.retain(|k| k.nth == 0);
+    assert!(f.validate_state().is_err());
+    settle(&mut g);
+    assert_eq!(g.characteristics(imp).unwrap().power, Some(2.into()));
+}

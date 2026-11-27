@@ -390,11 +390,41 @@ impl ActivationCondition {
             },
             _ => return Err(unaudited()),
         };
-        if candidate.condition() == *condition {
+        if candidate.condition() == *condition && candidate.leaves().iter().all(|l| l.exact()) {
             Ok(candidate)
         } else {
             Err(unaudited())
         }
+    }
+
+    /// Whether this leaf's comparison has the same outcome on its evidence
+    /// count as on the measured amount. Evidence is a `u32`; life gained,
+    /// total power and life above the start are clamped into that range, so
+    /// only "at least" a threshold within it compares exactly. Every other
+    /// measure is an exact count.
+    fn exact(&self) -> bool {
+        let value = match self {
+            Self::TurnHistory {
+                fact: TurnFact::LifeGained,
+                cmp,
+                ..
+            } if *cmp != Cmp::AtLeast => return false,
+            Self::Controlled { value, .. }
+            | Self::GraveyardCards { value, .. }
+            | Self::HandCards { value, .. }
+            | Self::TurnHistory { value, .. }
+            | Self::OpponentControls { value, .. }
+            | Self::SharedName { value, .. }
+            | Self::GraveyardCardTypes { value }
+            | Self::LifeAboveStarting { value }
+            | Self::TotalPower { value, .. } => value,
+            Self::OpponentControlsMore { .. }
+            | Self::Source { .. }
+            | Self::SourceEnteredThisTurn
+            | Self::All(_)
+            | Self::Any(_) => return true,
+        };
+        value.to_u32().is_some()
     }
 
     /// The counted leaves in printed order; the core measures each one.

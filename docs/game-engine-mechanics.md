@@ -379,10 +379,13 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   hand, the source's facts, your turn facts (tokens created, spells cast,
   instant/sorcery spells, attacks, life gained; any creature died), one
   opponent's matching permanents or more lands/creatures than you, your
-  largest same-name group (CR 201.2), card types in your graveyard, your
+  largest same-name group (CR 201.2; nameless objects share no name), card types in your graveyard, your
   creatures' total power (negative powers count, CR 107.1b), whether the
   source entered this turn, or life above your starting total, kept on the
-  stack entry for restore. "If A or if B" is one disjunction. Develop's
+  stack entry for restore. "If A or if B" is one disjunction. Thresholds
+  fit `u32` and clamped measures (life gained, total power, life above
+  start) compare only "at least". A reversed mana activation clears the
+  turn facts its costs set (CR 733.1). Develop's
   mana plans leave sources with the newer conditions out.
 
 ### Targets, selection and tap/untap

@@ -153,7 +153,26 @@ testkit_fields! {
         /// kept rather than reversed.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub kept: bool,
+        /// CR 733.1: the turn facts this activation's costs set, which a
+        /// reversal clears again.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub turn_history: Vec<TurnHistoryUndo>,
     }
+
+}
+
+/// One seat's turn facts a reversible mana activation first set: its
+/// sacrificed source left the battlefield, and died if a creature (CR
+/// 700.4). Nothing else can change between the activation and its
+/// reversal, which reverses later activations first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TurnHistoryUndo {
+    pub seat: PlayerId,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub permanent_left: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub creature_died: bool,
 }
 
 /// The evidence a conditioned mana ability's receipt keeps.
@@ -294,6 +313,25 @@ impl RulesTxn {
             || !restricted_mana::valid_buckets(&receipt.spent_restricted)
         {
             return Err("invalid restricted mana receipt".into());
+        }
+        // Only a sacrificed source sets turn facts, once per seat, and each
+        // fact it set still holds.
+        let mut seats = BTreeSet::new();
+        for undo in &receipt.turn_history {
+            let row = self
+                .state
+                .rules
+                .cast_history
+                .get(undo.seat.0 as usize)
+                .ok_or("invalid mana receipt turn history")?;
+            if !receipt.sacrificed
+                || !seats.insert(undo.seat)
+                || !(undo.permanent_left || undo.creature_died)
+                || undo.permanent_left && !row.permanent_left
+                || undo.creature_died && !row.creature_died
+            {
+                return Err("invalid mana receipt turn history".into());
+            }
         }
         let Some(evidence) = &receipt.condition else {
             return Ok(());
@@ -976,6 +1014,7 @@ impl RulesTxn {
             sacrificed: a.ability.costs.sacrifice,
             cost_triggers: vec![],
             kept: !a.reversible(),
+            turn_history: vec![],
         };
         let cause = a.cause();
         if let Some(cost) = a.payment_cost() {
@@ -997,7 +1036,30 @@ impl RulesTxn {
             )?;
         }
         let first_trigger = self.state.rules.next_trigger_id;
+        let history = self.state.rules.cast_history.clone();
         self.pay_permanent_source_costs(a.source, a.player, &a.ability.costs, cause)?;
+        // CR 733.1: record the turn facts the costs first set. Any other
+        // change cannot be reversed exactly, so the activation is kept.
+        for (seat, (was, now)) in history
+            .iter()
+            .zip(&self.state.rules.cast_history)
+            .enumerate()
+        {
+            let undo = TurnHistoryUndo {
+                seat: PlayerId(seat as u8),
+                permanent_left: now.permanent_left && !was.permanent_left,
+                creature_died: now.creature_died && !was.creature_died,
+            };
+            let mut cleared = now.clone();
+            cleared.permanent_left &= !undo.permanent_left;
+            cleared.creature_died &= !undo.creature_died;
+            if cleared != *was {
+                receipt.kept = true;
+            }
+            if undo.permanent_left || undo.creature_died {
+                receipt.turn_history.push(undo);
+            }
+        }
         if let Some(k) = receipt.ability_use {
             self.rules_mut().mana_ability_uses.insert(k);
         }
@@ -1512,6 +1574,11 @@ impl RulesTxn {
                 }
                 // CR 400.7/733: a departed source is never restored or rebound.
             }
+        }
+        for undo in &r.turn_history {
+            let row = &mut self.rules_mut().cast_history[undo.seat.0 as usize];
+            row.permanent_left &= !undo.permanent_left;
+            row.creature_died &= !undo.creature_died;
         }
         if let Some(k) = r.ability_use {
             self.rules_mut().mana_ability_uses.remove(&k);

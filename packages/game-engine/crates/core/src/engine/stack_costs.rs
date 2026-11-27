@@ -108,8 +108,9 @@ impl RulesTxn {
                 query::matches_pred(&self.object_facts(self.current(source)?), player, filter)
                     == Tri::Yes,
             ),
-            // CR 500: the activator's turn facts; an amount beyond the
-            // evidence range saturates (every admitted value is far below).
+            // CR 500: the activator's turn facts. A clamped amount compares
+            // exactly: `ActivationCondition::of` admits only thresholds
+            // within `u32` and "at least" for the clamped measures.
             C::TurnHistory { fact, .. } => {
                 let observed = triggers::TurnCastHistory::measure(
                     &self.state.rules.cast_history,
@@ -151,15 +152,18 @@ impl RulesTxn {
                 .max()
                 .unwrap_or(0),
             // CR 201.2, 707.2: copiable names of the matching permanents.
+            // CR 201.2a: objects with no name (face-down, CR 708.2a) share
+            // no name with anything.
             C::SharedName { filter, .. } => {
                 let mut names: BTreeMap<String, usize> = BTreeMap::new();
                 for o in objects_iter(self) {
                     if query::matches_battlefield_pred(&self.object_facts(o), player, filter)
                         == Tri::Yes
                     {
-                        *names
-                            .entry(self.copiable_definition(o.id)?.name.clone())
-                            .or_default() += 1;
+                        let name = &self.copiable_definition(o.id)?.name;
+                        if !name.is_empty() {
+                            *names.entry(name.clone()).or_default() += 1;
+                        }
                     }
                 }
                 names.into_values().max().unwrap_or(0)
@@ -815,9 +819,24 @@ impl RulesTxn {
             && self.current(entry.source).is_ok()
         {
             let uses = self.activation_use_count(entry.source, entry.source_face, ability);
+            // Every paid activation of this ability still on the stack
+            // recorded one use; resolved ones may account for the rest.
+            let paid_waiting = self
+                .state
+                .rules
+                .stack
+                .iter()
+                .filter(|e| {
+                    e.paid.is_some()
+                        && e.source == entry.source
+                        && e.source_face == entry.source_face
+                        && e.kind.activated_index() == Some(ability)
+                })
+                .count();
+            let paid_waiting = u32::try_from(paid_waiting).unwrap_or(u32::MAX);
             let consistent = match (limit, entry.paid.is_some()) {
                 (1, paid) => uses == u32::from(paid),
-                (_, true) => uses >= 1,
+                (_, true) => uses >= paid_waiting,
                 (_, false) => uses < limit,
             };
             if !consistent {

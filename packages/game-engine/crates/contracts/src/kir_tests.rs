@@ -1643,3 +1643,27 @@ fn resolved_prevention_source_filters_reject_object_identity() {
         );
     }
 }
+
+/// CR 602.5: evidence counts are `u32`; a condition whose comparison could
+/// change outcome once its measure is clamped is not admitted.
+#[test]
+fn activation_conditions_admit_only_exact_comparisons() {
+    let history = |fact, cmp, value: i64| Cond::TurnHistory {
+        fact,
+        cmp,
+        value: value.into(),
+    };
+    assert!(ActivationCondition::of(&history(TurnFact::LifeGained, Cmp::AtLeast, 1)).is_ok());
+    assert!(ActivationCondition::of(&history(TurnFact::LifeGained, Cmp::Exactly, 4)).is_err());
+    assert!(ActivationCondition::of(&history(TurnFact::LifeGained, Cmp::AtMost, 4)).is_err());
+    assert!(ActivationCondition::of(&history(TurnFact::SpellsCast, Cmp::Exactly, 2)).is_ok());
+    let beyond = i64::from(u32::MAX) + 1;
+    assert!(ActivationCondition::of(&history(TurnFact::SpellsCast, Cmp::AtLeast, beyond)).is_err());
+    let life = |value: i64| Cond::Measured {
+        measure: Measure::LifeAboveStarting {},
+        cmp: Cmp::AtLeast,
+        value: value.into(),
+    };
+    assert!(ActivationCondition::of(&life(7)).is_ok());
+    assert!(ActivationCondition::of(&life(beyond)).is_err());
+}
