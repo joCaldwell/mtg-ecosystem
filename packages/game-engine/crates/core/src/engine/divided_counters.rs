@@ -10,6 +10,16 @@ impl RulesTxn {
         entry: &StackInstance,
     ) -> bool {
         let count = self.bound_target_count(entry);
+        if let Some(variable) = program.variable_target_count() {
+            use mtg_contracts::kir::VariableTargetCount::*;
+            let announced = entry.x.as_ref().and_then(Quantity::to_u32);
+            return entry.targets.iter().collect::<BTreeSet<_>>().len() == count
+                && match variable {
+                    Any => true,
+                    ExactlyX => announced.is_some_and(|x| count == x as usize),
+                    UpToX => entry.x.is_some() && announced.is_none_or(|x| count <= x as usize),
+                };
+        }
         if program.optional_target {
             return count <= program.targets.len()
                 && entry.targets.iter().collect::<BTreeSet<_>>().len() == count;

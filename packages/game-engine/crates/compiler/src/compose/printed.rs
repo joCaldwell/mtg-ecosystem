@@ -63,6 +63,7 @@ struct Counts {
     condition: usize,
     unless: usize,
     limit: usize,
+    unbounded_targets: usize,
     duration: usize,
     /// CR 614.1a, 615.10: "if [an event] would [happen]" in one clause.
     would: usize,
@@ -108,6 +109,7 @@ fn printed(text: &str, statics: bool) -> Counts {
         would,
         unless: words("unless"),
         limit: phrases(&["up", "to"]),
+        unbounded_targets: phrases(&["any", "number", "of", "target"]),
         duration: if statics {
             0
         } else {
@@ -177,13 +179,34 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
     carriers(child, found);
 }
 
+// CR 601.2c: "any number of target" has no printed bound. Preserve
+// the distinction from an explicit "up to" with the same minimum.
+fn selection_member(
+    parent: &Value,
+    key: &str,
+    child: &Value,
+    kind: Option<&str>,
+    found: &mut Counts,
+) {
+    if parent["ref"] == "target"
+        && key == "count"
+        && child["amount"] == "chosen"
+        && child["minimum"] == 0
+        && child.get("maximum").is_none()
+    {
+        found.unbounded_targets += 1;
+    } else {
+        member(key, child, kind, found);
+    }
+}
+
 /// The AST carriers of every printed word under `value`.
 fn carriers(value: &Value, found: &mut Counts) {
     match value {
         Value::Object(fields) => {
             let kind = condition_kind(value);
             for (key, child) in fields {
-                member(key, child, kind, found);
+                selection_member(value, key, child, kind, found);
             }
         }
         Value::Array(items) => items.iter().for_each(|item| carriers(item, found)),
@@ -206,8 +229,8 @@ fn field_carriers(ability: &Value, field: &str, found: &mut Counts) -> Result<()
     let node = ability.pointer(field).ok_or_else(missing)?;
     let (parent, key) = field.rsplit_once('/').ok_or_else(missing)?;
     let key = key.replace("~1", "/").replace("~0", "~");
-    let kind = ability.pointer(parent).and_then(condition_kind);
-    member(&key, node, kind, found);
+    let parent = ability.pointer(parent).ok_or_else(missing)?;
+    selection_member(parent, &key, node, condition_kind(parent), found);
     Ok(())
 }
 

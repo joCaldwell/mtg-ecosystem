@@ -383,9 +383,14 @@ Battlefield targets use one legality check for castability, announcement and
 resolution (CR 601.2c, 608.2b). Criteria can combine card types, subtypes
 (including changeling), supertypes, colors, supported keywords, token status,
 control, tapped/untapped and attacking/blocking status, and fixed stat bounds.
+A creature target can name alternatives by subtype, with each alternative
+requiring a creature in the admitted card types (CR 205.3d).
 An ability with one target occurrence can exclude its source with “another.”
+Library-top placement can target a permanent by alternative card types
+(CR 400.3, 401.4).
 Graveyard targets check the announced incarnation, its owner's graveyard and
-its printed criteria, including secondary card types and fixed mana-value bounds
+its printed criteria, including secondary card types, multicolored cards and
+fixed mana-value bounds or the spell’s announced X
 (CR 400.7). Exile, return to the owner's hand and placement on top of the
 owner's library can target a card in any graveyard or an opponent's graveyard. A permanent returned from your graveyard
 uses the battlefield entry procedure for Aura attachment and land entry choices.
@@ -409,8 +414,12 @@ An unchosen or illegal member skips its leaves; all illegal counters the spell
 (CR 608.2b). Per-member damage is separate events; recheck that once batched or
 creature-damage triggers are admitted. Victimize declares its creature-card
 targets before the sacrifice. A successful sacrifice returns the legal survivors
-tapped simultaneously. Other graveyard group entries, "any number" and X
-counts, mixed required and optional occurrences
+tapped simultaneously. A single battlefield tap, untap, destroy, exile or
+return-to-hand batch can announce any number of distinct legal targets,
+exactly the announced X, or any number up to the announced X (CR 115.3,
+601.2b–c). Exact X is bounded by the legal candidates offered at announcement.
+Zero targets still allows untargeted actions to resolve. Other graveyard group
+entries, derived X counts, mixed required and optional occurrences
 and optional permanent spells reject. "Target player or planeswalker" announces
 players for spells and triggers: planeswalker faces are not admitted (CR 115.1,
 120.3). Already-matching tap status emits no event and combat membership is

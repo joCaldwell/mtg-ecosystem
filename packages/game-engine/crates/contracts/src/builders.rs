@@ -53,6 +53,13 @@ impl PermanentFilter {
 }
 
 impl TargetSpec {
+    pub fn mana_value_at_most_announced_x(&self) -> bool {
+        self.filter
+            .as_ref()
+            .and_then(|filter| filter.predicate.as_ref())
+            .is_some_and(|predicate| predicate.0.iter().any(kir::mana_value_at_most_announced_x))
+    }
+
     /// CR 601.2c, 115.1: the controller announces one target for `slot` as the
     /// spell or ability is put on the stack, with no filter beyond `domain`.
     pub fn new(slot: u32, selection_id: impl Into<String>, domain: TargetDomain) -> Self {
@@ -80,6 +87,21 @@ impl TargetSpec {
 }
 
 impl SpellProgram {
+    /// The variable bound for a single simultaneous target occurrence.
+    pub fn variable_target_count(&self) -> Option<kir::VariableTargetCount> {
+        self.instructions
+            .iter()
+            .find_map(|instruction| match instruction {
+                Instruction::Kernel {
+                    node:
+                        kir::Node::TapTargets { variable, .. }
+                        | kir::Node::RemoveTargets { variable, .. },
+                    ..
+                } => *variable,
+                _ => None,
+            })
+    }
+
     /// CR 115.3, 601.2c: the number of objects one printed counted target
     /// occurrence ("two target", "up to three target") announces. Its slots
     /// share one domain and filter; slot zero keeps the archive selection

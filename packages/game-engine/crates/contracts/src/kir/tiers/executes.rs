@@ -209,6 +209,23 @@ fn validate_program(
     }) {
         return cell("target", format!("{}:{}", name(&t.domain), name(&context)));
     }
+    if p.targets
+        .iter()
+        .any(TargetSpec::mana_value_at_most_announced_x)
+        && !(announced_x
+            && context == Context::Spell
+            && p.targets.len() == 1
+            && p.variable_target_count().is_none()
+            && matches!(
+                p.targets[0].domain,
+                TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+            ))
+    {
+        return cell(
+            "target",
+            "mana_value_requires_own_graveyard_and_announced_x",
+        );
+    }
     validate_target_bindings(p, Some(context), modal)?;
     let env = kir::Env {
         context,
@@ -327,10 +344,11 @@ fn group_leaf_shape(node: &kir::Node) -> Option<serde_json::Value> {
 }
 
 pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<(), String> {
-    if p.targets
-        .iter()
-        .any(|t| t.chooser != Chooser::Controller || t.stage != EvaluationStage::Announcement)
-    {
+    if p.targets.iter().any(|t| {
+        t.chooser != Chooser::Controller
+            || t.stage != EvaluationStage::Announcement
+            || t.mana_value_at_most_announced_x()
+    }) {
         return cell("target", "resolution_trigger_announcement");
     }
     validate_target_bindings(p, None, false)
@@ -347,7 +365,19 @@ fn validate_target_bindings(
     if p.targets.iter().any(|t| t.selection_id.contains('/')) && p.target_group().is_none() {
         return cell("target", "group_identity_outside_one_group");
     }
-    if let Some(count) = p.target_group() {
+    let variable = p.variable_target_count().is_some();
+    if variable {
+        if p.targets.len() != 1
+            || p.optional_target
+            || p.instructions
+                .iter()
+                .filter(|Instruction::Kernel { node, .. }| !kir::target_slots(node).is_empty())
+                .count()
+                != 1
+        {
+            return cell("target", "variable_count_requires_one_batch_occurrence");
+        }
+    } else if let Some(count) = p.target_group() {
         // CR 115.3, 601.2c, 608.2b: one counted occurrence. Battlefield
         // removal and tap status change every legal member in one
         // simultaneous event (CR 603.6a, 603.10a look-back sees the whole
@@ -435,7 +465,8 @@ fn validate_target_bindings(
     {
         return cell("target", "up_to_one_requires_independent_object_leaves");
     }
-    if p.target_group().is_none()
+    if !variable
+        && p.target_group().is_none()
         && p.instructions
             .iter()
             .any(|Instruction::Kernel { node, .. }| {
@@ -2032,6 +2063,7 @@ mod tests {
         let batch = Instruction::Kernel {
             node: kir::Node::RemoveTargets {
                 count: 2,
+                variable: None,
                 removal: kir::GroupRemoval::Destroy,
             },
             source_block: 0,

@@ -554,3 +554,67 @@ fn reanimate_handles_zero_mana_value_and_an_illegal_target() {
         assert_eq!(g.state.rules.players[0].life, Quantity::from(40));
     }
 }
+
+/// CR 105.2, 601.2c, 608.2b: Reborn Hope chooses a multicolored card
+/// in its caster's graveyard by printed colors.
+#[test]
+fn reborn_hope_targets_a_multicolored_card_in_your_graveyard() {
+    let prepared = board(&[(
+        record!("683d8deb-2ab4-4c65-9a23-f4e733f06ba2"),
+        &[Cell::MoveOwnGraveyardTargetToHand],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Reborn Hope", 0, 0, true)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .card("Reborn Hope", 0, 0, grave(0))
+    .card("Reborn Hope", 1, 1, grave(1))
+    .card("Grizzly Bears", 0, 0, grave(0))
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let d = targets(&mut g);
+    let mine = Driver::object(&g, 3);
+    assert_eq!(d.candidates, [Candidate::Object { object: mine }]);
+    answer_targets(&mut g, &d, &[mine]);
+    Driver::pay(&mut g, &[1, 2]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 3), Zone::Hand { owner: PlayerId(0) });
+}
+
+/// CR 107.3, 202.3, 601.2b-c: graveyard eligibility uses printed mana
+/// value and the X announced by this invocation.
+#[test]
+fn stir_the_grave_announces_x_before_filtering_creature_cards() {
+    let prepared = board(&[(
+        record!("296dcc57-5651-4cb1-b89c-fcdd3f5311bd"),
+        &[Cell::MoveOwnGraveyardCreatureToBattlefield],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Stir the Grave", 0, 0, true)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .card("Grizzly Bears", 0, 0, grave(0))
+    .card("Grizzly Bears", 1, 1, grave(1))
+    .card("Colossal Dreadmaw", 0, 0, grave(0))
+    .card("Sol Ring", 0, 0, grave(0))
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let x = Driver::request(&mut g, u64::MAX);
+    assert_eq!(x.reason, Reason::AnnounceX);
+    assert!(matches!(&x.shape, Shape::Number { min, .. } if *min == 2.into()));
+    Driver::answer(&mut g, u64::MAX, Answer::Number { value: 2.into() });
+    let d = targets(&mut g);
+    let bear = Driver::object(&g, 4);
+    assert_eq!(d.candidates, [Candidate::Object { object: bear }]);
+    answer_targets(&mut g, &d, &[bear]);
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 4), Zone::Battlefield);
+    assert_eq!(
+        g.current(Driver::object(&g, 4)).unwrap().controller,
+        PlayerId(0)
+    );
+}

@@ -91,8 +91,8 @@ impl RulesTxn {
                 Reason::AnnounceX,
                 vec![],
                 Shape::Number {
-                    min: 0.into(),
-                    max: None,
+                    min: self.x_target_selection_minimum()?,
+                    max: self.x_target_selection_limit()?,
                 },
             ),
             Frame::SpendMana { cast } if let Some(decision) = self.delve_decision(cast)? => {

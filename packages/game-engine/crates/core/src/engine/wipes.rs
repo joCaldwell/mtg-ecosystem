@@ -48,6 +48,54 @@ impl RulesTxn {
         }
         Ok(total)
     }
+    // Before X is bound, the shared legality check evaluates all the
+    // printed criteria except its upper bound (CR 601.2b-c).
+    pub(super) fn x_target_selection_minimum(&self) -> Result<Quantity, String> {
+        let program = self.program()?;
+        let Some(spec) = program
+            .targets
+            .first()
+            .filter(|spec| !program.optional_target && spec.mana_value_at_most_announced_x())
+        else {
+            return Ok(Quantity::zero());
+        };
+        let entry = self.top()?;
+        // With no qualifying card, target announcement rejects the cast.
+        Ok(self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| self.object_target_legal_before_x(entry, object.id, spec))
+            .filter_map(|object| self.graveyard_mana_value(object.id))
+            .min()
+            .unwrap_or_else(Quantity::zero))
+    }
+
+    // CR 601.2b-c: an exact X choice must leave that many legal objects.
+    pub(super) fn x_target_selection_limit(&self) -> Result<Option<Quantity>, String> {
+        let program = self.program()?;
+        if program.variable_target_count()
+            != Some(mtg_contracts::kir::VariableTargetCount::ExactlyX)
+        {
+            return Ok(None);
+        }
+        let entry = self.top()?;
+        let spec = &program.targets[0];
+        let eligible = self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| self.object_target_legal_before_x(entry, object.id, spec))
+            .count();
+        Ok(Some(
+            i64::try_from(eligible)
+                .map_err(|_| "target choice limit")?
+                .into(),
+        ))
+    }
+
     pub(super) fn bind_x(&mut self, cast: Casting) -> Result<(), String> {
         let input = self.rules_mut().pending.take().ok_or("missing X input")?;
 
