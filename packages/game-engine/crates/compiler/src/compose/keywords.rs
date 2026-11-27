@@ -641,6 +641,21 @@ pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost,
     keyword_mana(keyword, "Flashback", text)
 }
 
+/// CR 702.37a-b: "Morph [cost]" or "Megamorph [cost]" with one fixed mana
+/// cost. Nonmana morph costs (reveal, discard, life, return, sacrifice)
+/// reject under `keyword:{name}:cost`.
+pub(super) fn face_down(keyword: &SourceKeyword, text: &str) -> Result<FaceDownCast, Failure> {
+    let (kind, name) = match keyword.keyword.as_str() {
+        "morph" => (FaceDownKind::Morph, "Morph"),
+        "megamorph" => (FaceDownKind::Megamorph, "Megamorph"),
+        other => return Err(unsupported("keyword", format!("keyword:{other}"))),
+    };
+    Ok(FaceDownCast {
+        kind,
+        cost: keyword_mana(keyword, name, text)?,
+    })
+}
+
 /// The one kicker identity a spell declares; "if this spell was kicked"
 /// reads it (CR 702.33d).
 pub(super) const KICKER: &str = "kicker";

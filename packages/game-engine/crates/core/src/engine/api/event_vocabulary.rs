@@ -8,6 +8,10 @@ pub enum ProposedEvent {
     Transform {
         object: ObjectId,
     },
+    /// CR 702.37e, 708.8: a face-down permanent turns face up.
+    TurnFaceUp {
+        object: ObjectId,
+    },
 
     FreezeLifeUntilNextTurn {
         player: PlayerId,
@@ -276,6 +280,12 @@ pub struct MoveOutcome {
 pub enum EventOutcome {
     Transformed {
         object: ObjectId,
+    },
+    /// CR 702.37b: `counter` records the megamorph +1/+1 counter.
+    TurnedFaceUp {
+        object: ObjectId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        counter: bool,
     },
     LifeFrozenUntilNextTurn {
         player: PlayerId,

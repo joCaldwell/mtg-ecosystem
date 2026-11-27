@@ -164,6 +164,10 @@ pub struct PolicyMemory {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PaymentAction {
     Cast(String, Zone),
+    /// CR 702.37a: a face-down cast of this card.
+    CastFaceDown(ObjectHandle),
+    /// CR 702.37e: turning this permanent face up.
+    TurnFaceUp(ObjectHandle),
     Activate(ObjectHandle, usize),
 }
 

@@ -182,6 +182,12 @@ impl RulesTxn {
                     Action::CastBackFace { card } => Action::CastBackFace {
                         card: handle(card)?,
                     },
+                    Action::CastFaceDown { card } => Action::CastFaceDown {
+                        card: handle(card)?,
+                    },
+                    Action::TurnFaceUp { object } => Action::TurnFaceUp {
+                        object: handle(object)?,
+                    },
                     Action::PlayLandBackFace { object } => Action::PlayLandBackFace {
                         object: handle(object)?,
                     },

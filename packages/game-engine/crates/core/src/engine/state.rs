@@ -63,10 +63,40 @@ macro_rules! state_layout {
 #[serde(transparent)]
 pub struct RulesState {
     tables: RulesTables,
+    /// Derived accelerator, never state: the layer-4 result of these exact
+    /// tables. Every write path below clears it.
+    #[serde(skip)]
+    layers: LayerCache,
 }
 impl RulesState {
     pub fn new(tables: RulesTables) -> Self {
-        Self { tables }
+        Self {
+            tables,
+            layers: LayerCache::default(),
+        }
+    }
+    fn tables_mut(&mut self) -> &mut RulesTables {
+        self.layers = LayerCache::default();
+        &mut self.tables
+    }
+    pub(in crate::engine) fn layer_cache(
+        &self,
+    ) -> &std::sync::OnceLock<Arc<crate::engine::ability_layers::GlobalTypes>> {
+        &self.layers.0
+    }
+}
+/// Equal for every pair, so the cache never distinguishes two states.
+#[derive(Clone, Default)]
+pub struct LayerCache(std::sync::OnceLock<Arc<crate::engine::ability_layers::GlobalTypes>>);
+impl PartialEq for LayerCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for LayerCache {}
+impl std::fmt::Debug for LayerCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LayerCache")
     }
 }
 impl std::ops::Deref for RulesState {
@@ -79,14 +109,14 @@ impl std::ops::Deref for RulesState {
 #[cfg(any(test, feature = "testkit"))]
 impl std::ops::DerefMut for RulesState {
     fn deref_mut(&mut self) -> &mut RulesTables {
-        &mut self.tables
+        self.tables_mut()
     }
 }
 impl RulesTxn {
     /// Exclusive access to the rules tables: the single write path.
     pub(in crate::engine) fn rules_mut(&mut self) -> &mut RulesTables {
         self.priority_cache.take();
-        &mut self.state.rules.tables
+        self.state.rules.tables_mut()
     }
 }
 

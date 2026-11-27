@@ -7,6 +7,7 @@
 //! CR 603.2: "a land you control enters" is read from the event's resulting
 //! battlefield, including this source when it is the entering land.
 //! CR 701.20a: "becomes tapped" is the source's own untapped-to-tapped change.
+//! CR 702.37e, 708.8: "is turned face up" is the source's own special action.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -84,6 +85,10 @@ pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<EventPat
         SourceTrigger::BecomesTapped {
             what: TriggerObject::This { noun },
         } if card.is_self(noun) => Some(EventPattern::self_becomes_tapped()),
+        // CR 702.37e, 708.8: "When this [permanent] is turned face up".
+        SourceTrigger::TurnedFaceUp {
+            what: TriggerObject::This { noun },
+        } if card.is_self(noun) => Some(EventPattern::self_turned_face_up()),
         _ => None,
     }
 }
