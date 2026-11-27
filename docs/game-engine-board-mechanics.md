@@ -207,6 +207,27 @@ hand (CR 400.2). A search asks reveals after all payments. A reveal publishes th
 card's identity in that hand (`known_searched_hand`) without exceeding the
 revealed copies. Other entry costs (behold, multiple cards) reject.
 
+**Quantity and entry replacements (E2 contract).** They follow the shared
+[pre-commit protocol](game-engine-mechanics.md#runtime-invariants). An entering
+permanent is tested as it would exist, under its incoming controller, against
+the battlefield before any simultaneous entrant. The `ProspectiveEntry` query,
+shared by cards and unallocated tokens, applies modifications so far, the
+entrant's own statics and existing continuous effects (CR 614.12); a co-entering
+doubler never activates through allocation order. The entrant's own "enters
+with" counters, intrinsic loyalty and ordinary Saga lore become contained
+counter members that quantity effects can see (CR 122.6, 714.3a). Precombat-main
+lore stays a turn-based action (CR 714.3c). Quantity replacements lower to
+`StaticEffect::ModifyQuantity` over token creation or counter placement, reusing
+`CounterPlacementModification`'s positive add and multiply; any other change
+(Vizier of Remedies' subtraction) rejects the card. An effect-only clause
+matches what a resolving effect or another replacement produces (CR 614.16); an
+any-origin clause also matches costs. So a loyalty cost under Doubling Season
+stays at its paid amount, while a +1/+1 cost placement modified by Hardened
+Scales becomes eligible for Season. From one +1/+1 counter placed by an effect,
+Scales then Season gives four, and Season then Scales gives three.
+`validate_counter_allocations` checks the original proposal against the
+instruction and the committed count against the recorded applications.
+
 ## Keywords, attachments and temporary effects
 
 Battlefield static abilities use KIR scopes, predicates, conditions and
@@ -220,7 +241,18 @@ excludes the source. Layer-4 creature-subtype filters and layer-5 color
 filters reject. Additive creature subtypes can read Creature membership after
 a resolving animation grants it (CR 613.8). Ordered setters apply by source
 or creation timestamp (CR 613.7). Simultaneous competing setters need a
-timestamp choice and reject (CR 613.7m).
+timestamp choice and reject (CR 613.7m). Timestamp bases still differ by one
+batch: entering and attaching objects take the reserved next batch, counters
+the current one, and resolved effects their creation batch. Adjacent events can
+therefore tie falsely, and `latest_setter` faults on that tie. Transform does
+not yet refresh the timestamp (CR 613.7g). One rules timestamp allocator lands
+as a single change before E2 entry counters, so state digests re-pin once
+(Astra's placement; Fable had suggested earlier). It orders events within
+ordered batches and gives simultaneous objects a common time. Granted triggered abilities stay fenced at
+the observer boundary: `EffectiveTriggerAbility` has only `Intrinsic` and
+`Followup`. Stage 4 adds `Granted`, identified by recipient, grantor, granting
+ability and instance, with per-instance layer-6 membership and last-known
+grants for look-back.
 
 Vehicles retain printed power and toughness off the battlefield (CR 208.3).
 On the battlefield they have these values while they are creatures (CR 301.7).
@@ -558,6 +590,21 @@ card count. Both stages record
 
 A source-relative combat-damage trigger can put fixed +1/+1 counters on the
 incarnation that dealt the damage (CR 400.7). Cascade has no executable R5 form.
+
+**Canonical event witnesses (E1–E3 contract).** As each family migrates,
+matching reads the actual's facet, never the batch cause. It deduplicates on
+ability instance and event member. Created and entered stay distinct. A
+resolving copy of a permanent spell yields a move and a token entry with no
+creation (CR 111.13). Token-creation replacements and created-token history
+ignore it, while "token enters" triggers see it. A cycled card is one discard
+member carrying both meanings. One "cycles or discards" ability triggers once,
+and distinct abilities may each trigger (CR 702.29d). A tap transition needs an
+untapped battlefield permanent and is recorded with or without a listener.
+Entering tapped is entry status, never a tap (CR 603.2e). Vigilance, tapping an
+already tapped object and a regeneration tap of a tapped object produce no
+transition. A stun-replaced untap yields a stun counter removal with lineage
+and no untap (CR 122.1d). Undo never creates a tap, untap, life, counter or
+movement trigger.
 
 ### Delayed and reflexive triggers
 
