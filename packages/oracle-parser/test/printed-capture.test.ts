@@ -291,6 +291,37 @@ test("target numbering separates quoted abilities and continues across modal opt
   assert.deepEqual(span(modal, step), [0, 0, 3]);
 });
 
+test("printed static modifiers survive conditional sentence continuations", () => {
+  const text = "Equipped creature gets +1/+1. As long as it's legendary, it gets an additional +2/+2. As long as it's red, it has trample.";
+  const face = read(text, "Tenza, Godo's Maul", "Legendary Artifact — Equipment");
+  const found = block(face);
+  for (const [index, expected] of ["gets +1/+1", "gets an additional +2/+2", "has trample"].entries()) {
+    const modifier = span(found, `/effect/effects/${index}/modifiers/0`);
+    assert.equal(spelling(face, text, modifier), expected);
+  }
+});
+
+test("coordinated trigger verbs share one printed subject and keep both event spans", () => {
+  const text = 'Commander creatures you own have "When this creature enters or leaves the battlefield, draw a card."';
+  const face = read(text, "Candlekeep Sage", "Legendary Enchantment — Background");
+  const found = block(face);
+  const trigger = "/effect/modifiers/0/abilities/0/ability/trigger";
+  const first = trigger + "/events/0";
+  const second = trigger + "/events/1";
+  assert.equal(spelling(face, text, span(found, trigger)), "this creature enters or leaves the battlefield");
+  assert.equal(spelling(face, text, span(found, first)), "this creature enters");
+  assert.equal(spelling(face, text, span(found, second)), "leaves the battlefield");
+  assert.deepEqual(found.nodes.find(node => node.path === second + "/what"),
+    { path: second + "/what", basis: "alias", of: first + "/what" });
+});
+
+test("grouped trigger alternatives retain their printed introducer", () => {
+  const text = "Whenever one or more creatures you control fight or become blocked, draw a card.";
+  const face = read(text, "Neyith of the Dire Hunt", "Legendary Creature — Human Warrior");
+  assert.equal(spelling(face, text, span(block(face), "/trigger")),
+    "Whenever one or more creatures you control fight or become blocked");
+});
+
 test("printed grants keep their enclosure and own inner punctuation after AST rebuilding", () => {
   const examples = [
     { name: "Anavolver", typeLine: "Creature — Volver",
@@ -328,6 +359,12 @@ test("printed grants keep their enclosure and own inner punctuation after AST re
     const moved = structuredClone(found);
     moved.facts[found.facts.indexOf(delimiter)] = { ...delimiter, at: grant };
     assert.ok(verify(moved, result.abilities[0]).some(error => error.startsWith("fact ")), name);
+    if (name === "Sugar Coat") {
+      const you = fact(found, "mention", f => f.form === "you" && f.at.endsWith("/who"));
+      const rootOwned = structuredClone(found);
+      rootOwned.facts[found.facts.indexOf(you)] = { ...you, at: body };
+      assert.ok(verify(rootOwned, result.abilities[0]).some(error => error.includes("innermost containing node")), name);
+    }
     const split = structuredClone(found);
     const grantNode = split.nodes.find(node => node.path === grant);
     assert.equal(grantNode?.basis, "recorded", name);
@@ -340,11 +377,11 @@ test("printed grants keep their enclosure and own inner punctuation after AST re
 test("quoted rule and keyword-family terms retain evidence in the enclosing ability", () => {
   const examples = [
     { name: "The Master, Multiplied", typeLine: "Legendary Creature — Time Lord Rogue",
-      text: 'The "legend rule" doesn\'t apply to creature tokens you control.', term: "legend rule" },
+      text: 'The "legend rule" doesn\'t apply to creature tokens you control.', term: "legend rule", change: ["doesn't", "needn't"] },
     { name: "Shelkin Brownie", typeLine: "Creature — Ouphe",
-      text: '{T}: Target creature loses all "bands with other" abilities until end of turn.', term: "bands with other" },
+      text: '{T}: Target creature loses all "bands with other" abilities until end of turn.', term: "bands with other", change: ["all", "any"] },
   ];
-  for (const { name, typeLine, text, term } of examples) {
+  for (const { name, typeLine, text, term, change } of examples) {
     const parse = (text: string) => parseOracleTextWithPrintedEvidence(text, name, { typeLine });
     const { result, printed } = parse(text);
     assert.equal(printed.status, "read");
@@ -354,6 +391,8 @@ test("quoted rule and keyword-family terms retain evidence in the enclosing abil
     assert.deepEqual(verify(found, result.abilities[0]), [], name);
     assert.ok(found.nodes.every(node => !node.path.endsWith("/ability")), name);
     assert.ok(verify(found, {}).some(error => error.startsWith("span ")), name);
+    const changed = quoteChecks(printed, result.lines[0].text.replace(change[0], change[1]));
+    assert.ok(changed(found, result.abilities[0]).some(error => error.startsWith("span ")), name);
     assert.equal(parse(text.replace(term, "unrecognized term")).result.ok, false, name);
     assert.equal(parse(text.replaceAll('"', "")).result.ok, false, name);
   }

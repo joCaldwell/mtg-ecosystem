@@ -6,6 +6,12 @@ type ReadBlock = Extract<PrintedBlock, { status: "read" }>;
 type Quote = { line: number; open: number; openOrder: number; close?: number; mark: string; parent?: Quote };
 type Region = Quote | undefined;
 
+const termClauses = [
+  { term: "legend rule", words: ["the", '"', "legend", "rule", '"', "doesn't", "apply"], closeOffset: 3 },
+  { term: "bands with other", words: ["all", '"', "bands", "with", "other", '"', "abilities"], closeOffset: 4 },
+] as const;
+type Term = (typeof termClauses)[number]["term"];
+
 export function nodesAtPaths(value: unknown, path = "", nodes = new Map<string, Record<string, unknown>>()) {
   if (Array.isArray(value)) value.forEach((item, index) => nodesAtPaths(item, `${path}/${index}`, nodes));
   else if (value && typeof value === "object") {
@@ -24,10 +30,10 @@ export function quoteChecks(face: ReadFace, normalized: string) {
   const lines = face.lines.map((line, lineIndex) => {
     const regions: Region[] = [];
     const pairs: Quote[] = [];
-    const terms = new Map<Quote, string>();
+    const terms = new Map<Quote, { term: Term; indices: number[] }>();
     if (line.status !== "lexed") return { regions, pairs, terms };
-    const tokens = line.tokens.map(({ n, t, grammarIndex }, index) => ({
-      text: bytes.toString("utf8", ...n), t, grammarIndex, index,
+    const tokens = line.tokens.map((token, index) => ({
+      ...token, text: bytes.toString("utf8", ...token.n), index,
     })).sort((a, b) => a.grammarIndex - b.grammarIndex);
     if (!tokens.some(({ text, t }) => t === "punct" && text === '"')) return { regions, pairs, terms };
     const stack: Quote[] = [];
@@ -38,8 +44,16 @@ export function quoteChecks(face: ReadFace, normalized: string) {
         const pair = stack[previous];
         pair.close = index;
         stack.length = previous;
-        const term = tokens.slice(pair.openOrder + 1, grammarIndex).map(token => token.text.toLowerCase()).join(" ");
-        if (term === "legend rule" || term === "bands with other") terms.set(pair, term);
+        const shape = termClauses.find(clause => grammarIndex === pair.openOrder + clause.closeOffset);
+        const start = pair.openOrder - 1;
+        if (shape && start >= 0) {
+          const clause = tokens.slice(start, start + shape.words.length);
+          if (clause.length === shape.words.length && clause.every((token, offset) => {
+            const word = shape.words[offset];
+            if (word === '"') return token.t === "punct" && token.text === pair.mark;
+            return token.t === "word" && !token.possessive && token.text.toLowerCase() === word;
+          })) terms.set(pair, { term: shape.term, indices: clause.map(token => token.index) });
+        }
       }
       const parent = stack.at(-1);
       regions[index] = parent;
@@ -69,6 +83,10 @@ export function quoteChecks(face: ReadFace, normalized: string) {
       while (parent && !byPath.has(parent)) parent = parent.slice(0, parent.lastIndexOf("/"));
       return parent;
     };
+    const located = block.nodes.flatMap(node => {
+      const runs = extent(node);
+      return runs.length ? [{ path: node.path, runs, depth: node.path.split("/").length }] : [];
+    });
     for (const node of block.nodes) {
       const { path } = node;
       if (!scopes.has(path)) scopes.set(path, scopes.get(immediate(path)));
@@ -76,7 +94,7 @@ export function quoteChecks(face: ReadFace, normalized: string) {
       const runs = extent(node);
       const value = values.get(path);
       if (value?.gained === "quoted") {
-        const matching = pairs.filter(pair => pair.parent === region && covers(runs, pair));
+        const matching = pairs.filter(pair => pair.parent === region && covers(runs, pair) && !lines[pair.line].terms.has(pair));
         const [pair] = matching;
         if (runs.length && (matching.length !== 1 || grants.has(pair))) errors.push(`invalid quote enclosure at ${path}`);
         scopes.set(path + "/ability", pair ?? null);
@@ -88,15 +106,29 @@ export function quoteChecks(face: ReadFace, normalized: string) {
       }
       for (const pair of pairs) {
         if (pair.parent !== region || !covers(runs, pair)) continue;
-        const term = lines[pair.line].terms.get(pair);
-        if (term === "legend rule" && (value?.static === "legend-rule-exemption" || value?.effect === "legend-rule-exemption") ||
-          term === "bands with other" && value?.removal === "listed" &&
-          Array.isArray(value.abilities) && value.abilities.some(item => item.gained === "keyword" && item.keyword?.keyword === term))
+        const clause = lines[pair.line].terms.get(pair);
+        if (!clause || !clause.indices.every(index => containsToken(runs, pair.line, index))) continue;
+        const parent = values.get(immediate(path));
+        const [keyword] = Array.isArray(value?.abilities) && value.abilities.length === 1 ? value.abilities : [];
+        if (clause.term === "legend rule" && (value?.static === "legend-rule-exemption" || value?.effect === "legend-rule-exemption") ||
+          clause.term === "bands with other" && path.endsWith("/removal") && value?.removal === "listed" &&
+          (parent?.modifier === "lose-abilities" || parent?.effect === "lose-abilities") &&
+          keyword?.gained === "keyword" && keyword.keyword?.keyword === clause.term && Object.keys(keyword.keyword).length === 1) {
+          if (operands.has(pair)) errors.push(`quoted term reuses its enclosure at ${path}`);
           operands.set(pair, path);
+        }
       }
     }
 
     const checkRuns = (runs: readonly TokenRun[], path: string, field: string) => {
+      for (const [pair, owner] of operands) {
+        // The clause has no movable punctuation. Any overlap with the term
+        // must include its entire physical token interval, including both marks.
+        const interval = Array.from({ length: pair.close! - pair.open + 1 }, (_, offset) => pair.open + offset);
+        const covered = interval.filter(index => containsToken(runs, pair.line, index));
+        if (covered.length && (!owns(path, owner) || covered.length !== interval.length))
+          errors.push(`${field} at ${path} crosses an unowned or split quoted term`);
+      }
       for (const [line, start, end] of runs) {
         for (let index = start; index < end; index++) {
           let actual = lines[line].regions[index];
@@ -119,6 +151,10 @@ export function quoteChecks(face: ReadFace, normalized: string) {
         errors.push(`alias at ${node.path} escapes its quote region`);
       }
     }
+    for (const pair of pairs) {
+      if (pair.close !== undefined && !grants.has(pair) && !operands.has(pair))
+        errors.push(`unowned quote pair at ${pair.line}:${pair.open}`);
+    }
     for (const [index, fact] of block.facts.entries()) {
       if (fact.fact === "reminder-citation") {
         if (pairs.some(pair => {
@@ -131,7 +167,16 @@ export function quoteChecks(face: ReadFace, normalized: string) {
       const [line, start, end] = fact.tok;
       const region = lines[line].regions[start];
       const termOwner = region && operands.get(region);
-      const scope = termOwner !== undefined && owns(fact.at, termOwner) ? region?.parent : region;
+      const scope = termOwner === fact.at ? region?.parent : region;
+      let owner = "";
+      let depth = 0;
+      for (const node of located) {
+        if (node.depth >= depth && node.runs.some(([l, from, to]) => line === l && from <= start && end <= to)) {
+          owner = node.path;
+          depth = node.depth;
+        }
+      }
+      if (fact.at !== owner) errors.push(`fact ${index} at ${fact.at} does not name the innermost containing node ${owner}`);
       if (!byPath.has(fact.at) || scope !== scopes.get(fact.at) || lines[line].regions.slice(start, end).some(other => other !== region))
         errors.push(`fact ${index} at ${fact.at} crosses or escapes its quote region`);
     }

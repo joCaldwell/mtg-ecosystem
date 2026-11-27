@@ -498,10 +498,11 @@ function parseStaticGroup(c: Cursor): StaticEffect | null {
       // Do not assign a final binding solely to the right clause when a left
       // clause also depends on that same free variable.
       if (containsField(right, "variable", "x") && containsField(left, "amount", "x")) continue;
-      // The inherited prefix reuses the earlier printed subject. Keep its
-      // one occurrence when the accepted clauses name the same object.
+      // A quoted continuation needs its own enclosure. Keep the inherited
+      // subject at the earlier clause so its tokens cannot overlap the grant.
       const printedSubject = "what" in left && left.what;
-      if (remaining[0] === subjectTokens[0] && printedSubject && typeof printedSubject === "object") {
+      if (c.printed && remaining[0] === subjectTokens[0] && printedSubject &&
+        typeof printedSubject === "object" && containsField(right, "gained", "quoted")) {
         const inherit = (clause: StaticEffect): void => {
           if (clause.static === "group") clause.effects.forEach(inherit);
           else if ("what" in clause && clause.what && typeof clause.what === "object" &&
