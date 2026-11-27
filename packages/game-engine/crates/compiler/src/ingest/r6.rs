@@ -265,55 +265,57 @@ fn verify_row(raw: &str, claims: &mut printed::NameClaims) -> Result<RowIdentity
     }
     let status: RowStatus =
         serde_json::from_str(raw).map_err(|e| invalid("printed.P1", e.to_string()))?;
-    let (record_type, index, identity, source, source_hash, printed_sha256) =
-        if status.status == "excluded" {
-            let r: Excluded = decode(raw, "printed.P1")?;
-            if r.status != "excluded" || r.reason.is_empty() {
-                return Err(invalid("printed.P1", "invalid exclusion"));
-            }
-            (
-                r.record_type,
-                r.source_index,
-                r.oracle_identity,
-                r.source,
-                r.source_sha256,
-                "excluded".into(),
-            )
-        } else {
-            let r = RecordR6::read(raw)?;
-            let source: Value = decode(r.source.get(), "printed.P2/source")?;
-            if sha256(r.source.get().as_bytes()) != r.source_sha256 {
-                return Err(invalid("printed.P2/source", "source SHA-256 mismatch"));
-            }
-            if sha256(r.printed.get().as_bytes()) != r.printed_sha256 {
-                return Err(invalid("printed.P1", "printed SHA-256 mismatch"));
-            }
-            if sha256(r.binding.get().as_bytes()) != r.binding_sha256
-                || sha256(r.resolution.get().as_bytes()) != r.resolution_sha256
-            {
-                return Err(invalid(
-                    "record",
-                    "legacy binding or resolution SHA-256 mismatch",
-                ));
-            }
-            let evidence = PrintedCard::decode(r.printed.get())
-                .map_err(|e| invalid("printed.P1", e.to_string()))?;
-            let parsed = printed::verify(&source, &r.faces, &evidence, claims)?;
-            if parsed != matches!(r.status, Status::Parsed) || parsed != r.ast_sha256.is_some() {
-                return Err(invalid(
-                    "printed.P1",
-                    "AST hash presence disagrees with card status",
-                ));
-            }
-            (
-                r.record_type,
-                r.source_index,
-                r.oracle_identity,
-                r.source,
-                r.source_sha256,
-                r.printed_sha256,
-            )
-        };
+    let (record_type, index, identity, source, source_hash, printed_sha256) = if status.status
+        == "excluded"
+    {
+        let r: Excluded = decode(raw, "printed.P1")?;
+        if r.status != "excluded" || r.reason.is_empty() {
+            return Err(invalid("printed.P1", "invalid exclusion"));
+        }
+        (
+            r.record_type,
+            r.source_index,
+            r.oracle_identity,
+            r.source,
+            r.source_sha256,
+            "excluded".into(),
+        )
+    } else {
+        let r = RecordR6::read(raw)?;
+        let source: Value = decode(r.source.get(), "printed.P2/source")?;
+        if sha256(r.source.get().as_bytes()) != r.source_sha256 {
+            return Err(invalid("printed.P2/source", "source SHA-256 mismatch"));
+        }
+        if sha256(r.printed.get().as_bytes()) != r.printed_sha256 {
+            return Err(invalid("printed.P1", "printed SHA-256 mismatch"));
+        }
+        if sha256(r.binding.get().as_bytes()) != r.binding_sha256
+            || sha256(r.resolution.get().as_bytes()) != r.resolution_sha256
+        {
+            return Err(invalid(
+                "record",
+                "legacy binding or resolution SHA-256 mismatch",
+            ));
+        }
+        let evidence = PrintedCard::decode(r.printed.get())
+            .map_err(|e| invalid("printed.P1", e.to_string()))?;
+        let ast_sha256 = printed::verify(&source, &r.faces, &evidence, claims)?;
+        if ast_sha256.is_some() != matches!(r.status, Status::Parsed) || ast_sha256 != r.ast_sha256
+        {
+            return Err(invalid(
+                "printed.P1",
+                "legacy AST hash or card status differs",
+            ));
+        }
+        (
+            r.record_type,
+            r.source_index,
+            r.oracle_identity,
+            r.source,
+            r.source_sha256,
+            r.printed_sha256,
+        )
+    };
     let decoded: Value = decode(source.get(), "source")?;
     if record_type != "card"
         || !mtg_contracts::bulk_catalog::is_oracle_id(&identity)
@@ -368,7 +370,7 @@ mod tests {
             "status": "parsed", "faces": [{"status":"attempted", "sourceFaceIndex": 0,
                 "result":{"name":"Example", "ok":true, "lines":[{"text":normalized, "ok":true, "ability":ability}],
                 "abilities":[ability]}}],
-            "astSha256": sha256(json!([ability]).to_string().as_bytes()),
+            "astSha256": sha256(json!([[ability]]).to_string().as_bytes()),
             "binding": {}, "bindingSha256": empty, "resolution": {}, "resolutionSha256": empty,
             "printed": {"artifactKind":"oracle-printed-evidence", "schemaVersion":1, "faces":[{
                 "sourceFaceIndex": 0, "status": "read",

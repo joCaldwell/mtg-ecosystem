@@ -14,8 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .definitions
         .iter()
         .map(|definition| {
-            let tiers = definition_tiers(definition)?;
-            Ok((
+            let tiers = definition_tiers(definition)
+                .map_err(|error| format!("{}: {error:?}", definition.oracle_id))?;
+            Ok::<_, String>((
                 &definition.oracle_id,
                 [
                     ExecutionTier::Executes,

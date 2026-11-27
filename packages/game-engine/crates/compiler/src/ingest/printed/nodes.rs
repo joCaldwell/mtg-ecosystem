@@ -200,14 +200,6 @@ impl<'a> BlockNodes<'a> {
                     let span = get_extent(&entry.span)?;
                     let mut expected = child;
                     expected.extend(get_extent(entry.clauses.as_deref().unwrap_or_default())?);
-                    // Station marks the striation from its two-token threshold
-                    // label. Its body cannot supply the original-only citation.
-                    if path == "/effect/creature"
-                        && ast["effect"]["static"] == "station-band"
-                        && node.value["basePT"] == "printed-box"
-                    {
-                        expected.extend([(block.start, 0), (block.start, 1)]);
-                    }
                     if span.is_empty() || span != expected {
                         return Err(fail(
                             "hull differs from child extents and attributed clauses",

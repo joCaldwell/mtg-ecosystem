@@ -385,14 +385,14 @@ pub(super) fn selection_matches(
     let Some((id, grammar)) = selection.rsplit_once(':') else {
         return false;
     };
-    let Ok(grammar) = grammar.parse::<usize>() else {
+    let Ok(index_in_grammar) = grammar.parse::<usize>() else {
         return false;
     };
-    if id != line.source_id {
+    if id != line.source_id || index_in_grammar.to_string() != grammar {
         return false;
     }
     let Some(start) = suffix else {
-        return line.tokens[index].grammar_index == grammar;
+        return line.tokens[index].grammar_index == index_in_grammar;
     };
     if start > index {
         return false;
@@ -414,5 +414,5 @@ pub(super) fn selection_matches(
         })
         .collect();
     settle(&mut body);
-    body[index - start].grammar_index == grammar
+    body[index - start].grammar_index == index_in_grammar
 }

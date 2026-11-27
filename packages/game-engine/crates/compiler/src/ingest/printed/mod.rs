@@ -1,6 +1,6 @@
 //! Common R6 integrity checks. The legacy lowerer never receives this data.
 use super::r6::{FaceR6, FaceStatus};
-use super::{Failure, decode, invalid, sha256};
+use super::{Failure, RawValue, decode, invalid, sha256};
 use mtg_oracle_ast::printed::*;
 use serde::Deserialize;
 use serde_json::Value;
@@ -12,10 +12,12 @@ mod tokens;
 pub(super) use text::{NameCatalog, NameClaims};
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LegacyResult {
     name: String,
     ok: bool,
     lines: Vec<LegacyLine>,
+    abilities: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -32,7 +34,7 @@ pub(super) fn verify(
     faces: &[FaceR6],
     printed: &PrintedCard,
     claims: &mut NameClaims,
-) -> Result<bool, Failure> {
+) -> Result<Option<String>, Failure> {
     let source_faces = match &source["card_faces"] {
         Value::Null => std::slice::from_ref(source),
         Value::Array(faces) if !faces.is_empty() => faces,
@@ -45,6 +47,7 @@ pub(super) fn verify(
         ));
     }
     let mut all_parsed = true;
+    let mut raw_abilities = Vec::new();
     for (index, ((source_face, legacy), printed)) in source_faces
         .iter()
         .zip(faces)
@@ -91,6 +94,27 @@ pub(super) fn verify(
             return Err(reject("P2", "legacy face name mismatch"));
         }
         all_parsed &= legacy.ok;
+        match (legacy.ok, &legacy.abilities) {
+            (true, Some(raw)) => {
+                let abilities: Vec<Value> = decode(raw.get(), &format!("{path}/P6"))?;
+                if abilities.len() != legacy.lines.len()
+                    || !abilities
+                        .iter()
+                        .zip(&legacy.lines)
+                        .all(|(ability, line)| line.ok && line.ability.as_ref() == Some(ability))
+                {
+                    return Err(reject("P6", "legacy ability array differs from its blocks"));
+                }
+                raw_abilities.push(raw.get().to_owned());
+            }
+            (false, None) if legacy.lines.iter().any(|line| !line.ok) => {}
+            _ => {
+                return Err(reject(
+                    "P6",
+                    "legacy ability array and parse status disagree",
+                ));
+            }
+        }
         let type_line = source_face["type_line"]
             .as_str()
             .or_else(|| source["type_line"].as_str())
@@ -110,7 +134,7 @@ pub(super) fn verify(
             PrintedFace::MissingOracleText(_) => unreachable!(),
         }
     }
-    Ok(all_parsed)
+    Ok(all_parsed.then(|| sha256(format!("[{}]", raw_abilities.join(",")).as_bytes())))
 }
 
 fn verify_face(
