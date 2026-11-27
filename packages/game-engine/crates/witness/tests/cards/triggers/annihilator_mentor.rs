@@ -4,6 +4,7 @@
 //! known information once it has left (CR 608.2b).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+use mtg_core::QueryResult;
 
 const ULAMOGS_CRUSHER: &str = record!("597bce51-af89-4d13-9a97-667b4f4f4694");
 const PATHRAZER_OF_ULAMOG: &str = record!("4bf95747-4572-49b8-b892-87fe7f910252");
@@ -275,6 +276,47 @@ fn mentor_targets_an_attacking_creature_with_lesser_power() {
     assert_eq!(plus_one(&g, bears), Quantity::from(1));
     assert_eq!(plus_one(&g, dropper), Quantity::zero());
     assert_eq!(plus_one(&g, crusher), Quantity::zero());
+    assert_recoverable((&g).into());
+}
+
+/// The mentor bound is serialized both in suspended observation work and in
+/// a snapshot while the accepted target answer awaits application.
+#[test]
+fn mentor_target_bound_round_trips_through_pending_input_and_observation_work() {
+    let prepared = prepare(
+        board(&[BLADE_INSTRUCTOR], TurnStep::BeginningCombat)
+            .permanent_or_hand("Blade Instructor", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false),
+    );
+    let mut g = Game::new(prepared.clone());
+    let mentor = Driver::object(&g, 0);
+    let bears = Driver::object(&g, 1);
+    let d = crate::evasion::until(&mut g, &Reason::Attackers);
+    let answer = d.attack(vec![(mentor, PlayerId(1)), (bears, PlayerId(1))]);
+    g.respond(d.player, d.id, answer).unwrap();
+
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Targets { .. }));
+    let QueryResult::Incomplete { work, .. } = g.observe(d.player, Budget::new(1)) else {
+        panic!("mentor target observation should suspend");
+    };
+    let raw = g.save_work(&work).unwrap();
+    assert!(
+        raw.contains("\"less_than_source\""),
+        "mentor bound was not saved"
+    );
+    let restored = g.restore_work(&raw).unwrap();
+    assert_eq!(g.save_work(&restored).unwrap(), raw);
+
+    let answer = d.targets(vec![bears]);
+    g.respond(d.player, d.id, answer).unwrap();
+    let snapshot = g.snapshot().unwrap();
+    assert!(
+        snapshot.contains("\"less_than_source\""),
+        "mentor bound was not snapshotted"
+    );
+    let restored = Game::restore(prepared, &snapshot).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), snapshot);
     assert_recoverable((&g).into());
 }
 
