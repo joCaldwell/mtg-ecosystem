@@ -24,8 +24,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "a028d099240a5fb214fdc3c86d42b56e7c2eb88991a6c679e5c988c893595834",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    137,
-    "f75c55a4213f6b3f0a186377c4b156235d4626cfa060c5de14e980d8bf571c8d",
+    138,
+    "4131134d6ef0099b0468f454aad5f33f9d1c24057835faf644384ea818baeb30",
 );
 const WORK_PIN: (u32, &str) = (
     69,
@@ -541,7 +541,13 @@ fn chosen_cost_shapes() -> Vec<Game> {
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
-                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+                Instruction::act(
+                    mtg_contracts::kir::Verb::Draw {
+                        player: PlayerExpr::you(Context::Activated),
+                        amount: mtg_contracts::kir::Amount::fixed(1),
+                    },
+                    0,
+                ),
             ]),
         });
     }
@@ -615,8 +621,15 @@ fn activation_condition_shapes() -> Vec<Game> {
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,
-                program: SpellProgram::instructions(SpellTiming::Instant)
-                    .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
+                program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
+                    Instruction::act(
+                        mtg_contracts::kir::Verb::Draw {
+                            player: you.clone(),
+                            amount: mtg_contracts::kir::Amount::fixed(1),
+                        },
+                        0,
+                    ),
+                ]),
             });
         } else if d.name == "Sol Ring" {
             d.mana_abilities[0].condition = Some(controls(CardKind::Artifact));
@@ -934,6 +947,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_battlefield_entry(),
             suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
+            super::kernel_control_tests::suspended_counted_draw(),
             super::kernel_control_tests::suspended_creature_payment(),
             pending_stack_target(),
             suspended_delve(),

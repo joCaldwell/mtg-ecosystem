@@ -75,19 +75,82 @@ fn stable_rereads(sentence: &Sentence, x: &kir::Amount) -> Result<(), Failure> {
         return Ok(());
     }
     if x.counts_hand()
-        || !sentence.steps[first..last].iter().all(|step| {
-            matches!(
-                step,
-                Step::Draw { .. }
-                    | Step::GainLife { .. }
-                    | Step::LoseLife { .. }
-                    | Step::Damage { .. }
-            )
-        })
+        || !sentence.steps[first..last]
+            .iter()
+            .all(|step| matches!(step, Step::Evaluated(_) | Step::Damage { .. }))
     {
         return Err(operand("bindings", "reread_after_change"));
     }
     Ok(())
+}
+
+fn pilot_player(cx: &mut StepCx<'_>, who: &ast::PlayerRef) -> Result<PlayerExpr, Failure> {
+    match who {
+        ast::PlayerRef::EachPlayer(_) => Ok(PlayerExpr::EachPlayer),
+        ast::PlayerRef::TargetOpponent(target) => match target.as_ref() {
+            ast::PlayerRefTargetOpponent {
+                count: None,
+                up_to: None,
+                random: None,
+                selection_id: Some(id),
+            } => Ok(PlayerExpr::target(bind_target(
+                cx.program,
+                cx.slots,
+                id,
+                TargetDomain::OpponentPlayer,
+            )?)),
+            _ => Err(operand("player", "target_opponent:qualified")),
+        },
+        who => lower_player_ref(
+            cx.program,
+            cx.slots,
+            who.clone(),
+            cx.context,
+            cx.player_binding.event_role(),
+        ),
+    }
+}
+
+fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Failure> {
+    match amount {
+        ast::Amount::Fixed(number) if number.value >= 0 => Ok(Amount::fixed(number.value)),
+        ast::Amount::X(_) => Ok(cx.bound_x().unwrap_or_else(Amount::announced_x)),
+        ast::Amount::Count(count) => lower_count(count, cx.context),
+        ast::Amount::Attribute(attribute) => {
+            use ast::PropertyConstraintProperty as Property;
+            let stat = match attribute.attribute {
+                Property::Power => kir::Stat::Power,
+                Property::Toughness => kir::Stat::Toughness,
+                Property::ManaValue => kir::Stat::ManaValue,
+                _ => return Err(operand("amount", "unsupported object measure")),
+            };
+            let object = match attribute.of.as_ref() {
+                ast::ObjectRef::This(_) | ast::ObjectRef::SelfObject(_) => kir::Ref::Source,
+                ast::ObjectRef::Target(_) => kir::Ref::Target {
+                    slot: bind_permanent_target(cx.program, cx.slots, &attribute.of)?,
+                },
+                ast::ObjectRef::It(_) | ast::ObjectRef::That(_) => {
+                    if let Ok(slot) = preceding_target(cx.program, cx.source_block, &attribute.of) {
+                        kir::Ref::Target { slot }
+                    } else if cx.program.targets.is_empty() {
+                        kir::Ref::EventObject {
+                            role: cx.player_binding.event_object_role().ok_or_else(|| {
+                                operand("amount", "object measure lacks antecedent")
+                            })?,
+                        }
+                    } else {
+                        return Err(operand("amount", "ambiguous measured object"));
+                    }
+                }
+                _ => return Err(operand("amount", "unsupported measured object")),
+            };
+            Ok(Amount::StatOf { object, stat })
+        }
+        ast::Amount::LifeTotal(total) => Ok(Amount::LifeOf {
+            player: pilot_player(cx, &total.of)?,
+        }),
+        _ => Err(operand("amount", variant(amount))),
+    }
 }
 
 /// A step outside every verb module's rows: `verb:<effect>:<detail>`.
@@ -140,11 +203,6 @@ pub(crate) fn append_spell_effects(
         };
         let mut at = 0;
         while let Some(s) = sentence.steps.get(at) {
-            if player_binding == PlayerBinding::Unbound
-                && matches!(s, Step::LoseLife { who, .. } if who.player == "that-player")
-            {
-                return Err(unsupported("trigger", "unbound death controller"));
-            }
             let mut cx = StepCx {
                 program: &mut *program,
                 slots: &mut *slots,
@@ -280,23 +338,12 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             optional,
         } => damage::lower(cx, source, amount, to, *optional),
         Step::Mill { who, amount } => mill::lower(cx, who, amount),
-        Step::GainLife {
-            who,
-            amount,
-            for_each,
-        } => life::lower(cx, true, who, amount, for_each.as_ref()),
-        Step::LoseLife {
-            who,
-            amount,
-            for_each,
-        } => life::lower(cx, false, who, amount, for_each.as_ref()),
         Step::Discard(discard) => discard::lower(cx, discard),
-        Step::Draw {
-            who,
-            amount,
-            optional,
-            for_each,
-        } => draw::lower(cx, who, amount, *optional, for_each.as_ref()),
+        Step::Evaluated(effect) => match effect.as_ref() {
+            ast::Effect::Draw(draw) => draw::lower(cx, draw),
+            ast::Effect::Variant99(life) => life::lower(cx, life),
+            _ => unreachable!("evaluated AST effect"),
+        },
         Step::ReturnToHand { what, to, optional } => return_to_hand::lower(cx, what, to, *optional),
         Step::MoveZone {
             what,

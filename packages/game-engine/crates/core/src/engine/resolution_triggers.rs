@@ -751,7 +751,11 @@ impl RulesTxn {
             source_facts,
             None,
             None,
-            (occurrence.clone(), witness.clone()),
+            (
+                occurrence.clone(),
+                witness.clone(),
+                self.followup_event_binding(&witness)?,
+            ),
         )?;
         self.rules_mut()
             .resolution_triggers

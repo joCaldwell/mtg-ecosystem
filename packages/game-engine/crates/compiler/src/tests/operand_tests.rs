@@ -205,12 +205,12 @@ fn amounts_players_destinations_and_durations_are_typed() {
         lower_damage_amount(&x, Some(&creatures), Context::Spell).unwrap(),
         creatures
     );
-    let selector = |v| serde_json::from_value::<PlayerSelector>(v).unwrap();
+    let selector = |v| serde_json::from_value::<ast::PlayerRef>(v).unwrap();
     let player = |v| {
-        lower_player(
+        lower_player_ref(
             &mut program(),
             &mut BTreeMap::new(),
-            &selector(v),
+            selector(v),
             Context::Activated,
             None,
         )

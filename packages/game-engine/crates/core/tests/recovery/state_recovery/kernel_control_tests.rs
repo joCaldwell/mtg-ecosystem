@@ -330,52 +330,183 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
     );
 }
 
-#[test]
-fn a_nested_single_draw_restores_before_drawing() {
+fn optional_counted_draw_game() -> Game {
+    use mtg_contracts::kir::StepRole;
+
+    let player = PlayerExpr::target(0);
     let prepared = edict_with_kernel(
-        Node::Seq(vec![Node::Do(Verb::Draw {
-            player: PlayerExpr::Is {
-                who: Ref::Target { slot: 0 },
+        Node::Seq(vec![
+            Node::Optional {
+                chooser: controller(),
+                node: Box::new(Node::Do(Verb::Draw {
+                    player: player.clone(),
+                    amount: Amount::fixed(2),
+                })),
             },
-            amount: Amount::fixed(1),
-        })]),
+            Node::Do(Verb::Draw {
+                player,
+                amount: Amount::fixed(0),
+            }),
+            gain(controller(), Amount::fixed(0)),
+            gain(
+                controller(),
+                Amount::Var {
+                    of: Ref::StepResult {
+                        step: 0,
+                        role: StepRole::Amount,
+                    },
+                },
+            ),
+        ]),
         TargetDomain::AnyPlayer,
     );
-    let mut game = super::formats_tests::cast_edict(prepared.clone());
-    let owner = PlayerId(1);
-    let library = game.state.rules.libraries[&owner].clone();
-    let mut leaf_started = false;
-    for _ in 0..32 {
-        let next = game.advance(Budget::new(1));
-        assert!(matches!(next, Advance::Suspended { .. }), "{next:?}");
-        if matches!(&game.state.rules.frame, Frame::Resolve { frame } if frame.cursor == 0)
-            && matches!(game.state.rules.frames.last(), Some(Frame::Kernel { .. }))
-        {
-            leaf_started = true;
-            break;
+    super::formats_tests::cast_edict(prepared)
+}
+
+pub(super) fn suspended_counted_draw() -> Game {
+    let mut game = optional_counted_draw_game();
+    let request = Driver::request(&mut game, 1);
+    let accept = request
+        .pick_one(&Candidate::Flag { flag: Flag::Accept })
+        .unwrap();
+    game.respond(request.player, request.id, accept).unwrap();
+    let initial = game.state.rules.libraries[&PlayerId(1)].len();
+    for _ in 0..16 {
+        assert!(matches!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+        if game.state.rules.libraries[&PlayerId(1)].len() + 1 == initial {
+            return game;
         }
     }
-    assert!(leaf_started, "expected the nested draw's resolving frame");
-    assert_eq!(game.state.rules.libraries[&owner], library);
-    let mut restored = Game::restore(prepared, &game.snapshot().unwrap()).unwrap();
-    for g in [&mut game, &mut restored] {
-        let next = g.advance(Budget::unlimited());
-        assert!(
-            matches!(
-                next,
-                Advance::AwaitingDecision(Decision {
-                    reason: Reason::Priority,
-                    ..
-                })
-            ),
-            "{next:?}"
+    panic!("draw sequence did not commit its first attempt");
+}
+
+#[test]
+fn optional_counted_draw_recovers_after_each_commit_without_redrawing() {
+    let mut game = optional_counted_draw_game();
+    let owner = PlayerId(1);
+    let library = game.state.rules.libraries[&owner].clone();
+    let life = game.state.rules.players[0].life.clone();
+    let request = Driver::request(&mut game, 1);
+    assert_eq!(request.reason, Reason::OptionalEffect);
+    assert_recoverable((&game).into());
+    let accept = request
+        .pick_one(&Candidate::Flag { flag: Flag::Accept })
+        .unwrap();
+    game.respond(request.player, request.id, accept).unwrap();
+
+    for draws in [1, 2] {
+        for _ in 0..16 {
+            assert!(matches!(
+                game.advance(Budget::new(1)),
+                Advance::Suspended { .. }
+            ));
+            if game.state.rules.libraries[&owner].len() == library.len() - draws {
+                break;
+            }
+        }
+        assert_eq!(
+            game.state.rules.libraries[&owner].as_slice(),
+            &library[draws..]
         );
-        assert_eq!(g.state.rules.libraries[&owner].as_slice(), &library[1..]);
-        let drawn = g.object_id(library[0]).unwrap();
-        assert_eq!(g.current(drawn).unwrap().zone, Zone::Hand { owner });
-        g.validate_state().unwrap();
+        assert_recoverable((&game).into());
     }
-    assert_eq!(game.snapshot().unwrap(), restored.snapshot().unwrap());
+    assert_eq!(next_reason(&mut game), Reason::Priority);
+    assert_eq!(game.state.rules.libraries[&owner].as_slice(), &library[2..]);
+    let mut expected_life = life;
+    expected_life.add(&2.into());
+    assert_eq!(game.state.rules.players[0].life, expected_life);
+    assert_recoverable((&game).into());
+}
+
+#[test]
+fn illegal_player_target_prevents_a_counted_draw() {
+    let prepared = edict_with_kernel(
+        Node::Do(Verb::Draw {
+            player: PlayerExpr::target(0),
+            amount: Amount::fixed(2),
+        }),
+        TargetDomain::AnyPlayer,
+    );
+    let mut game = super::formats_tests::cast_edict(prepared);
+    game.concede(PlayerId(1)).unwrap();
+    assert_eq!(next_reason(&mut game), Reason::Priority);
+    assert!(game.trace().events.iter().any(|event| matches!(
+        event,
+        Event::SpellCompleted {
+            resolved: false,
+            ..
+        }
+    )));
+    assert_recoverable((&game).into());
+}
+
+#[test]
+fn one_event_player_binding_feeds_life_and_draw() {
+    use mtg_contracts::kir::{EventPattern, EventPlayerRole};
+    let mut catalog = FixtureCatalog::Action.get().clone();
+    let bears = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    let condition = TriggerCondition::on(EventPattern::StepBegins {
+        step: BeginningStep::BeginningOfCombat,
+        active: PlayerExpr::EachPlayer,
+    });
+    let player = PlayerExpr::event(EventPlayerRole::ActivePlayer);
+    let node = Node::Seq(vec![
+        Node::Do(Verb::Draw {
+            player: player.clone(),
+            amount: Amount::fixed(2),
+        }),
+        gain(player, Amount::fixed(2)),
+    ]);
+    let env = mtg_contracts::kir::Env {
+        context: Context::Triggered,
+        targets: &[],
+        event: Some(&condition),
+        announced_x: false,
+    };
+    assert!(mtg_contracts::kir::check(&node, &env).is_ok());
+    bears.source_labels = None;
+    bears.triggered.push(TriggeredAbility {
+        modal: None,
+        functioning_zone: FunctioningZone::Battlefield,
+        condition,
+        program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
+            Instruction::Kernel {
+                node,
+                source_block: 0,
+            },
+        ]),
+    });
+    bears.capabilities = bears.requirements();
+    let prepared = Board::new(catalog, "shared-event-player")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .libraries("Forest", 4)
+        .prepare();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let active = PlayerId(0);
+    let library = game.state.rules.libraries[&active].clone();
+    let mut expected = game.state.rules.players[0].life.clone();
+    expected.add(&2.into());
+    for _ in 0..64 {
+        if game.state.rules.players[0].life == expected {
+            break;
+        }
+        Driver::pass(&mut game);
+    }
+    assert_eq!(game.state.rules.players[0].life, expected);
+    assert_eq!(
+        game.state.rules.libraries[&active].as_slice(),
+        &library[2..]
+    );
+    assert!(game.action_hand(PlayerId(1)).is_empty());
+    assert_recoverable((&game).into());
 }
 
 #[test]

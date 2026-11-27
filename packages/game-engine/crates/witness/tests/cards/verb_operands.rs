@@ -129,7 +129,7 @@ fn verb_operands_beast_within_creates_for_the_last_controller() {
 fn verb_operands_swords_gains_life_from_the_exiled_incarnation() {
     let prepared = board(&[(
         record!("b1544f21-7e98-461b-aed5-e748b0168c52"),
-        Cell::LifeTargetControllerPower,
+        Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::GainLife),
     )])
     .permanent_or_hand("Swords to Plowshares", 0, 0, true)
     .permanent_or_hand("Grizzly Bears", 1, 2, false)
@@ -228,7 +228,7 @@ fn verb_operands_guttersnipe_damages_every_opponent_and_concentrate_draws_three(
         ),
         (
             record!("a3d287ec-1a39-4f91-acf1-7c1d2c00ed89"),
-            Cell::DrawControllerCounted,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Draw),
         ),
     ])
     .permanent_or_hand("Concentrate", 0, 0, true)
@@ -301,11 +301,11 @@ fn verb_operands_counts_the_current_hand_and_only_the_controllers_graveyard() {
     let prepared = board(&[
         (
             record!("4492c329-174a-44aa-be4d-9f018173b9a7"),
-            Cell::LifeCounted,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::GainLife),
         ),
         (
             record!("fbd99a88-8926-455e-8e23-58fed6d14719"),
-            Cell::LifeCounted,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::GainLife),
         ),
     ])
     .permanent_or_hand("Union of the Third Path", 0, 0, true)
@@ -346,7 +346,7 @@ fn verb_operands_counts_the_current_hand_and_only_the_controllers_graveyard() {
 fn verb_operands_each_player_draws_in_apnap_order() {
     let prepared = board(&[(
         record!("6d42dff5-97ec-4768-b112-84a3584d0b87"),
-        Cell::DrawEachPlayer,
+        Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Draw),
     )])
     .permanent_or_hand("Vision Skeins", 0, 0, true)
     .permanent_or_hand("Island", 0, 0, false)
@@ -385,7 +385,7 @@ fn verb_operands_swords_treats_negative_power_as_zero() {
     let prepared = board_with(
         &[(
             record!("b1544f21-7e98-461b-aed5-e748b0168c52"),
-            Cell::LifeTargetControllerPower,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::GainLife),
         )],
         Some(ox),
     )
@@ -481,4 +481,39 @@ fn verb_operands_deluge_recovers_with_opponents_creatures_tapped() {
     assert!(restored.state.rules.objects[&CardId(1)].tapped);
     assert!(!restored.state.rules.objects[&CardId(2)].tapped);
     assert!(restored.state.rules.objects[&CardId(3)].tapped);
+}
+
+/// CR 603.10a, 608.2h: the dying creature's last battlefield appearance
+/// supplies its toughness even when the card has a successor in graveyard.
+#[test]
+fn verb_operands_proper_burial_reads_the_dying_creature() {
+    let prepared = board(&[(
+        record!("e5bf77c2-a9b2-4366-8412-e263160403c1"),
+        Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::GainLife),
+    )])
+    .permanent_or_hand("Proper Burial", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Murder", 0, 0, true)
+    .permanent_or_hand("Glorious Anthem", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let creature = Driver::object(&game, 1);
+    let initial_life = game.state.rules.players[0].life.clone();
+    Driver::cast(&mut game, CardId(5));
+    Driver::pick_object(&mut game, creature);
+    Driver::pay(&mut game, &[2, 3, 4]);
+    resolve(&mut game);
+    assert_eq!(
+        game.state.rules.objects[&creature.card].zone,
+        Zone::Graveyard { owner: PlayerId(0) }
+    );
+    let mut expected = initial_life;
+    expected.add(&3.into());
+    assert_eq!(game.state.rules.players[0].life, expected);
+    assert_recoverable((&game).into());
 }

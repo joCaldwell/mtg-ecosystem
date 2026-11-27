@@ -175,13 +175,12 @@ can read each player or each opponent. Object stats and cast-history amounts
 stay outside control cells. Branches gated by an optional-cost condition
 supply no targets until cost-dependent target declarations exist (CR 601.2c).
 
-Every branch and leaf needs its own audited cell. Non-life leaves use the flat
-executor without task bindings, reading at most one announced target. A nested
-draw draws exactly one fixed card for one player; counted draws need a
-top-level draw instruction for their saved attempts. Token creation and
-temporary effects need persistent leaf provenance, and set damage retains facts
-tied to the top-level cursor. The drain pair and optional target destroy keep
-standalone routes. Counter targets one announced stack entry and can read its
+Every branch and leaf must pass the checker. Draw and life gain or loss use the
+signature evaluator in the resolving task, including under controls. Other
+ordinary leaves use the flat executor without task bindings, reading at most
+one announced target. Token creation and temporary effects need persistent leaf
+provenance, and set damage retains facts tied to the top-level cursor. Optional
+target destruction keeps its standalone route. Counter targets one announced stack entry and can read its
 spell controller for a fixed generic payment. Regenerate records one source or
 announced permanent. Control nodes derive capabilities from their leaves;
 continuation-based nodes also require `KernelControlV1`, outside the reviewed
@@ -191,10 +190,9 @@ tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Stage 1 [rework](game-engine-rework.md) contract; a family's audited cells stay
-authoritative until it migrates. `kir::Verb` stays the only action
-representation and keeps its wire form. Each verb's signature will be a static
-Rust table (no `VerbSignature` exists yet), not duplicated here.
+Stage 1 [rework](game-engine-rework.md) contract. Life and Draw use
+`kir::signatures`. Damage, counters and sacrifice still use their audited
+legacy cells. `kir::Verb` remains the sole action representation on the wire.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env`
@@ -253,26 +251,26 @@ node is `Cell::Evaluated(verb)` at `Executes`.
 
 ### Resolving frame
 
-**(Stage 1 contract.)** The `Task` chain, `Frame::Kernel`, `Task.resume`,
-lexical paths, scoped bindings and the `frames[1]` root collector that
-`kernel_results` reads stay.
+The `Task` chain keeps lexical paths and scoped bindings in `Frame::Kernel`.
+`Task.resume` links to the next scheduled task or to the collector at
+`frames[1]`.
 
 - **Step identity.** `ForEach` runs every iteration at `task.child(0)`, so a path
-  alone aliases iterations. A dynamic step will be
+  alone aliases iterations. A dynamic step is
   `StepInstance { stack, instruction, path, iterations }`, adding the iteration
   ordinals `ForEach` pushes.
-- **Results at the root** will be keyed by `(path, iterations)`: event ids,
+- **Results at the root** are keyed by `(path, iterations)`: event ids,
   objects (prior, successor, controller before), players and an optional amount.
   A missing entry means not performed; an empty one, ran and changed nothing.
-- **Asks and progress.** An ask (optional, pay life, object payment, pick) will
-  store chooser, selections and bounds. Candidates are re-derived at offer and
+- **Asks and progress.** An ask (optional, pay life, object payment, pick)
+  stores chooser, selections and bounds. Candidates are re-derived at offer and
   answer when reproducible from state, else the bounded frozen domain is kept;
-  only the pending `decision_id` is answerable. Step progress will cover
-  sequences (replacing both draw cursors), APNAP collection (replacing
-  `Frame::ForcedSacrifice`) and an E2 proposal. `MyriadDefender` stays until
+  only the pending `decision_id` is answerable. `StepProgress::Sequence` saves
+  a draw's players, read-once count, cursor and completed prefix. Part 2 will
+  replace `Frame::ForcedSacrifice` with APNAP collection, and E2 adds proposals. `MyriadDefender` stays until
   Stage 3; a migrated task never installs a rewritten leaf program.
 
-Recovery will extend `validate_kernel_task`, witnessed by `assert_recoverable`
+`validate_kernel_task` checks the saved steps and projections. Recovery uses `assert_recoverable`
 at quanta `1` and `u64::MAX` under Off, Compact, Stream and Detailed:
 
 1. One evaluator step is one rule unit: it evaluates, then commits at most one
@@ -314,8 +312,9 @@ of a simultaneous step after an earlier sibling took from the pool. A printed
 target's block-relative slot must be the one announced for its selection; a
 pronoun resolved to a target must name the block's sole announced target.
 
-`resolution::reference_row` looks up each resolved reference by role and print
-site, returning its lowering or rejecting the card under `ref:<role>:<block kind>`. Steps dispatch on the AST `effect` tag to
+`resolution::class_of` classifies the migrated operand references from the
+generated AST positions. Other references still use `resolution::reference_row`.
+Rejected sites report `ref:<role>:<block kind>`. Steps dispatch on the AST `effect` tag to
 `compiler/src/rules/verbs/`; operands lower from the generated AST types in
 `operands.rs`, and a shape with no IR form rejects under `verb:<effect>:<detail>`
 or `operand:<kind>:<shape>`. Composition also rejects "may", "up to" and

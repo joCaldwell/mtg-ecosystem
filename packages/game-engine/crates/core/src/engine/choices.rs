@@ -795,8 +795,6 @@ impl RulesTxn {
             | InterveningCheck::OpponentControlsMore { passed: false, .. },
         ) = &frame.condition_check
             && (frame.cursor != 0
-                || frame.draw_progress.is_some()
-                || frame.each_player_draw.is_some()
                 || frame.set_damage.is_some()
                 || frame.random_discard.is_some()
                 || frame.group_discard.is_some())

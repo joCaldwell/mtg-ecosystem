@@ -814,7 +814,7 @@ fn oblation_shuffles_for_the_owner_even_with_commander_replacement() {
             OBLATION,
             &[
                 Cell::ShuffleTargetOwnerLibrary,
-                Cell::DrawShuffledTargetOwner,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Draw),
             ],
         )])
         .permanent_or_hand("Oblation", 0, 0, true)

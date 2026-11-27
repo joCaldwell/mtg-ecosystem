@@ -314,7 +314,8 @@ pub(crate) fn bind_target(
 pub(crate) enum PlayerBinding {
     Unbound,
     /// "That player" is the trigger's event player in this role.
-    EventPlayer(kir::EventPlayerRole),
+    EventPlayer(kir::EventPlayerRole, Option<kir::EventObjectRole>),
+    EventObject(kir::EventObjectRole),
     DamageRecipient,
     DeathController,
 }
@@ -322,8 +323,18 @@ pub(crate) enum PlayerBinding {
 impl PlayerBinding {
     pub(crate) fn event_role(self) -> Option<kir::EventPlayerRole> {
         match self {
-            Self::EventPlayer(role) => Some(role),
+            Self::EventPlayer(role, _) => Some(role),
             _ => None,
+        }
+    }
+
+    pub(crate) fn event_object_role(self) -> Option<kir::EventObjectRole> {
+        match self {
+            Self::EventPlayer(_, role) => role,
+            Self::EventObject(role) => Some(role),
+            Self::DeathController => Some(kir::EventObjectRole::Died),
+            Self::DamageRecipient => Some(kir::EventObjectRole::DealtDamage),
+            Self::Unbound => None,
         }
     }
 }
@@ -1921,11 +1932,6 @@ pub(crate) fn fixed_positive_amount(amount: &ast::Amount) -> Result<Quantity, Fa
     }
 }
 
-/// A positive fixed count printed in the shared mirror.
-pub(crate) fn fixed_positive(count: &Count) -> Result<Quantity, Failure> {
-    fixed_positive_amount(&typed(count, "amount")?)
-}
-
 /// CR 613.4c: a fixed signed power or toughness change.
 pub(crate) fn signed_fixed(value: &ast::SignedAmount) -> Result<Quantity, Failure> {
     let ast::SignedAmount { sign, amount } = value;
@@ -2029,12 +2035,24 @@ pub(crate) fn lower_for_each(
     per_object: &ast::Amount,
     context: Context,
 ) -> Result<Amount, Failure> {
+    lower_each_filter(typed(for_each, "forEach")?, per_object, context)
+}
+
+pub(crate) fn lower_each_filter(
+    filter: ast::ObjectFilter,
+    per_object: &ast::Amount,
+    context: Context,
+) -> Result<Amount, Failure> {
     let factor = match per_object {
         ast::Amount::Fixed(n) if n.value > 0 && u32::try_from(n.value).is_ok() => n.value,
         _ => return Err(operand("forEach", "per_object_amount")),
     };
-    let of: ast::ObjectFilter = typed(for_each, "forEach")?;
-    let count = lower_count(&ast::AmountCount { of: Box::new(of) }, context)?;
+    let count = lower_count(
+        &ast::AmountCount {
+            of: Box::new(filter),
+        },
+        context,
+    )?;
     Ok(if factor == 1 {
         count
     } else {
@@ -2121,16 +2139,6 @@ pub(crate) fn lower_x_binding(
 
 /// CR 109.5, 119.3: the player a step names. "You" is the controller of
 /// this kind of stack object; "that player" is the trigger's event player.
-pub(crate) fn lower_player(
-    program: &mut SpellProgram,
-    slots: &mut BTreeMap<String, u32>,
-    who: &PlayerSelector,
-    context: Context,
-    event_player: Option<kir::EventPlayerRole>,
-) -> Result<PlayerExpr, Failure> {
-    lower_player_ref(program, slots, typed(who, "player")?, context, event_player)
-}
-
 pub(crate) fn lower_player_ref(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,

@@ -1099,9 +1099,11 @@ fn flash_end_step_draw() {
             functioning_zone: FunctioningZone::Stack,
             optional_target: false,
             targets: vec![],
-            instructions: vec![Instruction::draw(
-                PlayerExpr::you(Context::Triggered),
-                7.into(),
+            instructions: vec![Instruction::act(
+                mtg_contracts::kir::Verb::Draw {
+                    player: PlayerExpr::you(Context::Triggered),
+                    amount: mtg_contracts::kir::Amount::fixed(7),
+                },
                 1,
             )],
         },
@@ -1186,9 +1188,6 @@ fn flash_end_step_draw() {
             game.advance(Budget::new(1)),
             Advance::Suspended { .. }
         ));
-        let Frame::Resolve { frame } = &game.state.rules.frame else {
-            panic!("counted draw left resolution after attempt {completed}");
-        };
         let library = &libraries[&controller];
         let drawn = game.object_id(library[completed - 1]).unwrap();
         assert_eq!(game.zone(drawn), Some(Zone::Hand { owner: controller }));
@@ -1197,17 +1196,16 @@ fn flash_end_step_draw() {
             library[completed..]
         );
         if completed == 7 {
-            assert_eq!(frame.draw_progress, None);
+            let Frame::Resolve { frame } = &game.state.rules.frame else {
+                panic!("counted draw did not finish");
+            };
             assert!(matches!(
                 frame.outcomes.as_slice(),
                 [InstructionOutcome::DrawAttempts { player, attempted, failed }]
                     if *player == controller && *attempted == 7.into() && *failed == 0.into()
             ));
         } else {
-            let progress = frame.draw_progress.as_ref().unwrap();
-            assert_eq!(progress.source_block, 1);
-            assert_eq!(progress.completed, Quantity::from(completed as i64));
-            assert_eq!(progress.remaining, Quantity::from(7 - completed as i64));
+            assert!(matches!(game.state.rules.frame, Frame::Kernel { .. }));
         }
     }
     for player in [opponent, PlayerId(2), PlayerId(3)] {

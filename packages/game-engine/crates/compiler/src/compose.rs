@@ -1037,9 +1037,12 @@ fn compose_face(
     }
     // The complete typed AST: an unknown shape is named, never an opaque
     // untagged-enum failure further down.
-    decode::<Vec<ast::Ability>>(result.abilities.get(), "abilities")?;
+    let typed_blocks: Vec<ast::Ability> = decode(result.abilities.get(), "abilities")?;
     {
-        binding_gate(resolution.references(&printed), &mut deferred)?;
+        binding_gate(
+            resolution.references_with_types(&printed, &typed_blocks),
+            &mut deferred,
+        )?;
         // Every unaccounted step is its own binding blocker; `lower`
         // rejects at the first.
         match resolution.unaccounted_steps(&printed) {
