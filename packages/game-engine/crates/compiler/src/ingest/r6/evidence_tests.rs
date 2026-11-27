@@ -21,6 +21,9 @@ const JUNK: usize = 1344;
 const TERA: usize = 3602;
 const SECRET: usize = 7870;
 const BOSEIJU: usize = 8135;
+const SHELKIN: usize = 12096;
+const MIRROR_GALLERY: usize = 18777;
+const HALL_OF_ECHOES: usize = 33217;
 const HALFLING: usize = 37759;
 
 fn verified(raw: &str) -> Result<CardEvidence, Failure> {
@@ -35,6 +38,15 @@ fn block(row: &Value, index: usize) -> &Value {
 
 fn block_mut(row: &mut Value, index: usize) -> &mut Value {
     &mut row["printed"]["faces"][0]["blocks"][index]
+}
+
+fn node_mut<'a>(row: &'a mut Value, index: usize, path: &str) -> &'a mut Value {
+    block_mut(row, index)["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|node| node["path"] == path)
+        .unwrap()
 }
 
 fn ability(row: &Value, index: usize) -> &Value {
@@ -1114,6 +1126,150 @@ fn check_quoted_punctuation(rows: &BTreeMap<usize, String>) {
     }
 }
 
+fn check_quoted_terms(rows: &BTreeMap<usize, String>) {
+    const REMOVAL: &str = "/effects/0/steps/0/removal";
+    for (number, block_index, name, owner, term) in [
+        (
+            MIRROR_GALLERY,
+            0,
+            "Mirror Gallery",
+            "/effect",
+            "legend rule",
+        ),
+        (
+            HALL_OF_ECHOES,
+            1,
+            "Hall of Echoes",
+            "/effects/1/steps/0",
+            "legend rule",
+        ),
+        (SHELKIN, 0, "Shelkin Brownie", REMOVAL, "bands with other"),
+    ] {
+        let row: Value = serde_json::from_str(&rows[&number]).unwrap();
+        assert_eq!(row["source"]["name"], name);
+        let source = row["source"]["oracle_text"].as_str().unwrap();
+        let card = verified(&rows[&number]).unwrap();
+        let evidence = card.block(0, block_index, owner).unwrap();
+        let [start, end] = evidence.node(owner).unwrap().range;
+        assert!(source[start as usize..end as usize].contains(&format!("\"{term}\"")));
+        println!("{name} quoted term\taccepted\t{owner}@O[{start},{end})");
+    }
+
+    let gallery: Value = serde_json::from_str(&rows[&MIRROR_GALLERY]).unwrap();
+    let mut hull = gallery.clone();
+    *node_mut(&mut hull, 0, "/effect") =
+        json!({"path":"/effect", "basis":"hull", "span":[[0,0,8]], "clauses":[[0,0,8]]});
+    assert!(verified(&rehash(&mut hull)).is_ok());
+    println!("quoted term in hull clause\taccepted\t/effect clauses");
+
+    let mut split = gallery.clone();
+    let effect = node_mut(&mut split, 0, "/effect");
+    effect["span"] = json!([[0, 0, 4], [0, 5, 8]]);
+    effect["folds"] = json!([[0, 4, 5]]);
+    expect_check("split term delimiter into fold", &mut split, "P6");
+
+    let mut wrong_owner = gallery.clone();
+    change_field(&mut wrong_owner, 0, "/effect/static", json!("cast-limit"));
+    expect_check(
+        "legend rule with different AST owner",
+        &mut wrong_owner,
+        "P6",
+    );
+
+    let mut grant = gallery.clone();
+    change_field(
+        &mut grant,
+        0,
+        "/effect",
+        json!({"gained":"quoted", "ability":{"kind":"static"}}),
+    );
+    block_mut(&mut grant, 0)["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"path":"/effect/ability", "basis":"recorded", "span":[[0,2,4]]}));
+    expect_check("quoted term claimed as an ability", &mut grant, "P6");
+
+    for (label, from, to) in [
+        ("different quoted phrase", "legend rule", "legend role"),
+        ("legend rule with different clause shape", "apply", "exist"),
+    ] {
+        let mut row = gallery.clone();
+        // Equal-width substitutions on this unedited face keep every token
+        // range valid. Rehash both text bases and retain the claimed AST.
+        assert_eq!(from.len(), to.len());
+        let original = row["source"]["oracle_text"].as_str().unwrap();
+        let text = original.replace(from, to);
+        assert_ne!(text, original);
+        assert_eq!(row["printed"]["faces"][0]["edits"], json!([]));
+        for basis in ["original", "normalized"] {
+            row["printed"]["faces"][0][basis]["sha256"] = json!(sha256(text.as_bytes()));
+        }
+        row["source"]["oracle_text"] = json!(text);
+        row["faces"][0]["result"]["lines"][0]["text"] = json!(text);
+        expect_check(label, &mut row, "P6");
+    }
+
+    let shelkin: Value = serde_json::from_str(&rows[&SHELKIN]).unwrap();
+    let card = verified(&rows[&SHELKIN]).unwrap();
+    let evidence = card.block(0, 0, REMOVAL).unwrap();
+    let index = block(&shelkin, 0)["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|fact| fact["form"] == "other" && fact["field"].is_null())
+        .unwrap();
+    let fact = evidence.fact(index).unwrap();
+    let [start, end] = fact.range;
+    assert_eq!(fact.owner, REMOVAL);
+    assert_eq!(
+        &shelkin["source"]["oracle_text"].as_str().unwrap()[start as usize..end as usize],
+        "other"
+    );
+    println!("Shelkin Brownie lexical other\taccepted\t{REMOVAL}@O[{start},{end})");
+
+    let mut cross = shelkin.clone();
+    fact_mut(&mut cross, 0, "form", "other")["tok"] = json!([0, 9, 11]);
+    expect_check("term fact spans closing delimiter", &mut cross, "P7");
+    let mut wrong_owner = shelkin.clone();
+    fact_mut(&mut wrong_owner, 0, "form", "other")["at"] = json!("");
+    expect_check("term fact assigned to ancestor", &mut wrong_owner, "P7");
+    let mut wrong_family = shelkin;
+    change_field(
+        &mut wrong_family,
+        0,
+        &format!("{REMOVAL}/abilities/0/keyword/keyword"),
+        json!("landwalk"),
+    );
+    expect_check(
+        "quoted keyword with different family",
+        &mut wrong_family,
+        "P6",
+    );
+
+    // Remove the grant's AST and all claims on the quoted activation. The
+    // replayed quote pair must still have an owner in a successfully read block.
+    const GRANT: &str = "/effects/0/steps/0/abilities/0";
+    let mut unowned: Value = serde_json::from_str(&rows[&SPARA]).unwrap();
+    change_field(&mut unowned, 1, "/effects/0/steps/0/abilities", json!([]));
+    node_mut(&mut unowned, 1, "")["span"] = json!([[1, 0, 12], [1, 23, 44]]);
+    node_mut(&mut unowned, 1, "/effects/0")["span"] = json!([[1, 9, 12], [1, 23, 31]]);
+    node_mut(&mut unowned, 1, "/effects/0/steps/0")["span"] = json!([[1, 9, 12]]);
+    let printed = block_mut(&mut unowned, 1);
+    printed["nodes"].as_array_mut().unwrap().retain(|node| {
+        let path = node["path"].as_str().unwrap();
+        path != GRANT && !path.starts_with(&format!("{GRANT}/"))
+    });
+    printed["facts"].as_array_mut().unwrap().retain(|fact| {
+        let start = fact["tok"][1].as_u64().unwrap();
+        !(12..23).contains(&start)
+    });
+    expect_check(
+        "unowned ability quote without span or facts",
+        &mut unowned,
+        "P6",
+    );
+}
+
 #[test]
 #[ignore = "opt-in frozen R6 candidate; set MTG_R6_VERIFIER_ROWS"]
 fn frozen_family_evidence() {
@@ -1136,6 +1292,9 @@ fn frozen_family_evidence() {
                 TERA,
                 SECRET,
                 BOSEIJU,
+                SHELKIN,
+                MIRROR_GALLERY,
+                HALL_OF_ECHOES,
                 HALFLING,
             ]
             .contains(&number)
@@ -1146,6 +1305,7 @@ fn frozen_family_evidence() {
     check_mutations(&rows);
     check_punctuation_mutations(&rows);
     check_quoted_punctuation(&rows);
+    check_quoted_terms(&rows);
     check_source_edits(&rows);
 }
 
@@ -1426,6 +1586,15 @@ fn check_source_edits(rows: &BTreeMap<usize, String>) {
             "snow spell",
             format!("{RESTRICTION}/uses/0/filter/supertypes"),
             Some(json!(["snow"])),
+        ),
+        read(
+            "legend rule inside an ability quote",
+            SPARA,
+            1,
+            "{T}: Add {G}, {W}, or {U}",
+            "The 'legend rule' doesn't apply.",
+            "/effects/0/steps/0/abilities/0/ability/effect/static".into(),
+            Some(json!("legend-rule-exemption")),
         ),
     ];
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

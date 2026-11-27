@@ -1,6 +1,6 @@
 use super::{
     Failure, invalid,
-    quotes::{BlockRegions, Occurrence, Quotes, Region},
+    quotes::{BlockRegions, Occurrence, Quotes, Region, Term},
     tokens::Line,
 };
 use mtg_oracle_ast::printed::{ImplicitReason, PrintedNode, TokenRun};
@@ -169,10 +169,45 @@ pub(super) fn path(node: &PrintedNode) -> &str {
     }
 }
 
+fn term_production(
+    path: &str,
+    node: &Node<'_>,
+    nodes: &BTreeMap<String, Node<'_>>,
+) -> Option<Term> {
+    let value = node.value;
+    if value["static"] == "legend-rule-exemption" || value["effect"] == "legend-rule-exemption" {
+        return Some(Term::LegendRule);
+    }
+    let parent = node.parent.as_deref()?;
+    if value["removal"] != "listed" || path.strip_suffix("/removal") != Some(parent) {
+        return None;
+    }
+    let parent = nodes[parent].value;
+    if parent["modifier"] != "lose-abilities" && parent["effect"] != "lose-abilities" {
+        return None;
+    }
+    let [ability] = value["abilities"].as_array()?.as_slice() else {
+        return None;
+    };
+    let keyword = ability["keyword"].as_object()?;
+    (ability["gained"] == "keyword"
+        && keyword.len() == 1
+        && ability["keyword"]["keyword"] == "bands with other")
+        .then_some(Term::BandsWithOther)
+}
+
+fn owns_quote(path: &str, owner: &str) -> bool {
+    owner == path
+        || owner
+            .strip_prefix(path)
+            .is_some_and(|tail| tail.starts_with('/'))
+}
+
 fn verify_quotes(
     nodes: &BTreeMap<String, Node<'_>>,
     printed: &BTreeMap<&str, &PrintedNode>,
     quotes: &Quotes,
+    block: Range<usize>,
 ) -> Result<BlockRegions, Failure> {
     let mut regions = BlockRegions::default();
     let mut grants = BTreeMap::new();
@@ -196,6 +231,21 @@ fn verify_quotes(
         if region != Some(Region::Outside) {
             regions.enter(path.clone(), region);
         }
+        if let Some(kind) = term_production(path, node, nodes) {
+            for &open in &node.extent {
+                if let Some(clause) = quotes.term(open)
+                    && clause.kind == kind
+                    && Some(quotes.region(open)) == region
+                    && clause
+                        .tokens
+                        .iter()
+                        .all(|token| node.extent.contains(token))
+                    && regions.terms.insert(open, path.clone()).is_some()
+                {
+                    return Err(fail(path, "quoted term reuses an enclosure"));
+                }
+            }
+        }
         if node.value["gained"] != "quoted" {
             continue;
         }
@@ -204,7 +254,10 @@ fn verify_quotes(
         } else {
             let mut pairs = node.extent.iter().filter_map(|&open| {
                 let (parent, close) = quotes.enclosure(open)?;
-                (Some(parent) == regions.get(path) && node.extent.contains(&close)).then_some(open)
+                (Some(parent) == regions.get(path)
+                    && node.extent.contains(&close)
+                    && quotes.term(open).is_none())
+                .then_some(open)
             });
             let open = pairs
                 .next()
@@ -227,6 +280,21 @@ fn verify_quotes(
                     l == line && (start..end).contains(&index)
                 })
             };
+            for (&open, owner) in &regions.terms {
+                let (_, close) = quotes.enclosure(open).unwrap();
+                // These clause shapes contain no movable punctuation, so the
+                // complete pair and its interior form a physical token range.
+                let pair = open.1..=close.1;
+                if pair.clone().any(|index| contains((open.0, index)))
+                    && (!owns_quote(path, owner)
+                        || !pair.clone().all(|index| contains((open.0, index))))
+                {
+                    return Err(fail(
+                        path,
+                        &format!("{field} crosses an unowned or split quoted term"),
+                    ));
+                }
+            }
             for &TokenRun([line, start, end]) in runs {
                 for index in start..end {
                     let occurrence = (line as usize, index as usize);
@@ -234,15 +302,12 @@ fn verify_quotes(
                     while Some(actual) != region {
                         let proven_parent = |open| {
                             let (parent, close) = quotes.enclosure(open)?;
-                            let owner = *grants.get(&open)?;
-                            (contains(open)
-                                && contains(close)
-                                && (path.is_empty()
-                                    || owner == *path
-                                    || owner
-                                        .strip_prefix(path)
-                                        .is_some_and(|tail| tail.starts_with('/'))))
-                            .then_some(parent)
+                            let owner = grants
+                                .get(&open)
+                                .copied()
+                                .or_else(|| regions.terms.get(&open).map(String::as_str))?;
+                            (contains(open) && contains(close) && owns_quote(path, owner))
+                                .then_some(parent)
                         };
                         let Region::Inside(open) = actual else {
                             return Err(fail(
@@ -273,6 +338,11 @@ fn verify_quotes(
                 return Err(fail(path, "alias crosses a quote region"));
             }
             _ => {}
+        }
+    }
+    for open in quotes.matched(block) {
+        if !grants.contains_key(&open) && !regions.terms.contains_key(&open) {
+            return Err(fail("", &format!("unowned quote pair at token {open:?}")));
         }
     }
     Ok(regions)
@@ -393,7 +463,7 @@ impl<'a> BlockNodes<'a> {
             }
             nodes.get_mut(&path).unwrap().extent = value;
         }
-        let quotes = verify_quotes(&nodes, &printed, quotes)?;
+        let quotes = verify_quotes(&nodes, &printed, quotes, block)?;
         Ok(Self {
             ast: Some(ast),
             nodes,

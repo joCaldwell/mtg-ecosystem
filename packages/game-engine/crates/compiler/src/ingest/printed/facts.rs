@@ -339,7 +339,7 @@ pub(super) fn verify(
         }
         let region = quotes.region((line_index, start));
         if (start + 1..end).any(|index| quotes.region((line_index, index)) != region)
-            || (nodes.ast.is_some() && nodes.quotes.get(at) != Some(region))
+            || (nodes.ast.is_some() && !nodes.quotes.allows_fact(at, region))
         {
             return Err(reject(
                 "P7",

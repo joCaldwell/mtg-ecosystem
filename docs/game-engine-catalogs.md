@@ -102,10 +102,17 @@ assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
 wire format and evidence bases. P6 rebuilds quote regions from the original
 text through verified normalization, lexing and punctuation order. A quoted
 grant's AST body enters the region bounded by its wrapper's matching marks.
-An ancestor's span may include an owned quote together with both marks.
-Primary spans, folds, hull spans and clause runs each preserve that boundary.
-P7 requires a fact and its owner to share a region. A family that opts in receives a verified
-`CardEvidence` from intake. Query its face and block before lowering and pass the
+Every matched pair in a successfully read block needs an owner. An ancestor's
+span may include an owned quote together with both marks. Primary spans,
+folds, hull spans and clause runs each preserve that boundary.
+The exact `the "legend rule" doesn't apply` exemption and
+`all "bands with other" abilities` removal can own their term quotes. The
+verifier requires the matching located AST production and the complete pair
+in each run set that covers it. Terms stay in the enclosing ability's scope.
+P7 requires a fact and its owner to share a region. A lexical fact wholly
+inside a verified term keeps its innermost owner in that ability. A family
+that opts in receives a verified `CardEvidence` from intake. Query its face
+and block before lowering and pass the
 missing obligation when an R5 input requires R6. The result is a per-card
 `evidence:requires-r6` with the requested face, block and obligation.
 
