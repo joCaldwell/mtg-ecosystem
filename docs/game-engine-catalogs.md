@@ -110,10 +110,11 @@ The exact `the "legend rule" doesn't apply` exemption and
 verifier requires the matching located AST production and the complete pair
 in each run set that covers it. Terms stay in the enclosing ability's scope.
 P7 requires a fact and its owner to share a region. A lexical fact wholly
-inside a verified term keeps its innermost owner in that ability. A family
-that opts in receives a verified `CardEvidence` from intake. Query its face
-and block before lowering and pass the
-missing obligation when an R5 input requires R6. The result is a per-card
+inside a verified term keeps its innermost owner in that ability. P9 requires
+the target token, its fact owner and the linked selection node to share a
+region. A family that opts in receives a verified `CardEvidence` from intake.
+Query its face and block before lowering and pass the missing obligation
+when an R5 input requires R6. The result is a per-card
 `evidence:requires-r6` with the requested face, block and obligation.
 
 `BlockEvidence` locates AST object nodes and individual facts in original UTF-8
@@ -130,8 +131,8 @@ a production-specific check of the printed phrase and field value, or a closed
 default at its governing node. P12 requires an explicit checked meaning or
 structural role for every printed fact and token. Structural roles require a
 verified punctuation fact within the recorded production's quote region and
-at its boundary. The current
-roles cover period-terminated sentences, trigger and for-each clause commas,
+at its boundary. A sentence period may touch that region's closing mark.
+The current roles cover period-terminated sentences, trigger and for-each clause commas,
 activation cost list commas, and the activation cost/effect colon. These use
 the parser's [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
 and its sentence, clause and activation productions. Operators, including

@@ -101,6 +101,10 @@ impl BlockRegions {
         self.get(path) == Some(region)
             || matches!(region, Region::Inside(open) if self.terms.get(&open).is_some_and(|owner| owner == path))
     }
+
+    pub(super) fn shares_region(&self, owner: &str, linked: &str, region: Region) -> bool {
+        self.get(owner) == Some(region) && self.get(linked) == Some(region)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -177,6 +181,11 @@ impl Quotes {
     pub(super) fn enclosure(&self, open: Occurrence) -> Option<(Region, Occurrence)> {
         let entry = self.openings.get(&open)?;
         Some((entry.parent, entry.end?))
+    }
+
+    pub(super) fn closes_region(&self, inside: Occurrence, close: Occurrence) -> bool {
+        matches!(self.region(inside), Region::Inside(open)
+            if self.enclosure(open).is_some_and(|(_, end)| end == close))
     }
 
     pub(super) fn term(&self, open: Occurrence) -> Option<&TermClause> {

@@ -506,13 +506,16 @@ impl<'a> Coverage<'_, 'a> {
         &mut self,
         field: &str,
     ) -> Result<Located<'a, &'a PrintedFact>, EvidenceError> {
-        if !self.obligations.contains_key(field)
-            || self
-                .block
-                .ast
-                .pointer(field)
-                .and_then(Value::as_array)
-                .is_some_and(|items| items.len() != 1)
+        let owner = self
+            .obligations
+            .get(field)
+            .ok_or_else(|| self.missing(field))?;
+        if self
+            .block
+            .ast
+            .pointer(field)
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.len() != 1)
         {
             return Err(self.missing(field));
         }
@@ -525,6 +528,17 @@ impl<'a> Coverage<'_, 'a> {
             return Err(self.missing(field));
         }
         let proof = self.block.fact(index)?;
+        if let PrintedFact::Target(target) = proof.value {
+            let [line, index, _] = target.tok.0;
+            let region = self.block.quotes.region((line as usize, index as usize));
+            if !self
+                .block
+                .block_regions
+                .shares_region(proof.owner, owner, region)
+            {
+                return Err(self.block.error(Check::P11, field, proof.range));
+            }
+        }
         self.facts.insert(index);
         if let Some((_, run, _)) = facts::location(proof.value) {
             self.record(field, run);
@@ -637,14 +651,20 @@ impl<'a> Coverage<'_, 'a> {
             return Err(missing());
         };
         let after = index + 1;
-        // Admit ordinary, separated delimiters. Quoted punctuation movement
-        // and punctuation embedded in a literal require their own productions.
+        let closes_sentence_quote = matches!(role, StructuralPunctuation::SentenceTerminator)
+            && self.block.quotes.closes_region(
+                (line as usize, index as usize),
+                (line as usize, after as usize),
+            );
+        // A matching closing quote can touch the inner sentence's period.
+        // Other touching tokens and moved punctuation need their own productions.
         if token.grammar_index != index
-            || self
-                .block
-                .tokens(line)
-                .get(after as usize)
-                .is_some_and(|next| normalized_range(next)[0] == token.n.0[1])
+            || (!closes_sentence_quote
+                && self
+                    .block
+                    .tokens(line)
+                    .get(after as usize)
+                    .is_some_and(|next| normalized_range(next)[0] == token.n.0[1]))
         {
             return Err(missing());
         }

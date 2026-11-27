@@ -1126,6 +1126,53 @@ fn check_quoted_punctuation(rows: &BTreeMap<usize, String>) {
     }
 }
 
+#[test]
+fn frozen_quote_rejects_swapped_target_linkage() {
+    // Retraction Helix exchanges its inner and outer selection IDs and
+    // the field and scope links, keeping the fact owners and tokens fixed.
+    let raw = include_str!("fixtures/retraction-helix-swapped-targets.jsonl");
+    let failure = verified(raw)
+        .err()
+        .expect("swapped target linkage passed intake");
+    assert!(
+        !failure.unsupported && failure.path.ends_with("P9"),
+        "{failure:?}"
+    );
+}
+
+#[test]
+fn frozen_quote_accepts_period_before_its_closing_mark() {
+    const RAW: &str = include_str!("fixtures/kiora-quoted-period.jsonl");
+    const INNER: &str = "/effects/0/steps/0/abilities/0/ability/effects/0";
+    let card = verified(RAW).unwrap();
+    let block = card.block(0, 2, "quoted period").unwrap();
+    let token = block.token(2, 23).unwrap();
+    assert_eq!(token.range, [332, 333]);
+    assert_eq!(token.owner, INNER);
+    let mut consumed = false;
+    let result = block.check_family(|coverage| {
+        coverage.punctuation(2, 23, SentenceTerminator)?;
+        consumed = true;
+        Ok(())
+    });
+    assert!(consumed, "{result:?}");
+
+    let mut row: Value = serde_json::from_str(RAW).unwrap();
+    let fact = block_mut(&mut row, 2)["facts"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|fact| fact["tok"] == json!([2, 23, 24]))
+        .unwrap();
+    assert_eq!(fact["at"], INNER);
+    fact["at"] = json!("/effects/0");
+    expect_check(
+        "Kiora outer sentence claims the inner period",
+        &mut row,
+        "P7",
+    );
+}
+
 fn check_quoted_terms(rows: &BTreeMap<usize, String>) {
     const REMOVAL: &str = "/effects/0/steps/0/removal";
     for (number, block_index, name, owner, term) in [

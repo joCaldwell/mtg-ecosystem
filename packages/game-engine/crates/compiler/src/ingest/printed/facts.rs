@@ -369,6 +369,12 @@ pub(super) fn verify(
             let path = field
                 .strip_suffix("/selectionId")
                 .ok_or_else(|| reject("P9", "wrong target selection field"))?;
+            if !nodes.quotes.shares_region(at, path, region) {
+                return Err(reject(
+                    "P9",
+                    "target selection crosses its owner's quote region",
+                ));
+            }
             if nodes.scope(path) != Some(&target.scope)
                 || nodes.value(field).and_then(Value::as_str) != Some(&target.selection_id)
                 || !tokens::selection_matches(
