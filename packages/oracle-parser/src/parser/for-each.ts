@@ -260,7 +260,7 @@ function shufflesSearchedLibrary(loop: Loop, next: Sentence): boolean {
  * shuffles each member's own library inside the body searched it once
  * (Jace, Architect of Thought). With no shuffle after the loop, the wording
  * has none to record. */
-function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
+function coalesceMemberSearches(c: Cursor, loop: Loop, next: Sentence): boolean {
   const shuffles = libraryShuffles(next.steps);
   const searches = ownSearches(loop);
   // A search inside an ability the body creates happens later; it is never
@@ -274,7 +274,7 @@ function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
       hasOwnNode(loop.effects, node => node.effect === "shuffle" && JSON.stringify(node.who) === '{"player":"that-player"}');
   }
   if (!shuffles.length) return true;
-  return markSearchShuffle(loop, next);
+  return markSearchShuffle(c, loop, next);
 }
 
 /** The member-search bodies whose shuffle scope is proven, by exact shape:
@@ -347,7 +347,7 @@ function librarySearched(search: Extract<Effect, { effect: "search" }>): string 
   return zones.length === 1 && zones[0].zone === "library" ? JSON.stringify(zones[0].owner) : null;
 }
 
-function markSearchShuffle(loop: Loop, next: Sentence): boolean {
+function markSearchShuffle(c: Cursor, loop: Loop, next: Sentence): boolean {
   if (next.condition || next.otherwise) return false;
   // Exactly one shuffle, and it is a direct instruction of that sentence.
   const shuffles = libraryShuffles(next.steps);
@@ -368,6 +368,9 @@ function markSearchShuffle(loop: Loop, next: Sentence): boolean {
   });
   if (!matches) return false;
   shuffle.coalesceEarlierLibrarySearches = true;
+  // The shared search context comes from earlier instructions, outside the
+  // shuffle's own printed production.
+  c.hull(shuffle);
   return true;
 }
 
@@ -441,7 +444,7 @@ function searchesAnyLibrary(who: ObjectRef | PlayerRef, base: "each-player" | "e
  * in the preceding searches, including the controller's additional searches.
  * Each player shuffles their own library once. The rule combines any
  * repeated searches of the same library before this common shuffle. */
-function endsWithSearchersShuffling(sentences: Sentence[], index: number, loop: Loop): boolean {
+function endsWithSearchersShuffling(c: Cursor, sentences: Sentence[], index: number, loop: Loop): boolean {
   if (index !== sentences.length - 2 || !searchesAnyLibrary(loop.each, "each-opponent") || loop.effects.length !== 1) return false;
   const [body] = loop.effects;
   const [search, placement] = body.steps;
@@ -463,6 +466,9 @@ function endsWithSearchersShuffling(sentences: Sentence[], index: number, loop: 
     !searchesAnyLibrary(shuffle.who, "each-player") || shuffle.library.zone !== "library" ||
     JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
   shuffle.coalesceEarlierLibrarySearches = true;
+  // The shared search context comes from earlier instructions, outside the
+  // shuffle's own printed production.
+  c.hull(shuffle);
   return true;
 }
 
@@ -540,7 +546,7 @@ export function parseGoadedCombatTrigger(
  * an instruction outside the loop. A continuation that could be meant for
  * each member (Fighting Chance: "If you win the flip, ... that creature")
  * has no representation and fails. */
-export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
+export function forEachContinuationsScoped(c: Cursor, sentences: Sentence[]): boolean {
   for (let i = 0; i < sentences.length; i++) {
     // An otherwise independent loop of member searches: a following shuffle
     // must be exactly their CR 701.23h shuffle.
@@ -549,12 +555,12 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
       shuffleScopeUnchecked.delete(step);
       const next = sentences[i + 1];
       if (laterShuffle(sentences, i + 2)) return false;
-      if (next && libraryShuffles(next.steps).length && !coalesceMemberSearches(step, next)) return false;
+      if (next && libraryShuffles(next.steps).length && !coalesceMemberSearches(c, step, next)) return false;
     }
     for (const loop of unsettledLoops(sentences[i])) {
       const next = sentences[i + 1];
       if (loop !== sentences[i].steps.at(-1) || sentences[i].otherwise || !next) return false;
-      if (endsWithSearchersShuffling(sentences, i, loop)) { settled.add(loop); continue; }
+      if (endsWithSearchersShuffling(c, sentences, i, loop)) { settled.add(loop); continue; }
       if (i > 0 && i === sentences.length - 2 && foldEachCardSuspend(loop, sentences[i - 1], next)) {
         sentences.splice(i + 1, 1);
         continue;
@@ -563,7 +569,7 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
       // CR 701.23h shuffle, which is checked only directly after the loop.
       if (hasOwnNode(loop.effects, isSearch) && laterShuffle(sentences, i + 2)) return false;
       if (shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) {
-        if (!coalesceMemberSearches(loop, next)) return false;
+        if (!coalesceMemberSearches(c, loop, next)) return false;
         settled.add(loop);
         continue;
       }
@@ -571,7 +577,7 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
       if (!result) return false;
       const chose = loop.effects[0].steps[0].effect === "choose-object" || loop.effects[0].steps[0].effect === "declare-target";
       if (!refersToAllResults(next, result, chose, namesEnclosingPlayer(loop), "player" in loop.each)) return false;
-      if (!coalesceMemberSearches(loop, next)) return false;
+      if (!coalesceMemberSearches(c, loop, next)) return false;
       settled.add(loop);
     }
   }

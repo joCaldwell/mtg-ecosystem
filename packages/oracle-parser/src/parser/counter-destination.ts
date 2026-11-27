@@ -21,6 +21,7 @@ export function foldCounterDestination(c: Cursor, previous: Sentence): boolean {
   if (!step || step.effect !== "counter" || step.countered || step.optional || step.forEach || previous.otherwise || previous.bindings) return false;
   const what = step.what;
   if (what.ref !== "target" || what.filter.cls !== "spell" || what.upTo || what.count.amount !== "fixed" || what.count.value !== 1) return false;
+  const start = c.pos;
   const destination = c.attempt((c): CounteredSpellDestination | null => {
     if (c.word("if") === null) return null;
     let only: ObjectFilter | undefined;
@@ -33,10 +34,11 @@ export function foldCounterDestination(c: Cursor, previous: Sentence): boolean {
     if (!c.words("is", "countered", "this", "way") || !c.punct(",")) return null;
     let result: CounteredSpellDestination;
     let putting = false;
+    const moveAt = c.pos;
     if (c.word("exile") !== null) {
       if (!countedObject(c)) return null;
       const counters = parseExileCounters(c, [{ ref: "it" }]);
-      result = { to: { zone: "exile" }, ...(counters ? { counters } : {}) };
+      result = { to: c.mark({ zone: "exile" }, moveAt, moveAt + 1), ...(counters ? { counters } : {}) };
       putting = true;
     } else {
       if (c.word("put") === null || !countedObject(c) || c.word("on", "into", "onto") === null) return null;
@@ -64,5 +66,6 @@ export function foldCounterDestination(c: Cursor, previous: Sentence): boolean {
   });
   if (!destination) return false;
   step.countered = destination;
+  c.fold(step, start);
   return true;
 }

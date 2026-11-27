@@ -658,6 +658,7 @@ function parseSingleEvent(c: Cursor): Trigger | null {
     if (playerEvent) return playerEvent;
 
     // Object-subject triggers.
+    const subjectStart = c.pos;
     const parsedSubject = parseTriggerSubject(c);
     if (!parsedSubject) return c.fail("trigger subject");
     // "~ and at least one other creature attack": one attack declaration
@@ -686,7 +687,11 @@ function parseSingleEvent(c: Cursor): Trigger | null {
       if (!event) return null;
       // A sized group is printed only for attacks (declared together, CR 508.1).
       if (groupSize && event.trigger !== "attacks") return c.fail("attack by a sized group");
-      events.push(grouping ? { ...event, grouping, ...(groupSize ? { groupSize } : {}) } : event);
+      const grouped = grouping ? { ...event, grouping, ...(groupSize ? { groupSize } : {}) } : event;
+      // The event matcher starts after the subject. Only the combined single
+      // event production consumes both; alternatives share their subject.
+      if (subjects.length === 1 && event.trigger !== "any-of") c.mark(grouped, subjectStart, c.pos, "complete-production");
+      events.push(grouped);
     }
     return events.length === 1 ? events[0] : { trigger: "any-of", events };
   });

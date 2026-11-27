@@ -129,6 +129,7 @@ function flavorLabel(tokens: Token[], isKeywordName: (name: string) => boolean):
 export function parseModalEffect(c: Cursor, optionTokens: Token[][], parseBody: BodyParser,
   parseLabeled: (tokens: Token[]) => Ability | null): Modal | null {
   return c.attempt(c => {
+    const headerStart = c.pos;
     const keyword = c.word('spree', 'tiered') as Modal['keyword'] | null;
     let selection: ModalCount;
     let unchosen: Modal['unchosen'];
@@ -215,9 +216,12 @@ export function parseModalEffect(c: Cursor, optionTokens: Token[][], parseBody: 
     if (conditional?.both && options.length !== 2) return c.fail("exactly two modes for 'both'");
     if (distinctTargetPlayers && !options.every(option => hasTargetPlayer(option.effects)))
       return c.fail('a targeted player in every mode');
-    return { effect: 'modal', count: selection, options, ...(keyword ? { keyword } : {}),
+    const modal: Modal = { effect: 'modal', count: selection, options, ...(keyword ? { keyword } : {}),
       ...(allowRepeat ? { allowRepeat } : {}), ...(unchosen ? { unchosen } : {}), ...(random ? { random: true as const } : {}),
       ...(conditional ? { conditionalCount: { condition: conditional.condition, count: conditional.count } } : {}),
       ...(distinctTargetPlayers ? { distinctTargetPlayers: true as const } : {}), ...(chooser ? { chooser } : {}) };
+    c.mark(modal, headerStart);
+    if (c.printed) c.foldTokens(modal, optionTokens.flat());
+    return modal;
   });
 }

@@ -10,12 +10,13 @@ import { Cursor } from "./cursor.ts";
  * https://magic.wizards.com/en/news/feature/zendikar-rising-release-notes-2020-09-10 */
 export function parsePlayerGroupActor(c: Cursor, player: (c: Cursor) => PlayerRef | null): PlayerRef | null {
   return c.attempt(c => {
+    const start = c.pos;
     if (!c.words("you", "and")) return null;
     const second = player(c);
     // Other groups introduce independent choices, quantifiers, reciprocal
     // roles or optional per-player decisions; those need distinct scopes.
     if (!second || !["target-opponent", "that-player"].includes(second.player) || c.word("each") === null) return null;
-    return { player: "group", members: [{ player: "you" }, second], multiplicity: "per-member-occurrence" };
+    return { player: "group", members: [c.mark({ player: "you" }, start, start + 1), second], multiplicity: "per-member-occurrence" };
   });
 }
 

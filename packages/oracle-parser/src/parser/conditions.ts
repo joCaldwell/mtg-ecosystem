@@ -690,6 +690,7 @@ function parseZoneHistory(c: Cursor, g: ConditionGrammar): Condition | null {
     if (what) subject = { match: "object", what };
     else {
       const article = c.word("a", "an") !== null;
+      const anotherAt = c.pos;
       const another = !article && c.word("another") !== null;
       const exact = c.isWord("no", "exactly");
       let comparison: Comparison | null = article || another ? { op: "ge", value: one } : parseComparison(c, g);
@@ -700,6 +701,7 @@ function parseZoneHistory(c: Cursor, g: ConditionGrammar): Condition | null {
       if (another) {
         if (filter.other) return null;
         filter.other = true;
+        c.fold(filter, anotherAt, anotherAt + 1);
       }
       // Past-tense control belongs to the movement, not the object's present.
       if (!possessor && c.words("you", "controlled")) controllerAtMove = { player: "you" };

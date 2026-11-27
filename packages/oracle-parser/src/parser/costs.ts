@@ -2,6 +2,7 @@
 // keyword parameter costs ("Equip {2}", "Ward—Pay 3 life.").
 
 import type { Amount, Cost, ObjectRef } from "../ast.ts";
+import type { Token } from "../lexer.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseAmount, parseCounterSpec, parseObjectRef, parseObjectSelection, parseZoneRef } from "./refs.ts";
 
@@ -21,14 +22,15 @@ let allowScaledPayments = false;
 export function parseSymbolCosts(c: Cursor): Cost[] | null {
   return c.attempt((c): Cost[] | null => {
     const costs: Cost[] = [];
-    let mana: string[] = [];
+    const mana: string[] = [];
+    const manaTokens: Token[] = [];
     let energy = 0;
     for (;;) {
       const t = c.peek();
       if (t?.kind !== "symbol") break;
       if (t.value === "T") {
         c.pos++;
-        costs.push({ cost: "tap-self" });
+        costs.push(c.mark({ cost: "tap-self" }, c.pos - 1));
       } else if (t.value === "Q") {
         c.pos++;
         costs.push({ cost: "untap-self" });
@@ -38,11 +40,12 @@ export function parseSymbolCosts(c: Cursor): Cost[] | null {
       } else if (isManaSymbol(t.value)) {
         c.pos++;
         mana.push(t.value);
+        if (c.printed) manaTokens.push(t);
       } else {
         break;
       }
     }
-    if (mana.length) costs.unshift({ cost: "mana", symbols: mana });
+    if (mana.length) costs.unshift(c.markTokens({ cost: "mana", symbols: mana }, manaTokens));
     if (energy) costs.push({ cost: "energy", amount: { amount: "fixed", value: energy } });
     return costs.length ? costs : null;
   });

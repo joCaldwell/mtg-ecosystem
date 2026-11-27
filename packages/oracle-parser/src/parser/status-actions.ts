@@ -228,6 +228,7 @@ export function foldFaceDownCharacteristics(c: Cursor, previous: Sentence): bool
   const producer = faceDownProducer(previous.steps[0]);
   if (!producer || producer.forEach || producer.duration) return false;
   return c.attempt(c => {
+    const start = c.pos;
     const pronoun = c.word("it's", "they're");
     if (!pronoun) return null;
     const singular = pronoun === "it's";
@@ -237,6 +238,7 @@ export function foldFaceDownCharacteristics(c: Cursor, previous: Sentence): bool
     if (!c.punct(".") && !c.done()) return null;
     if (producer.effect === "turn-face") producer.characteristics = characteristics;
     else producer.entry!.faceDown!.characteristics = characteristics;
+    c.fold(producer, start);
     return true;
   }) === true;
 }
