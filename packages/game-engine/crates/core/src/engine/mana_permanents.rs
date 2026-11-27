@@ -367,6 +367,24 @@ impl RulesTxn {
         } else if self.current(source).is_ok() {
             return Err("unknown mana receipt source".into());
         }
+        // The source was on the battlefield and phased in as the activation
+        // began, so it held no hideaway link or Adventure permission, and
+        // its loyalty use and attachment are from this game's past.
+        let row = &receipt.source;
+        if row.zone != Zone::Battlefield
+            || row.phased_out.is_some()
+            || row.hideaway.is_some()
+            || row.adventure_player.is_some()
+            || row
+                .loyalty_used_turn
+                .is_some_and(|turn| turn == 0 || turn > self.state.rules.turn.number)
+            || row.attached_to.is_some() != row.attachment_timestamp.is_some()
+            || row.attachment_timestamp.is_some_and(|timestamp| {
+                timestamp == 0 || timestamp >= self.state.rules.next_attachment_timestamp
+            })
+        {
+            return Err("invalid mana receipt source row".into());
+        }
         if receipt.counters.is_negative()
             || receipt.counters != receipt.source.plus_one_counters
             || receipt.other_counters != receipt.source.counters
@@ -1125,23 +1143,26 @@ impl RulesTxn {
         let first_trigger = self.state.rules.next_trigger_id;
         let history = self.state.rules.cast_history.clone();
         self.pay_permanent_source_costs(a.source, a.player, &a.ability.costs, cause)?;
-        // CR 733.1: record the turn facts the costs first set. Any other
-        // change cannot be reversed exactly, so the activation is kept.
+        // CR 733.1: `kept` is the rules flag set above from the ability
+        // alone, never inferred from what its costs wrote. A reversible
+        // activation records the exact turn facts its costs first set, and
+        // a reversal clears only those; a reversible cost that changed any
+        // other turn fact has no exact inverse and is refused.
         for (seat, (was, now)) in history
             .iter()
             .zip(&self.state.rules.cast_history)
             .enumerate()
         {
             let undo = TurnHistoryUndo {
-                seat: PlayerId(seat as u8),
+                seat: PlayerId(u8::try_from(seat).map_err(|_| "turn history seat")?),
                 permanent_left: now.permanent_left && !was.permanent_left,
                 creature_died: now.creature_died && !was.creature_died,
             };
             let mut cleared = now.clone();
             cleared.permanent_left &= !undo.permanent_left;
             cleared.creature_died &= !undo.creature_died;
-            if cleared != *was {
-                receipt.kept = true;
+            if !receipt.kept && cleared != *was {
+                return Err("reversible mana cost changed an unrecorded turn fact".into());
             }
             if undo.permanent_left || undo.creature_died {
                 receipt.turn_history.push(undo);
@@ -1215,8 +1236,7 @@ impl RulesTxn {
                 .objects
                 .get_mut(&source.card)
                 .ok_or("missing source")?
-                .plus_one_counters
-                .subtract(n);
+                .pay_counters(&mtg_contracts::kir::CounterKind::PlusOnePlusOne, n)?;
         }
         let mut children = vec![];
         if costs.tap {
@@ -1613,36 +1633,12 @@ impl RulesTxn {
                 {
                     return Err("sacrificed mana source changed".into());
                 }
-                self.rules_mut().objects.insert(
-                    r.source.object.card,
-                    Object {
-                        hideaway: None,
-                        phased_out: None,
-                        attached_to: None,
-                        attachment_timestamp: None,
-                        battlefield_entry_turn: r.source.battlefield_entry_turn,
-                        control_upkeeps: r.source.control_upkeeps,
-                        unearthed: r.source.unearthed,
-                        dashed: r.source.dashed,
-                        keyword_timestamp: r.source.keyword_timestamp,
-                        keyword_rank: r.source.keyword_rank,
-                        id: r.source.object,
-                        controller: r.source.controller,
-                        default_controller: r.source.default_controller,
-                        zone: r.source.zone,
-                        tapped: r.source.tapped,
-                        attack_ready: r.source.attack_ready,
-                        marked_damage: r.source.marked_damage.clone(),
-                        deathtouch_damage: r.source.deathtouch_damage,
-                        plus_one_counters: r.counters.clone(),
-                        loyalty_counters: Quantity::zero(),
-                        loyalty_used_turn: None,
-                        counters: r.other_counters.clone(),
-                        transforms: 0,
-                        adventure_player: None,
-                        face_down: false,
-                    },
-                );
+                // CR 733.1: the exact row the activation began with,
+                // including loyalty, its use, attachment, transforms and
+                // face-down status.
+                self.rules_mut()
+                    .objects
+                    .insert(r.source.object.card, r.source.restored_object());
                 // CR 733.1/800.4c: restore only the recorded object, then
                 // derive its controller from surviving exact-incarnation Auras.
                 // Departed owners/sources remain absent; payment authority and

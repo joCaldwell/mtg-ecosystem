@@ -71,6 +71,13 @@ impl RulesTxn {
             deathtouch_damage: o.deathtouch_damage,
             plus_one_counters: o.plus_one_counters.clone(),
             counters: o.counters.clone(),
+            loyalty_counters: o.loyalty_counters.clone(),
+            loyalty_used_turn: o.loyalty_used_turn,
+            attached_to: o.attached_to,
+            attachment_timestamp: o.attachment_timestamp,
+            phased_out: o.phased_out,
+            hideaway: o.hideaway.clone(),
+            adventure_player: o.adventure_player,
             object,
             owner: self
                 .state

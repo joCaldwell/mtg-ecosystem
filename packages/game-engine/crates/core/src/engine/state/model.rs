@@ -202,29 +202,52 @@ impl Object {
             }
         }
     }
-    /// CR 122.1: remove up to `amount` counters of `kind`; returns the
-    /// previous count.
+    /// CR 122.1: an effect removes as many of `amount` counters of `kind` as
+    /// the object has (never fewer than zero remain); returns the previous
+    /// count. A cost uses [`Self::pay_counters`] instead.
     pub(in crate::engine) fn remove_counters(
         &mut self,
         kind: &mtg_contracts::kir::CounterKind,
         amount: &Quantity,
     ) -> Quantity {
-        if *kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne {
-            let previous = self.plus_one_counters.clone();
-            let removed = std::cmp::min(previous.clone(), amount.clone());
-            self.plus_one_counters.subtract(&removed);
+        let single = match kind {
+            mtg_contracts::kir::CounterKind::PlusOnePlusOne => Some(&mut self.plus_one_counters),
+            mtg_contracts::kir::CounterKind::Loyalty => Some(&mut self.loyalty_counters),
+            _ => None,
+        };
+        if let Some(count) = single {
+            let previous = count.clone();
+            if *amount > Quantity::zero() {
+                count.subtract(&std::cmp::min(previous.clone(), amount.clone()));
+            }
             return previous;
         }
         let Ok(i) = self.counters.binary_search_by(|stack| stack.kind.cmp(kind)) else {
             return Quantity::zero();
         };
         let previous = self.counters[i].count.clone();
+        if *amount <= Quantity::zero() {
+            return previous;
+        }
         if previous <= *amount {
             self.counters.remove(i);
         } else {
             self.counters[i].count.subtract(amount);
         }
         previous
+    }
+    /// CR 118.3, 602.2b, 606.4: removing counters as a cost removes exactly
+    /// `amount`; a cost the object cannot pay in full is rejected before any
+    /// change. Returns the previous count.
+    pub(in crate::engine) fn pay_counters(
+        &mut self,
+        kind: &mtg_contracts::kir::CounterKind,
+        amount: &Quantity,
+    ) -> Result<Quantity, String> {
+        if amount.is_negative() || self.counter_count(kind) < *amount {
+            return Err("insufficient counters to pay the cost".into());
+        }
+        Ok(self.remove_counters(kind, amount))
     }
     pub fn present_on_battlefield(&self) -> bool {
         self.zone == Zone::Battlefield && self.phased_out.is_none()
@@ -308,4 +331,182 @@ pub struct StackInstance {
     pub mana_uncounterable: bool,
     pub total_cost: ManaCost,
     pub cast_from: Zone,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mtg_contracts::kir::CounterKind;
+
+    fn id(card: u32, incarnation: u32) -> ObjectId {
+        ObjectId {
+            card: CardId(card),
+            incarnation,
+            face: CardFace::Front,
+        }
+    }
+
+    fn permanent(loyalty: i64, plus_one: i64) -> Object {
+        Object {
+            hideaway: None,
+            phased_out: None,
+            attached_to: None,
+            attachment_timestamp: None,
+            keyword_timestamp: None,
+            keyword_rank: 0,
+            battlefield_entry_turn: Some(1),
+            control_upkeeps: None,
+            plus_one_counters: plus_one.into(),
+            loyalty_counters: loyalty.into(),
+            loyalty_used_turn: None,
+            counters: vec![CounterStack {
+                kind: CounterKind::MinusOneMinusOne,
+                count: 2.into(),
+                timestamp: 4,
+            }],
+            transforms: 0,
+            adventure_player: None,
+            face_down: false,
+            marked_damage: Quantity::zero(),
+            deathtouch_damage: false,
+            unearthed: false,
+            dashed: false,
+            attack_ready: true,
+            id: id(0, 0),
+            controller: PlayerId(0),
+            default_controller: PlayerId(0),
+            zone: Zone::Battlefield,
+            tapped: false,
+        }
+    }
+
+    /// CR 122.1: an effect removes loyalty counters like any other kind,
+    /// clamped at the number the permanent has; zero or negative amounts
+    /// remove nothing.
+    #[test]
+    fn effect_removal_has_a_clamped_loyalty_arm() {
+        let mut o = permanent(3, 2);
+        assert_eq!(
+            o.remove_counters(&CounterKind::Loyalty, &1.into()),
+            3.into()
+        );
+        assert_eq!(o.loyalty_counters, 2.into());
+        assert_eq!(
+            o.remove_counters(&CounterKind::Loyalty, &5.into()),
+            2.into()
+        );
+        assert_eq!(o.loyalty_counters, Quantity::zero());
+        assert_eq!(
+            o.remove_counters(&CounterKind::Loyalty, &1.into()),
+            Quantity::zero()
+        );
+        assert_eq!(o.loyalty_counters, Quantity::zero());
+        let mut o = permanent(3, 2);
+        for amount in [0, -2] {
+            for kind in [
+                CounterKind::Loyalty,
+                CounterKind::PlusOnePlusOne,
+                CounterKind::MinusOneMinusOne,
+            ] {
+                o.remove_counters(&kind, &amount.into());
+            }
+        }
+        assert_eq!(o, permanent(3, 2));
+        // Other kinds and +1/+1 counters are unaffected by loyalty removal.
+        o.remove_counters(&CounterKind::Loyalty, &3.into());
+        assert_eq!(o.plus_one_counters, 2.into());
+        assert_eq!(o.counter_count(&CounterKind::MinusOneMinusOne), 2.into());
+    }
+
+    /// CR 118.3, 606.4: a cost removes exactly its amount or is rejected
+    /// with no change; an effect removing the same amount clamps instead.
+    #[test]
+    fn cost_removal_rejects_insufficient_counters_atomically() {
+        for kind in [
+            CounterKind::Loyalty,
+            CounterKind::PlusOnePlusOne,
+            CounterKind::MinusOneMinusOne,
+        ] {
+            let mut o = permanent(2, 2);
+            assert!(o.pay_counters(&kind, &3.into()).is_err());
+            assert!(o.pay_counters(&kind, &(-1).into()).is_err());
+            assert_eq!(o, permanent(2, 2), "{kind:?}");
+            assert_eq!(o.pay_counters(&kind, &2.into()), Ok(2.into()));
+            assert_eq!(o.counter_count(&kind), Quantity::zero());
+            let mut clamped = permanent(2, 2);
+            assert_eq!(clamped.remove_counters(&kind, &3.into()), 2.into());
+            assert_eq!(clamped, o, "{kind:?}");
+        }
+        let mut o = permanent(2, 2);
+        assert!(o.pay_counters(&CounterKind::Lore, &1.into()).is_err());
+        assert_eq!(
+            o.pay_counters(&CounterKind::Lore, &Quantity::zero()),
+            Ok(Quantity::zero())
+        );
+        assert_eq!(o, permanent(2, 2));
+    }
+
+    /// CR 733.1: a captured row restores every stored object field exactly,
+    /// including loyalty and its use, attachment, phasing, an Adventure
+    /// permission, transforms and face-down status.
+    #[test]
+    fn captured_rows_restore_the_complete_object() {
+        let mut o = permanent(4, 1);
+        o.loyalty_used_turn = Some(3);
+        o.attached_to = Some(id(7, 2));
+        o.attachment_timestamp = Some(9);
+        o.phased_out = Some(PhaseReturn::Indirect {
+            attached_to: id(7, 2),
+        });
+        o.adventure_player = Some(PlayerId(2));
+        o.transforms = 3;
+        o.face_down = true;
+        o.keyword_timestamp = Some(5);
+        o.keyword_rank = 1;
+        o.control_upkeeps = Some(2);
+        o.unearthed = true;
+        o.dashed = true;
+        o.deathtouch_damage = true;
+        o.marked_damage = 2.into();
+        o.tapped = true;
+        o.controller = PlayerId(1);
+        o.default_controller = PlayerId(3);
+        o.id = id(0, 4);
+        let before = ObjectBefore {
+            transforms: o.transforms,
+            face_down: o.face_down,
+            keyword_timestamp: o.keyword_timestamp,
+            keyword_rank: o.keyword_rank,
+            battlefield_entry_turn: o.battlefield_entry_turn,
+            control_upkeeps: o.control_upkeeps,
+            unearthed: o.unearthed,
+            dashed: o.dashed,
+            keywords: vec![],
+            deathtouch_damage: o.deathtouch_damage,
+            plus_one_counters: o.plus_one_counters.clone(),
+            counters: o.counters.clone(),
+            loyalty_counters: o.loyalty_counters.clone(),
+            loyalty_used_turn: o.loyalty_used_turn,
+            attached_to: o.attached_to,
+            attachment_timestamp: o.attachment_timestamp,
+            phased_out: o.phased_out,
+            hideaway: o.hideaway.clone(),
+            adventure_player: o.adventure_player,
+            object: o.id,
+            owner: PlayerId(0),
+            controller: o.controller,
+            default_controller: o.default_controller,
+            zone: o.zone,
+            tapped: o.tapped,
+            marked_damage: o.marked_damage.clone(),
+            attack_ready: o.attack_ready,
+            characteristics: serde_json::from_value(serde_json::json!({
+                "basic": false, "color_identity": [], "colors": [], "kind": "artifact",
+                "legendary": false, "mana_cost": {"colored": [], "generic": "1"},
+                "power": null, "subtypes": [], "toughness": null
+            }))
+            .unwrap(),
+        };
+        assert_eq!(before.restored_object(), o);
+    }
 }

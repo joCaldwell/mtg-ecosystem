@@ -557,6 +557,9 @@ fn reversed_treasure_sacrifice_clears_only_its_own_departure() {
         assert_eq!(g.state.rules.cast_history[0].permanent_left, earlier);
         assert_eq!(g.current(treasure).map(|o| o.zone), Ok(Zone::Battlefield));
         checked(&g);
+        // The kept earlier departure and the reversal replay, restore and
+        // fork identically at every quantum and trace mode.
+        assert_recoverable((&g).into());
     }
 }
 
@@ -721,4 +724,178 @@ fn two_pit_imp_activations_wait_on_the_stack_together() {
     assert!(f.validate_state().is_err());
     settle(&mut g);
     assert_eq!(g.characteristics(imp).unwrap().power, Some(2.into()));
+}
+
+/// A board with Rapacious Dragon cast and resolved, its two Treasures on the
+/// battlefield, a Murder in hand, a Grizzly Bears for each seat and an
+/// untapped Mountain. Returns the game, Murder, the opposing Bears, my Bears
+/// and one Treasure.
+fn treasure_board() -> (Game, ObjectId, ObjectId, ObjectId, ObjectId) {
+    let mut b = board(&[(RAPACIOUS_DRAGON, &[])])
+        .permanent_or_hand("Rapacious Dragon", 0, 0, true)
+        .permanent_or_hand("Murder", 0, 0, true);
+    for _ in 0..6 {
+        b = b.permanent_or_hand("Mountain", 0, 0, false);
+    }
+    let mut g = Game::with_trace(
+        b.permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .prepare(),
+        TraceMode::Detailed,
+    );
+    let [murder, theirs, mine] = [1, 8, 9].map(|i| Driver::object(&g, i));
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[2, 3, 4, 5, 6]);
+    settle(&mut g);
+    let treasure = g
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| g.state.rules.tokens.contains_key(&o.id.card))
+        .unwrap()
+        .id;
+    (g, murder, theirs, mine, treasure)
+}
+
+/// Sacrifice `source` toward a Murder that then cannot be paid, after
+/// `edit` changes the board as the payment began; the cast and the
+/// activation are reversed (CR 733.1). The source returns as its exact
+/// prior row, every other permanent is unchanged, and no trigger or turn
+/// fact is created.
+fn reverse_with_row(
+    g: &mut Game,
+    murder: ObjectId,
+    target: ObjectId,
+    source: ObjectId,
+    edit: impl FnOnce(&mut Game),
+) {
+    assert_eq!(Driver::request(g, u64::MAX).reason, Reason::Priority);
+    edit(g);
+    let others = |g: &Game| {
+        let mut objects = g.state.rules.objects.clone();
+        objects.remove(&murder.card);
+        objects
+    };
+    let before = others(g);
+    let history = g.state.rules.cast_history.clone();
+    let next_trigger = g.state.rules.next_trigger_id;
+    failed_murder(g, murder, target, source, |g| {
+        let now = &g.state.rules.objects[&source.card];
+        assert_ne!(now.id, source);
+        assert!(matches!(now.zone, Zone::Graveyard { .. }));
+        assert!(g.state.rules.pending_triggers.is_empty());
+    });
+    assert_eq!(others(g), before);
+    assert_eq!(g.state.rules.cast_history, history);
+    assert!(g.state.rules.pending_triggers.is_empty());
+    assert_eq!(g.state.rules.next_trigger_id, next_trigger);
+}
+
+/// CR 733.1, 122.1, 606.3, 301.5, 613.7e: a Treasure (its token
+/// definition made an Equipment on this private board) attached to my
+/// Grizzly Bears, holding four loyalty counters and this turn's loyalty
+/// use, is sacrificed for mana and the payment reversed. It returns with
+/// the same loyalty, loyalty use, attachment and attachment timestamp,
+/// not as a bare new permanent. The edited token is not a reachable state,
+/// so only the rules outcome is asserted here.
+#[test]
+fn reversed_mana_sacrifice_restores_loyalty_and_attachment() {
+    let (mut g, murder, theirs, mine, treasure) = treasure_board();
+    reverse_with_row(&mut g, murder, theirs, treasure, |g| {
+        std::sync::Arc::make_mut(&mut g.state.rules.tokens)
+            .get_mut(&treasure.card)
+            .unwrap()
+            .definition
+            .characteristics
+            .subtypes = vec!["Equipment".into()];
+        let timestamp = g.state.rules.next_attachment_timestamp;
+        g.state.rules.next_attachment_timestamp += 1;
+        let turn = g.state.rules.turn.number;
+        let row = g.state.rules.objects.get_mut(&treasure.card).unwrap();
+        row.loyalty_counters = 4.into();
+        row.loyalty_used_turn = Some(turn);
+        row.attached_to = Some(mine);
+        row.attachment_timestamp = Some(timestamp);
+    });
+    let row = g.current(treasure).unwrap();
+    assert_eq!(row.id, treasure);
+    assert_eq!(row.loyalty_counters, 4.into());
+    assert_eq!(row.loyalty_used_turn, Some(g.state.rules.turn.number));
+    assert_eq!(row.attached_to, Some(mine));
+}
+
+/// CR 733.1, 701.27a, 712.18: a Treasure whose token definition is made
+/// transforming on this private board, transformed once (its back face, a
+/// second Treasure face, up), is sacrificed for mana and the payment
+/// reversed: it returns transformed with its back face up. Not a reachable
+/// state, so only the rules outcome is asserted here.
+#[test]
+fn reversed_mana_sacrifice_restores_the_transformed_face() {
+    let (mut g, murder, theirs, _, treasure) = treasure_board();
+    reverse_with_row(&mut g, murder, theirs, treasure, |g| {
+        let definition = &mut std::sync::Arc::make_mut(&mut g.state.rules.tokens)
+            .get_mut(&treasure.card)
+            .unwrap()
+            .definition;
+        let mut back = definition.clone();
+        back.name = "Treasure Back".into();
+        definition.layout = FaceLayout::Transforming;
+        definition.back_face = Some(Box::new(back));
+        g.state
+            .rules
+            .objects
+            .get_mut(&treasure.card)
+            .unwrap()
+            .transforms = 1;
+        assert_eq!(
+            g.copiable_definition(treasure).unwrap().name,
+            "Treasure Back"
+        );
+    });
+    let row = g.current(treasure).unwrap();
+    assert_eq!((row.id, row.transforms), (treasure, 1));
+    assert_eq!(row.face(), CardFace::Back);
+    assert_eq!(
+        g.copiable_definition(treasure).unwrap().name,
+        "Treasure Back"
+    );
+}
+
+/// CR 733.1: a restored snapshot may not hold a mana receipt whose
+/// captured source row could not have activated a battlefield mana ability:
+/// phased out, an Adventure permission, a future loyalty use or a broken
+/// attachment pair.
+#[test]
+fn restore_rejects_forged_mana_receipt_source_rows() {
+    let (mut g, murder, theirs, _, treasure) = treasure_board();
+    failed_murder(&mut g, murder, theirs, treasure, |g| {
+        let turn = g.state.rules.turn.number;
+        let forgeries: [fn(&mut ObjectBefore, u64); 4] = [
+            |row, _| {
+                row.phased_out = Some(PhaseReturn::Direct {
+                    controller_at_phase_out: PlayerId(0),
+                })
+            },
+            |row, _| row.adventure_player = Some(PlayerId(0)),
+            |row, turn| row.loyalty_used_turn = Some(turn + 1),
+            |row, _| row.attachment_timestamp = Some(1),
+        ];
+        for forge in forgeries {
+            let mut f = g.fork();
+            let (Frame::Mana { cast } | Frame::Payment { cast }) = &mut f.state.rules.frame else {
+                panic!("expected a mana window")
+            };
+            let receipt = cast
+                .mana_activations
+                .iter_mut()
+                .find_map(|r| r.permanent.as_mut())
+                .unwrap();
+            forge(&mut receipt.source, turn);
+            assert_eq!(
+                f.validate_state().map_err(|e| e.to_string()),
+                Err("invalid mana receipt source row".into())
+            );
+        }
+    });
 }

@@ -34,6 +34,14 @@ fn is_zero_use(n: &u32) -> bool {
     *n == 0
 }
 
+/// CR 606.4: the loyalty counters a loyalty cost actually put on or removed
+/// from its source. A `[0]` cost has none: it stamps the activation use only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoyaltyCostChange {
+    pub previous: Quantity,
+    pub current: Quantity,
+}
+
 /// CR 602.1b, 602.5, 605.3a: the counts an "Activate only if" condition
 /// read as the activation began, one per
 /// [`ActivationCondition::leaves`] entry in printed order. The
@@ -558,21 +566,72 @@ impl RulesTxn {
         Ok(remaining)
     }
 
+    /// CR 606.3–4: pay a loyalty ability's cost. The balance change and the
+    /// activation-use stamp are separate writes, so a `[0]` ability stamps
+    /// the use and changes no counter.
     pub(super) fn pay_loyalty(
         &mut self,
         player: PlayerId,
         object: ObjectId,
         change: &Quantity,
-    ) -> Result<(), String> {
+    ) -> Result<Option<LoyaltyCostChange>, String> {
         let remaining = self.loyalty_after_cost(player, object, change)?;
-        let turn = self.state.rules.turn.number;
+        let before = self.current(object)?.loyalty_counters.clone();
+        let paid = self.pay_loyalty_counters(object, change)?;
+        let after = paid.as_ref().map_or(&before, |c| &c.current);
+        if *after != remaining
+            || paid.as_ref().is_some_and(|c| c.previous != before)
+            || self.current(object)?.loyalty_counters != remaining
+        {
+            return Err("loyalty cost balance invariant".into());
+        }
+        self.stamp_loyalty_use(object)?;
+        Ok(paid)
+    }
+
+    /// CR 606.4: the counter half of a loyalty cost: put `change` loyalty
+    /// counters on the source, or remove exactly `-change` of them. A zero
+    /// change puts or removes nothing and reports no change.
+    pub(super) fn pay_loyalty_counters(
+        &mut self,
+        object: ObjectId,
+        change: &Quantity,
+    ) -> Result<Option<LoyaltyCostChange>, String> {
+        let zero = Quantity::zero();
+        if *change == zero {
+            return Ok(None);
+        }
+        let kind = mtg_contracts::kir::CounterKind::Loyalty;
+        // Loyalty counters carry no per-stack timestamp (CR 613.7c applies to
+        // counter stacks only); `add_counters` ignores it for this kind.
+        let timestamp = self.state.rules.next_batch_id.saturating_sub(1);
         let source = self
             .rules_mut()
             .objects
             .get_mut(&object.card)
             .ok_or("missing loyalty source")?;
-        source.loyalty_counters = remaining;
-        source.loyalty_used_turn = Some(turn);
+        let previous = if *change > zero {
+            source.add_counters(&kind, change, timestamp)
+        } else {
+            let mut removed = zero;
+            removed.subtract(change);
+            source.pay_counters(&kind, &removed)?
+        };
+        Ok(Some(LoyaltyCostChange {
+            previous,
+            current: source.loyalty_counters.clone(),
+        }))
+    }
+
+    /// CR 606.3: the activation-use half of a loyalty cost, paid even when
+    /// the cost changes no counter.
+    pub(super) fn stamp_loyalty_use(&mut self, object: ObjectId) -> Result<(), String> {
+        let turn = self.state.rules.turn.number;
+        self.rules_mut()
+            .objects
+            .get_mut(&object.card)
+            .ok_or("missing loyalty source")?
+            .loyalty_used_turn = Some(turn);
         Ok(())
     }
 
