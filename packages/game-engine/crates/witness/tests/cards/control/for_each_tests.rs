@@ -155,7 +155,7 @@ fn a_counted_draw_counts_only_zones_drawing_cannot_change() {
     assert!(
         mtg_contracts::kir::definition_cells(&d)
             .unwrap()
-            .contains(&Cell::DrawControllerPerObject)
+            .contains(&Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Draw))
     );
     let mut forged = lowered(COLLECTIVE_UNCONSCIOUS);
     let program = forged.spell.as_mut().unwrap();

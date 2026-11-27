@@ -76,6 +76,7 @@ impl Game {
             in_rule_step: false,
             kernel_leaf: None,
             published: None,
+            actual_journal: None,
         };
         game.validate_stack_links()?;
         game.rebuild_kernel_leaf()?;

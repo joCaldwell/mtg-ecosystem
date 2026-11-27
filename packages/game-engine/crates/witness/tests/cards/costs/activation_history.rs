@@ -491,15 +491,16 @@ fn failed_murder(
     assert_eq!(g.state.rules.stack.len(), 0);
 }
 
-/// The held mana receipts of the current payment frame.
-fn held_turn_history(g: &Game) -> Vec<mtg_core::TurnHistoryUndo> {
+/// The ledger rows the held mana receipts of the current payment frame
+/// would revert.
+fn held_turn_history(g: &Game) -> Vec<mtg_core::SeatDelta> {
     let (Frame::Mana { cast } | Frame::Payment { cast }) = &g.state.rules.frame else {
         panic!("expected a mana window")
     };
     cast.mana_activations
         .iter()
         .filter_map(|r| r.permanent.as_ref())
-        .flat_map(|p| p.turn_history.clone())
+        .flat_map(|p| p.ledger.seats.clone())
         .collect()
 }
 

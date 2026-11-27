@@ -573,40 +573,50 @@ impl RulesTxn {
             }))
     }
 
+    /// CR 603.6c, 603.7c: a watcher fires on each actual departure of its
+    /// exact incarnation, read from the movement facet.
     pub(super) fn collect_resolution_departure(
         &mut self,
-        event: &OccurrenceResult,
-        before: &Self,
+        before: &RulesTxn,
+        event: &OccurrenceId,
+        members: &[Actual],
     ) -> Result<(), String> {
-        let (object, witness) = match &event.actual {
-            EventOutcome::LeftGame { object, owner }
-                if before
-                    .current(*object)
-                    .is_ok_and(|object| object.present_on_battlefield()) =>
-            {
+        for actual in members {
+            let (object, witness) = match (actual.movement(), actual.facet(FacetKind::Moved)) {
+                (Some(m), _)
+                    if m.from == Zone::Battlefield && m.destination != Zone::Battlefield =>
+                {
+                    (m.previous, TriggerEventWitness::Moved { movement: m })
+                }
                 (
+                    None,
+                    Some(Facet::Moved {
+                        object,
+                        prior: Some(_),
+                        to: Destination::LeftGame { owner },
+                        ..
+                    }),
+                ) => (
                     *object,
                     TriggerEventWitness::PermanentLeftGame {
                         object: *object,
                         owner: *owner,
                     },
-                )
-            }
-            actual => {
-                let Some(movement) = triggers::movement(actual) else {
-                    return Ok(());
-                };
-                if movement.from != Zone::Battlefield || movement.destination == Zone::Battlefield {
-                    return Ok(());
-                }
-                (
-                    movement.previous,
-                    TriggerEventWitness::Moved {
-                        movement: movement.clone(),
-                    },
-                )
-            }
-        };
+                ),
+                _ => continue,
+            };
+            self.fire_departure_watchers(before, event, object, witness)?;
+        }
+        Ok(())
+    }
+
+    fn fire_departure_watchers(
+        &mut self,
+        before: &RulesTxn,
+        event: &OccurrenceId,
+        object: ObjectId,
+        witness: TriggerEventWitness,
+    ) -> Result<(), String> {
         let ready: Vec<_> = self
             .state
             .rules
@@ -624,35 +634,36 @@ impl RulesTxn {
             return Ok(());
         }
         self.preflight_trigger_emission(ready.len())?;
+        let binding = before.followup_event_binding(&witness)?;
         for creator in ready {
             self.fire_resolution_trigger(
                 creator,
-                TriggerOccurrenceId::Batch(event.id.clone()),
+                TriggerOccurrenceId::Batch(event.clone()),
                 witness.clone(),
+                binding.clone(),
             )?;
         }
         Ok(())
     }
 
-    // CR 733.1: reversing a paid mana ability cancels any trigger from an
-    // undone sacrifice and restores its still-waiting incarnation.
-    pub(super) fn undo_resolution_departure(&mut self, triggers: &[TriggerId]) {
-        if !self.state.rules.resolution_triggers.values().any(|row| {
-            row.watched.is_some()
-                && row
-                    .firing
-                    .as_ref()
-                    .is_some_and(|fire| triggers.contains(&fire.trigger))
-        }) {
+    // CR 733.1: reversing a paid mana ability cancels any watcher firing from
+    // an undone cost occurrence and restores its still-waiting incarnation.
+    pub(super) fn undo_resolution_departure(&mut self, events: &[EventId]) {
+        let undone = |fire: &Firing| {
+            matches!(&fire.occurrence, TriggerOccurrenceId::Batch(id)
+                if events.iter().any(|event| event.occurrence == *id))
+        };
+        if !self
+            .state
+            .rules
+            .resolution_triggers
+            .values()
+            .any(|row| row.watched.is_some() && row.firing.as_ref().is_some_and(undone))
+        {
             return;
         }
         for row in self.rules_mut().resolution_triggers.values_mut() {
-            if row.watched.is_some()
-                && row
-                    .firing
-                    .as_ref()
-                    .is_some_and(|fire| triggers.contains(&fire.trigger))
-            {
+            if row.watched.is_some() && row.firing.as_ref().is_some_and(undone) {
                 row.firing = None;
             }
         }
@@ -674,13 +685,16 @@ impl RulesTxn {
             return Err("reflexive trigger requires actual payment".into());
         }
         self.register_resolution_trigger(&frame, None, None)?;
+        let witness = TriggerEventWitness::ResolutionPaid {
+            player: controller,
+            cost: cost.clone(),
+        };
+        let binding = self.followup_event_binding(&witness)?;
         self.fire_resolution_trigger(
             frame.stack_id,
             TriggerOccurrenceId::Batch(occurrence.id.clone()),
-            TriggerEventWitness::ResolutionPaid {
-                player: controller,
-                cost: cost.clone(),
-            },
+            witness,
+            binding,
         )
     }
 
@@ -719,11 +733,13 @@ impl RulesTxn {
             return Ok(());
         }
         self.preflight_trigger_emission(ready.len())?;
+        let binding = self.followup_event_binding(witness)?;
         for creator in ready {
             self.fire_resolution_trigger(
                 creator,
                 TriggerOccurrenceId::Batch(event.clone()),
                 witness.clone(),
+                binding.clone(),
             )?;
         }
         Ok(())
@@ -734,6 +750,7 @@ impl RulesTxn {
         creator: StackId,
         occurrence: TriggerOccurrenceId,
         witness: TriggerEventWitness,
+        binding: triggers::EventBinding,
     ) -> Result<(), String> {
         let row = self
             .state
@@ -751,7 +768,7 @@ impl RulesTxn {
             source_facts,
             None,
             None,
-            (occurrence.clone(), witness.clone()),
+            (occurrence.clone(), witness.clone(), binding),
         )?;
         self.rules_mut()
             .resolution_triggers

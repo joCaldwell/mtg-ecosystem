@@ -100,27 +100,14 @@ impl Tiers {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Cell {
+    Evaluated(EvaluatedVerb),
     // CR 119.3: life.
     LifeController,
-    LifeControllerX,
-    LifeEventPlayer,
-    LifeEachOpponent,
     LifeTargetPlayer,
-    LifeTargetPlayerX,
-    LifeTargetController,
-    LifeTargetControllerPower,
-    LifeGraveyardCreatureManaValue,
-    LifeCounted,
     /// CR 119.3, 608.2c: the each-opponent drain pair.
-    Drain,
     // CR 121: draw.
     DrawController,
-    DrawControllerCounted,
     /// CR 121.2, 608.2h: "draw a card for each [filter]", counted once.
-    DrawControllerPerObject,
-    DrawAnnouncedX,
-    DrawEachPlayer,
-    DrawEventPlayer,
     DrawTargetPlayer,
     // CR 120: damage.
     DamageTarget,
@@ -144,7 +131,6 @@ pub enum Cell {
     MoveTargetOwnerLibraryPosition,
     ShuffleResolvingSpell,
     ShuffleTargetOwnerLibrary,
-    DrawShuffledTargetOwner,
     MoveSourceOwnerZone,
     ChooseObjectOwnerHand,
     MoveOwnGraveyardTargetToHand,
@@ -388,20 +374,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::CreatureTokens
         | C::PlusOneCountersSource
         | C::PlusOneCountersTarget => Tiers::HOSTING,
-        C::LifeControllerX
-        | C::LifeEventPlayer
-        | C::LifeEachOpponent
-        | C::LifeTargetPlayerX
-        | C::LifeTargetController
-        | C::LifeGraveyardCreatureManaValue
-        | C::LifeTargetControllerPower
-        | C::LifeCounted
-        | C::Drain
-        | C::DrawControllerCounted
-        | C::DrawControllerPerObject
-        | C::DrawAnnouncedX
-        | C::DrawEachPlayer
-        | C::DrawEventPlayer
+        C::Evaluated(_)
         | C::DamageTargetX
         | C::DamageEventObject
         | C::DamageSet
@@ -485,7 +458,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveTargetOwnerLibraryPosition
         | C::ShuffleResolvingSpell
         | C::ShuffleTargetOwnerLibrary
-        | C::DrawShuffledTargetOwner
         | C::SearchTargetController
         | C::ShuffleController
         | C::ShuffleTargetController

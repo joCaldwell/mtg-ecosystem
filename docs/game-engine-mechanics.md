@@ -49,24 +49,29 @@ accepted-input replay with exact identity.
 - **Canonical actuals (E1 contract).** Every rules occurrence is one actual
   with a member identity, group, origin root and lineage. One writer reduces
   history, reconciles control, matches triggers and binds step results from it,
-  with or without a listener. Families migrate in order: creation and entry,
-  movement, then counters including costs.
+  with or without a listener. Creation, entry and movement have migrated
+  (`engine/actuals.rs`); counters including costs follow (E1b), and every other
+  family keeps its `EventOutcome` boundary until E3.
   - *Identity.* `EventId { occurrence, member }` adds a semantic member to the
     existing `OccurrenceId { batch, path }`. Member indices carry no public order.
     A simultaneous group is `GroupId { batch, path }` of its `Simultaneous` node.
     An `ActualRef` names one facet of one event and resolves with tracing off.
   - *Origin and lineage.* The existing `BatchCause` keeps invocation, actor and
-    source. `Origin` adds a root, the `StepInstance` and the payment term. The
+    source. `Origin` adds a root, the step (a `StepRef` until Stage 1's
+    `StepInstance`) and the payment term. The
     root is the cost of a spell, activation, mana ability, loyalty ability,
     resolution payment or entry, or else a resolving effect, turn-based action,
     state-based action, special action or other rule. `Lineage` records the
-    proposal, the original proposed fact and the applied replacements in order.
-    Its last application is the immediate producer. The root answers cost
+    proposal, the original proposed fact and the applied replacements in order;
+    E2 fills it, so E1 actuals carry none. Its last application is the immediate
+    producer. The root answers cost
     accounting (CR 118.11, 606.4). "Produced by an effect" means an effect root or
     any applied replacement (CR 614.16).
   - *Facets.* A member carries at most one facet per kind, so an entry counts
-    once whether it arrived by move or by creation. E1 defines `Moved` (complete
-    prior row, origin zone, destination, successor, how), `Created` (creator,
+    once whether it arrived by move or by creation. E1 defines `Moved` (object,
+    the complete prior row of a permanent leaving the battlefield, origin zone,
+    destination or leaving the game, successor, and whether a permanent spell
+    resolved), `Created` (creator,
     recipe, invocation) and `Entered` (object, controller, tapped, token,
     attachment, face). It also defines `Counters` (holder, kind, signed delta,
     previous, current, timestamp, entry link). E3 adds tap, untap, life, draw
@@ -75,20 +80,24 @@ accepted-input replay with exact identity.
     `ObjectBefore` already captures the complete reversible row (loyalty and its
     use, attachment, phasing, hideaway, Adventure permission); a consumer
     outliving its batch retains its prior facts, charged in every trace mode.
-  - *Single writer.* `publish_actuals(before, cause, actuals)` replaces the
+  - *Single writer.* `publish_actuals(before, cause, actuals)` has replaced the
     paired `record_turn_occurrences` and `collect_triggers` calls. Its order is
     fixed: commit state and retain last-known facts, then reduce history through
     one reducer returning a `LedgerDelta`. Next it reconciles control and zones,
     matches triggers and delayed watchers, and binds step results. Trace and
-    views project afterwards. Matching reads the facet, never `BatchCause`. It
-    deduplicates on ability instance and `EventId`, or once per declared "one or
-    more" group. Ordered siblings settle in order; simultaneous siblings share
-    one prior.
+    views project afterwards. For migrated families, facets supply the match
+    witnesses. The [event witness contract](game-engine-board-mechanics.md#trigger-families-and-event-witnesses)
+    describes current uniqueness checks and the E3 deduplication work. Ordered
+    siblings settle in order; simultaneous siblings share one prior. A bounded
+    procedure binds its members and ledger change through an `ActualJournal`
+    (mana costs). Resolving steps bind their committed outcomes until the frame
+    migrates. Draw, cycle and life still read their outcome and cause.
   - *Invariance.* The reducer and evidence run identically when nothing matches,
-    in every trace mode. Each family's parity gate compares legacy and canonical
-    state digest, triggers, ledger and authorized decisions under
-    `assert_recoverable`, with zero-match and reversed-mana cases, at zero
-    coverage gain.
+    in every trace mode. E1a witnesses compare the state digest, pending
+    triggers, stack, ledger and authorized decisions across trace modes, cover
+    zero-match and reversed-mana cases, and exercise `assert_recoverable`.
+    The existing suites and format pins are regression checks, with only the
+    private snapshot pin advanced for E1a. Expected coverage gain is zero.
 - **Replacement before commit (E2 contract).** A replacement is proposed,
   matched, ordered, transformed and recomputed before one atomic commit; nothing
   is repaired after commit. A persisted proposal holds the root, resume owner,
@@ -307,12 +316,12 @@ mana and taps, and puts a sacrificed source back as the complete prior row it
 captured, not only its counters. An activation that paid life or performed
 riders is kept with every activation of that attempt. `kept` is the explicit
 rules flag `!reversible()`, set from the ability alone, never inferred from a
-ledger difference. A reversible activation records the turn facts its costs
-first set and reversal clears only those; a reversible cost that changes any
-other turn fact is refused. Under E1 the receipt stores its `EventId`s and
-`LedgerDelta`; reversal applies the inverse in reverse order, removes pending
-triggers and watchers by `EventId`, restores each prior row exactly and keeps
-existing history and triggers, creating no untap, gain or placement trigger. A
+ledger difference. The receipt stores the `EventId`s and `LedgerDelta` its
+costs published (`cost_events`, `ledger`); a reversible cost that changes a
+turn fact outside that delta is refused. Reversal applies the exact inverse
+delta, removes pending triggers and watcher firings of those occurrences,
+restores each prior row exactly and keeps existing history and triggers,
+creating no untap, gain, placement or movement trigger. A
 loyalty cost is a `Counters` facet with a loyalty-cost root (CR 606.4).
 `pay_loyalty` composes two writes: `pay_loyalty_counters` changes the balance
 (exactly, or the cost is refused) and reports the change, and
@@ -574,6 +583,14 @@ at `Executes`.
 The three reviews above `Executes` are independent. A rejected hosting or search
 request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 (`UnqualifiedCells`) below its tier.
+
+Fixed draws of one or two cards by the controller or an announced any-player
+target keep their single-draw cells and capabilities. Under CR 121.2,
+`StepProgress::Sequence` settles one draw attempt per rules transaction, with
+its replacement handling, trigger collection, visibility publication and
+saved cursor. The second attempt resumes from the first attempt's committed
+state, with the same decision ownership and visibility for search and hosting
+as two consecutive single draws.
 
 `Executes` is decided per surface, each row independent (CR 113.3, 602.1,
 603.1, 608.2); a surface without a row rejects under `cell:<surface>:<detail>`:

@@ -167,6 +167,14 @@ pub trait GameTestkit {
     ) -> Result<Option<InterveningCheck>, String>;
     fn check_stack_capacity(&mut self, additional: usize) -> Result<(), String>;
     fn collect_cast_triggers(&mut self, entry: &StackInstance) -> Result<(), String>;
+    /// The single writer's actuals for `occurrences` against `before`, and
+    /// the history reducer's ledger change from them.
+    fn canonical_actuals(
+        &self,
+        before: &Game,
+        cause: &BatchCause,
+        occurrences: &[OccurrenceResult],
+    ) -> Result<(Vec<Actual>, LedgerDelta), String>;
     fn collect_triggers(
         &mut self,
         cause: &BatchCause,
@@ -615,13 +623,30 @@ impl GameTestkit for Game {
     fn collect_cast_triggers(&mut self, entry: &StackInstance) -> Result<(), String> {
         RulesTxn::collect_cast_triggers(self, entry)
     }
+    fn canonical_actuals(
+        &self,
+        before: &Game,
+        cause: &BatchCause,
+        occurrences: &[OccurrenceResult],
+    ) -> Result<(Vec<Actual>, LedgerDelta), String> {
+        let mut actuals = vec![];
+        for occurrence in occurrences {
+            actuals.extend(self.occurrence_actuals(before, cause, None, occurrence)?);
+        }
+        let delta = self.reduce_history(&actuals)?;
+        Ok((actuals, delta))
+    }
     fn collect_triggers(
         &mut self,
         cause: &BatchCause,
         before: &Game,
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
-        RulesTxn::collect_triggers(self, cause, before, occurrences)
+        let actuals = occurrences
+            .iter()
+            .map(|o| self.occurrence_actuals(before, cause, None, o))
+            .collect::<Result<Vec<_>, _>>()?;
+        RulesTxn::collect_triggers(self, cause, before, occurrences, &actuals)
     }
     fn color_layer(
         &self,
@@ -781,7 +806,13 @@ impl GameTestkit for Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        RulesTxn::execute_damage_life_instruction(self, frame, instruction)
+        let mtg_contracts::kernel!(
+            Damage { source, to: mtg_contracts::kir::DamageTo::Ref { who }, amount } @ source_block
+        ) = instruction
+        else {
+            return Err("expected a directed damage instruction".into());
+        };
+        RulesTxn::execute_directed_damage(self, frame, source, who, &amount, source_block)
     }
     fn execute_kernel_instruction(
         &mut self,

@@ -39,6 +39,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             // The deep fork owns nothing derived: its first publication is complete.
             kernel_leaf: game.kernel_leaf.clone(),
             published: None,
+            actual_journal: None,
         },
     }
 }

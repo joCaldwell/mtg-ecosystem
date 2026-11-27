@@ -916,44 +916,6 @@ impl Instruction {
             source_block,
         }
     }
-    /// CR 119.3: each opponent loses `amount`, then "you" in `context` gain
-    /// the total life actually lost.
-    pub fn drain(context: kir::Context, amount: kir::Amount, source_block: u32) -> Self {
-        Self::Kernel {
-            node: kir::Node::drain(context, amount),
-            source_block,
-        }
-    }
-    /// CR 121.1: `player` draws `count` cards.
-    pub fn draw(player: kir::PlayerExpr, count: Quantity, source_block: u32) -> Self {
-        Self::act(
-            kir::Verb::Draw {
-                player,
-                amount: kir::Amount::Fixed { value: count },
-            },
-            source_block,
-        )
-    }
-    /// The player, count and source block of a fixed draw by one player.
-    pub fn fixed_draw(&self) -> Option<(&kir::PlayerExpr, &Quantity, u32)> {
-        match self {
-            kernel!(Draw { player: player @ kir::PlayerExpr::Is { .. }, amount: fixed!(count) } @ block) => {
-                Some((player, count, *block))
-            }
-            _ => None,
-        }
-    }
-    /// CR 121.1: one card drawn by one player, the single draw.
-    pub fn single_draw(&self) -> bool {
-        self.fixed_draw()
-            .is_some_and(|(_, count, _)| *count == Quantity::from(1))
-    }
-    /// A fixed draw that is not a counted controller draw: one card for the
-    /// controller, or any fixed count for an announced or event player.
-    pub fn uncounted_draw(&self) -> bool {
-        self.fixed_draw()
-            .is_some_and(|(player, count, _)| !player.is_you() || *count == Quantity::from(1))
-    }
     /// CR 111.1: "you" in `context` create `count` tokens of `token`.
     pub fn create_tokens(
         context: kir::Context,
@@ -2652,11 +2614,11 @@ fn add_kernel_leaf_requirements(
         let capability = match verb {
             Verb::Draw {
                 player: player @ kir::PlayerExpr::Is { .. },
-                amount: fixed!(count),
+                amount: amount @ fixed!(_),
             } => {
                 if !player.is_you() {
                     Capability::TargetPlayerDrawV1
-                } else if *count == Quantity::from(1) {
+                } else if amount.is_reviewed_fixed_draw() {
                     Capability::ControllerDrawV1
                 } else {
                     Capability::ControllerCountedDrawV1

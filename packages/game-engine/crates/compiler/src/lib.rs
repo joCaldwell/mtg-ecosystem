@@ -22,6 +22,7 @@ pub mod fixtures {
 }
 pub mod bulk;
 pub mod catalog;
+pub mod compile;
 pub mod coverage;
 
 mod assemble;

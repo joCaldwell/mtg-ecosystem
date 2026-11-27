@@ -226,11 +226,7 @@ fn production(mana: &SourceMana, you: &PlayerSelector) -> Result<ManaProduction,
 /// CR 605.1a, 605.3b: an instruction after the AddMana step. The admitted
 /// rows read only the ability's source and controller: "[this] deals N
 /// damage to you" (CR 120.3a) and "you gain N life" (CR 119.3).
-fn rider(
-    step: &Step,
-    you: &PlayerSelector,
-    is_self: &dyn Fn(&str) -> bool,
-) -> Result<kir::Node, Failure> {
+fn rider(step: &Step, is_self: &dyn Fn(&str) -> bool) -> Result<kir::Node, Failure> {
     let controller = || kir::Ref::controller(Context::Activated);
     let node = match step {
         Step::Damage {
@@ -252,16 +248,35 @@ fn rider(
                 },
             })
         }
-        Step::GainLife {
-            who,
-            amount,
-            for_each: None,
-        } if who == you => kir::Node::Do(Verb::GainLife {
-            player: PlayerExpr::you(Context::Activated),
-            amount: kir::Amount::Fixed {
-                value: fixed_amount(amount)?,
-            },
-        }),
+        Step::Evaluated(effect) => {
+            let ast::Effect::Variant99(life) = effect.as_ref() else {
+                return Err(unsupported("mana", "unsupported mana ability rider"));
+            };
+            let ast::EffectVariant99 {
+                optional: None,
+                decided_by: None,
+                starting_with: None,
+                for_each: None,
+                for_each_beyond: None,
+                for_each_vote: None,
+                duration: None,
+                effect: ast::ReplacementEventVariant4Event::GainLife,
+                who,
+                amount,
+            } = life.as_ref()
+            else {
+                return Err(unsupported("mana", "unsupported mana ability rider"));
+            };
+            if !matches!(who.as_ref(), ast::PlayerRef::You(_)) {
+                return Err(unsupported("mana", "unsupported mana ability rider"));
+            }
+            kir::Node::Do(Verb::GainLife {
+                player: PlayerExpr::you(Context::Activated),
+                amount: kir::Amount::Fixed {
+                    value: fixed_positive_amount(amount)?,
+                },
+            })
+        }
         _ => return Err(unsupported("mana", "unsupported mana ability rider")),
     };
     kir::mana_rider(&node).map_err(|e| unsupported("mana", format!("mana ability rider: {e}")))?;
@@ -429,7 +444,7 @@ pub(crate) fn lower_mana_ability(
             if matches!(step, Step::AddMana { .. }) {
                 Err(unsupported("mana", "extra mana steps"))
             } else {
-                rider(step, &you, is_self)
+                rider(step, is_self)
             }
         })
         .collect::<Result<Vec<_>, _>>()?;

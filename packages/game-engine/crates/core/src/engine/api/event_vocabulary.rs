@@ -575,6 +575,14 @@ pub enum EventOutcome {
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerDrawAttempts {
+    pub player: PlayerId,
+    pub attempted: Quantity,
+    pub failed: Quantity,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InstructionOutcome {
     Kernel {

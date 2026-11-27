@@ -69,9 +69,13 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         });
     } else {
         let instruction = match kind {
-            PredefinedToken::Clue => {
-                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0)
-            }
+            PredefinedToken::Clue => Instruction::act(
+                mtg_contracts::kir::Verb::Draw {
+                    player: PlayerExpr::you(Context::Activated),
+                    amount: mtg_contracts::kir::Amount::fixed(1),
+                },
+                0,
+            ),
             PredefinedToken::Food => Instruction::act(
                 Verb::GainLife {
                     player: PlayerExpr::you(Context::Activated),

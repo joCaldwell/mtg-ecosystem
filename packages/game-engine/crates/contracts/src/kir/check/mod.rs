@@ -9,6 +9,7 @@ mod damage;
 mod destroy;
 mod discard;
 mod draw;
+mod evaluated;
 mod keyword_actions;
 mod library;
 mod life;
@@ -98,7 +99,8 @@ pub fn check(node: &Node, env: &Env<'_>) -> Result<DerivedRequirements, KirError
         scan: false,
         plain_leaf: false,
         bound: vec![],
-        steps: 0,
+        steps: Vec::new(),
+        direct_sequence_member: false,
         out: DerivedRequirements::default(),
     };
     walk.node(node, false)?;
@@ -232,7 +234,8 @@ pub fn target_slots(node: &Node) -> BTreeSet<u32> {
         scan: true,
         plain_leaf: false,
         bound: vec![],
-        steps: 0,
+        steps: Vec::new(),
+        direct_sequence_member: false,
         out: DerivedRequirements::default(),
     };
     // A scan reports no scope or audit error; a malformed literal can only
@@ -266,7 +269,8 @@ struct Walk<'a, 'e> {
     /// Variables bound by enclosing `ForEach`/`Choose` nodes, with their kind.
     bound: Vec<(u32, RefKind)>,
     /// Completed steps of the innermost enclosing `Seq`.
-    steps: u32,
+    steps: Vec<&'static [StepRole]>,
+    direct_sequence_member: bool,
     out: DerivedRequirements,
 }
 
@@ -379,8 +383,11 @@ impl Walk<'_, '_> {
                 None => return scope(format!("variable {id} is not bound")),
             },
             Ref::StepResult { step, role } => {
-                if *step >= self.steps {
-                    return scope(format!("step {step} has not been performed"));
+                let Some(producer) = self.steps.get(*step as usize) else {
+                    return scope(format!("step {step} has no dominating projection"));
+                };
+                if !self.direct_sequence_member || !producer.contains(role) {
+                    return scope(format!("step {step} does not supply {role:?} here"));
                 }
                 match role {
                     StepRole::Objects => RefKind::Pool,
@@ -1013,12 +1020,6 @@ impl Walk<'_, '_> {
         match node {
             Node::Do(verb) => {
                 match verb {
-                    Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }
-                        if in_control =>
-                    {
-                        self.control_player(player, false)?;
-                        self.nonnegative_control_amount(amount)?;
-                    }
                     // CR 702.116a: one opponent bound by the myriad
                     // iteration; the whole ability is the reviewed builder
                     // (`TriggeredAbility::is_myriad`).
@@ -1045,7 +1046,10 @@ impl Walk<'_, '_> {
                         }
                     }
                     _ => {
-                        let enclosing_leaf = std::mem::replace(&mut self.plain_leaf, in_control);
+                        let enclosing_leaf = std::mem::replace(
+                            &mut self.plain_leaf,
+                            in_control && verb.evaluated_operands().is_none(),
+                        );
                         let operands = self.operands(verb);
                         self.plain_leaf = enclosing_leaf;
                         operands?;
@@ -1064,30 +1068,18 @@ impl Walk<'_, '_> {
                 Ok(())
             }
             Node::Seq(nodes) => {
-                // CR 119.3, 608.2c: the drain pair is one resolution step
-                // with no decision between its two life events.
-                if let Some(amount) = drain(node) {
-                    self.amount(amount)?;
-                    if let [_, Node::Do(Verb::GainLife { player, .. })] = nodes.as_slice() {
-                        self.player(player)?;
-                    }
-                    if !self.scan {
-                        if in_control {
-                            return unaudited("nested drain reads a step result");
-                        }
-                        Self::fixed_or_announced_x(amount, 1, "drain amount")?;
-                        self.out.capabilities.extend(DRAIN_CAPABILITIES);
-                        self.out.cells.insert(Cell::Drain);
-                    }
-                    return Ok(());
-                }
                 let steps = std::mem::take(&mut self.steps);
+                let direct = self.direct_sequence_member;
                 let result = nodes.iter().try_for_each(|node| {
+                    self.direct_sequence_member = matches!(node, Node::Do(_));
                     self.node(node, true)?;
-                    self.steps += 1;
+                    self.steps.push(
+                        step_producer(node).map_or(&[], |(signature, _)| signature.projections),
+                    );
                     Ok(())
                 });
                 self.steps = steps;
+                self.direct_sequence_member = direct;
                 result
             }
             Node::If {
@@ -1527,11 +1519,6 @@ impl Walk<'_, '_> {
             Verb::Search { search, .. } if search.random => {
                 unaudited("random card selection needs a top-level instruction")
             }
-            // CR 121.2: counted draws retain attempt progress and finish
-            // with an outcome that must match a top-level draw instruction.
-            Verb::Draw { player, amount } if !single_draw(player, amount) => {
-                unaudited("nested counted draw needs a top-level draw instruction")
-            }
             _ => Ok(()),
         }
     }
@@ -1545,6 +1532,8 @@ impl Walk<'_, '_> {
         }
     }
 
+    /// A fixed amount of at least `minimum`, or the announced X (CR 107.3).
+    /// Returns true for the announced X.
     /// The event-player roles whose player the life and draw executors read:
     /// a cast trigger's caster and a step trigger's active player.
     fn recipient_role(role: EventPlayerRole) -> bool {
@@ -1557,8 +1546,6 @@ impl Walk<'_, '_> {
         )
     }
 
-    /// A fixed amount of at least `minimum`, or the announced X (CR 107.3).
-    /// Returns true for the announced X.
     fn fixed_or_announced_x(amount: &Amount, minimum: i64, what: &str) -> Result<bool, KirError> {
         match amount {
             Amount::Var {
@@ -1650,10 +1637,9 @@ impl Walk<'_, '_> {
     /// audited cell.
     fn audit(&self, verb: &Verb) -> Result<Cell, KirError> {
         match verb {
-            Verb::GainLife { player, amount } | Verb::LoseLife { player, amount } => {
-                self.audit_life(player, amount)
+            Verb::GainLife { .. } | Verb::LoseLife { .. } | Verb::Draw { .. } => {
+                self.audit_evaluated(verb)
             }
-            Verb::Draw { player, amount } => self.audit_draw(player, amount),
             Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
             Verb::Fight { first, second } => self.audit_fight(first, second),
             Verb::Populate { player } => Self::audit_keyword_player(player, Cell::Populate),
@@ -1930,76 +1916,29 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
     }
 }
 
-/// CR 121.2: a draw of exactly one card by one player is a single draw.
-/// Every other draw is performed as a counted sequence of single draws.
-pub fn single_draw(player: &PlayerExpr, amount: &Amount) -> bool {
-    matches!(player, PlayerExpr::Is { .. }) && amount.as_fixed() == Some(&Quantity::from(1))
-}
-
 /// The capabilities a node derives, independent of where it resolves.
 pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
     let mut out = BTreeSet::new();
-    if drain(node).is_some() {
-        out.extend(DRAIN_CAPABILITIES);
-    } else {
-        visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
-        if matches!(node, Node::Delayed { .. } | Node::Reflexive { .. }) {
-            out.insert(Capability::ResolutionTriggerV1);
-        }
-        if matches!(node, Node::TapTargets { .. }) {
-            out.insert(Capability::OptionalTargetGroupV1);
-        }
-        if matches!(node, Node::SacrificeForTappedReturn { .. }) {
-            out.extend([Capability::SacrificeV1, Capability::GraveyardRecursionV1]);
-        }
-        if matches!(node, Node::RemoveTargets { .. }) {
-            out.insert(Capability::TargetGroupRemovalV1);
-        }
-        if matches!(node, Node::ChooseObject { .. }) {
-            out.insert(Capability::ResolutionObjectChoiceV1);
-        }
-        if node.uses_continuation() {
-            out.insert(Capability::KernelControlV1);
-        }
+    visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
+    if matches!(node, Node::Delayed { .. } | Node::Reflexive { .. }) {
+        out.insert(Capability::ResolutionTriggerV1);
+    }
+    if matches!(node, Node::TapTargets { .. }) {
+        out.insert(Capability::OptionalTargetGroupV1);
+    }
+    if matches!(node, Node::SacrificeForTappedReturn { .. }) {
+        out.extend([Capability::SacrificeV1, Capability::GraveyardRecursionV1]);
+    }
+    if matches!(node, Node::RemoveTargets { .. }) {
+        out.insert(Capability::TargetGroupRemovalV1);
+    }
+    if matches!(node, Node::ChooseObject { .. }) {
+        out.insert(Capability::ResolutionObjectChoiceV1);
+    }
+    if node.uses_continuation() {
+        out.insert(Capability::KernelControlV1);
     }
     out
-}
-
-/// The drain pair names its own reviewed surface instead of the group life
-/// executor's (CR 119.3).
-const DRAIN_CAPABILITIES: [Capability; 3] = [
-    Capability::OpponentLifeDrainV1,
-    Capability::LifeLossV1,
-    Capability::LifeGainV1,
-];
-
-/// CR 119.3, 608.2c: "each opponent loses N life. You gain life equal to the
-/// life lost this way." Returns N when `node` is exactly that pair: one
-/// simultaneous loss, then one gain of the total actually lost.
-pub fn drain(node: &Node) -> Option<&Amount> {
-    let Node::Seq(steps) = node else {
-        return None;
-    };
-    match steps.as_slice() {
-        [
-            Node::Do(Verb::LoseLife {
-                player: PlayerExpr::EachOpponent,
-                amount,
-            }),
-            Node::Do(Verb::GainLife {
-                player,
-                amount:
-                    Amount::Var {
-                        of:
-                            Ref::StepResult {
-                                step: 0,
-                                role: StepRole::Amount,
-                            },
-                    },
-            }),
-        ] if player.is_you() => Some(amount),
-        _ => None,
-    }
 }
 
 /// Calls `visit` for every verb of a node, in written order.

@@ -263,10 +263,11 @@ fn peel_step(
                 },
             });
         }
-        // The destroy verb lowers its own audited optional row.
-        // The parser names a chooser other than "you" as `decidedBy`; "you
-        // may have [player] ..." keeps "you" as the chooser.
-        Some(effect) if effect != "destroy" && step.get("optional") == Some(&Value::Bool(true)) => {
+        // Destroy and the evaluated verbs check their own optional rows.
+        Some(effect)
+            if !matches!(effect, "destroy" | "draw" | "gain-life" | "lose-life")
+                && step.get("optional") == Some(&Value::Bool(true)) =>
+        {
             let mut core = step.clone();
             let fields = core.as_object_mut().expect("step object");
             fields.remove("optional");

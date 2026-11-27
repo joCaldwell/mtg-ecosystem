@@ -144,11 +144,13 @@ pub(crate) fn cast_event(
 
 pub(crate) fn trigger_player_binding(condition: &TriggerCondition) -> PlayerBinding {
     if let Some(role) = kir::event_player_role(condition) {
-        PlayerBinding::EventPlayer(role)
+        PlayerBinding::EventPlayer(role, condition.pattern().object_role())
     } else if matches!(condition.pattern(), EventPattern::DealsDamage { .. }) {
         PlayerBinding::DamageRecipient
     } else if *condition.pattern() == EventPattern::opponent_creature_dies() {
         PlayerBinding::DeathController
+    } else if let Some(role) = condition.pattern().object_role() {
+        PlayerBinding::EventObject(role)
     } else {
         PlayerBinding::Unbound
     }
@@ -200,10 +202,8 @@ pub(crate) fn lower_trigger(
             .iter()
             .flat_map(|s| &s.steps)
             .any(|step| match step {
-                Step::Draw {
-                    amount: DrawAmount::ThatMuch {},
-                    ..
-                } => true,
+                Step::Evaluated(effect) => matches!(effect.as_ref(),
+                    ast::Effect::Draw(draw) if matches!(draw.amount.as_ref(), ast::Amount::ThatMuch(_))),
                 Step::Modal { options, .. } => {
                     options.iter().any(|o| has_draw_quantity(&o.effects))
                 }
@@ -212,7 +212,7 @@ pub(crate) fn lower_trigger(
     }
     if has_draw_quantity(effects)
         && !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None, ..}] if bindings.is_empty()
-            && matches!(steps.as_slice(), [Step::Draw {amount: DrawAmount::ThatMuch {}, ..}]))
+            && matches!(steps.as_slice(), [step] if matches!(step.effect(), Some(ast::Effect::Draw(draw)) if matches!(draw.amount.as_ref(), ast::Amount::ThatMuch(_)))))
     {
         // Prior effects may produce another quantity. This finite binder only
         // proves the standalone trigger-quantity reference; it never guesses

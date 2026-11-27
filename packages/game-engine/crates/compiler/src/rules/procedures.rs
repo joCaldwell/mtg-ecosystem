@@ -142,31 +142,37 @@ pub(crate) mod land_entry_gain_life {
         else {
             return Ok(None);
         };
-        let [
-            Step::GainLife {
-                who,
-                amount,
-                for_each: None,
-            },
-        ] = steps.as_slice()
+        let [step] = steps.as_slice() else {
+            return Ok(None);
+        };
+        let Some(ast::Effect::Variant99(life)) = step.effect() else {
+            return Ok(None);
+        };
+        let ast::EffectVariant99 {
+            optional: None,
+            decided_by: None,
+            starting_with: None,
+            for_each: None,
+            for_each_beyond: None,
+            for_each_vote: None,
+            duration: None,
+            effect: ast::ReplacementEventVariant4Event::GainLife,
+            who,
+            amount,
+        } = life.as_ref()
         else {
             return Ok(None);
         };
         if intervening.is_some()
             || !bindings.is_empty()
-            || who.player != "you"
-            || who.of.is_some()
-            || who.selection_id.is_some()
+            || !matches!(who.as_ref(), ast::PlayerRef::You(_))
         {
             return Err(unsupported(
                 "abilities.trigger",
                 "entry life gain must be mandatory for the trigger controller",
             ));
         }
-        let amount = fixed_positive(
-            &serde_json::from_value(amount.clone())
-                .map_err(|_| unsupported("amount", "entry life gain requires a fixed amount"))?,
-        )?;
+        let amount = fixed_positive_amount(amount)?;
         Ok(Some(TriggeredAbility {
             modal: None,
             functioning_zone: FunctioningZone::Battlefield,

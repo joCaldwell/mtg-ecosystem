@@ -57,6 +57,46 @@ fn rules_text(line: &str) -> String {
     out
 }
 
+/// CR 109.5, 608.2d: R5 drops the chooser from "you may have [player]
+/// [draw/gain/lose]." Recover it for a single evaluated step from its
+/// certified sentence. The original archived AST remains intact.
+pub(super) fn bind_evaluated_choosers(
+    canonical: &str,
+    line: &str,
+    segments: &[(Vec<String>, usize, usize)],
+) -> Result<Option<String>, Failure> {
+    let mut ability: Value = decode(canonical, "abilities")?;
+    let mut bound = false;
+    for (fields, start, end) in segments {
+        let [field] = fields.as_slice() else { continue };
+        if !field.strip_prefix("/effects/").is_some_and(|index| {
+            !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+        }) || !rules_text(&line[*start..*end])
+            .trim_start()
+            .starts_with("you may have ")
+        {
+            continue;
+        }
+        let Some([step]) = ability
+            .pointer_mut(field)
+            .and_then(|sentence| sentence.get_mut("steps")?.as_array_mut())
+            .map(Vec::as_mut_slice)
+        else {
+            continue;
+        };
+        if matches!(
+            step["effect"].as_str(),
+            Some("draw" | "gain-life" | "lose-life")
+        ) && step["optional"] == true
+            && step.get("decidedBy").is_none()
+        {
+            step["decidedBy"] = serde_json::json!({"player":"you"});
+            bound = true;
+        }
+    }
+    Ok(bound.then(|| ability.to_string()))
+}
+
 #[derive(Default, PartialEq, Debug)]
 struct Counts {
     may: usize,
@@ -415,6 +455,32 @@ mod tests {
     fn span(line: &str, field: &str, text: &str) -> (Vec<String>, usize, usize) {
         let start = line.find(text).unwrap();
         (vec![field.to_owned()], start, start + text.len())
+    }
+
+    #[test]
+    fn evaluated_causative_choice_uses_its_own_certified_sentence() {
+        let ability = json!({"kind":"spell","effects":[
+            {"steps":[{"effect":"lose-life","who":{"player":"target-player"},
+                "amount":{"amount":"fixed","value":1},"optional":true}]},
+            {"steps":[{"effect":"gain-life","who":{"player":"target-player"},
+                "amount":{"amount":"fixed","value":1},"optional":true}]}
+        ]});
+        let controller = "You may have target player lose 1 life.";
+        let other = "Target player may gain 1 life.";
+        let line = format!("{controller} {other}");
+        let segments = [
+            span(&line, "/effects/0", controller),
+            span(&line, "/effects/1", other),
+        ];
+        let bound = bind_evaluated_choosers(&ability.to_string(), &line, &segments)
+            .unwrap()
+            .unwrap();
+        let bound: Value = serde_json::from_str(&bound).unwrap();
+        assert_eq!(
+            bound["effects"][0]["steps"][0]["decidedBy"],
+            json!({"player":"you"})
+        );
+        assert!(bound["effects"][1]["steps"][0].get("decidedBy").is_none());
     }
 
     /// CR 615.10, 611.3a: a per-event prevention's "if ... would" is its
