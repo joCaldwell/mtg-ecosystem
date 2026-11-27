@@ -861,6 +861,9 @@ impl RulesTxn {
             }
         }
         self.attachment_sbas(&mut occurrences)?;
+        // CR 613.7m: before anything reads a continuous result, reject one
+        // controller's simultaneous timestamps whose order would decide it.
+        self.reject_simultaneous_timestamp_order()?;
         // CR 704.5j: put the unchosen legends into their owners' graveyards.
         // This is neither destruction nor sacrifice (CR 701.8/701.21).
         for group in &groups {

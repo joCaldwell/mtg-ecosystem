@@ -127,6 +127,9 @@ pub struct ObjectBefore {
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_timestamp: Option<u64>,
+    /// `Object::keyword_rank` as last known.
+    #[serde(default, skip_serializing_if = "state::is_zero_rank")]
+    pub keyword_rank: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battlefield_entry_turn: Option<u64>,
     /// CR 702.30a: `Object::control_upkeeps` as last known.
@@ -1917,6 +1920,9 @@ impl RulesTxn {
 
 impl RulesTxn {
     fn entry_tapped(&self, entering: &Object) -> Result<bool, String> {
+        if self.entry_abilities_lost(entering.id)? {
+            return Ok(false);
+        }
         Ok(self
             .copiable_definition(entering.id)?
             .static_abilities
@@ -2095,7 +2101,7 @@ impl RulesTxn {
         // CR 122.6 and 614.1c: entry counters exist on the successor from
         // the moment it enters, including for entry observers.
         let mut plus_one_counters = Quantity::zero();
-        if *destination == Zone::Battlefield {
+        if *destination == Zone::Battlefield && !self.entry_abilities_lost(face_id)? {
             for ability in &self.copiable_definition(face_id)?.static_abilities {
                 if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
                     plus_one_counters.add(count);
@@ -2103,6 +2109,7 @@ impl RulesTxn {
             }
         }
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
+        let keyword_rank = self.apnap_rank(controller);
         let control_upkeeps = (*destination == Zone::Battlefield)
             .then(|| self.state.rules.players[controller.0 as usize].upkeeps);
         self.rules_mut().objects.insert(
@@ -2115,6 +2122,7 @@ impl RulesTxn {
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
                 control_upkeeps,
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
+                keyword_rank,
                 plus_one_counters,
                 transforms: 0,
                 adventure_player: None,
@@ -2390,6 +2398,7 @@ impl RulesTxn {
                     return Err("unsupported replaced attached entry".into());
                 }
                 let batch = self.state.rules.next_batch_id;
+                let rank = self.apnap_rank(self.current(movement.successor)?.controller);
                 let permanent = self
                     .rules_mut()
                     .objects
@@ -2398,6 +2407,7 @@ impl RulesTxn {
                 permanent.attached_to = Some(*target);
                 permanent.attachment_timestamp = Some(attachment_timestamp);
                 permanent.keyword_timestamp = Some(batch);
+                permanent.keyword_rank = rank;
                 self.rules_mut().next_attachment_timestamp = next;
                 EventOutcome::EnteredAttached {
                     movement,
@@ -2417,13 +2427,16 @@ impl RulesTxn {
                     }
                     None => true,
                 };
+                // CR 704.5p: anything attached may become unattached; only an
+                // Aura or Equipment attaches.
                 if !self.current(*object)?.present_on_battlefield()
                     || !self.is_live(self.current(*object)?.controller)
-                    || !self
-                        .structural_characteristics(*object)?
-                        .subtypes
-                        .iter()
-                        .any(|s| s == "Equipment" || s == "Aura")
+                    || (target.is_some()
+                        && !self
+                            .structural_characteristics(*object)?
+                            .subtypes
+                            .iter()
+                            .any(|s| s == "Equipment" || s == "Aura"))
                     || !target_valid
                 {
                     return Err("invalid attachment event".into());
@@ -2435,6 +2448,7 @@ impl RulesTxn {
                     None
                 };
                 let batch = self.state.rules.next_batch_id;
+                let rank = self.apnap_rank(self.current(*object)?.controller);
                 let o = self
                     .rules_mut()
                     .objects
@@ -2445,6 +2459,7 @@ impl RulesTxn {
                     o.attachment_timestamp = allocation.map(|(timestamp, _)| timestamp);
                     if target.is_some() {
                         o.keyword_timestamp = Some(batch);
+                        o.keyword_rank = rank;
                     }
                     if let Some((_, next)) = allocation {
                         self.rules_mut().next_attachment_timestamp = next;
@@ -3089,12 +3104,19 @@ impl RulesTxn {
                     return Err("invalid turn face up event".into());
                 }
                 let counter = face_down.kind == FaceDownKind::Megamorph;
+                // CR 613.7f, 613.7m: a new timestamp, ordered by APNAP.
+                let (batch, rank) = (
+                    self.state.rules.next_batch_id,
+                    self.apnap_rank(o.controller),
+                );
                 let o = self
                     .rules_mut()
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing face-down object")?;
                 o.face_down = false;
+                o.keyword_timestamp = Some(batch);
+                o.keyword_rank = rank;
                 if counter {
                     o.plus_one_counters.add(&Quantity::from(1));
                 }

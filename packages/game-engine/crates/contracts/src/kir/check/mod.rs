@@ -959,8 +959,16 @@ impl Walk<'_, '_> {
                         Ok(())
                     }
                     Change::Controller { player } => self.player(player),
-                    Change::AllCreatureTypes | Change::AddCreatureSubtypes { .. } => {
-                        kind("resolving creature-type change")
+                    Change::AllCreatureTypes
+                    | Change::AddCreatureSubtypes { .. }
+                    | Change::SetCreatureSubtypes { .. } => kind("resolving creature-type change"),
+                    // CR 205.1a, 305.7: resolving type replacement is not admitted.
+                    Change::SetCardTypes { .. }
+                    | Change::RemoveCardTypes { .. }
+                    | Change::SetLandSubtypes { .. } => kind("resolving type replacement"),
+                    // CR 113.10, 613.1f: resolving ability loss is not admitted.
+                    Change::RemoveAllAbilities { .. } | Change::ForbidKeywords { .. } => {
+                        kind("resolving ability loss")
                     }
                     // CR 113.10: resolving ability grants are not admitted.
                     Change::AddManaAbilities { .. } => kind("resolving mana ability grant"),

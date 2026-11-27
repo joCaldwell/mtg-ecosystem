@@ -5,9 +5,9 @@
 //! `formats_tests` fingerprints fail with the constant to bump.
 
 /// `Game::snapshot` envelope and its complete private `State`.
-pub const SNAPSHOT_VERSION: u32 = 122;
+pub const SNAPSHOT_VERSION: u32 = 123;
 /// `Observation`, the permitted per-viewer view and decision.
-pub const OBSERVATION_VERSION: u32 = 91;
+pub const OBSERVATION_VERSION: u32 = 92;
 /// `Game::save_work` envelope for suspended queries.
 pub const WORK_VERSION: u32 = 63;
 /// `SearchContext`, the permitted information set a search query returns.
