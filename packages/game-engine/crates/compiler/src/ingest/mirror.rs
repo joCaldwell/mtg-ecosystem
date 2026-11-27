@@ -68,6 +68,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "afterlife"
                 | "soulshift"
                 | "exalted"
+                | "myriad"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {

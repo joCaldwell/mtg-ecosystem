@@ -773,7 +773,9 @@ impl Walk<'_, '_> {
             Verb::ReturnCapturedExile {}
             | Verb::ExileCapturedReturn {}
             | Verb::SacrificeEncoreTokens {}
+            | Verb::ExileMyriadTokens {}
             | Verb::ReturnDashedToHand {} => Ok(()),
+            Verb::CreateMyriadToken { defender } => self.player(defender),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::GiveCounters { player, amount, .. }
@@ -1005,6 +1007,31 @@ impl Walk<'_, '_> {
                     {
                         self.control_player(player, false)?;
                         self.nonnegative_control_amount(amount)?;
+                    }
+                    // CR 702.116a: one opponent bound by the myriad
+                    // iteration; the whole ability is the reviewed builder
+                    // (`TriggeredAbility::is_myriad`).
+                    Verb::CreateMyriadToken { defender } if in_control => {
+                        self.control_player(defender, true)?;
+                        if !self.scan {
+                            if self.env.context != Context::Triggered
+                                || !matches!(
+                                    defender,
+                                    PlayerExpr::Is {
+                                        who: Ref::BoundVar { .. }
+                                    }
+                                )
+                                || !self.env.event.is_some_and(|event| {
+                                    *event.pattern()
+                                        == (EventPattern::Attacks {
+                                            attacker: Pred::source(),
+                                        })
+                                })
+                            {
+                                return unaudited("myriad token creation");
+                            }
+                            self.out.cells.insert(Cell::Myriad);
+                        }
                     }
                     _ => {
                         let enclosing_leaf = std::mem::replace(&mut self.plain_leaf, in_control);
@@ -1319,6 +1346,11 @@ impl Walk<'_, '_> {
                     (DelayedEvent::NextEndStepAfterUnearth, Node::Do(Verb::ExileCapturedReturn {}))
                         if self.env.context == Context::Activated && program.targets.is_empty() => {
                         self.out.cells.insert(Cell::Unearth);
+                    }
+                    // CR 702.116a: a myriad ability's end-of-combat exile.
+                    (DelayedEvent::EndOfCombat, Node::Do(Verb::ExileMyriadTokens {}))
+                        if self.env.context == Context::Triggered && program.targets.is_empty() => {
+                        self.out.cells.insert(Cell::Myriad);
                     }
                     // CR 702.141a: a graveyard source's own encore ability.
                     (DelayedEvent::NextEndStepAfterEncore, Node::Do(Verb::SacrificeEncoreTokens {}))
@@ -1689,6 +1721,8 @@ impl Walk<'_, '_> {
             | Verb::ReturnCapturedExile {}
             | Verb::ExileCapturedReturn {}
             | Verb::SacrificeEncoreTokens {}
+            | Verb::CreateMyriadToken { .. }
+            | Verb::ExileMyriadTokens {}
             | Verb::ReturnDashedToHand {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
@@ -1833,12 +1867,16 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::ReturnCapturedExile {}
         | Verb::ExileCapturedReturn {}
         | Verb::SacrificeEncoreTokens {}
+        | Verb::ExileMyriadTokens {}
         | Verb::ReturnDashedToHand {}
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::SetDesignation { .. }
         | Verb::Shuffle { .. }
         | Verb::Builtin { .. } => {}
+        Verb::CreateMyriadToken { .. } => {
+            out.insert(Capability::MyriadV1);
+        }
     }
 }
 

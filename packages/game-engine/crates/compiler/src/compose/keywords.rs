@@ -724,7 +724,7 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
-/// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b). The `bool` states
+/// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b, 702.116b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
@@ -732,6 +732,7 @@ const TRIGGERED: &[(&str, bool)] = &[
     ("afterlife", true),
     ("soulshift", true),
     ("exalted", false),
+    ("myriad", false),
 ];
 
 pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
@@ -1257,6 +1258,8 @@ pub(super) fn triggered(
                 ]),
             }
         }
+        // CR 702.116a: the reviewed whole ability (tokens copy the card).
+        "myriad" if creature => return Ok(TriggeredAbility::myriad(block)),
         _ => return Err(source()),
     };
     Ok(trigger_on(pattern, program))

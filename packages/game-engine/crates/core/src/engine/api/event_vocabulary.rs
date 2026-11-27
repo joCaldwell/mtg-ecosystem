@@ -115,6 +115,14 @@ pub enum ProposedEvent {
         source: ObjectId,
         defenders: Vec<PlayerId>,
     },
+    /// CR 702.116a, 508.4: one token copy of the myriad source `source`,
+    /// tapped and attacking `defender`, for the invocation `creator`.
+    CreateMyriadToken {
+        controller: PlayerId,
+        source: ObjectId,
+        defender: PlayerId,
+        creator: StackId,
+    },
     CreatePredefinedTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -372,6 +380,14 @@ pub enum EventOutcome {
         objects: Vec<ObjectId>,
         controller: PlayerId,
         original: ObjectId,
+    },
+    MyriadTokenCreated {
+        object: ObjectId,
+        controller: PlayerId,
+        original: ObjectId,
+        /// The player it is attacking, or `None` when it entered without
+        /// attacking (CR 506.3b, 508.4a).
+        attacking: Option<PlayerId>,
     },
     PredefinedTokensCreated {
         objects: Vec<ObjectId>,

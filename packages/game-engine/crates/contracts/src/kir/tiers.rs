@@ -337,6 +337,9 @@ pub enum Cell {
     /// CR 702.109a: the dash alternative cost, the haste it grants and the
     /// end-step return of the permanent the spell became.
     Dash,
+    /// CR 702.116a: per-opponent token copies of an attacking source, tapped
+    /// and attacking, and their end-of-combat exile.
+    Myriad,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -501,6 +504,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Unearth
         | C::Encore
         | C::Dash
+        | C::Myriad
         | C::SacrificeSource => Tiers::EXECUTES,
     }
 }
@@ -653,6 +657,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ActivatedSourceKeywordGrantV1
         | C::FightV1
         | C::PopulateV1
+        | C::MyriadV1
         | C::PlayerCountersV1
         | C::RegenerationShieldV1
         | C::ProliferateV1

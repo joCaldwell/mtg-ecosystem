@@ -430,6 +430,8 @@ pub enum Capability {
     MenaceV1,
     FightV1,
     PopulateV1,
+    /// CR 702.116a: myriad's attacking token copies and their exile.
+    MyriadV1,
     PlayerCountersV1,
     ProliferateV1,
     CreatureTokensV1,

@@ -398,6 +398,10 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             BTreeSet::from([FactKey::TokenAllocation, FactKey::Object(source.card)]),
             BTreeSet::from([FactKey::TokenAllocation]),
         ),
+        ProposedEvent::CreateMyriadToken { source, .. } => (
+            BTreeSet::from([FactKey::TokenAllocation, FactKey::Object(source.card)]),
+            BTreeSet::from([FactKey::TokenAllocation]),
+        ),
         ProposedEvent::CreateCreatureTokens { .. }
         | ProposedEvent::CreatePredefinedTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
@@ -739,6 +743,7 @@ fn collect<'a>(
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateTokenCopy { .. }
                             | ProposedEvent::CreateEncoreTokens { .. }
+                            | ProposedEvent::CreateMyriadToken { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::CreatePredefinedTokens { .. }
                             | ProposedEvent::FreezeLifeUntilNextTurn { .. }
@@ -948,6 +953,7 @@ impl RulesTxn {
                     objects.insert(*original);
                 }
                 ProposedEvent::CreateEncoreTokens { controller, .. }
+                | ProposedEvent::CreateMyriadToken { controller, .. }
                 | ProposedEvent::CreateCreatureTokens { controller, .. }
                 | ProposedEvent::CreatePredefinedTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
@@ -2571,6 +2577,7 @@ impl RulesTxn {
             }
             event @ (ProposedEvent::CreateTokenCopy { .. }
             | ProposedEvent::CreateEncoreTokens { .. }
+            | ProposedEvent::CreateMyriadToken { .. }
             | ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::CreatePredefinedTokens { .. }
             | ProposedEvent::CeaseToken { .. }

@@ -909,7 +909,8 @@ impl RulesTxn {
                 EventOutcome::TurnedFaceUp { object, .. } => {
                     self.source_face_up_witness(*object)?.into_iter().collect()
                 }
-                EventOutcome::TokenCopied { object, .. } => {
+                EventOutcome::TokenCopied { object, .. }
+                | EventOutcome::MyriadTokenCreated { object, .. } => {
                     vec![TriggerEventWitness::TokenEntered { object: *object }]
                 }
                 EventOutcome::TokensCreated { objects, .. }

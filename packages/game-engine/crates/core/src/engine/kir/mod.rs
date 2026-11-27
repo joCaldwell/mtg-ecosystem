@@ -136,6 +136,9 @@ impl RulesTxn {
         if matches!(node, Node::Do(Verb::SacrificeEncoreTokens {})) {
             return self.execute_encore_sacrifice(frame, source_block);
         }
+        if matches!(node, Node::Do(Verb::ExileMyriadTokens {})) {
+            return self.execute_myriad_exile(frame, source_block);
+        }
         // CR 119.3: the standalone drain pair uses the actual loss total.
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;

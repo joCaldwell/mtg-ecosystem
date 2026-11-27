@@ -90,6 +90,13 @@ pub enum TokenTemplate {
     TokenCopy {
         original: ObjectId,
     },
+    /// CR 702.116a: a token copy of the myriad source (the identity's
+    /// `source`) created by the invocation `creator`, tapped and attacking
+    /// `attacks`. That invocation's delayed trigger exiles it.
+    MyriadCopy {
+        attacks: PlayerId,
+        creator: StackId,
+    },
     SpellCopy {
         original: ObjectId,
         stack_id: StackId,
@@ -556,6 +563,55 @@ impl RulesTxn {
                     original: *source,
                 })
             }
+            // CR 702.116a, 707.2: one token copy of the myriad source's
+            // copiable values, tapped and attacking `defender` as it enters
+            // (CR 508.4). It is attacking only under an attacking player and
+            // against a defender still in the game (CR 506.3b, 508.4a).
+            ProposedEvent::CreateMyriadToken {
+                controller,
+                source,
+                defender,
+                creator,
+            } => {
+                if !self.is_live(*controller) || *defender == *controller {
+                    return Err("invalid myriad token creation".into());
+                }
+                self.check_token_capacity(1)?;
+                let card = self.next_token_card()?;
+                let definition = token_copy_definition(self.copiable_definition(source)?, card);
+                let object = self.insert_token_identity(
+                    card,
+                    *controller,
+                    Zone::Battlefield,
+                    TokenIdentity {
+                        source: *source,
+                        spec: TokenTemplate::MyriadCopy {
+                            attacks: *defender,
+                            creator: *creator,
+                        },
+                        definition,
+                    },
+                );
+                self.enter_token_tapped(card, true)?;
+                let attacking = (self.state.rules.active == Some(*controller)
+                    && self.is_live(*defender)
+                    && self.state.rules.turn.step.phase() == Phase::Combat)
+                    .then_some(*defender);
+                if let Some(defender) = attacking {
+                    self.rules_mut().combat.push(combat::Attacker {
+                        attacker: object,
+                        defender,
+                        blocked: false,
+                        blockers: vec![],
+                    });
+                }
+                Ok(EventOutcome::MyriadTokenCreated {
+                    object,
+                    controller: *controller,
+                    original: *source,
+                    attacking,
+                })
+            }
             ProposedEvent::CreatePredefinedTokens {
                 controller,
                 source,
@@ -757,6 +813,18 @@ impl RulesTxn {
                             || !source.activated.iter().any(ActivatedAbility::is_encore)
                         {
                             return Err("snapshot encore token provenance invariant".into());
+                        }
+                        token_copy_definition(source, *id)
+                    }
+                    // CR 702.116a: the myriad ability's own resolution copied
+                    // its source for one opponent.
+                    TokenTemplate::MyriadCopy { attacks, creator } => {
+                        if attacks.0 >= 4
+                            || *attacks == self.state.rules.cards[id].owner
+                            || creator.0 >= self.state.rules.next_stack_id
+                            || !source.triggered.iter().any(TriggeredAbility::is_myriad)
+                        {
+                            return Err("snapshot myriad token provenance invariant".into());
                         }
                         token_copy_definition(source, *id)
                     }

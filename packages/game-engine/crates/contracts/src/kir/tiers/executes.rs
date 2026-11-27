@@ -941,6 +941,28 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     if let Some(modal) = &a.modal {
         modal_shape(&a.program, modal, true)?;
     }
+    // CR 702.116a: myriad is exactly the reviewed ability of a single-faced
+    // creature card; its tokens copy that card. CR 614.1c, 614.12: the
+    // copies' own entry replacements would modify their creation, which has
+    // no entry stage.
+    if a.names_myriad()
+        && (!a.is_myriad()
+            || kind != CardKind::Creature
+            || d.layout != FaceLayout::Single
+            || d.back_face.is_some()
+            || d.static_abilities.iter().any(|s| {
+                matches!(
+                    s.effect,
+                    StaticEffect::EntersTapped
+                        | StaticEffect::PayLifeOrEnterTapped { .. }
+                        | StaticEffect::RevealOrEnterTapped { .. }
+                        | StaticEffect::EntersTappedIf { .. }
+                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                )
+            }))
+    {
+        return cell("trigger", "myriad");
+    }
     for p in a.programs() {
         if a.modal.as_ref().and_then(|m| m.selections.get(&0)) != Some(p) {
             program(p, Context::Triggered, Some(&a.condition), false)?;
