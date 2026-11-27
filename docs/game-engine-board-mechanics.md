@@ -310,7 +310,8 @@ event-result counts and token-creation replacement abilities reject.
   players simultaneously: every permanent kind below and player poison and
   energy; ten poison counters lose (CR 701.34a, 704.5c).
 - Permanent counters besides +1/+1 go on the same recipients (source, target
-  creature, matching creature set) as one placement event. -1/-1 counters take
+  creature, matching creature set) as one placement event, one atomic change
+  per permanent carrying every kind it receives. -1/-1 counters take
   fixed or announced X amounts and modify P/T in layer 7c; matching +1/+1 and
   -1/-1 counters annihilate in the state-based wave, skipping permanents that
   leave in it (CR 122.1a, 122.3, 704.5q). Keyword counters for the reviewed
