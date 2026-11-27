@@ -188,7 +188,14 @@ impl RulesTxn {
                 .objects
                 .values()
                 .filter(|o| {
-                    self.object_target_legal_by(o.id, player, source, source_object, spec, None)
+                    self.object_target_legal_by(
+                        o.id,
+                        player,
+                        source,
+                        source_object,
+                        spec,
+                        XBound::Unannounced,
+                    )
                 })
                 .count();
             return eligible >= count;
@@ -200,7 +207,14 @@ impl RulesTxn {
                     .into_iter()
                     .any(|p| self.targetable_player(p))
                     || self.state.rules.objects.values().any(|o| {
-                        self.object_target_legal_by(o.id, player, source, source_object, spec, None)
+                        self.object_target_legal_by(
+                            o.id,
+                            player,
+                            source,
+                            source_object,
+                            spec,
+                            XBound::Unannounced,
+                        )
                     })
             }
             domain @ (TargetDomain::AnyPlayer
@@ -212,7 +226,14 @@ impl RulesTxn {
                 .eligible_stack_targets_for(spec, player, None)
                 .is_empty(),
             _ => self.state.rules.objects.values().any(|o| {
-                self.object_target_legal_by(o.id, player, source, source_object, spec, None)
+                self.object_target_legal_by(
+                    o.id,
+                    player,
+                    source,
+                    source_object,
+                    spec,
+                    XBound::Unannounced,
+                )
             }),
         })
     }

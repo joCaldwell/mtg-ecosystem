@@ -60,14 +60,16 @@ impl RulesTxn {
             return Ok(Quantity::zero());
         };
         let entry = self.top()?;
-        self.state
+        // With no qualifying card, target announcement rejects the cast.
+        Ok(self
+            .state
             .rules
             .objects
             .values()
-            .filter(|object| self.object_target_legal_for(entry, object.id, spec))
+            .filter(|object| self.object_target_legal_before_x(entry, object.id, spec))
             .filter_map(|object| self.graveyard_mana_value(object.id))
             .min()
-            .ok_or_else(|| "no graveyard card satisfies the target filter".into())
+            .unwrap_or_else(Quantity::zero))
     }
 
     // CR 601.2b-c: an exact X choice must leave that many legal objects.
@@ -85,7 +87,7 @@ impl RulesTxn {
             .rules
             .objects
             .values()
-            .filter(|object| self.object_target_legal_for(entry, object.id, spec))
+            .filter(|object| self.object_target_legal_before_x(entry, object.id, spec))
             .count();
         Ok(Some(
             i64::try_from(eligible)

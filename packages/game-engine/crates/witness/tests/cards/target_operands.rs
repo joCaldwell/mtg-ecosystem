@@ -442,6 +442,7 @@ mod target_filters;
 mod target_groups;
 
 mod graveyard;
+mod policy;
 
 /// CR 205.3d, 601.2c, 608.2b: each printed subtype is an alternative.
 #[test]

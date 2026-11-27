@@ -129,6 +129,7 @@ pub const TEST_OPT_LEVEL: &str = env!("MTG_CORE_OPT_LEVEL");
 #[cfg(feature = "testkit")]
 pub const TEST_PROFILE: &str = env!("MTG_CORE_PROFILE");
 pub use effects::*;
+use graveyard_targets::XBound;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
 use std::{

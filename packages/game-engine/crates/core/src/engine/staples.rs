@@ -90,6 +90,26 @@ impl RulesTxn {
         object: ObjectId,
         spec: &mtg_contracts::TargetSpec,
     ) -> bool {
+        self.entry_target_legal(entry, object, spec, XBound::Entry(entry.x.as_ref()))
+    }
+
+    /// CR 601.2b-c: the entry's target criteria before X is announced.
+    pub(super) fn object_target_legal_before_x(
+        &self,
+        entry: &StackInstance,
+        object: ObjectId,
+        spec: &mtg_contracts::TargetSpec,
+    ) -> bool {
+        self.entry_target_legal(entry, object, spec, XBound::Unannounced)
+    }
+
+    fn entry_target_legal(
+        &self,
+        entry: &StackInstance,
+        object: ObjectId,
+        spec: &mtg_contracts::TargetSpec,
+        x: XBound<'_>,
+    ) -> bool {
         self.targeting_characteristics(entry).is_ok_and(|source| {
             self.object_target_legal_by(
                 object,
@@ -97,7 +117,7 @@ impl RulesTxn {
                 &source,
                 Some(entry.source),
                 spec,
-                entry.x.as_ref(),
+                x,
             )
         })
     }
@@ -114,7 +134,7 @@ impl RulesTxn {
         source: &Characteristics,
         source_object: Option<ObjectId>,
         spec: &mtg_contracts::TargetSpec,
-        x: Option<&Quantity>,
+        x: XBound<'_>,
     ) -> bool {
         if self.protected_from(object, source) {
             return false;
