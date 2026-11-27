@@ -424,9 +424,7 @@ impl RulesTxn {
             };
             // Admitted layer-4 conditions read nothing a layer changes.
             if first_layer(changes) != Some(Layer::Type)
-                || condition
-                    .as_ref()
-                    .is_some_and(|c| !self.static_condition(source, c))
+                || !self.condition_holds(source, condition.as_ref())?
             {
                 continue;
             }

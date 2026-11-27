@@ -138,11 +138,54 @@ pub enum StaticRule {
         event: DamageEvent,
         change: DamageModification,
     },
+    /// CR 614.1a, 614.16: "If [an effect] would create one or more tokens
+    /// / put one or more counters ..., [it creates/puts] [changed] that many
+    /// instead." Each instance applies once to each event (CR 614.5); the
+    /// affected player or controller orders several (CR 616.1).
+    ModifyQuantity {
+        event: QuantityEvent,
+        change: crate::QuantityModification,
+    },
     /// CR 615.12: matching damage can't be prevented. No admitted
     /// prevention effect has an additional effect, so none applies and no
     /// prevention shield is reduced.
     DamageCantBePrevented {
         event: DamageEvent,
+    },
+}
+
+/// CR 614.16: whether a quantity replacement watches only events a resolving
+/// spell or ability, or another replacement, produces, or any event
+/// including costs and rules actions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplacementOrigin {
+    Effect,
+    Any,
+}
+
+/// CR 122.1: the permanents whose counters a quantity replacement watches,
+/// always among those the static's controller controls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CounterRecipients {
+    Permanents,
+    Creatures,
+}
+
+/// The event a quantity replacement watches (CR 111.1, 122.6, 614.1a).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
+pub enum QuantityEvent {
+    /// Tokens created under the static's controller's control.
+    CreateTokens { origin: ReplacementOrigin },
+    /// Counters put on a controlled permanent: one kind, or any kind when
+    /// `counter` is absent. An entering permanent's counters count (CR 122.6).
+    PutCounters {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        counter: Option<CounterKind>,
+        recipients: CounterRecipients,
+        origin: ReplacementOrigin,
     },
 }
 
@@ -437,6 +480,10 @@ impl StaticEffect {
                 rule: StaticRule::DamageCantBePrevented { .. },
                 ..
             } => Capability::UnpreventableDamageV1,
+            Self::Rule {
+                rule: StaticRule::ModifyQuantity { .. },
+                ..
+            } => Capability::QuantityReplacementV1,
             Self::Rule { .. } => Capability::RuleStaticsV1,
             Self::DefinePowerToughness { .. } => Capability::CharacteristicPowerToughnessV1,
         }
@@ -500,7 +547,7 @@ fn condition_set(set: &SetExpr) -> bool {
                 && predicate_in_layer(filter, Layer::Color)
         }
         SetExpr::One { object } => *object == Ref::Source,
-        SetExpr::Pool { .. } => false,
+        SetExpr::Pool { .. } | SetExpr::Targets { .. } => false,
     }
 }
 
@@ -1244,6 +1291,20 @@ impl crate::StaticAbility {
                     }
                     StaticRule::DamageCantBePrevented { event } => {
                         on_battlefield && damage_event_valid(event, definition)
+                    }
+                    // CR 614.1a: tokens only multiply in the first tranche;
+                    // counter kinds are object counters (CR 122.1).
+                    StaticRule::ModifyQuantity { event, change } => {
+                        on_battlefield
+                            && change.validate().is_ok()
+                            && match event {
+                                QuantityEvent::CreateTokens { .. } => {
+                                    matches!(change, crate::QuantityModification::Multiply { .. })
+                                }
+                                QuantityEvent::PutCounters { counter, .. } => counter
+                                    .as_ref()
+                                    .is_none_or(|c| c.admitted() || *c == CounterKind::Loyalty),
+                            }
                     }
                 };
                 if supported {

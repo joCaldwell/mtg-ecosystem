@@ -415,6 +415,7 @@ impl RulesTxn {
             return Err("snapshot stack/zone invariant".into());
         }
         self.validate_battlefield_entry()?;
+        self.validate_replacement_order()?;
         self.validate_graveyard_replacement()?;
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.rules.frame)?;

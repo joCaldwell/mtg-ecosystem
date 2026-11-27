@@ -77,6 +77,7 @@ impl OperandClass {
             SetExpr::One { object } => Self::reference(object),
             SetExpr::Matching { .. } => Some(Self::Measure),
             SetExpr::Pool { pool } => Self::reference(pool),
+            SetExpr::Targets { .. } => Some(Self::Target),
         }
     }
 

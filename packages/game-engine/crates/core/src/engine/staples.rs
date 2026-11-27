@@ -4,7 +4,7 @@
 use super::*;
 
 impl RulesTxn {
-    pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
+    pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> Result<bool, String> {
         self.is_permanent_damage_recipient(id)
     }
     pub(crate) fn object_target_legal(
@@ -12,17 +12,19 @@ impl RulesTxn {
         entry: &StackInstance,
         slot: usize,
         object: ObjectId,
-    ) -> bool {
-        self.program_for(entry).is_ok_and(|program| {
-            program
-                .targets
-                .get(if program.variable_target_count().is_some() {
-                    0
-                } else {
-                    slot
-                })
-                .is_some_and(|spec| self.object_target_legal_for(entry, object, spec))
-        })
+    ) -> Result<bool, String> {
+        let Ok(program) = self.program_for(entry) else {
+            return Ok(false);
+        };
+        let slot = if program.variable_target_count().is_some() {
+            0
+        } else {
+            slot
+        };
+        match program.targets.get(slot) {
+            Some(spec) => self.object_target_legal_for(entry, object, spec),
+            None => Ok(false),
+        }
     }
 
     pub(super) fn object_target_legal_for(
@@ -30,7 +32,7 @@ impl RulesTxn {
         entry: &StackInstance,
         object: ObjectId,
         spec: &mtg_contracts::TargetSpec,
-    ) -> bool {
+    ) -> Result<bool, String> {
         self.entry_target_legal(entry, object, spec, XBound::Entry(entry.x.as_ref()))
     }
 
@@ -40,7 +42,7 @@ impl RulesTxn {
         entry: &StackInstance,
         object: ObjectId,
         spec: &mtg_contracts::TargetSpec,
-    ) -> bool {
+    ) -> Result<bool, String> {
         self.entry_target_legal(entry, object, spec, XBound::Unannounced)
     }
 
@@ -50,18 +52,18 @@ impl RulesTxn {
         object: ObjectId,
         spec: &mtg_contracts::TargetSpec,
         x: XBound<'_>,
-    ) -> bool {
-        self.targeting_source(entry, spec.requires_source_power())
-            .is_ok_and(|source| {
-                self.object_target_legal_by(
-                    object,
-                    entry.controller,
-                    &source,
-                    Some(entry.source),
-                    spec,
-                    x,
-                )
-            })
+    ) -> Result<bool, String> {
+        let Ok(source) = self.targeting_source(entry, spec.requires_source_power()) else {
+            return Ok(false);
+        };
+        self.object_target_legal_by(
+            object,
+            entry.controller,
+            &source,
+            Some(entry.source),
+            spec,
+            x,
+        )
     }
 
     /// CR 115.1, 601.2c, 608.2b: whether `object` is a legal target of an
@@ -69,6 +71,7 @@ impl RulesTxn {
     /// characteristics and `source_object` its identity, which a
     /// controlled-creature target and "another" exclude. Announcement before
     /// the stack entry exists and the resolution recheck share this test.
+    /// A missing object is not legal; a failed layer read is an error.
     pub(super) fn object_target_legal_by(
         &self,
         object: ObjectId,
@@ -77,11 +80,11 @@ impl RulesTxn {
         source_object: Option<ObjectId>,
         spec: &mtg_contracts::TargetSpec,
         x: XBound<'_>,
-    ) -> bool {
+    ) -> Result<bool, String> {
         if self.protected_from(object, source) != Ok(false) {
-            return false;
+            return Ok(false);
         }
-        match spec.domain {
+        Ok(match spec.domain {
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
                 self.permanent_target_legal(
                     object,
@@ -89,7 +92,7 @@ impl RulesTxn {
                     source_object,
                     source.power.as_ref(),
                     spec,
-                )
+                )?
             }
             TargetDomain::GraveyardCard { .. }
             | TargetDomain::OwnGraveyardCreatureCard
@@ -97,23 +100,24 @@ impl RulesTxn {
                 .current(object)
                 .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec, x)),
             TargetDomain::AnyDamageTarget | TargetDomain::CreatureOrPlaneswalker => {
-                self.creature_or_planeswalker(object) && self.targetable_by(object, controller)
+                self.creature_or_planeswalker(object)? && self.targetable_by(object, controller)?
             }
             TargetDomain::PlayerOrPlaneswalker => {
-                self.is_battlefield_planeswalker(object) && self.targetable_by(object, controller)
+                self.is_battlefield_planeswalker(object)
+                    && self.targetable_by(object, controller)?
             }
             TargetDomain::ControlledBattlefieldCreature => {
-                self.is_battlefield_creature(object)
-                    && self.targetable_by(object, controller)
+                self.is_battlefield_creature(object)?
+                    && self.targetable_by(object, controller)?
                     && self
                         .current(object)
                         .is_ok_and(|o| o.controller == controller && Some(o.id) != source_object)
             }
             TargetDomain::BlockingBattlefieldCreature => {
-                self.is_blocking_creature(object) && self.targetable_by(object, controller)
+                self.is_blocking_creature(object)? && self.targetable_by(object, controller)?
             }
-            _ => self.is_battlefield_creature(object) && self.targetable_by(object, controller),
-        }
+            _ => self.is_battlefield_creature(object)? && self.targetable_by(object, controller)?,
+        })
     }
 
     pub(super) fn execute_staples_instruction(
@@ -129,7 +133,7 @@ impl RulesTxn {
                 };
                 let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
-                    && self.is_battlefield_creature(target)
+                    && self.is_battlefield_creature(target)?
                 {
                     return self.complete_graveyard_group(
                         self.instruction_cause(&frame, source_block)?,

@@ -41,6 +41,8 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             published: None,
             actual_journal: None,
             prospective_entry: None,
+            replacement_answers: Arc::new([]),
+            quantity_log: vec![],
         },
     }
 }

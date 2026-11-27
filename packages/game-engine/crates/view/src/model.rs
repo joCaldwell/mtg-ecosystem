@@ -238,6 +238,13 @@ pub enum Reason<S: Space> {
     /// CR 608.2c-d: choose cards of the decider's own hand or graveyard while
     /// applying an instruction. The shape's bounds say how many must be chosen.
     ResolveCardChoice,
+    /// CR 616.1, 616.1e: choose which replacement applies next to the counters
+    /// put on `subject`; the candidates are the replacements' permanents.
+    /// `subject` is absent when the chooser cannot see the receiving object.
+    ReplacementOrder {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subject: Option<S::Object>,
+    },
 }
 
 impl<S: Space> Reason<S> {
@@ -284,6 +291,7 @@ impl<S: Space> Reason<S> {
             Self::LookChooseHand => 37,
             Self::ResolveCardChoice => 38,
             Self::MyriadDefender => 39,
+            Self::ReplacementOrder { .. } => 40,
         }
     }
 }

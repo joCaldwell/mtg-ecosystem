@@ -566,6 +566,16 @@ impl Walk<'_, '_> {
                 self.pred(filter)
             }
             SetExpr::Pool { pool } => self.expect(pool, &[RefKind::Pool], "pool").map(drop),
+            // CR 115.3: at least two distinct slots of announced objects.
+            SetExpr::Targets { slots } => {
+                if slots.len() < 2 || slots.windows(2).any(|w| w[0] >= w[1]) {
+                    return unaudited("target set slots");
+                }
+                slots.iter().try_for_each(|slot| {
+                    self.expect(&Ref::Target { slot: *slot }, &[RefKind::Object], "object")
+                        .map(drop)
+                })
+            }
         }
     }
 

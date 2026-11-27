@@ -386,6 +386,20 @@ impl Walk<'_, '_> {
             SetExpr::Pool {
                 pool: Ref::BoundVar { .. } | Ref::StepResult { .. },
             } => {}
+            // CR 122.6, 608.2b: one placement on each legal member of a
+            // counted creature occurrence.
+            SetExpr::Targets { slots } => {
+                for slot in slots {
+                    if !(matches!(
+                        self.domain(*slot)?,
+                        TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::BattlefieldCreature
+                    ) || self.creature_target(*slot)?)
+                    {
+                        return unaudited("counter target domain");
+                    }
+                }
+            }
             _ => return unaudited("counter recipient"),
         }
         let fixed = amount.as_fixed().is_some_and(|n| *n >= Quantity::from(1));

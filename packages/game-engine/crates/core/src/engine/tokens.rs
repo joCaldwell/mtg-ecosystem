@@ -309,7 +309,11 @@ impl RulesTxn {
             Some(timestamp),
             &modifiers,
         );
-        prior.apply_entry_replacements(id, &mut entrant, &modifiers, Some(&identity))?;
+        for placed in
+            prior.apply_entry_replacements(id, &mut entrant, &modifiers, Some(&identity))?
+        {
+            self.record_quantity(placed);
+        }
         self.insert_token_definition(card, controller, identity);
         self.rules_mut().objects.insert(card, entrant);
         Ok(id)
@@ -399,6 +403,54 @@ impl RulesTxn {
             },
         )
     }
+    /// CR 111.1, 614.1a, 614.16: the number of tokens one creation of
+    /// `count` makes under `controller`'s control after the quantity
+    /// replacements on the common prior battlefield. Every token is created
+    /// by an effect. The whole replaced creation must fit the token capacity
+    /// before any token is made.
+    fn created_count(
+        &mut self,
+        prior: &Self,
+        controller: PlayerId,
+        count: u32,
+    ) -> Result<u32, String> {
+        let placed = prior.replace_quantity(
+            replacement::QuantityMember::Tokens { controller },
+            &Quantity::from(i64::from(count)),
+            true,
+        )?;
+        let total = placed.amount.to_u32().unwrap_or(u32::MAX);
+        self.check_token_capacity(total)?;
+        self.record_quantity(placed);
+        Ok(total)
+    }
+
+    /// The tokens created for each of `members` (one per opponent or
+    /// defender): only multiplications are admitted, so each member's
+    /// count is the replaced count of one (CR 614.1a, 702.116a, 702.141a).
+    fn created_each(
+        &mut self,
+        prior: &Self,
+        controller: PlayerId,
+        members: usize,
+    ) -> Result<usize, String> {
+        let members = u32::try_from(members).map_err(|_| "token count resource limit")?;
+        let each = prior
+            .replace_quantity(
+                replacement::QuantityMember::Tokens { controller },
+                &Quantity::from(1),
+                true,
+            )?
+            .amount
+            .to_u32()
+            .unwrap_or(u32::MAX);
+        let total = self.created_count(prior, controller, members)?;
+        if members.checked_mul(each) != Some(total) {
+            return Err("token quantity replacement does not scale per member".into());
+        }
+        Ok(each as usize)
+    }
+
     pub(super) fn apply_token_event(
         &mut self,
         event: &ProposedEvent,
@@ -429,28 +481,32 @@ impl RulesTxn {
                 original,
             } => {
                 if !self.is_live(*controller)
-                    || !self.is_controlled_creature_token(*controller, *original)
+                    || !self.is_controlled_creature_token(*controller, *original)?
                 {
                     return Err("invalid token copy source".into());
                 }
-                self.check_token_capacity(1)?;
-                let card = self.next_token_card()?;
-                let definition = token_copy_definition(self.copiable_definition(*original)?, card);
-                let object = self.enter_token(
-                    entry.ok_or("missing token entry prior")?,
-                    card,
-                    *controller,
-                    TokenIdentity {
-                        source: *source,
-                        spec: TokenTemplate::TokenCopy {
-                            original: *original,
+                let entry = entry.ok_or("missing token entry prior")?;
+                let count = self.created_count(entry.0, *controller, 1)?;
+                let copied = self.copiable_definition(*original)?.clone();
+                let mut objects = vec![];
+                for _ in 0..count {
+                    let card = self.next_token_card()?;
+                    objects.push(self.enter_token(
+                        entry,
+                        card,
+                        *controller,
+                        TokenIdentity {
+                            source: *source,
+                            spec: TokenTemplate::TokenCopy {
+                                original: *original,
+                            },
+                            definition: token_copy_definition(&copied, card),
                         },
-                        definition,
-                    },
-                    false,
-                )?;
+                        false,
+                    )?);
+                }
                 Ok(EventOutcome::TokenCopied {
-                    object,
+                    objects,
                     controller: *controller,
                     original: *original,
                 })
@@ -470,12 +526,12 @@ impl RulesTxn {
                 {
                     return Err("invalid encore token creation".into());
                 }
-                let count = u32::try_from(defenders.len()).map_err(|_| "encore token count")?;
-                self.check_token_capacity(count)?;
+                let entry = entry.ok_or("missing token entry prior")?;
+                let each = self.created_each(entry.0, *controller, defenders.len())?;
                 let original = self.copiable_definition(source)?.clone();
                 let turn = self.state.rules.turn.number;
                 let mut objects = vec![];
-                for defender in defenders {
+                for defender in defenders.iter().flat_map(|d| std::iter::repeat_n(d, each)) {
                     let card = self.next_token_card()?;
                     let identity = TokenIdentity {
                         source: *source,
@@ -486,13 +542,7 @@ impl RulesTxn {
                         },
                         definition: token_copy_definition(&original, card),
                     };
-                    objects.push(self.enter_token(
-                        entry.ok_or("missing token entry prior")?,
-                        card,
-                        *controller,
-                        identity,
-                        false,
-                    )?);
+                    objects.push(self.enter_token(entry, card, *controller, identity, false)?);
                 }
                 Ok(EventOutcome::EncoreTokensCreated {
                     objects,
@@ -523,16 +573,16 @@ impl RulesTxn {
                 {
                     return Err("invalid myriad token creation".into());
                 }
-                let count = u32::try_from(defenders.len()).map_err(|_| "myriad token count")?;
-                self.check_token_capacity(count)?;
+                let entry = entry.ok_or("missing token entry prior")?;
+                let each = self.created_each(entry.0, *controller, defenders.len())?;
                 let original = self.copiable_definition(source)?.clone();
                 let in_combat = self.state.rules.active == Some(*controller)
                     && self.state.rules.turn.step.phase() == Phase::Combat;
                 let (mut objects, mut attacking) = (vec![], vec![]);
-                for defender in defenders {
+                for defender in defenders.iter().flat_map(|d| std::iter::repeat_n(d, each)) {
                     let card = self.next_token_card()?;
                     let object = self.enter_token(
-                        entry.ok_or("missing token entry prior")?,
+                        entry,
                         card,
                         *controller,
                         TokenIdentity {
@@ -583,10 +633,11 @@ impl RulesTxn {
                 if !self.is_live(*controller) || *count == 0 {
                     return Err("invalid predefined token controller or count".into());
                 }
-                self.check_token_capacity(*count)?;
+                let entry = entry.ok_or("missing token entry prior")?;
+                let count = self.created_count(entry.0, *controller, *count)?;
                 let definition = self.copiable_definition(source)?.clone();
                 let mut objects = Vec::new();
-                for _ in 0..*count {
+                for _ in 0..count {
                     let card = self.next_token_card()?;
                     let identity = TokenIdentity {
                         source: *source,
@@ -597,13 +648,7 @@ impl RulesTxn {
                             *kind,
                         ),
                     };
-                    objects.push(self.enter_token(
-                        entry.ok_or("missing token entry prior")?,
-                        card,
-                        *controller,
-                        identity,
-                        *tapped,
-                    )?);
+                    objects.push(self.enter_token(entry, card, *controller, identity, *tapped)?);
                 }
                 Ok(EventOutcome::PredefinedTokensCreated {
                     objects,
@@ -622,23 +667,18 @@ impl RulesTxn {
                     return Err("invalid token creator/count".into());
                 }
                 token.validate()?;
-                self.check_token_capacity(*count)?;
+                let entry = entry.ok_or("missing token entry prior")?;
+                let count = self.created_count(entry.0, *controller, *count)?;
                 let source_definition = self.copiable_definition(source)?.clone();
                 let mut objects = vec![];
-                for _ in 0..*count {
+                for _ in 0..count {
                     let card = self.next_token_card()?;
                     let identity = TokenIdentity {
                         source: *source,
                         spec: TokenTemplate::Created(token.as_ref().clone()),
                         definition: token_definition(&source_definition, card, token),
                     };
-                    objects.push(self.enter_token(
-                        entry.ok_or("missing token entry prior")?,
-                        card,
-                        *controller,
-                        identity,
-                        *tapped,
-                    )?);
+                    objects.push(self.enter_token(entry, card, *controller, identity, *tapped)?);
                 }
                 Ok(EventOutcome::TokensCreated {
                     objects,

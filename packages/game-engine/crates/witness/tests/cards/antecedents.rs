@@ -216,18 +216,27 @@ fn bounteous_kirin_gains_the_arcane_spells_mana_value_with_x() {
     assert_eq!(life(&game, 0), expected);
 }
 
-/// Negative neighbour: "put a +1/+1 counter on each of up to two target
-/// creatures" is one simultaneous placement (CR 122.6), which per-target
-/// leaves would split into two events, so the shape rejects by name.
+/// "When Jet dies, put a +1/+1 counter on each of up to two target
+/// creatures" is one simultaneous placement over the counted occurrence's
+/// slots (CR 122.6, 608.2b), not two per-target events.
 #[test]
-fn jet_rejects_counters_on_each_of_several_targets() {
-    let mtg_compiler::CompileResult::Unsupported { path, reason } =
+fn jet_puts_counters_on_each_of_several_targets_as_one_placement() {
+    let mtg_compiler::CompileResult::Lowered { definition } =
         mtg_witness::compile(mtg_witness::R5_MANIFEST, JET)
     else {
-        panic!("Jet, Freedom Fighter did not reject");
+        panic!("Jet, Freedom Fighter did not lower");
+    };
+    let placement = mtg_contracts::kir::Verb::PutCounters {
+        on: mtg_contracts::kir::SetExpr::Targets { slots: vec![0, 1] },
+        counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+        amount: mtg_contracts::kir::Amount::fixed(1),
     };
     assert!(
-        reason.ends_with("operand:target:up_to:counters"),
-        "{path}: {reason}"
+        definition.triggered.iter().any(|t| {
+            t.program.target_group() == Some(2)
+                && matches!(t.program.instructions.as_slice(),
+                    [Instruction::Kernel { node, .. }] if node.verb() == Some(&placement))
+        }),
+        "{definition:?}"
     );
 }

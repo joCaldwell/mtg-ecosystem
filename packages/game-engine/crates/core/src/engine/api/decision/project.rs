@@ -76,6 +76,9 @@ impl RulesTxn {
                 offered,
             },
             Reason::OptionalEffect => Reason::OptionalEffect,
+            Reason::ReplacementOrder { subject } => Reason::ReplacementOrder {
+                subject: subject.and_then(|o| object(o).ok()),
+            },
             Reason::MyriadDefender => Reason::MyriadDefender,
             Reason::DamageEffect { recipient } => Reason::DamageEffect {
                 recipient: self.player_entity(viewer, recipient)?,

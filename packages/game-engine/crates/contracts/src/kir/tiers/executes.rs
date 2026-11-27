@@ -413,10 +413,16 @@ fn validate_target_bindings(
                         && group_leaf_shape(node) == shape
                 })
             });
+        // CR 122.6, 608.2b: counters on each legal member are one
+        // simultaneous placement over the whole group.
+        let placement = battlefield
+            && matches!(targeted.as_slice(),
+                [kir::Node::Do(kir::Verb::PutCounters { on: kir::SetExpr::Targets { slots }, .. })]
+                    if slots.iter().copied().eq(0..count as u32));
         let sacrifice_return = !p.optional_target
             && matches!(targeted.as_slice(),
             [kir::Node::SacrificeForTappedReturn { count: c }] if *c as usize == count);
-        if !(batch || leaves || sacrifice_return) {
+        if !(batch || leaves || placement || sacrifice_return) {
             return cell("target", "group_requires_batch_or_order_free_leaves");
         }
     } else if p.targets.len() > 1 && p.optional_target {

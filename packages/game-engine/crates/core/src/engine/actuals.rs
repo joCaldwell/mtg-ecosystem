@@ -83,8 +83,10 @@ pub struct Origin {
     pub term: Option<u32>,
 }
 
-/// One applied replacement instance (CR 614.5, 616.1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One applied replacement instance (CR 614.5, 616.1): a static ability of
+/// one permanent, so two copies of a static ability are distinct instances.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReplacementKey {
     pub source: ObjectId,
     pub ability: u32,
@@ -627,8 +629,8 @@ impl RulesTxn {
             )
         };
         match outcome {
-            EventOutcome::TokenCopied { object, .. } => entry(0, *object)?,
-            EventOutcome::TokensCreated { objects, .. }
+            EventOutcome::TokenCopied { objects, .. }
+            | EventOutcome::TokensCreated { objects, .. }
             | EventOutcome::PredefinedTokensCreated { objects, .. }
             | EventOutcome::EncoreTokensCreated { objects, .. }
             | EventOutcome::MyriadTokensCreated { objects, .. } => {
@@ -730,9 +732,11 @@ impl RulesTxn {
         };
         match &occurrence.actual {
             EventOutcome::TokenCopied {
-                object, controller, ..
-            } => members.push(created(object, *controller)?),
-            EventOutcome::TokensCreated {
+                objects,
+                controller,
+                ..
+            }
+            | EventOutcome::TokensCreated {
                 objects,
                 controller,
                 ..
@@ -822,6 +826,7 @@ impl RulesTxn {
             .into_iter()
             .enumerate()
             .map(|(member, facets)| {
+                let lineage = Self::member_lineage(occurrence, &facets)?;
                 Ok(Actual {
                     id: EventId {
                         occurrence: occurrence.id.clone(),
@@ -830,11 +835,46 @@ impl RulesTxn {
                     group: group.clone(),
                     cause: cause.clone(),
                     origin,
-                    lineage: None,
+                    lineage,
                     facets,
                 })
             })
             .collect()
+    }
+
+    /// CR 614.5, 614.16: the replacements applied to a created token or a
+    /// counter member, checked against the committed count.
+    fn member_lineage(
+        occurrence: &OccurrenceResult,
+        facets: &[Facet],
+    ) -> Result<Option<Lineage>, String> {
+        let application = facets.iter().find_map(|facet| match facet {
+            Facet::Created { .. } => occurrence.quantities.iter().find(|q| q.holder.is_none()),
+            Facet::Counters(change) => {
+                let CounterHolder::Permanent { object, .. } = change.holder else {
+                    return None;
+                };
+                let found = occurrence.quantities.iter().find(|q| {
+                    q.holder == Some(object) && q.counter.as_ref() == Some(&change.counter)
+                })?;
+                Some(found)
+            }
+            _ => None,
+        });
+        let Some(application) = application else {
+            return Ok(None);
+        };
+        if let Some(Facet::Counters(change)) =
+            facets.iter().find(|f| f.kind() == FacetKind::Counters)
+            && change.delta() != application.amount
+        {
+            return Err("counter change differs from its replaced quantity".into());
+        }
+        Ok(Some(Lineage {
+            proposal: occurrence.id.clone(),
+            original: Box::new(occurrence.proposed.clone()),
+            applied: application.applied.clone(),
+        }))
     }
 
     /// The single history reducer: the ledger change these actuals make,

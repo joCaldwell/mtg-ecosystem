@@ -7,8 +7,8 @@ impl RulesTxn {
         &self,
         player: PlayerId,
         object: ObjectId,
-    ) -> bool {
-        self.is_battlefield_creature(object)
+    ) -> Result<bool, String> {
+        Ok(self.is_battlefield_creature(object)?
             && self.current(object).is_ok_and(|o| {
                 o.controller == player
                     && self
@@ -17,7 +17,7 @@ impl RulesTxn {
                         .tokens
                         .get(&object.card)
                         .is_some_and(|t| t.is_token(o))
-            })
+            }))
     }
 
     pub(in crate::engine) fn keyword_action_request(
@@ -37,8 +37,10 @@ impl RulesTxn {
                     .rules
                     .objects
                     .values()
-                    .filter(|o| self.is_controlled_creature_token(player, o.id))
-                    .map(|o| Candidate::Object { object: o.id })
+                    .map(|o| Ok((o.id, self.is_controlled_creature_token(player, o.id)?)))
+                    .collect::<Result<Vec<_>, String>>()?
+                    .into_iter()
+                    .filter_map(|(object, token)| token.then_some(Candidate::Object { object }))
                     .collect::<Vec<_>>(),
             ),
             ResolutionChoice::Proliferate => (

@@ -69,6 +69,11 @@ pub enum Frame {
     BattlefieldEntry {
         entry: Box<battlefield_entry::PendingEntry>,
     },
+    /// CR 616.1: the affected object's controller orders noncommuting
+    /// replacements; the answered step replays from `order.resume`.
+    ReplacementOrder {
+        order: Box<replacement::PendingOrder>,
+    },
     Kernel {
         task: Box<kir::Task>,
     },

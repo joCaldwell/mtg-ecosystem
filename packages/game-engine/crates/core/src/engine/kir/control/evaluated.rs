@@ -370,6 +370,18 @@ impl RulesTxn {
                 result.objects.iter().map(|object| object.prior).collect()
             }
             SetExpr::Pool { .. } => self.control_objects(task, set)?,
+            // CR 608.2b: an unchosen or illegal member is simply not acted on.
+            SetExpr::Targets { slots } => {
+                let mut objects = vec![];
+                for slot in slots {
+                    if let Resolved::Present(id) =
+                        self.evaluated_object(task, &Ref::Target { slot: *slot })?
+                    {
+                        objects.push(id);
+                    }
+                }
+                objects
+            }
         }))
     }
 

@@ -544,7 +544,7 @@ impl GameTestkit for Game {
     }
 
     fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
-        RulesTxn::announced_target_legality(self, entry)
+        RulesTxn::announced_target_legality(self, entry).unwrap()
     }
     fn apply_departure(&mut self, player: PlayerId) -> Result<(), String> {
         RulesTxn::apply_departure(self, player)
@@ -705,7 +705,7 @@ impl GameTestkit for Game {
         RulesTxn::control_before(self)
     }
     fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
-        RulesTxn::controlled_creatures(self, player)
+        RulesTxn::controlled_creatures(self, player).unwrap()
     }
     fn copiable_definition(
         &self,
@@ -717,7 +717,7 @@ impl GameTestkit for Game {
         RulesTxn::cost_lock_charge(self)
     }
     fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
-        RulesTxn::creature_or_planeswalker(self, id)
+        RulesTxn::creature_or_planeswalker(self, id).unwrap()
     }
     fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
         RulesTxn::creatures(self, player, attacking).unwrap()
@@ -791,7 +791,7 @@ impl GameTestkit for Game {
         RulesTxn::enter_turn_step(self)
     }
     fn entity_legal(&self, target: TargetEntity) -> bool {
-        RulesTxn::entity_legal(self, target)
+        RulesTxn::entity_legal(self, target).unwrap()
     }
 
     fn event_group_limit(&self) -> usize {
@@ -865,7 +865,7 @@ impl GameTestkit for Game {
         player: PlayerId,
         source: &Characteristics,
     ) -> bool {
-        RulesTxn::has_target_domain(self, program, player, source, None)
+        RulesTxn::has_target_domain(self, program, player, source, None).unwrap()
     }
     fn history_charge(&self) -> usize {
         RulesTxn::history_charge(self).expect("valid fixture continuation")
@@ -874,10 +874,10 @@ impl GameTestkit for Game {
         RulesTxn::initial_query_task(self, query)
     }
     fn is_battlefield_creature(&self, id: ObjectId) -> bool {
-        RulesTxn::is_battlefield_creature(self, id)
+        RulesTxn::is_battlefield_creature(self, id).unwrap()
     }
     fn is_blocking_creature(&self, object: ObjectId) -> bool {
-        RulesTxn::is_blocking_creature(self, object)
+        RulesTxn::is_blocking_creature(self, object).unwrap()
     }
     fn is_live(&self, player: PlayerId) -> bool {
         RulesTxn::is_live(self, player)
@@ -949,7 +949,7 @@ impl GameTestkit for Game {
         RulesTxn::object_facts(self, object)
     }
     fn object_target_legal(&self, entry: &StackInstance, slot: usize, object: ObjectId) -> bool {
-        RulesTxn::object_target_legal(self, entry, slot, object)
+        RulesTxn::object_target_legal(self, entry, slot, object).unwrap()
     }
     // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
     fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
@@ -985,7 +985,7 @@ impl GameTestkit for Game {
         controller: PlayerId,
         spec: &TargetSpec,
     ) -> bool {
-        RulesTxn::permanent_target_legal(self, object, controller, None, None, spec)
+        RulesTxn::permanent_target_legal(self, object, controller, None, None, spec).unwrap()
     }
     fn permitted_decision_context(
         &self,
@@ -1144,7 +1144,7 @@ impl GameTestkit for Game {
         RulesTxn::target_is_creature(self, object)
     }
     fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
-        RulesTxn::targetable_by(self, object, controller)
+        RulesTxn::targetable_by(self, object, controller).unwrap()
     }
     fn targetable_player(&self, player: PlayerId) -> bool {
         RulesTxn::targetable_player(self, player)

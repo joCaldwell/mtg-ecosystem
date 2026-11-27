@@ -153,6 +153,9 @@ pub enum SetExpr {
     Matching { zone: ZoneExpr, filter: Pred },
     /// The cards of a linked pool.
     Pool { pool: Ref },
+    /// CR 115.3, 608.2b: the still-legal announced objects of a counted
+    /// target occurrence's slots, acted on together as one event.
+    Targets { slots: Vec<u32> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

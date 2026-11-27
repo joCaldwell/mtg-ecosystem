@@ -381,6 +381,44 @@ impl Strategy<'_> {
                 d.pick_one(defender)?
             }
             (Reason::GraveyardReplacementOrder { .. }, _) => flag(d, Flag::Accept)?,
+            // CR 616.1: on its own permanent, adding before multiplying
+            // gives the most counters; otherwise the first offered applies.
+            (Reason::ReplacementOrder { .. }, Shape::Pick { slots, .. }) => {
+                let adds = |index: &u32| {
+                    let Ok(Candidate::Object { object }) = d.candidate(*index) else {
+                        return false;
+                    };
+                    v.objects
+                        .iter()
+                        .find(|o| &o.handle == object)
+                        .and_then(|o| definition(self.catalog, &o.oracle_id).ok())
+                        .is_some_and(|definition| {
+                            definition.static_abilities.iter().any(|a| {
+                                matches!(
+                                    &a.effect,
+                                    mtg_contracts::kir::StaticEffect::Rule {
+                                        rule: mtg_contracts::kir::StaticRule::ModifyQuantity {
+                                            change: mtg_contracts::QuantityModification::Add { .. },
+                                            ..
+                                        },
+                                        ..
+                                    }
+                                )
+                            })
+                        })
+                };
+                let slot = slots.first().ok_or("missing replacement order slot")?;
+                let pick = slot
+                    .allowed
+                    .iter()
+                    .copied()
+                    .find(adds)
+                    .or_else(|| slot.allowed.first().copied())
+                    .ok_or("empty replacement order")?;
+                Answer::Pick {
+                    picks: vec![vec![pick]],
+                }
+            }
             // CR 601.2b-c: the announced X stays within the rules bounds
             // that the spell's targets impose.
             (Reason::AnnounceX, Shape::Number { min, max }) => {

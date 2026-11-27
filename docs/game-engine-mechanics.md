@@ -110,34 +110,42 @@ accepted-input replay with exact identity.
     private snapshot pin advanced for E1a. Expected coverage gain is zero.
 - **Replacement before commit (E2 contract).** A replacement is proposed,
   matched, ordered, transformed and recomputed before one atomic commit; nothing
-  is repaired after commit. A persisted proposal holds the root, resume owner,
-  members with provisional keys, applications, decisions and payment
-  reservations, but no state copy. Nothing is written before commit, so the live
-  state is the common prior. [Battlefield entry](game-engine-board-mechanics.md#battlefield-entry-replacements)
+  is repaired after commit. The first tranche (`engine/replacement.rs`) covers
+  static token-creation and counter-placement quantity replacements at every
+  committing leaf: resolving placements and proliferate, entry counters,
+  megamorph, loyalty costs and every token creation. The proposed event stays
+  the original fact, so instruction checks still validate it, and the live state
+  is the common prior. [Battlefield entry](game-engine-board-mechanics.md#battlefield-entry-replacements)
   adds the prospective-entrant rules. Each step is one rule unit:
-  1. **Propose** the event with quantities read once, its affected subject,
-     origin root and immediate producer.
-  2. **Match** each effect whose predicate holds and that has not already applied
-     to that member (CR 614.5). Two copies of a static ability are distinct instances.
-  3. **Choose.** The affected player, or the affected object's controller with
-     owner fallback, picks one eligible effect under CR 616.1 precedence. For
-     simultaneous choosers this goes in APNAP order, under an additive
-     `Reason::ReplacementOrder`. A sole mandatory option advances; optional
-     application still asks. The choice authenticates chooser, candidates and
-     answer, and a private suspension reveals only the offer.
-  4. **Transform** the member.
-  5. **Record** the applied instance, input and output in lineage. Evidence is
+  1. **Propose** the member with its count read once: counters of one kind on
+     one incarnation (an entrant's new one), or one creation for its creator.
+     Its origin is an effect root, or a replacement's own placement (entry and
+     megamorph counters, CR 614.1c, 614.1e).
+  2. **Match** each functioning instance (one static of one permanent, so two
+     copies are distinct) whose event holds and that has not applied to the
+     member (CR 614.5). An effect-only clause also matches after any
+     application (CR 614.16).
+  3. **Choose.** When the eligible instances include an addition and a
+     multiplication, the affected object's controller picks one (CR 616.1e)
+     under the additive `Reason::ReplacementOrder`: the candidates are the
+     instances' permanents and the subject is the receiving object when its
+     controller can see it. Same-kind changes commute and leave the same
+     instances eligible, so they apply in instance order without a question.
+     The rule step that reached the question is discarded unwritten.
+     `Frame::ReplacementOrder` keeps that step's frame, any input it had
+     consumed (already journaled) and earlier answers, asks, then replays the
+     step with every answer; another member's question accumulates the same
+     way. Only the chooser sees the offer.
+  4. **Transform** the count.
+  5. **Record** the original count and the applied instances in the
+     occurrence (`OccurrenceResult::quantities`), published as the actual's
+     lineage. The committed counter delta must equal the fold; evidence is
      charged in every trace mode.
-  6. **Recompute** eligibility, precedence and chooser for that member (CR
-     616.1f, 616.2). Contained events become choosable only after their
-     container (CR 616.1g).
-  7. **Preflight and commit.** Check the final group on a fork (allocations,
-     capacity, recipients, conflicting writes, combined payments, observations,
-     trigger payloads, reservations); a failure faults with no write. Otherwise
-     one batch commits writes, use stamps, creation cohort, lineage, history,
-     results and pending triggers together. Restore never spends again. Ordered
-     cost components stay ordered, and damage keeps its specialist authority
-     until E3.
+  6. **Recompute** eligibility for that member (CR 616.1f, 616.2).
+  7. **Commit** the group as one batch. The replaced creation must fit the
+     token capacity before any token exists; a failed replay faults with no
+     write. Ordered cost components stay ordered, and damage keeps its
+     specialist authority until E3.
 - **Invocations.** An invocation has one owner holding the source's last-known
   facts: its stack entry, or `rules.detached` while a frame still resolves it
   (CR 608.2m, 113.7a). Frames name invocations by `StackId` and hold progress

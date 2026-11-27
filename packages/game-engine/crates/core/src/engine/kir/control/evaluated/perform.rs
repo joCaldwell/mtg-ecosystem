@@ -138,11 +138,12 @@ impl RulesTxn {
         let push = |recipient: TargetEntity, out: &mut Vec<TargetEntity>| {
             let legal = match recipient {
                 TargetEntity::Player { player } => self.is_live(player),
-                TargetEntity::Object { object } => self.is_permanent_damage_recipient(object),
+                TargetEntity::Object { object } => self.is_permanent_damage_recipient(object)?,
             };
             if legal && !out.contains(&recipient) {
                 out.push(recipient);
             }
+            Ok::<(), String>(())
         };
         match to {
             DamageTo::Ref {
@@ -150,8 +151,8 @@ impl RulesTxn {
             } => {
                 if frame.legal_targets.get(*slot as usize) == Some(&true) {
                     let target = self.directed_damage_target(entry, *slot)?;
-                    if self.entity_legal(target) {
-                        push(target, out);
+                    if self.entity_legal(target)? {
+                        push(target, out)?;
                     }
                 }
             }
@@ -171,7 +172,7 @@ impl RulesTxn {
                     self.evaluated_players(task, &PlayerExpr::Is { who: *who })?
                 {
                     for player in players {
-                        push(TargetEntity::Player { player }, out);
+                        push(TargetEntity::Player { player }, out)?;
                     }
                 }
             }
@@ -181,19 +182,19 @@ impl RulesTxn {
                 let Some(Binding::Player(player)) = task.bindings.get(id) else {
                     unreachable!("bound player");
                 };
-                push(TargetEntity::Player { player: *player }, out);
+                push(TargetEntity::Player { player: *player }, out)?;
             }
             DamageTo::Ref { who } => {
                 if let Resolved::Present(object) = self.evaluated_object(task, who)?
                     && self.current(object).is_ok_and(|o| o.id == object)
                 {
-                    push(TargetEntity::Object { object }, out);
+                    push(TargetEntity::Object { object }, out)?;
                 }
             }
             DamageTo::Players { players } => {
                 if let Resolved::Present(players) = self.evaluated_players(task, players)? {
                     for player in players {
-                        push(TargetEntity::Player { player }, out);
+                        push(TargetEntity::Player { player }, out)?;
                     }
                 }
             }
@@ -201,7 +202,7 @@ impl RulesTxn {
                 if let Resolved::Present(objects) = self.evaluated_objects(task, set)? {
                     for object in objects {
                         if self.current(object).is_ok_and(|o| o.id == object) {
-                            push(TargetEntity::Object { object }, out);
+                            push(TargetEntity::Object { object }, out)?;
                         }
                     }
                 }
@@ -388,13 +389,16 @@ impl RulesTxn {
         }
         // CR 800.4a: removed seats and incarnations may still occur in the
         // proposal. The live portion must still agree with the step's scope.
-        let surviving = recipients
-            .iter()
-            .copied()
-            .filter(|recipient| match recipient {
-                TargetEntity::Player { player } => self.is_live(*player),
-                TargetEntity::Object { object } => self.is_permanent_damage_recipient(*object),
-            });
+        let mut surviving = vec![];
+        for recipient in recipients.iter().copied() {
+            if match recipient {
+                TargetEntity::Player { player } => self.is_live(player),
+                TargetEntity::Object { object } => self.is_permanent_damage_recipient(object)?,
+            } {
+                surviving.push(recipient);
+            }
+        }
+        let surviving = surviving.into_iter();
         if !surviving.eq(self.evaluated_recipients(task, to)?) {
             return Err("kernel damage recipient differs from its step".into());
         }
@@ -431,7 +435,7 @@ impl RulesTxn {
         let mut out = Vec::new();
         for object in objects {
             if self.current(object).is_ok_and(|o| o.id == object)
-                && self.counter_recipient(object, counter)
+                && self.counter_recipient(object, counter)?
                 && !out.contains(&object)
             {
                 out.push(object);

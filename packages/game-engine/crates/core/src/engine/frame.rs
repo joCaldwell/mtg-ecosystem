@@ -63,6 +63,8 @@ macro_rules! frame_walk {
         ) {
             match frame {
                 Frame::Kernel { task: _ } => {}
+                // The replayed step's frame is its parent.
+                Frame::ReplacementOrder { order: _ } => {}
                 Frame::GraveyardGroup { tx } => match & $($mutability)? tx.finish {
                     GroupFinish::Instruction { frame, result: _ } => visit($Held::Invocation(frame.stack_id)),
                     GroupFinish::Cleanup => {}
@@ -184,6 +186,7 @@ macro_rules! frame_parent {
                 Some(resume)
             }
             Self::BattlefieldEntry { entry } => Some(&$($mutable)? entry.resume),
+            Self::ReplacementOrder { order } => Some(&$($mutable)? order.resume),
             Self::ManaSourceChoice { resume, .. } => Some(resume),
             Self::ManaAbility { activation } => Some(&$($mutable)? activation.resume),
             Self::GraveyardGroup { tx } => match &$($mutable)? tx.finish {
@@ -309,6 +312,7 @@ impl Frame {
             | Frame::Mana { cast }
             | Frame::Payment { cast } => Some(cast),
             Frame::GraveyardGroup { tx: _ }
+            | Frame::ReplacementOrder { order: _ }
             | Frame::ManaSourceChoice {
                 player: _,
                 source: _,

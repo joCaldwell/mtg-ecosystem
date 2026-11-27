@@ -42,6 +42,7 @@ impl Frame {
                     frames = &frames[..resume.0];
                 }
                 Frame::BattlefieldEntry { entry: _ }
+                | Frame::ReplacementOrder { order: _ }
                 | Frame::Kernel { task: _ }
                 | Frame::GraveyardGroup { tx: _ }
                 | Frame::ManaSourceChoice {

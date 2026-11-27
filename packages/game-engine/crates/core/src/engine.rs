@@ -192,6 +192,8 @@ pub use actuals::{
 pub use events::*;
 pub use trace::*;
 mod battlefield_entry;
+pub mod replacement;
+pub use replacement::{OrderAnswer, OrderRequest, PendingOrder, QuantityApplication};
 pub mod control;
 pub mod multiplayer;
 pub mod restricted_mana;
