@@ -6190,6 +6190,15 @@
       "ast_sha256": "5f96b7787dd40545f0404de93a49d7044c482f848d0af14bfc1522aa580a196c",
       "archive": "archive-manifest-phase1-r5.json",
       "archive_line": 37476
+    },
+    {
+      "file": "phase1-r5/411ba1a2-30bb-4618-b874-6be0d996f07d.json",
+      "oracle_id": "411ba1a2-30bb-4618-b874-6be0d996f07d",
+      "record_sha256": "c3b66a93f5e91e72594ec956f50dc763a68646cb870ca350025131fa0bf33707",
+      "source_sha256": "b50f422d0691d4082918c7c29cc7f70ae75ab2d60c937bb0dcf2e1803da5a1a0",
+      "ast_sha256": "6e9a3fc26c8760030324154a4da4dcdad87bb591755d400613702e8b7b8006aa",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 9783
     }
   ]
 }

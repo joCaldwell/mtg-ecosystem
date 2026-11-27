@@ -1572,13 +1572,7 @@ impl Walk<'_, '_> {
             Amount::CountersOn {
                 object: Ref::Source,
                 counter,
-            } if match counter {
-                CounterKind::Named { name } => crate::kir::plain_counter_name(name),
-                _ => true,
-            } =>
-            {
-                Ok(())
-            }
+            } if counter.admitted() => Ok(()),
             _ => unaudited("resolution count"),
         }
     }

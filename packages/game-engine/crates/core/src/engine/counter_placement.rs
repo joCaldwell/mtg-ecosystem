@@ -355,25 +355,33 @@ impl RulesTxn {
                 ..
             })
         );
-        let mut leaves: Vec<_> = tx
-            .members
-            .iter()
-            .filter(|m| {
-                if proliferating {
-                    self.can_proliferate_permanent(m.object)
-                } else if event_object {
-                    self.current(m.object)
-                        .is_ok_and(Object::present_on_battlefield)
-                } else {
-                    self.counter_recipient(m.object, &m.counter)
-                }
-            })
-            .map(|m| ProposedEvent::PutCounters {
-                object: m.object,
+        // CR 701.34a: one atomic placement per permanent carries every kind
+        // it receives; members are grouped by object in allocation order.
+        let mut leaves: Vec<ProposedEvent> = vec![];
+        for m in tx.members.iter().filter(|m| {
+            if proliferating {
+                self.can_proliferate_permanent(m.object)
+            } else if event_object {
+                self.current(m.object)
+                    .is_ok_and(Object::present_on_battlefield)
+            } else {
+                self.counter_recipient(m.object, &m.counter)
+            }
+        }) {
+            let amount = CounterAmount {
                 counter: m.counter.clone(),
                 amount: m.amount.clone(),
-            })
-            .collect();
+            };
+            match leaves.last_mut() {
+                Some(ProposedEvent::PutCounters { object, counters }) if *object == m.object => {
+                    counters.push(amount);
+                }
+                _ => leaves.push(ProposedEvent::PutCounters {
+                    object: m.object,
+                    counters: vec![amount],
+                }),
+            }
+        }
         leaves.extend(
             tx.players
                 .iter()

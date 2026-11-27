@@ -2553,34 +2553,48 @@ impl RulesTxn {
                     previous_energy,
                 }
             }
-            ProposedEvent::PutCounters {
-                object,
-                counter,
-                amount,
-            } => {
+            ProposedEvent::PutCounters { object, counters } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {
                     return Err("counter placement requires complete batch authority".into());
                 }
                 // The staged allocation checks which permanents this instruction
                 // permits. Proliferate can add to a formerly animated land.
-                if !self.current(*object)?.present_on_battlefield() || *amount <= Quantity::zero() {
+                if !self.current(*object)?.present_on_battlefield()
+                    || counters.is_empty()
+                    || counters.iter().any(|c| c.amount <= Quantity::zero())
+                    || counters.windows(2).any(|w| w[0].counter >= w[1].counter)
+                {
                     return Err("invalid counter placement".into());
                 }
-                // CR 613.7c: the placement's batch timestamps every counter
-                // of that kind on the permanent.
-                let timestamp = self.state.rules.next_batch_id;
+                // CR 613.7c: this placement's batch timestamps every counter
+                // of each placed kind on the permanent. The batch has already
+                // reserved its successor ID.
+                let timestamp = self
+                    .state
+                    .rules
+                    .next_batch_id
+                    .checked_sub(1)
+                    .ok_or("missing counter placement batch")?;
                 let o = self
                     .rules_mut()
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing counter recipient")?;
-                let previous = o.add_counters(counter, amount, timestamp);
+                let placed = counters
+                    .iter()
+                    .map(|c| {
+                        let previous = o.add_counters(&c.counter, &c.amount, timestamp);
+                        CounterChange {
+                            counter: c.counter.clone(),
+                            amount: c.amount.clone(),
+                            previous,
+                            current: o.counter_count(&c.counter),
+                        }
+                    })
+                    .collect();
                 EventOutcome::CountersPlaced {
                     object: *object,
-                    counter: counter.clone(),
-                    amount: amount.clone(),
-                    previous,
-                    current: o.counter_count(counter),
+                    placed,
                 }
             }
             ProposedEvent::AnnihilateCounters { object, amount } => {

@@ -604,3 +604,150 @@ fn barrins_codex_reads_its_last_known_page_counters() {
     settle(&mut g);
     assert_eq!(hand(&g), before + 2);
 }
+
+const GRIM_AFFLICTION: &str = record!("411ba1a2-30bb-4618-b874-6be0d996f07d");
+const HUMILITY: &str = record!("ed7bdb3e-5c51-4547-9266-76a791e0b2b0");
+
+/// Grim Affliction on Spike Feeder (two +1/+1 counters): "Put a -1/-1
+/// counter on target creature, then proliferate." Proliferate adds one of
+/// each kind to the Feeder in one atomic placement, before state-based
+/// actions annihilate them (CR 122.3, 608.2, 701.34a, 704.5q).
+#[test]
+fn grim_affliction_proliferates_both_kinds_on_one_permanent() {
+    let prepared = board(&[
+        (GRIM_AFFLICTION, &[Cell::KindCountersTarget]),
+        (SPIKE_FEEDER, &[]),
+    ])
+    .permanent_or_hand("Spike Feeder", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Grim Affliction", 0, 0, true)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .libraries("Island", 2)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3]);
+    settle(&mut g);
+    let feeder = Driver::object(&g, 0);
+    Driver::cast(&mut g, CardId(4));
+    let d = targets(&mut g, 0);
+    answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
+    Driver::pay(&mut g, &[5, 6, 7]);
+    let d = expect(&mut g, 0, &Reason::Proliferate);
+    answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
+    // Three +1/+1 and two -1/-1 counters annihilate to one +1/+1: one
+    // missing kind would leave two (+1/+1 only) or kill it (-1/-1 only).
+    settle(&mut g);
+    let o = g.current(feeder).unwrap();
+    assert_eq!(o.plus_one_counters, Quantity::from(1));
+    assert!(o.counters.is_empty(), "{:?}", o.counters);
+}
+
+/// CR 122.1c: a reserved rules name cannot hide in a plain named counter.
+/// State validation and restore reject it on a permanent and in retained
+/// last-known facts.
+#[test]
+fn reserved_counter_names_are_rejected_in_state_and_restore() {
+    let prepared = board(&[(BARRINS_CODEX, &[])])
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .libraries("Island", 2)
+        .prepare();
+    let g = Game::with_trace(prepared, TraceMode::Detailed);
+    let bears = Driver::object(&g, 0);
+    for name in ["shield", "loyalty", "flying"] {
+        let mut forged = g.fork();
+        forged
+            .state
+            .rules
+            .objects
+            .get_mut(&bears.card)
+            .unwrap()
+            .counters = vec![CounterStack {
+            kind: CounterKind::Named { name: name.into() },
+            count: 1.into(),
+            timestamp: 0,
+        }];
+        assert!(
+            forged
+                .validate_state()
+                .unwrap_err()
+                .contains("counter invariant"),
+            "{name}"
+        );
+        let snapshot = forged.snapshot().unwrap();
+        assert!(
+            Game::restore(g.prepared.as_ref().clone(), &snapshot).is_err(),
+            "{name}"
+        );
+    }
+    // An admitted-but-unsupported keyword counter is rejected too.
+    let mut forged = g.fork();
+    forged
+        .state
+        .rules
+        .objects
+        .get_mut(&bears.card)
+        .unwrap()
+        .counters = vec![CounterStack {
+        kind: CounterKind::Keyword {
+            keyword: KeywordAbility::Shroud,
+        },
+        count: 1.into(),
+        timestamp: 0,
+    }];
+    assert!(forged.validate_state().is_err());
+}
+
+/// CR 613.1f, 613.7a, 613.7c: a flying counter placed before Humility's
+/// "All creatures lose all abilities" is overridden by the later static; a
+/// second flying counter after it gives every flying counter the later
+/// timestamp, so the creature flies again.
+#[test]
+fn keyword_counter_timestamps_order_against_ability_loss() {
+    let mut scenario = board(&[
+        (SPONTANEOUS_FLIGHT, &[Cell::KindCountersTarget]),
+        (HUMILITY, &[]),
+    ])
+    .permanent_or_hand("Spontaneous Flight", 0, 0, true)
+    .permanent_or_hand("Humility", 0, 0, true)
+    .permanent_or_hand("Spontaneous Flight", 0, 0, true)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false);
+    for _ in 0..10 {
+        scenario = scenario.permanent_or_hand("Plains", 0, 0, false);
+    }
+    let mut g = Game::with_trace(
+        scenario.libraries("Island", 4).prepare(),
+        TraceMode::Detailed,
+    );
+    let bears = Driver::object(&g, 3);
+    let flying = |g: &Game| g.current_keywords(bears).contains(&KeywordAbility::Flying);
+    let flight = |g: &mut Game, card: u32, lands: &[u32]| {
+        Driver::cast(g, CardId(card));
+        let d = targets(g, 0);
+        answer(g, &d, &[Candidate::Object { object: bears }]);
+        Driver::pay(g, lands);
+        settle(g);
+    };
+    flight(&mut g, 0, &[4, 5, 6]);
+    assert!(flying(&g));
+    Driver::cast(&mut g, CardId(1));
+    Driver::pay(&mut g, &[7, 8, 9, 10]);
+    settle(&mut g);
+    assert!(
+        !flying(&g),
+        "an earlier keyword counter loses to the later loss"
+    );
+    flight(&mut g, 2, &[11, 12, 13]);
+    assert!(flying(&g), "the refreshed timestamp follows the loss");
+    let flying_counter = CounterKind::Keyword {
+        keyword: KeywordAbility::Flying,
+    };
+    assert_eq!(
+        g.current(bears).unwrap().counter_count(&flying_counter),
+        Quantity::from(2)
+    );
+}

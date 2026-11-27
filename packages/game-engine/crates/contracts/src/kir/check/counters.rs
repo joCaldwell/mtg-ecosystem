@@ -23,32 +23,16 @@ impl Walk<'_, '_> {
         counter: &CounterKind,
         amount: &Amount,
     ) -> Result<Cell, KirError> {
-        let plus_one = match counter {
-            CounterKind::PlusOnePlusOne => {
-                Self::fixed_at_least(amount, 1, "counter amount")?;
-                true
-            }
-            CounterKind::MinusOneMinusOne => {
-                Self::fixed_or_announced_x(amount, 1, "counter amount")?;
-                false
-            }
-            // CR 122.1b: only keywords whose granted runtime is reviewed.
-            CounterKind::Keyword { keyword }
-                if crate::supported_temporary_keywords(std::slice::from_ref(keyword)) =>
-            {
-                Self::fixed_at_least(amount, 1, "counter amount")?;
-                false
-            }
-            CounterKind::Stun => {
-                Self::fixed_at_least(amount, 1, "counter amount")?;
-                false
-            }
-            CounterKind::Named { name } if crate::kir::plain_counter_name(name) => {
-                Self::fixed_at_least(amount, 1, "counter amount")?;
-                false
-            }
-            CounterKind::Keyword { .. } | CounterKind::Named { .. } => return unaudited("verb"),
-        };
+        if !counter.admitted() {
+            return unaudited("verb");
+        }
+        // CR 107.3: only -1/-1 counters take the announced X.
+        if *counter == CounterKind::MinusOneMinusOne {
+            Self::fixed_or_announced_x(amount, 1, "counter amount")?;
+        } else {
+            Self::fixed_at_least(amount, 1, "counter amount")?;
+        }
+        let plus_one = *counter == CounterKind::PlusOnePlusOne;
         let cell = |plus: Cell, kind: Cell| Ok(if plus_one { plus } else { kind });
         // CR 122.6, 608.2h: a single simultaneous placement on the
         // creatures matching a public predicate when this step is performed.

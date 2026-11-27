@@ -139,6 +139,17 @@ pub fn plain_counter_name(name: &str) -> bool {
 }
 
 impl CounterKind {
+    /// CR 122.1: a kind whose complete rules the engine executes. The
+    /// kernel check and every validated state admit exactly these.
+    pub fn admitted(&self) -> bool {
+        match self {
+            Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Stun => true,
+            Self::Keyword { keyword } => {
+                crate::supported_temporary_keywords(std::slice::from_ref(keyword))
+            }
+            Self::Named { name } => plain_counter_name(name),
+        }
+    }
     /// CR 122.1a-b: power/toughness and keyword counters act only on
     /// creatures here; other kinds may sit on any permanent.
     pub fn needs_creature(&self) -> bool {

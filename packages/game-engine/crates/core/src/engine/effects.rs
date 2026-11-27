@@ -3421,6 +3421,10 @@ impl RulesTxn {
     /// `validate_characteristic_identity` for captured facts, whose transform
     /// count names the face they were captured with (CR 712.18).
     pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
+        // CR 122.1, 608.2h: retained counters feed last-known reads.
+        if fact.plus_one_counters.is_negative() || !tokens::counter_stacks_valid(&fact.counters) {
+            return Err("captured counter facts".into());
+        }
         self.validate_characteristic_identity(
             fact.object,
             fact.transforms,

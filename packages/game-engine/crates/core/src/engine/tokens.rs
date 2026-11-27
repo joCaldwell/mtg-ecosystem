@@ -468,8 +468,7 @@ impl RulesTxn {
                 (
                     ProposedEvent::PutCounters {
                         object: target,
-                        counter,
-                        amount,
+                        counters: vec![CounterAmount { counter, amount }],
                     },
                     source_block,
                 )
@@ -485,10 +484,11 @@ impl RulesTxn {
         };
         if let ProposedEvent::PutCounters {
             object,
-            counter,
-            amount,
+            mut counters,
         } = event
         {
+            let CounterAmount { counter, amount } =
+                counters.pop().ok_or("missing counter placement")?;
             return self.begin_counter_placement(frame, object, counter, amount, cause);
         }
         let actual = self.commit(event, cause)?;
@@ -829,12 +829,9 @@ impl RulesTxn {
             }
             // CR 122.1, 122.2: other kinds are positive, in kind order, and
             // exist only on the battlefield; P/T counters need a creature.
-            if o.counters.windows(2).any(|w| w[0].kind >= w[1].kind)
+            if !counter_stacks_valid(&o.counters)
                 || o.counters.iter().any(|stack| {
-                    stack.count <= Quantity::zero()
-                        || stack.kind == mtg_contracts::kir::CounterKind::PlusOnePlusOne
-                        || o.zone != Zone::Battlefield
-                        || stack.timestamp > self.state.rules.next_batch_id
+                    o.zone != Zone::Battlefield || stack.timestamp >= self.state.rules.next_batch_id
                 })
                 || (o
                     .counters
@@ -940,4 +937,15 @@ impl RulesTxn {
         }
         Ok(())
     }
+}
+
+/// CR 122.1: positive stacks of admitted non-+1/+1 kinds in strictly
+/// increasing kind order, as every placement leaves them.
+pub(super) fn counter_stacks_valid(stacks: &[CounterStack]) -> bool {
+    stacks.windows(2).all(|w| w[0].kind < w[1].kind)
+        && stacks.iter().all(|stack| {
+            stack.count > Quantity::zero()
+                && stack.kind != mtg_contracts::kir::CounterKind::PlusOnePlusOne
+                && stack.kind.admitted()
+        })
 }
