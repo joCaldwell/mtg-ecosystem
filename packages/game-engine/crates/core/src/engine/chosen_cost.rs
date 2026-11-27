@@ -493,6 +493,7 @@ impl RulesTxn {
         {
             return Err("snapshot chosen-object payment identity invariant".into());
         }
+        Self::validate_fact_counters(&paid.before)?;
         self.validate_characteristic_identity(
             id,
             paid.before.transforms,

@@ -2183,6 +2183,7 @@ impl RulesTxn {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
+        Self::validate_fact_counters(fact)?;
         self.validate_characteristic_identity(
             object,
             fact.transforms,

@@ -639,26 +639,88 @@ fn grim_affliction_proliferates_both_kinds_on_one_permanent() {
     Driver::pay(&mut g, &[5, 6, 7]);
     let d = expect(&mut g, 0, &Reason::Proliferate);
     answer(&mut g, &d, &[Candidate::Object { object: feeder }]);
-    // Three +1/+1 and two -1/-1 counters annihilate to one +1/+1: one
-    // missing kind would leave two (+1/+1 only) or kill it (-1/-1 only).
+    // One atomic placement on the Feeder carries both kinds before SBAs.
     settle(&mut g);
+    let placements: Vec<_> = g
+        .events()
+        .iter()
+        .filter_map(|e| match e {
+            Event::Committed {
+                actual: EventOutcome::CountersPlaced { object, placed },
+                ..
+            } if *object == feeder => Some(placed.clone()),
+            _ => None,
+        })
+        .collect();
+    let change = |counter: CounterKind, amount: i64, previous: i64, current: i64| CounterChange {
+        counter,
+        amount: amount.into(),
+        previous: previous.into(),
+        current: current.into(),
+    };
+    assert_eq!(
+        placements.last().unwrap(),
+        &vec![
+            change(CounterKind::PlusOnePlusOne, 1, 2, 3),
+            change(CounterKind::MinusOneMinusOne, 1, 1, 2),
+        ],
+        "{placements:?}"
+    );
     let o = g.current(feeder).unwrap();
     assert_eq!(o.plus_one_counters, Quantity::from(1));
     assert!(o.counters.is_empty(), "{:?}", o.counters);
 }
 
-/// CR 122.1c: a reserved rules name cannot hide in a plain named counter.
-/// State validation and restore reject it on a permanent and in retained
-/// last-known facts.
+/// Restore a snapshot of `g` whose state JSON `tamper` edits, re-digested,
+/// and return the rejection.
+fn restore_rejection(g: &Game, tamper: impl FnOnce(&mut serde_json::Value)) -> String {
+    let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+    tamper(&mut forged["state"]);
+    forged["state_sha256"] = mtg_contracts::digest(&forged["state"]).unwrap().into();
+    Game::restore(g.prepared.as_ref().clone(), &forged.to_string())
+        .err()
+        .expect("forged counter state restored")
+}
+
+/// The kinds a reserved rules name or an unexecuted keyword could forge.
+fn forged_kinds() -> Vec<CounterKind> {
+    let mut kinds: Vec<_> = ["shield", "loyalty", "flying"]
+        .into_iter()
+        .map(|name| CounterKind::Named { name: name.into() })
+        .collect();
+    kinds.push(CounterKind::Keyword {
+        keyword: KeywordAbility::Shroud,
+    });
+    kinds
+}
+
+/// CR 122.1, 122.1b-c: a reserved rules name cannot hide in a plain named
+/// counter, nor an unexecuted keyword in a keyword counter. Starting from a
+/// valid placed stun counter, changing only its kind is rejected by state
+/// validation and by restore, both on counter-kind admission.
 #[test]
 fn reserved_counter_names_are_rejected_in_state_and_restore() {
-    let prepared = board(&[(BARRINS_CODEX, &[])])
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .libraries("Island", 2)
+    let prepared = board(&[(TRANQUILIZE, &[Cell::KindCountersTarget])])
+        .permanent_or_hand("Tranquilize", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .libraries("Island", 4)
         .prepare();
-    let g = Game::with_trace(prepared, TraceMode::Detailed);
-    let bears = Driver::object(&g, 0);
-    for name in ["shield", "loyalty", "flying"] {
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let bears = Driver::object(&g, 3);
+    Driver::cast(&mut g, CardId(0));
+    let d = targets(&mut g, 0);
+    answer(&mut g, &d, &[Candidate::Object { object: bears }]);
+    Driver::pay(&mut g, &[1, 2]);
+    settle(&mut g);
+    // The baseline is valid and restores exactly.
+    g.validate_state().unwrap();
+    let snapshot = g.snapshot().unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &snapshot).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), snapshot);
+    assert_eq!(g.current(bears).unwrap().counters.len(), 1);
+    for kind in forged_kinds() {
         let mut forged = g.fork();
         forged
             .state
@@ -666,40 +728,87 @@ fn reserved_counter_names_are_rejected_in_state_and_restore() {
             .objects
             .get_mut(&bears.card)
             .unwrap()
-            .counters = vec![CounterStack {
-            kind: CounterKind::Named { name: name.into() },
-            count: 1.into(),
-            timestamp: 0,
-        }];
+            .counters[0]
+            .kind = kind.clone();
+        let err = forged.validate_state().unwrap_err();
         assert!(
-            forged
-                .validate_state()
-                .unwrap_err()
-                .contains("counter invariant"),
-            "{name}"
+            err.contains("snapshot counter kind admission"),
+            "{kind:?}: {err}"
         );
-        let snapshot = forged.snapshot().unwrap();
+        let value = serde_json::to_value(&kind).unwrap();
+        let err = restore_rejection(&g, |state| {
+            state["objects"][bears.card.0.to_string()]["counters"][0]["kind"] = value;
+        });
         assert!(
-            Game::restore(g.prepared.as_ref().clone(), &snapshot).is_err(),
-            "{name}"
+            err.contains("snapshot counter kind admission"),
+            "{kind:?}: {err}"
         );
     }
-    // An admitted-but-unsupported keyword counter is rejected too.
-    let mut forged = g.fork();
-    forged
-        .state
-        .rules
-        .objects
-        .get_mut(&bears.card)
-        .unwrap()
-        .counters = vec![CounterStack {
-        kind: CounterKind::Keyword {
-            keyword: KeywordAbility::Shroud,
+}
+
+/// CR 608.2h: Barrin's Codex's sacrificed source keeps its last-known page
+/// counters on the stack entry. Changing only the retained kind to a
+/// reserved or unexecuted one is rejected by state validation and restore.
+#[test]
+fn retained_source_counter_facts_are_admitted() {
+    let mut scenario = board(&[(BARRINS_CODEX, &[Cell::KindCountersSource])]).permanent_or_hand(
+        "Barrin's Codex",
+        0,
+        0,
+        false,
+    );
+    for _ in 0..4 {
+        scenario = scenario.permanent_or_hand("Island", 0, 0, false);
+    }
+    let mut g = Game::with_trace(
+        scenario.libraries("Island", 12).prepare(),
+        TraceMode::Detailed,
+    );
+    let codex = Driver::object(&g, 0);
+    next_own_turn(&mut g);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: codex,
+            ability: 0,
         },
-        count: 1.into(),
-        timestamp: 0,
-    }];
-    assert!(forged.validate_state().is_err());
+    );
+    Driver::pay(&mut g, &[1, 2, 3, 4]);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert_eq!(d.reason, Reason::Priority);
+    assert_eq!(zone(&g, 0), Zone::Graveyard { owner: PlayerId(0) });
+    let entry = g.state.rules.stack.last().unwrap();
+    let page = CounterKind::Named {
+        name: "page".into(),
+    };
+    assert_eq!(entry.source_facts.as_ref().unwrap().counters[0].kind, page);
+    g.validate_state().unwrap();
+    let snapshot = g.snapshot().unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &snapshot).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), snapshot);
+    let top = g.state.rules.stack.len() - 1;
+    for kind in forged_kinds() {
+        let mut forged = g.fork();
+        forged.state.rules.stack[top]
+            .source_facts
+            .as_mut()
+            .unwrap()
+            .counters[0]
+            .kind = kind.clone();
+        let err = forged.validate_state().unwrap_err();
+        assert!(
+            err.contains("captured counter kind admission"),
+            "{kind:?}: {err}"
+        );
+        let value = serde_json::to_value(&kind).unwrap();
+        let err = restore_rejection(&g, |state| {
+            state["stack"][top]["source_facts"]["counters"][0]["kind"] = value;
+        });
+        assert!(
+            err.contains("captured counter kind admission"),
+            "{kind:?}: {err}"
+        );
+    }
 }
 
 /// CR 613.1f, 613.7a, 613.7c: a flying counter placed before Humility's

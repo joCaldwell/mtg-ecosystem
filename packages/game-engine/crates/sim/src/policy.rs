@@ -397,6 +397,9 @@ impl Strategy<'_> {
             (_, Shape::Order { items, min, .. }) => Answer::Order {
                 order: items.iter().take(*min as usize).copied().collect(),
             },
+            (_, Shape::CombatDistribute { groups, .. }) => {
+                mtg_core::combat_allocation_to_blockers(groups)
+            }
             (
                 _,
                 Shape::Distribute {

@@ -370,6 +370,7 @@ impl RulesTxn {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
+            Self::validate_fact_counters(fact)?;
             self.validate_characteristic_identity(
                 entry.source,
                 fact.transforms,

@@ -829,6 +829,9 @@ impl RulesTxn {
             }
             // CR 122.1, 122.2: other kinds are positive, in kind order, and
             // exist only on the battlefield; P/T counters need a creature.
+            if !counter_kinds_admitted(&o.counters) {
+                return Err("snapshot counter kind admission".into());
+            }
             if !counter_stacks_valid(&o.counters)
                 || o.counters.iter().any(|stack| {
                     o.zone != Zone::Battlefield || stack.timestamp >= self.state.rules.next_batch_id
@@ -939,13 +942,18 @@ impl RulesTxn {
     }
 }
 
+/// CR 122.1: every stack is an admitted kind other than +1/+1, which
+/// `Object::plus_one_counters` holds.
+pub(super) fn counter_kinds_admitted(stacks: &[CounterStack]) -> bool {
+    stacks.iter().all(|stack| {
+        stack.kind != mtg_contracts::kir::CounterKind::PlusOnePlusOne && stack.kind.admitted()
+    })
+}
+
 /// CR 122.1: positive stacks of admitted non-+1/+1 kinds in strictly
 /// increasing kind order, as every placement leaves them.
 pub(super) fn counter_stacks_valid(stacks: &[CounterStack]) -> bool {
-    stacks.windows(2).all(|w| w[0].kind < w[1].kind)
-        && stacks.iter().all(|stack| {
-            stack.count > Quantity::zero()
-                && stack.kind != mtg_contracts::kir::CounterKind::PlusOnePlusOne
-                && stack.kind.admitted()
-        })
+    counter_kinds_admitted(stacks)
+        && stacks.windows(2).all(|w| w[0].kind < w[1].kind)
+        && stacks.iter().all(|stack| stack.count > Quantity::zero())
 }

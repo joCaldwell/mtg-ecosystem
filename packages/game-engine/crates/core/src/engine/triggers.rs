@@ -2617,6 +2617,7 @@ impl RulesTxn {
             return Err("snapshot trigger source invariant".into());
         }
         {
+            Self::validate_fact_counters(fact)?;
             self.validate_characteristic_identity(
                 source,
                 fact.transforms,

@@ -22,6 +22,10 @@ pub enum Shape {
         buckets: Vec<Bucket>,
         gates: Vec<Gate>,
     },
+    CombatDistribute {
+        groups: Vec<CombatDistribution>,
+        lethal: Vec<CombatLethal>,
+    },
     Number {
         min: Quantity,
         max: Option<Quantity>,
@@ -91,6 +95,26 @@ pub struct Gate {
     /// Bucket ordinal whose positive allocation depends on the requirements.
     pub bucket: u32,
     pub requires: Vec<(u32, Quantity)>,
+}
+
+/// All buckets of a source are contiguous in the answer, in group order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CombatDistribution {
+    pub source: u32,
+    pub total: Quantity,
+    pub recipients: Vec<u32>,
+}
+
+/// A positive player allocation requires lethal damage on this blocker
+/// from the combined assignments of all attacking creatures.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CombatLethal {
+    pub player_bucket: u32,
+    pub damage_buckets: Vec<u32>,
+    pub deathtouch_buckets: Vec<u32>,
+    pub remaining: Quantity,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -157,7 +157,7 @@ pub fn encode(
         match d.shape {
             Shape::Pick { .. } => 0,
             Shape::Order { .. } => 1,
-            Shape::Distribute { .. } => 2,
+            Shape::Distribute { .. } | Shape::CombatDistribute { .. } => 2,
             Shape::Number { .. } => 3,
             Shape::Pay { .. } => 4,
         },
