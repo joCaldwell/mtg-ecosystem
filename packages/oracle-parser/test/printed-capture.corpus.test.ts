@@ -43,7 +43,39 @@ function defectCount(block: Extract<PrintedBlock, { status: "read" }>) {
     }
     regions.set(node.path, coverage);
   }
-  return { nesting, overlap, conflict };
+  return { nesting, overlap, conflict, hull: hullMismatches(block) };
+}
+
+/** Rust's P6 rule: a hull equals the union of its child extents and attributed clauses. */
+function hullMismatches(block: Extract<PrintedBlock, { status: "read" }>) {
+  const paths = new Set(block.nodes.map(node => node.path));
+  const tokens = new Map<string, Set<string>>();
+  const add = (path: string, runs: readonly TokenRun[]) => {
+    const set = tokens.get(path) ?? new Set<string>();
+    for (const [line, start, end] of runs) for (let i = start; i < end; i++) set.add(line + ":" + i);
+    tokens.set(path, set);
+  };
+  const childExtents = new Map<string, Set<string>>();
+  for (const node of block.nodes) {
+    if (node.basis === "recorded") add(node.path, [...node.span, ...(node.folds ?? [])]);
+    else if (node.basis === "hull") add(node.path, node.span);
+    if (!node.path) continue;
+    let parent = node.path.slice(0, node.path.lastIndexOf("/"));
+    while (parent && !paths.has(parent)) parent = parent.slice(0, parent.lastIndexOf("/"));
+    const own = childExtents.get(parent) ?? new Set<string>();
+    childExtents.set(parent, own);
+    if (node.basis === "recorded" || node.basis === "hull")
+      for (const token of tokens.get(node.path)!) own.add(token);
+  }
+  let mismatches = 0;
+  for (const node of block.nodes) {
+    if (node.basis !== "hull") continue;
+    const expected = new Set(childExtents.get(node.path));
+    for (const [line, start, end] of node.clauses ?? []) for (let i = start; i < end; i++) expected.add(line + ":" + i);
+    const span = tokens.get(node.path)!;
+    if (span.size !== expected.size || [...span].some(token => !expected.has(token))) mismatches++;
+  }
+  return mismatches;
 }
 
 const familyNames = ["modify-characteristics", "gain-abilities", "get-counters", "sacrifice", "pump", "move-zone",
@@ -91,7 +123,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
   const wrongSpans = { verbRecordedYou: 0, regenerationForbidden: 0, unpreventable: 0, optional: 0 };
   const families = familyNames.map(family => ({ family, roots: 0, unlocatedRoots: 0, nodes: 0, unlocated: 0 }));
   const witnesses = witnessGroups.map(names => ({ names, observed: new Set<string>(), failedBlocks: 0, unlocated: [] as string[] }));
-  const emitted = { nesting: 0, overlap: 0, conflict: 0 };
+  const emitted = { nesting: 0, overlap: 0, conflict: 0, hull: 0 };
   const failures: string[] = [];
   const digest = createHash("sha256");
   const check = (pass: boolean, key: "legacyDiffs" | "captureDiffs" | "bindingDiffs" | "resolutionDiffs", site: string) => {
@@ -196,7 +228,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
   assert.equal(counts.attempted, 34_464);
   assert.equal(counts.unmappable, 0);
   assert.deepEqual(failures, []);
-  assert.deepEqual(emitted, { nesting: 0, overlap: 0, conflict: 0 });
+  assert.deepEqual(emitted, { nesting: 0, overlap: 0, conflict: 0, hull: 0 });
   assert.deepEqual(wrongSpans, { verbRecordedYou: 0, regenerationForbidden: 0, unpreventable: 0, optional: 0 });
   assert.equal(candidates.mutationGuardDemotions, 0);
   assert.equal(candidates.unlocatedSelections, 0);

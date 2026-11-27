@@ -147,8 +147,11 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
     const childSpans = union(located.children.flatMap(child => extent(child.node)));
     if (mutated || origin?.basis === "hull") {
       const clauses = origin.basis === "hull" ? origin.tokens : origin.folds ?? [];
-      const span = union([...childSpans, ...tokenRuns(clauses.filter(({ line }) => lines[0] <= line && line < lines[1]))]);
-      if (span.length) located.node = { path, basis: "hull", span };
+      // Rust recomputes a hull as its child extents plus these attributed
+      // clause runs, so every folded clause is emitted with the hull.
+      const clauseRuns = tokenRuns(clauses.filter(({ line }) => lines[0] <= line && line < lines[1]));
+      const span = union([...childSpans, ...clauseRuns]);
+      if (span.length) located.node = { path, basis: "hull", span, ...(clauseRuns.length ? { clauses: clauseRuns } : {}) };
       return;
     }
     if (origin?.basis === "recorded") {

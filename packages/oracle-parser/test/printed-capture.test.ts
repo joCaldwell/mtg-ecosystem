@@ -349,6 +349,20 @@ test("the mutation guard keeps only child or folded spans after an uncovered sca
   assert.deepEqual(located(filter), { node: { path: "", basis: "unlocated" }, demotions: 1 });
 });
 
+test("a hull emits the clause runs it folds, so Rust can recompute it from its children", () => {
+  // Exact Oracle text, frozen R5 archive ("Safewright Quest").
+  const text = "Search your library for a Forest or Plains card, reveal it, put it into your hand, then shuffle.";
+  const face = read(text, "Safewright Quest", "Sorcery");
+  const found = block(face);
+  const filter = step + "/for/filter/allOf/0";
+  const hull = found.nodes.find(node => node.path === filter);
+  assert.deepEqual(hull, { path: filter, basis: "hull", span: [[0, 5, 8]], clauses: [[0, 5, 8]] });
+  assert.equal(spelling(face, text, span(found, filter + "/anyOf/0")), "Forest");
+  assert.equal(spelling(face, text, span(found, filter + "/anyOf/1")), "Plains");
+  // The connector "or" belongs to no child, so only the attributed clause covers it.
+  assert.equal(spelling(face, text, [0, 6, 7]), "or");
+});
+
 test("Polymorph and Pongify attach the regeneration sentence to the destruction", () => {
   const instruction = "Destroy target creature. It can't be regenerated.";
   const examples = [
