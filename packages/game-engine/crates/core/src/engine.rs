@@ -119,6 +119,7 @@ pub const ALLOWED: [(&str, &str); 5] = [
 pub mod choices;
 pub mod graveyard_targets;
 pub use choices::*;
+pub(in crate::engine) mod ability_layers;
 mod damage_rules;
 pub mod effects;
 pub use crate::build_id;

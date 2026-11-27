@@ -105,6 +105,9 @@ impl RulesTxn {
                         // before any upkeep.
                         control_upkeeps: (c.zone == Zone::Battlefield).then_some(0),
                         keyword_timestamp: None,
+                        // CR 613.7m: setup permanents share one timestamp,
+                        // ordered by APNAP from the first active player.
+                        keyword_rank: c.controller.0,
                         plus_one_counters: Quantity::zero(),
                         transforms: 0,
                         adventure_player: None,

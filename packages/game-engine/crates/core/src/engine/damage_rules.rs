@@ -85,6 +85,10 @@ impl RulesTxn {
     }
 
     fn held_damage_rule<'a>(&'a self, holder: &Object, index: u32) -> Option<&'a StaticRule> {
+        // CR 113.10, 305.7: a holder without its abilities holds no rule.
+        if self.printed_abilities_lost(holder.id) {
+            return None;
+        }
         let ability = self
             .copiable_definition(holder.id)
             .ok()?

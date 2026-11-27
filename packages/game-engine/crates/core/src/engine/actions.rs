@@ -358,8 +358,12 @@ impl RulesTxn {
             .ok_or("unknown activated ability")?;
         if !self.is_live(player)
             || match ability.functioning_zone {
+                // CR 113.10, 305.7: a permanent without its abilities has
+                // none to activate.
                 FunctioningZone::Battlefield => {
-                    !source.present_on_battlefield() || source.controller != player
+                    !source.present_on_battlefield()
+                        || source.controller != player
+                        || self.printed_abilities_lost(object)
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
                 FunctioningZone::Graveyard => {
