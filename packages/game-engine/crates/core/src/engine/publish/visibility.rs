@@ -838,7 +838,7 @@ impl RulesTxn {
             },
             restrictions: {
                 let current: Vec<_> = self
-                    .creature_restrictions_with_sources(object.id, static_sources)
+                    .creature_restrictions_with_sources(object.id, static_sources)?
                     .collect();
                 [
                     CreatureRestriction::CantAttack,

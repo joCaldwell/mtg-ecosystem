@@ -311,14 +311,16 @@ impl RulesTxn {
         &self,
         object: ObjectId,
         restriction: CreatureRestriction,
-    ) -> bool {
-        self.creature_restrictions(object).any(|r| r == restriction)
+    ) -> Result<bool, String> {
+        Ok(self
+            .creature_restrictions(object)?
+            .any(|r| r == restriction))
     }
 
     pub(super) fn creature_restrictions(
         &self,
         object: ObjectId,
-    ) -> impl Iterator<Item = CreatureRestriction> + '_ {
+    ) -> Result<impl Iterator<Item = CreatureRestriction> + '_, String> {
         self.creature_restrictions_with_sources(object, None)
     }
 
@@ -326,9 +328,10 @@ impl RulesTxn {
         &'a self,
         object: ObjectId,
         sources: Option<&'a [CardId]>,
-    ) -> impl Iterator<Item = CreatureRestriction> + 'a {
+    ) -> Result<impl Iterator<Item = CreatureRestriction> + 'a, String> {
         use mtg_contracts::kir::CombatRequirement as R;
-        self.combat_requirements(object, sources)
+        Ok(self
+            .combat_requirements(object, sources)?
             .filter_map(|rule| match rule {
                 R::CantAttack => Some(CreatureRestriction::CantAttack),
                 R::CantBlock => Some(CreatureRestriction::CantBlock),
@@ -340,7 +343,7 @@ impl RulesTxn {
                 | R::AssignCombatDamageWithToughness
                 | R::AdditionalBlocks(_)
                 | R::UnlimitedBlocks => None,
-            })
+            }))
     }
 
     pub(crate) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {

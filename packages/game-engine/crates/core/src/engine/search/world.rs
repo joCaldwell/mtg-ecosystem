@@ -372,6 +372,9 @@ impl SampleBuildWork {
                 None => (row.owner, false, false, Quantity::zero()),
             };
             let turn = self.game.state.rules.turn.number;
+            // The permitted root has no relative timestamps. Allocate in
+            // input row order for repeatable sampling. Stage 6 needs a reviewed
+            // projection of the ordering facts for timestamp-sensitive search.
             let timestamp = if row.zone == Zone::Battlefield {
                 Some(self.game.allocate_timestamp(None).map_err(invariant)?)
             } else {

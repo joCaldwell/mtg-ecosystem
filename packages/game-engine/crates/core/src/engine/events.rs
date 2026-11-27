@@ -3100,7 +3100,7 @@ impl RulesTxn {
                 }
             }
             ProposedEvent::LandPlayed { player } => {
-                if !self.main_phase_action(*player) || !self.has_land_play_allowance(*player) {
+                if !self.main_phase_action(*player) || !self.has_land_play_allowance(*player)? {
                     return Err("invalid land-play counting event".into());
                 }
                 let previous = self.state.rules.turn.lands_played;

@@ -316,6 +316,8 @@ impl RulesTxn {
         player: PlayerId,
         priority: bool,
     ) -> Result<Vec<Candidate<Rules>>, String> {
+        let land_play =
+            priority && self.main_phase_action(player) && self.has_land_play_allowance(player)?;
         let mut actions = Vec::new();
         if priority {
             actions.push(Action::Pass);
@@ -339,17 +341,16 @@ impl RulesTxn {
             let adventure = obj.zone == Zone::Exile && obj.adventure_player == Some(player);
             if priority && (hand || command || graveyard || adventure) {
                 for face in self.definition(id.card)?.faces() {
-                    if (hand || adventure) && self.validate_land_face(player, id.card, face).is_ok()
+                    if land_play
+                        && (hand || adventure)
+                        && self.playable_land_face(player, id.card, face)?
                     {
                         actions.push(match face {
                             CardFace::Front => Action::PlayLand { object: id },
                             CardFace::Back => Action::PlayLandBackFace { object: id },
                         });
                     }
-                    if self
-                        .validate_priority_spell_cast(player, id.card, face)
-                        .is_ok()
-                    {
+                    if self.can_propose_priority_spell(player, id.card, face, false)? {
                         actions.push(match face {
                             CardFace::Front => Action::Cast { card: id },
                             CardFace::Back => Action::CastBackFace { card: id },
@@ -357,7 +358,9 @@ impl RulesTxn {
                     }
                 }
                 // CR 702.37a: a card with morph may also be cast face down.
-                if (hand || command) && self.validate_face_down_cast(player, id.card).is_ok() {
+                if (hand || command)
+                    && self.can_propose_priority_spell(player, id.card, CardFace::Front, true)?
+                {
                     actions.push(Action::CastFaceDown { card: id });
                 }
             }

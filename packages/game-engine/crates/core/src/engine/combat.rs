@@ -68,110 +68,149 @@ impl RulesTxn {
             _ => None,
         }
     }
-    pub(crate) fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
-        self.state
-            .rules
-            .objects
-            .values()
-            .filter(|o| {
-                let Ok(keywords) = self.current_keywords(o.id) else {
-                    return false;
-                };
-                o.controller == player
-                    && !o.tapped
-                    && self.is_battlefield_creature(o.id)
-                    && !self.combat_requirements(o.id, None).any(|rule| match rule {
-                        CombatRequirement::CantAttackOrBlock => true,
-                        CombatRequirement::CantAttack => attacking,
-                        CombatRequirement::CantBlock => !attacking,
-                        _ => false,
-                    })
-                    && (!attacking
-                        || ((o.attack_ready || keywords.contains(&KeywordAbility::Haste))
-                            && (!keywords.contains(&KeywordAbility::Defender)
-                                // CR 609.4, 702.3b.
-                                || self.combat_requirements(o.id, None).any(|rule| {
-                                    rule == CombatRequirement::AttackAsThoughNoDefender
-                                }))))
-            })
-            .map(|o| o.id)
-            .collect()
+    pub(crate) fn creatures(
+        &self,
+        player: PlayerId,
+        attacking: bool,
+    ) -> Result<Vec<ObjectId>, String> {
+        let mut creatures = Vec::new();
+        for object in self.state.rules.objects.values() {
+            if object.controller != player
+                || object.tapped
+                || !object.present_on_battlefield()
+                || !self
+                    .characteristics(object.id)?
+                    .has_type(CardKind::Creature)
+            {
+                continue;
+            }
+            let requirements: Vec<_> = self.combat_requirements(object.id, None)?.collect();
+            if requirements.iter().any(|rule| match rule {
+                CombatRequirement::CantAttackOrBlock => true,
+                CombatRequirement::CantAttack => attacking,
+                CombatRequirement::CantBlock => !attacking,
+                _ => false,
+            }) {
+                continue;
+            }
+            if attacking {
+                let keywords = self.current_keywords(object.id)?;
+                if !(object.attack_ready || keywords.contains(&KeywordAbility::Haste))
+                    || (keywords.contains(&KeywordAbility::Defender)
+                        // CR 609.4, 702.3b.
+                        && !requirements.contains(&CombatRequirement::AttackAsThoughNoDefender))
+                {
+                    continue;
+                }
+            }
+            creatures.push(object.id);
+        }
+        Ok(creatures)
     }
-    pub(super) fn combat_requirements<'a>(
-        &'a self,
+
+    pub(super) fn combat_requirements(
+        &self,
         object: ObjectId,
-        sources: Option<&'a [CardId]>,
-    ) -> impl Iterator<Item = CombatRequirement> + 'a {
+        sources: Option<&[CardId]>,
+    ) -> Result<impl Iterator<Item = CombatRequirement>, String> {
         use CombatProhibitionScope as S;
-        let resolved = self.state.rules.effects.iter().filter_map(move |effect| {
+        let mut requirements = self.combat_statics(object, sources)?;
+        let mut creature = None;
+        for effect in &self.state.rules.effects {
             let ResolvedEffectKind::CombatProhibition {
                 affects,
                 restriction,
             } = &effect.kind
             else {
-                return None;
+                continue;
             };
             // CR 611.2c, 613.11: these change combat rules. Read characteristics
             // after the layers, at declaration, including creatures that arrived later.
-            (self.is_battlefield_creature(object)
+            let is_creature = match creature {
+                Some(value) => value,
+                None => {
+                    let value = self
+                        .current(object)
+                        .is_ok_and(Object::present_on_battlefield)
+                        && self
+                            .structural_characteristics(object)?
+                            .has_type(CardKind::Creature);
+                    creature = Some(value);
+                    value
+                }
+            };
+            if is_creature
                 && match affects {
                     S::Target { target } => *target == object,
                     S::Creatures {} => true,
-                    S::CreaturesWithoutFlying {} => self
-                        .current_keywords_with_sources(object, sources)
-                        .is_ok_and(|keywords| !keywords.contains(&KeywordAbility::Flying)),
-                })
-            .then_some(*restriction)
-        });
-        self.combat_statics(object, sources).chain(resolved)
+                    S::CreaturesWithoutFlying {} => !self
+                        .current_keywords_with_sources(object, sources)?
+                        .contains(&KeywordAbility::Flying),
+                }
+            {
+                requirements.push(*restriction);
+            }
+        }
+        Ok(requirements.into_iter())
     }
     // CR 509.1a: additional allowances stack, and unlimited capacity
     // overrides the default and every additive allowance.
-    fn block_capacity(&self, blocker: ObjectId) -> u32 {
-        self.combat_statics(blocker, None)
+    fn block_capacity(&self, blocker: ObjectId) -> Result<u32, String> {
+        Ok(self
+            .combat_statics(blocker, None)?
+            .into_iter()
             .fold(1u32, |count, rule| match rule {
                 CombatRequirement::AdditionalBlocks(extra) => count.saturating_add(extra),
                 CombatRequirement::UnlimitedBlocks => u32::MAX,
                 _ => count,
-            })
+            }))
     }
 
     /// CR 509.1b: static per-pair block restrictions, read at the declaration.
-    pub(super) fn block_rules_permit(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
-        self.static_declaration_rules()
-            .all(|(source, rule)| match rule {
+    pub(super) fn block_rules_permit(
+        &self,
+        blocker: ObjectId,
+        attacker: ObjectId,
+    ) -> Result<bool, String> {
+        for (source, rule) in self.static_declaration_rules()? {
+            let permitted = match rule {
                 StaticRule::Block {
                     affects,
                     restriction: BlockRestriction::Blockers { only, filter },
                 } => {
-                    !self.declaration_scope(affects, source, attacker)
-                        || self.declaration_matches(filter, source, blocker) == *only
+                    !self.declaration_scope(affects, source, attacker)?
+                        || self.declaration_matches(filter, source, blocker)? == *only
                 }
                 StaticRule::Block {
                     affects,
                     restriction: BlockRestriction::Attackers { only, filter },
                 } => {
-                    !self.declaration_scope(affects, source, blocker)
-                        || self.declaration_matches(filter, source, attacker) == *only
+                    !self.declaration_scope(affects, source, blocker)?
+                        || self.declaration_matches(filter, source, attacker)? == *only
                 }
                 _ => true,
-            })
+            };
+            if !permitted {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
     /// CR 509.1b, 702.111b: the least and greatest number of creatures a
     /// nonempty block of `attacker` may use.
-    pub(super) fn blocker_count_bounds(&self, attacker: ObjectId) -> (u32, Option<u32>) {
-        let mut least = if self.has_keyword(attacker, KeywordAbility::Menace) == Ok(true) {
+    fn blocker_count_bounds(&self, attacker: ObjectId) -> Result<(u32, Option<u32>), String> {
+        let mut least = if self.has_keyword(attacker, KeywordAbility::Menace)? {
             2
         } else {
             1
         };
         let mut most: Option<u32> = None;
-        for (source, rule) in self.static_declaration_rules() {
+        for (source, rule) in self.static_declaration_rules()? {
             if let StaticRule::Block {
                 affects,
                 restriction,
             } = rule
-                && self.declaration_scope(affects, source, attacker)
+                && self.declaration_scope(affects, source, attacker)?
             {
                 match restriction {
                     BlockRestriction::AtLeast { count } => least = least.max(*count),
@@ -182,32 +221,29 @@ impl RulesTxn {
                 }
             }
         }
-        (least, most)
+        Ok((least, most))
     }
     /// CR 508.1b-c: whether a static restriction forbids attacking `defender`.
-    pub(super) fn attack_permitted(&self, attacker: ObjectId, defender: PlayerId) -> bool {
-        self.attack_defender_permitted(attacker, defender, false)
-    }
-
     fn attack_defender_permitted(
         &self,
         attacker: ObjectId,
         defender: PlayerId,
         planeswalker: bool,
-    ) -> bool {
-        self.static_declaration_rules()
-            .all(|(source, rule)| match rule {
-                StaticRule::AttackRestriction {
-                    affects,
-                    defender: who,
-                    planeswalkers,
-                } => {
-                    !self.declaration_scope(affects, source, attacker)
-                        || (planeswalker && !planeswalkers)
-                        || !self.static_player(who, source.controller, defender)
-                }
-                _ => true,
-            })
+    ) -> Result<bool, String> {
+        for (source, rule) in self.static_declaration_rules()? {
+            if let StaticRule::AttackRestriction {
+                affects,
+                defender: who,
+                planeswalkers,
+            } = rule
+                && self.declaration_scope(affects, source, attacker)?
+                && (!planeswalker || *planeswalkers)
+                && self.static_player(who, source.controller, defender)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
     pub(super) fn is_battlefield_planeswalker(&self, object: ObjectId) -> bool {
         self.current(object)
@@ -221,38 +257,26 @@ impl RulesTxn {
         self.is_battlefield_creature(object) || self.is_battlefield_planeswalker(object)
     }
 
-    fn attackable_planeswalkers(
-        &self,
-        attacker: ObjectId,
-        player: PlayerId,
-    ) -> impl Iterator<Item = (PlayerId, ObjectId)> + '_ {
-        self.state.rules.objects.values().filter_map(move |o| {
-            let defender = o.controller;
-            (defender != player
-                && self.is_live(defender)
-                && self.is_battlefield_planeswalker(o.id)
-                && self.attack_defender_permitted(attacker, defender, true))
-            .then_some((defender, o.id))
-        })
-    }
-
     // CR 508.1d: static and resolved "attacks each combat/this turn if able".
-    fn must_attack(&self, object: ObjectId) -> bool {
-        self.combat_requirements(object, None)
-            .any(|rule| rule == CombatRequirement::AttackEachCombat)
+    fn must_attack(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(self
+            .combat_requirements(object, None)?
+            .any(|rule| rule == CombatRequirement::AttackEachCombat))
     }
     /// CR 508.1d, 702.141a: an encore token attacks its opponent this turn
     /// if able. Attacking that player obeys every other admitted requirement
     /// too, so the token may attack no other player while it can attack them.
     /// A player who left, or who now controls the token, is no defender it
     /// can attack, so no requirement remains (CR 506.2, 800.4a).
-    fn required_defender(&self, object: ObjectId) -> Option<PlayerId> {
-        let (defender, turn) = self.encore_mark(object)?;
-        (turn == self.state.rules.turn.number
+    fn required_defender(&self, object: ObjectId) -> Result<Option<PlayerId>, String> {
+        let Some((defender, turn)) = self.encore_mark(object) else {
+            return Ok(None);
+        };
+        Ok((turn == self.state.rules.turn.number
             && self.is_live(defender)
             && self.current(object).is_ok_and(|o| o.controller != defender)
-            && self.attack_permitted(object, defender))
-        .then_some(defender)
+            && self.attack_defender_permitted(object, defender, false)?)
+        .then_some(defender))
     }
 
     fn hand(&self, player: PlayerId) -> Vec<ObjectId> {
@@ -268,7 +292,7 @@ impl RulesTxn {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn combat_damage_amount(&self, source: ObjectId) -> Result<Quantity, String> {
         let facts = self.characteristics(source)?;
-        let assigned = if self.assigns_with_toughness(source) {
+        let assigned = if self.assigns_with_toughness(source)? {
             facts.toughness
         } else {
             facts.power
@@ -277,9 +301,10 @@ impl RulesTxn {
             .ok_or("missing combat damage characteristic")?
             .max(Quantity::zero()))
     }
-    pub(super) fn assigns_with_toughness(&self, source: ObjectId) -> bool {
-        self.combat_statics(source, None)
-            .any(|rule| rule == CombatRequirement::AssignCombatDamageWithToughness)
+    pub(super) fn assigns_with_toughness(&self, source: ObjectId) -> Result<bool, String> {
+        Ok(self
+            .combat_statics(source, None)?
+            .contains(&CombatRequirement::AssignCombatDamageWithToughness))
     }
 
     fn recipients(&self, source: ObjectId) -> Vec<ObjectId> {
@@ -396,7 +421,7 @@ impl RulesTxn {
         Ok(Some(match self.state.rules.frame {
             Frame::Attackers | Frame::Blockers { .. } => {
                 let attacking = matches!(self.state.rules.frame, Frame::Attackers);
-                let mut subjects = self.creatures(player, attacking);
+                let mut subjects = self.creatures(player, attacking)?;
                 let walkers = if attacking {
                     let mut walkers = self
                         .state
@@ -433,52 +458,48 @@ impl RulesTxn {
                 for subject in subjects {
                     let subject_index =
                         candidate_index(&mut candidates, Candidate::Object { object: subject });
-                    let required = attacking.then(|| self.required_defender(subject)).flatten();
-                    let mut allowed: Vec<_> = if attacking {
-                        self.live_players()
-                            .into_iter()
-                            .filter(|p| {
-                                *p != player
-                                    && self.attack_permitted(subject, *p)
-                                    && required.is_none_or(|d| d == *p)
-                            })
-                            .map(|p| {
-                                candidate_index(&mut candidates, Candidate::Player { player: p })
-                            })
-                            .collect()
-                    } else {
-                        self.state
-                            .rules
-                            .combat
-                            .iter()
-                            .filter(|a| {
-                                a.defender == player
-                                    && self.can_block(subject, a.attacker) == Ok(true)
-                            })
-                            .map(|a| {
-                                candidate_index(
+                    let mut allowed = Vec::new();
+                    let required = if attacking {
+                        let required = self.required_defender(subject)?;
+                        for defender in self.live_players() {
+                            if defender != player
+                                && required.is_none_or(|player| player == defender)
+                                && self.attack_defender_permitted(subject, defender, false)?
+                            {
+                                allowed.push(candidate_index(
                                     &mut candidates,
-                                    Candidate::Object { object: a.attacker },
-                                )
-                            })
-                            .collect()
-                    };
-                    if attacking && required.is_none() {
-                        allowed.extend(
-                            walkers
-                                .iter()
-                                .filter(|(_, _, defender)| {
-                                    self.is_live(*defender)
-                                        && self.attack_defender_permitted(subject, *defender, true)
-                                })
-                                .map(|(_, object, _)| {
-                                    candidate_index(
+                                    Candidate::Player { player: defender },
+                                ));
+                            }
+                        }
+                        if required.is_none() {
+                            for &(_, object, defender) in &walkers {
+                                if self.is_live(defender)
+                                    && self.attack_defender_permitted(subject, defender, true)?
+                                {
+                                    allowed.push(candidate_index(
                                         &mut candidates,
-                                        Candidate::Object { object: *object },
-                                    )
-                                }),
-                        );
-                    }
+                                        Candidate::Object { object },
+                                    ));
+                                }
+                            }
+                        }
+                        required
+                    } else {
+                        for attack in &self.state.rules.combat {
+                            if attack.defender == player
+                                && self.can_block(subject, attack.attacker)?
+                            {
+                                allowed.push(candidate_index(
+                                    &mut candidates,
+                                    Candidate::Object {
+                                        object: attack.attacker,
+                                    },
+                                ));
+                            }
+                        }
+                        None
+                    };
                     slots.push(Slot {
                         role: if attacking {
                             SlotRole::AttackWith
@@ -489,12 +510,12 @@ impl RulesTxn {
                         min: u32::from(
                             attacking
                                 && !allowed.is_empty()
-                                && (required.is_some() || self.must_attack(subject)),
+                                && (required.is_some() || self.must_attack(subject)?),
                         ),
                         max: if attacking {
                             1
                         } else {
-                            self.block_capacity(subject)
+                            self.block_capacity(subject)?
                                 .min(allowed.len().max(1) as u32)
                         },
                         allowed,
@@ -519,7 +540,7 @@ impl RulesTxn {
                         else {
                             continue;
                         };
-                        let (min, max) = self.blocker_count_bounds(a.attacker);
+                        let (min, max) = self.blocker_count_bounds(a.attacker)?;
                         if min > 1 {
                             least.entry(min).or_default().push(index as u32);
                         }
@@ -637,41 +658,48 @@ impl RulesTxn {
         {
             return Err("invalid combat chooser".into());
         }
-        let eligible = self.creatures(player, true);
+        let eligible = self.creatures(player, true)?;
         let mut seen = BTreeSet::new();
-        if attacks.iter().any(|(o, p, planeswalker)| {
-            !seen.insert(*o)
-                || !eligible.contains(o)
-                || *p == player
-                || !self.is_live(*p)
-                || !self.attack_defender_permitted(*o, *p, planeswalker.is_some())
+        for &(object, defender, planeswalker) in attacks {
+            if !seen.insert(object)
+                || !eligible.contains(&object)
+                || defender == player
+                || !self.is_live(defender)
+                || !self.attack_defender_permitted(object, defender, planeswalker.is_some())?
                 || planeswalker.is_some_and(|target| {
                     !self.is_battlefield_planeswalker(target)
                         || self
                             .current(target)
-                            .is_ok_and(|target| target.controller != *p)
+                            .is_ok_and(|target| target.controller != defender)
                 })
                 || self
-                    .required_defender(*o)
-                    .is_some_and(|d| d != *p || planeswalker.is_some())
-        }) {
-            return Err("invalid complete attack declaration".into());
+                    .required_defender(object)?
+                    .is_some_and(|required| required != defender || planeswalker.is_some())
+            {
+                return Err("invalid complete attack declaration".into());
+            }
         }
         // CR 508.1d: each eligible required attacker can independently
         // attack one of the living defenders it may attack in the admitted
         // combat model, which has no restriction across creatures.
-        if eligible.iter().any(|&object| {
-            !seen.contains(&object)
-                && (self.required_defender(object).is_some() || self.must_attack(object))
-                && ((0..4)
-                    .map(PlayerId)
-                    .any(|p| p != player && self.is_live(p) && self.attack_permitted(object, p))
-                    || self
-                        .attackable_planeswalkers(object, player)
-                        .next()
-                        .is_some())
-        }) {
-            return Err("attack declaration omits a creature that must attack".into());
+        for object in eligible {
+            if seen.contains(&object)
+                || (self.required_defender(object)?.is_none() && !self.must_attack(object)?)
+            {
+                continue;
+            }
+            for defender in self.live_players() {
+                if defender == player {
+                    continue;
+                }
+                if self.attack_defender_permitted(object, defender, false)?
+                    || (self.state.rules.objects.values().any(|target| {
+                        target.controller == defender && self.is_battlefield_planeswalker(target.id)
+                    }) && self.attack_defender_permitted(object, defender, true)?)
+                {
+                    return Err("attack declaration omits a creature that must attack".into());
+                }
+            }
         }
         Ok(())
     }
@@ -686,7 +714,7 @@ impl RulesTxn {
         {
             return Err("invalid combat chooser".into());
         }
-        let eligible = self.creatures(player, false);
+        let eligible = self.creatures(player, false)?;
         let mut seen = BTreeSet::new();
         let mut uses = BTreeMap::<ObjectId, u32>::new();
         for &(blocker, attacker) in blocks {
@@ -704,7 +732,7 @@ impl RulesTxn {
             }
             let count = uses.entry(blocker).or_default();
             *count += 1;
-            if *count > self.block_capacity(blocker) {
+            if *count > self.block_capacity(blocker)? {
                 return Err("blocker exceeds blocking capacity".into());
             }
         }
@@ -716,7 +744,7 @@ impl RulesTxn {
             .iter()
             .filter(|a| a.defender == player)
         {
-            let (least, most) = self.blocker_count_bounds(a.attacker);
+            let (least, most) = self.blocker_count_bounds(a.attacker)?;
             let count = blocks.iter().filter(|(_, x)| *x == a.attacker).count();
             if count > 0 && (count < least as usize || most.is_some_and(|m| count > m as usize)) {
                 return Err("blocker count outside the attacker's restriction".into());

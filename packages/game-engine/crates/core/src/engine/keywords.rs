@@ -124,8 +124,8 @@ impl RulesTxn {
         let attacker_flies = keywords.contains(&KeywordAbility::Flying);
         Ok(
             !self.protected_from(attacker, self.color_layer(blocker)?.as_ref())?
-                && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
-                && !self.creature_restrictions(blocker).any(|restriction| {
+                && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)?
+                && !self.creature_restrictions(blocker)?.any(|restriction| {
                     restriction == CreatureRestriction::CantAttackOrBlock
                         || restriction == CreatureRestriction::CantBlock
                         || (!attacker_flies
@@ -136,7 +136,7 @@ impl RulesTxn {
                     || self.has_keyword(blocker, KeywordAbility::Reach)?)
                 && !self.landwalk_prevents_block(attacker, &keywords)
                 && !self.evasion_prevents_block(blocker, attacker, &keywords)?
-                && self.block_rules_permit(blocker, attacker),
+                && self.block_rules_permit(blocker, attacker)?,
         )
     }
 

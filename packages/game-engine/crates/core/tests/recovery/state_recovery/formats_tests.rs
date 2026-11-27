@@ -898,6 +898,23 @@ fn stack_target_and_shields() -> Game {
     game
 }
 
+#[test]
+fn simultaneous_effect_records_may_share_a_timestamp() {
+    let mut game = stack_target_and_shields();
+    let effects = &mut game.state.rules.effects;
+    assert!(effects[0].timestamp < effects[1].timestamp);
+    let later = effects[1].timestamp;
+    effects[1].timestamp = effects[0].timestamp;
+    game.validate_effect_state().unwrap();
+
+    let effects = &mut game.state.rules.effects;
+    effects[0].timestamp = later;
+    assert_eq!(
+        game.validate_effect_state().unwrap_err(),
+        "effect creation order invariant"
+    );
+}
+
 fn pending_stack_target() -> Game {
     let mut game = stack_target_and_shields();
     let offer = Driver::request(&mut game, u64::MAX);

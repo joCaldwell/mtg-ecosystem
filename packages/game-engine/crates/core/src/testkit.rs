@@ -720,7 +720,7 @@ impl GameTestkit for Game {
         RulesTxn::creature_or_planeswalker(self, id)
     }
     fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
-        RulesTxn::creatures(self, player, attacking)
+        RulesTxn::creatures(self, player, attacking).unwrap()
     }
     fn current(&self, id: ObjectId) -> Result<&Object, String> {
         Ok(RulesTxn::current(self, id)?)
@@ -854,10 +854,10 @@ impl GameTestkit for Game {
         RulesTxn::has_keyword(self, object, keyword).unwrap()
     }
     fn has_land_play_allowance(&self, player: PlayerId) -> bool {
-        RulesTxn::has_land_play_allowance(self, player)
+        RulesTxn::has_land_play_allowance(self, player).unwrap()
     }
     fn has_restriction(&self, object: ObjectId, restriction: CreatureRestriction) -> bool {
-        RulesTxn::has_restriction(self, object, restriction)
+        RulesTxn::has_restriction(self, object, restriction).unwrap()
     }
     fn has_target_domain(
         &self,

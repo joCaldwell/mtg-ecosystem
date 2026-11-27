@@ -872,7 +872,7 @@ mod tests {
     #[test]
     fn pre_e2_layer_read_returns_order_failure() {
         use crate::testkit::{Board, Driver, FixtureCatalog, assert_recoverable};
-        use mtg_contracts::kir::Pred;
+        use mtg_contracts::kir::{CombatRequirement, Pred, StaticRule};
         let mut catalog = FixtureCatalog::Witness.get().clone();
         let base = catalog
             .definitions
@@ -916,6 +916,20 @@ mod tests {
                     vec![change],
                 ),
             });
+            if id == 1 {
+                definition.static_abilities.push(StaticAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    effect: StaticEffect::Rule {
+                        rule: StaticRule::Combat {
+                            affects: Scope::Matching {
+                                filter: Pred::creatures(),
+                            },
+                            requirement: CombatRequirement::CantAttack,
+                        },
+                        condition: None,
+                    },
+                });
+            }
             definition.capabilities = definition.requirements();
             catalog.definitions.push(definition);
         }
@@ -951,9 +965,14 @@ mod tests {
                     Some(timestamp),
                     &Default::default(),
                 );
+                let entrant_id = entrant.id;
                 stage.rules_mut().objects.insert(object.card, entrant);
                 let expected = "simultaneous continuous setters require timestamp order";
                 assert_eq!(stage.printed_abilities_lost(object).unwrap_err(), expected);
+                assert_eq!(
+                    stage.combat_statics(entrant_id, None).unwrap_err(),
+                    expected
+                );
                 assert_eq!(
                     stage
                         .static_changes_keyed(object, Layer::Ability, None)

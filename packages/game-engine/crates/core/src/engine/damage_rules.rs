@@ -243,16 +243,16 @@ impl RulesTxn {
         recipients: &DamageRecipients,
         holder: &Object,
         recipient: &DamageRecipient,
-    ) -> bool {
+    ) -> Result<bool, String> {
         match *recipient {
-            DamageRecipient::Player { player } => recipients
+            DamageRecipient::Player { player } => Ok(recipients
                 .players
                 .as_ref()
-                .is_some_and(|who| self.static_player(who, holder.controller, player)),
-            DamageRecipient::Permanent { object } => recipients
-                .permanents
-                .as_ref()
-                .is_some_and(|scope| self.declaration_scope(scope, holder, object)),
+                .is_some_and(|who| self.static_player(who, holder.controller, player))),
+            DamageRecipient::Permanent { object } => match &recipients.permanents {
+                Some(scope) => self.declaration_scope(scope, holder, object),
+                None => Ok(false),
+            },
         }
     }
 
@@ -274,13 +274,17 @@ impl RulesTxn {
             return Ok(false);
         }
         if let Some(to) = &event.to
-            && !self.recipient_in(to, holder, &d.recipient)
+            && !self.recipient_in(to, holder, &d.recipient)?
         {
             return Ok(false);
         }
         if let Some(scope) = &event.involving {
-            let to = matches!(d.recipient, DamageRecipient::Permanent { object }
-                if self.declaration_scope(scope, holder, object));
+            let to = match d.recipient {
+                DamageRecipient::Permanent { object } => {
+                    self.declaration_scope(scope, holder, object)?
+                }
+                DamageRecipient::Player { .. } => false,
+            };
             if !to && !self.damage_source_in(scope, holder, d)? {
                 return Ok(false);
             }

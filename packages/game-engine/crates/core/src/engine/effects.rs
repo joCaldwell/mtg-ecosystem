@@ -429,17 +429,16 @@ impl RulesTxn {
         filter: &Pred,
         source: &Object,
         target: ObjectId,
-    ) -> bool {
+    ) -> Result<bool, String> {
         let Ok(object) = self.current(target) else {
-            return false;
+            return Ok(false);
         };
-        let Ok(characteristics) = self.characteristics(target) else {
-            return false;
-        };
-        object.present_on_battlefield()
-            && self.current_keywords(target).is_ok_and(|keywords| {
-                self.declaration_predicate(filter, source, object, &characteristics, &keywords)
-            })
+        if !object.present_on_battlefield() {
+            return Ok(false);
+        }
+        let characteristics = self.characteristics(target)?;
+        let keywords = self.current_keywords(target)?;
+        Ok(self.declaration_predicate(filter, source, object, &characteristics, &keywords))
     }
 
     fn declaration_predicate(
@@ -474,20 +473,22 @@ impl RulesTxn {
         scope: &Scope,
         source: &Object,
         target: ObjectId,
-    ) -> bool {
+    ) -> Result<bool, String> {
         match scope {
-            Scope::Source => source.id == target && self.current(target).is_ok(),
+            Scope::Source => Ok(source.id == target && self.current(target).is_ok()),
             Scope::Matching { filter } => self.declaration_matches(filter, source, target),
-            Scope::Attachment { filter, .. } => {
-                source.attached_to == Some(target)
-                    && self.declaration_matches(filter, source, target)
-            }
+            Scope::Attachment { filter, .. } => Ok(source.attached_to == Some(target)
+                && self.declaration_matches(filter, source, target)?),
         }
     }
 
     /// CR 509.1b, 508.1c: the live block and attack restrictions.
-    pub(super) fn static_declaration_rules(&self) -> impl Iterator<Item = (&Object, &StaticRule)> {
-        self.battlefield_statics(None)
+    pub(super) fn static_declaration_rules(
+        &self,
+    ) -> Result<impl Iterator<Item = (&Object, &StaticRule)>, String> {
+        Ok(self
+            .battlefield_statics(None)?
+            .into_iter()
             .filter_map(|(source, effect)| {
                 let rule = self.unpack_static_rule(source, effect)?;
                 matches!(
@@ -495,7 +496,7 @@ impl RulesTxn {
                     StaticRule::Block { .. } | StaticRule::AttackRestriction { .. }
                 )
                 .then_some((source, rule))
-            })
+            }))
     }
 
     pub(super) fn static_matches(
@@ -678,24 +679,26 @@ impl RulesTxn {
     fn battlefield_statics<'a>(
         &'a self,
         sources: Option<&'a [CardId]>,
-    ) -> impl Iterator<Item = (&'a Object, &'a StaticEffect)> + 'a {
+    ) -> Result<Vec<(&'a Object, &'a StaticEffect)>, String> {
         let setters = self.land_type_setters(sources);
-        let alive = self.alive_removals(sources).unwrap_or_default();
+        let alive = self.alive_removals(sources)?;
         let screen = setters || !alive.is_empty();
-        self.indexed_battlefield_statics(sources)
-            .filter(move |(source, key, effect)| {
-                !screen || {
-                    let first = match effect {
-                        StaticEffect::Continuous { changes, .. } => {
-                            changes.iter().map(Change::layer).min()
-                        }
-                        _ => None,
-                    };
-                    self.static_exists(source, *key, first, &alive, setters)
-                        .unwrap_or(false)
+        let mut statics = Vec::new();
+        for (source, key, effect) in self.indexed_battlefield_statics(sources) {
+            if screen {
+                let first = match effect {
+                    StaticEffect::Continuous { changes, .. } => {
+                        changes.iter().map(Change::layer).min()
+                    }
+                    _ => None,
+                };
+                if !self.static_exists(source, key, first, &alive, setters)? {
+                    continue;
                 }
-            })
-            .map(|(source, _, effect)| (source, effect))
+            }
+            statics.push((source, effect));
+        }
+        Ok(statics)
     }
 
     fn static_abilities_in<'a>(
@@ -833,33 +836,48 @@ impl RulesTxn {
         Ok(matching)
     }
 
-    pub(super) fn combat_statics<'a>(
-        &'a self,
+    pub(super) fn combat_statics(
+        &self,
         target: ObjectId,
-        sources: Option<&'a [CardId]>,
-    ) -> impl Iterator<Item = CombatRequirement> + 'a {
-        let target = self
-            .current(target)
-            .ok()
-            .filter(|o| o.present_on_battlefield());
-        self.battlefield_statics(sources)
-            .filter_map(move |(source, effect)| {
-                let target = target?;
-                let StaticRule::Combat {
-                    affects,
-                    requirement,
-                } = self.unpack_static_rule(source, effect)?
-                else {
-                    return None;
-                };
-                let facts = self.color_layer_with_sources(target.id, sources).ok()?;
+        sources: Option<&[CardId]>,
+    ) -> Result<Vec<CombatRequirement>, String> {
+        let Ok(target) = self.current(target) else {
+            return Ok(vec![]);
+        };
+        if !target.present_on_battlefield() {
+            return Ok(vec![]);
+        }
+        let mut rules = self
+            .battlefield_statics(sources)?
+            .into_iter()
+            .filter_map(
+                |(source, effect)| match self.unpack_static_rule(source, effect)? {
+                    StaticRule::Combat {
+                        affects,
+                        requirement,
+                    } => Some((source, affects, *requirement)),
+                    _ => None,
+                },
+            )
+            .peekable();
+        if rules.peek().is_none() {
+            return Ok(vec![]);
+        }
+        let facts = self.color_layer_with_sources(target.id, sources)?;
+        Ok(rules
+            .filter_map(|(source, affects, requirement)| {
                 self.static_matches(affects, source, target, &facts, target.controller)
-                    .then_some(*requirement)
+                    .then_some(requirement)
             })
+            .collect())
     }
 
-    pub(super) fn static_land_allowance(&self, player: PlayerId, total: &mut Quantity) -> bool {
-        for (source, effect) in self.battlefield_statics(None) {
+    pub(super) fn static_land_allowance(
+        &self,
+        player: PlayerId,
+        total: &mut Quantity,
+    ) -> Result<bool, String> {
+        for (source, effect) in self.battlefield_statics(None)? {
             if let Some(StaticRule::AdditionalLandPlays {
                 player: who,
                 allowance,
@@ -867,17 +885,18 @@ impl RulesTxn {
                 && self.static_player(who, source.controller, player)
             {
                 match allowance {
-                    Allowance::Unlimited => return true,
+                    Allowance::Unlimited => return Ok(true),
                     Allowance::Additional { count } => total.add(count),
                 }
             }
         }
-        false
+        Ok(false)
     }
 
     pub(super) fn static_hand_size(&self, player: PlayerId) -> Result<Option<Quantity>, String> {
         let mut changes: Vec<_> = self
-            .battlefield_statics(None)
+            .battlefield_statics(None)?
+            .into_iter()
             .filter_map(|(source, effect)| {
                 let StaticRule::MaximumHandSize {
                     player: who,
@@ -921,8 +940,10 @@ impl RulesTxn {
     fn spell_static_rules<'a>(
         &'a self,
         target: &'a Object,
-    ) -> impl Iterator<Item = (&'a Object, &'a StaticRule)> + 'a {
-        self.battlefield_statics(None)
+    ) -> Result<impl Iterator<Item = (&'a Object, &'a StaticRule)> + 'a, String> {
+        Ok(self
+            .battlefield_statics(None)?
+            .into_iter()
             .chain(
                 self.static_abilities_in(target, FunctioningZone::Stack)
                     .map(move |e| (target, e)),
@@ -930,7 +951,7 @@ impl RulesTxn {
             .filter_map(|(source, effect)| {
                 self.unpack_static_rule(source, effect)
                     .map(|rule| (source, rule))
-            })
+            }))
     }
 
     pub(super) fn has_uncounterable_static(
@@ -940,7 +961,7 @@ impl RulesTxn {
     ) -> Result<bool, String> {
         let object = self.current(target)?;
         let characteristics = &self.copiable_definition(target)?.characteristics;
-        Ok(self.spell_static_rules(object).any(|(source, rule)| {
+        Ok(self.spell_static_rules(object)?.any(|(source, rule)| {
             matches!(rule, StaticRule::CantBeCountered { affects }
                 if self.static_matches(affects, source, object, characteristics, caster))
         }))
@@ -964,7 +985,7 @@ impl RulesTxn {
         };
         let characteristics = &self.copiable_definition(proposed)?.characteristics;
         let mut changes = Vec::new();
-        for (source, rule) in self.spell_static_rules(&object) {
+        for (source, rule) in self.spell_static_rules(&object)? {
             let StaticRule::SpellCost {
                 affects,
                 caster: who,
@@ -1010,7 +1031,7 @@ impl RulesTxn {
         } else {
             &self.copiable_definition(object.id)?.characteristics
         };
-        Ok(self.spell_static_rules(&object).any(|(source, rule)| {
+        Ok(self.spell_static_rules(&object)?.any(|(source, rule)| {
             matches!(rule, StaticRule::CastAsThoughFlash { affects, caster: who }
                 if self.static_player(who, source.controller, caster)
                     && self.static_matches(affects, source, &object, characteristics, caster))
@@ -1537,13 +1558,13 @@ impl RulesTxn {
         // extra occurrences. First/double strike use separate transactions.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         Self::validate_combat_player_members(damage.iter().map(|d| (d.source, &d.recipient)))?;
-        let toughness_sources = damage
-            .iter()
-            .map(|d| d.source)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .filter(|source| self.assigns_with_toughness(*source))
-            .collect();
+        let sources = damage.iter().map(|d| d.source).collect::<BTreeSet<_>>();
+        let mut toughness_sources = BTreeSet::new();
+        for source in sources {
+            if self.assigns_with_toughness(source)? {
+                toughness_sources.insert(source);
+            }
+        }
         let entries = damage
             .into_iter()
             .enumerate()
@@ -2393,12 +2414,14 @@ impl RulesTxn {
         if self.state.rules.effects.len() > self.effect_limit() {
             return Err("effect capacity".into());
         }
+        // Members of one simultaneous occurrence share a rules timestamp.
+        // Effect IDs still order the records and are unique within the cohort.
         if !self
             .state
             .rules
             .effects
             .windows(2)
-            .all(|rows| rows[0].id < rows[1].id && rows[0].timestamp < rows[1].timestamp)
+            .all(|rows| rows[0].id < rows[1].id && rows[0].timestamp <= rows[1].timestamp)
         {
             return Err("effect creation order invariant".into());
         }

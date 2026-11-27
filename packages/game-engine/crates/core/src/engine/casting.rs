@@ -26,19 +26,22 @@ impl RulesTxn {
         card: CardId,
         face: CardFace,
         face_down: bool,
-    ) -> Result<SpellAnnouncement, String> {
+    ) -> Result<SpellAnnouncement, RuleError> {
         if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player
         {
-            return Err("spell proposal requires its ordinary priority owner".into());
+            return Err(RuleError::illegal(
+                "spell proposal requires its ordinary priority owner",
+            ));
         }
-        self.validate_cast_permission(player)?;
+        self.validate_cast_permission(player)
+            .map_err(RuleError::illegal)?;
         let object = self.state.rules.objects.get(&card).ok_or("invalid cast")?;
         if face_down {
             return self.face_down_announcement(player, object);
         }
         let root = self.definition(card)?;
         if face == CardFace::Back && !root.faces().any(|candidate| candidate == face) {
-            return Err("card cannot be cast as that face".into());
+            return Err(RuleError::illegal("card cannot be cast as that face"));
         }
         let definition = root.face(face).ok_or("missing cast face")?;
         // CR 702.34a: flashback permits casting from its owner's graveyard.
@@ -57,7 +60,7 @@ impl RulesTxn {
             || self.state.rules.cards[&card].owner != player
             || definition.spell.is_none()
         {
-            return Err("invalid or unsupported cast".into());
+            return Err(RuleError::illegal("invalid or unsupported cast"));
         }
         let program = definition.spell.as_ref().ok_or("missing cast program")?;
         // CR 601.2/702.8a: only the permission authority supplies timing/zone
@@ -67,12 +70,14 @@ impl RulesTxn {
             && !self.main_phase_action(player)
             && !self.has_flash_permission(object, face, false, player)?
         {
-            return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
+            return Err(RuleError::illegal(
+                "main-phase spell casting requires active-player main-phase priority and empty stack",
+            ));
         }
         if let Some(reason) =
             self.spell_proposal_obstacle(program, player, &definition.characteristics)
         {
-            return Err(reason.into());
+            return Err(RuleError::illegal(reason));
         }
         // CR 702.81a, 601.2b: a retrace cast needs a land card to discard.
         if definition.retrace
@@ -85,7 +90,9 @@ impl RulesTxn {
                         .is_ok_and(|c| c.has_type(CardKind::Land))
             })
         {
-            return Err("retrace requires a land card to discard".into());
+            return Err(RuleError::illegal(
+                "retrace requires a land card to discard",
+            ));
         }
         // CR 702.138a, 601.2b: an escape cast needs enough other cards to exile.
         if let Some(escape) = &definition.escape
@@ -103,12 +110,16 @@ impl RulesTxn {
                 .count()
                 < escape.exile_other as usize
         {
-            return Err("escape requires other graveyard cards to exile".into());
+            return Err(RuleError::illegal(
+                "escape requires other graveyard cards to exile",
+            ));
         }
         if let Some(modal) = &definition.modal_spell
             && !self.modal_has_selection(modal, player, &definition.characteristics, None)
         {
-            return Err("no legal mode selection for this proposal".into());
+            return Err(RuleError::illegal(
+                "no legal mode selection for this proposal",
+            ));
         }
         Ok(SpellAnnouncement {
             player,
@@ -127,7 +138,7 @@ impl RulesTxn {
         &self,
         player: PlayerId,
         object: &Object,
-    ) -> Result<SpellAnnouncement, String> {
+    ) -> Result<SpellAnnouncement, RuleError> {
         let card = object.id.card;
         let printed = self.face_definition(card, CardFace::Front)?;
         if printed.face_down.is_none()
@@ -137,7 +148,7 @@ impl RulesTxn {
                 || (object.zone == (Zone::Command { owner: player })
                     && self.state.rules.commanders.history(card).is_some()))
         {
-            return Err("invalid or unsupported face-down cast".into());
+            return Err(RuleError::illegal("invalid or unsupported face-down cast"));
         }
         // CR 708.5, 903.10a: commander combat damage is tracked publicly by
         // physical card, so a commander cast face down from a hand would be
@@ -146,7 +157,9 @@ impl RulesTxn {
         if object.zone == (Zone::Hand { owner: player })
             && self.state.rules.commanders.history(card).is_some()
         {
-            return Err("unsupported face-down cast of a commander from a hand".into());
+            return Err(RuleError::illegal(
+                "unsupported face-down cast of a commander from a hand",
+            ));
         }
         let face_down = face_down::face_down_definition();
         let program = face_down
@@ -157,12 +170,14 @@ impl RulesTxn {
             && !self.main_phase_action(player)
             && !self.has_flash_permission(object, CardFace::Front, true, player)?
         {
-            return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
+            return Err(RuleError::illegal(
+                "main-phase spell casting requires active-player main-phase priority and empty stack",
+            ));
         }
         if let Some(reason) =
             self.spell_proposal_obstacle(program, player, &face_down.characteristics)
         {
-            return Err(reason.into());
+            return Err(RuleError::illegal(reason));
         }
         Ok(SpellAnnouncement {
             player,
@@ -330,24 +345,18 @@ impl RulesTxn {
         fork.casting_cost(proposal.original_object, viewer, proposal.cast_from, None)
     }
 
-    pub(super) fn validate_priority_spell_cast(
+    pub(super) fn can_propose_priority_spell(
         &self,
         player: PlayerId,
         card: CardId,
         face: CardFace,
-    ) -> Result<(), String> {
-        self.priority_spell_announcement(player, card, face, false)
-            .map(|_| ())
-    }
-
-    /// CR 702.37a: whether `player` may cast `card` face down now.
-    pub(super) fn validate_face_down_cast(
-        &self,
-        player: PlayerId,
-        card: CardId,
-    ) -> Result<(), String> {
-        self.priority_spell_announcement(player, card, CardFace::Front, true)
-            .map(|_| ())
+        face_down: bool,
+    ) -> Result<bool, RuleError> {
+        match self.priority_spell_announcement(player, card, face, face_down) {
+            Ok(_) => Ok(true),
+            Err(RuleError::Illegal(_)) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     pub(crate) fn announce_face_down_spell(
