@@ -346,6 +346,15 @@ impl RulesTxn {
                     };
                     return Ok(());
                 }
+                // CR 601.2g: announcements that leave no mana to pay open
+                // no mana window.
+                ActivationCost::Mana { .. } | ActivationCost::Composite { .. }
+                    if self.announced_without_mana(&entry)? =>
+                {
+                    let mut cast = cast;
+                    cast.spending = Some(BTreeMap::new());
+                    return self.payment_step(cast);
+                }
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());

@@ -178,9 +178,10 @@ impl Characteristics {
             return value.clone();
         }
         let mut value = self.mana_cost.generic.clone();
-        value.add(&Quantity::from(
-            (self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64,
-        ));
+        value.add(&Quantity::from(self.mana_cost.colored.len() as i64));
+        for symbol in &self.hybrid_mana {
+            value.add(&symbol.mana_value());
+        }
         value
     }
 
@@ -1562,6 +1563,11 @@ pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<kir::Cond>,
     pub costs: PermanentActivationCosts,
+    /// CR 107.4e, 602.2b, 605.3a: two-color hybrid symbols of the mana
+    /// cost, in printed order, each announced as one of its colors before
+    /// the nested payment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     pub production: ManaProduction,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_restriction: Option<ManaSpendRestriction>,
@@ -1615,6 +1621,15 @@ pub enum ActivationWindow {
 #[serde(deny_unknown_fields)]
 pub struct ActivatedAbility {
     pub functioning_zone: FunctioningZone,
+    /// CR 107.3a, 602.2b: the mana cost begins with one `{X}`, announced as
+    /// the ability is activated and added to its generic mana.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub x_mana_cost: bool,
+    /// CR 107.4e-f, 602.2b: two-color hybrid and single-color Phyrexian
+    /// symbols of the mana cost, in printed order, each announced as one of
+    /// its alternatives before targets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ActivationRestriction>,
     pub cost: ActivationCost,
@@ -1635,7 +1650,41 @@ impl ActivationRestriction {
         }
     }
 }
+impl ActivationCost {
+    /// The fixed mana of this cost; a cost without mana has none.
+    pub fn fixed_mana(&self) -> ManaCost {
+        let zero = || ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![],
+        };
+        match self {
+            Self::SacrificePermanent { mana, .. } => mana.clone().unwrap_or_else(zero),
+            Self::ChooseObjects(cost) => cost.mana.clone().unwrap_or_else(zero),
+            Self::Mana { cost }
+            | Self::DiscardSource { mana: cost }
+            | Self::ExileSource { mana: cost } => cost.clone(),
+            Self::Composite { costs } => costs.mana.clone().unwrap_or_else(zero),
+            Self::SacrificeSource
+            | Self::TapSource
+            | Self::Loyalty { .. }
+            | Self::TapPayLifeSacrificeSource { .. } => zero(),
+        }
+    }
+}
 impl ActivatedAbility {
+    /// CR 107.3a, 107.4e-f, 601.2f, 602.2b: the total mana cost of an
+    /// activation: its fixed mana, each announced hybrid color (a 2-life
+    /// Phyrexian payment adds none) and its announced X.
+    pub fn announced_cost(&self, hybrid: &[HybridPayment], x: Option<&Quantity>) -> ManaCost {
+        let mut total = self.cost.fixed_mana();
+        for payment in hybrid {
+            payment.add_to(&mut total);
+        }
+        if let Some(x) = x {
+            total.generic.add(x);
+        }
+        total
+    }
     /// Executable versions of this ability's program: its selections when
     /// modal, otherwise the program itself.
     pub fn programs(&self) -> impl Iterator<Item = &SpellProgram> {

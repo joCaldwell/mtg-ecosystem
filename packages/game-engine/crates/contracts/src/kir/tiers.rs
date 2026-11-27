@@ -734,14 +734,16 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     let mut cells = BTreeSet::new();
     let mut add = |p: &SpellProgram,
                    context: Context,
-                   event: Option<&TriggerCondition>|
+                   event: Option<&TriggerCondition>,
+                   announced_x: bool|
      -> Result<(), KirError> {
         let env = Env {
             context,
             targets: &p.targets,
             event,
-            // CR 107.3a: only the spell announces its own X.
-            announced_x: context == Context::Spell && d.x_mana_cost,
+            // CR 107.3a, 602.2b: a spell or an activated ability announces
+            // its own X.
+            announced_x,
         };
         for Instruction::Kernel { node, .. } in &p.instructions {
             cells.extend(check(node, &env)?.cells);
@@ -749,16 +751,16 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         Ok(())
     };
     for p in d.spell_programs() {
-        add(p, Context::Spell, None)?;
+        add(p, Context::Spell, None, d.x_mana_cost)?;
     }
     for a in &d.activated {
         for p in a.programs() {
-            add(p, Context::Activated, None)?;
+            add(p, Context::Activated, None, a.x_mana_cost)?;
         }
     }
     for a in &d.triggered {
         for p in a.programs() {
-            add(p, Context::Triggered, Some(&a.condition))?;
+            add(p, Context::Triggered, Some(&a.condition), false)?;
         }
     }
     for a in &d.mana_abilities {
@@ -844,6 +846,12 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         }
     }
     for a in &d.activated {
+        if a.x_mana_cost {
+            cells.insert(Cell::XManaCost);
+        }
+        if !a.hybrid_mana.is_empty() {
+            cells.insert(Cell::HybridManaCost);
+        }
         if crate::cycling::typecycling_activation(a) {
             cells.insert(Cell::Typecycling);
         } else if crate::cycling::hand_discard_draw_activation(a) {

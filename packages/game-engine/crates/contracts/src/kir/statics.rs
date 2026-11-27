@@ -883,6 +883,8 @@ pub fn granted_mana_supported(
             a.costs.tap
                 && !a.costs.sacrifice
                 && a.costs.mana.is_none()
+                // CR 107.4e: hybrid symbols are mana costs too.
+                && a.hybrid_mana.is_empty()
                 && a.costs.remove_source_plus_one_counters.is_none()
                 && a.costs
                     .pay_life

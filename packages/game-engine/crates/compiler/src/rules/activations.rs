@@ -13,10 +13,12 @@ fn fixed_amount(value: &serde_json::Value) -> Result<Quantity, Failure> {
     fixed_positive_amount(&typed(value, "amount")?)
 }
 
+/// A mana ability's costs and its two-color hybrid symbols (CR 107.4e).
 pub(crate) fn lower_permanent_costs(
     costs: &[SourceCost],
     kind: CardKind,
-) -> Result<PermanentActivationCosts, Failure> {
+) -> Result<(PermanentActivationCosts, Vec<ColorHybridSymbol>), Failure> {
+    let mut hybrid = vec![];
     let mut result = PermanentActivationCosts {
         remove_source_plus_one_counters: None,
         tap: false,
@@ -41,23 +43,27 @@ pub(crate) fn lower_permanent_costs(
                     Some(Quantity::from(i64::from(count.value)));
             }
             SourceCost::TapSelf {} if !result.tap => result.tap = true,
-            SourceCost::Mana { symbols }
-                if result.mana.is_none()
-                    && !symbols.is_empty()
-                    && symbols
-                        .iter()
-                        .all(|s| !s.is_empty() && !s.contains(['{', '}'])) =>
-            {
-                let m = mana_cost(
-                    &symbols
-                        .iter()
-                        .map(|s| format!("{{{s}}}"))
-                        .collect::<String>(),
-                )?;
-                if m.colored.contains(&Color::C) {
+            SourceCost::Mana { symbols } if result.mana.is_none() && hybrid.is_empty() => {
+                let m = activation_mana(symbols, "cost")?;
+                if m.base.colored.contains(&Color::C) {
                     return Err(unsupported("cost", "colorless-specific costs excluded"));
                 }
-                result.mana = Some(m);
+                // CR 107.3, 107.4f: a mana ability announces no X, and its
+                // Phyrexian life payment is not admitted.
+                if m.x {
+                    return Err(unsupported("cost", "mana ability with X"));
+                }
+                if m.hybrid
+                    .iter()
+                    .any(|h| h.colors.contains(&HybridPayment::PayTwoLife))
+                {
+                    return Err(unsupported("cost", "mana ability with Phyrexian mana"));
+                }
+                hybrid = m.hybrid;
+                // A cost of hybrid symbols alone has no fixed part.
+                if m.base != zero_cost() || hybrid.is_empty() {
+                    result.mana = Some(m.base);
+                }
             }
             // CR 118.3, 119.4: a fixed positive life payment.
             SourceCost::PayLife { amount } if result.pay_life.is_none() => {
@@ -83,7 +89,14 @@ pub(crate) fn lower_permanent_costs(
             }
         }
     }
-    Ok(result)
+    Ok((result, hybrid))
+}
+
+fn zero_cost() -> ManaCost {
+    ManaCost {
+        generic: Quantity::zero(),
+        colored: vec![],
+    }
 }
 
 fn collect_bundles(
@@ -420,10 +433,11 @@ pub(crate) fn lower_mana_ability(
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let costs = lower_permanent_costs(costs, kind)?;
+    let (costs, hybrid_mana) = lower_permanent_costs(costs, kind)?;
     if costs.remove_source_plus_one_counters.is_some() {
         if costs.tap
             || costs.mana.is_some()
+            || !hybrid_mana.is_empty()
             || costs.sacrifice
             || costs.pay_life.is_some()
             || restriction.is_none()
@@ -447,6 +461,7 @@ pub(crate) fn lower_mana_ability(
         restriction: restriction.map(|_| ManaActivationRestriction::OnceEachTurn),
         condition: None,
         costs,
+        hybrid_mana,
         production,
         spend_restriction,
         riders,

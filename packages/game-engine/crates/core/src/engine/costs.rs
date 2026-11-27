@@ -109,20 +109,32 @@ impl RulesTxn {
         source: ObjectId,
         colors: &[HybridPayment],
     ) -> Result<(), String> {
-        let symbols = &self
-            .copiable_definition(source)?
-            .characteristics
-            .hybrid_mana;
-        if symbols.is_empty()
-            || symbols.len() != colors.len()
-            || !symbols
-                .iter()
-                .zip(colors)
-                .all(|(s, c)| s.colors.contains(c))
-        {
-            return Err("hybrid announcement requires one allowed color per printed symbol".into());
-        }
-        Ok(())
+        stack_costs::validate_hybrid_choice(
+            &self
+                .copiable_definition(source)?
+                .characteristics
+                .hybrid_mana,
+            colors,
+        )
+    }
+    /// CR 107.4e-f, 601.2b, 602.2b: the hybrid symbols this entry's spell or
+    /// activated ability announces.
+    pub(crate) fn entry_hybrid_symbols(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<&[ColorHybridSymbol], String> {
+        let definition = self.stack_definition(entry)?;
+        Ok(match entry.kind {
+            StackKind::Spell => &definition.characteristics.hybrid_mana,
+            StackKind::Activated { ability, .. } => {
+                &definition
+                    .activated
+                    .get(ability as usize)
+                    .ok_or("missing activated hybrid definition")?
+                    .hybrid_mana
+            }
+            _ => &[],
+        })
     }
     pub(super) fn construct_spell_cost(
         &self,
@@ -217,8 +229,9 @@ impl RulesTxn {
                 };
                 if let Some(colors) = hybrid {
                     self.validate_hybrid_colors(source, colors)?;
-                    cost.colored
-                        .extend(colors.iter().filter_map(|choice| choice.color()));
+                    for choice in colors {
+                        choice.add_to(&mut cost);
+                    }
                 }
                 cost
             },
@@ -276,12 +289,8 @@ impl RulesTxn {
                 Err("spell copy has casting or payment provenance".into())
             };
         }
-        let needs_choice = entry.kind.is_spell()
-            && !self
-                .stack_definition(entry)?
-                .characteristics
-                .hybrid_mana
-                .is_empty();
+        let symbols = self.entry_hybrid_symbols(entry)?;
+        let needs_choice = !symbols.is_empty();
         let frame = self.underlying_mana_frame(&self.state.rules.frame)?;
         let choosing = matches!(frame, Frame::HybridCost {cast} if cast.stack_id==entry.id);
         // CR 601.2b: optional additional costs are declared before hybrid
@@ -299,9 +308,13 @@ impl RulesTxn {
             return Err("hybrid announcement binding invariant".into());
         }
         if !entry.hybrid_colors.is_empty() {
-            self.validate_hybrid_colors(entry.source, &entry.hybrid_colors)?;
+            stack_costs::validate_hybrid_choice(symbols, &entry.hybrid_colors)?;
         }
         if !entry.kind.is_spell() {
+            // CR 602.2b: an activation's hybrid symbols precede its X.
+            if entry.x.is_some() && needs_choice && entry.hybrid_colors.is_empty() {
+                return Err("activation announcement order invariant".into());
+            }
             return if entry.cost_lock.is_none() {
                 Ok(())
             } else {

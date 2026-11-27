@@ -1884,3 +1884,53 @@ fn generic_policy_casts_face_down_and_turns_face_up() {
     let o = offer(&v, vec![Action::Pass, turn]);
     assert_eq!(strategy(&c).priority(&o).unwrap(), Action::Pass);
 }
+
+#[test]
+fn observation_only_delve_applies_after_hybrid_choice() {
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
+    let bears = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    bears.characteristics.mana_cost = ManaCost {
+        generic: 0.into(),
+        colored: vec![],
+    };
+    bears.characteristics.hybrid_mana = vec![mtg_contracts::ColorHybridSymbol {
+        colors: [
+            mtg_contracts::HybridPayment::Mana(Color::W),
+            mtg_contracts::HybridPayment::PayTwoGeneric,
+        ],
+    }];
+    bears.delve = true;
+    bears.capabilities = bears.requirements();
+    bears.validate().unwrap();
+    let mut v = board::view();
+    let viewer = v.viewer;
+    v.active = Some(viewer);
+    v.turn_owner = viewer;
+    v.priority = Some(viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    let mut gy0 = board::card(&c, "Forest", viewer.0, Zone::Graveyard { owner: viewer });
+    gy0.handle = ObjectHandle("Gy 0".into());
+    let mut gy1 = board::card(&c, "Forest", viewer.0, Zone::Graveyard { owner: viewer });
+    gy1.handle = ObjectHandle("Gy 1".into());
+    v.objects = vec![
+        board::card(&c, "Grizzly Bears", viewer.0, Zone::Hand { owner: viewer }),
+        gy0,
+        gy1,
+    ];
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        Action::Cast {
+            card: ObjectHandle("Grizzly Bears".into())
+        }
+    );
+    v.objects.pop();
+    assert_eq!(
+        strategy(&c).priority(&observation(v)).unwrap(),
+        Action::Pass
+    );
+}

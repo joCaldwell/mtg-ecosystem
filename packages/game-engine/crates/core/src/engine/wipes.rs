@@ -114,7 +114,7 @@ impl RulesTxn {
             player: input.player,
             value,
         })?;
-        self.rules_mut().frame = self.spell_announcement_frame(cast)?;
+        self.continue_announcement(cast)?;
         Ok(())
     }
     /// CR 702.84a, 614.1a: an unearthed permanent is exiled instead of
