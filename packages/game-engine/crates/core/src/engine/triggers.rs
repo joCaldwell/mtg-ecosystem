@@ -1192,6 +1192,13 @@ impl RulesTxn {
     // CR 601.2i/603.2g/603.3: only the complete successful casting path calls
     // this, after every cost and the real SpellCast event, before priority/SBAs.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    /// CR 115.9b, 601.2c: the cast spell's announced targets that are
+    /// permanents still on the battlefield, in announcement order.
+    fn present_targets<'a>(&'a self, cast: &'a CastOccurrence) -> impl Iterator<Item = &'a Object> {
+        cast.targets
+            .iter()
+            .filter_map(|t| self.current(*t).ok().filter(|o| o.present_on_battlefield()))
+    }
     pub(crate) fn collect_cast_triggers(&mut self, entry: &StackInstance) -> Result<(), String> {
         let completed = self.top()?;
         if completed.id != entry.id || !completed.kind.is_spell() || completed.paid.is_none() {
@@ -1457,11 +1464,11 @@ impl RulesTxn {
                         matches!(&witness, TriggerEventWitness::SpellCast { cast }
                             if player_in(caster, Some(cast.caster), you)
                                 && (!*targets_source || cast.targets.contains(&object.id))
-                                // CR 601.2c: a targeted permanent as cast.
-                                && (target.is_empty() || cast.targets.iter().any(|t| {
-                                    observers.current(*t).is_ok_and(|o| {
-                                        holds(target, Some(&observers.object_facts(o)), you, *t, &identity)
-                                    })
+                                // CR 601.2c, 115.9b: a targeted permanent as
+                                // cast; a card in another zone, or a target
+                                // that left while costs were paid, is none.
+                                && (target.is_empty() || observers.present_targets(cast).any(|o| {
+                                    holds(target, Some(&observers.object_facts(o)), you, o.id, &identity)
                                 }))
                                 && holds(spell, Some(&Frozen {
                                     facts: &cast.spell,
@@ -1720,11 +1727,11 @@ impl RulesTxn {
                     if let TriggerEventWitness::SpellCast { cast } = &mut matched_witness
                         && matches!(pattern, EventPattern::Cast { target, .. } if !target.is_empty())
                     {
-                        cast.target_facts = cast
-                            .targets
-                            .iter()
-                            .map(|t| observers.object_before(*t))
+                        let facts = observers
+                            .present_targets(cast)
+                            .map(|o| observers.object_before(o.id))
                             .collect::<Result<_, _>>()?;
+                        cast.target_facts = facts;
                     }
                     // The discarded card is evidence only when the pattern
                     // read its characteristics.
@@ -3029,20 +3036,19 @@ impl RulesTxn {
                 for facts in &cast.target_facts {
                     self.validate_fact_identity(facts)?;
                 }
-                // The recorded facts are exactly the targeted permanents,
+                // The recorded facts are the announced targets still on the
+                // battlefield as the spell became cast, in order (CR 115.9b),
                 // and only for an observer that read them.
                 let reads_targets =
                     matches!(pattern, EventPattern::Cast { target, .. } if !target.is_empty());
+                let mut announced = cast.targets.iter();
                 self.valid_cast_facts(cast)?
                     && ordinal_evidence(pattern, cast.nth)
-                    && if reads_targets {
-                        cast.target_facts
-                            .iter()
-                            .map(|f| f.object)
-                            .eq(cast.targets.iter().copied())
-                    } else {
-                        cast.target_facts.is_empty()
-                    }
+                    && (reads_targets || cast.target_facts.is_empty())
+                    && cast
+                        .target_facts
+                        .iter()
+                        .all(|f| f.zone == Zone::Battlefield && announced.any(|t| *t == f.object))
                     && matches!(pattern, EventPattern::Cast { caster, spell, targets_source, target, .. }
                         if player_in(caster, Some(cast.caster), controller)
                             && (!*targets_source || cast.targets.contains(&source))

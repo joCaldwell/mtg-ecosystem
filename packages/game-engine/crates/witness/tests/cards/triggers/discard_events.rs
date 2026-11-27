@@ -268,3 +268,62 @@ fn discard_events_first_cycle_each_turn_triggers_once() {
     assert_eq!(tokens, 1);
     assert_recoverable((&g).into());
 }
+
+/// Seat 0 cycles a Fox before casting Valiant Rescuer, so its later cycle
+/// is the turn's second and does not trigger, across a mid-turn restore;
+/// seat 1's own first cycle that turn triggers seat 1's Rescuer, and seat
+/// 0's first cycle of the next turn triggers seat 0's (CR 603.2, 702.29a).
+#[test]
+fn discard_events_first_cycle_counts_per_player_and_turn() {
+    let mut setup = board(&[VALIANT_RESCUER, FLOURISHING_FOX], TurnStep::PrecombatMain)
+        .permanent_or_hand("Valiant Rescuer", 0, 0, true)
+        .permanent_or_hand("Flourishing Fox", 0, 0, true)
+        .permanent_or_hand("Flourishing Fox", 0, 0, true)
+        .permanent_or_hand("Flourishing Fox", 0, 0, true)
+        .permanent_or_hand("Valiant Rescuer", 1, 1, false)
+        .permanent_or_hand("Flourishing Fox", 1, 1, true)
+        .permanent_or_hand("Plains", 1, 1, false);
+    for _ in 0..5 {
+        setup = setup.permanent_or_hand("Plains", 0, 0, false);
+    }
+    let prepared = prepare(setup);
+    let mut g = Game::with_trace(prepared.clone(), TraceMode::Detailed);
+    let soldiers = |g: &Game, seat: u8| {
+        g.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| {
+                o.zone == Zone::Battlefield
+                    && o.controller == PlayerId(seat)
+                    && g.state.rules.tokens.contains_key(&o.id.card)
+            })
+            .count()
+    };
+    let cycle = |g: &mut Game, card: u32, land: u32| {
+        let object = Driver::object(g, card);
+        Driver::action(g, Action::ActivateAbility { object, ability: 0 });
+        Driver::pay(g, &[land]);
+        settle(g);
+    };
+    cycle(&mut g, 1, 7);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[8, 9]);
+    settle(&mut g);
+    // A mid-turn restore keeps the turn's cycle count.
+    let snapshot = g.snapshot().unwrap();
+    let mut g = Game::restore(prepared, &snapshot).unwrap();
+    assert_eq!(g.state.rules.cast_history[0].cycles, 1);
+    cycle(&mut g, 2, 10);
+    assert_eq!(soldiers(&g, 0), 0);
+    drive(&mut g, &[], |g| g.state.rules.priority == PlayerId(1));
+    cycle(&mut g, 5, 6);
+    assert_eq!((soldiers(&g, 0), soldiers(&g, 1)), (0, 1));
+    drive(&mut g, &[], |g| {
+        g.state.rules.turn.number == 2 && g.state.rules.priority == PlayerId(0)
+    });
+    assert_eq!(g.state.rules.cast_history[0].cycles, 0);
+    cycle(&mut g, 3, 11);
+    assert_eq!((soldiers(&g, 0), soldiers(&g, 1)), (1, 1));
+    assert_recoverable((&g).into());
+}

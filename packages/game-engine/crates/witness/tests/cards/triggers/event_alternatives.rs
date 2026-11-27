@@ -445,3 +445,113 @@ fn event_alternatives_leaves_without_dying() {
     assert_eq!(g.current(cosmographer).unwrap().plus_one_counters, 2.into());
     assert_recoverable((&g).into());
 }
+
+const RAISE_DEAD: &str = record!("cbc9c731-181a-4f00-a7b0-eb7e56eac2ea");
+const BRAZEN_FREEBOOTER: &str = record!("13e8d063-eece-4f38-83f6-02403130defa");
+const QUICKSILVER_GEYSER: &str = record!("6ee7b00b-b875-48e2-92f2-889c154b0f82");
+
+/// Raise Dead targets a creature card in a graveyard, which is no creature
+/// on the battlefield: neither Mockingbird nor Rehearsed Debater triggers
+/// (CR 109.2, 115.1).
+#[test]
+fn event_alternatives_cast_target_in_a_graveyard_is_no_creature() {
+    let mut g = Game::with_trace(
+        prepare(
+            board(
+                &[MOCKINGBIRD, REHEARSED_DEBATER, RAISE_DEAD],
+                TurnStep::PrecombatMain,
+            )
+            .permanent_or_hand("Mockingbird, Ace Agent", 0, 0, false)
+            .permanent_or_hand("Rehearsed Debater", 0, 0, false)
+            .card(
+                "Grizzly Bears",
+                0,
+                0,
+                Zone::Graveyard { owner: PlayerId(0) },
+            )
+            .permanent_or_hand("Raise Dead", 0, 0, true)
+            .permanent_or_hand("Swamp", 0, 0, false),
+        ),
+        TraceMode::Detailed,
+    );
+    let (mockingbird, debater, bears) = (
+        Driver::object(&g, 0),
+        Driver::object(&g, 1),
+        Driver::object(&g, 2),
+    );
+    Driver::cast(&mut g, CardId(3));
+    Driver::pick_object(&mut g, bears);
+    Driver::pay(&mut g, &[4]);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!((collected(&g, mockingbird), collected(&g, debater)), (0, 0));
+    assert_eq!(hand(&g, 0), 1);
+    assert_recoverable((&g).into());
+}
+
+/// Quicksilver Geyser targets Mockingbird and a Treasure, and the Treasure
+/// is sacrificed for mana while the spell's costs are paid. The cast is
+/// legal and Mockingbird triggers once from the target still on the
+/// battlefield (CR 115.9b, 601.2c, 601.2i).
+#[test]
+fn event_alternatives_cast_target_sacrificed_during_payment() {
+    let mut setup = board(
+        &[MOCKINGBIRD, BRAZEN_FREEBOOTER, QUICKSILVER_GEYSER],
+        TurnStep::PrecombatMain,
+    )
+    .permanent_or_hand("Mockingbird, Ace Agent", 0, 0, false)
+    .permanent_or_hand("Brazen Freebooter", 0, 0, true)
+    .permanent_or_hand("Quicksilver Geyser", 0, 0, true);
+    for land in ["Mountain", "Mountain", "Mountain", "Mountain"] {
+        setup = setup.permanent_or_hand(land, 0, 0, false);
+    }
+    for _ in 0..4 {
+        setup = setup.permanent_or_hand("Island", 0, 0, false);
+    }
+    let mut g = Game::with_trace(prepare(setup), TraceMode::Detailed);
+    let mockingbird = Driver::object(&g, 0);
+    Driver::cast(&mut g, CardId(1));
+    Driver::pay(&mut g, &[3, 4, 5, 6]);
+    settle(&mut g);
+    let treasure = g
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| o.zone == Zone::Battlefield && g.state.rules.tokens.contains_key(&o.id.card))
+        .unwrap()
+        .id;
+    Driver::cast(&mut g, CardId(2));
+    let d = Driver::request(&mut g, u64::MAX);
+    let picks = [mockingbird, treasure]
+        .iter()
+        .map(|object| d.index(&Candidate::Object { object: *object }).unwrap())
+        .collect();
+    g.respond(d.player, d.id, Answer::Pick { picks: vec![picks] })
+        .unwrap();
+    // CR 111.10a: the Treasure is sacrificed as it adds mana.
+    let d = Driver::request(&mut g, u64::MAX);
+    let source = d
+        .index(&Candidate::Action {
+            action: Action::ActivateMana { object: treasure },
+        })
+        .unwrap();
+    Driver::answer(
+        &mut g,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source },
+        },
+    );
+    let d = Driver::request(&mut g, u64::MAX);
+    let blue = d.pick_one(&Candidate::Color { color: Color::U }).unwrap();
+    g.respond(d.player, d.id, blue).unwrap();
+    Driver::pay(&mut g, &[7, 8, 9, 10]);
+    assert!(g.current(treasure).is_err());
+    drive(&mut g, &[], triggered);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(collected(&g, mockingbird), 1);
+    assert!(g.current(mockingbird).is_err());
+    assert_recoverable((&g).into());
+}
