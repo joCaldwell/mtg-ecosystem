@@ -576,3 +576,80 @@ fn spending_recovery(g: &Game) {
         assert_eq!(g.snapshot().unwrap(), before);
     }
 }
+
+fn restricted(restriction: ManaSpendRestriction, color: Color, amount: i64) -> RestrictedMana {
+    RestrictedMana {
+        restriction,
+        color,
+        amount: amount.into(),
+    }
+}
+
+fn observe_all(g: &Game) -> Vec<Observation> {
+    g.live_players()
+        .into_iter()
+        .map(|player| {
+            let QueryValue::Observation(o) = query(g, g.observe(player, Budget::new(1))) else {
+                panic!("observation")
+            };
+            o
+        })
+        .collect()
+}
+
+/// CR 106.4a-b: players announce the mana left in their pools, so pools are
+/// public; CR 106.6 restricted mana keeps its spending restriction there. Every seat sees the same
+/// restricted buckets beside the unrestricted row; nothing else changes.
+#[test]
+fn restricted_pool_buckets_are_public_to_every_seat_and_omitted_when_empty() {
+    let mut g = game();
+    let before = observe_all(&g);
+    for o in &before {
+        for row in &o.view.players {
+            assert!(row.restricted_mana.is_empty());
+            assert_eq!(row.mana_total(), row.mana);
+            let json = serde_json::to_value(row).unwrap();
+            assert!(json.get("restricted_mana").is_none(), "{json}");
+        }
+    }
+    let unrestricted = g.state.rules.players[0].mana.clone();
+    let buckets = vec![
+        restricted(ManaSpendRestriction::ActivatedAbility, Color::C, 2),
+        restricted(
+            ManaSpendRestriction::SpellType {
+                kind: CardKind::Artifact,
+            },
+            Color::G,
+            1,
+        ),
+    ];
+    g.state.rules.players[0].restricted_mana = buckets.clone();
+    g.validate_state().unwrap();
+    let after = observe_all(&g);
+    let mut expected_total = unrestricted.clone();
+    expected_total.entry(Color::C).or_default().add(&2.into());
+    expected_total.entry(Color::G).or_default().add(&1.into());
+    for (seen, old) in after.iter().zip(&before) {
+        let row = &seen.view.players[0];
+        assert_eq!(row.mana, unrestricted, "the unrestricted row is unchanged");
+        assert_eq!(row.restricted_mana, buckets);
+        assert_eq!(row.mana_total(), expected_total);
+        assert_eq!(seen.view.players, after[0].view.players);
+        // Privacy: removing the public buckets restores the earlier view
+        // exactly, so no hidden object, order or count moved with them.
+        let mut stripped = seen.view.clone();
+        stripped.players[0].restricted_mana.clear();
+        assert_eq!(stripped, old.view);
+        assert_eq!(
+            seen.decision.as_ref().map(|d| &d.candidates),
+            old.decision.as_ref().map(|d| &d.candidates),
+            "neither artifact-only nor ability-only mana funds a new action"
+        );
+    }
+    // An opponent's serialized row names the same canonical buckets.
+    let json = serde_json::to_value(&after[1].view.players[0]).unwrap();
+    assert_eq!(
+        json["restricted_mana"],
+        serde_json::to_value(&buckets).unwrap()
+    );
+}

@@ -18,7 +18,8 @@ Creature marked damage is zero for this reconstruction schema.
 
 Four, three and two living seats are supported with original seating and departed
 facts; roots may carry arbitrary public battlefields, completed casts, own
-mulligans, known bottoms, public mana and physical Commander histories. Every other
+mulligans, known bottoms, public mana (restricted buckets included) and physical
+Commander histories. Every other
 root rejects explicitly (`priority == active` alone does not prove an empty pass
 round) and is never replaced by another root or an authoritative full-state fork.
 Every future-relevant field must come from permitted facts, complete hypotheses or

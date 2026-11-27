@@ -119,11 +119,25 @@ pub struct VisiblePlayer<O = ObjectHandle> {
     pub player: PlayerId,
     pub status: PlayerStatus,
     pub life: Quantity,
+    /// Unrestricted mana only; restricted units are in `restricted_mana`.
     pub mana: BTreeMap<Color, Quantity>,
+    /// CR 106.4a-b: players announce the mana left in their pools, so pools
+    /// are public. CR 106.6: restricted units keep their canonical
+    /// (restriction, color) buckets; the visible total is `mana` plus these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restricted_mana: Vec<mtg_contracts::RestrictedMana>,
     pub hand_count: u32,
     pub library_count: u32,
 }
 impl<O> VisiblePlayer<O> {
+    /// The whole visible pool by color, restricted units included.
+    pub fn mana_total(&self) -> BTreeMap<Color, Quantity> {
+        let mut total = self.mana.clone();
+        for unit in &self.restricted_mana {
+            total.entry(unit.color).or_default().add(&unit.amount);
+        }
+        total
+    }
     pub fn convert<T: for<'a> From<&'a O>>(self) -> VisiblePlayer<T> {
         VisiblePlayer {
             life_frozen_until_next_turn: self.life_frozen_until_next_turn,
@@ -135,6 +149,7 @@ impl<O> VisiblePlayer<O> {
             status: self.status,
             life: self.life,
             mana: self.mana,
+            restricted_mana: self.restricted_mana,
             hand_count: self.hand_count,
             library_count: self.library_count,
         }
