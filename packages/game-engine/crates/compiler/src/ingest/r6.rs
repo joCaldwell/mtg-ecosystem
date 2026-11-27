@@ -1,4 +1,4 @@
-use super::{Face, Failure, RawValue, Record, decode, invalid, printed};
+use super::{Face, Failure, RawValue, Record, decode, evidence::CardEvidence, invalid, printed};
 use mtg_contracts::{AcceptedArchive, ArchiveCut, R6Pins, Sha256Sink, sha256};
 use mtg_oracle_ast::{printed::*, vocab::PRINTED_VOCABULARY_SHA256};
 use serde::{Deserialize, Deserializer};
@@ -159,9 +159,9 @@ impl<'a> ArchiveEvidence<'a> {
         raw: &str,
         line_bytes: usize,
         line: usize,
-    ) -> Result<(), String> {
+    ) -> Result<Option<CardEvidence>, String> {
         let Some(state) = &mut self.0 else {
-            return Ok(());
+            return Ok(Some(CardEvidence::legacy()));
         };
         state
             .record(raw, line_bytes)
@@ -183,9 +183,12 @@ impl<'a> ArchiveEvidence<'a> {
         state.names.verify(&state.claims, state.pins)
     }
 
-    pub(crate) fn verify_fixture(archive: &'a AcceptedArchive, raw: &str) -> Result<(), Failure> {
+    pub(crate) fn verify_fixture(
+        archive: &'a AcceptedArchive,
+        raw: &str,
+    ) -> Result<Option<CardEvidence>, Failure> {
         if archive.cut != ArchiveCut::R6 {
-            return Ok(());
+            return Ok(Some(CardEvidence::legacy()));
         }
         Self::new(archive, 0).map_err(|e| invalid("manifest", e))?;
         let raw = raw.strip_suffix('\n').unwrap_or(raw);
@@ -195,10 +198,9 @@ impl<'a> ArchiveEvidence<'a> {
                 "R6 fixture is not pinned to its archive origin",
             ));
         }
-        verify_row(raw, &mut printed::NameClaims::default())?;
         // The reviewed raw-row pin carries the corpus-wide catalog check
         // performed at registration. A standalone fixture has no source corpus.
-        Ok(())
+        Ok(verify_row(raw, &mut printed::NameClaims::default())?.evidence)
     }
 
     pub(crate) fn verify_text(
@@ -229,10 +231,11 @@ struct RowIdentity {
     identity: String,
     source: Box<RawValue>,
     printed_sha256: String,
+    evidence: Option<CardEvidence>,
 }
 
 impl ArchiveR6<'_> {
-    fn record(&mut self, raw: &str, line_bytes: usize) -> Result<(), Failure> {
+    fn record(&mut self, raw: &str, line_bytes: usize) -> Result<Option<CardEvidence>, Failure> {
         if line_bytes != raw.len() + 1 || !raw.starts_with('{') || !raw.ends_with('}') {
             return Err(invalid(
                 "record",
@@ -254,7 +257,7 @@ impl ArchiveR6<'_> {
         self.names
             .add_source(&decode(row.source.get(), "source")?)
             .map_err(|e| invalid("source", e))?;
-        Ok(())
+        Ok(row.evidence)
     }
 }
 
@@ -266,57 +269,59 @@ fn verify_row(raw: &str, claims: &mut printed::NameClaims) -> Result<RowIdentity
     }
     let status: RowStatus =
         serde_json::from_str(raw).map_err(|e| invalid("printed.P1", e.to_string()))?;
-    let (record_type, index, identity, source, source_hash, printed_sha256) = if status.status
-        == "excluded"
-    {
-        let r: Excluded = decode(raw, "printed.P1")?;
-        if r.status != "excluded" || r.reason.is_empty() {
-            return Err(invalid("printed.P1", "invalid exclusion"));
-        }
-        (
-            r.record_type,
-            r.source_index,
-            r.oracle_identity,
-            r.source,
-            r.source_sha256,
-            "excluded".into(),
-        )
-    } else {
-        let r = RecordR6::read(raw)?;
-        let source: Value = decode(r.source.get(), "printed.P2/source")?;
-        if sha256(r.source.get().as_bytes()) != r.source_sha256 {
-            return Err(invalid("printed.P2/source", "source SHA-256 mismatch"));
-        }
-        if sha256(r.printed.get().as_bytes()) != r.printed_sha256 {
-            return Err(invalid("printed.P1", "printed SHA-256 mismatch"));
-        }
-        if sha256(r.binding.get().as_bytes()) != r.binding_sha256
-            || sha256(r.resolution.get().as_bytes()) != r.resolution_sha256
-        {
-            return Err(invalid(
-                "record",
-                "legacy binding or resolution SHA-256 mismatch",
-            ));
-        }
-        let evidence = PrintedCard::decode(r.printed.get())
-            .map_err(|e| invalid("printed.P1", e.to_string()))?;
-        let ast_sha256 = printed::verify(&source, &r.faces, &evidence, claims)?;
-        if ast_sha256.is_some() != matches!(r.status, Status::Parsed) || ast_sha256 != r.ast_sha256
-        {
-            return Err(invalid(
-                "printed.P1",
-                "legacy AST hash or card status differs",
-            ));
-        }
-        (
-            r.record_type,
-            r.source_index,
-            r.oracle_identity,
-            r.source,
-            r.source_sha256,
-            r.printed_sha256,
-        )
-    };
+    let (record_type, index, identity, source, source_hash, printed_sha256, evidence) =
+        if status.status == "excluded" {
+            let r: Excluded = decode(raw, "printed.P1")?;
+            if r.status != "excluded" || r.reason.is_empty() {
+                return Err(invalid("printed.P1", "invalid exclusion"));
+            }
+            (
+                r.record_type,
+                r.source_index,
+                r.oracle_identity,
+                r.source,
+                r.source_sha256,
+                "excluded".into(),
+                None,
+            )
+        } else {
+            let r = RecordR6::read(raw)?;
+            let source: Value = decode(r.source.get(), "printed.P2/source")?;
+            if sha256(r.source.get().as_bytes()) != r.source_sha256 {
+                return Err(invalid("printed.P2/source", "source SHA-256 mismatch"));
+            }
+            if sha256(r.printed.get().as_bytes()) != r.printed_sha256 {
+                return Err(invalid("printed.P1", "printed SHA-256 mismatch"));
+            }
+            if sha256(r.binding.get().as_bytes()) != r.binding_sha256
+                || sha256(r.resolution.get().as_bytes()) != r.resolution_sha256
+            {
+                return Err(invalid(
+                    "record",
+                    "legacy binding or resolution SHA-256 mismatch",
+                ));
+            }
+            let evidence = PrintedCard::decode(r.printed.get())
+                .map_err(|e| invalid("printed.P1", e.to_string()))?;
+            let (ast_sha256, faces) = printed::verify(&source, &r.faces, &evidence, claims)?;
+            if ast_sha256.is_some() != matches!(r.status, Status::Parsed)
+                || ast_sha256 != r.ast_sha256
+            {
+                return Err(invalid(
+                    "printed.P1",
+                    "legacy AST hash or card status differs",
+                ));
+            }
+            (
+                r.record_type,
+                r.source_index,
+                r.oracle_identity,
+                r.source,
+                r.source_sha256,
+                r.printed_sha256,
+                Some(CardEvidence::verified(evidence, faces)),
+            )
+        };
     let decoded: Value = decode(source.get(), "source")?;
     if record_type != "card"
         || !mtg_contracts::bulk_catalog::is_oracle_id(&identity)
@@ -330,8 +335,12 @@ fn verify_row(raw: &str, claims: &mut printed::NameClaims) -> Result<RowIdentity
         identity,
         source,
         printed_sha256,
+        evidence,
     })
 }
+
+#[cfg(test)]
+mod evidence_tests;
 
 #[cfg(test)]
 mod tests {
@@ -387,6 +396,94 @@ mod tests {
 
     fn rehash(row: &mut Value) {
         row["printedSha256"] = sha256(row["printed"].to_string().as_bytes()).into();
+    }
+
+    #[test]
+    fn migrated_block_requires_both_field_and_printed_coverage() {
+        use crate::ingest::evidence::Check;
+
+        let mut row = print_row("Example target three", "~ target three");
+        let block_path = "/printed/faces/0/blocks/0";
+        row.pointer_mut(block_path).unwrap()["nodes"][0]["basis"] = json!("recorded");
+        let view = |row: &mut Value| {
+            rehash(row);
+            verify_row(&row.to_string(), &mut printed::NameClaims::default())
+                .unwrap()
+                .evidence
+                .unwrap()
+        };
+        let card = view(&mut row);
+        let block = card.block(0, 0, "test draw").unwrap();
+        let target_field = "/effects/0/target/selectionId";
+        let quantity_field = "/effects/0/count/value";
+        let check = |coverage: &mut crate::ingest::evidence::Coverage<'_, '_>| {
+            coverage.meaning("/kind", [0, 0, 1], |value, text| {
+                value == "spell" && text == "~"
+            })?;
+            coverage.meaning("/effects/0/effect", [0, 0, 1], |value, text| {
+                value == "draw" && text == "~"
+            })?;
+            coverage.field(target_field)?;
+            Ok(())
+        };
+        block
+            .check_family(|coverage| {
+                check(coverage)?;
+                coverage.meaning("/effects/0/count/amount", [0, 2, 3], |value, text| {
+                    value == "fixed" && text == "three"
+                })?;
+                assert_eq!(coverage.field(quantity_field)?.range, [15, 20]);
+                coverage.field(quantity_field)?;
+                Ok(())
+            })
+            .unwrap();
+        let error = block
+            .check_family(|coverage| {
+                coverage.field("/effects/0/optional")?;
+                Ok(())
+            })
+            .unwrap_err();
+        assert_eq!(error.check, Check::P11);
+
+        // Drop both the operand and its fact. The original token still needs
+        // a checked meaning even when the resolver explicitly looks at it.
+        let result = &mut row["faces"][0]["result"];
+        let ability = &mut result["lines"][0]["ability"];
+        ability["effects"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("count");
+        let ability = ability.clone();
+        result["abilities"] = json!([ability]);
+        row["astSha256"] = sha256(json!([[ability]]).to_string().as_bytes()).into();
+        let wire = row.pointer_mut(block_path).unwrap();
+        wire["nodes"].as_array_mut().unwrap().remove(2);
+        wire["facts"].as_array_mut().unwrap().pop();
+        let card = view(&mut row);
+        let block = card.block(0, 0, "test draw").unwrap();
+        let error = block
+            .check_family(|coverage| {
+                check(coverage)?;
+                assert_eq!(coverage.token(0, 2)?.range, [15, 20]);
+                Ok(())
+            })
+            .unwrap_err();
+        assert_eq!(error.check, Check::P12);
+        assert_eq!(error.range, Some([15, 20]));
+
+        // P7 accepts the root fallback for an uncovered source-name mention.
+        // The opt-in query requires a node whose extent actually covers it.
+        let wire = row.pointer_mut(block_path).unwrap();
+        wire["nodes"][0]["span"] = json!([[0, 1, 3]]);
+        wire["nodes"][1]["span"] = json!([[0, 1, 3]]);
+        wire["facts"].as_array_mut().unwrap().push(json!({
+            "fact":"mention","at":"","tok":[0,0,1],"form":"source-name","field":null
+        }));
+        let card = view(&mut row);
+        let block = card.block(0, 0, "test source").unwrap();
+        let error = block.fact(1).unwrap_err();
+        assert_eq!(error.check, Check::P11);
+        assert_eq!(error.range, Some([0, 7]));
     }
 
     #[test]
