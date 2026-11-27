@@ -33,6 +33,8 @@ const HAUNTED_FENGRAF: &str = record!("7c6143f3-ad2c-4d7f-9041-aa59f01d8fb7");
 const MAKE_A_WISH: &str = record!("888ccda6-896f-40f3-93a1-efc48254af34");
 const TOMB_TYRANT: &str = record!("0fb2c61a-9e74-4ee2-810a-b77a3b45f446");
 const GHOULRAISER: &str = record!("614f748b-5d31-440d-a7c0-3ba12dc63c24");
+const KONA: &str = record!("76372327-41ec-4516-abff-3b612e073629");
+const PACIFISM: &str = record!("5f5e0b10-c8cf-450c-bfd3-bcb0528ec330");
 const BREEDING_POOL: &str = record!("20283c4a-f1f0-42f0-bc08-6da87474426b");
 
 const SEED: [u8; 32] = [11; 32];
@@ -643,4 +645,229 @@ fn tomb_tyrant_reanimates_a_random_zombie_whose_trigger_returns_another() {
     assert!(!object(&g, entered).tapped);
     assert_eq!(object(&g, entered).controller, PlayerId(0));
     assert_eq!(zone(&g, 1), GRAVEYARD);
+}
+
+/// Kona, Rescue Beastie: "At the beginning of your second main phase, if
+/// Kona is tapped, you may put a permanent card from your hand onto the
+/// battlefield." A chosen Aura enchants an object its controller chooses
+/// without targeting, already attached when it enters (CR 303.4f, 603.6a).
+#[test]
+fn kona_puts_an_aura_from_hand_onto_a_chosen_creature() {
+    let prepared = board(&[(KONA, &[Cell::ChooseHandCards]), (PACIFISM, &[])])
+        .step(TurnStep::BeginningCombat)
+        .permanent_or_hand("Kona, Rescue Beastie", 0, 0, false)
+        .permanent_or_hand("Pacifism", 0, 0, true)
+        .permanent_or_hand("Grizzly Bears", 0, 0, true)
+        .permanent_or_hand("Lightning Bolt", 0, 0, true)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .library_card("Island", 0)
+        .library_card("Island", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    // Kona attacks, so it is tapped when the second main phase begins.
+    let kona = Driver::object(&g, 0);
+    for _ in 0..64 {
+        let r = Driver::request(&mut g, u64::MAX);
+        let answer = match &r.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::Attackers => r.attack(vec![(kona, PlayerId(1))]),
+            Reason::Blockers => r.block(vec![]),
+            Reason::ResolveCardChoice => break,
+            other => panic!("unexpected decision {other:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    assert_eq!(g.state.rules.turn.step, TurnStep::PostcombatMain);
+    let d = card_choice(&mut g, &[1, 2], 0, 1);
+    choose(&mut g, &d, &[1]);
+    let [pacifism, bears] = [1, 4].map(|id| Driver::object(&g, id));
+    let d = next_choice(&mut g);
+    assert_eq!(
+        (d.player, &d.reason),
+        (PlayerId(0), &Reason::EntryAttachment),
+        "{d:?}"
+    );
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    assert_eq!(
+        slots[0].subject.map(|i| d.candidates[i as usize].clone()),
+        Some(Candidate::Object { object: pacifism })
+    );
+    let hosts: Vec<_> = slots[0]
+        .allowed
+        .iter()
+        .map(|i| d.candidates[*i as usize].clone())
+        .collect();
+    assert_eq!(
+        hosts,
+        [kona, bears].map(|object| Candidate::Object { object })
+    );
+    checked(&g);
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Object { object: bears }).unwrap(),
+    )
+    .unwrap();
+    settle(&mut g);
+    let entered = g.current(Driver::object(&g, 1)).unwrap().clone();
+    assert_eq!(entered.zone, Zone::Battlefield);
+    assert_ne!(entered.id, pacifism, "a new object (CR 400.7)");
+    assert_eq!(entered.controller, PlayerId(0));
+    assert_eq!(entered.attached_to, Some(bears));
+    assert!(g.events().iter().any(|e| matches!(e,
+        Event::Committed { actual: EventOutcome::EnteredAttached { movement, target, .. }, .. }
+            if movement.previous == pacifism && movement.from == HAND && *target == bears)));
+    assert_eq!(zone(&g, 2), HAND);
+}
+
+/// Growth Spiral with its IR edited to put an enchantment card from hand:
+/// no printed card in the lane puts an Aura from hand with no possible
+/// host. CR 303.4g: with no creature to enchant, the chosen Pacifism is
+/// never asked about and stays in its owner's hand.
+#[test]
+fn a_chosen_aura_without_a_host_stays_in_hand() {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for raw in [GROWTH_SPIRAL, PACIFISM] {
+        let mtg_compiler::CompileResult::Lowered { definition } =
+            mtg_witness::compile(mtg_witness::R5_MANIFEST, raw)
+        else {
+            panic!("frozen witness failed")
+        };
+        catalog.definitions.push(*definition);
+    }
+    let spiral = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Growth Spiral")
+        .unwrap();
+    let mut value = serde_json::to_value(&*spiral).unwrap();
+    fn enchantments(value: &mut serde_json::Value) -> usize {
+        match value {
+            serde_json::Value::Object(fields) => {
+                let here = match fields.get_mut("search") {
+                    Some(serde_json::Value::Object(search)) if search.get("from").is_some() => {
+                        search.insert(
+                            "filter".into(),
+                            serde_json::to_value(mtg_contracts::kir::Pred(vec![
+                                mtg_contracts::kir::Atom::Type {
+                                    kind: CardKind::Enchantment,
+                                },
+                            ]))
+                            .unwrap(),
+                        );
+                        1
+                    }
+                    _ => 0,
+                };
+                here + fields.values_mut().map(enchantments).sum::<usize>()
+            }
+            serde_json::Value::Array(items) => items.iter_mut().map(enchantments).sum(),
+            _ => 0,
+        }
+    }
+    assert_eq!(enchantments(&mut value), 1);
+    *spiral = serde_json::from_value(value).unwrap();
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let prepared = Board::new(catalog, "r5-resolution-moves")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .seed(SEED)
+        .permanent_or_hand("Growth Spiral", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Pacifism", 0, 0, true)
+        .library_card("Island", 0)
+        .library_card("Island", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let d = card_choice(&mut g, &[3], 0, 1);
+    choose(&mut g, &d, &[3]);
+    settle(&mut g);
+    assert_eq!(zone(&g, 3), HAND);
+}
+
+/// CR 608.2d: a random selection never waits on a player. A suspended
+/// frame forged as Haunted Fengraf's controller choosing between its two
+/// creature cards fails validation.
+#[test]
+fn a_random_selection_rejects_a_forged_player_choice() {
+    let prepared = board(&[(HAUNTED_FENGRAF, &[Cell::RandomGraveyardCards])])
+        .permanent_or_hand("Haunted Fengraf", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .card("Grizzly Bears", 0, 0, GRAVEYARD)
+        .card("Typhoid Rats", 0, 0, GRAVEYARD)
+        .library_card("Island", 0)
+        .library_card("Island", 1)
+        .prepare();
+    let source_block = g_source_block(&prepared);
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let fengraf = Driver::object(&g, 0);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: fengraf,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut g, &[1, 2, 3]);
+    for _ in 0..4096 {
+        if let Frame::Resolve { frame } = &g.state.rules.frame
+            && frame.random_discard.is_none()
+            && !g.state.rules.stack.is_empty()
+        {
+            let resolving = frame.clone();
+            g.validate_state().unwrap();
+            let original = g.state.rules.frame.clone();
+            g.state.rules.frame = Frame::ResolutionChoice {
+                frame: resolving,
+                choice: ResolutionChoice::Search {
+                    player: PlayerId(0),
+                    source_block,
+                },
+            };
+            assert!(
+                g.validate_state().is_err(),
+                "a player chooses a random card"
+            );
+            g.state.rules.frame = original;
+            settle(&mut g);
+            assert_eq!(count_in(&g, &[4, 5], HAND), 1);
+            return;
+        }
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => {}
+            Advance::AwaitingDecision(d)
+                if d.reason == Reason::Priority && !g.state.rules.stack.is_empty() =>
+            {
+                g.respond(d.player, d.id, mtg_witness::temporary::pass(&d))
+                    .unwrap();
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    panic!("the random return never resolved");
+}
+
+/// The block of Haunted Fengraf's random return.
+fn g_source_block(prepared: &Prepared) -> u32 {
+    let fengraf = prepared
+        .catalog
+        .definitions
+        .iter()
+        .find(|d| d.name == "Haunted Fengraf")
+        .unwrap();
+    let [Instruction::Kernel { source_block, .. }] =
+        fengraf.activated[0].program.instructions.as_slice()
+    else {
+        panic!("one random instruction")
+    };
+    *source_block
 }

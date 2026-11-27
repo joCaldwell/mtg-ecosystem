@@ -1871,7 +1871,8 @@ impl RulesTxn {
         // The choice variant must be this verb's own, and its partial
         // answers well formed, before the departure fast path accepts it.
         let staged = match (choice, &verb) {
-            (ResolutionChoice::Search { .. }, Verb::Search { .. }) => true,
+            // CR 608.2d: a random selection never waits on its chooser.
+            (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => !search.random,
             (ResolutionChoice::SearchSplit { found, .. }, Verb::Search { search, .. }) => {
                 search.to == Destination::OneTappedRestOwnerHand
                     && found[0].card < found[1].card

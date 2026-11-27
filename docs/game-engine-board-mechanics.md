@@ -119,7 +119,7 @@ partitions and ordering several cards after shuffling remain unsupported.
 controller chooses up to a fixed number of cards with printed qualities from
 their own hand (onto the battlefield, optionally tapped) or graveyard (onto the
 battlefield or into hand), sharing search's entry questions and commander
-returns. "May" or "up to" allows none and is that one choice, never a separate
+returns; a chosen Aura enchants a chosen host or stays put (CR 303.4f–g). "May" or "up to" allows none and is that one choice, never a separate
 yes/no; otherwise as many as possible are chosen. A hand choice is private and
 is asked whenever the hand could hide a match, even with none (CR 402.3). "At
 random" from the graveyard draws from the seat's seeded stream at top level
