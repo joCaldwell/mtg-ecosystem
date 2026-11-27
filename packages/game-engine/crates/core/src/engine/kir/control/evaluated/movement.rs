@@ -255,17 +255,15 @@ impl RulesTxn {
             let Some(Verb::Move { to, .. }) = self.node_at(task)?.0.verb() else {
                 return Err("missing admitted move".into());
             };
-            return Ok(
-                (self.is_live(owner) && self.current(object).is_ok_and(|o| o.id == object))
-                    .then(|| -> Result<_, String> {
-                        Ok(self.commander_decision(
-                            object,
-                            self.move_zone(object, to)?,
-                            choices.clone(),
-                        ))
-                    })
-                    .transpose()?,
-            );
+            if !self.is_live(owner) || !self.current(object).is_ok_and(|o| o.id == object) {
+                return Ok(None);
+            }
+            let destination = self.move_zone(object, to)?;
+            return Ok(Some(self.commander_decision(
+                object,
+                destination,
+                choices.clone(),
+            )));
         }
         let Some(player) = controller.filter(|p| self.is_live(*p)) else {
             return Ok(None);
