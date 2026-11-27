@@ -1,6 +1,10 @@
 //! Evidence for opt-in Rust families. Only R6 intake constructs an R6 view.
 //! The resolver declares its obligations independently of the citations it finds.
-use super::{VerifiedFace, facts, nodes, text};
+use super::{
+    VerifiedFace, facts, nodes,
+    quotes::{BlockRegions, Quotes},
+    text,
+};
 use crate::{Failure, unsupported};
 use mtg_oracle_ast::printed::*;
 use serde_json::Value;
@@ -84,6 +88,8 @@ pub(crate) struct BlockEvidence<'a> {
     face: &'a PrintedFaceRead,
     normalized: &'a str,
     ast: &'a Value,
+    quotes: &'a Quotes,
+    block_regions: &'a BlockRegions,
     block: &'a PrintedBlockRead,
     nodes: BTreeMap<&'a str, &'a PrintedNode>,
 }
@@ -132,12 +138,15 @@ impl CardEvidence {
             None => return Err(missing(Check::P11, Some([0, read.original.bytes]))),
         };
         let verified = faces[face].as_ref().unwrap();
+        let block_verified = verified.blocks[block].as_ref().unwrap();
         Ok(BlockEvidence {
             face_index: face,
             block_index: block,
             face: read,
             normalized: &verified.normalized,
-            ast: verified.blocks[block].as_ref().unwrap(),
+            ast: &block_verified.ast,
+            quotes: &verified.quotes,
+            block_regions: &block_verified.quotes,
             block: block_data,
             nodes: block_data
                 .nodes
@@ -366,6 +375,14 @@ impl<'a> BlockEvidence<'a> {
 
     fn punctuation_boundary(&self, role: StructuralPunctuation, fact: &PrintedFactPunct) -> bool {
         let [line, index, after] = fact.tok.0;
+        let owner = fact.at.as_str();
+        let region = self.quotes.region((line as usize, index as usize));
+        if self.block_regions.get(owner) != Some(region) {
+            return false;
+        }
+        let Some(production) = self.ast.pointer(owner) else {
+            return false;
+        };
         let ends_at = |path: &str, end| {
             self.primary_span(path)
                 .last()
@@ -378,50 +395,45 @@ impl<'a> BlockEvidence<'a> {
                     .first()
                     .is_some_and(|run| run.0[..2] == [line, after])
         };
-        let owner = fact.at.as_str();
         let cost_count = || {
-            self.ast["costs"]
+            production["costs"]
                 .as_array()
-                .filter(|_| owner.is_empty() && self.ast["kind"] == "activated")
+                .filter(|_| production["kind"] == "activated")
                 .map_or(0, Vec::len)
+        };
+        let between_children = |left: &str, right: &str| {
+            between(&format!("{owner}{left}"), &format!("{owner}{right}"))
         };
         match role {
             // parseSentences and SentenceRecorder delimit the primary sentence;
             // a later folded continuation may have its own sentence boundary.
             StructuralPunctuation::SentenceTerminator => {
                 fact.role == PrintedFactPunctRole::SentenceEnd
-                    && self
-                        .ast
-                        .pointer(owner)
-                        .is_some_and(|node| node["steps"].is_array())
+                    && production["steps"].is_array()
                     && ends_at(owner, after)
             }
             // parser/index.ts and parser/for-each.ts consume the comma between
             // these heads and their effects.
             StructuralPunctuation::ClauseComma => {
                 fact.role == PrintedFactPunctRole::Comma
-                    && (owner.is_empty()
-                        && self.ast["kind"] == "triggered"
-                        && between("/trigger", "/effects/0")
-                        || self
-                            .ast
-                            .pointer(owner)
-                            .is_some_and(|node| node["effect"] == "for-each")
-                            && between(&format!("{owner}/each"), &format!("{owner}/effects/0")))
+                    && (production["kind"] == "triggered"
+                        && between_children("/trigger", "/effects/0")
+                        || production["effect"] == "for-each"
+                            && between_children("/each", "/effects/0"))
             }
             // parseActivationCostList and the activated production in
             // parser/index.ts separate adjacent costs and the cost from its effect.
             StructuralPunctuation::CostListComma => {
                 fact.role == PrintedFactPunctRole::Comma
                     && (1..cost_count()).any(|next| {
-                        between(&format!("/costs/{}", next - 1), &format!("/costs/{next}"))
+                        between_children(&format!("/costs/{}", next - 1), &format!("/costs/{next}"))
                     })
             }
             StructuralPunctuation::CostEffectColon => {
                 fact.role == PrintedFactPunctRole::Colon
-                    && cost_count()
-                        .checked_sub(1)
-                        .is_some_and(|last| between(&format!("/costs/{last}"), "/effects/0"))
+                    && cost_count().checked_sub(1).is_some_and(|last| {
+                        between_children(&format!("/costs/{last}"), "/effects/0")
+                    })
             }
         }
     }

@@ -13,6 +13,7 @@ use serde_json::Value;
 pub(crate) mod evidence;
 mod facts;
 mod nodes;
+mod quotes;
 mod text;
 mod tokens;
 pub(super) use text::{NameCatalog, NameClaims};
@@ -37,7 +38,13 @@ struct LegacyLine {
 
 pub(super) struct VerifiedFace {
     normalized: String,
-    blocks: Vec<Option<Value>>,
+    blocks: Vec<Option<VerifiedBlock>>,
+    quotes: quotes::Quotes,
+}
+
+struct VerifiedBlock {
+    ast: Value,
+    quotes: quotes::BlockRegions,
 }
 
 pub(super) fn verify(
@@ -187,9 +194,11 @@ fn verify_face(
     if face.blocks.len() != legacy.len() {
         return Err(invalid("P6", "printed and legacy blocks differ in count"));
     }
+    let quotes = quotes::Quotes::new(&lines, &face.edits);
+    let mut blocks = Vec::with_capacity(legacy.len());
     let mut first = 0;
     let mut n_start = 0;
-    for (index, (block, legacy)) in face.blocks.iter().zip(&legacy).enumerate() {
+    for (index, (block, legacy)) in face.blocks.iter().zip(legacy).enumerate() {
         let reject = |check, reason| invalid(check, format!("block {index}: {reason}"));
         let count = if legacy.text.is_empty() {
             0
@@ -214,16 +223,21 @@ fn verify_face(
                     .ability
                     .as_ref()
                     .ok_or_else(|| reject("P6", "missing legacy block"))?;
-                let nodes = nodes::BlockNodes::verify(ast, &block.nodes, first..end, &lines)?;
+                let nodes =
+                    nodes::BlockNodes::verify(ast, &block.nodes, first..end, &lines, &quotes)?;
                 facts::verify(
                     &block.facts,
                     &nodes,
                     &lines,
                     first..end,
-                    &face.edits,
-                    &face.removed_reminders,
+                    face,
                     original,
+                    &quotes,
                 )?;
+                blocks.push(Some(VerifiedBlock {
+                    quotes: nodes.quotes,
+                    ast: legacy.ability.unwrap(),
+                }));
             }
             PrintedBlock::Failed(block)
                 if !legacy.ok
@@ -238,10 +252,11 @@ fn verify_face(
                     &nodes::BlockNodes::default(),
                     &lines,
                     first..end,
-                    &face.edits,
-                    &face.removed_reminders,
+                    face,
                     original,
+                    &quotes,
                 )?;
+                blocks.push(None);
             }
             _ => return Err(reject("P6", "block range, status or legacy parse mismatch")),
         }
@@ -253,7 +268,8 @@ fn verify_face(
     }
     Ok(VerifiedFace {
         normalized,
-        blocks: legacy.into_iter().map(|line| line.ability).collect(),
+        blocks,
+        quotes,
     })
 }
 

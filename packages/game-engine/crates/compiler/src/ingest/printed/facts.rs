@@ -1,6 +1,7 @@
 use super::{
     Failure, invalid,
     nodes::BlockNodes,
+    quotes::Quotes,
     text,
     tokens::{self, Kind, Line, Token},
 };
@@ -278,9 +279,9 @@ pub(super) fn verify(
     nodes: &BlockNodes<'_>,
     lines: &[Line<'_>],
     block: Range<usize>,
-    edits: &[Edit],
-    reminders: &[RemovedReminder],
+    face: &PrintedFaceRead,
     original: &str,
+    quotes: &Quotes,
 ) -> Result<(), Failure> {
     let mut targets = BTreeMap::<&str, Vec<([u32; 2], u32)>>::new();
     let mut target_tokens = BTreeSet::new();
@@ -292,11 +293,15 @@ pub(super) fn verify(
                 unreachable!()
             };
             let [start, end] = cite.o.0;
-            let reminder = reminders
+            let reminder = face
+                .removed_reminders
                 .get(cite.reminder_index as usize)
                 .ok_or_else(|| reject("P8", "station citation has no removed reminder"))?;
             if start < reminder.o.0[0] || end > reminder.o.0[1] {
                 return Err(reject("P8", "station citation exceeds its reminder"));
+            }
+            if quotes.intersects_original(cite.o.0) {
+                return Err(reject("P7", "station citation crosses into a quote region"));
             }
             let threshold = text::slice(original, cite.o.0)
                 .and_then(|text| STATION_CITATION.captures(text))
@@ -332,7 +337,16 @@ pub(super) fn verify(
                 "fact does not name the innermost containing node",
             ));
         }
-        if !matches_surface(fact, phrase, line.tokens.get(end), edits) {
+        let region = quotes.region((line_index, start));
+        if (start + 1..end).any(|index| quotes.region((line_index, index)) != region)
+            || (nodes.ast.is_some() && nodes.quotes.get(at) != Some(region))
+        {
+            return Err(reject(
+                "P7",
+                "fact crosses or escapes its owner's quote region",
+            ));
+        }
+        if !matches_surface(fact, phrase, line.tokens.get(end), &face.edits) {
             return Err(reject(
                 "P8",
                 "fact form or value disagrees with its token spelling",
@@ -373,7 +387,7 @@ pub(super) fn verify(
             targets
                 .entry(&target.scope)
                 .or_default()
-                .push((text::hull(token.n, edits), target.target_index));
+                .push((text::hull(token.n, &face.edits), target.target_index));
         } else if let Nullable::Value(field) = field
             && !matches_field(fact, nodes, at, field, token.word())
         {

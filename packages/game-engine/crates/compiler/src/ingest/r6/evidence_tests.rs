@@ -15,6 +15,8 @@ const CREATE: &str = "/effects/1/steps/0/effects/0/steps/0";
 const WYLULI_WOLF: usize = 15;
 const SAHEELI: usize = 35;
 const THROTTLE: usize = 252;
+const SPARA: usize = 406;
+const ERTHA: usize = 1589;
 const JUNK: usize = 1344;
 const TERA: usize = 3602;
 const SECRET: usize = 7870;
@@ -989,6 +991,129 @@ fn check_punctuation_mutations(rows: &BTreeMap<usize, String>) {
     );
 }
 
+fn check_quoted_punctuation(rows: &BTreeMap<usize, String>) {
+    let mut escaped = Vec::new();
+    let mut inner_claims = Vec::new();
+    for (row_number, name, block_index, line, index, role, range) in [
+        (
+            ERTHA,
+            "Ertha Jo, Frontier Mentor",
+            0,
+            0,
+            31,
+            SentenceTerminator,
+            [131, 132],
+        ),
+        (
+            SPARA,
+            "Spara's Adjudicators",
+            1,
+            1,
+            14,
+            CostEffectColon,
+            [167, 168],
+        ),
+    ] {
+        let raw = &rows[&row_number];
+        let mut row: Value = serde_json::from_str(raw).unwrap();
+        assert_eq!(row["source"]["name"], name);
+        let source = row["source"].clone();
+        let legacy = row["faces"].clone();
+        let printed = block_mut(&mut row, block_index);
+        let mut outer_owner = "/effects/0";
+        for node in printed["nodes"].as_array_mut().unwrap() {
+            let path = node["path"].as_str().unwrap();
+            if row_number == ERTHA {
+                if path == "/effects/0" {
+                    node["span"] = json!([[0, 4, 32]]);
+                    node["folds"] = json!([[0, 32, 39]]);
+                } else if path.starts_with("/effects/0/") {
+                    if let Some(runs) = node.get_mut("span").and_then(Value::as_array_mut) {
+                        let mut clipped = Vec::new();
+                        for run in runs.iter() {
+                            let start = run[1].as_u64().unwrap();
+                            let end = run[2].as_u64().unwrap();
+                            if !(start <= 31 && 31 < end) {
+                                clipped.push(run.clone());
+                                continue;
+                            }
+                            if start < 31 {
+                                clipped.push(json!([0, start, 31]));
+                            }
+                            if 32 < end {
+                                clipped.push(json!([0, 32, end]));
+                            }
+                        }
+                        *runs = clipped;
+                    }
+                }
+            } else {
+                const GRANT: &str = "/effects/0/steps/0/abilities/0";
+                outer_owner = "";
+                match path {
+                    "/costs/1" => node["span"] = json!([[1, 2, 14]]),
+                    "/effects/0" => node["span"] = json!([[1, 15, 31]]),
+                    "/effects/0/steps/0" | GRANT => node["span"] = json!([[1, 15, 23]]),
+                    "/effects/0/steps/0/abilities/0/ability" => {
+                        node["span"] = json!([[1, 15, 22]]);
+                    }
+                    "/effects/0/steps/0/abilities/0/ability/costs/0"
+                    | "/effects/0/steps/0/what"
+                    | "/effects/0/steps/0/what/filter" => {
+                        *node = json!({"path": path, "basis": "unlocated"});
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for fact in printed["facts"].as_array_mut().unwrap() {
+            if fact["tok"] == json!([line, index, index + 1]) {
+                fact["at"] = json!(outer_owner);
+            } else if row_number == SPARA
+                && (fact["tok"] == json!([1, 8, 9])
+                    || fact["tok"] == json!([1, 9, 10])
+                    || fact["tok"] == json!([1, 12, 13]))
+            {
+                fact["at"] = json!("/costs/1");
+            }
+        }
+        let mutated = rehash(&mut row);
+        assert_eq!(row["source"], source);
+        assert_eq!(row["faces"], legacy);
+        let claim = |card: &CardEvidence| {
+            let block = card.block(0, block_index, "quoted punctuation").unwrap();
+            let mut consumed = false;
+            let _ = block.check_family(|coverage| {
+                assert_eq!(coverage.token(line, index)?.range, range);
+                coverage.punctuation(line, index, role)?;
+                consumed = true;
+                Ok(())
+            });
+            consumed
+        };
+        match verified(&mutated) {
+            Err(error) => {
+                assert!(
+                    !error.unsupported && error.path.ends_with("P6"),
+                    "{error:?}"
+                );
+                println!("{name} outer delimiter\tP6\t{}", super::failure(error));
+            }
+            Ok(card) => escaped.push((name, claim(&card))),
+        }
+        let card = verified(raw).unwrap();
+        inner_claims.push((name, range, claim(&card)));
+    }
+    assert!(
+        escaped.is_empty(),
+        "quote-boundary mutations passed intake (name, consumed): {escaped:?}"
+    );
+    for (name, range, consumed) in inner_claims {
+        assert!(consumed, "{name}: failed to consume the inner delimiter");
+        println!("{name} inner delimiter\taccepted\tO{range:?}");
+    }
+}
+
 #[test]
 #[ignore = "opt-in frozen R6 candidate; set MTG_R6_VERIFIER_ROWS"]
 fn frozen_family_evidence() {
@@ -1005,6 +1130,8 @@ fn frozen_family_evidence() {
                 WYLULI_WOLF,
                 SAHEELI,
                 THROTTLE,
+                SPARA,
+                ERTHA,
                 JUNK,
                 TERA,
                 SECRET,
@@ -1018,6 +1145,7 @@ fn frozen_family_evidence() {
     check_witnesses(&rows);
     check_mutations(&rows);
     check_punctuation_mutations(&rows);
+    check_quoted_punctuation(&rows);
     check_source_edits(&rows);
 }
 

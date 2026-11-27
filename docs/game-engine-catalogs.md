@@ -99,7 +99,12 @@ payload hashes. The same producer, payload lengths and all decisions must agree.
 
 The intake verifier applies P1–P10 to each applicable R6 row before its card is
 assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
-wire format and evidence bases. A family that opts in receives a verified
+wire format and evidence bases. P6 rebuilds quote regions from the original
+text through verified normalization, lexing and punctuation order. A quoted
+grant's AST body enters the region bounded by its wrapper's matching marks.
+An ancestor's span may include an owned quote together with both marks.
+Primary spans, folds, hull spans and clause runs each preserve that boundary.
+P7 requires a fact and its owner to share a region. A family that opts in receives a verified
 `CardEvidence` from intake. Query its face and block before lowering and pass the
 missing obligation when an R5 input requires R6. The result is a per-card
 `evidence:requires-r6` with the requested face, block and obligation.
@@ -117,7 +122,8 @@ P11 requires the resolver to discharge each field with a verified exact link,
 a production-specific check of the printed phrase and field value, or a closed
 default at its governing node. P12 requires an explicit checked meaning or
 structural role for every printed fact and token. Structural roles require a
-verified punctuation fact and a recorded production boundary. The current
+verified punctuation fact within the recorded production's quote region and
+at its boundary. The current
 roles cover period-terminated sentences, trigger and for-each clause commas,
 activation cost list commas, and the activation cost/effect colon. These use
 the parser's [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)

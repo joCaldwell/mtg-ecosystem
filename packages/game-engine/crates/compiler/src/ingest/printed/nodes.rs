@@ -1,4 +1,8 @@
-use super::{Failure, invalid, tokens::Line};
+use super::{
+    Failure, invalid,
+    quotes::{BlockRegions, Occurrence, Quotes, Region},
+    tokens::Line,
+};
 use mtg_oracle_ast::printed::{ImplicitReason, PrintedNode, TokenRun};
 use serde_json::Value;
 use std::{
@@ -6,13 +10,13 @@ use std::{
     ops::Range,
 };
 
-type Occurrence = (usize, usize);
 type Extent = BTreeSet<Occurrence>;
 
 #[derive(Default)]
 pub(super) struct BlockNodes<'a> {
     pub ast: Option<&'a Value>,
     nodes: BTreeMap<String, Node<'a>>,
+    pub(super) quotes: BlockRegions,
 }
 
 struct Node<'a> {
@@ -165,12 +169,122 @@ pub(super) fn path(node: &PrintedNode) -> &str {
     }
 }
 
+fn verify_quotes(
+    nodes: &BTreeMap<String, Node<'_>>,
+    printed: &BTreeMap<&str, &PrintedNode>,
+    quotes: &Quotes,
+) -> Result<BlockRegions, Failure> {
+    let mut regions = BlockRegions::default();
+    let mut grants = BTreeMap::new();
+    let fail = |path: &str, reason: &str| invalid("P6", format!("node {path:?}: {reason}"));
+
+    // Parents precede descendants in JSON pointer order. Only the body of an
+    // AST quoted grant enters a deeper region. Bind it to matching rebuilt
+    // quote marks in the grant wrapper, independently of the body's runs.
+    for (path, node) in nodes {
+        let region = node
+            .parent
+            .as_deref()
+            .map_or(Some(Region::Outside), |parent| {
+                if nodes[parent].value["gained"] == "quoted" && *path == pointer(parent, "ability")
+                {
+                    regions.get(path)
+                } else {
+                    regions.get(parent)
+                }
+            });
+        if region != Some(Region::Outside) {
+            regions.enter(path.clone(), region);
+        }
+        if node.value["gained"] != "quoted" {
+            continue;
+        }
+        let child = if node.extent.is_empty() {
+            None
+        } else {
+            let mut pairs = node.extent.iter().filter_map(|&open| {
+                let (parent, close) = quotes.enclosure(open)?;
+                (Some(parent) == regions.get(path) && node.extent.contains(&close)).then_some(open)
+            });
+            let open = pairs
+                .next()
+                .filter(|_| pairs.next().is_none())
+                .ok_or_else(|| fail(path, "quoted grant has no unique enclosing quote pair"))?;
+            if grants.insert(open, path.as_str()).is_some() {
+                return Err(fail(path, "quoted grant reuses an enclosure"));
+            }
+            Some(Region::Inside(open))
+        };
+        regions.enter(pointer(path, "ability"), child);
+    }
+
+    for (path, entry) in printed {
+        let region = regions.get(path);
+        let check = |runs: &[TokenRun], field: &str| {
+            let contains = |(line, index)| {
+                runs.iter().any(|run| {
+                    let [l, start, end] = run.0.map(|n| n as usize);
+                    l == line && (start..end).contains(&index)
+                })
+            };
+            for &TokenRun([line, start, end]) in runs {
+                for index in start..end {
+                    let occurrence = (line as usize, index as usize);
+                    let mut actual = quotes.region(occurrence);
+                    while Some(actual) != region {
+                        let proven_parent = |open| {
+                            let (parent, close) = quotes.enclosure(open)?;
+                            let owner = *grants.get(&open)?;
+                            (contains(open)
+                                && contains(close)
+                                && (path.is_empty()
+                                    || owner == *path
+                                    || owner
+                                        .strip_prefix(path)
+                                        .is_some_and(|tail| tail.starts_with('/'))))
+                            .then_some(parent)
+                        };
+                        let Region::Inside(open) = actual else {
+                            return Err(fail(
+                                path,
+                                &format!(
+                                    "{field} escapes its quote region at token {occurrence:?}"
+                                ),
+                            ));
+                        };
+                        actual = proven_parent(open).ok_or_else(|| {
+                            fail(path, &format!("{field} crosses an unowned or split quote at token {occurrence:?}"))
+                        })?;
+                    }
+                }
+            }
+            Ok(())
+        };
+        match entry {
+            PrintedNode::Recorded(node) => {
+                check(&node.span, "span")?;
+                check(node.folds.as_deref().unwrap_or_default(), "folds")?;
+            }
+            PrintedNode::Hull(node) => {
+                check(&node.span, "hull span")?;
+                check(node.clauses.as_deref().unwrap_or_default(), "clauses")?;
+            }
+            PrintedNode::Alias(node) if regions.get(&node.of) != region => {
+                return Err(fail(path, "alias crosses a quote region"));
+            }
+            _ => {}
+        }
+    }
+    Ok(regions)
+}
+
 impl<'a> BlockNodes<'a> {
     pub(super) fn verify(
         ast: &'a Value,
         entries: &[PrintedNode],
         block: Range<usize>,
         lines: &[Line<'_>],
+        quotes: &Quotes,
     ) -> Result<Self, Failure> {
         let mut nodes = BTreeMap::new();
         if !ast.is_object() {
@@ -279,9 +393,11 @@ impl<'a> BlockNodes<'a> {
             }
             nodes.get_mut(&path).unwrap().extent = value;
         }
+        let quotes = verify_quotes(&nodes, &printed, quotes)?;
         Ok(Self {
             ast: Some(ast),
             nodes,
+            quotes,
         })
     }
 
