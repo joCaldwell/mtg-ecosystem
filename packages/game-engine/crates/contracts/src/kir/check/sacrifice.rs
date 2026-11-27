@@ -2,7 +2,7 @@
 use super::*;
 
 impl Walk<'_, '_> {
-    /// CR 701.21a: the controller, each player or each opponent sacrifices
+    /// CR 701.21a: the controller, defending player, each player or each opponent sacrifices
     /// a fixed count. Other audited recipients sacrifice one.
     pub(super) fn audit_sacrifice(
         &self,
@@ -40,14 +40,18 @@ impl Walk<'_, '_> {
         let Some(count) = count.as_fixed().and_then(Quantity::to_u32) else {
             return unaudited("sacrifice count");
         };
-        let fixed_count = matches!(
-            player,
-            PlayerExpr::EachPlayer
-                | PlayerExpr::EachOpponent
-                | PlayerExpr::Is {
-                    who: Ref::Controller { .. }
-                }
-        );
+        // CR 702.86a: an attack trigger's defending player sacrifices N
+        // permanents of their choice.
+        let defending = *player == PlayerExpr::event(EventPlayerRole::DefendingPlayer);
+        let fixed_count = defending
+            || matches!(
+                player,
+                PlayerExpr::EachPlayer
+                    | PlayerExpr::EachOpponent
+                    | PlayerExpr::Is {
+                        who: Ref::Controller { .. }
+                    }
+            );
         if count == 0 || (!fixed_count && count != 1) {
             return unaudited("sacrifice count");
         }
@@ -71,6 +75,14 @@ impl Walk<'_, '_> {
                         role: EventPlayerRole::ActivePlayer,
                     },
             } => Ok(Cell::SacrificeActivePlayer),
+            _ if defending
+                && self.env.context == Context::Triggered
+                && self.env.event.is_some_and(|event| {
+                    matches!(event.pattern(), EventPattern::Attacks { attacker } if *attacker == Pred::source())
+                }) =>
+            {
+                Ok(Cell::SacrificeDefendingPlayer)
+            }
             PlayerExpr::EachPlayer => Ok(Cell::SacrificeEachPlayer),
             PlayerExpr::EachOpponent => Ok(Cell::SacrificeEachOpponent),
             PlayerExpr::Is {

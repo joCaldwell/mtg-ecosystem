@@ -957,7 +957,7 @@ impl GameTestkit for Game {
         controller: PlayerId,
         spec: &TargetSpec,
     ) -> bool {
-        RulesTxn::permanent_target_legal(self, object, controller, None, spec)
+        RulesTxn::permanent_target_legal(self, object, controller, None, None, spec)
     }
     fn permitted_decision_context(
         &self,

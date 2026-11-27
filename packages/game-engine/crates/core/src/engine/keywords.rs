@@ -79,7 +79,25 @@ impl RulesTxn {
         &'a self,
         entry: &'a StackInstance,
     ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
-        if self.current(entry.source).is_ok() {
+        self.targeting_source(entry, false)
+    }
+
+    /// CR 608.2b, 702.134a: mentor compares layer-7 power. Other target
+    /// restrictions need only the source's color layer for protection.
+    pub(super) fn targeting_source<'a>(
+        &'a self,
+        entry: &'a StackInstance,
+        needs_power: bool,
+    ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
+        if self
+            .current(entry.source)
+            .is_ok_and(|o| o.phased_out.is_none())
+        {
+            if needs_power {
+                return self
+                    .characteristics(entry.source)
+                    .map(std::borrow::Cow::Owned);
+            }
             self.color_layer(entry.source)
         } else {
             entry

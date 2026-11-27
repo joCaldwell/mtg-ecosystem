@@ -474,6 +474,10 @@ impl TriggerEventWitness {
             | Self::LifeGained { player, .. }
             | Self::Discarded { player, .. }
             | Self::Sacrificed { player, .. } => Some(*player),
+            // CR 508.5: the defending player for this attack occurrence.
+            Self::CreatureAttacked {
+                defender_player_id, ..
+            } => Some(*defender_player_id),
             Self::AttackerUnblocked { defender, .. } | Self::BecameBlocked { defender, .. } => {
                 Some(*defender)
             }

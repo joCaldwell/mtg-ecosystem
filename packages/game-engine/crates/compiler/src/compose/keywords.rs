@@ -784,7 +784,8 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
 /// Printed keyword abilities that are triggered abilities. Each instance
 /// lowers to the complete trigger its rule defines and triggers separately
 /// (CR 702.108b, 702.45b, 702.135b, 702.46b, 702.83b, 702.116b, 702.105b,
-/// 702.149b, 702.130b, 702.23c, 702.121b, 702.91b, 702.25b). The `bool` states
+/// 702.149b, 702.130b, 702.23c, 702.121b, 702.91b, 702.25b, 702.86b,
+/// 702.134b). The `bool` states
 /// whether the keyword prints a fixed N.
 const TRIGGERED: &[(&str, bool)] = &[
     ("prowess", false),
@@ -800,6 +801,8 @@ const TRIGGERED: &[(&str, bool)] = &[
     ("melee", false),
     ("battle cry", false),
     ("flanking", false),
+    ("annihilator", true),
+    ("mentor", false),
 ];
 
 pub(super) fn is_triggered(keyword: &SourceKeyword) -> bool {
@@ -1455,6 +1458,52 @@ pub(super) fn triggered(
                 block,
             ));
             EventPattern::BecomesBlocked {
+                attacker: Pred::source(),
+            }
+        }
+        // CR 702.86a: "Whenever this creature attacks, defending player
+        // sacrifices N permanents"; they choose, and sacrifice every
+        // permanent they control if they control fewer (CR 609.3). The
+        // defending player is the one it attacks (CR 508.5).
+        "annihilator" if creature => {
+            program.instructions.push(kernel(
+                Node::Do(Verb::Sacrifice {
+                    player: PlayerExpr::event(kir::EventPlayerRole::DefendingPlayer),
+                    count: kir::Amount::fixed(i64::from(n)),
+                    filter: Pred::default(),
+                    greatest_power: false,
+                }),
+                block,
+            ));
+            EventPattern::Attacks {
+                attacker: Pred::source(),
+            }
+        }
+        // CR 702.134a: "Whenever this creature attacks, put a +1/+1 counter
+        // on target attacking creature with power less than this creature's
+        // power." The bound is read at announcement and again at resolution,
+        // from last known information once the source has left (CR 608.2b).
+        "mentor" if creature => {
+            program.targets.push(
+                TargetSpec::new(0, "mentor-creature", TargetDomain::BattlefieldPermanent)
+                    .with_filter(
+                        PermanentFilter {
+                            predicate: Some(Pred(vec![Atom::Attacking])),
+                            ..PermanentFilter::any()
+                        }
+                        .with_types([CardKind::Creature])
+                        .with_power(CreaturePowerFilter::LessThanSource {}),
+                    ),
+            );
+            program.instructions.push(kernel(
+                Node::Do(Verb::PutCounters {
+                    on: SetExpr::target(0),
+                    counter: kir::CounterKind::PlusOnePlusOne,
+                    amount: kir::Amount::fixed(1),
+                }),
+                block,
+            ));
+            EventPattern::Attacks {
                 attacker: Pred::source(),
             }
         }
