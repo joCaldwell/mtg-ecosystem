@@ -389,6 +389,7 @@ impl SampleBuildWork {
                     keyword_timestamp: None,
                     keyword_rank: 0,
                     plus_one_counters: Quantity::zero(),
+                    counters: vec![],
                     transforms: 0,
                     adventure_player: None,
                     // Rebuilds even the viewer's own face-down permanents face

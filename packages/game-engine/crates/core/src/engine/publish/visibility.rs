@@ -685,6 +685,7 @@ impl RulesTxn {
                 attached_to: None,
                 marked_damage: Quantity::zero(),
                 plus_one_counters: Quantity::zero(),
+                counters: vec![],
                 attack_ready: false,
                 tapped: false,
                 phased_out: false,
@@ -755,6 +756,14 @@ impl RulesTxn {
             token,
             mana_ability_used,
             plus_one_counters: object.plus_one_counters.clone(),
+            counters: object
+                .counters
+                .iter()
+                .map(|stack| mtg_view::VisibleCounter {
+                    kind: stack.kind.clone(),
+                    count: stack.count.clone(),
+                })
+                .collect(),
             characteristics: Some(characteristics),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,

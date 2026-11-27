@@ -356,11 +356,19 @@ impl Strategy<'_> {
             return !self.harmful_attachment(d);
         }
         p.instructions.iter().any(|i| match i {
+            // CR 122.1a: a -1/-1 counter shrinks its recipient.
             kernel!(PutCounters {
                 on: target_object!(target_slot),
+                counter,
                 ..
-            })
-            | kernel!(Regenerate {
+            }) if !matches!(
+                counter,
+                kir::CounterKind::MinusOneMinusOne | kir::CounterKind::Stun
+            ) =>
+            {
+                *target_slot == slot
+            }
+            kernel!(Regenerate {
                 what: target_object!(target_slot)
             }) => *target_slot == slot,
             kernel!(ModifyUntil {

@@ -439,6 +439,14 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    /// CR 122.1a, 122.3, 704.5q: -1/-1 counters and their annihilation.
+    MinusOneCountersV1,
+    /// CR 122.1b, 613.1f, 613.7c: keyword counters in layer 6.
+    KeywordCountersV1,
+    /// CR 122.1d: stun counters replace untapping.
+    StunCountersV1,
+    /// CR 122.1: counters without rules meaning, read by their cards.
+    NamedCountersV1,
 
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -953,11 +961,25 @@ impl Instruction {
     }
     /// CR 122.1: put `amount` +1/+1 counters on `on`.
     pub fn plus_one_counters(on: kir::SetExpr, amount: Quantity, source_block: u32) -> Self {
+        Self::counters(
+            on,
+            kir::CounterKind::PlusOnePlusOne,
+            kir::Amount::Fixed { value: amount },
+            source_block,
+        )
+    }
+    /// CR 122.1: put `amount` counters of `counter` on `on`.
+    pub fn counters(
+        on: kir::SetExpr,
+        counter: kir::CounterKind,
+        amount: kir::Amount,
+        source_block: u32,
+    ) -> Self {
         Self::act(
             kir::Verb::PutCounters {
                 on,
-                counter: kir::CounterKind::PlusOnePlusOne,
-                amount: kir::Amount::Fixed { value: amount },
+                counter,
+                amount,
             },
             source_block,
         )
@@ -1754,7 +1776,7 @@ pub struct SourceLabels {
     pub statics: Vec<u32>,
     pub spell_modes: Vec<String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum KeywordAbility {
     Flash,
@@ -2418,7 +2440,7 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|i| i.controller_discard().is_some())
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
-fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
+pub(crate) fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
         KeywordAbility::ProtectionFromEachColor => return None,
         KeywordAbility::ProtectionFromEverything => Capability::ProtectionFromEverythingV1,

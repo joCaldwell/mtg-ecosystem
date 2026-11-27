@@ -146,7 +146,14 @@ pub enum ProposedEvent {
         poison: Quantity,
         energy: Quantity,
     },
-    PutPlusOneCounters {
+    /// CR 122.1, 701.34a: one atomic placement of one or more kinds on a
+    /// permanent, in strictly increasing kind order.
+    PutCounters {
+        object: ObjectId,
+        counters: Vec<CounterAmount>,
+    },
+    /// CR 122.3, 704.5q: remove `amount` +1/+1 and `amount` -1/-1 counters.
+    AnnihilateCounters {
         object: ObjectId,
         amount: Quantity,
     },
@@ -413,11 +420,18 @@ pub enum EventOutcome {
         previous_poison: Quantity,
         previous_energy: Quantity,
     },
-    PlusOneCountersPlaced {
+    CountersPlaced {
+        object: ObjectId,
+        placed: Vec<CounterChange>,
+    },
+    CountersAnnihilated {
         object: ObjectId,
         amount: Quantity,
+    },
+    /// CR 122.1d: the untap was replaced by removing one stun counter.
+    StunCounterRemoved {
+        object: ObjectId,
         previous: Quantity,
-        current: Quantity,
     },
     SpellCopyCeased {
         object: ObjectId,
@@ -767,4 +781,22 @@ pub enum Event {
         stack_id: StackId,
         reason: String,
     },
+}
+
+/// CR 122.1: `amount` counters of one kind.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CounterAmount {
+    pub counter: mtg_contracts::kir::CounterKind,
+    pub amount: Quantity,
+}
+
+/// CR 122.1: one kind's placement and the counts around it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CounterChange {
+    pub counter: mtg_contracts::kir::CounterKind,
+    pub amount: Quantity,
+    pub previous: Quantity,
+    pub current: Quantity,
 }

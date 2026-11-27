@@ -335,8 +335,23 @@ event-result counts and token-creation replacement abilities reject.
 - Populate copies a controlled creature token's copiable values; animation can
   qualify the original (CR 701.36, 707.2).
 - Proliferate adds one counter of each existing kind to chosen permanents and
-  players simultaneously: permanent +1/+1 and player poison and energy; ten
-  poison counters lose (CR 701.34a, 704.5c).
+  players simultaneously: every permanent kind below and player poison and
+  energy; ten poison counters lose (CR 701.34a, 704.5c).
+- Permanent counters besides +1/+1 go on the same recipients (source, target
+  creature, matching creature set) as one placement event, one atomic change
+  per permanent carrying every kind it receives. -1/-1 counters take
+  fixed or announced X amounts and modify P/T in layer 7c; matching +1/+1 and
+  -1/-1 counters annihilate in the state-based wave, skipping permanents that
+  leave in it (CR 122.1a, 122.3, 704.5q). Keyword counters for the reviewed
+  temporary-grant keywords apply in layer 6 at their kind's timestamp (the
+  latest placement's batch), ordered with other grants and removals (CR 122.1b,
+  613.7c). Stun counters and counters
+  whose names the pinned rules give no meaning may also go on any targeted
+  permanent; every untap event removes one stun counter instead (CR 122.1, 122.1d, 614.1a).
+  "[N for each] / X is the number of [kind] counters on this" reads the source's
+  current or last-known counters. Shield, loyalty, lore, level, time, fade, hone,
+  other ±X/±Y and every other rules-bearing name reject as
+  `verb:put-counters:counter_kind`.
 - Fight deals current power as simultaneous noncombat damage between two legal
   battlefield creatures; self-fight deals double power (CR 701.14).
 

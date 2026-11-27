@@ -69,6 +69,8 @@ impl RulesTxn {
             keyword_rank: o.keyword_rank,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,
+            plus_one_counters: o.plus_one_counters.clone(),
+            counters: o.counters.clone(),
             object,
             owner: self
                 .state

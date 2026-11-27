@@ -448,6 +448,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
             restrictions: vec![],
             token: None,
             plus_one_counters: Quantity::zero(),
+            counters: vec![],
             characteristics: Some(
                 game.prepared
                     .catalog

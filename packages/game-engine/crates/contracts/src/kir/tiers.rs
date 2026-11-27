@@ -215,6 +215,11 @@ pub enum Cell {
     PlusOneCountersEventObject,
     PlusOneCountersTarget,
     PlusOneCountersSet,
+    /// CR 122.1: counters of another kind on the same recipients.
+    KindCountersSource,
+    KindCountersEventObject,
+    KindCountersTarget,
+    KindCountersSet,
     // CR 611.2c, 613: until end of turn.
     PumpSource,
     PumpTarget,
@@ -523,7 +528,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Encore
         | C::Dash
         | C::Myriad
-        | C::SacrificeSource => Tiers::EXECUTES,
+        | C::SacrificeSource
+        | C::KindCountersSource
+        | C::KindCountersEventObject
+        | C::KindCountersTarget
+        | C::KindCountersSet => Tiers::EXECUTES,
     }
 }
 
@@ -581,7 +590,11 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::DamageBudgetPreventionV1
         | C::StaticDamageReplacementV1
         | C::UnpreventableDamageV1
-        | C::CharacteristicPowerToughnessV1 => Tiers::EXECUTES,
+        | C::CharacteristicPowerToughnessV1
+        | C::MinusOneCountersV1
+        | C::KeywordCountersV1
+        | C::StunCountersV1
+        | C::NamedCountersV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1

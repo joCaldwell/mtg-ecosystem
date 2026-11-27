@@ -1252,11 +1252,14 @@ impl RulesTxn {
         }
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
+            let minus = o.counter_count(&mtg_contracts::kir::CounterKind::MinusOneMinusOne);
             if let Some(p) = c.power.as_mut() {
                 p.add(&o.plus_one_counters);
+                p.subtract(&minus);
             }
             if let Some(t) = c.toughness.as_mut() {
                 t.add(&o.plus_one_counters);
+                t.subtract(&minus);
             }
         }
         for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources) {
@@ -3476,7 +3479,20 @@ impl RulesTxn {
 
     /// `validate_characteristic_identity` for captured facts, whose transform
     /// count names the face they were captured with (CR 712.18).
+    /// CR 122.1, 608.2h: retained counters feed last-known reads, so they
+    /// hold only admitted kinds, exactly as a permanent's own counters do.
+    pub(crate) fn validate_fact_counters(fact: &ObjectBefore) -> Result<(), String> {
+        if !tokens::counter_kinds_admitted(&fact.counters) {
+            return Err("captured counter kind admission".into());
+        }
+        if fact.plus_one_counters.is_negative() || !tokens::counter_stacks_valid(&fact.counters) {
+            return Err("captured counter facts".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
+        Self::validate_fact_counters(fact)?;
         self.validate_characteristic_identity(
             fact.object,
             fact.transforms,
@@ -3672,6 +3688,8 @@ impl RulesTxn {
             face_down: frozen.face_down,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
+            plus_one_counters: frozen.plus_one_counters.clone(),
+            counters: frozen.counters.clone(),
             ..current
         } == *frozen
     }
@@ -3701,6 +3719,8 @@ impl RulesTxn {
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
                 keywords: fact.keywords.clone(),
+                plus_one_counters: fact.plus_one_counters.clone(),
+                counters: fact.counters.clone(),
                 ..damage.source.clone()
             }) != *fact
         {
@@ -3808,6 +3828,13 @@ impl RulesTxn {
                             && (expected_keywords.contains(keyword)
                                 || (d.source.zone == Zone::Battlefield
                                     && (self.historical_granted_keyword(*keyword)
+                                        // CR 122.1b: a keyword counter it had.
+                                        || d.source.counters.iter().any(|stack| {
+                                            stack.kind
+                                                == mtg_contracts::kir::CounterKind::Keyword {
+                                                    keyword: *keyword,
+                                                }
+                                        })
                                         // CR 702.84a: unearth grants haste.
                                         || (*keyword == KeywordAbility::Haste
                                             && (d.source.unearthed

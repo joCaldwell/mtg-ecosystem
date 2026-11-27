@@ -109,6 +109,7 @@ impl RulesTxn {
                         // ordered by APNAP from the first active player.
                         keyword_rank: c.controller.0,
                         plus_one_counters: Quantity::zero(),
+                        counters: vec![],
                         transforms: 0,
                         adventure_player: None,
                         face_down: false,

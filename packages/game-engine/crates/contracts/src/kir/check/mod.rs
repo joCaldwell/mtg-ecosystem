@@ -552,7 +552,7 @@ impl Walk<'_, '_> {
                 }
                 self.set(set)
             }
-            Amount::StatOf { object, .. } => self
+            Amount::StatOf { object, .. } | Amount::CountersOn { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
             Amount::Greatest { set, .. } => self.set(set),
@@ -1605,6 +1605,11 @@ impl Walk<'_, '_> {
             {
                 Self::audit_verb_amount(of)
             }
+            // CR 122.1, 608.2h: the source's own admitted counter kinds.
+            Amount::CountersOn {
+                object: Ref::Source,
+                counter,
+            } if counter.admitted() => Ok(()),
             // CR 702.23a: creatures blocking the ability's own source.
             // CR 702.121a: the combat's declared defenders.
             Amount::BlockersOf {
@@ -1852,7 +1857,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         Verb::Untap { what } => tap::untap_capabilities(what, out),
         Verb::CreateTokens { token, .. } => tokens::capabilities(token, out),
-        Verb::PutCounters { counter, .. } => counters::capabilities(counter, out),
+        Verb::PutCounters {
+            counter, amount, ..
+        } => counters::capabilities(counter, amount, out),
         Verb::ModifyUntil { what, change, .. } => modify::capabilities(what, change, out),
         Verb::GainControl { .. } => {
             out.insert(Capability::ResolvedControlV1);

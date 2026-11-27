@@ -304,6 +304,7 @@ impl RulesTxn {
                 keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
                 keyword_rank,
                 plus_one_counters: Quantity::zero(),
+                counters: vec![],
                 transforms: 0,
                 adventure_player: None,
                 face_down: false,
@@ -402,9 +403,15 @@ impl RulesTxn {
 
             kernel!(PutCounters {
                 on,
-                counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
-                amount: fixed!(amount),
+                counter,
+                amount,
             } @ source_block) => {
+                // CR 107.3, 608.2h: the announced X is fixed for the spell.
+                let amount = self.kernel_amount(&frame, &amount)?;
+                if amount == Quantity::zero() {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
                 if let mtg_contracts::kir::SetExpr::Matching { zone, filter } = on {
                     let objects = self.kernel_set(&frame, &zone, &filter)?.0;
                     let cause = self.instruction_cause(&frame, source_block)?;
@@ -412,7 +419,7 @@ impl RulesTxn {
                         .into_iter()
                         .map(|object| (object, amount.clone()))
                         .collect();
-                    return self.begin_counter_placements(frame, allocations, cause);
+                    return self.begin_counter_placements(frame, counter, allocations, cause);
                 }
                 if let mtg_contracts::kir::SetExpr::One {
                     object: mtg_contracts::kir::Ref::EventObject { .. },
@@ -434,7 +441,12 @@ impl RulesTxn {
                         );
                     }
                     let cause = self.instruction_cause(&frame, source_block)?;
-                    return self.begin_counter_placements(frame, vec![(object, amount)], cause);
+                    return self.begin_counter_placements(
+                        frame,
+                        counter,
+                        vec![(object, amount)],
+                        cause,
+                    );
                 }
                 let target = match on {
                     source_object!() => self.entry(frame.stack_id)?.source,
@@ -451,14 +463,19 @@ impl RulesTxn {
                     }
                     _ => return Err("kernel counter recipient has no audited executor".into()),
                 };
-                if !self.is_battlefield_creature(target) {
+                if !self.is_battlefield_creature(target)
+                    && (counter.needs_creature()
+                        || !self
+                            .current(target)
+                            .is_ok_and(Object::present_on_battlefield))
+                {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 (
-                    ProposedEvent::PutPlusOneCounters {
+                    ProposedEvent::PutCounters {
                         object: target,
-                        amount,
+                        counters: vec![CounterAmount { counter, amount }],
                     },
                     source_block,
                 )
@@ -472,8 +489,14 @@ impl RulesTxn {
             cursor: frame.cursor,
             source_block: block,
         };
-        if let ProposedEvent::PutPlusOneCounters { object, amount } = event {
-            return self.begin_counter_placement(frame, object, amount, cause);
+        if let ProposedEvent::PutCounters {
+            object,
+            mut counters,
+        } = event
+        {
+            let CounterAmount { counter, amount } =
+                counters.pop().ok_or("missing counter placement")?;
+            return self.begin_counter_placement(frame, object, counter, amount, cause);
         }
         let actual = self.commit(event, cause)?;
         self.finish_instruction(
@@ -884,6 +907,25 @@ impl RulesTxn {
             {
                 return Err("snapshot counter invariant".into());
             }
+            // CR 122.1, 122.2: other kinds are positive, in kind order, and
+            // exist only on the battlefield; P/T counters need a creature.
+            if !counter_kinds_admitted(&o.counters) {
+                return Err("snapshot counter kind admission".into());
+            }
+            if !counter_stacks_valid(&o.counters)
+                || o.counters.iter().any(|stack| {
+                    o.zone != Zone::Battlefield || stack.timestamp >= self.state.rules.next_batch_id
+                })
+                || (o
+                    .counters
+                    .iter()
+                    .any(|stack| stack.kind == mtg_contracts::kir::CounterKind::MinusOneMinusOne)
+                    && !self.historical_creature_possible(
+                        &self.copiable_definition(o.id)?.characteristics,
+                    ))
+            {
+                return Err("snapshot counter invariant".into());
+            }
             if self.state.rules.tokens.contains_key(&id)
                 && (o.id.card != id
                     || o.controller.0 >= 4
@@ -978,4 +1020,20 @@ impl RulesTxn {
         }
         Ok(())
     }
+}
+
+/// CR 122.1: every stack is an admitted kind other than +1/+1, which
+/// `Object::plus_one_counters` holds.
+pub(super) fn counter_kinds_admitted(stacks: &[CounterStack]) -> bool {
+    stacks.iter().all(|stack| {
+        stack.kind != mtg_contracts::kir::CounterKind::PlusOnePlusOne && stack.kind.admitted()
+    })
+}
+
+/// CR 122.1: positive stacks of admitted non-+1/+1 kinds in strictly
+/// increasing kind order, as every placement leaves them.
+pub(super) fn counter_stacks_valid(stacks: &[CounterStack]) -> bool {
+    counter_kinds_admitted(stacks)
+        && stacks.windows(2).all(|w| w[0].kind < w[1].kind)
+        && stacks.iter().all(|stack| stack.count > Quantity::zero())
 }

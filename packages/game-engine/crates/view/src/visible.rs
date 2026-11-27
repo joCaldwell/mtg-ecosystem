@@ -3,6 +3,14 @@ use super::*;
 fn is_zero_quantity(value: &Quantity) -> bool {
     *value == Quantity::zero()
 }
+/// CR 122.1: how many counters of one kind a permanent has.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisibleCounter {
+    pub kind: mtg_contracts::kir::CounterKind,
+    pub count: Quantity,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleCommanderReturnChoice {
@@ -181,6 +189,10 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    /// CR 122.1: the other counter kinds on this permanent, public like
+    /// +1/+1 counters, in kind order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub counters: Vec<VisibleCounter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
@@ -209,6 +221,7 @@ impl<H> VisibleObject<H> {
             restrictions: self.restrictions,
             token: self.token,
             plus_one_counters: self.plus_one_counters,
+            counters: self.counters,
             characteristics: self.characteristics,
             marked_damage: self.marked_damage,
             attack_ready: self.attack_ready,
