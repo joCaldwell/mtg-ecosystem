@@ -315,8 +315,9 @@ event-result counts and token-creation replacement abilities reject.
   fixed or announced X amounts and modify P/T in layer 7c; matching +1/+1 and
   -1/-1 counters annihilate in the state-based wave, skipping permanents that
   leave in it (CR 122.1a, 122.3, 704.5q). Keyword counters for the reviewed
-  temporary-grant keywords apply in layer 6 at their kind's timestamp, after
-  earlier indestructible removal (CR 122.1b, 613.7c). Stun counters and counters
+  temporary-grant keywords apply in layer 6 at their kind's timestamp (the
+  latest placement's batch), ordered with other grants and removals (CR 122.1b,
+  613.7c). Stun counters and counters
   whose names the pinned rules give no meaning may also go on any targeted
   permanent; every untap event removes one stun counter instead (CR 122.1, 122.1d, 614.1a).
   "[N for each] / X is the number of [kind] counters on this" reads the source's
