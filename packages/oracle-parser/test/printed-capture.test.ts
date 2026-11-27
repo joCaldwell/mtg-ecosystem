@@ -349,6 +349,40 @@ test("the mutation guard keeps only child or folded spans after an uncovered sca
   assert.deepEqual(located(filter), { node: { path: "", basis: "unlocated" }, demotions: 1 });
 });
 
+test("a hull emits the clause runs it folds, so Rust can recompute it from its children", () => {
+  // Exact Oracle text, frozen R5 archive ("Safewright Quest").
+  const text = "Search your library for a Forest or Plains card, reveal it, put it into your hand, then shuffle.";
+  const face = read(text, "Safewright Quest", "Sorcery");
+  const found = block(face);
+  const filter = step + "/for/filter/allOf/0";
+  const hull = found.nodes.find(node => node.path === filter);
+  // The clause is only the connector: the children already cover "Forest" and "Plains".
+  assert.deepEqual(hull, { path: filter, basis: "hull", span: [[0, 5, 8]], clauses: [[0, 6, 7]] });
+  assert.equal(spelling(face, text, span(found, filter + "/anyOf/0")), "Forest");
+  assert.equal(spelling(face, text, span(found, filter + "/anyOf/1")), "Plains");
+  // The connector "or" belongs to no child, so only the attributed clause covers it.
+  assert.equal(spelling(face, text, [0, 6, 7]), "or");
+});
+
+test("hull and rider clause runs exclude every child extent", () => {
+  // Exact Oracle text, frozen R5 archive (sourceIndex 67, "Goblin Barrage").
+  const barrage = "Kicker—Sacrifice an artifact or Goblin. (You may sacrifice an artifact or Goblin in addition to any other costs as you cast this spell.)\nGoblin Barrage deals 4 damage to target creature. If this spell was kicked, it also deals 4 damage to target player or planeswalker.";
+  const kicked = read(barrage, "Goblin Barrage", "Sorcery");
+  const filter = "/keywords/0/cost/0/what/filter/allOf/0";
+  assert.deepEqual(block(kicked).nodes.find(node => node.path === filter),
+    { path: filter, basis: "hull", span: [[0, 4, 7]], clauses: [[0, 5, 6]] });
+  assert.equal(spelling(kicked, barrage, span(block(kicked), filter + "/anyOf/0")), "artifact");
+  assert.equal(spelling(kicked, barrage, span(block(kicked), filter + "/anyOf/1")), "Goblin");
+
+  // R5:8135: the mana rider's clauses are its condition words and comma;
+  // the spending filter and the uncounterable effect are its children.
+  const boseiju = "Boseiju enters tapped.\n{T}, Pay 2 life: Add {C}. If that mana is spent on an instant or sorcery spell, that spell can't be countered.";
+  const land = read(boseiju, "Boseiju, Who Shelters All", "Legendary Land");
+  const rider = block(land, 1).nodes.find(node => node.path === step + "/riders/0");
+  assert.ok(rider?.basis === "hull");
+  assert.deepEqual(rider.clauses?.map(run => spelling(land, boseiju, run)), ["If that mana is spent on an", ","]);
+});
+
 test("Polymorph and Pongify attach the regeneration sentence to the destruction", () => {
   const instruction = "Destroy target creature. It can't be regenerated.";
   const examples = [
