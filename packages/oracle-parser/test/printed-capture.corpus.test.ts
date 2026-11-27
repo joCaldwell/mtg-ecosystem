@@ -10,7 +10,7 @@ import { frozenR5, readRows } from "./support/frozen-r5.ts";
 
 const archivePath = process.env.MTG_R5_ARCHIVE;
 
-function defectCount(block: Extract<PrintedBlock, { status: "read" }>) {
+function defectCount(block: Extract<PrintedBlock, { status: "read" }>, tokenCounts: readonly number[]) {
   const byPath = new Map(block.nodes.map(node => [node.path, node]));
   const regions = new Map<string, TokenRun[]>();
   let nesting = 0, overlap = 0, conflict = 0;
@@ -43,11 +43,18 @@ function defectCount(block: Extract<PrintedBlock, { status: "read" }>) {
     }
     regions.set(node.path, coverage);
   }
-  return { nesting, overlap, conflict, hull: hullMismatches(block) };
+  return { nesting, overlap, conflict, hull: hullViolations(block, tokenCounts) };
 }
 
-/** Rust's P6 rule: a hull equals the union of its child extents and attributed clauses. */
-function hullMismatches(block: Extract<PrintedBlock, { status: "read" }>) {
+/**
+ * Rust's P6 rule, made strict: a hull's clause runs are in bounds, inside the
+ * hull span, sorted, disjoint, maximal and disjoint from every child extent,
+ * and together with the child extents they recompute the hull span exactly.
+ * The runs are validated before any set union, so overlap, duplicate tokens
+ * and out-of-order runs cannot hide behind it. `tokenCounts[line]` is the
+ * lexed token count of each face line.
+ */
+function hullViolations(block: Extract<PrintedBlock, { status: "read" }>, tokenCounts: readonly number[]) {
   const paths = new Set(block.nodes.map(node => node.path));
   const tokens = new Map<string, Set<string>>();
   const add = (path: string, runs: readonly TokenRun[]) => {
@@ -67,16 +74,51 @@ function hullMismatches(block: Extract<PrintedBlock, { status: "read" }>) {
     if (node.basis === "recorded" || node.basis === "hull")
       for (const token of tokens.get(node.path)!) own.add(token);
   }
-  let mismatches = 0;
+  let violations = 0;
   for (const node of block.nodes) {
     if (node.basis !== "hull") continue;
-    const expected = new Set(childExtents.get(node.path));
-    for (const [line, start, end] of node.clauses ?? []) for (let i = start; i < end; i++) expected.add(line + ":" + i);
     const span = tokens.get(node.path)!;
-    if (span.size !== expected.size || [...span].some(token => !expected.has(token))) mismatches++;
+    const children = childExtents.get(node.path) ?? new Set<string>();
+    const clauses = node.clauses ?? [];
+    const valid = clauses.every(([line, start, end], index) => {
+      if (line < block.lines[0] || line >= block.lines[1] || start < 0 || end <= start || end > (tokenCounts[line] ?? 0))
+        return false;
+      const previous = clauses[index - 1];
+      if (previous && (previous[0] > line || previous[0] === line && previous[2] >= start)) return false;
+      for (let i = start; i < end; i++) {
+        const token = line + ":" + i;
+        if (!span.has(token) || children.has(token)) return false;
+      }
+      return true;
+    });
+    const expected = new Set(children);
+    for (const [line, start, end] of clauses) for (let i = start; i < end; i++) expected.add(line + ":" + i);
+    if (!valid || span.size !== expected.size || [...span].some(token => !expected.has(token))) violations++;
   }
-  return mismatches;
+  return violations;
 }
+
+test("the strict hull check rejects clause runs that overlap, duplicate or reorder", () => {
+  // "Forest or Plains": two recorded children around an attributed connector.
+  const hull = (clauses: TokenRun[], span: TokenRun[] = [[0, 5, 8]]): Extract<PrintedBlock, { status: "read" }> => ({
+    status: "read", lines: [0, 1], n: [0, 0], facts: [], nodes: [
+      { path: "/f", basis: "hull", span, clauses },
+      { path: "/f/anyOf/0", basis: "recorded", span: [[0, 5, 6]] },
+      { path: "/f/anyOf/1", basis: "recorded", span: [[0, 7, 8]] },
+    ] });
+  const counts = [20];
+  assert.equal(hullViolations(hull([[0, 6, 7]]), counts), 0);
+  // Each union equals the hull span; only the strict checks reject them.
+  assert.equal(hullViolations(hull([[0, 5, 8]]), counts), 1, "overlaps both children");
+  assert.equal(hullViolations(hull([[0, 6, 7], [0, 6, 7]]), counts), 1, "duplicate run");
+  const wide = (clauses: TokenRun[]) => hull(clauses, [[0, 3, 8]]);
+  assert.equal(hullViolations(wide([[0, 3, 4], [0, 6, 7]]), counts), 1, "missing token 4");
+  assert.equal(hullViolations(wide([[0, 3, 5], [0, 6, 7]]), counts), 0);
+  assert.equal(hullViolations(wide([[0, 6, 7], [0, 3, 5]]), counts), 1, "out of order");
+  assert.equal(hullViolations(wide([[0, 3, 4], [0, 4, 5], [0, 6, 7]]), counts), 1, "adjacent, not maximal");
+  assert.equal(hullViolations(hull([[0, 6, 7], [0, 9, 10]]), counts), 1, "outside the hull span");
+  assert.equal(hullViolations(hull([[0, 6, 7]]), [6]), 1, "past the line's tokens");
+});
 
 const familyNames = ["modify-characteristics", "gain-abilities", "get-counters", "sacrifice", "pump", "move-zone",
   "exile", "destroy", "search", "damage", "return-to-hand", "discard", "draw", "mill", "create-token"] as const;
@@ -155,6 +197,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
       else {
         counts.failedLexLines += read.printed.lines.filter(line => line.status === "failed").length;
         const sourceText = Buffer.from(source.oracle_text!);
+        const tokenCounts = read.printed.lines.map(line => line.status === "lexed" ? line.tokens.length : 0);
         const witness = witnesses.find(({ names }) => names.some(name => name === source.name));
         if (witness) witness.observed.add(source.name);
         for (const [index, block] of read.printed.blocks.entries()) {
@@ -200,7 +243,7 @@ test("printed evidence preserves frozen R5 results, bindings and resolution", { 
             if (value.effect === "damage" && value.unpreventable === true && !/\bprevented\b/iu.test(printed)) wrongSpans.unpreventable++;
             if (value.optional === true && !/\bmay\b/iu.test(printed)) wrongSpans.optional++;
           }
-          const defects = defectCount(block);
+          const defects = defectCount(block, tokenCounts);
           for (const key of Object.keys(emitted) as (keyof typeof emitted)[]) emitted[key] += defects[key];
         }
       }

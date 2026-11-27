@@ -39,8 +39,8 @@ keeps physical token order and grammar indices, committed production spans,
 folded clause ranges, and lexical facts. Target indices count introductions
 within the enclosing ability. Removed reminders have original byte ranges
 and may supply original-only citations. Hulls locate containers: a hull's
-span is exactly the union of its child extents and the folded clause runs
-it lists in `clauses`, so Rust recomputes it. Unlocated nodes flag missing proof. Aliases point to the same printed
+span is exactly the union of its child extents and the attributed clause
+runs it lists in `clauses`, disjoint from child extents, so Rust recomputes it. Unlocated nodes flag missing proof. Aliases point to the same printed
 operand when coordination shares one subject, duration, or destination.
 Binding and resolution consume the existing parse result.
 

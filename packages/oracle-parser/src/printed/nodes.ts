@@ -43,6 +43,21 @@ function union(runs: readonly TokenRun[]): TokenRun[] {
   return result;
 }
 
+/** Sorted, disjoint, maximal runs of `runs` with every `removed` token taken out. */
+function subtract(runs: readonly TokenRun[], removed: readonly TokenRun[]): TokenRun[] {
+  const result: TokenRun[] = [];
+  for (const [line, start, end] of union(runs)) {
+    let from = start;
+    for (const [l, cutStart, cutEnd] of union(removed)) {
+      if (l !== line || cutEnd <= from || cutStart >= end) continue;
+      if (cutStart > from) result.push([line, from, cutStart]);
+      from = Math.max(from, cutEnd);
+    }
+    if (from < end) result.push([line, from, end]);
+  }
+  return result;
+}
+
 export function extent(node: PrintedNode): TokenRun[] {
   if (node.basis === "recorded") return node.folds ? union([...node.span, ...node.folds]) : node.span;
   return node.basis === "hull" ? node.span : [];
@@ -149,7 +164,8 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
       const clauses = origin.basis === "hull" ? origin.tokens : origin.folds ?? [];
       // Rust recomputes a hull as its child extents plus these attributed
       // clause runs, so every folded clause is emitted with the hull.
-      const clauseRuns = tokenRuns(clauses.filter(({ line }) => lines[0] <= line && line < lines[1]));
+      // Clause runs are the attributed tokens no child already covers.
+      const clauseRuns = subtract(tokenRuns(clauses.filter(({ line }) => lines[0] <= line && line < lines[1])), childSpans);
       const span = union([...childSpans, ...clauseRuns]);
       if (span.length) located.node = { path, basis: "hull", span, ...(clauseRuns.length ? { clauses: clauseRuns } : {}) };
       return;
@@ -166,9 +182,12 @@ export function locateNodes(ability: object, capture: PrintedCapture, lines: [nu
         defects.nesting++;
       } else {
         // Rider clauses are structural containers including their spending
-        // condition and body. The children retain the operative proofs.
-        located.node = typeof obj.rider === "string" ? { path, basis: "hull", span: coverage, clauses: coverage }
-          : { path, basis: "recorded", span, ...(folds ? { folds } : {}) };
+        // condition and body. The children retain the operative proofs, so
+        // the clause runs are only the rider tokens outside every child.
+        if (typeof obj.rider === "string") {
+          const clauseRuns = subtract(coverage, childSpans);
+          located.node = { path, basis: "hull", span: coverage, ...(clauseRuns.length ? { clauses: clauseRuns } : {}) };
+        } else located.node = { path, basis: "recorded", span, ...(folds ? { folds } : {}) };
         return;
       }
     }
