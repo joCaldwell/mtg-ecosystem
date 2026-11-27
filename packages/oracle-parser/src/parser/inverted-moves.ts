@@ -17,12 +17,14 @@ type ZoneMove = Extract<Effect, { effect: "move-zone" }>;
 export function parseInvertedBattlefieldMove(c: Cursor, verb: "put" | "return",
     parseObjects: (c: Cursor) => ObjectRef[] | null): ZoneMove[] | null {
   return c.attempt(c => {
+    const start = c.pos;
     if (c.word(verb === "put" ? "onto" : "to") === null || !c.words("the", "battlefield")) return null;
     const details = parseBattlefieldEntryDetails(c);
     if (!details || details.from || details.entry) return null;
+    const to = c.mark({ zone: "battlefield" }, start);
     const refs = parseObjects(c);
     if (!refs) return null;
     if (!c.isPunct(".") && !c.done()) return c.fail("end of a destination-first move");
-    return refs.map(what => ({ effect: "move-zone", what, to: { zone: "battlefield" }, ...details }));
+    return refs.map((what, index) => ({ effect: "move-zone", what, to: index === 0 ? to : c.alias(to), ...details }));
   });
 }

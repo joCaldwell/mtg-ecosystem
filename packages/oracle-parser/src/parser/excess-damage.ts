@@ -10,6 +10,7 @@ import { parsePlayerRef } from "./refs.ts";
  * permanent has an unambiguous "excess damage". */
 export function foldExcessDamageSentence(c: Cursor, previous: Sentence): boolean {
   return c.attempt(c => {
+    const start = c.pos;
     if (!c.words("excess", "damage", "is", "dealt", "to")) return null;
     const to = parsePlayerRef(c);
     if (!to || c.word("instead") === null || (!c.punct(".") && !c.done())) return null;
@@ -21,6 +22,7 @@ export function foldExcessDamageSentence(c: Cursor, previous: Sentence): boolean
       : ["it", "self", "this", "enchanted", "equipped"].includes(recipient.ref) || (recipient.ref === "that" && !recipient.plural);
     if (!single) return c.fail("one damage instruction to one permanent");
     only.excessTo = to;
+    c.fold(only, start);
     return true;
   }) === true;
 }

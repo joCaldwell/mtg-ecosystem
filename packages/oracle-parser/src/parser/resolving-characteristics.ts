@@ -2,6 +2,8 @@
 // Type replacement/retention: CR205.1a/b; color:105.3; values:611.2c/d;
 // ordinary granted definitions:604.3a; layers:613.1/4/6.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+import type { Token } from '../lexer.ts';
+import { carryPrintedOrigin } from '../printed/capture.ts';
 import type { Amount, Color, Effect, GainedAbility, ObjectRef, ResolvingCharacteristicModifier, SubtypeFamily, TypeChange } from '../ast.ts';
 import { CARD_TYPES, COLORS, SUPERTYPES, canonicalSubtypeName, singularize } from '../vocab.ts';
 import { Cursor } from './cursor.ts';
@@ -65,6 +67,8 @@ export function foldRetainedTypeSentence(c: Cursor, previous: { steps: Effect[];
   if (change.cardTypes?.operation === 'set') change.cardTypes = { ...change.cardTypes, operation: 'add' };
   if (change.subtypes) change.subtypes = change.subtypes.map(entry => entry.operation === 'set' ? { ...entry, operation: 'add' as const } : entry);
   if (change.chosenSubtype?.operation === 'set') change.chosenSubtype = { ...change.chosenSubtype, operation: 'add' };
+  c.fold(types, start);
+  c.fold(effect, start);
   return true;
 }
 
@@ -166,8 +170,9 @@ function parseBasePtChange(c: Cursor, previous: ObjectRef | undefined): Modify |
   const scoped = (value: Omit<BasePt, 'modifier' | 'valueScope'>): BasePt => ({ modifier: 'base-pt', ...value,
     ...([value.power, value.toughness].some(amount => amount && amount.amount !== 'fixed') ? { valueScope: 'each-affected-object' as const } : {}) } as BasePt);
   const single = (c: Cursor, stat: 'power' | 'toughness'): BasePt | null => {
+    const start = c.pos;
     const value = parseEqualTo(c) ?? parseAmount(c);
-    return value && scoped(stat === 'power' ? { power: value } : { toughness: value });
+    return value && c.mark(scoped(stat === 'power' ? { power: value } : { toughness: value }), start);
   };
   const finish = (what: ObjectRef, modifier: BasePt, statedAs?: 'has'): Modify => {
     const duration = parseDuration(c) ?? undefined;
@@ -211,7 +216,7 @@ function parseBasePtChange(c: Cursor, previous: ObjectRef | undefined): Modify |
       return pair && finish(what, pair);
     });
     if (changed) return changed;
-    const what = parseObjectRef(c) ?? previous;
+    const what = parseObjectRef(c) ?? (previous && c.alias(previous));
     if (!what || c.word('has', 'have') === null) return null;
     const start = c.pos;
     const stat = stats(c);
@@ -250,7 +255,7 @@ function parseStatedCharacteristics(c: Cursor, parseAbilities: AbilityParser, pr
     // subject of the preceding step.
     const before = c.tokens[c.pos - 1];
     const coordinated = previous && before?.kind === 'word' && before.value === 'and' && c.isWord('is', 'are') ? previous : null;
-    const what: ObjectRef | null = coordinated ?? (c.isWord("it's") ? { ref: 'it' } : c.isWord("they're") ? { ref: 'them' } : parseObjectRef(c));
+    const what: ObjectRef | null = (coordinated && c.alias(coordinated)) ?? (c.isWord("it's") ? { ref: 'it' } : c.isWord("they're") ? { ref: 'them' } : parseObjectRef(c));
     if (!what) return null;
     const stated = parseCharacteristicModifiers(c, what, parseAbilities);
     if (!stated) return null;
@@ -265,11 +270,11 @@ function parseStatedCharacteristics(c: Cursor, parseAbilities: AbilityParser, pr
     const modifiers: ResolvingCharacteristicModifier[] = [];
     for (const modifier of stated) {
       if (modifier.condition || modifier.forEach || modifier.multiplier) return null;
-      if (modifier.modifier === 'types') modifiers.push({ modifier: 'types', change: modifier.change });
-      else if (modifier.modifier === 'colors') modifiers.push({ modifier: 'colors', operation: modifier.operation, colors: modifier.colors });
+      if (modifier.modifier === 'types') modifiers.push(carryPrintedOrigin(modifier, { modifier: 'types', change: modifier.change }));
+      else if (modifier.modifier === 'colors') modifiers.push(carryPrintedOrigin(modifier, { modifier: 'colors', operation: modifier.operation, colors: modifier.colors }));
       else if (modifier.modifier === 'base-pt' && modifier.power && modifier.toughness) modifiers.push({ modifier: 'base-pt',
         power: modifier.power, toughness: modifier.toughness, ...(modifier.valueScope ? { valueScope: modifier.valueScope } : {}) });
-      else if (modifier.modifier === 'abilities') modifiers.push({ modifier: 'abilities', abilities: modifier.abilities });
+      else if (modifier.modifier === 'abilities') modifiers.push(carryPrintedOrigin(modifier, { modifier: 'abilities', abilities: modifier.abilities }));
       else return null;
     }
     // Oracle states a temporary change with "becomes ... until end of turn".
@@ -288,26 +293,33 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
   const stated = parseStatedCharacteristics(c, parseAbilities, previous) ?? parseBasePtChange(c, previous);
   if (stated) return stated;
   return c.attempt(c => {
-    const what = parseObjectRef(c) ?? previous;
+    const what = parseObjectRef(c) ?? (previous && c.alias(previous));
     if (!what) return null;
     const distributive = c.word('each') !== null;
     const verb = c.word('becomes', 'become');
     if (!verb) return null;
+    const characteristicStart = c.pos;
     const chosen = parseChoiceCharacteristics(c);
+    const chosenEnd = c.pos;
     if (chosen) {
       const first = chosen[0];
       // CR 611.2d, 613.1e–f, 702.11d: share the one color fixed as this
       // effect is created across its color change and granted hexproof.
       if (first.modifier === 'colors' && !Array.isArray(first.colors) && first.colors.choice === 'fresh-choice'
         && first.colors.quantity === 'one' && c.words('and', pluralSubject(what) ? 'gain' : 'gains', 'hexproof', 'from', 'that', 'color')) {
-        chosen.push({ modifier: 'abilities', abilities: [{ gained: 'keyword', keyword: {
+        chosen.push(c.mark({ modifier: 'abilities', abilities: [{ gained: 'keyword', keyword: {
           keyword: 'hexproof', from: [{ scope: 'color-chosen-by-characteristic-effect' }],
-        } }] });
+        } }] }, chosenEnd));
       }
+      c.mark(first, characteristicStart, chosenEnd);
       const duration = parseDuration(c) ?? undefined;
       return { effect: 'modify-characteristics', what, modifiers: chosen, snapshot: 'effect-created', ...(duration ? { duration } : {}) };
     }
     c.word('a', 'an');
+    const typeTokens: Token[] = [], colorTokens: Token[] = [];
+    const note = (tokens: Token[], start: number, end = c.pos) => {
+      if (c.printed) tokens.push(...c.tokens.slice(start, end));
+    };
     const cardTypes: string[] = [], supertypes: string[] = [];
     const subtypes = new Map<SubtypeFamily, string[]>();
     let colors: Color[] | undefined, stats: Stats | undefined, abilities: GainedAbility[] | undefined;
@@ -317,6 +329,7 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
       const token = c.peek();
       if (token?.kind !== 'word' || token.possessive || !SUPERTYPES.has(token.value)) break;
       supertypes.push(token.value); c.next(); advanced = true;
+      note(typeTokens, c.pos - 1);
     }
     const initialStats = c.attempt(c => {
       const power = parseAmount(c);
@@ -331,22 +344,28 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
     for (;;) {
       const token = c.peek();
       if (token?.kind !== 'word' || token.possessive) break;
+      const wordAt = c.pos;
       if (COLORS.has(token.value)) {
         if (colors?.length === 0) return null;
         (colors ??= []).push(token.value as Color); c.next();
+        note(colorTokens, wordAt);
       } else if (token.value === 'colorless') {
         if (colors) return null;
         colors = []; advanced = true; c.next();
+        note(colorTokens, wordAt);
       } else if (CARD_TYPES.has(singularize(token.value))) {
         cardTypes.push(singularize(token.value)); c.next();
+        note(typeTokens, wordAt);
       } else if (SUPERTYPES.has(token.value)) {
         supertypes.push(token.value); advanced = true; c.next();
+        note(typeTokens, wordAt);
       } else {
         const name = c.words('time', 'lord') ? 'Time Lord' : canonicalSubtypeName(token.raw);
         if (!name) break;
         if (name !== 'Time Lord') c.next();
         const family = characteristicSubtypeFamily(name);
         subtypes.set(family, [...(subtypes.get(family) ?? []), name]);
+        note(typeTokens, wordAt);
       }
       const separator = c.pos;
       if (c.word('and') !== null) {
@@ -367,8 +386,10 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
             if (!hadBase || pt.power.amount !== 'fixed' || pt.toughness.amount !== 'fixed') advanced = true;
             return true;
           }
+          const typeAt = c.pos;
           if (c.words('all', 'creature', 'types')) {
             if (allCreatureTypes) return null;
+            note(typeTokens, typeAt);
             allCreatureTypes = true; advanced = true; return true;
           }
           const gained = parseAbilities(c);
@@ -403,11 +424,13 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
     }
     const plural = pluralSubject(what);
     if (retainedTypes(c, plural)) { addTypes = true; advanced = true; }
+    const removalAt = c.pos;
     const losesOthers = c.attempt(c => {
       if (!c.words('and', plural ? 'lose' : 'loses', 'all', 'other', 'card', 'types', 'and', 'abilities')) return null;
       return true;
     });
     if (losesOthers && (!abilities || !cardTypes.length || addTypes || cardTypes.includes('artifact') && cardTypes.includes('creature'))) return null;
+    const removalEnd = c.pos;
     const duration = parseDuration(c) ?? undefined;
     if (retainedTypes(c, plural)) { addTypes = true; advanced = true; }
     if (!advanced || losesOthers && addTypes) return null;
@@ -422,12 +445,21 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
       (types.subtypes ??= []).push({ family: 'creature', operation: addTypes ? 'add' : 'set', types: { all: true } });
     }
     const modifiers: ResolvingCharacteristicModifier[] = [];
-    if (Object.keys(types).length) modifiers.push({ modifier: 'types', change: types });
-    if (colors) modifiers.push({ modifier: 'colors', operation: addColors ? 'add' : 'set', colors });
+    if (Object.keys(types).length) {
+      const change = c.markTokens(types, typeTokens);
+      const modifier = c.markTokens({ modifier: 'types', change }, typeTokens);
+      if (addTypes || losesOthers) { c.hull(change); c.hull(modifier); }
+      modifiers.push(modifier);
+    }
+    if (colors) {
+      const modifier = c.markTokens({ modifier: 'colors', operation: addColors ? 'add' : 'set', colors }, colorTokens);
+      if (addColors) c.hull(modifier);
+      modifiers.push(modifier);
+    }
     if (stats) modifiers.push({ modifier: 'base-pt', ...stats,
       ...(stats.power.amount !== 'fixed' || stats.toughness.amount !== 'fixed' ? { valueScope: 'each-affected-object' as const } : {}) });
     if (abilities) modifiers.push({ modifier: 'abilities', abilities });
-    if (losesOthers) modifiers.push({ modifier: 'lose-abilities', removal: { removal: 'all-other', than: 'abilities-granted-by-this-effect' } });
+    if (losesOthers) modifiers.push(c.mark({ modifier: 'lose-abilities', removal: c.mark({ removal: 'all-other', than: 'abilities-granted-by-this-effect' }, removalAt, removalEnd) }, removalAt, removalEnd));
     return { effect: 'modify-characteristics', what, modifiers, snapshot: 'effect-created', ...(duration ? { duration } : {}) };
   });
 }

@@ -287,10 +287,12 @@ function parseHeader(tokens: Token[]): ParsedHeader | null {
   if (!parsedEvent) return null;
   const duration = parseDuration(c) ?? undefined;
   // "would deal damage this turn to …": the recipients follow the duration.
+  const recipientAt = c.pos;
   if (duration && parsedEvent.event === "damage" && !parsedEvent.to && c.word("to") !== null) {
     const to = parseRecipients(c);
     if (!to) return null;
     parsedEvent.to = to;
+    c.fold(parsedEvent, recipientAt);
   }
   const event = bindWatchedExclusions(parsedEvent);
   if (!event) return null;

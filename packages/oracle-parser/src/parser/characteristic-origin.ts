@@ -2,6 +2,7 @@
 // characteristic-defining ability. Abilities defined by token creation or
 // a copy effect can qualify. Classify only after token-definition folding.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+import { carryPrintedOrigin } from '../printed/capture.ts';
 import type { Ability, StaticEffect, StaticModifier } from '../ast.ts';
 
 type Origin = 'intrinsic' | 'granted';
@@ -70,7 +71,7 @@ export function finalizeCharacteristicDefinitions(ability: Ability): Ability {
     if (value.kind === 'static' && origin === 'granted' && record(value.effect)) {
       result.effect = ordinaryCharacteristicDefinition(result.effect as StaticEffect);
     }
-    return result;
+    return carryPrintedOrigin(value, result);
   }
   return visit(ability, 'intrinsic') as Ability;
 }

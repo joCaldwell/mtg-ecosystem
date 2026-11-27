@@ -47,11 +47,15 @@ export function parseChangeText(c: Cursor): ChangeText | null {
     }
     if (c.isWord("or")) return c.fail("complete alternative text replacement");
     const chosenType = replacements.length === 1 && first.category === "creature-type" && !first.to;
+    const exclusionAt = c.pos;
     const excluded = chosenType ? c.attempt(c => {
       if (!c.punct(".") || !c.words("the", "new", "creature", "type", "can't", "be")) return null;
       return parseSubtypeWord(c);
     }) : null;
-    if (excluded) first.excluding = [excluded];
+    if (excluded) {
+      first.excluding = [excluded];
+      c.fold(first, exclusionAt);
+    }
     return { effect: "change-text", what, who: { player: "you" }, replacements };
   });
 }
