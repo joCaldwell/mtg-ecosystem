@@ -674,8 +674,8 @@ pub(crate) enum Step {
     Sacrifice {
         who: PlayerSelector,
         what: FilterObject<Count, ast::ObjectFilter>,
-        #[serde(rename = "chosenBy")]
-        chosen_by: PlayerSelector,
+        #[serde(rename = "chosenBy", default, deserialize_with = "present_ast_field")]
+        chosen_by: Option<PlayerSelector>,
     },
     Draw {
         who: PlayerSelector,

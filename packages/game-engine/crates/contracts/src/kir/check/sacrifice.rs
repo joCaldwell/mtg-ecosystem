@@ -2,8 +2,8 @@
 use super::*;
 
 impl Walk<'_, '_> {
-    /// CR 701.21a: the damaged player, one announced player, each player
-    /// or each opponent sacrifices one creature.
+    /// CR 701.21a: the controller, each player or each opponent sacrifices
+    /// a fixed count. Other audited recipients sacrifice one.
     pub(super) fn audit_sacrifice(
         &self,
         player: &PlayerExpr,
@@ -25,14 +25,28 @@ impl Walk<'_, '_> {
                 _ => unaudited("sacrifice recipient"),
             };
         }
-        if count.as_fixed() != Some(&Quantity::from(1)) {
-            return unaudited("verb");
+        let Some(count) = count.as_fixed().and_then(Quantity::to_u32) else {
+            return unaudited("sacrifice count");
+        };
+        let fixed_count = matches!(
+            player,
+            PlayerExpr::EachPlayer
+                | PlayerExpr::EachOpponent
+                | PlayerExpr::Is {
+                    who: Ref::Controller { .. }
+                }
+        );
+        if count == 0 || (!fixed_count && count != 1) {
+            return unaudited("sacrifice count");
         }
         for atom in &filter.0 {
-            // These predicates run on public, derived battlefield facts.
-            battlefield_target_atom(atom, false)?;
+            // Top-level source exclusion is evaluated by exact object ID.
+            battlefield_target_atom(atom, true)?;
         }
         match player {
+            PlayerExpr::Is {
+                who: Ref::Controller { .. },
+            } => Ok(Cell::SacrificeController),
             PlayerExpr::Is {
                 who:
                     Ref::EventPlayer {
@@ -64,7 +78,10 @@ pub(super) fn capabilities(player: &PlayerExpr, filter: &Pred, out: &mut BTreeSe
     }
     out.insert(match player {
         PlayerExpr::EachPlayer => Capability::BoardWipesV1,
-        PlayerExpr::EachOpponent => Capability::SacrificeV1,
+        PlayerExpr::EachOpponent
+        | PlayerExpr::Is {
+            who: Ref::Controller { .. },
+        } => Capability::SacrificeV1,
         PlayerExpr::Is {
             who: Ref::Target { .. },
         } => Capability::TargetPlayerSacrificeCreatureV1,

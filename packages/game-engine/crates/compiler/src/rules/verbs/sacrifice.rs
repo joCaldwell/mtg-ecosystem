@@ -1,16 +1,25 @@
 //! "Sacrifice" (CR 701.21).
 use super::*;
 
-/// CR 701.21a: a player sacrifices one qualifying permanent of their choice: the
-/// damaged player, each player, each opponent, or one announced player.
+/// CR 701.21a: the controller, each player or each opponent sacrifices a
+/// fixed number of qualifying permanents. A damaged or announced player
+/// can be instructed to sacrifice one.
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
     who: &PlayerSelector,
     what: &FilterObject<Count, ast::ObjectFilter>,
-    chosen_by: &PlayerSelector,
+    chosen_by: Option<&PlayerSelector>,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
-    if who != chosen_by || who.of.is_some() || what.reference != "filter" || !fixed_one(&what.count)
+    // When no chooser is printed, CR 701.21a still requires the
+    // player instructed to sacrifice to choose the permanents they control.
+    if chosen_by.is_some_and(|chooser| chooser != who)
+        || who.of.is_some()
+        || what.reference != "filter"
+        || what.count.amount != "fixed"
+        || what.count.value == 0
+        || (!matches!(who.player.as_str(), "you" | "each-player" | "each-opponent")
+            && !fixed_one(&what.count))
     {
         return Err(step("sacrifice", "chooser_or_cardinality"));
     }
@@ -18,6 +27,7 @@ pub(super) fn lower(
         ast::PlayerRef::ThatPlayer(_) if cx.player_binding == PlayerBinding::DamageRecipient => {
             PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer)
         }
+        ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
         ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
         ast::PlayerRef::EachOpponent(_) => PlayerExpr::EachOpponent,
         // CR 601.2c / 608.2d / 701.21: the opponent target is bound at
@@ -54,10 +64,20 @@ pub(super) fn lower(
         },
         other => return Err(operand("player", variant(&other))),
     };
+    let mut source_filter = what.filter.clone();
+    let other = source_filter.other.take();
+    let mut filter = lower_sacrifice_filter(&source_filter, cx.context)?;
+    match other {
+        Some(true) => filter.0.push(Atom::IsNot {
+            object: Ref::Source,
+        }),
+        Some(false) => return Err(operand("sacrifice_filter", "other:false")),
+        None => {}
+    }
     Ok(cx.act(Verb::Sacrifice {
         player,
-        count: Amount::fixed(1),
-        filter: lower_sacrifice_filter(&what.filter, cx.context)?,
+        count: Amount::fixed(i64::from(what.count.value)),
+        filter,
     }))
 }
 

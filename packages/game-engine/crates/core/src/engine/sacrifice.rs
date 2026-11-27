@@ -191,25 +191,71 @@ impl RulesTxn {
             .instructions
             .get(frame.cursor as usize);
         match instruction {
-            Some(kernel!(Sacrifice { filter, .. })) => Ok(self
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|object| {
-                    object.controller == player
-                        && crate::query::matches_battlefield_pred(
-                            &self.object_facts(object),
-                            entry.controller,
-                            filter,
-                        ) == crate::query::Tri::Yes
-                })
-                .map(|object| object.id)
-                .collect()),
+            Some(kernel!(Sacrifice { filter, .. })) => {
+                use mtg_contracts::kir::{Atom, Ref};
+                let mut filter = filter.clone();
+                let exclude_source = filter.0.iter().any(|atom| {
+                    matches!(
+                        atom,
+                        Atom::IsNot {
+                            object: Ref::Source
+                        }
+                    )
+                });
+                filter.0.retain(|atom| {
+                    !matches!(
+                        atom,
+                        Atom::IsNot {
+                            object: Ref::Source
+                        }
+                    )
+                });
+                Ok(self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|object| {
+                        object.controller == player
+                            && (!exclude_source || object.id != entry.source)
+                            && crate::query::matches_battlefield_pred(
+                                &self.object_facts(object),
+                                entry.controller,
+                                &filter,
+                            )
+                            .is_yes()
+                    })
+                    .map(|object| object.id)
+                    .collect())
+            }
             Some(Instruction::Kernel {
                 node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. },
                 ..
             }) => Ok(self.controlled_creatures(player)),
+            _ => Err("missing sacrifice instruction".into()),
+        }
+    }
+
+    pub(super) fn resolving_sacrifice_count(&self, frame: &Resolving) -> Result<usize, String> {
+        let entry = self.entry(frame.stack_id)?;
+        match self
+            .program_for(entry)?
+            .instructions
+            .get(frame.cursor as usize)
+        {
+            Some(
+                kernel!(Sacrifice {
+                    count: fixed!(count),
+                    ..
+                }),
+            ) => count
+                .to_u32()
+                .map(|count| count as usize)
+                .ok_or_else(|| "invalid fixed sacrifice count".into()),
+            Some(Instruction::Kernel {
+                node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. },
+                ..
+            }) => Ok(1),
             _ => Err("missing sacrifice instruction".into()),
         }
     }
@@ -230,14 +276,15 @@ impl RulesTxn {
             } => match remaining.first().filter(|&&player| self.is_live(player)) {
                 Some(&player) => {
                     let options = self.sacrifice_options(frame, player)?;
-                    (!options.is_empty()).then(|| {
+                    let count = self.resolving_sacrifice_count(frame)?.min(options.len());
+                    (count != 0).then(|| {
                         self.pick_objects(
                             player,
                             Reason::ForcedSacrifice {
                                 previous: choices.clone(),
                             },
                             options,
-                            1,
+                            count,
                         )
                     })
                 }
@@ -285,8 +332,7 @@ impl RulesTxn {
                             .take()
                             .ok_or("missing forced sacrifice input")?;
 
-                        let object = input.object()?;
-                        choices.push((player, object));
+                        choices.extend(input.objects()?.into_iter().map(|object| (player, object)));
                     }
                     remaining.remove(0);
                     self.rules_mut().frame = Frame::ForcedSacrifice {
@@ -520,12 +566,15 @@ impl RulesTxn {
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| includes_caster || *p != controller)
                     .collect::<Vec<_>>();
+                let count = self.resolving_sacrifice_count(frame)?;
+                let order = |player| all.iter().position(|p| p == player);
                 if !valid
-                    || remaining.len() > all.len()
-                    || choices.len() > all.len()
-                    || remaining.windows(2).any(|w| {
-                        all.iter().position(|p| p == &w[0]) >= all.iter().position(|p| p == &w[1])
-                    })
+                    || remaining.iter().any(|player| order(player).is_none())
+                    || remaining.windows(2).any(|w| order(&w[0]) >= order(&w[1]))
+                    || choices.windows(2).any(|w| order(&w[0].0) > order(&w[1].0))
+                    || choices
+                        .chunk_by(|a, b| a.0 == b.0)
+                        .any(|group| group.len() > count)
                     || choices.iter().any(|(p, o)| {
                         !all.contains(p)
                             || remaining.contains(p)
@@ -533,7 +582,7 @@ impl RulesTxn {
                     })
                     || choices
                         .iter()
-                        .map(|(p, _)| p)
+                        .map(|(_, object)| object)
                         .collect::<BTreeSet<_>>()
                         .len()
                         != choices.len()

@@ -503,8 +503,9 @@ impl RulesTxn {
             }
             ResolutionChoice::Sacrifice { player, .. } if self.is_live(*player) => {
                 let choices = self.sacrifice_options(frame, *player)?;
-                (!choices.is_empty())
-                    .then(|| self.pick_objects(*player, Reason::Sacrifice, choices, 1))
+                // CR 609.3: during resolution do as much as possible.
+                let count = self.resolving_sacrifice_count(frame)?.min(choices.len());
+                (count != 0).then(|| self.pick_objects(*player, Reason::Sacrifice, choices, count))
             }
             ResolutionChoice::Discard { player, count, .. } if self.is_live(*player) => {
                 let hand = self.action_hand(*player);
@@ -630,21 +631,32 @@ impl RulesTxn {
                 };
                 match choice {
                     ResolutionChoice::Sacrifice { .. } => {
-                        let object = input.object()?;
+                        let player = request.player;
+                        let mut occurrences = input
+                            .objects()?
+                            .into_iter()
+                            .map(|object| ProposedEvent::Sacrifice { object, player });
+                        let (group, result) = if self.resolving_sacrifice_count(&frame)? == 1 {
+                            (
+                                EventGroup::Occurrence {
+                                    proposed: occurrences
+                                        .next()
+                                        .ok_or("missing sacrifice choice")?,
+                                },
+                                GroupResult::Sacrifice { player },
+                            )
+                        } else {
+                            (
+                                EventGroup::Simultaneous {
+                                    occurrences: occurrences.collect(),
+                                },
+                                GroupResult::Effect,
+                            )
+                        };
                         return self.complete_graveyard_group(
                             cause,
-                            EventGroup::Occurrence {
-                                proposed: ProposedEvent::Sacrifice {
-                                    object,
-                                    player: request.player,
-                                },
-                            },
-                            GroupFinish::Instruction {
-                                frame,
-                                result: GroupResult::Sacrifice {
-                                    player: request.player,
-                                },
-                            },
+                            group,
+                            GroupFinish::Instruction { frame, result },
                         );
                     }
                     ResolutionChoice::Discard { .. } => {
@@ -768,8 +780,12 @@ impl RulesTxn {
                 player: mtg_contracts::kir::PlayerExpr::EachOpponent,
                 ..
             }) => self.execute_sacrifice_instruction(frame, op),
-            kernel!(Sacrifice { player: event_player!(), .. } @ source_block) => {
-                let actor = self.resolution_player(&frame, Some(&ActionRecipient::EventPlayer))?;
+            kernel!(Sacrifice { player: player @ (you!() | event_player!()), .. } @ source_block) =>
+            {
+                let recipient = player
+                    .is_event_player()
+                    .then_some(ActionRecipient::EventPlayer);
+                let actor = self.resolution_player(&frame, recipient.as_ref())?;
                 if !self.is_live(actor) || self.sacrifice_options(&frame, actor)?.is_empty() {
                     self.finish_instruction(
                         frame,
@@ -1419,11 +1435,14 @@ impl RulesTxn {
                         player,
                         source_block,
                     },
-                    kernel!(Sacrifice { player: event_player!(), .. } @ expected),
+                    kernel!(Sacrifice { player: recipient @ (you!() | event_player!()), .. } @ expected),
                 ) => {
+                    let recipient = recipient
+                        .is_event_player()
+                        .then_some(ActionRecipient::EventPlayer);
                     source_block == expected
                         && self
-                            .resolution_player(frame, Some(&ActionRecipient::EventPlayer))
+                            .resolution_player(frame, recipient.as_ref())
                             .is_ok_and(|actor| actor == *player)
                 }
                 (
