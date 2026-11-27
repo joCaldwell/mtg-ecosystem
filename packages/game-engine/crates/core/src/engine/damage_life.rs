@@ -14,7 +14,7 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
         witness, binding, ..
     } = &mut entry.kind
     {
-        binding.refresh(fact);
+        binding.refresh(witness, fact);
         witness.refresh_observed_object(fact);
     }
     if entry.source == fact.object && entry.source_facts.is_some() {
@@ -29,7 +29,7 @@ fn reads_last_known(entry: &StackInstance, fact: &ObjectBefore) -> bool {
         .any(|target| target.source() == fact.object)
         || (entry.source == fact.object && entry.source_facts.is_some())
         || matches!(&entry.kind, StackKind::Triggered { witness, binding, .. }
-            if binding.object.as_ref().is_some_and(|object| object.object == fact.object && object.zone == Zone::Battlefield)
+            if binding.reads_departure(witness, fact)
                 || witness.observed_object().is_some_and(|binding| binding.last_known.object == fact.object))
 }
 fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &ObjectBefore) {
@@ -114,7 +114,7 @@ impl RulesTxn {
             }
         }
         for trigger in &mut rules.pending_triggers {
-            trigger.binding.refresh(fact);
+            trigger.binding.refresh(&trigger.witness, fact);
             trigger.witness.refresh_observed_object(fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();

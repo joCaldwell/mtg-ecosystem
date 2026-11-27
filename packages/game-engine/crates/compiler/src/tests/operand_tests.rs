@@ -399,6 +399,14 @@ fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
         )
     };
     assert!(lower(json!([draw.clone()]), creatures.clone()).is_ok());
+    assert!(
+        lower(
+            json!([draw.clone()]),
+            json!({"amount":"plus","a":{"amount":"fixed","value":1},
+                "b":{"amount":"fixed","value":1}}),
+        )
+        .is_ok()
+    );
     for (steps, value, expected) in [
         (
             json!([pump, draw]),
@@ -413,7 +421,7 @@ fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
         (
             json!([draw]),
             json!({"amount":"plus","a":{"amount":"fixed","value":1},
-                "b":{"amount":"fixed","value":1}}),
+                "b":{"amount":"x"}}),
             "operand:bindings:plus",
         ),
         (

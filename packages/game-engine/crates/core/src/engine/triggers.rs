@@ -273,12 +273,19 @@ pub struct EventBinding {
 }
 
 impl EventBinding {
-    pub(super) fn refresh(&mut self, facts: &ObjectBefore) {
-        if self
-            .object
-            .as_ref()
-            .is_some_and(|object| object.object == facts.object && object.zone == Zone::Battlefield)
-        {
+    pub(super) fn reads_departure(
+        &self,
+        witness: &TriggerEventWitness,
+        facts: &ObjectBefore,
+    ) -> bool {
+        !witness.looks_back()
+            && self.object.as_ref().is_some_and(|object| {
+                object.object == facts.object && object.zone == Zone::Battlefield
+            })
+    }
+
+    pub(super) fn refresh(&mut self, witness: &TriggerEventWitness, facts: &ObjectBefore) {
+        if self.reads_departure(witness, facts) {
             self.last_known = Some(Box::new(facts.clone()));
         }
     }
