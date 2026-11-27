@@ -175,7 +175,7 @@ impl RulesTxn {
         source: &Characteristics,
         source_object: Option<ObjectId>,
     ) -> bool {
-        if program.optional_target {
+        if program.optional_target || program.variable_target_count().is_some() {
             return true;
         }
         // CR 115.3, 601.2c: a counted occurrence needs that many distinct
@@ -187,7 +187,16 @@ impl RulesTxn {
                 .rules
                 .objects
                 .values()
-                .filter(|o| self.object_target_legal_by(o.id, player, source, source_object, spec))
+                .filter(|o| {
+                    self.object_target_legal_by(
+                        o.id,
+                        player,
+                        source,
+                        source_object,
+                        spec,
+                        XBound::Unannounced,
+                    )
+                })
                 .count();
             return eligible >= count;
         }
@@ -198,7 +207,14 @@ impl RulesTxn {
                     .into_iter()
                     .any(|p| self.targetable_player(p))
                     || self.state.rules.objects.values().any(|o| {
-                        self.object_target_legal_by(o.id, player, source, source_object, spec)
+                        self.object_target_legal_by(
+                            o.id,
+                            player,
+                            source,
+                            source_object,
+                            spec,
+                            XBound::Unannounced,
+                        )
                     })
             }
             domain @ (TargetDomain::AnyPlayer
@@ -209,12 +225,16 @@ impl RulesTxn {
             | TargetDomain::StackActivatedOrTriggeredAbility => !self
                 .eligible_stack_targets_for(spec, player, None)
                 .is_empty(),
-            _ => self
-                .state
-                .rules
-                .objects
-                .values()
-                .any(|o| self.object_target_legal_by(o.id, player, source, source_object, spec)),
+            _ => self.state.rules.objects.values().any(|o| {
+                self.object_target_legal_by(
+                    o.id,
+                    player,
+                    source,
+                    source_object,
+                    spec,
+                    XBound::Unannounced,
+                )
+            }),
         })
     }
     pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
@@ -358,8 +378,12 @@ impl RulesTxn {
             .ok_or("unknown activated ability")?;
         if !self.is_live(player)
             || match ability.functioning_zone {
+                // CR 113.10, 305.7: a permanent without its abilities has
+                // none to activate.
                 FunctioningZone::Battlefield => {
-                    !source.present_on_battlefield() || source.controller != player
+                    !source.present_on_battlefield()
+                        || source.controller != player
+                        || self.printed_abilities_lost(object)
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
                 FunctioningZone::Graveyard => {

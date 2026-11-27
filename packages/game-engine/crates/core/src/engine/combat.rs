@@ -861,6 +861,9 @@ impl RulesTxn {
             }
         }
         self.attachment_sbas(&mut occurrences)?;
+        // CR 613.7m: before anything reads a continuous result, reject one
+        // controller's simultaneous timestamps whose order would decide it.
+        self.reject_simultaneous_timestamp_order()?;
         // CR 704.3, 704.5q: annihilation is part of the same wave; a
         // permanent leaving in it loses its counters anyway (CR 122.2).
         let leaving: BTreeSet<_> = occurrences

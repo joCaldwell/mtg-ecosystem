@@ -131,6 +131,8 @@ pub enum ResolvedEffectKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
+        /// CR 613.7b: orders the grant against static ability removal.
+        timestamp: u64,
     },
     PumpSet {
         targets: Vec<ObjectId>,
@@ -145,6 +147,8 @@ pub enum ResolvedEffectKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
+        /// CR 613.7b: orders the grant against static ability removal.
+        timestamp: u64,
     },
     CombatProhibition {
         affects: CombatProhibitionScope<ObjectId>,
@@ -273,31 +277,44 @@ fn static_compare(left: &Quantity, cmp: Cmp, right: &Quantity) -> bool {
     }
 }
 
-// CR 613.7m: simultaneous entrants with a conflicting setter would
-// need a player's timestamp choice. Only ordered or commuting setters are
-// admitted at this boundary.
+/// A setter's place in the timestamp order: its timestamp and, for a static
+/// ability, its source's APNAP rank (`Object::keyword_rank`); `None` for a
+/// resolved effect.
+type Stamp = (u64, Option<u8>);
+
+// CR 613.7m: simultaneous objects of different controllers go in APNAP
+// order. One controller's simultaneous objects, or an object and a resolved
+// effect sharing a timestamp, with conflicting setters would need a player's
+// choice and reject; ordered or commuting setters apply.
 fn latest_setter<T: PartialEq>(
-    setters: impl Iterator<Item = (u64, T)>,
+    setters: impl Iterator<Item = (Stamp, T)>,
 ) -> Result<Option<T>, String> {
-    let mut latest = None;
-    let mut conflicts = false;
-    for (time, value) in setters {
-        match &latest {
-            Some((previous, _)) if time < *previous => {}
-            Some((previous, earlier)) if time == *previous => conflicts |= *earlier != value,
-            _ => {
-                latest = Some((time, value));
-                conflicts = false;
-            }
-        }
+    let all: Vec<_> = setters.collect();
+    let Some(time) = all.iter().map(|((time, _), _)| *time).max() else {
+        return Ok(None);
+    };
+    let mut latest: Vec<(Option<u8>, T)> = all
+        .into_iter()
+        .filter(|((t, _), _)| *t == time)
+        .map(|((_, rank), value)| (rank, value))
+        .collect();
+    if latest.iter().all(|(rank, _)| rank.is_some()) {
+        let top = latest.iter().map(|(rank, _)| *rank).max().flatten();
+        latest.retain(|(rank, _)| *rank == top);
     }
-    if conflicts {
+    let (_, value) = latest.remove(0);
+    if latest.iter().any(|(_, other)| *other != value) {
         return Err("simultaneous continuous setters require timestamp order".into());
     }
-    Ok(latest.map(|(_, value)| value))
+    Ok(Some(value))
 }
 
 impl RulesTxn {
+    /// CR 613.7m: the APNAP rank a static source's timestamp was given.
+    fn source_rank(&self, source: ObjectId) -> u8 {
+        self.current(source).map_or(0, |o| o.keyword_rank)
+    }
+
     pub(super) fn resolved_characteristic_sets(
         &self,
         object: ObjectId,
@@ -477,7 +494,7 @@ impl RulesTxn {
             })
     }
 
-    fn static_matches(
+    pub(super) fn static_matches(
         &self,
         scope: &Scope,
         source: &Object,
@@ -631,14 +648,30 @@ impl RulesTxn {
         }
     }
 
+    /// The battlefield statics that exist after ability removal (CR 305.7,
+    /// 613.6, 613.8a); a rule or a layer-7 effect needs its source's
+    /// abilities after layer 6.
     fn battlefield_statics<'a>(
         &'a self,
         sources: Option<&'a [CardId]>,
     ) -> impl Iterator<Item = (&'a Object, &'a StaticEffect)> + 'a {
-        self.battlefield_static_sources(sources).flat_map(|source| {
-            self.static_abilities_in(source, FunctioningZone::Battlefield)
-                .map(move |effect| (source, effect))
-        })
+        let setters = self.land_type_setters(sources);
+        let alive = self.alive_removals(sources).unwrap_or_default();
+        let screen = setters || !alive.is_empty();
+        self.indexed_battlefield_statics(sources)
+            .filter(move |(source, key, effect)| {
+                !screen || {
+                    let first = match effect {
+                        StaticEffect::Continuous { changes, .. } => {
+                            changes.iter().map(Change::layer).min()
+                        }
+                        _ => None,
+                    };
+                    self.static_exists(source, *key, first, &alive, setters)
+                        .unwrap_or(false)
+                }
+            })
+            .map(|(source, _, effect)| (source, effect))
     }
 
     fn static_abilities_in<'a>(
@@ -694,14 +727,34 @@ impl RulesTxn {
         layer: Layer,
         sources: Option<&'a [CardId]>,
     ) -> Vec<(u64, ObjectId, &'a Change)> {
+        self.static_changes_keyed(target, layer, sources)
+            .into_iter()
+            .map(|(time, key, change)| (time, key.source, change))
+            .collect()
+    }
+
+    /// [`Self::static_changes_by_source`] naming each generating ability.
+    pub(super) fn static_changes_keyed<'a>(
+        &'a self,
+        target: ObjectId,
+        layer: Layer,
+        sources: Option<&'a [CardId]>,
+    ) -> Vec<(u64, ability_layers::StaticKey, &'a Change)> {
         let Ok(target) = self.current(target) else {
             return Vec::new();
         };
         if !target.present_on_battlefield() {
             return Vec::new();
         }
+        let setters = self.land_type_setters(sources);
+        let alive = if layer >= Layer::Ability {
+            self.alive_removals(sources).unwrap_or_default()
+        } else {
+            vec![]
+        };
+        let mut type_layer = None;
         let mut matching = Vec::new();
-        for (source, effect) in self.battlefield_statics(sources) {
+        for (source, key, effect) in self.indexed_battlefield_statics(sources) {
             let StaticEffect::Continuous {
                 affects,
                 changes,
@@ -719,39 +772,37 @@ impl RulesTxn {
                 .map(Change::layer)
                 .min()
                 .expect("checked static changes");
-            let facts = match first {
-                // CR 613.8: admitted layer-4 static scopes cannot read any
-                // type or subtype that another admitted layer-4 effect changes.
-                Layer::Type => self
-                    .copiable_definition(target.id)
-                    .map(|d| std::borrow::Cow::Borrowed(&d.characteristics)),
-                Layer::Color => self.structural_characteristics(target.id),
-                _ => self.color_layer_with_sources(target.id, sources),
-            };
-            if facts.is_ok_and(|mut c| {
-                // CR 613.8: Creature membership can depend on an animation,
-                // whose target set is fixed at resolution.
-                if first == Layer::Type
-                    && !c.has_type(CardKind::Creature)
-                    && changes
-                        .iter()
-                        .any(|change| matches!(change, Change::AddCreatureSubtypes { .. }))
-                    && self
-                        .resolved_characteristic_sets(target.id)
-                        .any(|(_, values)| values.animation.is_some())
-                {
-                    c.to_mut().additional_types.push(CardKind::Creature);
+            let member = match first {
+                // CR 613.8: layer 4 orders its effects by dependency.
+                Layer::Type => {
+                    if type_layer.is_none() {
+                        type_layer = self.type_layer(target.id).ok();
+                    }
+                    type_layer
+                        .as_ref()
+                        .is_some_and(|t| t.applied.contains(&key))
                 }
-                self.static_matches(affects, source, target, &c, target.controller)
-            }) && condition
-                .as_ref()
-                .is_none_or(|c| self.static_condition(source, c))
-            {
+                _ => {
+                    let facts = match first {
+                        Layer::Color => self.structural_characteristics(target.id),
+                        _ => self.color_layer_with_sources(target.id, sources),
+                    };
+                    facts.is_ok_and(|c| {
+                        self.static_matches(affects, source, target, &c, target.controller)
+                    }) && condition
+                        .as_ref()
+                        .is_none_or(|c| self.static_condition(source, c))
+                        && self
+                            .static_exists(source, key, Some(first), &alive, setters)
+                            .unwrap_or(false)
+                }
+            };
+            if member {
                 matching.extend(
                     changes
                         .iter()
                         .filter(|c| c.layer() == layer)
-                        .map(|change| (source.keyword_timestamp.unwrap_or(0), source.id, change)),
+                        .map(|change| (source.keyword_timestamp.unwrap_or(0), key, change)),
                 );
             }
         }
@@ -919,13 +970,20 @@ impl RulesTxn {
         &self,
         object: &Object,
         face: CardFace,
+        face_down: bool,
         caster: PlayerId,
     ) -> Result<bool, String> {
         let object = Object {
             id: ObjectId { face, ..object.id },
+            face_down,
             ..object.clone()
         };
-        let characteristics = &self.copiable_definition(object.id)?.characteristics;
+        // CR 708.4: a face-down cast reads the face-down spell's values.
+        let characteristics = if face_down {
+            &face_down::face_down_definition().characteristics
+        } else {
+            &self.copiable_definition(object.id)?.characteristics
+        };
         Ok(self.spell_static_rules(&object).any(|(source, rule)| {
             matches!(rule, StaticRule::CastAsThoughFlash { affects, caster: who }
                 if self.static_player(who, source.controller, caster)
@@ -945,83 +1003,7 @@ impl RulesTxn {
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        let mut facts =
-            std::borrow::Cow::Borrowed(&self.copiable_definition(object)?.characteristics);
-        enum Row<'a> {
-            Resolved(&'a mtg_contracts::kir::Animation),
-            Static(&'a Change),
-        }
-        let mut rows: Vec<(u64, u8, Row<'_>)> = self
-            .resolved_characteristic_sets(object)
-            .filter_map(|(time, values)| Some((time, 0, Row::Resolved(values.animation.as_ref()?))))
-            .collect();
-        let becomes_creature = (!facts.has_type(CardKind::Creature))
-            .then(|| rows.iter().map(|(time, _, _)| *time).min())
-            .flatten();
-        rows.extend(
-            self.static_changes(object, Layer::Type, None)
-                .into_iter()
-                .map(|(time, change)| {
-                    let time = if matches!(change, Change::AddCreatureSubtypes { .. }) {
-                        time.max(becomes_creature.unwrap_or(0))
-                    } else {
-                        time
-                    };
-                    (time, 1, Row::Static(change))
-                }),
-        );
-        // CR 613.7b: retained rows are in creation order, including
-        // replacement of the creature subtypes added by an earlier row.
-        rows.sort_by_key(|(time, order, _)| (*time, *order));
-        for (_, _, row) in rows {
-            match row {
-                Row::Resolved(animation) => {
-                    let facts = facts.to_mut();
-                    for kind in [CardKind::Creature, CardKind::Artifact] {
-                        if (kind == CardKind::Creature || animation.add_artifact)
-                            && !facts.has_type(kind)
-                        {
-                            facts.additional_types.push(kind);
-                        }
-                    }
-                    facts.additional_types.sort_unstable();
-                    if animation.replace_creature_subtypes {
-                        facts
-                            .subtypes
-                            .retain(|s| !mtg_contracts::kir::is_creature_subtype(s));
-                        facts.all_creature_types = false;
-                    }
-                    for subtype in &animation.creature_subtypes {
-                        if !facts.subtypes.contains(subtype) {
-                            facts.subtypes.push(subtype.clone());
-                        }
-                    }
-                }
-                Row::Static(Change::AddTypes { kinds }) => {
-                    for kind in kinds {
-                        if !facts.has_type(*kind) {
-                            let additional = &mut facts.to_mut().additional_types;
-                            additional.push(*kind);
-                            additional.sort_unstable();
-                        }
-                    }
-                }
-                Row::Static(Change::AddCreatureSubtypes { subtypes }) => {
-                    for subtype in subtypes {
-                        if !facts.subtypes.contains(subtype) {
-                            facts.to_mut().subtypes.push(subtype.clone());
-                        }
-                    }
-                }
-                Row::Static(Change::AllCreatureTypes) => {
-                    if !facts.all_creature_types {
-                        facts.to_mut().all_creature_types = true;
-                    }
-                }
-                Row::Static(_) => {}
-            }
-        }
-        Ok(facts)
+        Ok(self.type_layer(object)?.facts)
     }
 
     pub(crate) fn color_layer(
@@ -1037,16 +1019,18 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let mut facts = self.structural_characteristics(object)?;
-        let statics = self.static_changes(object, Layer::Color, sources);
+        let statics = self.static_changes_by_source(object, Layer::Color, sources);
         let colors = statics
             .into_iter()
-            .filter_map(|(time, change)| match change {
-                Change::SetColors { colors } => Some((time, colors)),
+            .filter_map(|(time, source, change)| match change {
+                Change::SetColors { colors } => {
+                    Some(((time, Some(self.source_rank(source))), colors))
+                }
                 _ => None,
             });
         let resolved = self
             .resolved_characteristic_sets(object)
-            .filter_map(|(time, values)| Some((time, values.colors.as_ref()?)));
+            .filter_map(|(time, values)| Some(((time, None), values.colors.as_ref()?)));
         // CR 613.8a: static color scopes cannot read colors, and a
         // resolved setter always affects its captured objects.
         if let Some(colors) = latest_setter(colors.chain(resolved))? {
@@ -1068,10 +1052,16 @@ impl RulesTxn {
         let Ok(source) = self.current(object) else {
             return Ok(());
         };
+        let mut lost = None;
         for effect in self.static_abilities_in(source, FunctioningZone::Any) {
             let StaticEffect::DefinePowerToughness { power, toughness } = effect else {
                 continue;
             };
+            // CR 613.1f, 613.4a: a CDA removed in layer 6 no longer defines
+            // the stat, which keeps its printed value (`*` is 0, CR 208.2a).
+            if *lost.get_or_insert_with(|| self.printed_abilities_lost(object)) {
+                return Ok(());
+            }
             for (amount, stat) in [(power, &mut c.power), (toughness, &mut c.toughness)] {
                 if let (Some(amount), Some(stat)) = (amount, stat.as_mut()) {
                     *stat = self.characteristic_amount(source, amount)?;
@@ -1212,16 +1202,16 @@ impl RulesTxn {
         let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
         self.characteristic_power_toughness(object, &mut c)?;
         if c.has_type(CardKind::Creature) {
-            let statics = self.static_changes(object, Layer::PowerToughnessSet, sources);
+            let statics = self.static_changes_by_source(object, Layer::PowerToughnessSet, sources);
             // CR 613.4b: a setter can leave either characteristic alone.
             // Neither supported kind reads a layer-7 result (CR 613.8a).
             let base = |power_stat| {
-                let fixed = statics.iter().filter_map(|(time, change)| {
+                let fixed = statics.iter().filter_map(|(time, source, change)| {
                     let Change::SetPowerToughness { power, toughness } = change else {
                         return None;
                     };
                     Some((
-                        *time,
+                        (*time, Some(self.source_rank(*source))),
                         if power_stat { power } else { toughness }.as_fixed()?,
                     ))
                 });
@@ -1229,7 +1219,7 @@ impl RulesTxn {
                     self.resolved_characteristic_sets(object)
                         .filter_map(|(time, values)| {
                             Some((
-                                time,
+                                (time, None),
                                 if power_stat {
                                     &values.base_power
                                 } else {
@@ -2121,7 +2111,18 @@ impl RulesTxn {
                     ) => {
                         *source_block == effect.origin.source_block
                             && supported_temporary_keywords(keywords)
-                            && self.keyword_grant_kind(frame, what, keywords)?.as_ref()
+                            && self
+                                .keyword_grant_kind(
+                                    frame,
+                                    what,
+                                    keywords,
+                                    self.state
+                                        .rules
+                                        .next_batch_id
+                                        .checked_sub(1)
+                                        .ok_or("missing effect creation batch")?,
+                                )?
+                                .as_ref()
                                 == Some(kind)
                     }
 
@@ -2416,6 +2417,7 @@ impl RulesTxn {
             return Err("effect creation order invariant".into());
         }
         let mut last_setter = None;
+        let mut last_grant = None;
         for e in &self.state.rules.effects {
             if e.id.0 >= self.state.rules.next_effect_id
                 || e.origin.controller.0 >= 4
@@ -2437,6 +2439,17 @@ impl RulesTxn {
                     return Err("characteristic setter timestamp invariant".into());
                 }
                 last_setter = Some(*timestamp);
+            }
+            // CR 613.7b: a grant's timestamp is its creation batch.
+            if let ResolvedEffectKind::GrantKeywords { timestamp, .. }
+            | ResolvedEffectKind::GrantKeywordsSet { timestamp, .. } = &e.kind
+            {
+                if *timestamp > self.state.rules.next_batch_id
+                    || last_grant.is_some_and(|previous| previous > *timestamp)
+                {
+                    return Err("keyword grant timestamp invariant".into());
+                }
+                last_grant = Some(*timestamp);
             }
             if e.origin.stack_id.0 >= self.state.rules.next_stack_id
                 // CR 712.18: only a transforming card's program can come
@@ -2534,9 +2547,7 @@ impl RulesTxn {
                             && toughness.with_x(x) == modifier.toughness
                             && self.valid_continuous_capture(e, what, targets)
                             && targets.iter().all(|object| {
-                                self.copiable_definition(object).is_ok_and(|d| {
-                                    self.historical_creature_possible(&d.characteristics)
-                                })
+                                self.object_creature_possible(*object).unwrap_or(false)
                             })
                     }
                     (
@@ -2663,6 +2674,7 @@ impl RulesTxn {
                             target,
                             modifier: None,
                             keywords: grants,
+                            ..
                         },
                     ) => {
                         keywords == grants
@@ -2679,9 +2691,7 @@ impl RulesTxn {
                                 }
                                 SetExpr::One {
                                     object: Ref::Target { .. },
-                                } => self.historical_creature_possible(
-                                    &self.copiable_definition(target)?.characteristics,
-                                ),
+                                } => self.object_creature_possible(*target)?,
                                 _ => false,
                             }
                     }
@@ -2697,6 +2707,7 @@ impl RulesTxn {
                             targets,
                             modifier: None,
                             keywords: grants,
+                            ..
                         },
                     ) => {
                         keywords == grants
@@ -2725,9 +2736,7 @@ impl RulesTxn {
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
-                            && self.historical_creature_possible(
-                                &self.copiable_definition(target)?.characteristics,
-                            )
+                            && self.object_creature_possible(*target)?
                     }
 
                     _ => false,
@@ -3103,6 +3112,7 @@ impl RulesTxn {
                 targets,
                 modifier,
                 keywords,
+                ..
             } => VisibleEffect::GrantKeywordsSet {
                 handle,
                 origin,
@@ -3121,6 +3131,7 @@ impl RulesTxn {
                 target,
                 modifier,
                 keywords,
+                ..
             } => VisibleEffect::GrantKeywords {
                 handle,
                 origin,
@@ -3262,7 +3273,8 @@ impl RulesTxn {
                     announced: handle.clone(),
                     current: Some(handle),
                 },
-                oracle_id: self.definition(object.card)?.oracle_id.clone(),
+                // CR 708.5: a face-down creature's identity stays hidden.
+                oracle_id: self.visible_ability_oracle_id(object)?.to_owned(),
                 controller: self.current(object)?.controller,
             }
         } else {
@@ -3393,10 +3405,25 @@ impl RulesTxn {
                     .any(|values| values.animation.is_some()))
     }
 
+    /// `historical_creature_possible` for one object: also a card with morph,
+    /// which may have been a face-down 2/2 creature when the history was
+    /// made (CR 708.2a, 708.8). Replay authenticates which it was.
+    pub(super) fn object_creature_possible(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(
+            self.historical_creature_possible(&self.copiable_definition(object)?.characteristics)
+                || self.definition(object.card)?.face_down.is_some(),
+        )
+    }
+
     /// `validate_characteristic_identity` for captured facts, whose transform
     /// count names the face they were captured with (CR 712.18).
     pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
-        self.validate_characteristic_identity(fact.object, fact.transforms, &fact.characteristics)
+        self.validate_characteristic_identity(
+            fact.object,
+            fact.transforms,
+            fact.face_down,
+            &fact.characteristics,
+        )
     }
 
     // Copiable identity is immutable within each incarnation except for the
@@ -3407,15 +3434,19 @@ impl RulesTxn {
         &self,
         source: ObjectId,
         transforms: u32,
+        face_down: bool,
         c: &Characteristics,
     ) -> Result<(), String> {
         let definition = self.definition(source.card)?;
         if transforms > 0 && !definition.transforms() {
             return Err("captured facts transformed a card that does not transform".into());
         }
-        let mut base = definition
-            .face(face_after(source.face, transforms))
-            .ok_or("card has no selected face")?
+        // CR 708.2: face-down facts have the face-down copiable values.
+        if face_down && (transforms > 0 || definition.face_down.is_none()) {
+            return Err("captured face-down facts for a card that cannot be face down".into());
+        }
+        let mut base = self
+            .fact_definition(source, transforms, face_down)?
             .characteristics
             .clone();
         if c.has_type(CardKind::Creature) != c.power.is_some()
@@ -3438,6 +3469,57 @@ impl RulesTxn {
                 })
                 .flatten()
         };
+        // CR 205.1a, 305.7: admitted type replacement can change any card
+        // type or subtype to one its vocabulary names; replay proves which.
+        fn replaced(change: &Change) -> Option<(&[CardKind], &[String])> {
+            match change {
+                Change::SetCardTypes { kinds } => Some((kinds.as_slice(), &[])),
+                Change::SetCreatureSubtypes { subtypes } | Change::SetLandSubtypes { subtypes } => {
+                    Some((&[], subtypes.as_slice()))
+                }
+                Change::RemoveCardTypes { .. } => Some((&[], &[])),
+                _ => None,
+            }
+        }
+        if vocabulary().any(|change| replaced(change).is_some()) {
+            let kinds_ok = std::iter::once(c.kind)
+                .chain(c.additional_types.iter().copied())
+                .all(|kind| {
+                    base.has_type(kind)
+                        || vocabulary().any(|change| match change {
+                            Change::AddTypes { kinds } => kinds.contains(&kind),
+                            other => replaced(other).is_some_and(|(k, _)| k.contains(&kind)),
+                        })
+                        || (matches!(kind, CardKind::Creature | CardKind::Artifact)
+                            && self
+                                .characteristic_set_vocabulary()
+                                .any(|values| values.animation.is_some()))
+                });
+            let subtypes_ok = c.subtypes.iter().all(|s| {
+                base.subtypes.contains(s)
+                    || vocabulary().any(|change| match change {
+                        Change::AddCreatureSubtypes { subtypes } => subtypes.contains(s),
+                        other => replaced(other).is_some_and(|(_, names)| names.contains(s)),
+                    })
+                    || self
+                        .characteristic_set_vocabulary()
+                        .filter_map(|value| value.animation.as_ref())
+                        .any(|a| a.creature_subtypes.contains(s))
+            });
+            if !kinds_ok
+                || !subtypes_ok
+                || c.additional_types.contains(&c.kind)
+                || c.additional_types
+                    .windows(2)
+                    .any(|kinds| kinds[0] >= kinds[1])
+            {
+                return Err("historical type outside admitted type replacement".into());
+            }
+            base.kind = c.kind;
+            base.additional_types.clone_from(&c.additional_types);
+            base.subtypes.clone_from(&c.subtypes);
+            base.all_creature_types = c.all_creature_types;
+        }
         if (base.additional_types != c.additional_types || base.colors != c.colors)
             && (base.additional_types.iter().any(|kind| !c.has_type(*kind))
                 || c.additional_types.contains(&c.kind)
@@ -3526,6 +3608,7 @@ impl RulesTxn {
     ) -> bool {
         ObjectBefore {
             transforms: frozen.transforms,
+            face_down: frozen.face_down,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
             plus_one_counters: frozen.plus_one_counters.clone(),
@@ -3552,6 +3635,7 @@ impl RulesTxn {
             || (fact.controller != damage.source.controller && fact.zone != Zone::Battlefield)
             || (ObjectBefore {
                 transforms: fact.transforms,
+                face_down: fact.face_down,
                 controller: fact.controller,
                 // CR 702.30a: a control change restarts control history.
                 control_upkeeps: fact.control_upkeeps,
@@ -3638,16 +3722,26 @@ impl RulesTxn {
             }
             // CR 712.18: the face the damage source had when its facts were
             // captured.
-            let source_definition = self.face_definition(
-                d.source.object.card,
-                face_after(d.source.object.face, d.source.transforms),
-            )?;
+            let source_definition =
+                self.fact_definition(d.source.object, d.source.transforms, d.source.face_down)?;
             let expected_keywords = source_definition.keywords.as_slice();
             let battlefield_creature = d.source.zone == Zone::Battlefield
                 && d.source.characteristics.has_type(CardKind::Creature);
+            // CR 113.10, 305.7: an admitted static can remove printed keywords.
+            let removable = d.source.zone == Zone::Battlefield
+                && self.prepared.catalog.definitions.iter().any(|d| {
+                    d.static_abilities.iter().any(|a| {
+                        matches!(&a.effect, StaticEffect::Continuous { changes, .. }
+                            if changes.iter().any(|c| matches!(c,
+                                Change::RemoveAllAbilities { .. }
+                                | Change::RemoveKeywords { .. }
+                                | Change::ForbidKeywords { .. }
+                                | Change::SetLandSubtypes { .. })))
+                    })
+                });
             let keywords_valid = expected_keywords
                 .iter()
-                .all(|k| d.source.keywords.contains(k))
+                .all(|k| removable || d.source.keywords.contains(k))
                 && d.source
                     .keywords
                     .iter()
@@ -3912,9 +4006,13 @@ impl RulesTxn {
                     }
                     // CR 712.18: the face the holder had up when its
                     // ability applied, even after it departed (CR 800.4a).
-                    let definition = self.face_definition(
-                        source.card,
-                        face_after(holder.object.face, holder.transforms),
+                    let definition = self.fact_definition(
+                        ObjectId {
+                            card: source.card,
+                            ..holder.object
+                        },
+                        holder.transforms,
+                        holder.face_down,
                     )?;
                     let Some(StaticEffect::Rule { rule, .. }) = definition
                         .static_abilities

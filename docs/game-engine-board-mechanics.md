@@ -178,6 +178,30 @@ a resolving animation grants it (CR 613.8). Ordered setters apply by source
 or creation timestamp (CR 613.7). Simultaneous competing setters need a
 timestamp choice and reject (CR 613.7m).
 
+An Aura, Equipment or self static can also set card types, creature subtypes
+or basic land types, and a God's devotion condition can remove Creature
+(CR 205.1a, 700.5); a filtered scope can set basic land types ("nonbasic
+lands are Mountains"). Removing a card type removes its subtypes and P/T; a
+permanent that stops being a creature leaves combat (CR 506.4), and one that
+is no longer an Aura or Equipment becomes unattached (CR 704.5p). Layer 4 is
+ordered across the battlefield: the earliest effect that depends on nothing
+outside its own loop applies, then dependencies are re-evaluated (CR 613.8).
+An effect depends on another that changes its existence, its recipients or
+whether each of its changes takes effect on them.
+A basic land type set on a land removes its rules-text abilities and the
+effects they generate, the setting effect excepted, and the intrinsic mana
+follows the new types (CR 305.6-7). Layer 6 removes all, all other or listed
+keywords, and "can't have" applies last. Printed abilities precede any
+removal; grants and removals then apply by timestamp, so a later grant
+survives, while an effect whose source loses its abilities never applies
+unless it started in an earlier layer (CR 613.6, 613.8a). Simultaneous
+timestamps go in APNAP order, fixed when assigned, in every layer; one
+controller's tie that would decide a result is rejected (CR 613.7m). Without
+its card's abilities a permanent has no triggered, activated, mana, static or
+characteristic-defining ability, and an entering one lacks its own entry
+replacements (CR 604.3a, 614.12). Resolving loss, color addition, conditional
+removals and other type changes reject.
+
 Changeling and a self "is every creature type" CDA are a printed characteristic
 in every zone (CR 702.73a, 604.3), as is changeling on a token. Every subtype
 check counts it only while the object is a creature (CR 205.3d, 205.3m). An
@@ -223,8 +247,8 @@ attack requirements (CR 508.1c–d), countering prohibitions and flash timing.
 Cost increases precede reductions, and excess colored or colorless reduction
 reduces generic (CR 118.7a–d). Land allowances add plays per turn (CR 305.2);
 hand-size effects use source timestamps at cleanup. Static control changes,
-other characteristic-defining abilities, ability removal and casting from additional
-zones reject.
+other characteristic-defining abilities and casting from additional zones
+reject.
 
 ### Attachment entry and ordering
 
@@ -308,6 +332,23 @@ nonlethal deathtouch damage cannot kill after protection loss; fresh deathtouch
 reopens a window. Simultaneous destruction consumes common-prior keyword facts,
 so departing Equipment cannot remove protection mid-event.
 
+### Face-down permanents
+
+`TurnFaceUp` is a special action at priority (CR 116.2b, 702.37e). It pays the
+morph cost as a resolution payment does and turns the same object face up
+without entering; megamorph adds a +1/+1 counter (CR 702.37b, 708.8). Its
+`TurnedFaceUp` source trigger fires; a noncreature leaves combat (CR 506.4).
+An unpaid cost reverses its mana (CR 733.1). Counters may outlast face-down
+creature status (CR 122.2).
+
+Only the controller sees the identity (CR 708.5). In a decision offering a
+face-down object, object candidates and subject slots follow zone, entry
+timestamp and stack position, never card. A face-down hand departure consumes
+known copies as a hidden one. Other zone changes and game end reveal the card
+(CR 708.9); a departing owner's cards are revealed under each viewer's handle
+(`PermittedView::revealed_face_down`). Snapshots reject face-down objects off
+the stack and battlefield or without morph.
+
 ### Temporary keyword and set families
 
 A temporary effect needs a checked KIR operation and runtime support for its
@@ -368,6 +409,7 @@ and reads its object with a `kir::Pred` relative to the ability's controller;
 | `DealsDamage` | the source's battlefield appearance as positive damage is dealt to a player (CR 120.3, 510.2) |
 | `StepBegins` | upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503-513) |
 | `BecomesTapped` | only the source itself (CR 701.26a) |
+| `TurnedFaceUp` | only the source itself, as it is turned face up (CR 702.37e, 708.8) |
 | `GainsLife`, `Discards` | the gaining or discarding player; each source's positive gain is one event (CR 119.9, 701.9a) |
 | `Sacrifices` | the sacrificing player and the permanent on the battlefield just before the move (CR 701.21a, 603.10a) |
 | `LeavesBattlefield` | a move off the battlefield or a phased-in permanent leaving the game with its owner, read as for `Dies` (CR 603.6c, 603.10a) |

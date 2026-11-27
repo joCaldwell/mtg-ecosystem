@@ -9,6 +9,7 @@ impl RulesTxn {
         candidates: Vec<Candidate<Rules>>,
         shape: Shape,
     ) -> Decision<Rules> {
+        let (candidates, shape) = self.public_candidate_order(candidates, shape);
         Decision {
             id: self.state.rules.revision,
             player,
@@ -16,6 +17,187 @@ impl RulesTxn {
             candidates,
             shape,
         }
+    }
+
+    /// CR 708.5-708.6: a decision offering a face-down object must not
+    /// order its object candidates by physical card, which would tell the
+    /// face-down cards apart. Object candidates are then ordered by public
+    /// facts alone: zone, battlefield entry timestamp or stack position.
+    /// Other candidates keep their places, and every index in the shape is
+    /// remapped, so answers are read through the same table as before.
+    fn public_candidate_order(
+        &self,
+        mut candidates: Vec<Candidate<Rules>>,
+        shape: Shape,
+    ) -> (Vec<Candidate<Rules>>, Shape) {
+        let object = |c: &Candidate<Rules>| match c {
+            Candidate::Object { object } => Some(*object),
+            _ => None,
+        };
+        if !candidates
+            .iter()
+            .filter_map(object)
+            .any(|o| self.is_face_down(o))
+        {
+            return (candidates, shape);
+        }
+        let key = |o: ObjectId| {
+            let live = self.current(o).ok();
+            let zone = live.map(|o| o.zone);
+            match zone {
+                Some(Zone::Battlefield) => (
+                    0,
+                    live.and_then(|o| o.keyword_timestamp).unwrap_or(u64::MAX),
+                    o,
+                ),
+                Some(Zone::Stack) => (
+                    1,
+                    self.state
+                        .rules
+                        .stack
+                        .iter()
+                        .position(|e| e.source == o)
+                        .map_or(u64::MAX, |p| p as u64),
+                    o,
+                ),
+                _ => (2, 0, o),
+            }
+        };
+        let positions: Vec<usize> = (0..candidates.len())
+            .filter(|i| object(&candidates[*i]).is_some())
+            .collect();
+        let mut sorted = positions.clone();
+        sorted.sort_by_key(|i| key(object(&candidates[*i]).expect("object candidate")));
+        // `map[old] = new` for every candidate index.
+        let mut map: Vec<u32> = (0..candidates.len() as u32).collect();
+        for (slot, old) in positions.iter().zip(&sorted) {
+            map[*old] = *slot as u32;
+        }
+        let mut reordered = candidates.clone();
+        for (old, row) in candidates.drain(..).enumerate() {
+            reordered[map[old] as usize] = row;
+        }
+        let m = |i: &u32| map.get(*i as usize).copied().unwrap_or(*i);
+        let shape = match shape {
+            Shape::Pick { slots, rules } => {
+                let slots: Vec<Slot> = slots
+                    .into_iter()
+                    .map(|slot| {
+                        let mut allowed: Vec<u32> = slot.allowed.iter().map(m).collect();
+                        allowed.sort_unstable();
+                        Slot {
+                            subject: slot.subject.as_ref().map(m),
+                            allowed,
+                            ..slot
+                        }
+                    })
+                    .collect();
+                // Slots about one object each (attackers, blockers) follow
+                // their subjects' public order among the subject slots;
+                // other slots keep their places. Joint rules name slots by
+                // ordinal and are remapped with them.
+                let subjects: Vec<usize> = (0..slots.len())
+                    .filter(|i| slots[*i].subject.is_some())
+                    .collect();
+                let mut by_subject = subjects.clone();
+                by_subject.sort_by_key(|i| slots[*i].subject);
+                let mut slot_map: Vec<u32> = (0..slots.len() as u32).collect();
+                for (place, old) in subjects.iter().zip(&by_subject) {
+                    slot_map[*old] = *place as u32;
+                }
+                let mut ordered = slots.clone();
+                for (old, slot) in slots.into_iter().enumerate() {
+                    ordered[slot_map[old] as usize] = slot;
+                }
+                let s = |i: &u32| slot_map.get(*i as usize).copied().unwrap_or(*i);
+                Shape::Pick {
+                    slots: ordered,
+                    rules: rules
+                        .into_iter()
+                        .map(|rule| match rule {
+                            JointRule::PickedAtLeast { candidates, count } => {
+                                let mut candidates: Vec<u32> = candidates.iter().map(m).collect();
+                                candidates.sort_unstable();
+                                JointRule::PickedAtLeast { candidates, count }
+                            }
+                            JointRule::PickedAtMost { candidates, count } => {
+                                let mut candidates: Vec<u32> = candidates.iter().map(m).collect();
+                                candidates.sort_unstable();
+                                JointRule::PickedAtMost { candidates, count }
+                            }
+                            JointRule::Distinct { slots } => {
+                                let mut slots: Vec<u32> = slots.iter().map(s).collect();
+                                slots.sort_unstable();
+                                JointRule::Distinct { slots }
+                            }
+                            rule @ JointRule::Total { .. } => rule,
+                        })
+                        .collect(),
+                }
+            }
+            Shape::Order { items, min, max } => {
+                let mut items: Vec<u32> = items.iter().map(m).collect();
+                items.sort_unstable();
+                Shape::Order { items, min, max }
+            }
+            Shape::Distribute {
+                total,
+                buckets,
+                gates,
+            } => {
+                // Buckets follow their candidates' public order; gates name
+                // bucket ordinals.
+                let mut order: Vec<usize> = (0..buckets.len()).collect();
+                order.sort_by_key(|b| m(&buckets[*b].candidate));
+                let mut ordinal = vec![0u32; buckets.len()];
+                for (new, old) in order.iter().enumerate() {
+                    ordinal[*old] = new as u32;
+                }
+                let o = |b: &u32| ordinal.get(*b as usize).copied().unwrap_or(*b);
+                Shape::Distribute {
+                    total,
+                    buckets: order
+                        .iter()
+                        .map(|b| Bucket {
+                            candidate: m(&buckets[*b].candidate),
+                            ..buckets[*b].clone()
+                        })
+                        .collect(),
+                    gates: gates
+                        .into_iter()
+                        .map(|gate| Gate {
+                            bucket: o(&gate.bucket),
+                            requires: {
+                                let mut requires: Vec<_> = gate
+                                    .requires
+                                    .iter()
+                                    .map(|(b, q)| (o(b), q.clone()))
+                                    .collect();
+                                requires.sort_by_key(|(b, _)| *b);
+                                requires
+                            },
+                        })
+                        .collect(),
+                }
+            }
+            Shape::Pay {
+                cost,
+                pool,
+                step: PayStep::Produce { sources },
+            } => Shape::Pay {
+                cost,
+                pool,
+                step: PayStep::Produce {
+                    sources: {
+                        let mut sources: Vec<u32> = sources.iter().map(m).collect();
+                        sources.sort_unstable();
+                        sources
+                    },
+                },
+            },
+            shape @ (Shape::Number { .. } | Shape::Pay { .. }) => shape,
+        };
+        (reordered, shape)
     }
 
     pub(in crate::engine) fn pick(
@@ -149,6 +331,14 @@ impl RulesTxn {
                         });
                     }
                 }
+                // CR 702.37a: a card with morph may also be cast face down.
+                if (hand || command) && self.validate_face_down_cast(player, id.card).is_ok() {
+                    actions.push(Action::CastFaceDown { card: id });
+                }
+            }
+            // CR 116.2b, 702.37e: the turn-face-up special action.
+            if priority && controlled && self.validate_turn_face_up(player, id).is_ok() {
+                actions.push(Action::TurnFaceUp { object: id });
             }
             if controlled && self.validate_mana_activation(player, id).is_ok() {
                 actions.push(Action::ActivateMana { object: id });
@@ -305,20 +495,40 @@ impl RulesTxn {
                     .collect(),
                 _ => return Err("target domain outside the admitted decision algebra".into()),
             };
+            let (min, max) = if let Some(variable) = program.variable_target_count() {
+                use mtg_contracts::kir::VariableTargetCount::*;
+                let eligible =
+                    u32::try_from(candidates.len()).map_err(|_| "target choice limit")?;
+                let announced = entry.x.as_ref().and_then(Quantity::to_u32);
+                match variable {
+                    Any => (0, eligible),
+                    ExactlyX => {
+                        let x = announced.ok_or("invalid X target count")?;
+                        (x, x)
+                    }
+                    UpToX => (0, eligible.min(announced.unwrap_or(u32::MAX))),
+                }
+            } else {
+                let min = match (grouped, program.optional_target) {
+                    (_, true) => 0,
+                    (true, false) => program.targets.len() as u32,
+                    (false, false) => 1,
+                };
+                (
+                    min,
+                    if grouped {
+                        program.targets.len() as u32
+                    } else {
+                        1
+                    },
+                )
+            };
             slots.push(Slot {
                 role: SlotRole::Target { spec: spec.slot },
                 subject: None,
                 allowed,
-                min: match (grouped, program.optional_target) {
-                    (_, true) => 0,
-                    (true, false) => program.targets.len() as u32,
-                    (false, false) => 1,
-                },
-                max: if grouped {
-                    program.targets.len() as u32
-                } else {
-                    1
-                },
+                min,
+                max,
                 repeat: false,
             });
         }

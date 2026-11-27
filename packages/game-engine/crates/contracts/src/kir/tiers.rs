@@ -311,6 +311,9 @@ pub enum Cell {
     /// CR 702.34a: casting from the graveyard for the flashback cost, and
     /// exile as the spell leaves the stack.
     Flashback,
+    /// CR 702.37a-b, e, 708: casting face down for {3}, the face-down
+    /// characteristics and the turn-face-up special action.
+    FaceDownCast,
     /// CR 702.81a: casting from the graveyard for the mana cost plus a
     /// discarded land card.
     Retrace,
@@ -489,6 +492,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Kicker
         | C::Buyback
         | C::Flashback
+        | C::FaceDownCast
         | C::Retrace
         | C::Escape
         | C::Delve
@@ -555,6 +559,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::TransformingDoubleFacedV1
         | C::AdventurerV1
         | C::TransformSourceV1
+        | C::FaceDownCastV1
         | C::GrantedManaAbilitiesV1
         | C::DamagePreventionV1
         | C::DamageBudgetPreventionV1
@@ -768,6 +773,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if d.flashback.is_some() {
         cells.insert(Cell::Flashback);
+    }
+    if d.face_down.is_some() {
+        cells.insert(Cell::FaceDownCast);
     }
     if d.retrace {
         cells.insert(Cell::Retrace);

@@ -164,6 +164,10 @@ pub struct PolicyMemory {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PaymentAction {
     Cast(String, Zone),
+    /// CR 702.37a: a face-down cast of this card.
+    CastFaceDown(ObjectHandle),
+    /// CR 702.37e: turning this permanent face up.
+    TurnFaceUp(ObjectHandle),
     Activate(ObjectHandle, usize),
 }
 
@@ -368,8 +372,10 @@ impl Strategy<'_> {
                 },
             )?,
             (Reason::GraveyardReplacementOrder { .. }, _) => flag(d, Flag::Accept)?,
-            (Reason::AnnounceX, Shape::Number { .. }) => Answer::Number {
-                value: self
+            // CR 601.2b-c: the announced X stays within the rules bounds
+            // that the spell's targets impose.
+            (Reason::AnnounceX, Shape::Number { min, max }) => {
+                let planned = self
                     .memory
                     .planned_x
                     .take()
@@ -377,8 +383,14 @@ impl Strategy<'_> {
                         self.top_program(v)
                             .and_then(|(d, p)| self.choose_x(v, d, p, None))
                     })
-                    .unwrap_or_default(),
-            },
+                    .unwrap_or_default();
+                let capped = max
+                    .as_ref()
+                    .map_or(planned.clone(), |max| planned.min(max.clone()));
+                Answer::Number {
+                    value: capped.max(min.clone()),
+                }
+            }
             (Reason::BottomOpening, Shape::Order { items, min, .. }) => Answer::Order {
                 order: items.iter().rev().take(*min as usize).copied().collect(),
             },
@@ -513,10 +525,22 @@ impl Strategy<'_> {
                         continue;
                     }
                     // CR 115.3: a counted group slot names `min` distinct
-                    // objects; choose them one at a time from the rest.
+                    // objects; choose them one at a time from the rest. An
+                    // up-to-X group continues while a desirable object
+                    // remains; an X of zero announces none (CR 601.2c).
                     let mut allowed = allowed;
                     let mut chosen_slot = vec![];
-                    for _ in 0..slot.min.max(1) {
+                    let up_to_x = program.variable_target_count()
+                        == Some(mtg_contracts::kir::VariableTargetCount::UpToX);
+                    let count = if up_to_x {
+                        slot.max
+                    } else {
+                        slot.min.max(1).min(slot.max)
+                    };
+                    for picked in 0..count {
+                        if allowed.is_empty() && picked >= slot.min {
+                            break;
+                        }
                         let entities: Vec<_> = allowed
                             .iter()
                             .map(|i| match d.candidate(*i)? {
@@ -568,6 +592,9 @@ impl Strategy<'_> {
                                     .map(|object| PlayerTargetEntity::Object { object })
                             }
                         };
+                        if up_to_x && chosen.is_none() && picked >= slot.min {
+                            break;
+                        }
                         let n = chosen
                             .and_then(|e| entities.iter().position(|c| *c == e))
                             .unwrap_or(0);

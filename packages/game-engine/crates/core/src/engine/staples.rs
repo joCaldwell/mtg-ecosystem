@@ -75,7 +75,11 @@ impl RulesTxn {
         self.program_for(entry).is_ok_and(|program| {
             program
                 .targets
-                .get(slot)
+                .get(if program.variable_target_count().is_some() {
+                    0
+                } else {
+                    slot
+                })
                 .is_some_and(|spec| self.object_target_legal_for(entry, object, spec))
         })
     }
@@ -86,8 +90,35 @@ impl RulesTxn {
         object: ObjectId,
         spec: &mtg_contracts::TargetSpec,
     ) -> bool {
+        self.entry_target_legal(entry, object, spec, XBound::Entry(entry.x.as_ref()))
+    }
+
+    /// CR 601.2b-c: the entry's target criteria before X is announced.
+    pub(super) fn object_target_legal_before_x(
+        &self,
+        entry: &StackInstance,
+        object: ObjectId,
+        spec: &mtg_contracts::TargetSpec,
+    ) -> bool {
+        self.entry_target_legal(entry, object, spec, XBound::Unannounced)
+    }
+
+    fn entry_target_legal(
+        &self,
+        entry: &StackInstance,
+        object: ObjectId,
+        spec: &mtg_contracts::TargetSpec,
+        x: XBound<'_>,
+    ) -> bool {
         self.targeting_characteristics(entry).is_ok_and(|source| {
-            self.object_target_legal_by(object, entry.controller, &source, Some(entry.source), spec)
+            self.object_target_legal_by(
+                object,
+                entry.controller,
+                &source,
+                Some(entry.source),
+                spec,
+                x,
+            )
         })
     }
 
@@ -103,6 +134,7 @@ impl RulesTxn {
         source: &Characteristics,
         source_object: Option<ObjectId>,
         spec: &mtg_contracts::TargetSpec,
+        x: XBound<'_>,
     ) -> bool {
         if self.protected_from(object, source) {
             return false;
@@ -115,7 +147,7 @@ impl RulesTxn {
             | TargetDomain::OwnGraveyardCreatureCard
             | TargetDomain::OwnGraveyardCard => self
                 .current(object)
-                .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec)),
+                .is_ok_and(|o| self.graveyard_target_legal_for(o, controller, spec, x)),
             TargetDomain::CreatureOrPlaneswalker => {
                 self.creature_or_planeswalker(object) && self.targetable_by(object, controller)
             }

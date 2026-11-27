@@ -2,6 +2,15 @@
 //! and recheck the announced incarnations at resolution.
 use super::*;
 
+/// CR 601.2b-c: how a "mana value X or less" target term reads X.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum XBound<'a> {
+    /// Before X is announced, every other printed criterion applies.
+    Unannounced,
+    /// The stack entry's announced X; an entry without X admits no card.
+    Entry(Option<&'a Quantity>),
+}
+
 impl RulesTxn {
     pub(crate) fn player_graveyard_card(&self, object: &Object, player: PlayerId) -> bool {
         object.zone == (Zone::Graveyard { owner: player })
@@ -38,6 +47,7 @@ impl RulesTxn {
         object: &Object,
         player: PlayerId,
         spec: &mtg_contracts::TargetSpec,
+        x: XBound<'_>,
     ) -> bool {
         self.graveyard_target_legal(object, player, spec.domain)
             && spec.filter.as_ref().is_none_or(|filter| {
@@ -49,10 +59,28 @@ impl RulesTxn {
                             .any(|kind| definition.characteristics.has_type(*kind))
                     }))
                     && filter.predicate.as_ref().is_none_or(|predicate| {
-                        crate::query::matches_pred(&self.object_facts(object), player, predicate)
-                            .is_yes()
+                        let facts = self.object_facts(object);
+                        predicate.0.iter().all(|atom| {
+                            if mtg_contracts::kir::mana_value_at_most_announced_x(atom) {
+                                match x {
+                                    XBound::Unannounced => true,
+                                    XBound::Entry(chosen) => chosen.is_some_and(|chosen| {
+                                        self.graveyard_mana_value(object.id)
+                                            .is_some_and(|value| value <= *chosen)
+                                    }),
+                                }
+                            } else {
+                                crate::query::matches_atom(&facts, player, atom).is_yes()
+                            }
+                        })
                     })
             })
+    }
+
+    pub(super) fn graveyard_mana_value(&self, object: ObjectId) -> Option<Quantity> {
+        self.copiable_definition(object)
+            .ok()
+            .map(|d| d.characteristics.printed_mana_value())
     }
 
     /// CR 400.7, 608.2b-c: only the original, still-present survivors

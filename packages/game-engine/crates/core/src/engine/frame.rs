@@ -129,6 +129,7 @@ macro_rules! frame_walk {
                     id: frame.stack_id,
                 }),
                 Frame::ManaAbility { activation: _ } => {}
+                Frame::TurnFaceUp { payment: _ } => {}
                 Frame::DamageEffects { transaction } => $walk_damage(transaction, hold, visit),
                 Frame::CounterPlacement { transaction } => visit($Held::Invocation {
                     hold,
@@ -277,6 +278,7 @@ macro_rules! frame_parent {
             | Self::HybridCost { .. }
             | Self::SacrificeCost { .. }
             | Self::ChosenObjectCost { .. }
+            | Self::TurnFaceUp { .. }
             | Self::ForcedSacrifice { .. }
             | Self::Setup
             | Self::CounterPlacement { .. }
@@ -401,6 +403,7 @@ impl Frame {
                 frame: _,
                 payment: _,
             }
+            | Frame::TurnFaceUp { payment: _ }
             | Frame::Kernel { task: _ }
             | Frame::ManaAbility { activation: _ }
             | Frame::Setup

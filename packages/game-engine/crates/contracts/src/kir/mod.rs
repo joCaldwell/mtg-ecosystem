@@ -68,7 +68,9 @@ pub(crate) use tiers::executes;
 pub use tiers::*;
 pub use verbs::*;
 mod creature_types;
-pub use creature_types::is_creature_subtype;
+pub use creature_types::{
+    is_basic_land_type, is_creature_subtype, is_land_subtype, subtype_card_type,
+};
 
 // ---------------------------------------------------------------------------
 // Constructors

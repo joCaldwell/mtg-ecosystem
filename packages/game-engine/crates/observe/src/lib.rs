@@ -403,6 +403,8 @@ pub fn encode(
                 Action::Cast { card: h } => (11, object(h), -1, 0, 0),
                 Action::PlayLandBackFace { object: h } => (10, object(h), -1, 1, 0),
                 Action::CastBackFace { card: h } => (11, object(h), -1, 1, 0),
+                Action::CastFaceDown { card: h } => (11, object(h), -1, 2, 0),
+                Action::TurnFaceUp { object: h } => (16, object(h), -1, 0, 0),
                 Action::ActivateMana { object: h } => (12, object(h), -1, 0, 0),
                 Action::ActivateAbility { object: h, ability } => {
                     (13, object(h), -1, *ability as i32, 0)

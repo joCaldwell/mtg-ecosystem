@@ -1,3 +1,4 @@
+mod ability_loss;
 mod attachments;
 mod card_movement;
 mod changeling;
@@ -10,6 +11,7 @@ mod counters;
 mod damage_triggers;
 mod evasion;
 mod evasion_rules;
+mod face_down;
 mod keywords;
 mod library;
 mod modal_double_faced;

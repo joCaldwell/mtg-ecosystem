@@ -1739,3 +1739,82 @@ fn block_policy_respects_least_and_greatest_blocker_counts() {
         assert_eq!(picks.iter().any(|p| !p.is_empty()), blocked, "{rules:?}");
     }
 }
+
+/// CR 702.37a, e: from an observation alone Develop plans no face-down cast
+/// (the witness covers the quoted one) and turns a face-down permanent face
+/// up once the mana is there. Both actions come only from the offered
+/// candidates.
+#[test]
+fn generic_policy_casts_face_down_and_turns_face_up() {
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r5").unwrap();
+    let dreadmaw = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Colossal Dreadmaw")
+        .unwrap();
+    dreadmaw.face_down = Some(mtg_contracts::FaceDownCast {
+        kind: mtg_contracts::FaceDownKind::Morph,
+        cost: ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::G],
+        },
+    });
+    let mut v = board::view();
+    let viewer = v.viewer;
+    v.active = Some(viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    let hand = Zone::Hand { owner: viewer };
+    let card = ObjectHandle("Colossal Dreadmaw".into());
+    v.objects = (0..3)
+        .map(|n| {
+            let mut forest = board::card(&c, "Forest", viewer.0, Zone::Battlefield);
+            forest.handle = ObjectHandle(format!("Forest {n}"));
+            forest
+        })
+        .collect();
+    v.objects
+        .push(board::card(&c, "Colossal Dreadmaw", viewer.0, hand));
+    let offer = |v: &PermittedView, actions: Vec<Action<Viewer>>| {
+        let mut o = observation(v.clone());
+        o.decision = Some(pick_fixture(
+            viewer,
+            Reason::Priority,
+            actions
+                .into_iter()
+                .map(|action| Candidate::Action { action })
+                .collect(),
+            vec![mtg_core::SlotRole::Choice],
+            vec![],
+        ));
+        o
+    };
+    // Without the rules quote (CR 601.2f) an observation alone plans no
+    // face-down cast, even when it is offered.
+    let cast = Action::CastFaceDown { card: card.clone() };
+    let o = offer(
+        &v,
+        vec![
+            Action::Pass,
+            Action::Cast { card: card.clone() },
+            cast.clone(),
+        ],
+    );
+    assert_eq!(strategy(&c).priority(&o).unwrap(), Action::Pass);
+
+    // The controller sees its face-down permanent (CR 708.5).
+    let creature = v.objects.last_mut().unwrap();
+    creature.zone = Zone::Battlefield;
+    creature.face_down = true;
+    let turn = Action::TurnFaceUp {
+        object: card.clone(),
+    };
+    let o = offer(&v, vec![Action::Pass, turn.clone()]);
+    assert_eq!(strategy(&c).priority(&o).unwrap(), turn);
+    // Without untapped mana for the morph cost it waits.
+    for forest in v.objects.iter_mut().filter(|o| !o.face_down) {
+        forest.tapped = true;
+    }
+    let o = offer(&v, vec![Action::Pass, turn]);
+    assert_eq!(strategy(&c).priority(&o).unwrap(), Action::Pass);
+}

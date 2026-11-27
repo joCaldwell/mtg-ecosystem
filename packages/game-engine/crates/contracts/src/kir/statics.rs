@@ -691,6 +691,145 @@ fn only_stable_creature_filter(filter: &Pred) -> bool {
     })
 }
 
+/// CR 205.1a, 305.7: a layer-4 change that replaces or removes types.
+fn type_replacement(change: &Change) -> bool {
+    matches!(
+        change,
+        Change::SetCardTypes { .. }
+            | Change::RemoveCardTypes { .. }
+            | Change::SetCreatureSubtypes { .. }
+            | Change::SetLandSubtypes { .. }
+    )
+}
+
+/// CR 113.10, 613.1f: a layer-6 change that removes or forbids abilities.
+fn ability_removal(change: &Change) -> bool {
+    matches!(
+        change,
+        Change::RemoveAllAbilities { .. }
+            | Change::RemoveKeywords { .. }
+            | Change::ForbidKeywords { .. }
+    )
+}
+
+fn distinct<T: PartialEq>(items: &[T]) -> bool {
+    !items.is_empty()
+        && items
+            .iter()
+            .enumerate()
+            .all(|(i, item)| !items[..i].contains(item))
+}
+
+/// CR 205.1a: the permanent card types an effect can set, in canonical
+/// order. Instants and sorceries keep their type and are not admitted.
+fn replacement_kinds(kinds: &[CardKind]) -> bool {
+    distinct(kinds)
+        && kinds.windows(2).all(|k| k[0] < k[1])
+        && kinds.iter().all(|k| {
+            matches!(
+                k,
+                CardKind::Land | CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+            )
+        })
+}
+
+/// CR 113.10b: removable keywords. Flash never functions on the battlefield
+/// and printed protection from everything is read from the card.
+fn removable_keywords(keywords: &[KeywordAbility]) -> bool {
+    distinct(keywords)
+        && keywords.iter().all(|k| {
+            !matches!(
+                k,
+                KeywordAbility::Flash
+                    | KeywordAbility::ProtectionFromEverything
+                    | KeywordAbility::ProtectionFromEachColor
+            )
+        })
+}
+
+fn filter_requires(scope: &Scope, kind: CardKind) -> bool {
+    scope
+        .filter()
+        .is_some_and(|f| f.0.contains(&Atom::Type { kind }))
+}
+
+/// CR 613.8: conditions on a layer-4 change read nothing any layer changes.
+fn layer_free_condition(condition: &Cond) -> bool {
+    match condition {
+        Cond::Compare { left, right, .. } => [left, right]
+            .iter()
+            .all(|a| matches!(a, Amount::Fixed { .. } | Amount::Devotion { .. })),
+        Cond::ActivePlayer { player } => player_is_bound(player),
+        Cond::Not { condition } => layer_free_condition(condition),
+        Cond::All { conditions } => conditions.iter().all(layer_free_condition),
+        _ => false,
+    }
+}
+
+/// Scopes for type replacement and ability removal. The interpreter orders
+/// layer-4 effects by dependency (CR 613.8), so a filter may read card types
+/// and the noun of an Aura or Equipment; a filtered scope reaching other
+/// permanents reads only what entering permanents show before any layer
+/// (CR 614.12): card types, supertypes, token status and control.
+fn replacement_scope_valid(scope: &Scope, d: &crate::Definition, changes: &[Change]) -> bool {
+    fn entry_stable(filter: &Pred) -> bool {
+        filter.0.iter().all(|atom| match atom {
+            Atom::Type { .. }
+            | Atom::NotType { .. }
+            | Atom::Legendary
+            | Atom::NotLegendary
+            | Atom::Basic
+            | Atom::NotBasic
+            | Atom::Token
+            | Atom::NotToken => true,
+            Atom::ControlledBy { player } => player_is_bound(player),
+            Atom::IsNot { object } => *object == Ref::Source,
+            _ => false,
+        })
+    }
+    match scope {
+        Scope::Source => !changes.iter().any(ability_removal),
+        Scope::Attachment { kind, filter } => {
+            d.characteristics.subtypes.iter().any(|s| {
+                s == match kind {
+                    AttachmentKind::Equipped => "Equipment",
+                    AttachmentKind::Enchanted => "Aura",
+                }
+            }) && filter.0.len() <= 1
+                && filter.0.iter().all(|a| matches!(a, Atom::Type { .. }))
+        }
+        // CR 305.7: Blood Moon's "nonbasic lands"; a removal reads layer 5.
+        // An entering permanent's controller is not yet bound (CR 614.12),
+        // so a scope that removes its abilities reads no control.
+        Scope::Matching { filter } => {
+            entry_stable(filter)
+                && (!changes.iter().any(|c| {
+                    matches!(
+                        c,
+                        Change::RemoveAllAbilities { .. } | Change::SetLandSubtypes { .. }
+                    )
+                }) || !filter
+                    .0
+                    .iter()
+                    .any(|a| matches!(a, Atom::ControlledBy { .. })))
+                && changes.iter().all(|c| {
+                    c.layer() != Layer::Type
+                        || (matches!(c, Change::SetLandSubtypes { .. })
+                            && filter.0.iter().all(|a| {
+                                matches!(
+                                    a,
+                                    Atom::Type {
+                                        kind: CardKind::Land
+                                    } | Atom::Basic
+                                        | Atom::NotBasic
+                                        | Atom::ControlledBy { .. }
+                                )
+                            }))
+                })
+        }
+    }
+}
+
 fn creature_scope(scope: &Scope, kind: CardKind) -> bool {
     match scope {
         Scope::Source => kind == CardKind::Creature,
@@ -803,8 +942,12 @@ impl crate::StaticAbility {
                 let Some(first_layer) = changes.iter().map(Change::layer).min() else {
                     return invalid("empty-continuous");
                 };
-                if !on_battlefield
-                    || !scope_valid(
+                let replaces = changes.iter().any(type_replacement);
+                let removes = changes.iter().any(ability_removal);
+                let scope_ok = if replaces || removes {
+                    replacement_scope_valid(affects, definition, changes)
+                } else {
+                    scope_valid(
                         affects,
                         definition,
                         if changes
@@ -817,9 +960,23 @@ impl crate::StaticAbility {
                             first_layer
                         },
                     )
-                    || condition
-                        .as_ref()
-                        .is_some_and(|c| first_layer <= Layer::Type || !condition_supported(c))
+                };
+                // CR 613.8: a layer-4 condition may read only what no layer
+                // changes (devotion reads mana costs and control).
+                let condition_ok = |c: &Cond| {
+                    condition_supported(c)
+                        && if first_layer <= Layer::Type {
+                            replaces
+                                && !removes
+                                && *affects == Scope::Source
+                                && layer_free_condition(c)
+                        } else {
+                            !removes
+                        }
+                };
+                if !on_battlefield
+                    || !scope_ok
+                    || condition.as_ref().is_some_and(|c| !condition_ok(c))
                 {
                     return invalid("continuous-scope");
                 }
@@ -850,21 +1007,69 @@ impl crate::StaticAbility {
                         Change::AddManaAbilities { abilities } => {
                             granted_mana_supported(affects, condition.as_ref(), abilities)
                         }
-                        Change::RemoveKeywords { .. }
-                        | Change::Controller { .. }
-                        | Change::PowerToughnessX { .. } => false,
+                        Change::Controller { .. } | Change::PowerToughnessX { .. } => false,
+                        Change::RemoveKeywords { keywords }
+                        | Change::ForbidKeywords { keywords } => {
+                            removable_keywords(keywords) && creature_scope(affects, kind)
+                        }
+                        Change::RemoveAllAbilities { except_own_grants } => {
+                            let grants = changes.iter().any(|c| {
+                                matches!(
+                                    c,
+                                    Change::AddKeywords { .. } | Change::AddManaAbilities { .. }
+                                )
+                            });
+                            *except_own_grants == grants
+                        }
+                        Change::SetCardTypes { kinds } => {
+                            let creature = kinds.contains(&CardKind::Creature);
+                            replacement_kinds(kinds)
+                                && !matches!(affects, Scope::Matching { .. })
+                                && (!creature
+                                    || filter_requires(affects, CardKind::Creature)
+                                    || changes
+                                        .iter()
+                                        .any(|c| matches!(c, Change::SetPowerToughness { .. })))
+                        }
+                        Change::RemoveCardTypes { kinds } => {
+                            *kinds == [CardKind::Creature]
+                                && *affects == Scope::Source
+                                && kind == CardKind::Creature
+                                && changes.len() == 1
+                        }
+                        Change::SetCreatureSubtypes { subtypes } => {
+                            distinct(subtypes)
+                                && subtypes.iter().all(|s| is_creature_subtype(s))
+                                && !matches!(affects, Scope::Matching { .. })
+                                && (creature_scope(affects, kind)
+                                    || changes.iter().any(|c| {
+                                        matches!(c, Change::SetCardTypes { kinds }
+                                            if kinds.contains(&CardKind::Creature))
+                                    }))
+                        }
+                        Change::SetLandSubtypes { subtypes } => {
+                            distinct(subtypes)
+                                && subtypes.iter().all(|s| super::is_basic_land_type(s))
+                                && (filter_requires(affects, CardKind::Land)
+                                    || changes.iter().any(|c| {
+                                        matches!(c, Change::SetCardTypes { kinds }
+                                            if kinds.contains(&CardKind::Land))
+                                    }))
+                        }
                         Change::SetColors { colors } => {
                             colors.iter().all(|color| *color != Color::C)
                         }
                         Change::AddCreatureSubtypes { subtypes } => {
-                            creature_scope(affects, kind)
+                            !replaces
+                                && creature_scope(affects, kind)
                                 && affects.filter().is_none_or(only_stable_creature_filter)
                                 && !subtypes.is_empty()
                                 && subtypes.iter().all(|s| is_creature_subtype(s))
                                 && changes.iter().filter(|c| c.layer() == Layer::Type).count() == 1
                         }
                         Change::AddTypes { kinds } => {
-                            !kinds.is_empty()
+                            !replaces
+                                && !kinds.is_empty()
                                 && kinds.iter().all(|k| {
                                     matches!(k, CardKind::Artifact | CardKind::Enchantment)
                                 })
@@ -875,7 +1080,8 @@ impl crate::StaticAbility {
                         // layer-4 effect changes (CR 613.8a). Scopes reaching
                         // other zones are not admitted.
                         Change::AllCreatureTypes => {
-                            changes.len() == 1
+                            !replaces
+                                && changes.len() == 1
                                 && match affects {
                                     Scope::Source => kind == CardKind::Creature,
                                     Scope::Attachment { filter, .. } => filter.0.is_empty(),

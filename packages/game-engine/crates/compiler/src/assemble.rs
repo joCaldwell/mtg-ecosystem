@@ -64,6 +64,7 @@ pub(crate) fn shell(
         composed: true,
         x_mana_cost: printed_cost.x,
         flashback: None,
+        face_down: None,
         retrace: false,
         escape: None,
         delve: false,

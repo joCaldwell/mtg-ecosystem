@@ -73,7 +73,9 @@ pub(super) fn lower(
             to,
         }));
     }
-    let slot = if to == Destination::OwnerLibraryTop {
+    // CR 400.3, 401.4: any legal permanent can move to the top. Keep
+    // the existing plain-creature cell for the unqualified occurrence.
+    let slot = if to == Destination::OwnerLibraryTop && is_creature_target(&what) {
         bind_creature_target(cx.program, cx.slots, &what)?
     } else {
         bind_permanent_target(cx.program, cx.slots, &what)?

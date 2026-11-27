@@ -35,3 +35,63 @@ pub fn is_creature_subtype(subtype: &str) -> bool {
             .split_ascii_whitespace()
             .any(|kind| kind == subtype)
 }
+
+/// CR 205.3i land types; the first five are the basic land types (CR 305.6).
+const LAND_SUBTYPES: &[&str] = &[
+    "Plains",
+    "Island",
+    "Swamp",
+    "Mountain",
+    "Forest",
+    "Cave",
+    "Desert",
+    "Gate",
+    "Lair",
+    "Locus",
+    "Mine",
+    "Planet",
+    "Power-Plant",
+    "Sphere",
+    "Tower",
+    "Town",
+    "Urza’s",
+];
+/// CR 205.3g artifact types.
+const ARTIFACT_SUBTYPES: &str = "Attraction Blood Bobblehead Book Clue Contraption Equipment Food
+Fortification Gold Heartwood Incubator Infinity Junk Lander Map Mutagen Powerstone Spacecraft
+Stone Treasure Vehicle Vibranium";
+/// CR 205.3h enchantment types.
+const ENCHANTMENT_SUBTYPES: &str =
+    "Aura Background Cartouche Case Class Curse Plan Role Room Rune Saga Shard Shrine";
+/// CR 205.3k spell types.
+const SPELL_SUBTYPES: &str = "Adventure Arcane Lesson Omen Trap";
+
+/// CR 205.3i: a land type.
+pub fn is_land_subtype(subtype: &str) -> bool {
+    LAND_SUBTYPES.contains(&subtype) || subtype == "Urza's"
+}
+
+/// CR 305.6: one of the five basic land types.
+pub fn is_basic_land_type(subtype: &str) -> bool {
+    LAND_SUBTYPES[..5].contains(&subtype)
+}
+
+/// CR 205.1a, 205.3c: the card type `subtype` is correlated with, among
+/// the represented card types.
+pub fn subtype_card_type(subtype: &str) -> Option<crate::CardKind> {
+    use crate::CardKind;
+    let listed = |list: &str| list.split_ascii_whitespace().any(|s| s == subtype);
+    if is_creature_subtype(subtype) {
+        Some(CardKind::Creature)
+    } else if is_land_subtype(subtype) {
+        Some(CardKind::Land)
+    } else if listed(ARTIFACT_SUBTYPES) {
+        Some(CardKind::Artifact)
+    } else if listed(ENCHANTMENT_SUBTYPES) {
+        Some(CardKind::Enchantment)
+    } else if listed(SPELL_SUBTYPES) {
+        Some(CardKind::Instant)
+    } else {
+        None
+    }
+}

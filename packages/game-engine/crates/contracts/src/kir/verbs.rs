@@ -213,8 +213,17 @@ pub enum Change {
     SetPowerToughness { power: Amount, toughness: Amount },
     /// Layer 6.
     AddKeywords { keywords: Vec<KeywordAbility> },
-    /// Layer 6.
+    /// Layer 6 (CR 113.10b): every instance of each listed keyword the
+    /// recipient has when the change applies.
     RemoveKeywords { keywords: Vec<KeywordAbility> },
+    /// Layer 6 (CR 113.10, 613.1f): every ability the recipient has when the
+    /// change applies, including intrinsic land mana abilities (CR 305.6).
+    /// With `except_own_grants`, the abilities the same effect grants
+    /// survive ("loses all other abilities").
+    RemoveAllAbilities { except_own_grants: bool },
+    /// Layer 6 (CR 613.1f): the recipient can't have the listed keywords,
+    /// whenever they would be granted.
+    ForbidKeywords { keywords: Vec<KeywordAbility> },
     /// Layer 6 (CR 113.10, 113.10a, 613.1f): quoted mana abilities the
     /// recipients have. Each belongs to the object that has it: that object
     /// pays its costs and "you" is whoever activates it (CR 109.5).
@@ -225,6 +234,19 @@ pub enum Change {
     AddTypes { kinds: Vec<CardKind> },
     /// Layer 4 (CR 205.1b): retain existing creature subtypes.
     AddCreatureSubtypes { subtypes: Vec<String> },
+    /// Layer 4 (CR 205.1a): the new card types replace the existing ones,
+    /// and subtypes no remaining card type correlates with are removed.
+    /// Supertypes are kept (CR 205.4b).
+    SetCardTypes { kinds: Vec<CardKind> },
+    /// Layer 4 (CR 205.1a): remove card types with their correlated subtypes.
+    RemoveCardTypes { kinds: Vec<CardKind> },
+    /// Layer 4 (CR 205.1a): replace every creature subtype.
+    SetCreatureSubtypes { subtypes: Vec<String> },
+    /// Layer 4 (CR 305.7): replace every land subtype with basic land types.
+    /// The land loses the abilities its rules text generates and gains the
+    /// intrinsic mana ability of each new type (CR 305.6); granted abilities
+    /// and other card types and supertypes stay.
+    SetLandSubtypes { subtypes: Vec<String> },
     /// Layer 4 (CR 205.3m): the recipient is every creature type.
     AllCreatureTypes,
     /// Layer 2.
@@ -241,11 +263,17 @@ impl Change {
             Self::SetPowerToughness { .. } => Layer::PowerToughnessSet,
             Self::AddKeywords { .. }
             | Self::RemoveKeywords { .. }
+            | Self::RemoveAllAbilities { .. }
+            | Self::ForbidKeywords { .. }
             | Self::AddManaAbilities { .. } => Layer::Ability,
             Self::SetColors { .. } => Layer::Color,
-            Self::AddTypes { .. } | Self::AddCreatureSubtypes { .. } | Self::AllCreatureTypes => {
-                Layer::Type
-            }
+            Self::AddTypes { .. }
+            | Self::AddCreatureSubtypes { .. }
+            | Self::AllCreatureTypes
+            | Self::SetCardTypes { .. }
+            | Self::RemoveCardTypes { .. }
+            | Self::SetCreatureSubtypes { .. }
+            | Self::SetLandSubtypes { .. } => Layer::Type,
             Self::Controller { .. } => Layer::Control,
         }
     }
