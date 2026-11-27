@@ -7,7 +7,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
     io::{self, BufRead, BufReader, BufWriter, Read, Write},
-    path::Path,
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Serialize)]
@@ -491,9 +492,38 @@ const BUNDLE_FILES: [&str; 5] = [
     "outcomes.jsonl",
     "compile-manifest.json",
 ];
+const STAGE_OWNER: &str = "owner";
+const STAGE_BUNDLE: &str = "bundle";
 
-fn remove_stage(stage: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
+fn stage_owner(parent: &fs::Metadata, stage: &fs::Metadata, destination: &str) -> String {
+    // Bind the marker to the locked parent, destination name and this stage's
+    // filesystem identity. Copying the marker into another directory is insufficient.
+    format!(
+        "bulk-stage-v1\n{}:{}\n{destination}\n{}:{}\n",
+        parent.dev(),
+        parent.ino(),
+        stage.dev(),
+        stage.ino(),
+    )
+}
+
+fn create_stage(stage: &Path, parent: &fs::Metadata, destination: &str) -> io::Result<PathBuf> {
+    fs::DirBuilder::new().mode(0o700).create(stage)?;
+    let owner = stage_owner(parent, &fs::symlink_metadata(stage)?, destination);
+    let mut marker = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(stage.join(STAGE_OWNER))?;
+    marker.write_all(owner.as_bytes())?;
+    marker.sync_all()?;
+    let bundle = stage.join(STAGE_BUNDLE);
+    fs::DirBuilder::new().mode(0o700).create(&bundle)?;
+    File::open(stage)?.sync_all()?;
+    Ok(bundle)
+}
+
+fn remove_stage(stage: &Path, parent: &fs::Metadata, destination: &str) -> io::Result<()> {
     let metadata = match fs::symlink_metadata(stage) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         result => result?,
@@ -501,34 +531,64 @@ fn remove_stage(stage: &Path) -> io::Result<()> {
     if !metadata.is_dir() || metadata.permissions().mode() & 0o777 != 0o700 {
         return Err(io::Error::other("staging path is not a private directory"));
     }
-    let entries = fs::read_dir(stage)?.collect::<Result<Vec<_>, _>>()?;
-    for entry in &entries {
-        if !entry.file_type()?.is_file()
-            || !BUNDLE_FILES.iter().any(|name| entry.file_name() == *name)
-        {
+    let owner = stage_owner(parent, &metadata, destination);
+    let marker = stage.join(STAGE_OWNER);
+    if !matches_payload(
+        &marker,
+        &JsonByteProof {
+            bytes: owner.len() as u64,
+            sha256: sha256(owner.as_bytes()),
+        },
+    ) {
+        return Err(io::Error::other(
+            "staging directory has no valid ownership marker",
+        ));
+    }
+    let mut bundle = None;
+    for entry in fs::read_dir(stage)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == STAGE_OWNER {
+            continue;
+        }
+        if name != STAGE_BUNDLE || !entry.file_type()?.is_dir() {
             return Err(io::Error::other(
                 "staging directory contains an unexpected entry",
             ));
         }
+        bundle = Some(entry.path());
     }
-    for entry in entries {
-        fs::remove_file(entry.path())?;
+    if let Some(bundle) = bundle {
+        let entries = fs::read_dir(&bundle)?.collect::<Result<Vec<_>, _>>()?;
+        for entry in &entries {
+            if !entry.file_type()?.is_file()
+                || !BUNDLE_FILES.iter().any(|name| entry.file_name() == *name)
+            {
+                return Err(io::Error::other(
+                    "staged bundle contains an unexpected entry",
+                ));
+            }
+        }
+        for entry in entries {
+            fs::remove_file(entry.path())?;
+        }
+        fs::remove_dir(bundle)?;
     }
+    fs::remove_file(marker)?;
     fs::remove_dir(stage)
 }
 
-/// Write files into a private 0700 sibling stage, re-verify each against its
-/// proof, sync the stage, rename it onto `out` once and sync the parent.
+/// Write files under a private 0700 sibling stage, re-verify each against its
+/// proof, sync the bundle, rename it onto `out` once and sync the parent.
 /// When the rename fails, success requires `out` to already hold the same
 /// files (exactly those files when `exact`): an identical retry or a
-/// concurrent identical writer. The parent lock lets a retry discard the
-/// private stage for its own destination after an interrupted write.
+/// concurrent identical writer. Under the parent lock, a retry only discards
+/// stages with ownership evidence. The marker stays outside the renamed bundle.
 pub(crate) fn publish<R, E>(
     out: &Path,
     exact: bool,
     write: impl FnOnce(&Path) -> Result<(R, StagedFiles), E>,
 ) -> Result<R, PublishError<E>> {
-    use std::os::unix::fs::DirBuilderExt;
     let destination = |e: String| PublishError::Destination(e);
     let parent = out
         .parent()
@@ -546,37 +606,33 @@ pub(crate) fn publish<R, E>(
     fs::create_dir_all(parent).map_err(io_error)?;
     let lock = File::open(parent).map_err(io_error)?;
     lock.lock().map_err(io_error)?;
-    let stage = parent.join(format!(".bulk-stage-{}", sha256(name.as_encoded_bytes())));
+    let parent_metadata = lock.metadata().map_err(io_error)?;
+    let destination_id = sha256(name.as_encoded_bytes());
+    let stage = parent.join(format!(".bulk-stage-{destination_id}"));
     let cleanup = || {
-        remove_stage(&stage).map_err(|e| {
-            destination(format!(
-                "cannot remove bulk staging directory {}: {e}",
-                stage.display()
-            ))
-        })
+        remove_stage(&stage, &parent_metadata, &destination_id)
+            .map_err(|e| destination(format!("stale or foreign stage {}: {e}", stage.display())))
     };
     cleanup()?;
-    fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&stage)
-        .map_err(io_error)?;
+    let bundle = create_stage(&stage, &parent_metadata, &destination_id)
+        .map_err(|e| destination(format!("cannot create bulk stage {}: {e}", stage.display())))?;
     let result = (|| {
-        let (report, files) = write(&stage).map_err(PublishError::Write)?;
+        let (report, files) = write(&bundle).map_err(PublishError::Write)?;
         if let Some((name, _)) = files
             .iter()
-            .find(|(name, proof)| !matches_payload(&stage.join(name), proof))
+            .find(|(name, proof)| !matches_payload(&bundle.join(name), proof))
         {
             return Err(destination(format!(
                 "staged {name} does not match its proof"
             )));
         }
-        sync_dir(&stage).map_err(destination)?;
+        sync_dir(&bundle).map_err(destination)?;
         let published = match fs::symlink_metadata(out) {
             Ok(_) => Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 "destination already exists",
             )),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => fs::rename(&stage, out),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => fs::rename(&bundle, out),
             Err(e) => Err(e),
         };
         if let Err(error) = published
@@ -587,11 +643,12 @@ pub(crate) fn publish<R, E>(
                 out.display()
             )));
         }
-        sync_dir(parent).map_err(destination)?;
         Ok(report)
     })();
     cleanup()?;
-    result
+    let report = result?;
+    sync_dir(parent).map_err(destination)?;
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -656,10 +713,16 @@ mod tests {
     }
 
     fn scratch(label: &str) -> std::path::PathBuf {
-        let parent = std::env::temp_dir().join(format!("mtg-{label}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&parent);
-        fs::create_dir(&parent).unwrap();
-        parent
+        for attempt in 0.. {
+            let parent =
+                std::env::temp_dir().join(format!("mtg-{label}-{}-{attempt}", std::process::id()));
+            match fs::create_dir(&parent) {
+                Ok(()) => return parent,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("cannot create {}: {e}", parent.display()),
+            }
+        }
+        unreachable!()
     }
 
     #[test]
@@ -720,7 +783,6 @@ mod tests {
 
     #[test]
     fn bundle_interrupted_write_exposes_nothing_and_concurrent_writers_agree() {
-        use std::os::unix::fs::DirBuilderExt;
         let parent = scratch("bundle-race");
         let dest = parent.join("bundle");
         // A failure after some files were staged publishes nothing.
@@ -739,13 +801,11 @@ mod tests {
         });
         assert!(matches!(tampered, Err(PublishError::Destination(_))));
         assert!(!dest.exists());
-        // A killed writer leaves its private directory but releases the lock.
-        let abandoned = parent.join(format!(".bulk-stage-{}", sha256(b"bundle")));
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&abandoned)
-            .unwrap();
-        fs::write(abandoned.join("catalog.json"), b"incomplete").unwrap();
+        // Leave a real stage in the state a writer killed during its write would leave.
+        let id = sha256(b"bundle");
+        let abandoned = parent.join(format!(".bulk-stage-{id}"));
+        let bundle = create_stage(&abandoned, &fs::metadata(&parent).unwrap(), &id).unwrap();
+        fs::write(bundle.join("catalog.json"), b"incomplete").unwrap();
         // Identical concurrent writers all succeed with one complete bundle.
         std::thread::scope(|scope| {
             let writers: Vec<_> = (0..4)
@@ -765,20 +825,52 @@ mod tests {
     }
 
     #[test]
+    fn bundle_retry_preserves_a_foreign_bundle_at_the_stage_path() {
+        let parent = scratch("foreign-stage");
+        let dest = parent.join("bundle");
+        let id = sha256(b"bundle");
+        let stage = parent.join(format!(".bulk-stage-{id}"));
+        let write = |stage: &Path| stage_files(stage, &BUNDLE, "");
+        fs::DirBuilder::new().mode(0o700).create(&stage).unwrap();
+        let (_, files) = write(&stage).unwrap();
+        let other =
+            create_stage(&parent.join("other"), &fs::metadata(&parent).unwrap(), &id).unwrap();
+        for add_marker in [false, true] {
+            if add_marker {
+                // Even a well-formed marker for this destination binds the stage that made it.
+                fs::copy(other.with_file_name(STAGE_OWNER), stage.join(STAGE_OWNER)).unwrap();
+            }
+            let PublishError::Destination(error) = publish(&dest, true, write).unwrap_err() else {
+                panic!("expected a destination failure");
+            };
+            assert!(error.contains(&format!("stale or foreign stage {}", stage.display())));
+            assert!(!dest.exists());
+            assert!(
+                files
+                    .iter()
+                    .all(|(name, proof)| matches_payload(&stage.join(name), proof))
+            );
+        }
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
     fn bundle_retry_preserves_unknown_staging_entries_and_empty_destinations() {
-        use std::os::unix::fs::DirBuilderExt;
         let parent = scratch("bundle-occupied");
         let dest = parent.join("bundle");
         let write = |stage: &Path| stage_files(stage, &BUNDLE, "");
-        let stage = parent.join(format!(".bulk-stage-{}", sha256(b"bundle")));
-        fs::DirBuilder::new().mode(0o700).create(&stage).unwrap();
-        let unrelated = stage.join("keep");
+        let id = sha256(b"bundle");
+        let stage = parent.join(format!(".bulk-stage-{id}"));
+        let bundle = create_stage(&stage, &fs::metadata(&parent).unwrap(), &id).unwrap();
+        let (_, staged) = write(&bundle).unwrap();
+        let unrelated = bundle.join("keep");
         fs::write(&unrelated, b"keep").unwrap();
         assert!(matches!(
             publish(&dest, true, write),
             Err(PublishError::Destination(_))
         ));
         assert_eq!(fs::read(&unrelated).unwrap(), b"keep");
+        assert!(matches_payload(&bundle.join(staged[0].0), &staged[0].1));
         fs::remove_dir_all(stage).unwrap();
         fs::create_dir(&dest).unwrap();
         assert!(matches!(

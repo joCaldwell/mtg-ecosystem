@@ -13,10 +13,19 @@ fn read(manifest: &Value) -> Result<FrozenInputs, CompileError> {
 }
 
 fn scratch(label: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mtg-compile-{label}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("cache")).unwrap();
-    dir
+    for attempt in 0.. {
+        let dir =
+            std::env::temp_dir().join(format!("mtg-compile-{label}-{}-{attempt}", process::id()));
+        match fs::create_dir(&dir) {
+            Ok(()) => {
+                fs::create_dir(dir.join("cache")).unwrap();
+                return dir;
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("cannot create {}: {e}", dir.display()),
+        }
+    }
+    unreachable!()
 }
 
 /// A manifest in `dir` whose Oracle and paper-evidence pins name small local
@@ -108,6 +117,34 @@ fn r6_requires_its_versioned_pins_and_the_promoted_registration() {
             Err(CompileError::Registration(_))
         ));
     }
+}
+
+#[test]
+fn r6_fresh_writer_ignores_the_reserved_r5_cache_basename() {
+    let dir = scratch("fresh-basename");
+    let mut manifest: Value = strict_read(R6).unwrap();
+    manifest["archive"]["file"] = "oracle-ast-phase1-r5.jsonl".into();
+    let mut inputs = read(&manifest).unwrap();
+    check_registration(&inputs).unwrap();
+    // Substitute a small writer with the same reserved basename as the real one.
+    inputs.rules.sha256 = sha256(b"rules");
+    let r6 = inputs.r6.as_mut().unwrap();
+    r6.rules_path = "rules".into();
+    r6.legacy_archive = "legacy".into();
+    fs::write(dir.join("rules"), b"rules").unwrap();
+    fs::write(dir.join("legacy"), b"legacy").unwrap();
+    fs::create_dir(dir.join("scripts")).unwrap();
+    fs::write(
+        dir.join("scripts/engine-env.sh"),
+        r#"while [ "$1" != --output ]; do shift; done
+case ${2##*/} in oracle-ast-phase1-r5.jsonl) exit 1 ;; esac
+printf 'generated archive' > "$2"
+"#,
+    )
+    .unwrap();
+    let archive = generate_archive(&inputs, &dir, &dir).unwrap();
+    assert_eq!(fs::read(archive.path()).unwrap(), b"generated archive");
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

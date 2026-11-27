@@ -78,8 +78,8 @@ manifests, provenance, accepted headers/pins and records, excluding expected IR,
 policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
 
-The promoted R6 cut has an origin under `phase1-r6/`. At promotion, both
-archives verified for all 738 R5-origin fixture identities. Each R6 fixture
+The promoted R6 cut has an origin under `phase1-r6/`. Both archives verify for
+all 742 R5-origin fixture identities. Each R6 fixture
 kept the same archive line and added only `printed` and `printedSha256` to the
 R5 row. The R5 origin and the fixture manifests continue to supply the default
 controls. `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM
@@ -525,7 +525,8 @@ For R6, `--reader auto` (the default) generates only when the cache entry is
 absent. A present cache entry must match its pins. `--reader cached` requires
 that entry, and `--reader fresh` uses the exact Oracle, paper evidence, rules
 and R5 archive paths in the manifest. The pinned TypeScript producer generates
-in a private temporary directory. Both paths use the same Rust intake and
+at a fixed path in a private temporary directory. The manifest's archive
+basename selects the cache entry. Both paths use the same Rust intake and
 full-file verification.
 
 One stage writes the three bulk format-2 files byte-identical to `build-ir` from the
@@ -534,10 +535,13 @@ its index row by `oracle_id`, `source_index` and `archive_line` and adds `phase`
 (`scope`, `read`, `lower`, `validate`) and `location` (an archive JSON pointer for
 read failures, the compiler path for lowering). The compile manifest binds the
 path-free logical inputs and their digest, producer, versions, counts and the four
-other files' proofs. Publication re-verifies staged files, renames once and syncs
-the parent. A retry under the parent lock clears its interrupted private stage.
-The `.bulk-stage-` prefix is reserved in the destination directory. An occupied
-destination succeeds only when it already holds exactly this bundle.
+other files' proofs. Publication re-verifies staged files, renames the bundle
+once and syncs the parent. A retry under the parent lock clears an interrupted
+private stage only if its ownership marker matches the parent, destination and
+stage directory. A stale or foreign stage without matching ownership evidence
+blocks publication and is preserved. The `.bulk-stage-` prefix is reserved in
+the destination directory. An occupied destination succeeds only when it
+already holds exactly this bundle.
 
 ## Single matches and policy inputs
 

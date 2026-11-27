@@ -697,6 +697,12 @@ fn check_archive(
 /// The writer also emits content-addressed companion files. Keep all of its
 /// writes in one private directory and retire it before bundle publication.
 struct FreshArchive(PathBuf);
+impl FreshArchive {
+    fn path(&self) -> PathBuf {
+        self.0.join("archive.jsonl")
+    }
+}
+
 impl Drop for FreshArchive {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
@@ -741,7 +747,7 @@ fn generate_archive(
         .arg("--legacy-baseline")
         .arg(legacy)
         .arg("--output")
-        .arg(scratch.0.join(&inputs.archive.file))
+        .arg(scratch.path())
         .stdout(Stdio::null())
         .status()
         .map_err(reader)?;
@@ -866,9 +872,7 @@ pub fn compile_with_reader(
     let fresh = fresh_root
         .map(|root| generate_archive(&resolved.inputs, base, root))
         .transpose()?;
-    let archive = fresh.as_ref().map_or(cached, |scratch| {
-        scratch.0.join(&resolved.inputs.archive.file)
-    });
+    let archive = fresh.as_ref().map_or(cached, FreshArchive::path);
     check_archive(&archive, &resolved.inputs, false)?;
     let intake = read_archive(&archive).map_err(|e| match e {
         IntakeError::Reader(e) => CompileError::Reader(e),
