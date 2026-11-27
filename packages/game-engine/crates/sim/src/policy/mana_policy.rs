@@ -714,6 +714,8 @@ pub(super) fn plan_with_reservations(
     planner.fund(cost, false).then(|| planner.plan.into())
 }
 
+/// CR 107.4e-f, 601.2f: the first announcement whose `cost` plus its
+/// announced mana the view funds.
 pub(super) fn hybrid_plan(
     catalog: &Catalog,
     view: &mtg_core::PermittedView,
@@ -723,72 +725,56 @@ pub(super) fn hybrid_plan(
     Vec<mtg_contracts::HybridPayment>,
     std::collections::VecDeque<PlannedMana>,
 )> {
-    hybrid_plan_reserved(catalog, view, cost, symbols, &[])
-}
-
-pub(super) fn hybrid_plan_reserved(
-    catalog: &Catalog,
-    view: &PermittedView,
-    cost: ManaCost,
-    symbols: &[mtg_contracts::ColorHybridSymbol],
-    reserved: &[&ObjectHandle],
-) -> Option<(
-    Vec<mtg_contracts::HybridPayment>,
-    std::collections::VecDeque<PlannedMana>,
-)> {
-    hybrid_plan_with(catalog, view, symbols, reserved, &|choices| {
+    first_announcement(view, symbols, |choices| {
         let mut total = cost.clone();
         for choice in choices {
             choice.add_to(&mut total);
         }
-        Some(total)
+        plan_with_reservations(catalog, view, &total, None, &[], &[])
     })
 }
 
-/// CR 107.4e-f, 119.4, 601.2f: the first announcement, in candidate order
-/// (each symbol's colored alternative first), whose total `total` quotes
-/// and the view funds. `total` is the engine's lock order: announcements
-/// are added before increases and reductions apply. Phyrexian life must be
-/// payable in full.
-pub(super) fn hybrid_plan_with(
-    catalog: &Catalog,
+/// CR 107.4e-f, 119.4: the first announcement, one alternative per symbol in
+/// candidate order (each symbol's colored alternative first), whose
+/// Phyrexian life the viewer can pay and that `fund` accepts. The choices
+/// are enumerated lazily, so the first viable one allocates nothing more.
+pub(super) fn first_announcement<T>(
     view: &PermittedView,
     symbols: &[mtg_contracts::ColorHybridSymbol],
-    reserved: &[&ObjectHandle],
-    total: &dyn Fn(&[mtg_contracts::HybridPayment]) -> Option<ManaCost>,
-) -> Option<(
-    Vec<mtg_contracts::HybridPayment>,
-    std::collections::VecDeque<PlannedMana>,
-)> {
+    mut fund: impl FnMut(&[mtg_contracts::HybridPayment]) -> Option<T>,
+) -> Option<(Vec<mtg_contracts::HybridPayment>, T)> {
     use mtg_contracts::HybridPayment;
     let payer = view.players.iter().find(|p| p.player == view.viewer)?;
-    let mut announcements: Vec<Vec<HybridPayment>> = vec![vec![]];
-    for symbol in symbols {
-        announcements = announcements
-            .into_iter()
-            .flat_map(|prefix| {
-                symbol.colors.iter().map(move |choice| {
-                    let mut next = prefix.clone();
-                    next.push(*choice);
-                    next
-                })
-            })
-            .collect();
-    }
-    announcements.into_iter().find_map(|choices| {
+    let mut digits = vec![0usize; symbols.len()];
+    let mut choices: Vec<HybridPayment> = symbols.iter().map(|s| s.colors[0]).collect();
+    loop {
         let life = choices
             .iter()
             .filter(|c| **c == HybridPayment::PayTwoLife)
             .count();
-        if life > 0
-            && (payer.life_frozen_until_next_turn || payer.life < Quantity::from(2 * life as i64))
-        {
-            return None;
+        let payable = life == 0
+            || (!payer.life_frozen_until_next_turn
+                && payer.life >= Quantity::from(2 * life as i64));
+        if payable && let Some(found) = fund(&choices) {
+            return Some((choices, found));
         }
-        let cost = total(&choices)?;
-        let plan = plan_with_reservations(catalog, view, &cost, None, &[], reserved)?;
-        Some((choices, plan))
-    })
+        // Advance the last symbol fastest, so earlier symbols keep their
+        // colored alternative longest.
+        let mut i = symbols.len();
+        loop {
+            if i == 0 {
+                return None;
+            }
+            i -= 1;
+            digits[i] += 1;
+            if digits[i] < symbols[i].colors.len() {
+                choices[i] = symbols[i].colors[digits[i]];
+                break;
+            }
+            digits[i] = 0;
+            choices[i] = symbols[i].colors[0];
+        }
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -1000,6 +986,51 @@ mod tests {
     /// CR 107.4e, 605.3a: with an empty pool, Fetid Heath cannot pay its
     /// white {W/B} input, but a Swamp pays the black one, which then filters
     /// into {W}{W}.
+    /// Announcements are tried lazily in candidate order, the last symbol
+    /// varying fastest, and stop at the first one `fund` accepts; one
+    /// needing more life than the viewer has is never offered to `fund`.
+    #[test]
+    fn hybrid_announcements_are_searched_lazily_in_candidate_order() {
+        use mtg_contracts::{ColorHybridSymbol, HybridPayment::*};
+        let mut v = view();
+        let pair = ColorHybridSymbol {
+            colors: [Mana(Color::W), Mana(Color::U)],
+        };
+        let mut tried = vec![];
+        let found = first_announcement(&v, &[pair; 3], |choices| {
+            tried.push(choices.to_vec());
+            (choices[0] == Mana(Color::W) && choices[2] == Mana(Color::U)).then_some(())
+        });
+        assert_eq!(
+            found.unwrap().0,
+            [Mana(Color::W), Mana(Color::W), Mana(Color::U)]
+        );
+        assert_eq!(tried.len(), 2);
+        let phyrexian = ColorHybridSymbol {
+            colors: [Mana(Color::G), PayTwoLife],
+        };
+        let viewer = v.viewer;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == viewer)
+            .unwrap()
+            .life = 3.into();
+        let mut tried = vec![];
+        let found = first_announcement(&v, &[phyrexian; 2], |choices| {
+            tried.push(choices.to_vec());
+            None::<()>
+        });
+        assert!(found.is_none());
+        assert_eq!(
+            tried,
+            [
+                vec![Mana(Color::G), Mana(Color::G)],
+                vec![Mana(Color::G), PayTwoLife],
+                vec![PayTwoLife, Mana(Color::G)],
+            ]
+        );
+    }
+
     #[test]
     fn a_filter_land_tries_its_other_hybrid_input() {
         let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();

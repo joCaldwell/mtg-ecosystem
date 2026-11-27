@@ -229,6 +229,15 @@ impl RulesTxn {
             face: proposal.face,
             ..proposal.original_object
         };
+        // CR 601.2b: the quote prices one complete announcement, one
+        // alternative per printed symbol.
+        let symbols = &self
+            .copiable_definition(source)?
+            .characteristics
+            .hybrid_mana;
+        if symbols.is_empty() != hybrid.is_empty() {
+            return Err("hybrid quote requires one choice per printed symbol".into());
+        }
         let lock = self.cost_lock_inputs(source, viewer, proposal.cast_from)?;
         self.construct_spell_cost(
             source,

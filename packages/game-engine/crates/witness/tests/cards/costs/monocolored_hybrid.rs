@@ -227,3 +227,96 @@ fn simulator_adds_announced_generic_before_cost_reductions() {
         })
     );
 }
+
+/// The public hybrid quote prices only a complete announcement: one choice
+/// per printed symbol (CR 601.2b, 601.2f).
+#[test]
+fn hybrid_quote_requires_a_complete_announcement() {
+    let mut g = procession();
+    Driver::request(&mut g, u64::MAX);
+    let o = observation(&g, 0);
+    let card = o
+        .decision
+        .as_ref()
+        .unwrap()
+        .candidates
+        .iter()
+        .find_map(|c| match c {
+            Candidate::Action {
+                action: Action::Cast { card },
+            } => Some(card.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let two = HybridPayment::PayTwoGeneric;
+    let white = HybridPayment::Mana(Color::W);
+    for partial in [
+        &[][..],
+        &[two][..],
+        &[two, two][..],
+        &[two, two, two, two][..],
+    ] {
+        assert!(
+            g.quote_hybrid_cast_cost(PlayerId(0), &card, None, partial)
+                .is_err(),
+            "{partial:?}"
+        );
+    }
+    assert_eq!(
+        g.quote_hybrid_cast_cost(PlayerId(0), &card, None, &[white, two, two])
+            .unwrap(),
+        ManaCost {
+            generic: 4.into(),
+            colored: vec![Color::W],
+        }
+    );
+}
+
+/// Merrow Skyswimmer ({3}{W/U}{W/U}, convoke) with Pearl Medallion locks at
+/// {2}{W}{W} once white is announced for both symbols (CR 601.2f); Develop
+/// quotes that total and convokes four white creatures for it (CR 702.51a).
+#[test]
+fn simulator_convokes_a_quoted_hybrid_total() {
+    use mtg_sim::policy::{Policy, Strategy};
+    const PEARL_MEDALLION: &str = record!("19015380-1332-4960-8cc6-0732009525a2");
+    const MERROW_SKYSWIMMER: &str = record!("d709f396-021f-49eb-adb5-374aa790eaae");
+    let mut board = board(&[
+        (MERROW_SKYSWIMMER, &[Cell::HybridManaCost, Cell::Convoke]),
+        (PEARL_MEDALLION, &[]),
+    ])
+    .permanent_or_hand("Merrow Skyswimmer", 0, 0, true)
+    .permanent_or_hand("Pearl Medallion", 0, 0, false);
+    for _ in 0..4 {
+        board = board.permanent_or_hand("Soul's Attendant", 0, 0, false);
+    }
+    let mut g = Game::with_trace(board.libraries("Island", 4).prepare(), TraceMode::Detailed);
+    let prepared = g.prepared.clone();
+    let mut strategy = Strategy::new(&prepared.catalog, Policy::Develop, [0; 4]);
+    let mut announced = vec![];
+    for _ in 0..24 {
+        let d = Driver::request(&mut g, u64::MAX);
+        if d.reason == Reason::Priority && !g.state.rules.stack.is_empty() {
+            break;
+        }
+        let answer = strategy.choose_with_game(&observation(&g, 0), &g).unwrap();
+        if let (Reason::HybridCost, Answer::Pick { picks }) = (&d.reason, &answer) {
+            announced.extend(picks.iter().map(|p| d.candidates[p[0] as usize].clone()));
+        }
+        g.respond(d.player, d.id, answer).unwrap();
+        checked(&g);
+    }
+    let white = Candidate::HybridPayment {
+        payment: HybridPayment::Mana(Color::W),
+    };
+    assert_eq!(announced, [white.clone(), white]);
+    let entry = g.state.rules.stack.last().unwrap();
+    assert_eq!(zone(&g, 0), Some(Zone::Stack));
+    assert_eq!(
+        entry.total_cost,
+        ManaCost {
+            generic: 2.into(),
+            colored: vec![Color::W, Color::W],
+        }
+    );
+    assert!((2..=5).all(|card| g.current(Driver::object(&g, card)).unwrap().tapped));
+}

@@ -479,3 +479,56 @@ fn simulator_searches_past_a_useless_small_x() {
     settle(&mut g);
     assert_eq!(zone(&g, 5), Some(Zone::Graveyard { owner: PlayerId(1) }));
 }
+
+/// Silklash Spider's ability rewritten as `{X}{G/P}` (a private IR variant
+/// of the frozen card): with two Forests, X = 1 pays green, but only X = 2
+/// kills the opposing 1/2 flier, and paying 2 life for the Phyrexian
+/// symbol funds it. Develop scores each X across its hybrid announcements
+/// (CR 107.3a, 107.4f, 602.2b).
+#[test]
+fn simulator_scores_each_x_across_hybrid_announcements() {
+    let mtg_compiler::CompileResult::Lowered { definition } =
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, SILKLASH_SPIDER)
+    else {
+        panic!("frozen Silklash Spider lowers");
+    };
+    let mut spider = *definition;
+    spider.activated[0].cost = ActivationCost::Mana {
+        cost: ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![],
+        },
+    };
+    spider.activated[0].hybrid_mana = vec![mtg_contracts::ColorHybridSymbol {
+        colors: [HybridPayment::Mana(Color::G), HybridPayment::PayTwoLife],
+    }];
+    spider.capabilities = spider.requirements();
+    spider.validate().unwrap();
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog.definitions.push(spider);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let prepared = Board::new(catalog, "special-mana-x-hybrid-policy")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .permanent_or_hand("Silklash Spider", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Storm Crow", 1, 1, false)
+        .libraries("Island", 4)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let start = life(&g, 0);
+    let (hybrid, x) = develop(&mut g);
+    assert_eq!(x, Some(2.into()));
+    assert_eq!(
+        hybrid,
+        [Candidate::HybridPayment {
+            payment: HybridPayment::PayTwoLife
+        }]
+    );
+    assert_eq!(life(&g, 0), plus(&start, -2));
+    settle(&mut g);
+    assert_eq!(zone(&g, 3), Some(Zone::Graveyard { owner: PlayerId(1) }));
+}

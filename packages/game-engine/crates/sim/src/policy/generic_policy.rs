@@ -1068,39 +1068,53 @@ impl Strategy<'_> {
         Vec<mtg_contracts::HybridPayment>,
         std::collections::VecDeque<mana_policy::PlannedMana>,
     )> {
-        if definition.convoke || definition.improvise {
-            let kind = if definition.convoke {
-                CardKind::Creature
-            } else {
-                CardKind::Artifact
-            };
-            let (due, reserved) = super::tap_payment_plan(view, &cost, kind);
-            if let Some(plan) = mana_policy::hybrid_plan_reserved(
-                self.catalog,
-                view,
-                due,
-                &definition.characteristics.hybrid_mana,
-                &reserved,
-            ) {
-                return Some(plan);
-            }
-        }
         let symbols = &definition.characteristics.hybrid_mana;
-        match quote.filter(|_| !symbols.is_empty()) {
-            Some((game, card, x)) => {
-                mana_policy::hybrid_plan_with(self.catalog, view, symbols, &[], &|choices| {
+        let quote = quote.filter(|_| !symbols.is_empty());
+        let tap_kind = if definition.convoke {
+            Some(CardKind::Creature)
+        } else if definition.improvise {
+            Some(CardKind::Artifact)
+        } else {
+            None
+        };
+        // CR 601.2f-h: each announcement's total is quoted in lock order
+        // (announcements before reductions), then delve, convoke or
+        // improvise may pay part of that total.
+        mana_policy::first_announcement(view, symbols, |choices| {
+            let total = match quote {
+                Some((game, card, x)) => {
                     let total = game
                         .quote_hybrid_cast_cost(view.viewer, card, x, choices)
                         .ok()?;
-                    Some(if definition.delve {
+                    if definition.delve {
                         super::delve_mana_due(total, view, Some(card))
                     } else {
                         total
-                    })
-                })
+                    }
+                }
+                None => {
+                    let mut total = cost.clone();
+                    for choice in choices {
+                        choice.add_to(&mut total);
+                    }
+                    total
+                }
+            };
+            if let Some(kind) = tap_kind {
+                let (due, reserved) = super::tap_payment_plan(view, &total, kind);
+                if let Some(plan) = mana_policy::plan_with_reservations(
+                    self.catalog,
+                    view,
+                    &due,
+                    None,
+                    &[],
+                    &reserved,
+                ) {
+                    return Some(plan);
+                }
             }
-            None => mana_policy::hybrid_plan(self.catalog, view, cost, symbols),
-        }
+            mana_policy::plan_with_reservations(self.catalog, view, &total, None, &[], &[])
+        })
     }
 
     pub(super) fn choose_x(
@@ -1711,7 +1725,9 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let (tap, sac, cost) = match &a.cost {
+        // The printed fixed mana is `a.cost.fixed_mana()`, which
+        // `announced_cost` totals with the announcements below.
+        let (tap, sac, _fixed) = match &a.cost {
             ActivationCost::TapPayLifeSacrificeSource { .. } => return None,
             ActivationCost::DiscardSource { mana } => {
                 if self.library_count(v) < 2
@@ -1825,44 +1841,39 @@ impl Strategy<'_> {
         // CR 107.3a, 107.4e-f, 602.2b: hybrid symbols, then X, are announced
         // as the ability is activated. The total is the engine's own cost
         // construction over those announcements.
-        let hybrid = if a.hybrid_mana.is_empty() {
-            vec![]
-        } else {
-            let reserved: Vec<&ObjectHandle> = exclude.into_iter().collect();
-            mana_policy::hybrid_plan_reserved(self.catalog, v, cost, &a.hybrid_mana, &reserved)?.0
+        let announce = |x: Option<&Quantity>| {
+            mana_policy::first_announcement(v, &a.hybrid_mana, |choices| {
+                mana_policy::plan_for(self.catalog, v, &a.announced_cost(choices, x), exclude)
+            })
         };
-        let mut x = None;
-        if a.x_mana_cost {
-            // Among the X values this view funds (an X of 0 does nothing),
-            // the best-scoring ready one: a wipe's smallest best X, else the
-            // largest.
-            let mut best: Option<(Quantity, Quantity)> = None;
+        let (hybrid, x, plan) = if a.x_mana_cost {
+            // Each X this view funds (an X of 0 does nothing) is paired with
+            // its first fundable hybrid announcement; the best-scoring ready
+            // X wins: a wipe's smallest best X, else the largest.
+            let mut best: Option<(Quantity, Quantity, Vec<mtg_contracts::HybridPayment>, _)> = None;
             for n in 1..=64i64 {
                 let n = Quantity::from(n);
-                if mana_policy::plan_for(
-                    self.catalog,
-                    v,
-                    &a.announced_cost(&hybrid, Some(&n)),
-                    exclude,
-                )
-                .is_none()
-                {
+                let Some((hybrid, plan)) = announce(Some(&n)) else {
                     break;
-                }
+                };
                 if !self.program_ready_with_x(v, d, &a.program, Some(&n)) {
                     continue;
                 }
                 let score = self
                     .wipe_score(v, &a.program, &n)
                     .unwrap_or_else(|| n.clone());
-                if best.as_ref().is_none_or(|(_, b)| score > *b) {
-                    best = Some((n, score));
+                if best.as_ref().is_none_or(|(_, b, _, _)| score > *b) {
+                    best = Some((n, score, hybrid, plan));
                 }
             }
-            x = Some(best?.0);
-        }
+            let (n, _, hybrid, plan) = best?;
+            (hybrid, Some(n), plan)
+        } else {
+            let (hybrid, plan) = announce(None)?;
+            (hybrid, None, plan)
+        };
         let cost = a.announced_cost(&hybrid, x.as_ref());
-        self.memory.mana_plan = mana_policy::plan_for(self.catalog, v, &cost, exclude)?;
+        self.memory.mana_plan = plan;
         self.memory.hybrid_choices = hybrid;
         self.memory.planned_x = x;
         self.memory.payment.exclude = (tap || sac).then(|| o.handle.clone());
