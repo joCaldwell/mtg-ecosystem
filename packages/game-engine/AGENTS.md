@@ -32,6 +32,9 @@ before edits. [Core](../../docs/game-engine-mechanics.md) and [board](../../docs
   witnesses in `cards` and server integration in `host`; prefer `testkit::Board`
   and `Driver` for private boards and keep adversarial modules on public APIs
   ([test topology](../../docs/game-engine-development.md#engine-test-topology)).
+- Opt-in Rust families prove both directions of coverage through the
+  [printed-evidence API](../../docs/game-engine-catalogs.md#rust-printed-evidence).
+  Select the authority before lowering and use the pinned comparison for its migration.
 - Compile whole archives through the [frozen-input command](../../docs/game-engine-catalogs.md#frozen-input-compile);
   use the R6 input manifest for cached or fresh reproduction. `build-ir`
   remains its byte-identical legacy control.
