@@ -312,7 +312,7 @@ pub(crate) fn bind_target(
 
 /// What an ability's resolving instructions may refer back to besides their
 /// own steps: the trigger's event bindings (CR 603.2, 608.2h), whether the
-/// event object is the source itself (CR 201.5), and what earlier steps of
+/// event object is the source itself (CR 201.5, 700.7), and what earlier steps of
 /// the same block, lowered outside this call, already introduced.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Scope {
@@ -321,7 +321,12 @@ pub(crate) struct Scope {
     /// The card types the trigger's event object pattern names, as
     /// [`CardKind::CARD_TYPES`] bits; zero names none.
     pub(crate) event_types: u8,
+    /// CR 201.5, 700.7: the trigger condition names the source apart from its
+    /// event object ("a spell that targets this creature", "this creature
+    /// becomes blocked by a creature").
+    pub(crate) source_named: bool,
     pub(crate) prior: crate::ingest::Introduced,
+    pub(crate) floor: Floor,
 }
 
 impl From<PlayerBinding> for Scope {
@@ -330,9 +335,20 @@ impl From<PlayerBinding> for Scope {
             player,
             event_is_source: false,
             event_types: 0,
+            source_named: false,
             prior: Default::default(),
+            floor: Floor::default(),
         }
     }
+}
+
+/// CR 700.2, 700.2c: where one chosen mode's own targets and instructions
+/// begin in a program that several chosen modes share. A pronoun in the
+/// mode refers only to that mode's text, never an earlier mode's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Floor {
+    pub(crate) targets: usize,
+    pub(crate) instructions: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2278,12 +2294,12 @@ pub(crate) fn object(what: &serde_json::Value) -> Result<ast::ObjectRef, Failure
     typed(what, "object")
 }
 
-/// CR 201.5: "this creature", the exact source.
+/// CR 700.7: "this creature", the exact source.
 pub(crate) fn is_this_creature(what: &ast::ObjectRef) -> bool {
     matches!(what, ast::ObjectRef::This(this) if this.noun == "creature")
 }
 
-/// CR 201.5: these nouns identify the ability's source incarnation. They
+/// CR 700.7: these nouns identify the ability's source incarnation. They
 /// impose no current type requirement when the effect is performed.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(crate) fn is_this_permanent(what: &ast::ObjectRef) -> bool {

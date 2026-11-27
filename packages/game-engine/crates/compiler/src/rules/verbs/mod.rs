@@ -37,10 +37,15 @@ pub(crate) struct StepCx<'a> {
     pub program: &'a mut SpellProgram,
     pub slots: &'a mut BTreeMap<String, u32>,
     pub player_binding: PlayerBinding,
-    /// CR 201.5: the trigger's event object is the source itself.
+    /// CR 201.5, 700.7: the trigger's event object is the source itself.
     pub event_is_source: bool,
     /// The card types the trigger's event object pattern names (bits).
     pub event_types: u8,
+    /// CR 201.5, 700.7: the trigger condition names the source apart from its
+    /// event object.
+    pub source_named: bool,
+    /// CR 700.2: the current mode's first target and instruction.
+    pub floor: Floor,
     /// CR 608.2c: what the block's earlier steps introduced.
     pub prior: Introduced,
     /// While a "where X is" binding lowers: what its own sentence's steps
@@ -391,6 +396,8 @@ pub(crate) fn append_spell_effects(
                 player_binding,
                 event_is_source: scope.event_is_source,
                 event_types: scope.event_types,
+                source_named: scope.source_named,
+                floor: scope.floor,
                 prior,
                 pending,
                 subject: None,
@@ -421,6 +428,8 @@ pub(crate) fn append_spell_effects(
                 player_binding,
                 event_is_source: scope.event_is_source,
                 event_types: scope.event_types,
+                source_named: scope.source_named,
+                floor: scope.floor,
                 prior: step_prior,
                 pending: Introduced::default(),
                 subject: None,

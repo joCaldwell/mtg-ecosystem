@@ -216,9 +216,10 @@ pub(super) fn lower(cx: &mut StepCx<'_>, step: &Step) -> Result<Option<Vec<Instr
     if step.damage().is_some() && cx.context != Context::Spell {
         return Err(operand("target", format!("{}:damage_source", group.code())));
     }
-    // CR 122.6, 608.2c: counters put on each of several targets are one
-    // simultaneous placement event. Per-member leaves would place them one
-    // event at a time, and no set names several announced targets.
+    // CR 608.2f, 603.2c: counters put on each of several targets are one
+    // action processed simultaneously, one event with several occurrences.
+    // Per-member leaves would place them one event at a time, and no set
+    // names several announced targets.
     if matches!(step.effect(), Some(ast::Effect::PutCounters(_))) {
         return Err(operand("target", format!("{}:counters", group.code())));
     }

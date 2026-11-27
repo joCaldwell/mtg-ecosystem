@@ -150,7 +150,7 @@ pub(crate) fn cast_event(
     })
 }
 
-/// CR 201.5, 603.2: the trigger's bindings, and whether its event object is
+/// CR 201.5, 700.7, 603.2: the trigger's bindings, and whether its event object is
 /// the source itself ("when this creature enters").
 pub(crate) fn trigger_scope(condition: &TriggerCondition) -> Scope {
     let player = trigger_player_binding(condition);
@@ -177,11 +177,41 @@ pub(crate) fn trigger_scope(condition: &TriggerCondition) -> Scope {
             })
             .fold(0u8, |bits, kind| bits | 1 << kind.card_type_index())
     });
+    // CR 201.5, 700.7: a source the condition names besides its event object
+    // ("a spell that targets this creature", "this creature becomes blocked
+    // by a creature") is a candidate for a later bare "it". "Another"
+    // excludes the source rather than naming it.
+    let named = |pred: &Pred| {
+        pred.0.contains(&Atom::Is {
+            object: Ref::Source,
+        })
+    };
+    let source_named = !event_is_source
+        && match condition.pattern() {
+            EventPattern::Cast { targets_source, .. } => *targets_source,
+            EventPattern::BlockedByCreature {
+                attacker: other, ..
+            }
+            | EventPattern::BlocksCreature {
+                attacker: other, ..
+            } => named(other),
+            _ => false,
+        };
     Scope {
         event_is_source,
         event_types,
+        source_named,
         ..player.into()
     }
+}
+
+/// [`trigger_scope`] for a trigger whose condition names the source apart
+/// from its event object, when that clause is attached after the effects
+/// lower ("a spell that targets this creature", CR 115.1, 601.2c).
+pub(crate) fn trigger_scope_naming_source(condition: &TriggerCondition, names: bool) -> Scope {
+    let mut scope = trigger_scope(condition);
+    scope.source_named |= names && !scope.event_is_source;
+    scope
 }
 
 pub(crate) fn trigger_player_binding(condition: &TriggerCondition) -> PlayerBinding {
@@ -205,6 +235,7 @@ pub(crate) fn lower_trigger(
     effects: &[Sentence],
     intervening: Option<&SourceCondition>,
     block: usize,
+    names_source: bool,
 ) -> Result<TriggeredAbility, Failure> {
     if let Some(ability) = land_entry_gain_life::lower(trigger, effects, intervening, block)? {
         return Ok(ability);
@@ -388,7 +419,7 @@ pub(crate) fn lower_trigger(
             effects,
             block,
             &mut BTreeMap::new(),
-            trigger_scope(&condition),
+            trigger_scope_naming_source(&condition, names_source),
             Context::Triggered,
         )?;
     }

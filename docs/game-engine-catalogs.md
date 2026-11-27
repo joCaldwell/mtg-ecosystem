@@ -262,14 +262,22 @@ Inside a step performed by an object, `its` means that performer ("this creature
 deals damage equal to its power"). Otherwise the antecedent is the one announced
 target whose domain the noun admits: a battlefield permanent of the noun's type,
 a card outside the battlefield for `that card`, or a stack spell for `that spell`.
-Failing that, it is the trigger's event object when its pattern's types admit
-the noun and it is not the source. `It` in a trigger on the source itself means
-that event object. Two admissible targets, a player-or-object target, or an
-untargeted object an earlier printed step named (chosen, created, revealed or
-set) reject as `operand:object:ambiguous_antecedent`. No candidate rejects as
-`unbound_antecedent`. A step that acts on the pronoun also rejects when it names
-a card or spell target, or a target an earlier instruction moved (CR 400.7). The
-frozen R5 resolution is not consulted for this choice.
+An earlier step's "this creature" (or the card's name) is a candidate for a bare
+`it` (CR 201.5, 700.7) that ties with a target and outranks the event object. Failing
+those, it is the trigger's event object when its pattern's types admit the noun
+and it is not the source; a source the trigger condition names besides that
+object ("a spell that targets this creature", "this creature becomes blocked by
+a creature") ties with it. `That <noun>` never means the source. `It` in a
+trigger on the source itself means that event object. Two admissible targets, a
+tie, a player-or-object target, or an untargeted object an earlier printed step
+named (chosen, created, revealed or set) reject as
+`operand:object:ambiguous_antecedent`. No candidate rejects as
+`unbound_antecedent`. A step that acts on the pronoun as a permanent never binds
+a cast spell (CR 110.1), and rejects when it names a card or spell target or any
+object an earlier instruction moved, destroyed, sacrificed or countered
+(CR 400.7). In a selection of several chosen modes, each mode sees only its own
+targets and instructions (CR 700.2). The frozen R5 resolution is not consulted
+for this choice.
 `scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
@@ -373,7 +381,7 @@ target's block-relative slot must be the one announced for its selection.
 Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
 target bind through the [antecedent rule](#verb-signatures). Counters on each of
 several targets reject as `operand:target:<count|up_to>:counters`, because
-per-member leaves would split one simultaneous placement (CR 122.6).
+per-member leaves would split one simultaneous placement (CR 608.2f, 603.2c).
 
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.
