@@ -82,6 +82,10 @@ pub enum EventPattern {
         /// cast.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         targets_source: bool,
+        /// CR 115.1, 601.2c: "a spell that targets a [filtered permanent]":
+        /// some permanent the spell targets as it becomes cast matches.
+        #[serde(default, skip_serializing_if = "Pred::is_empty")]
+        target: Pred,
     },
     /// CR 115.1, 601.2c, 602.2b, 603.3d: a stack object targets a permanent.
     BecomesTarget {
@@ -105,17 +109,45 @@ pub enum EventPattern {
     /// CR 701.21a: a player sacrifices a permanent, matched on the
     /// battlefield immediately before the event (CR 603.10a).
     Sacrifices { player: PlayerExpr, object: Pred },
-    /// CR 701.9a: a player discards a card.
-    Discards { player: PlayerExpr },
+    /// CR 701.9a: a player discards a card. `card` is matched on the
+    /// discarded card in the zone it was put into (CR 603.10); with `cycled`
+    /// only a card discarded to pay its own cycling or typecycling cost
+    /// matches (CR 702.29a, 702.29f). "Cycles or discards" is one discard
+    /// event (CR 702.29d).
+    Discards {
+        player: PlayerExpr,
+        #[serde(default, skip_serializing_if = "Pred::is_empty")]
+        card: Pred,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cycled: bool,
+        /// CR 603.2: with `cycled`, "cycle [a card] for the first time each
+        /// turn" counts the event player's cycles this turn.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nth: Option<TurnOrdinal>,
+    },
     /// CR 603.6c, 603.10a: a permanent moves from the battlefield to another
     /// zone, matched on the battlefield immediately before the move.
-    LeavesBattlefield { object: Pred },
+    LeavesBattlefield {
+        object: Pred,
+        /// "Leaves the battlefield without dying": not put into a graveyard
+        /// from the battlefield (CR 700.4).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        without_dying: bool,
+    },
     /// CR 509.3a: a creature is declared as a blocker, once per declaration
     /// however many attackers it blocks; matched as it was before.
     Blocks { blocker: Pred },
     /// CR 509.3c: an unblocked attacking creature becomes blocked by the
     /// declared blockers, matched as it was before the declaration.
     BecomesBlocked { attacker: Pred },
+    /// CR 509.3b, 509.3f: a creature is declared as a blocker of an
+    /// attacking creature, once per attacker it blocks; both are matched as
+    /// they were before the declaration.
+    BlocksCreature { blocker: Pred, attacker: Pred },
+    /// CR 509.3d, 509.3f: an attacking creature becomes blocked by a
+    /// declared blocker, once per blocker; both matched as for
+    /// [`EventPattern::BlocksCreature`].
+    BlockedByCreature { attacker: Pred, blocker: Pred },
     /// CR 120.3, 603.2c: a permanent is dealt positive damage, once per
     /// simultaneous damage event however many sources dealt it. `combat`
     /// restricts it to combat damage.
@@ -143,10 +175,20 @@ pub enum EventPattern {
 }
 
 impl EventPattern {
+    /// CR 702.29c: "when you discard (or cycle) this card", which triggers
+    /// from the graveyard the card was put into.
+    pub fn discards_source(&self) -> bool {
+        matches!(self, Self::Discards { player, card, .. }
+            if *card == Pred::source() && player.is_you())
+    }
+
     /// The turn ordinal this event is counted against, if any.
     pub fn nth(&self) -> Option<TurnOrdinal> {
         match self {
-            Self::Cast { nth, .. } | Self::Draws { nth, .. } | Self::GainsLife { nth, .. } => *nth,
+            Self::Cast { nth, .. }
+            | Self::Draws { nth, .. }
+            | Self::GainsLife { nth, .. }
+            | Self::Discards { nth, .. } => *nth,
             _ => None,
         }
     }
@@ -170,6 +212,8 @@ impl EventPattern {
             Self::LeavesBattlefield { .. } => "leaves_battlefield",
             Self::Blocks { .. } => "blocks",
             Self::BecomesBlocked { .. } => "becomes_blocked",
+            Self::BlocksCreature { .. } => "blocks_creature",
+            Self::BlockedByCreature { .. } => "blocked_by_creature",
             Self::IsDealtDamage { .. } => "is_dealt_damage",
             Self::StepBegins { .. } => "step_begins",
             Self::DealsDamage { .. } => "deals_damage",
@@ -194,10 +238,13 @@ impl EventPattern {
             | Self::TurnedFaceUp { object }
             | Self::BecomesTarget { object, .. }
             | Self::Sacrifices { object, .. }
-            | Self::LeavesBattlefield { object }
+            | Self::Discards { card: object, .. }
+            | Self::LeavesBattlefield { object, .. }
             | Self::IsDealtDamage { object, .. } => Some(object),
-            Self::Blocks { blocker } => Some(blocker),
-            Self::BecomesBlocked { attacker } => Some(attacker),
+            Self::Blocks { blocker } | Self::BlocksCreature { blocker, .. } => Some(blocker),
+            Self::BecomesBlocked { attacker } | Self::BlockedByCreature { attacker, .. } => {
+                Some(attacker)
+            }
             Self::Attacks { attacker }
             | Self::AttacksAlone { attacker }
             | Self::AttacksUnblocked { attacker } => Some(attacker),
@@ -206,7 +253,6 @@ impl EventPattern {
             Self::StepBegins { .. }
             | Self::Draws { .. }
             | Self::GainsLife { .. }
-            | Self::Discards { .. }
             | Self::AnyOf { .. } => None,
         }
     }
@@ -408,9 +454,22 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         return match (&**first, &**second) {
             (EventPattern::Enters { object }, EventPattern::Dies { object: other })
             | (EventPattern::Enters { object }, EventPattern::Attacks { attacker: other })
-                if *object == Pred::source() && *other == Pred::source() =>
+            | (
+                EventPattern::Enters { object },
+                EventPattern::LeavesBattlefield { object: other, .. },
+            ) if *object == Pred::source() && *other == Pred::source() => Ok(()),
+            // CR 506.4, 509.1a: an attacking creature is never declared as a
+            // blocker, so one declaration is either the attack or the block.
+            (EventPattern::Attacks { attacker }, EventPattern::Blocks { blocker })
+                if *attacker == Pred::source() && *blocker == Pred::source() =>
             {
                 Ok(())
+            }
+            // CR 119.9, 603.6a: a life gain is never an entry.
+            (EventPattern::Enters { object }, EventPattern::GainsLife { nth: None, .. })
+                if *object == Pred::source() =>
+            {
+                check_event(second, attachment)
             }
             // CR 509.1a: a blocking creature is never also an attacker
             // becoming blocked, so one declaration cannot match both.
@@ -418,6 +477,15 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
                 if *blocker == Pred::source() && *attacker == Pred::source() =>
             {
                 Ok(())
+            }
+            // CR 509.1a: in one blocking pair the source is either the
+            // blocker or the attacker, never both.
+            (
+                EventPattern::BlocksCreature { blocker, .. },
+                EventPattern::BlockedByCreature { attacker, .. },
+            ) if *blocker == Pred::source() && *attacker == Pred::source() => {
+                check_event(first, attachment)?;
+                check_event(second, attachment)
             }
             (EventPattern::Enters { .. }, EventPattern::Cast { .. }) => {
                 check_event(first, attachment)?;
@@ -432,7 +500,7 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         EventPattern::Draws { player, .. }
         | EventPattern::GainsLife { player, .. }
         | EventPattern::Sacrifices { player, .. }
-        | EventPattern::Discards { player } => &[player],
+        | EventPattern::Discards { player, .. } => &[player],
         EventPattern::BecomesTarget { by, .. } => &[by],
         EventPattern::DealsDamage { recipient, .. } => &[recipient],
         _ => &[],
@@ -454,6 +522,46 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
                 )))
     {
         return Err(KirError::Unaudited("event turn ordinal".into()));
+    }
+    // The ledger counts every cycle, so an ordinal discard is an unfiltered
+    // cycle ("another card" excludes nothing a battlefield source cycles).
+    if let EventPattern::Discards {
+        nth: Some(ordinal),
+        cycled,
+        card,
+        ..
+    } = pattern
+        && (!*cycled
+            || ordinal.any_player
+            || card.reads_characteristics()
+            || card.is_ref(Ref::Source))
+    {
+        return Err(KirError::Unaudited("discard turn ordinal".into()));
+    }
+    // CR 601.2c: a cast spell's targeted permanent is read as the spell
+    // becomes cast; "this permanent" is `targets_source`.
+    if let EventPattern::Cast { target, .. } = pattern
+        && !target.is_empty()
+    {
+        event_pred(target, 0)?;
+        if mentions(target, Ref::Source) || mentions(target, Ref::AttachedTo) {
+            return Err(KirError::Unaudited("cast target identity".into()));
+        }
+    }
+    // CR 509.3f: the other creature of a blocking pair is read as it was
+    // declared; it is never the source or its host, and has no status here.
+    if let EventPattern::BlocksCreature {
+        attacker: other, ..
+    }
+    | EventPattern::BlockedByCreature { blocker: other, .. } = pattern
+    {
+        event_pred(other, 0)?;
+        if mentions(other, Ref::Source)
+            || mentions(other, Ref::AttachedTo)
+            || any_atom(other, &|a| matches!(a, Atom::Tapped | Atom::Untapped))
+        {
+            return Err(KirError::Unaudited("blocking pair creature".into()));
+        }
     }
     if let Some(object) = pattern.object() {
         event_pred(object, 0)?;
@@ -478,6 +586,8 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
                 | EventPattern::AttacksAlone { .. }
                 | EventPattern::Blocks { .. }
                 | EventPattern::BecomesBlocked { .. }
+                | EventPattern::BlocksCreature { .. }
+                | EventPattern::BlockedByCreature { .. }
         ) && any_atom(object, &|a| matches!(a, Atom::Tapped | Atom::Untapped))
         {
             return Err(KirError::Unaudited("event status atom".into()));
@@ -493,6 +603,37 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
             )
         }) {
             return Err(KirError::Unaudited("event object excludes the host".into()));
+        }
+        // CR 701.9a, 109.1: a discarded card in a graveyard or exile has
+        // printed characteristics only: no controller, status or token
+        // facts. It is this object only for "when you discard this card",
+        // which functions from the graveyard (CR 702.29c); otherwise only
+        // "another" names the source.
+        if matches!(pattern, EventPattern::Discards { .. })
+            && *object != Pred::source()
+            && any_atom(object, &|a| {
+                !matches!(
+                    a,
+                    Atom::Type { .. }
+                        | Atom::NotType { .. }
+                        | Atom::AnyType { .. }
+                        | Atom::Subtype { .. }
+                        | Atom::NotSubtype { .. }
+                        | Atom::Color { .. }
+                        | Atom::NotColor { .. }
+                        | Atom::Legendary
+                        | Atom::NotLegendary
+                        | Atom::Basic
+                        | Atom::NotBasic
+                        | Atom::ManaValue { .. }
+                        | Atom::AnyOf { .. }
+                        | Atom::IsNot {
+                            object: Ref::Source
+                        }
+                )
+            })
+        {
+            return Err(KirError::Unaudited("discarded card atom".into()));
         }
         // CR 701.26a: the collector observes only the source's own tap.
         if matches!(pattern, EventPattern::BecomesTapped { .. }) && *object != Pred::source() {
@@ -535,6 +676,10 @@ pub enum TurnFact {
     SpellsCastFromHand,
     CardsDrawn,
     LifeGained,
+    /// CR 111.2: tokens this player created this turn.
+    TokensCreated,
+    /// CR 601.2i: instant and sorcery spells this player cast this turn.
+    InstantOrSorcerySpellsCast,
 }
 
 /// The intervening "if" clauses a triggered ability can check (CR 603.4).

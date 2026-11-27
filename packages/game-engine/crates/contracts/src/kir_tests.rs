@@ -111,6 +111,7 @@ fn event_players_exist_only_for_events_that_supply_the_role() {
         spell: Pred::default(),
         nth: None,
         targets_source: false,
+        target: Pred::default(),
     });
     let step = TriggerCondition::on(EventPattern::StepBegins {
         step: BeginningStep::Upkeep,
@@ -1262,8 +1263,58 @@ fn search(player: PlayerExpr, filter: Pred, maximum: i64, to: Destination) -> No
             maximum: Amount::fixed(maximum),
             to,
             reveal: false,
+            from: crate::kir::SelectionZone::Library,
+            optional: false,
+            random: false,
         },
     })
+}
+
+/// CR 608.2c-d: hand cards go only onto your battlefield; graveyard cards
+/// onto it or into hand; another player's zone, a reveal, a hand-to-hand
+/// move and an optional library search reject.
+#[test]
+fn card_choice_cells_admit_only_own_zone_moves() {
+    use crate::kir::SelectionZone::{Graveyard, Hand, Library};
+    let you = PlayerExpr::you(Context::Spell);
+    let land = Pred(vec![Atom::Type {
+        kind: CardKind::Land,
+    }]);
+    let battlefield = Destination::Battlefield {
+        controller: you.clone(),
+        tapped: false,
+    };
+    let choice = |from, to: &Destination, reveal, optional| {
+        let Node::Do(Verb::Search { player, mut search }) =
+            search(you.clone(), land.clone(), 1, to.clone())
+        else {
+            unreachable!()
+        };
+        search.from = from;
+        search.reveal = reveal;
+        search.optional = optional;
+        check(&Node::Do(Verb::Search { player, search }), &spell(&[])).map(|d| d.cells)
+    };
+    for (from, to, cell) in [
+        (Hand, &battlefield, Cell::ChooseHandCards),
+        (Graveyard, &battlefield, Cell::ChooseGraveyardCards),
+        (
+            Graveyard,
+            &Destination::OwnerHand,
+            Cell::ChooseGraveyardCards,
+        ),
+    ] {
+        for optional in [false, true] {
+            assert_eq!(
+                choice(from, to, false, optional),
+                Ok(BTreeSet::from([cell]))
+            );
+        }
+        assert!(choice(from, to, true, false).is_err());
+    }
+    assert!(choice(Hand, &Destination::OwnerHand, false, false).is_err());
+    assert!(choice(Graveyard, &Destination::OwnerGraveyard, false, false).is_err());
+    assert!(choice(Library, &Destination::OwnerHand, false, true).is_err());
 }
 
 #[test]
@@ -1531,6 +1582,7 @@ fn event_patterns_admit_only_what_collection_and_recovery_agree_on() {
                 spell: Pred(vec![status.clone()]),
                 nth: None,
                 targets_source: false,
+                target: Pred::default(),
             },
             false,
         );
@@ -1642,4 +1694,28 @@ fn resolved_prevention_source_filters_reject_object_identity() {
             "{filter:?}"
         );
     }
+}
+
+/// CR 602.5: evidence counts are `u32`; a condition whose comparison could
+/// change outcome once its measure is clamped is not admitted.
+#[test]
+fn activation_conditions_admit_only_exact_comparisons() {
+    let history = |fact, cmp, value: i64| Cond::TurnHistory {
+        fact,
+        cmp,
+        value: value.into(),
+    };
+    assert!(ActivationCondition::of(&history(TurnFact::LifeGained, Cmp::AtLeast, 1)).is_ok());
+    assert!(ActivationCondition::of(&history(TurnFact::LifeGained, Cmp::Exactly, 4)).is_err());
+    assert!(ActivationCondition::of(&history(TurnFact::LifeGained, Cmp::AtMost, 4)).is_err());
+    assert!(ActivationCondition::of(&history(TurnFact::SpellsCast, Cmp::Exactly, 2)).is_ok());
+    let beyond = i64::from(u32::MAX) + 1;
+    assert!(ActivationCondition::of(&history(TurnFact::SpellsCast, Cmp::AtLeast, beyond)).is_err());
+    let life = |value: i64| Cond::Measured {
+        measure: Measure::LifeAboveStarting {},
+        cmp: Cmp::AtLeast,
+        value: value.into(),
+    };
+    assert!(ActivationCondition::of(&life(7)).is_ok());
+    assert!(ActivationCondition::of(&life(beyond)).is_err());
 }

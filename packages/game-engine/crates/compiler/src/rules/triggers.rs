@@ -138,6 +138,7 @@ pub(crate) fn cast_event(
         spell: lower_type_predicate(what, Some("spell"), true, 0)?,
         nth: None,
         targets_source: false,
+        target: Pred::default(),
     })
 }
 
@@ -352,6 +353,7 @@ pub(crate) fn lower_trigger(
         pattern,
         intervening_if: intervening_if.map(|i| i.condition()),
         once_each_turn: false,
+        your_turn: false,
     };
     Ok(TriggeredAbility {
         modal: None,

@@ -501,6 +501,9 @@ pub(super) fn typecycling(
                     maximum: Amount::Fixed { value: 1.into() },
                     to: Destination::OwnerHand,
                     reveal: true,
+                    from: mtg_contracts::kir::SelectionZone::Library,
+                    optional: false,
+                    random: false,
                 },
             },
             block,
@@ -1097,6 +1100,7 @@ fn trigger_on(pattern: EventPattern, program: SpellProgram) -> TriggeredAbility 
             pattern,
             intervening_if: None,
             once_each_turn: false,
+            your_turn: false,
         },
         program,
     }
@@ -1153,6 +1157,7 @@ pub(super) fn triggered(
                 }]),
                 nth: None,
                 targets_source: false,
+                target: Pred::default(),
             }
         }
         // CR 702.45a: "Whenever this creature blocks or becomes blocked, it

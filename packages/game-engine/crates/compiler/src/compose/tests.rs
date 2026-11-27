@@ -773,6 +773,7 @@ fn timing_table_lowers_printed_sorcery_speed() {
             Some(ActivationRestriction {
                 window: None,
                 once_each_turn: true,
+                times_each_turn: None,
                 condition: None
             })
         )
@@ -787,6 +788,7 @@ fn timing_table_lowers_printed_sorcery_speed() {
         Some(ActivationRestriction {
             window: Some(ActivationWindow::YourUpkeep),
             once_each_turn: false,
+            times_each_turn: None,
             condition: None
         })
     );
@@ -1563,7 +1565,7 @@ fn triggered_keywords_lower_their_defining_triggers_or_reject() {
     for prowess in &thor.triggered {
         assert!(matches!(
             prowess.condition.pattern(),
-            EventPattern::Cast { caster, spell, nth: None, targets_source: false }
+            EventPattern::Cast { caster, spell, nth: None, targets_source: false, .. }
                 if caster.is_you() && spell.0 == [kir::Atom::NotType { kind: CardKind::Creature }]
         ));
         assert_eq!(pump(sole_node(prowess)), (fixed(1), fixed(1)));

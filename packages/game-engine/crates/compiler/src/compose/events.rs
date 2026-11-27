@@ -212,6 +212,7 @@ pub(super) fn object_effect(
             .transpose()?
             .map(|i| i.condition()),
         once_each_turn: false,
+        your_turn: false,
         pattern,
     };
     program.instructions.push(instruction);
@@ -246,6 +247,9 @@ pub(super) fn general(
         Enters,
         Dies,
         Attacks,
+        Leaves,
+        LeavesWithoutDying,
+        Blocks,
     }
     impl Kind {
         fn pattern(self, object: Pred) -> EventPattern {
@@ -253,6 +257,15 @@ pub(super) fn general(
                 Self::Enters => EventPattern::Enters { object },
                 Self::Dies => EventPattern::Dies { object },
                 Self::Attacks => EventPattern::Attacks { attacker: object },
+                Self::Leaves => EventPattern::LeavesBattlefield {
+                    object,
+                    without_dying: false,
+                },
+                Self::LeavesWithoutDying => EventPattern::LeavesBattlefield {
+                    object,
+                    without_dying: true,
+                },
+                Self::Blocks => EventPattern::Blocks { blocker: object },
             }
         }
     }
@@ -265,6 +278,14 @@ pub(super) fn general(
                 Some("enters") => (Kind::Enters, &[]),
                 Some("dies") => (Kind::Dies, &[]),
                 Some("attacks") => (Kind::Attacks, &[]),
+                // CR 603.6c, 509.3a: an alternative of an any-of event; the
+                // single events lower in their own rows below.
+                Some("leaves") if object.get("withoutDying") == Some(&serde_json::json!(true)) => (
+                    Kind::LeavesWithoutDying,
+                    &[("withoutDying", serde_json::Value::Null)],
+                ),
+                Some("leaves") => (Kind::Leaves, &[]),
+                Some("blocks") => (Kind::Blocks, &[]),
                 Some("put-into-graveyard") => (
                     Kind::Dies,
                     &[
@@ -281,7 +302,7 @@ pub(super) fn general(
         }) {
             return Ok(None);
         }
-        if !extra.is_empty()
+        if extra.iter().any(|(field, _)| *field == "from")
             && (object.get("from") != Some(&serde_json::json!("battlefield"))
                 || object.get("to") != Some(&serde_json::json!({"zone":"graveyard","owner":"any"})))
         {
@@ -293,11 +314,50 @@ pub(super) fn general(
         let what: ast::ObjectRef = typed(what, "trigger.what")?;
         Ok(Some((kind, subject(card, &what)?)))
     }
-    // CR 119.9, 701.9a, 701.21a: a player event named by "you", "an
-    // opponent" or "a player". A sacrificed permanent is matched on the
-    // battlefield immediately before it moved (CR 603.10a); a discarded or
-    // life-gain event has no object filter here.
-    if let Some(kind @ ("gains-life" | "discards" | "sacrifices")) = trigger["trigger"].as_str() {
+    if matches!(trigger["trigger"].as_str(), Some("discards" | "cycle")) {
+        return discard_event(trigger);
+    }
+    // CR 702.29d: "cycles or discards" a card is one discard event, the
+    // two alternatives naming the same player and card.
+    if trigger["trigger"] == "any-of"
+        && trigger.as_object().is_some_and(|fields| fields.len() == 2)
+        && let Some([cycle, discard]) = trigger["events"].as_array().map(Vec::as_slice)
+        && cycle["trigger"] == "cycle"
+        && discard["trigger"] == "discards"
+        && cycle.as_object().map(serde_json::Map::len)
+            == discard.as_object().map(serde_json::Map::len)
+        && cycle["who"] == discard["who"]
+        && cycle["what"] == discard["what"]
+    {
+        return discard_event(discard);
+    }
+    // CR 603.2, 701.21a: one player's sacrifice of either of two objects is
+    // one event, matched by whichever alternative the permanent satisfies.
+    if trigger["trigger"] == "any-of"
+        && trigger.as_object().is_some_and(|fields| fields.len() == 2)
+        && let Some([a, b]) = trigger["events"].as_array().map(Vec::as_slice)
+        && a["trigger"] == "sacrifices"
+        && b["trigger"] == "sacrifices"
+        && a["who"] == b["who"]
+        && let (
+            Some(EventPattern::Sacrifices {
+                player,
+                object: first,
+            }),
+            Some(EventPattern::Sacrifices { object: second, .. }),
+        ) = (general(card, a)?, general(card, b)?)
+    {
+        return Ok(Some(EventPattern::Sacrifices {
+            player,
+            object: Pred(vec![Atom::AnyOf {
+                alternatives: vec![first, second],
+            }]),
+        }));
+    }
+    // CR 119.9, 701.21a: a player event named by "you", "an opponent" or
+    // "a player". A sacrificed permanent is matched on the battlefield
+    // immediately before it moved (CR 603.10a).
+    if let Some(kind @ ("gains-life" | "sacrifices")) = trigger["trigger"].as_str() {
         let Some(fields) = trigger.as_object() else {
             return Ok(None);
         };
@@ -315,7 +375,6 @@ pub(super) fn general(
         };
         return Ok(Some(match kind {
             "gains-life" => EventPattern::GainsLife { player, nth: None },
-            "discards" => EventPattern::Discards { player },
             _ => {
                 let what = &trigger["what"];
                 let object = if what.get("ref").is_some() {
@@ -326,6 +385,9 @@ pub(super) fn general(
                 EventPattern::Sacrifices { player, object }
             }
         }));
+    }
+    if let Some(pattern) = blocking_pair(card, trigger)? {
+        return Ok(Some(pattern));
     }
     // CR 603.6c, 509.3a, 509.3c, 120.3: an object event whose only other
     // printed field is a combat-damage restriction or "or becomes blocked".
@@ -338,6 +400,7 @@ pub(super) fn general(
         let extra = match kind {
             "blocks" => "orBecomesBlocked",
             "is-dealt-damage" => "combat",
+            "leaves" => "withoutDying",
             _ => "",
         };
         if fields
@@ -351,7 +414,10 @@ pub(super) fn general(
         }
         let object = subject(card, &typed(&trigger["what"], "trigger.what")?)?;
         return Ok(Some(match kind {
-            "leaves" => EventPattern::LeavesBattlefield { object },
+            "leaves" => EventPattern::LeavesBattlefield {
+                object,
+                without_dying: fields.contains_key("withoutDying"),
+            },
             "becomes-blocked" => EventPattern::BecomesBlocked { attacker: object },
             "is-dealt-damage" => EventPattern::IsDealtDamage {
                 object,
@@ -404,6 +470,18 @@ pub(super) fn general(
         } else {
             (a, b)
         };
+        // CR 119.9: the source's entry or a player's life gain.
+        let gain = if a["trigger"] == "gains-life" { a } else { b };
+        if gain["trigger"] == "gains-life"
+            && let Some((Kind::Enters, object)) = event(card, if gain == a { b } else { a })?
+            && object == Pred::source()
+            && let Some(EventPattern::GainsLife { player, nth: None }) = general(card, gain)?
+        {
+            return Ok(Some(EventPattern::AnyOf {
+                first: Box::new(EventPattern::Enters { object }),
+                second: Box::new(EventPattern::GainsLife { player, nth: None }),
+            }));
+        }
         if let (
             Some((Kind::Enters, object)),
             Ok(SourceTrigger::Cast {
@@ -462,13 +540,18 @@ pub(super) fn general(
         if *a_subject != Pred::source() || *b_subject != Pred::source() {
             return Ok(None);
         }
-        let other = match (a, b) {
-            (Kind::Enters, Kind::Dies | Kind::Attacks) => *b,
-            (Kind::Dies | Kind::Attacks, Kind::Enters) => *a,
+        // CR 603.2c: the source's entry and its death, attack or departure,
+        // or its attack and its block; no occurrence is both.
+        let (first, other) = match (a, b) {
+            (Kind::Enters, Kind::Dies | Kind::Attacks | Kind::Leaves) => (Kind::Enters, *b),
+            (Kind::Dies | Kind::Attacks | Kind::Leaves, Kind::Enters) => (Kind::Enters, *a),
+            (Kind::Attacks, Kind::Blocks) | (Kind::Blocks, Kind::Attacks) => {
+                (Kind::Attacks, Kind::Blocks)
+            }
             _ => return Ok(None),
         };
         return Ok(Some(EventPattern::AnyOf {
-            first: Box::new(EventPattern::self_enters()),
+            first: Box::new(first.pattern(Pred::source())),
             second: Box::new(other.pattern(Pred::source())),
         }));
     }
@@ -482,6 +565,186 @@ pub(super) fn general(
         }])
     };
     Ok(Some(kind.pattern(object)))
+}
+
+/// CR 509.3b, 509.3d: "[this] blocks a [filtered] creature", "[this]
+/// becomes blocked by a [filtered] creature", or both as alternatives:
+/// once per blocking pair, each creature read as it was declared (CR
+/// 509.3f). A "one or more" grouping counts the pairs together and is not
+/// lowered here.
+fn blocking_pair(
+    card: &Card<'_>,
+    trigger: &serde_json::Value,
+) -> Result<Option<EventPattern>, Failure> {
+    fn creature(other: &serde_json::Value) -> Result<Option<Pred>, Failure> {
+        if other["ref"] != "filter"
+            || other.as_object().map(serde_json::Map::len) != Some(3)
+            || other["count"] != serde_json::json!({"amount": "fixed", "value": 1})
+        {
+            return Ok(None);
+        }
+        let mut pred = lower_event_filter(&typed(&other["filter"], "trigger.blocking")?)?;
+        // CR 509.1a: only creatures block or attack.
+        let kind = Atom::Type {
+            kind: CardKind::Creature,
+        };
+        if !pred.0.contains(&kind) {
+            pred.0.push(kind);
+        }
+        Ok(Some(pred))
+    }
+    let one = |event: &serde_json::Value| -> Result<Option<EventPattern>, Failure> {
+        let (field, blocks) = match event["trigger"].as_str() {
+            Some("blocks") => ("blocking", true),
+            Some("becomes-blocked") => ("by", false),
+            _ => return Ok(None),
+        };
+        let Some(fields) = event.as_object() else {
+            return Ok(None);
+        };
+        if fields.len() != 3 || !fields.contains_key(field) || !fields.contains_key("what") {
+            return Ok(None);
+        }
+        // CR 301.5, 303.4: the creature this Equipment or Aura is attached to.
+        let host = [
+            ("equipped", kir::AttachmentKind::Equipped),
+            ("enchanted", kir::AttachmentKind::Enchanted),
+        ]
+        .into_iter()
+        .find(|(name, _)| event["what"] == serde_json::json!({"ref": name, "noun": "creature"}));
+        let source = match host {
+            Some((_, attachment)) if card.attaches_as(attachment) => Pred::attached_creature(),
+            Some(_) => return Ok(None),
+            None => subject(card, &typed(&event["what"], "trigger.what")?)?,
+        };
+        let Some(other) = creature(&event[field])? else {
+            return Ok(None);
+        };
+        Ok(Some(if blocks {
+            EventPattern::BlocksCreature {
+                blocker: source,
+                attacker: other,
+            }
+        } else {
+            EventPattern::BlockedByCreature {
+                attacker: source,
+                blocker: other,
+            }
+        }))
+    };
+    if trigger["trigger"] == "any-of"
+        && trigger.as_object().map(serde_json::Map::len) == Some(2)
+        && let Some([a, b]) = trigger["events"].as_array().map(Vec::as_slice)
+    {
+        return Ok(match (one(a)?, one(b)?) {
+            (
+                Some(first @ EventPattern::BlocksCreature { .. }),
+                Some(second @ EventPattern::BlockedByCreature { .. }),
+            ) => Some(EventPattern::AnyOf {
+                first: Box::new(first),
+                second: Box::new(second),
+            }),
+            _ => None,
+        });
+    }
+    one(trigger)
+}
+
+/// A printed object filter, typed as the AST names it.
+pub(super) fn typed_filter(filter: &serde_json::Value) -> Result<ast::ObjectFilter, Failure> {
+    typed(filter, "trigger.what")
+}
+
+/// The event player "you", "an opponent" or "a player" (CR 109.5, 102.3).
+fn event_player(who: &serde_json::Value) -> Option<PlayerExpr> {
+    match who {
+        who if *who == serde_json::json!({"player": "you"}) => {
+            Some(PlayerExpr::you(Context::Triggered))
+        }
+        who if *who == serde_json::json!({"player": "an-opponent"}) => {
+            Some(PlayerExpr::EachOpponent)
+        }
+        who if *who == serde_json::json!({"player": "a-player"}) => Some(PlayerExpr::EachPlayer),
+        _ => None,
+    }
+}
+
+/// CR 701.9a, 702.29a: "[player] discards [a filtered card]" or "[player]
+/// cycles [a card]", one event per card. The card is matched where it was
+/// put (CR 603.10); "another" excludes this permanent, which a battlefield
+/// ability's discarded card never is. "This card" functions from the zone
+/// the card was put into (CR 702.29c) and rejects by name, as do a cause,
+/// a grouping and the remaining qualifiers.
+fn discard_event(trigger: &serde_json::Value) -> Result<Option<EventPattern>, Failure> {
+    let reject = |detail: &str| {
+        Err(unsupported(
+            "compose.block",
+            format!("trigger:discard:{detail}"),
+        ))
+    };
+    let Some(fields) = trigger.as_object() else {
+        return Ok(None);
+    };
+    let cycled = trigger["trigger"] == "cycle";
+    if let Some(field) = fields
+        .keys()
+        .find(|k| !matches!(k.as_str(), "trigger" | "who" | "what"))
+    {
+        return reject(field);
+    }
+    let Some(player) = event_player(&trigger["who"]) else {
+        return reject("player");
+    };
+    let card = match fields.get("what") {
+        None if !cycled => Pred::default(),
+        // CR 702.29c: "when you discard (or cycle) this card" functions from
+        // the graveyard the card was put into.
+        Some(what)
+            if (*what == serde_json::json!({"ref": "this", "noun": "card"})
+                || *what == serde_json::json!({"ref": "self"}))
+                && player.is_you() =>
+        {
+            Pred::source()
+        }
+        Some(what) if what["ref"] == "this" || what["ref"] == "self" => {
+            return reject("source-card");
+        }
+        Some(what)
+            if what["ref"] == "filter"
+                && what.as_object().map(serde_json::Map::len) == Some(3)
+                && what["count"] == serde_json::json!({"amount": "fixed", "value": 1}) =>
+        {
+            // CR 108.1: the printed "card" class names the discarded object
+            // itself, here and in each alternative.
+            fn strip(filter: &mut serde_json::Value) -> bool {
+                let Some(fields) = filter.as_object_mut() else {
+                    return false;
+                };
+                if fields.remove("cls") != Some(serde_json::json!("card")) {
+                    return false;
+                }
+                match fields.get_mut("anyOf").and_then(|a| a.as_array_mut()) {
+                    Some(children) => children.iter_mut().all(|child| {
+                        child.get("cls").is_none()
+                            || strip(child) && child.as_object().is_some_and(|c| !c.is_empty())
+                    }),
+                    None => true,
+                }
+            }
+            let mut filter = what["filter"].clone();
+            if !strip(&mut filter) {
+                return reject("filter");
+            }
+            lower_event_filter(&typed(&filter, "trigger.what")?)?
+        }
+        _ => return reject("what"),
+    };
+    Ok(Some(EventPattern::Discards {
+        player,
+        card,
+        cycled,
+        nth: None,
+    }))
 }
 
 /// The object an event names: the source (by "this" noun or by name) or one

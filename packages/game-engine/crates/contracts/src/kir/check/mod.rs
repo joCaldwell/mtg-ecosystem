@@ -746,6 +746,7 @@ impl Walk<'_, '_> {
             | Cond::TurnHistory { .. }
             | Cond::ControlsOwnCommander { .. }
             | Cond::OpponentControlsMore { .. }
+            | Cond::Measured { .. }
             | Cond::ControlledSinceLastUpkeep {} => {
                 unaudited("intervening condition in a resolving node")
             }
@@ -1511,6 +1512,10 @@ impl Walk<'_, '_> {
             Verb::ReorderLibraryTop { .. } | Verb::LookChooseHand { .. } => {
                 unaudited("library reorder needs a top-level instruction")
             }
+            // The seeded sampler reads its instruction at the cursor.
+            Verb::Search { search, .. } if search.random => {
+                unaudited("random card selection needs a top-level instruction")
+            }
             // CR 121.2: counted draws retain attempt progress and finish
             // with an outcome that must match a top-level draw instruction.
             Verb::Draw { player, amount } if !single_draw(player, amount) => {
@@ -1846,6 +1851,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
         Verb::Sacrifice { player, filter, .. } => sacrifice::capabilities(player, filter, out),
+        Verb::Search { search, .. } if search.from != SelectionZone::Library => {
+            out.insert(Capability::ResolutionCardChoiceV1);
+        }
         Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
             out.insert(Capability::SearchLibraryTopV1);
         }
