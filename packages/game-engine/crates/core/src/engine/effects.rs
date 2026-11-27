@@ -1203,6 +1203,12 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<Characteristics, String> {
         let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
+        // CR 301.7a–b: the printed values participate only while the
+        // Vehicle has the creature type after layer 4.
+        if !c.has_type(CardKind::Creature) {
+            c.power = None;
+            c.toughness = None;
+        }
         self.characteristic_power_toughness(object, &mut c)?;
         if c.has_type(CardKind::Creature) {
             let statics = self.static_changes_by_source(object, Layer::PowerToughnessSet, sources);

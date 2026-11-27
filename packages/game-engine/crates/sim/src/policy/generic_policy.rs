@@ -1833,6 +1833,37 @@ impl Strategy<'_> {
         self.memory.hybrid_choices.clear();
         self.memory.alternative_cost = None;
         self.memory.planned_x = None;
+        // Crew only from engine-offered actions. Wait until the attacking
+        // turn's beginning of combat to avoid tapping creatures prematurely.
+        if v.active == Some(v.viewer)
+            && v.turn.step == TurnStep::BeginningCombat
+            && v.stack.is_empty()
+            && let Some(offered) = &self.memory.offered_activations
+            && let Some(action) = offered.iter().find(|action| {
+                let Action::ActivateAbility { object, ability } = action else {
+                    return false;
+                };
+                let Some(vehicle) = v.objects.iter().find(|o| o.handle == *object) else {
+                    return false;
+                };
+                if !vehicle.attack_ready
+                    || vehicle.tapped
+                    || vehicle.phased_out
+                    || vehicle
+                        .characteristics
+                        .as_ref()
+                        .is_none_or(|c| c.has_type(CardKind::Creature))
+                {
+                    return false;
+                }
+                definition(self.catalog, &vehicle.oracle_id).is_ok_and(|d| {
+                    matches!(d.activated.get(*ability as usize).map(|a| &a.cost),
+                        Some(ActivationCost::ChooseObjects(cost)) if cost.minimum_power.is_some())
+                })
+            })
+        {
+            return Ok(action.clone());
+        }
         if let Some(r) = self.reactive_spells_with_game(v, game)? {
             return Ok(r);
         }

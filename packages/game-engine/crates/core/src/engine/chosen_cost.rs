@@ -43,6 +43,7 @@ impl RulesTxn {
                 // CR 702.138a: escape exiles other graveyard cards.
                 if let Some(escape) = &definition.escape {
                     return Ok(Some(ChosenObjectCost {
+                        minimum_power: None,
                         action: ExileFromGraveyard,
                         filter: ChosenCostFilter::Any,
                         count: escape.exile_other,
@@ -53,6 +54,7 @@ impl RulesTxn {
                 }
                 if definition.retrace {
                     return Ok(Some(ChosenObjectCost {
+                        minimum_power: None,
                         action: Discard,
                         filter: ChosenCostFilter::Type(CardKind::Land),
                         count: 1,
@@ -120,6 +122,52 @@ impl RulesTxn {
         Ok(eligible)
     }
 
+    fn crew_power(&self, object: ObjectId) -> Result<Quantity, String> {
+        self.characteristics(object)?
+            .power
+            .ok_or("crew member has no power".into())
+    }
+
+    /// CR 702.122a: each legal subset is represented once, in ascending
+    /// identity order. A candidate is reachable iff the higher positive
+    /// contributors can bring its prefix to the threshold.
+    fn crew_choices(
+        &self,
+        eligible: &[ObjectId],
+        prefix: &[ObjectId],
+        minimum: u32,
+    ) -> Result<(Vec<ObjectId>, bool), String> {
+        if !valid_selection_prefix(prefix, eligible) {
+            return Ok((vec![], false));
+        }
+        let required = Quantity::from(i64::from(minimum));
+        let mut current = Quantity::zero();
+        for &object in prefix {
+            current.add(&self.crew_power(object)?);
+        }
+        let complete = current >= required;
+        let mut suffix = Quantity::zero();
+        let mut choices = vec![];
+        for &object in eligible
+            .iter()
+            .rev()
+            .take_while(|id| prefix.last().is_none_or(|last| *id > last))
+        {
+            let power = self.crew_power(object)?;
+            let mut maximum = current.clone();
+            maximum.add(&power);
+            maximum.add(&suffix);
+            if maximum >= required {
+                choices.push(object);
+            }
+            if power > Quantity::zero() {
+                suffix.add(&power);
+            }
+        }
+        choices.reverse();
+        Ok((choices, complete))
+    }
+
     pub(super) fn can_choose_cost(
         &self,
         player: PlayerId,
@@ -127,6 +175,10 @@ impl RulesTxn {
         cost: &ChosenObjectCost,
     ) -> Result<bool, String> {
         let eligible = self.eligible_cost_objects(player, source, cost)?;
+        if let Some(minimum) = cost.minimum_power {
+            let (choices, complete) = self.crew_choices(&eligible, &[], minimum)?;
+            return Ok(complete || !choices.is_empty());
+        }
         let Ok(count) = usize::try_from(cost.count) else {
             return Ok(false);
         };
@@ -172,6 +224,22 @@ impl RulesTxn {
         let cost = self
             .invocation_chosen_cost(entry)?
             .ok_or("missing chosen-object cost")?;
+        if let Some(minimum) = cost.minimum_power {
+            let eligible = self.eligible_cost_objects(entry.controller, entry.source, &cost)?;
+            let (choices, complete) = self.crew_choices(&eligible, selected, minimum)?;
+            return Ok((complete || !choices.is_empty()).then(|| {
+                self.pick(
+                    entry.controller,
+                    Reason::ChosenObjectCost { action: Tap },
+                    choices
+                        .into_iter()
+                        .map(|object| Candidate::Object { object })
+                        .collect(),
+                    u32::from(!complete),
+                    1,
+                )
+            }));
+        }
         let eligible = self.next_chosen_objects(entry, &cost, selected)?;
         Ok((!eligible.is_empty()).then(|| {
             self.pick_objects(
@@ -194,6 +262,33 @@ impl RulesTxn {
         let cost = self
             .invocation_chosen_cost(entry)?
             .ok_or("missing chosen-object cost")?;
+        if let Some(minimum) = cost.minimum_power {
+            let eligible = self.eligible_cost_objects(entry.controller, entry.source, &cost)?;
+            let (choices, complete) = self.crew_choices(&eligible, &selected, minimum)?;
+            if choices.is_empty() && !complete {
+                let undo = cast.undo_mana;
+                self.reverse_cast(cast, "crew cost no longer payable", undo)?;
+                return Ok(self.stabilize()?);
+            }
+            let picked = self
+                .rules_mut()
+                .pending
+                .take()
+                .ok_or("missing crew selection")?
+                .objects()?;
+            if let [object] = picked.as_slice()
+                && choices.binary_search(object).is_ok()
+            {
+                selected.push(*object);
+                self.rules_mut().frame = Frame::ChosenObjectCost { cast, selected };
+                return Ok(());
+            }
+            if picked.is_empty() && complete {
+                return self.payment_step_with_objects(cast, &selected);
+            }
+            self.rules_mut().frame = Frame::ChosenObjectCost { cast, selected };
+            return Ok(());
+        }
         let eligible = self.next_chosen_objects(entry, &cost, &selected)?;
         if eligible.is_empty() {
             let undo = cast.undo_mana;
@@ -231,9 +326,12 @@ impl RulesTxn {
             };
         };
         let eligible = self.eligible_cost_objects(entry.controller, entry.source, &cost)?;
-        if u32::try_from(selected.len()) != Ok(cost.count)
-            || !valid_selection_prefix(selected, &eligible)
-        {
+        let payable = if let Some(minimum) = cost.minimum_power {
+            self.crew_choices(&eligible, selected, minimum)?.1
+        } else {
+            u32::try_from(selected.len()) == Ok(cost.count)
+        };
+        if !payable || !valid_selection_prefix(selected, &eligible) {
             return Err("chosen-object cost is not payable".into());
         }
         let occurrences = selected
@@ -380,7 +478,7 @@ impl RulesTxn {
             spending,
             &cast.spending_restricted,
         )?;
-        if (!prefix.is_empty() && self.next_chosen_objects(entry, &cost, prefix)?.is_empty())
+        if (!prefix.is_empty() && self.chosen_cost_request(prefix)?.is_none())
             || (cost.mana.is_none() && (!cast.mana_activations.is_empty() || cast.undo_mana))
         {
             return Err("snapshot chosen-object cost progress invariant".into());
@@ -456,7 +554,23 @@ impl RulesTxn {
         } else {
             paid.as_slice()
         };
-        if u32::try_from(chosen.len()) != Ok(cost.count)
+        let payable = if let Some(minimum) = cost.minimum_power {
+            let mut total = Quantity::zero();
+            for object in chosen {
+                total.add(
+                    object
+                        .before
+                        .characteristics
+                        .power
+                        .as_ref()
+                        .ok_or("snapshot crew member lacks power")?,
+                );
+            }
+            total >= Quantity::from(i64::from(minimum))
+        } else {
+            u32::try_from(chosen.len()) == Ok(cost.count)
+        };
+        if !payable
             || !chosen
                 .windows(2)
                 .all(|w| w[0].before.object.card < w[1].before.object.card)

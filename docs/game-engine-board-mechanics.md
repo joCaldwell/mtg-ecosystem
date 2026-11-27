@@ -202,6 +202,11 @@ a resolving animation grants it (CR 613.8). Ordered setters apply by source
 or creation timestamp (CR 613.7). Simultaneous competing setters need a
 timestamp choice and reject (CR 613.7m).
 
+Vehicles have printed power and toughness only while they are creatures
+(CR 301.7). Crew adds artifact and creature in layer 4 until cleanup, leaving
+its printed stats subject to the usual layer 7 effects. Attack eligibility
+uses the Vehicle's continuous control even if it began the turn as an artifact.
+
 An Aura, Equipment or self static can also set card types, creature subtypes
 or basic land types, and a God's devotion condition can remove Creature
 (CR 205.1a, 700.5); a filtered scope can set basic land types ("nonbasic
