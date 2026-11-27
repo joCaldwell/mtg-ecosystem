@@ -341,21 +341,24 @@ fn ordinary_top_library_instruction_precedes_existing_order_and_draws_once() {
     ));
 }
 
-fn damage(g: &mut Game, source: u32, player: u8, amount: i64) {
+fn damage(g: &mut Game, source: u32, recipient: DamageRecipient, amount: i64) {
     let source = g.object_id(CardId(source)).unwrap();
-    g.commit(
-        ProposedEvent::CombatDamage {
-            damage: vec![DamageOccurrence {
-                source,
-                controller: g.current(source).unwrap().controller,
-                recipient: DamageRecipient::Player {
-                    player: PlayerId(player),
-                },
-                amount: Quantity::from(amount),
-            }],
-        },
-        BatchCause::Combat,
-    )
+    // Set the private fixture's power so the production assignment check
+    // still proves each exact hit used in the commander ledger assertions.
+    let oracle_id = g.definition(source.card).unwrap().oracle_id.clone();
+    Arc::make_mut(&mut Arc::make_mut(&mut g.prepared).catalog)
+        .definitions
+        .iter_mut()
+        .find(|definition| definition.oracle_id == oracle_id)
+        .unwrap()
+        .characteristics
+        .power = Some(amount.into());
+    g.commit_combat_damage(vec![DamageOccurrence {
+        source,
+        controller: g.current(source).unwrap().controller,
+        recipient,
+        amount: amount.into(),
+    }])
     .unwrap();
 }
 #[test]
@@ -379,23 +382,25 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
         .record_damage(CardId(0), PlayerId(2), true, &Quantity::zero())
         .unwrap();
     assert_eq!(g.commander_ledger(), &initial_ledger);
-    let source = g.object_id(CardId(0)).unwrap();
     let target = g.object_id(CardId(99)).unwrap();
-    g.commit(
-        ProposedEvent::CombatDamage {
-            damage: vec![DamageOccurrence {
-                source,
-                controller: PlayerId(0),
-                recipient: DamageRecipient::Permanent { object: target },
-                amount: Quantity::from(1),
-            }],
-        },
-        BatchCause::Combat,
-    )
-    .unwrap();
+    damage(&mut g, 0, DamageRecipient::Permanent { object: target }, 1);
     assert_eq!(g.commander_ledger(), &initial_ledger);
-    damage(&mut g, 0, 2, 10);
-    damage(&mut g, 99, 2, 10);
+    damage(
+        &mut g,
+        0,
+        DamageRecipient::Player {
+            player: PlayerId(2),
+        },
+        10,
+    );
+    damage(
+        &mut g,
+        99,
+        DamageRecipient::Player {
+            player: PlayerId(2),
+        },
+        10,
+    );
     assert!(g.commander_ledger().combat_loss_candidates().is_empty());
     g.state
         .rules
@@ -423,7 +428,14 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
         .unwrap()
         .controller = PlayerId(3);
     g.state.rules.players[2].life = Quantity::from(100);
-    damage(&mut g, 0, 2, 11);
+    damage(
+        &mut g,
+        0,
+        DamageRecipient::Player {
+            player: PlayerId(2),
+        },
+        11,
+    );
     assert_eq!(
         g.commander_ledger().combat_loss_candidates(),
         vec![PlayerId(2)]
@@ -457,7 +469,14 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
 #[test]
 fn commander_and_life_loss_candidates_commit_one_simultaneous_wave() {
     let mut g = Game::new(prepared(ScenarioConfig::commander_damage()));
-    damage(&mut g, 0, 1, 21);
+    damage(
+        &mut g,
+        0,
+        DamageRecipient::Player {
+            player: PlayerId(1),
+        },
+        21,
+    );
     g.state.rules.players[2].life = Quantity::zero();
     g.state.rules.players[3].failed_draw = true;
     g.stabilize().unwrap();
@@ -567,34 +586,88 @@ fn library_order_dependencies_and_late_damage_failure_roll_back_atomically() {
         .is_err()
     );
     assert_eq!(g.snapshot().unwrap(), before);
-    let mut g = Game::new(prepared(ScenarioConfig::commander_damage()));
-    let before = g.snapshot().unwrap();
-    let source = g.object_id(CardId(0)).unwrap();
-    assert!(
-        g.commit(
-            ProposedEvent::CombatDamage {
-                damage: vec![
-                    DamageOccurrence {
-                        source,
-                        controller: PlayerId(0),
-                        recipient: DamageRecipient::Player {
-                            player: PlayerId(1)
-                        },
-                        amount: Quantity::from(18)
-                    },
-                    DamageOccurrence {
-                        source,
-                        controller: PlayerId(0),
-                        recipient: DamageRecipient::Player {
-                            player: PlayerId(2)
-                        },
-                        amount: Quantity::from(-1)
-                    },
-                ]
+    let mut fixture = prepared(ScenarioConfig::commander_damage());
+    fixture.config.cards.push(CardSetup {
+        id: CardId(99),
+        oracle_id: YARGLE.into(),
+        owner: PlayerId(0),
+        controller: PlayerId(0),
+        zone: Zone::Battlefield,
+    });
+    fixture.config.cards.push(CardSetup {
+        id: CardId(98),
+        oracle_id: BEARS.into(),
+        owner: PlayerId(1),
+        controller: PlayerId(1),
+        zone: Zone::Battlefield,
+    });
+    let mut g = Game::with_trace(fixture, TraceMode::Detailed);
+    let damage = vec![
+        DamageOccurrence {
+            source: g.object_id(CardId(0)).unwrap(),
+            controller: PlayerId(0),
+            recipient: DamageRecipient::Player {
+                player: PlayerId(1),
             },
-            BatchCause::Combat
+            amount: Quantity::from(18),
+        },
+        DamageOccurrence {
+            source: g.object_id(CardId(99)).unwrap(),
+            controller: PlayerId(0),
+            recipient: DamageRecipient::Permanent {
+                object: g.object_id(CardId(98)).unwrap(),
+            },
+            amount: Quantity::from(18),
+        },
+    ];
+    g.prepare_combat_damage(damage).unwrap();
+    let transaction = g.damage_transaction().unwrap();
+    g.validate_damage_transaction(transaction).unwrap();
+    let id = transaction.id;
+    let land = g.object_id(CardId(1)).unwrap();
+    let state = g.state.clone();
+    let trace = g.trace.clone();
+
+    // The ordered commit writes life, marked damage and commander history,
+    // then moves the land. The tap's facts lookup fails on its old incarnation.
+    assert_eq!(
+        g.commit_batch(
+            BatchCause::Combat,
+            EventGroup::Ordered {
+                children: vec![
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::CommitDamage { transaction: id },
+                    },
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::PutOnTopOwnerLibrary { object: land },
+                    },
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Tap { object: land },
+                    },
+                ],
+            },
         )
-        .is_err()
+        .unwrap_err(),
+        "stale or absent object incarnation"
+    );
+    assert_eq!(g.state, state);
+    assert_eq!(g.trace, trace);
+
+    // A negative amount fails pre-write validation of the damage transaction.
+    let Frame::DamageEffects { transaction } = &mut g.state.rules.frame else {
+        panic!("missing prepared combat damage");
+    };
+    transaction.entries[1].amount = Quantity::from(-1);
+    let before = g.snapshot().unwrap();
+    assert_eq!(
+        g.commit_batch(
+            BatchCause::Combat,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::CommitDamage { transaction: id },
+            },
+        )
+        .unwrap_err(),
+        "damage source identity/quantity invariant"
     );
     assert_eq!(g.snapshot().unwrap(), before);
 }

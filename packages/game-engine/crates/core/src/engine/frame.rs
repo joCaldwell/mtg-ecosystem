@@ -22,21 +22,10 @@ mod model;
 pub use decider::Decider;
 pub use model::*;
 
-/// How a frame holds an invocation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Hold {
-    /// The frame is resolving this invocation, possibly beneath state-based
-    /// actions, a legend-rule choice or trigger placement that will resume it.
-    Resolving,
-    /// The invocation waits beneath its owned child announcement, a payment
-    /// or a mana ability.
-    Suspended,
-}
-
 /// One thing a frame holds: an invocation it will resume, or the prepared
 /// entries of a damage transaction, which keep source appearances.
 pub enum Held<Damage> {
-    Invocation { hold: Hold, id: StackId },
+    Invocation(StackId),
     Damage(Damage),
 }
 
@@ -48,7 +37,6 @@ macro_rules! frame_walk {
     ($walk:ident, $walk_damage:ident, $Held:ident $(, $mutability:tt)?) => {
         fn $walk_damage<'a>(
             transaction: &'a $($mutability)? DamageTransaction,
-            hold: Hold,
             visit: &mut dyn FnMut($Held<'a>),
         ) {
             let DamageTransaction {
@@ -64,25 +52,18 @@ macro_rules! frame_walk {
             match & $($mutability)? *continuation {
                 DamageContinuation::Combat { .. } => {}
                 DamageContinuation::Mana { activation: _ } => {}
-                DamageContinuation::Instruction { frame } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
+                DamageContinuation::Instruction { frame } => visit($Held::Invocation(frame.stack_id)),
             }
         }
 
         fn $walk<'a>(
             frame: &'a $($mutability)? Frame,
-            hold: Hold,
             visit: &mut dyn FnMut($Held<'a>),
         ) {
             match frame {
                 Frame::Kernel { task: _ } => {}
                 Frame::GraveyardGroup { tx } => match & $($mutability)? tx.finish {
-                    GroupFinish::Instruction { frame, result: _ } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
+                    GroupFinish::Instruction { frame, result: _ } => visit($Held::Invocation(frame.stack_id)),
                     GroupFinish::Cleanup => {}
                     GroupFinish::Payment { resume: _ } => {},
                     GroupFinish::StateBased {
@@ -120,30 +101,18 @@ macro_rules! frame_walk {
                     remaining: _,
                     choices: _,
                     source_block: _,
-                } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
-                Frame::ResolutionPayment { frame, payment: _ } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
+                } => visit($Held::Invocation(frame.stack_id)),
+                Frame::ResolutionPayment { frame, payment: _ } => visit($Held::Invocation(frame.stack_id)),
                 Frame::ManaAbility { activation: _ } => {}
                 Frame::TurnFaceUp { payment: _ } => {}
-                Frame::DamageEffects { transaction } => $walk_damage(transaction, hold, visit),
-                Frame::CounterPlacement { transaction } => visit($Held::Invocation {
-                    hold,
-                    id: transaction.frame.stack_id,
-                }),
+                Frame::DamageEffects { transaction } => $walk_damage(transaction, visit),
+                Frame::CounterPlacement { transaction } => visit($Held::Invocation(transaction.frame.stack_id)),
                 Frame::TriggerOrder { placement: _ } => {}
                 Frame::TriggerTargets {
                     placement: _,
                     stack_id: _,
                 } => {},
-                Frame::ResolutionChoice { frame, choice: _ } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
+                Frame::ResolutionChoice { frame, choice: _ } => visit($Held::Invocation(frame.stack_id)),
                 Frame::CommanderReturn {
                     object: _,
                     destination: _,
@@ -155,25 +124,16 @@ macro_rules! frame_walk {
                         remaining: _,
                         choices: _,
                         source_block: _,
-                    } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
+                    } => visit($Held::Invocation(frame.stack_id)),
                     CommanderContinuation::SpellMove {
                         frame,
                         source_block: _,
-                    } | CommanderContinuation::LookHand { frame, .. } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
+                    } | CommanderContinuation::LookHand { frame, .. } => visit($Held::Invocation(frame.stack_id)),
                     CommanderContinuation::ResolutionDraw {
                         frame,
                         player: _,
                         source_block: _,
-                    } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
+                    } => visit($Held::Invocation(frame.stack_id)),
                     CommanderContinuation::Search {
                         frame,
                         player: _,
@@ -181,10 +141,7 @@ macro_rules! frame_walk {
                         remaining: _,
                         choices: _,
                         source_block: _,
-                    } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
+                    } => visit($Held::Invocation(frame.stack_id)),
                     CommanderContinuation::Draw { player: _ } => {}
                     CommanderContinuation::StateBased { resume: _ } => {},
                     CommanderContinuation::StateBasedBatch {
@@ -198,10 +155,7 @@ macro_rules! frame_walk {
                     cleanup: _,
                     changed: _,
                 } => {},
-                Frame::Resolve { frame } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
+                Frame::Resolve { frame } => visit($Held::Invocation(frame.stack_id)),
                 // No invocation, damage transaction or resumed frame.
                 Frame::Setup
                 | Frame::Attackers
@@ -230,19 +184,19 @@ frame_walk!(walk_mut, walk_damage_mut, HeldMut, mut);
 
 macro_rules! frame_parent {
     ($name:ident $(, $mutable:tt)?) => {
-    fn $name(&$($mutable)? self) -> Option<(&$($mutable)? FrameLink, Hold)> {
+    fn $name(&$($mutable)? self) -> Option<&$($mutable)? FrameLink> {
         match self {
-            Self::ResolutionPayment {payment, ..} => Some((&$($mutable)? payment.resume, Hold::Resolving)),
-            Self::Kernel { task } => Some((&$($mutable)? task.resume, Hold::Resolving)),
+            Self::ResolutionPayment {payment, ..} => Some(&$($mutable)? payment.resume),
+            Self::Kernel { task } => Some(&$($mutable)? task.resume),
             Self::Stabilize { resume, .. } | Self::LegendRule { resume, .. } => {
-                Some((resume, Hold::Resolving))
+                Some(resume)
             }
-            Self::BattlefieldEntry { entry } => Some((&$($mutable)? entry.resume, Hold::Resolving)),
-            Self::ManaSourceChoice { resume, .. } => Some((resume, Hold::Suspended)),
-            Self::ManaAbility { activation } => Some((&$($mutable)? activation.resume, Hold::Suspended)),
+            Self::BattlefieldEntry { entry } => Some(&$($mutable)? entry.resume),
+            Self::ManaSourceChoice { resume, .. } => Some(resume),
+            Self::ManaAbility { activation } => Some(&$($mutable)? activation.resume),
             Self::GraveyardGroup { tx } => match &$($mutable)? tx.finish {
-                GroupFinish::StateBased { resume, .. } => Some((resume, Hold::Resolving)),
-                GroupFinish::Payment { resume } => Some((resume, Hold::Suspended)),
+                GroupFinish::StateBased { resume, .. } => Some(resume),
+                GroupFinish::Payment { resume } => Some(resume),
                 GroupFinish::Cleanup | GroupFinish::Instruction { .. } => None,
             },
             Self::CommanderReturn {
@@ -250,14 +204,14 @@ macro_rules! frame_parent {
                     CommanderContinuation::StateBased { resume }
                     | CommanderContinuation::StateBasedBatch { resume, .. },
                 ..
-            } => Some((resume, Hold::Resolving)),
+            } => Some(resume),
             Self::TriggerOrder { placement } | Self::TriggerTargets { placement, .. } => {
-                Some((&$($mutable)? placement.resume, Hold::Resolving))
+                Some(&$($mutable)? placement.resume)
             }
             Self::DamageEffects { transaction } => {
                 match &$($mutable)? transaction.continuation {
                     DamageContinuation::Mana { activation } => {
-                        Some((&$($mutable)? activation.resume, Hold::Suspended))
+                        Some(&$($mutable)? activation.resume)
                     }
                     DamageContinuation::Combat { .. } | DamageContinuation::Instruction { .. } => None,
                 }
@@ -312,21 +266,17 @@ impl Frame {
     frame_parent!(parent_ref);
     frame_parent!(parent_mut, mut);
 
-    pub fn parent(&self) -> Option<(FrameLink, Hold)> {
-        self.parent_ref().map(|(link, hold)| (*link, hold))
+    pub fn parent(&self) -> Option<FrameLink> {
+        self.parent_ref().copied()
     }
 
     pub fn for_each_held<'a>(&'a self, frames: &'a [Frame], visit: &mut dyn FnMut(HeldRef<'a>)) {
         let mut frame = self;
-        let mut hold = Hold::Resolving;
         loop {
-            walk(frame, hold, visit);
-            let Some((parent, kind)) = frame.parent() else {
+            walk(frame, visit);
+            let Some(parent) = frame.parent() else {
                 break;
             };
-            if kind == Hold::Suspended {
-                hold = kind;
-            }
             frame = &frames[parent.0];
         }
     }
@@ -337,33 +287,15 @@ impl Frame {
         visit: &mut dyn FnMut(HeldMut<'a>),
     ) {
         let mut frame = self;
-        let mut hold = Hold::Resolving;
         loop {
             let parent = frame.parent();
-            walk_mut(frame, hold, visit);
-            let Some((parent, kind)) = parent else { break };
-            if kind == Hold::Suspended {
-                hold = kind;
-            }
+            walk_mut(frame, visit);
+            let Some(parent) = parent else { break };
             let (rest, top) = frames.split_at_mut(parent.0);
             frame = &mut top[0];
             frames = rest;
         }
     }
-    pub fn resolving_invocation(&self, frames: &[Frame]) -> Option<StackId> {
-        let mut resolving = None;
-        self.for_each_held(frames, &mut |held| {
-            if let Held::Invocation {
-                hold: Hold::Resolving,
-                id,
-            } = held
-            {
-                resolving.get_or_insert(id);
-            }
-        });
-        resolving
-    }
-
     /// The announcement this frame is in the middle of, if it is a casting or
     /// activation stage. Every variant is named.
     pub fn announcement(&self) -> Option<&Casting> {
@@ -452,7 +384,7 @@ impl Frame {
     pub fn holds(&self, frames: &[Frame], id: StackId) -> bool {
         let mut found = false;
         self.for_each_held(frames, &mut |held| {
-            found |= matches!(held, Held::Invocation { hold: _, id: held } if held == id);
+            found |= matches!(held, Held::Invocation(held) if held == id);
         });
         found
     }
@@ -550,7 +482,7 @@ impl RulesTxn {
         if base > rules.frames.len() {
             return Err("invalid kernel leaf marker".into());
         }
-        let Some((top, _)) = rules.frame.parent() else {
+        let Some(top) = rules.frame.parent() else {
             rules.frames.truncate(base);
             return Ok(());
         };
@@ -564,14 +496,14 @@ impl RulesTxn {
             .enumerate()
             .skip(base)
             .all(|(depth, frame)| {
-                frame.parent().map(|(link, _)| link.0) == (depth > base).then(|| depth - 1)
+                frame.parent().map(|link| link.0) == (depth > base).then(|| depth - 1)
             })
         {
             return Ok(());
         }
         let mut path = vec![top.0];
         let mut next = top;
-        while let Some((parent, _)) = rules.frames[next.0].parent() {
+        while let Some(parent) = rules.frames[next.0].parent() {
             if parent.0 < base || parent.0 >= next.0 {
                 return Err("invalid saved frame ancestry".into());
             }
@@ -581,12 +513,12 @@ impl RulesTxn {
         for (depth, from) in path.iter().rev().copied().enumerate() {
             let depth = base + depth;
             rules.frames.swap(depth, from);
-            if let Some((link, _)) = rules.frames[depth].parent_mut() {
+            if let Some(link) = rules.frames[depth].parent_mut() {
                 link.0 = depth - 1;
             }
         }
         rules.frames.truncate(base + path.len());
-        rules.frame.parent_mut().ok_or("missing saved parent")?.0.0 = base + path.len() - 1;
+        rules.frame.parent_mut().ok_or("missing saved parent")?.0 = base + path.len() - 1;
         Ok(())
     }
 }

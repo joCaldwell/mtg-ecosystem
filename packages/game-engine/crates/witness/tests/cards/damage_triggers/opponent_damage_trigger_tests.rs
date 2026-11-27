@@ -1,5 +1,5 @@
 //! Exact-source V2 combat/recovery witnesses and explicitly private event
-//! witnesses for noncombat occurrences (the source has no damage activation).
+//! witnesses with a fixture activation for noncombat damage.
 use super::*;
 fn catalog() -> Catalog {
     let mut c = FixtureCatalog::Witness.get().clone();
@@ -185,20 +185,27 @@ fn witness(g: &Game) -> TriggerEventWitness {
     )
     .unwrap()
 }
-fn legacy(g: &mut Game, recipient: DamageRecipient, amount: i64) -> Result<EventOutcome, String> {
-    let source = g.object_before(Driver::object(g, 0)).unwrap();
-    g.commit(
-        ProposedEvent::NoncombatDamage {
-            damage: Box::new(NoncombatDamageOccurrence {
-                controller: source.controller,
-                source,
-                recipient,
-                amount: amount.into(),
-            }),
-        },
-        BatchCause::Fixture,
-    )
+fn noncombat_game(mode: TraceMode) -> Game {
+    let prepared = prepared(&[("Thieving Otter", 2, 0, Zone::Battlefield)]);
+    let mut catalog = prepared.catalog.as_ref().clone();
+    let oracle_id = &prepared.config.cards[0].oracle_id;
+    Driver::add_damage_activation(
+        catalog
+            .definitions
+            .iter_mut()
+            .find(|d| &d.oracle_id == oracle_id)
+            .unwrap(),
+        1.into(),
+    );
+    Game::with_trace(witness_scenario(catalog, prepared.config), mode)
 }
+
+fn prepare_hit(g: &mut Game, recipient: DamageRecipient) -> DamageTransactionId {
+    let source = Driver::object(g, 0);
+    Driver::prepare_damage_activation(g, source, 0, recipient);
+    g.damage_transaction().unwrap().id
+}
+
 #[test]
 fn compiled_otter_combat_trigger_round_trips() {
     let mut game = game(TraceMode::Off);
@@ -235,8 +242,8 @@ fn opponent_damage_exact_source_combat_and_departures() {
         pending(&mut g);
         let frozen = witness(&g);
         assert!(
-            matches!(&frozen, TriggerEventWitness::DamageDealt { kind: DamageKind::Combat, damage, transaction: Some(_), .. }
-                if damage.source.object == source && damage.source.owner == PlayerId(2) && damage.controller == PlayerId(0) && damage.amount == 2.into())
+            matches!(&frozen, TriggerEventWitness::DamageDealt { kind: DamageKind::Combat, damage, transaction, .. }
+                if transaction.0 < g.state.rules.next_damage_transaction_id && damage.source.object == source && damage.source.owner == PlayerId(2) && damage.controller == PlayerId(0) && damage.amount == 2.into())
         );
         assert_eq!(g.state.rules.pending_triggers.len(), 1);
 
@@ -258,9 +265,8 @@ fn opponent_damage_exact_source_combat_and_departures() {
     }
 }
 #[test]
-fn opponent_damage_private_noncombat_leaf_multiplicity_and_negative_recipients() {
-    let mode = TraceMode::Detailed;
-    let mut g = game(mode);
+fn opponent_damage_private_noncombat_multiplicity_and_negative_recipients() {
+    let mut g = noncombat_game(TraceMode::Off);
     let source = Driver::object(&g, 0);
     for recipient in [
         DamageRecipient::Player {
@@ -268,8 +274,10 @@ fn opponent_damage_private_noncombat_leaf_multiplicity_and_negative_recipients()
         },
         DamageRecipient::Permanent { object: source },
     ] {
-        legacy(&mut g, recipient, 1).unwrap();
-        assert!(g.state.rules.pending_triggers.is_empty());
+        let mut branch = g.fork();
+        prepare_hit(&mut branch, recipient);
+        branch.damage_effect_step().unwrap();
+        assert!(branch.state.rules.pending_triggers.is_empty());
     }
     g.commit(
         ProposedEvent::LoseLife {
@@ -280,63 +288,59 @@ fn opponent_damage_private_noncombat_leaf_multiplicity_and_negative_recipients()
     )
     .unwrap();
     assert!(g.state.rules.pending_triggers.is_empty());
-    let before = g.state.clone();
-    assert!(
-        legacy(
-            &mut g,
-            DamageRecipient::Player {
-                player: PlayerId(1)
-            },
-            0
-        )
-        .is_err()
-    );
-    assert_eq!(g.state, before);
     for _ in 0..2 {
-        legacy(
+        let id = prepare_hit(
             &mut g,
             DamageRecipient::Player {
                 player: PlayerId(1),
             },
-            1,
-        )
-        .unwrap();
+        );
+        let mut invalid = g.fork();
+        let Frame::DamageEffects { transaction } = &mut invalid.state.rules.frame else {
+            panic!("missing transaction")
+        };
+        transaction.entries[0].amount = 0.into();
+        let before = invalid.state.clone();
+        assert!(invalid.damage_effect_step().is_err());
+        assert_eq!(invalid.state, before);
+
+        g.damage_effect_step().unwrap();
+        assert_eq!(g.state.rules.pending_triggers.len(), 1);
+        assert!(matches!(witness(&g), TriggerEventWitness::DamageDealt {
+            kind: DamageKind::Noncombat, transaction, damage, ..
+        } if transaction == id && damage.amount == 1.into()));
+        g.validate_trigger_state().unwrap();
+        placed(&mut g);
+        resolve(&mut g);
+        g.commit(ProposedEvent::Untap { object: source }, BatchCause::Fixture)
+            .unwrap();
     }
-    assert_eq!(g.state.rules.pending_triggers.len(), 2);
-    assert!(
-        matches!(witness(&g), TriggerEventWitness::DamageDealt { kind: DamageKind::Noncombat, transaction: None, damage, .. } if damage.amount == 1.into())
-    );
-    g.validate_trigger_state().unwrap();
-    // These direct typed-event fixtures do not claim accepted-input replay.
+    assert_eq!(g.state.rules.next_trigger_id, 2);
 }
+
 #[test]
 fn opponent_damage_private_collection_uses_observer_controller_and_frozen_restore_relation() {
     for player in [0, 2, 3] {
-        let mut g = game(TraceMode::Detailed);
-        let before = g.fork();
-        let source = Driver::object(&g, 0);
-        let damage = NoncombatDamageOccurrence {
-            source: g.object_before(source).unwrap(),
-            controller: PlayerId(0),
-            recipient: DamageRecipient::Player {
+        let mut g = noncombat_game(TraceMode::Detailed);
+        let id = prepare_hit(
+            &mut g,
+            DamageRecipient::Player {
                 player: PlayerId(player),
             },
-            amount: 1.into(),
-        };
+        );
+        let mut before = g.fork();
+        let cause = g.damage_transaction().unwrap().cause.clone();
         let batch = g
             .commit_batch(
-                BatchCause::Fixture,
+                cause,
                 EventGroup::Occurrence {
-                    proposed: ProposedEvent::NoncombatDamage {
-                        damage: Box::new(damage),
-                    },
+                    proposed: ProposedEvent::CommitDamage { transaction: id },
                 },
             )
             .unwrap();
-        // Private collector-only control change: assignment facts and invocation
-        // controller originally remain P0, while the source's event observer is
-        // P2. Vary the invocation controller independently to P1 below.
-        // This is not a reachable pending-transaction or replay claim.
+        // Private collector-only control change. Keep the frozen transaction
+        // and actual member in agreement while varying their invocation
+        // controller independently of P0's assignment facts and P2's observer.
         g.state.rules.pending_triggers.clear();
         g.state
             .rules
@@ -344,11 +348,16 @@ fn opponent_damage_private_collection_uses_observer_controller_and_frozen_restor
             .get_mut(&CardId(0))
             .unwrap()
             .controller = PlayerId(2);
+        let Frame::DamageEffects { transaction } = &mut before.state.rules.frame else {
+            panic!("missing transaction")
+        };
+        transaction.entries[0].controller = PlayerId(1);
         let mut occurrence = batch.occurrences[0].clone();
-        if let EventOutcome::NoncombatDamageDealt { damage, .. } = &mut occurrence.actual {
-            damage.controller = PlayerId(1);
-        }
-        g.collect_triggers(&BatchCause::Fixture, &before, &[occurrence])
+        let EventOutcome::DamageCommitted { actual, .. } = &mut occurrence.actual else {
+            panic!("missing damage outcome")
+        };
+        actual[0].controller = PlayerId(1);
+        g.collect_triggers(&batch.cause, &before, &[occurrence])
             .unwrap();
         assert_eq!(
             g.state.rules.pending_triggers.len(),
@@ -420,7 +429,7 @@ fn opponent_damage_private_transaction_collection_checks_actual_member_proof() {
     g.collect_triggers(&batch.cause, &before, &batch.occurrences)
         .unwrap();
     assert!(matches!(witness(&g), TriggerEventWitness::DamageDealt {
-        kind: DamageKind::Noncombat, transaction: Some(tx), .. } if tx == id));
+        kind: DamageKind::Noncombat, transaction: tx, .. } if tx == id));
     g.validate_trigger_state().unwrap();
     for field in [
         "transaction",

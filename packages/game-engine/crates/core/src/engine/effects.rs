@@ -2451,7 +2451,7 @@ impl RulesTxn {
                 current,
             });
         }
-        let life_gains = self.damage_keywords(&actual, Some(&source_appearances))?;
+        let life_gains = self.damage_keywords(&actual, &source_appearances)?;
         self.consume_prevention_shields(&tx)?;
         Ok(EventOutcome::DamageCommitted {
             life_gains,

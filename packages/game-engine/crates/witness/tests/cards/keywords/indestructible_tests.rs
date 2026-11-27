@@ -297,8 +297,8 @@ fn indestructible_bounce_moves_exact_incarnation() {
 }
 #[test]
 fn indestructible_typed_nonlethal_deathtouch_lifelink_and_atomic_fault_control() {
-    // Typed event invariant control, not an invented card: Giant Growth is cast
-    // normally, then an exact Vampire Nighthawk damage leaf exercises deathtouch.
+    // Giant Growth resolves normally. A -1/-1 counter on the Nighthawk
+    // makes its full combat assignment one nonlethal point of damage.
     let p = prepared(&[
         ("Darksteel Myr", false),
         ("Vampire Nighthawk", false),
@@ -310,18 +310,23 @@ fn indestructible_typed_nonlethal_deathtouch_lifelink_and_atomic_fault_control()
     let myr = Driver::object(&g, 0);
     cast(&mut g, 1, 2, vec![TargetEntity::Object { object: myr }]);
     let source = Driver::object(&g, 1);
+    g.state
+        .rules
+        .objects
+        .get_mut(&source.card)
+        .unwrap()
+        .counters = vec![CounterStack {
+        kind: mtg_contracts::kir::CounterKind::MinusOneMinusOne,
+        count: 1.into(),
+        timestamp: 0,
+    }];
     let life = g.state.rules.players[0].life.clone();
-    g.commit(
-        ProposedEvent::CombatDamage {
-            damage: vec![DamageOccurrence {
-                source,
-                controller: PlayerId(0),
-                recipient: DamageRecipient::Permanent { object: myr },
-                amount: 1.into(),
-            }],
-        },
-        BatchCause::StateBased,
-    )
+    g.commit_combat_damage(vec![DamageOccurrence {
+        source,
+        controller: PlayerId(0),
+        recipient: DamageRecipient::Permanent { object: myr },
+        amount: 1.into(),
+    }])
     .unwrap();
     assert_eq!(g.current(myr).unwrap().marked_damage, 1.into());
     assert!(g.current(myr).unwrap().deathtouch_damage);
