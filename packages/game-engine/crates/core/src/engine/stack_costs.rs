@@ -1325,3 +1325,64 @@ pub(crate) fn validate_hybrid_choice(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A land-return scenario whose battlefield land is given three loyalty
+    /// counters; loyalty payment reads only the row, not the card type.
+    fn loyal_source() -> (RulesTxn, ObjectId) {
+        let prepared = Prepared::admit(
+            Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap(),
+            ScenarioConfig::land_return(),
+        )
+        .unwrap();
+        let mut txn = RulesTxn::new(prepared);
+        let object = txn.state.rules.objects[&CardId(0)].id;
+        let row = txn.rules_mut().objects.get_mut(&object.card).unwrap();
+        assert!(row.present_on_battlefield() && row.controller == PlayerId(0));
+        row.loyalty_counters = 3.into();
+        (txn, object)
+    }
+
+    /// CR 606.4: `[0]` changes no counter and reports no change; `+N` and
+    /// `-N` report the balance before and after. Every payment stamps the
+    /// turn's activation use (CR 606.3), and a cost the balance cannot pay
+    /// is refused.
+    #[test]
+    fn loyalty_payment_reports_only_an_actual_counter_change() {
+        let turn = |txn: &RulesTxn| Some(txn.state.rules.turn.number);
+        for (change, paid) in [(0, None), (2, Some((3, 5))), (-3, Some((3, 0)))] {
+            let (mut txn, object) = loyal_source();
+            let expected = paid.map(|(previous, current): (i64, i64)| LoyaltyCostChange {
+                previous: previous.into(),
+                current: current.into(),
+            });
+            let mut counters_only = txn.fork();
+            assert_eq!(
+                counters_only.pay_loyalty_counters(object, &change.into()),
+                Ok(expected.clone()),
+                "{change}"
+            );
+            assert_eq!(
+                counters_only.current(object).unwrap().loyalty_used_turn,
+                None
+            );
+            assert_eq!(
+                txn.pay_loyalty(PlayerId(0), object, &change.into()),
+                Ok(expected.clone()),
+                "{change}"
+            );
+            let row = txn.current(object).unwrap();
+            let current = expected.map_or(3.into(), |c| c.current);
+            assert_eq!(row.loyalty_counters, current, "{change}");
+            assert_eq!(row.loyalty_used_turn, turn(&txn), "{change}");
+        }
+        let (mut txn, object) = loyal_source();
+        let before = txn.state.rules.objects[&object.card].clone();
+        assert!(txn.pay_loyalty(PlayerId(0), object, &(-4).into()).is_err());
+        assert!(txn.pay_loyalty_counters(object, &(-4).into()).is_err());
+        assert_eq!(txn.state.rules.objects[&object.card], before);
+    }
+}

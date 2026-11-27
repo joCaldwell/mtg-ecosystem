@@ -864,24 +864,47 @@ fn reversed_mana_sacrifice_restores_the_transformed_face() {
 
 /// CR 733.1: a restored snapshot may not hold a mana receipt whose
 /// captured source row could not have activated a battlefield mana ability:
-/// phased out, an Adventure permission, a future loyalty use or a broken
-/// attachment pair.
+/// off the battlefield, phased out, a hideaway link, an Adventure
+/// permission, a loyalty use stamped on turn 0 or a future turn, or a broken
+/// attachment pair (one half missing, or a timestamp not yet issued).
 #[test]
 fn restore_rejects_forged_mana_receipt_source_rows() {
     let (mut g, murder, theirs, _, treasure) = treasure_board();
     failed_murder(&mut g, murder, theirs, treasure, |g| {
-        let turn = g.state.rules.turn.number;
-        let forgeries: [fn(&mut ObjectBefore, u64); 4] = [
+        let clock = (
+            g.state.rules.turn.number,
+            g.state.rules.next_attachment_timestamp,
+        );
+        let forgeries: [fn(&mut ObjectBefore, (u64, u64)); 9] = [
+            |row, _| row.zone = Zone::Graveyard { owner: row.owner },
             |row, _| {
                 row.phased_out = Some(PhaseReturn::Direct {
                     controller_at_phase_out: PlayerId(0),
                 })
             },
+            |row, _| {
+                row.hideaway = Some(
+                    serde_json::from_value(serde_json::json!({
+                        "card": row.object,
+                        "source": row.object,
+                        "source_block": 0,
+                        "source_handles": ["v0-o1", "v1-o1", "v2-o1", "v3-o1"],
+                        "lookers": [true, false, false, false],
+                    }))
+                    .unwrap(),
+                )
+            },
             |row, _| row.adventure_player = Some(PlayerId(0)),
-            |row, turn| row.loyalty_used_turn = Some(turn + 1),
+            |row, _| row.loyalty_used_turn = Some(0),
+            |row, (turn, _)| row.loyalty_used_turn = Some(turn + 1),
             |row, _| row.attachment_timestamp = Some(1),
+            |row, _| row.attached_to = Some(row.object),
+            |row, (_, next)| {
+                row.attached_to = Some(row.object);
+                row.attachment_timestamp = Some(next);
+            },
         ];
-        for forge in forgeries {
+        for (i, forge) in forgeries.into_iter().enumerate() {
             let mut f = g.fork();
             let (Frame::Mana { cast } | Frame::Payment { cast }) = &mut f.state.rules.frame else {
                 panic!("expected a mana window")
@@ -891,10 +914,11 @@ fn restore_rejects_forged_mana_receipt_source_rows() {
                 .iter_mut()
                 .find_map(|r| r.permanent.as_mut())
                 .unwrap();
-            forge(&mut receipt.source, turn);
+            forge(&mut receipt.source, clock);
             assert_eq!(
                 f.validate_state().map_err(|e| e.to_string()),
-                Err("invalid mana receipt source row".into())
+                Err("invalid mana receipt source row".into()),
+                "forgery {i}"
             );
         }
     });

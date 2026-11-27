@@ -403,9 +403,22 @@ fn planeswalker_loyalty_use_is_public_and_resets_on_reentry() {
     assert!(loyalty_is_used(&g));
     checked(&g);
     let snapshot: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-    for marker in [
-        None,
-        Some(g.state.rules.turn.number.checked_sub(1).unwrap()),
+    // On turn 1 the only earlier marker is turn 0, which no turn has had, so
+    // the general loyalty invariant rejects it before the paid-cost check.
+    let earlier = g.state.rules.turn.number.checked_sub(1).unwrap();
+    for (marker, expected) in [
+        (
+            None,
+            "snapshot paid loyalty activation lacks its turn marker",
+        ),
+        (
+            Some(earlier),
+            if earlier == 0 {
+                "snapshot loyalty invariant"
+            } else {
+                "snapshot paid loyalty activation lacks its turn marker"
+            },
+        ),
     ] {
         let mut forged = snapshot.clone();
         let object = forged["state"]["objects"]["0"].as_object_mut().unwrap();
@@ -418,10 +431,7 @@ fn planeswalker_loyalty_use_is_public_and_resets_on_reentry() {
         let error = Game::restore(g.prepared.as_ref().clone(), &forged.to_string())
             .err()
             .expect("restored paid loyalty activation without its current turn marker");
-        assert!(
-            error.contains("snapshot paid loyalty activation lacks its turn marker"),
-            "{error}"
-        );
+        assert!(error.contains(expected), "{error}");
     }
 
     resolve(&mut g);
