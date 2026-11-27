@@ -132,6 +132,10 @@ pub(super) fn actions_scenario() -> Prepared {
 }
 
 pub(super) fn cast_edict(prepared: Prepared) -> Game {
+    cast_edict_at(prepared, vec![PlayerId(1)])
+}
+
+pub(super) fn cast_edict_at(prepared: Prepared, targets: Vec<PlayerId>) -> Game {
     let mut game = Game::new(prepared);
     let answer = |game: &mut Game, response: Answer| {
         let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
@@ -144,7 +148,7 @@ pub(super) fn cast_edict(prepared: Prepared) -> Game {
         answer(&mut game, selected_answer)
     };
     {
-        let selected_answer = game.next_test_decision().player_targets(vec![PlayerId(1)]);
+        let selected_answer = game.next_test_decision().player_targets(targets);
         answer(&mut game, selected_answer)
     };
     for land in [2, 3] {

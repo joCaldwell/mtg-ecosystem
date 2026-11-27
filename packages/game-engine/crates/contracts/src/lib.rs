@@ -2614,11 +2614,11 @@ fn add_kernel_leaf_requirements(
         let capability = match verb {
             Verb::Draw {
                 player: player @ kir::PlayerExpr::Is { .. },
-                amount: fixed!(count),
+                amount: amount @ fixed!(_),
             } => {
                 if !player.is_you() {
                     Capability::TargetPlayerDrawV1
-                } else if *count == Quantity::from(1) {
+                } else if amount.is_reviewed_fixed_draw() {
                     Capability::ControllerDrawV1
                 } else {
                     Capability::ControllerCountedDrawV1

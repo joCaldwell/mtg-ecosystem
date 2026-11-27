@@ -15,14 +15,14 @@ pub(super) fn lower(cx: &mut StepCx<'_>, draw: &ast::EffectDraw) -> Result<Instr
         who,
         amount,
     } = draw;
-    if decided_by.is_some()
-        || starting_with.is_some()
+    if starting_with.is_some()
         || for_each_beyond.is_some()
         || for_each_vote.is_some()
         || duration.is_some()
     {
         return Err(step("draw", "qualified"));
     }
+    check_optional_chooser("draw", optional.is_some(), who, decided_by.as_deref())?;
     let player = match who.as_ref() {
         ast::PlayerRef::Owner(owner) => PlayerExpr::OwnerOf {
             object: kir::Ref::Target {

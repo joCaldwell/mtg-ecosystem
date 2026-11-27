@@ -48,12 +48,12 @@ impl Walk<'_, '_> {
                 _ => return unaudited("player relation without object facts"),
             }
         }
-        // Higher tiers keep their exact pre-pilot surface. This is a tier
-        // restriction after admission, not a second admission table.
-        if let Some(amount) = amount.as_fixed() {
+        // CR 121.2: the old lowering emitted two single draws for a fixed
+        // count of two. The sequence still commits each attempt on its own.
+        if let Some(fixed) = amount.as_fixed() {
             let target = self.player_target(player)? == Some(TargetDomain::AnyPlayer);
             match signature.verb {
-                EvaluatedVerb::Draw if *amount == Quantity::from(1) => {
+                EvaluatedVerb::Draw if amount.is_reviewed_fixed_draw() => {
                     if player.is_you() {
                         return Ok(Cell::DrawController);
                     }
@@ -61,7 +61,7 @@ impl Walk<'_, '_> {
                         return Ok(Cell::DrawTargetPlayer);
                     }
                 }
-                EvaluatedVerb::GainLife | EvaluatedVerb::LoseLife if *amount > Quantity::zero() => {
+                EvaluatedVerb::GainLife | EvaluatedVerb::LoseLife if *fixed > Quantity::zero() => {
                     if player.is_you() {
                         return Ok(Cell::LifeController);
                     }

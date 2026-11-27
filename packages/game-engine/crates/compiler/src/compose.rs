@@ -1128,13 +1128,18 @@ fn compose_face(
         // `lower` stops at the first failing block; `blockers` records the
         // first failure of each block and goes on to the next.
         let lowered = (|| -> Result<(), Failure> {
-            let ability: Block =
-                serde_json::from_str(raw.get()).map_err(|e| block_mirror_gap(raw.get(), &e))?;
             let label = source_block(block)?;
-            {
-                resolution.spans(block, &result.lines[block].text, &printed[block])?;
-            }
-            numbers_printed(&result.lines[block].text, raw.get())?;
+            let line = &result.lines[block].text;
+            resolution.spans(block, line, &printed[block])?;
+            let bound = if line.contains("you may have ") || line.contains("You may have ") {
+                printed::bind_evaluated_choosers(raw.get(), line, &resolution.segments(block)?)?
+            } else {
+                None
+            };
+            let lowering = bound.as_deref().unwrap_or(raw.get());
+            let ability: Block =
+                serde_json::from_str(lowering).map_err(|e| block_mirror_gap(lowering, &e))?;
+            numbers_printed(line, raw.get())?;
             let (activated, triggered) = (definition.activated.len(), definition.triggered.len());
             // A spell's printed blocks share one program; each announces its own
             // targets after the earlier blocks' (CR 601.2c).

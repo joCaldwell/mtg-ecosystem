@@ -111,6 +111,23 @@ fn pilot_player(cx: &mut StepCx<'_>, who: &ast::PlayerRef) -> Result<PlayerExpr,
     }
 }
 
+/// CR 608.2d: the direct subject decides unless the printed clause
+/// supplies a separate chooser.
+fn check_optional_chooser(
+    effect: &str,
+    optional: bool,
+    who: &ast::PlayerRef,
+    decided_by: Option<&ast::PlayerRef>,
+) -> Result<(), Failure> {
+    if optional && !matches!(decided_by.unwrap_or(who), ast::PlayerRef::You(_)) {
+        return Err(unsupported("compose.control", "optional_chooser"));
+    }
+    if !optional && decided_by.is_some() {
+        return Err(step(effect, "qualified"));
+    }
+    Ok(())
+}
+
 fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Failure> {
     match amount {
         ast::Amount::Fixed(number) if number.value >= 0 => Ok(Amount::fixed(number.value)),

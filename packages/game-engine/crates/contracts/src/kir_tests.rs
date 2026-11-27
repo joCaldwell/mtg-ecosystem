@@ -1096,6 +1096,67 @@ fn every_audited_verb_names_the_cell_it_occupies() {
 }
 
 #[test]
+fn one_and_two_fixed_draws_keep_the_reviewed_cells_and_capabilities() {
+    use crate::Capability;
+
+    let mut definition = crate::Catalog::read(include_str!(
+        "../../../tests/fixtures/expected-action-ir.json"
+    ))
+    .unwrap()
+    .definitions
+    .into_iter()
+    .find(|definition| definition.name == "Cruel Edict")
+    .unwrap();
+    for (player, targets, cell, capability) in [
+        (
+            PlayerExpr::you(Context::Spell),
+            vec![],
+            Cell::DrawController,
+            Capability::ControllerDrawV1,
+        ),
+        (
+            PlayerExpr::target(0),
+            player_target(),
+            Cell::DrawTargetPlayer,
+            Capability::TargetPlayerDrawV1,
+        ),
+    ] {
+        for count in [1, 2] {
+            let verb = Verb::Draw {
+                player: player.clone(),
+                amount: Amount::fixed(count),
+            };
+            let program = definition.spell.as_mut().unwrap();
+            program.targets = targets.clone();
+            program.instructions = vec![crate::Instruction::act(verb.clone(), 0)];
+            assert_eq!(
+                check(&Node::Do(verb), &spell(&targets)).unwrap().cells,
+                BTreeSet::from([cell])
+            );
+            let capabilities = definition.requirements();
+            assert!(capabilities.contains(&capability));
+            assert!(!capabilities.contains(&Capability::ControllerCountedDrawV1));
+        }
+    }
+    let draw_three = Verb::Draw {
+        player: PlayerExpr::you(Context::Spell),
+        amount: Amount::fixed(3),
+    };
+    let program = definition.spell.as_mut().unwrap();
+    program.targets.clear();
+    program.instructions = vec![crate::Instruction::act(draw_three.clone(), 0)];
+    assert_eq!(
+        check(&Node::Do(draw_three), &spell(&[])).unwrap().cells,
+        BTreeSet::from([Cell::Evaluated(EvaluatedVerb::Draw)])
+    );
+    assert!(
+        definition
+            .requirements()
+            .contains(&Capability::ControllerCountedDrawV1)
+    );
+}
+
+#[test]
 fn tiers_are_independent_reviews_above_executes() {
     use ExecutionTier as T;
     for tiers in [

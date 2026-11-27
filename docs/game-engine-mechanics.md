@@ -570,6 +570,14 @@ The three reviews above `Executes` are independent. A rejected hosting or search
 request names the capabilities (`UnreviewedCapabilities`) or kernel cells
 (`UnqualifiedCells`) below its tier.
 
+Fixed draws of one or two cards by the controller or an announced any-player
+target keep their single-draw cells and capabilities. Under CR 121.2,
+`StepProgress::Sequence` settles one draw attempt per rules transaction, with
+its replacement handling, trigger collection, visibility publication and
+saved cursor. The second attempt resumes from the first attempt's committed
+state, with the same decision ownership and visibility for search and hosting
+as two consecutive single draws.
+
 `Executes` is decided per surface, each row independent (CR 113.3, 602.1,
 603.1, 608.2); a surface without a row rejects under `cell:<surface>:<detail>`:
 

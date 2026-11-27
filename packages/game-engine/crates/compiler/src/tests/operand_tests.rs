@@ -345,6 +345,46 @@ fn counted_target_groups_lower_one_leaf_per_member_and_step() {
 }
 
 #[test]
+fn optional_draw_and_life_require_a_printed_controller_chooser() {
+    for effect in ["draw", "gain-life", "lose-life"] {
+        let lower = |who, decided_by| {
+            let mut step = json!({
+                "effect": effect,
+                "who": who,
+                "amount": {"amount":"fixed","value":2},
+                "optional": true
+            });
+            if let Some(chooser) = decided_by {
+                step["decidedBy"] = chooser;
+            }
+            let sentence: Sentence = serde_json::from_value(json!({"steps":[step]})).unwrap();
+            let mut program = program();
+            append_spell_effects(
+                &mut program,
+                &[sentence],
+                0,
+                &mut BTreeMap::new(),
+                PlayerBinding::Unbound,
+                Context::Spell,
+            )?;
+            Ok(program.instructions)
+        };
+        let you = json!({"player":"you"});
+        let target = json!({"player":"target-player","selectionId":"line:0:1"});
+        for (who, chooser) in [(target.clone(), None), (you.clone(), Some(target.clone()))] {
+            let failure = lower(who, chooser).expect_err("a non-controller would choose");
+            assert_eq!(code(failure), "compose.control:optional_chooser");
+        }
+        for (who, chooser) in [(you.clone(), None), (target, Some(you))] {
+            assert!(matches!(
+                lower(who, chooser).unwrap().as_slice(),
+                [Instruction::Kernel { node: kir::Node::Optional { chooser, .. }, .. }] if chooser.is_you()
+            ));
+        }
+    }
+}
+
+#[test]
 fn bound_x_rejects_by_name_where_its_reads_are_not_exact() {
     // CR 107.3, 608.2h: "where X is [a number]" is read as each step that
     // prints X is performed. A step that cannot read it, a re-read after a

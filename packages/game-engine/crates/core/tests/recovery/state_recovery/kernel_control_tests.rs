@@ -443,6 +443,162 @@ fn illegal_player_target_prevents_a_counted_draw() {
     assert_recoverable((&game).into());
 }
 
+fn targeted_draw_scenario(node: Node, targets: u32, hidden_card: &str) -> Prepared {
+    let mut catalog = FixtureCatalog::Action.get().clone();
+    let mut config = ScenarioConfig::actions();
+    for card in &mut config.cards {
+        if card.zone == (Zone::Library { owner: PlayerId(1) }) {
+            card.oracle_id = oracle_id(&catalog, hidden_card).into();
+        }
+    }
+    let edict = catalog
+        .definitions
+        .iter_mut()
+        .find(|definition| definition.name == "Cruel Edict")
+        .unwrap();
+    let program = edict.spell.as_mut().unwrap();
+    program.targets = (0..targets)
+        .map(|slot| TargetSpec {
+            slot,
+            selection_id: format!("line:0:{}", slot + 1),
+            chooser: Chooser::Controller,
+            stage: EvaluationStage::Announcement,
+            domain: TargetDomain::AnyPlayer,
+            filter: None,
+        })
+        .collect();
+    program.instructions = vec![Instruction::Kernel {
+        node,
+        source_block: 0,
+    }];
+    edict.source_labels = None;
+    edict.capabilities = edict.requirements();
+    witness_scenario(catalog, config)
+}
+
+#[test]
+fn partial_illegal_target_skips_its_draw_and_resolves_the_other() {
+    // CR 608.2b: the spell resolves for its remaining legal target.
+    let draw = |slot| {
+        Node::Do(Verb::Draw {
+            player: PlayerExpr::target(slot),
+            amount: Amount::fixed(2),
+        })
+    };
+    let prepared = targeted_draw_scenario(Node::Seq(vec![draw(0), draw(1)]), 2, "Plains");
+    let mut game = super::formats_tests::cast_edict_at(prepared, vec![PlayerId(1), PlayerId(2)]);
+    let legal = PlayerId(2);
+    let library = game.state.rules.libraries[&legal].clone();
+    game.concede(PlayerId(1)).unwrap();
+    assert_recoverable((&game).into());
+
+    for _ in 0..32 {
+        assert!(matches!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+        if matches!(&game.state.rules.frame, Frame::Resolve { frame } if frame.cursor == 1) {
+            break;
+        }
+    }
+    let Frame::Resolve { frame } = &game.state.rules.frame else {
+        panic!("expected the completed draw instruction");
+    };
+    assert_eq!(frame.legal_targets, [false, true]);
+    let [InstructionOutcome::Kernel { outcomes }] = frame.outcomes.as_slice() else {
+        panic!("expected both draw outcomes");
+    };
+    assert!(matches!(outcomes.as_slice(), [
+        InstructionOutcome::Effect { actual: None },
+        InstructionOutcome::DrawAttempts { player, attempted, failed }
+    ] if *player == legal && *attempted == Quantity::from(2) && *failed == Quantity::zero()));
+    assert_eq!(game.state.rules.libraries[&legal].as_slice(), &library[2..]);
+    assert_recoverable((&game).into());
+
+    assert_eq!(next_reason(&mut game), Reason::Priority);
+    assert!(
+        game.trace()
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::SpellCompleted { resolved: true, .. }))
+    );
+    assert_recoverable((&game).into());
+}
+
+#[test]
+fn suspended_draw_keeps_the_drawers_cards_private_across_worlds() {
+    let world = |hidden_card| {
+        let node = Node::Optional {
+            chooser: controller(),
+            node: Box::new(Node::Do(Verb::Draw {
+                player: PlayerExpr::target(0),
+                amount: Amount::fixed(2),
+            })),
+        };
+        super::formats_tests::cast_edict(targeted_draw_scenario(node, 1, hidden_card))
+    };
+    let [mut a, mut b] = [world("Plains"), world("Forest")];
+    let drawer = PlayerId(1);
+    let viewer = PlayerId(0);
+    let observe = |game: &Game, viewer| {
+        let QueryResult::Complete(QueryValue::Observation(view)) =
+            game.observe(viewer, Budget::unlimited())
+        else {
+            panic!("expected a permitted observation");
+        };
+        view
+    };
+    let library = a.state.rules.libraries[&drawer].len();
+    assert_eq!(library, 2);
+    assert_eq!(library, b.state.rules.libraries[&drawer].len());
+    assert_ne!(a.state_digest().unwrap(), b.state_digest().unwrap());
+    for game in [&mut a, &mut b] {
+        let request = Driver::request(game, 1);
+        assert_eq!(request.reason, Reason::OptionalEffect);
+    }
+    let before = observe(&a, viewer);
+    assert_eq!(before, observe(&b, viewer));
+    assert!(before.decision.is_some());
+    for game in [&mut a, &mut b] {
+        assert_recoverable((&*game).into());
+        let request = Driver::request(game, 1);
+        let answer = request
+            .pick_one(&Candidate::Flag { flag: Flag::Accept })
+            .unwrap();
+        game.respond(viewer, request.id, answer).unwrap();
+    }
+
+    for remaining in [1, 0] {
+        for _ in 0..16 {
+            for game in [&mut a, &mut b] {
+                assert!(matches!(
+                    game.advance(Budget::new(1)),
+                    Advance::Suspended { .. }
+                ));
+            }
+            assert_eq!(observe(&a, viewer), observe(&b, viewer));
+            if a.state.rules.libraries[&drawer].len() == remaining {
+                break;
+            }
+        }
+        assert_eq!(a.state.rules.libraries[&drawer].len(), remaining);
+        assert_eq!(b.state.rules.libraries[&drawer].len(), remaining);
+        assert_ne!(observe(&a, drawer), observe(&b, drawer));
+        for game in [&a, &b] {
+            assert_recoverable(game.into());
+        }
+    }
+
+    assert_eq!(next_reason(&mut a), Reason::Priority);
+    assert_eq!(next_reason(&mut b), Reason::Priority);
+    let after = observe(&a, viewer);
+    assert_eq!(after, observe(&b, viewer));
+    assert!(after.decision.is_some());
+    for game in [&a, &b] {
+        assert_recoverable(game.into());
+    }
+}
+
 #[test]
 fn one_event_player_binding_feeds_life_and_draw() {
     use mtg_contracts::kir::{EventPattern, EventPlayerRole};

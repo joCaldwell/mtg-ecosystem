@@ -19,20 +19,60 @@ pub fn activated_artifact_draw_ability(ability: &ActivatedAbility) -> bool {
         && p.additional_sacrifice.is_none()
         && p.optional_additional_costs.is_empty()
         && p.targets.is_empty()
-        && match p.instructions.split_last() {
-            Some((last, [])) => draw_one(last),
-            Some((
-                kernel!(Discard { player: you!(), amount: fixed!(count), random: false } @ 0),
-                draws @ ([_] | [_, _]),
-            )) => *count == Quantity::from(1) && draws.iter().all(draw_one),
-            _ => false,
-        }
+        && draw_program(&p.instructions)
 }
 
-fn draw_one(instruction: &Instruction) -> bool {
-    matches!(
-        instruction,
-        kernel!(Draw { player: you!(), amount: fixed!(count) } @ 0)
-            if *count == Quantity::from(1)
-    )
+fn draw_program(instructions: &[Instruction]) -> bool {
+    match instructions.split_last() {
+        Some((last, [])) => draw_count(last) == Some(1),
+        Some((
+            kernel!(Discard { player: you!(), amount: fixed!(count), random: false } @ 0),
+            draws,
+        )) if *count == Quantity::from(1) => match draws {
+            // A two-card draw used to lower to two separate draw instructions.
+            [draw] => matches!(draw_count(draw), Some(1..=2)),
+            [first, second] => draw_count(first) == Some(1) && draw_count(second) == Some(1),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn draw_count(instruction: &Instruction) -> Option<u32> {
+    match instruction {
+        kernel!(Draw { player: you!(), amount: fixed!(count) } @ 0) => count.to_u32(),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kir::{Amount, Context, PlayerExpr, Verb};
+
+    #[test]
+    fn fixed_two_draws_then_discard_keep_the_artifact_draw_surface() {
+        let player = PlayerExpr::you(Context::Activated);
+        let draw = |count| {
+            Instruction::act(
+                Verb::Draw {
+                    player: player.clone(),
+                    amount: Amount::fixed(count),
+                },
+                0,
+            )
+        };
+        let discard = Instruction::act(
+            Verb::Discard {
+                player: player.clone(),
+                amount: Amount::fixed(1),
+                random: false,
+            },
+            0,
+        );
+        assert!(draw_program(&[draw(1), draw(1), discard.clone()]));
+        assert!(draw_program(&[draw(2), discard.clone()]));
+        assert!(!draw_program(&[draw(2)]));
+        assert!(!draw_program(&[draw(3), discard]));
+    }
 }
