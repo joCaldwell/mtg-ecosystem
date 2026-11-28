@@ -28,6 +28,11 @@ pub enum OwnKnowledgeAction {
     LibrarySelected {
         bottom: Vec<RememberedCard>,
     },
+    /// A known number of cards was placed beneath the old library suffix
+    /// in an unknown order (CR 401.4, 701.20e).
+    LibraryBottomRandomized {
+        count: usize,
+    },
     Milled {
         count: usize,
     },
@@ -202,6 +207,11 @@ pub fn known_suffix(
             | OwnKnowledgeAction::Milled { .. } => {
                 return Err(SearchRejection::UnsupportedHistory(
                     "scry library ordering is outside foundations search".into(),
+                ));
+            }
+            OwnKnowledgeAction::LibraryBottomRandomized { .. } => {
+                return Err(SearchRejection::UnsupportedHistory(
+                    "random library bottom placement is outside foundations search".into(),
                 ));
             }
             OwnKnowledgeAction::OpeningRedraw => {

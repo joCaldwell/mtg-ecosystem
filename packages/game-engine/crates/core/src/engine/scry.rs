@@ -295,17 +295,19 @@ impl RulesTxn {
         let remainder: BTreeSet<_> = looked.iter().map(|id| id.card).collect();
         cards.retain(|card| !remainder.contains(card));
         cards.extend(bottom.iter().map(|object| object.card));
-        if !random || bottom.len() == 1 {
+        let action = if random && bottom.len() > 1 {
+            OwnKnowledgeAction::LibraryBottomRandomized {
+                count: bottom.len(),
+            }
+        } else {
             let sequence = self.state.knowledge.visibility[player.0 as usize]
                 .own_knowledge
                 .len();
-            self.remember_library_action(
-                player,
-                OwnKnowledgeAction::LibrarySelected {
-                    bottom: self.remembered(&bottom, &format!("memory-{sequence}-bottom"))?,
-                },
-            )?;
-        }
+            OwnKnowledgeAction::LibrarySelected {
+                bottom: self.remembered(&bottom, &format!("memory-{sequence}-bottom"))?,
+            }
+        };
+        self.remember_library_action(player, action)?;
         Ok(EventOutcome::LibraryPrefixBottomed {
             player,
             looked: looked.to_vec(),

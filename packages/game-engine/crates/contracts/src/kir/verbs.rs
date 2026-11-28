@@ -193,7 +193,6 @@ pub enum ManaSpec {
     AnyCombination { colors: Vec<Color>, amount: Amount },
 }
 
-/// CR 613.1: the layer a continuous change applies in.
 /// A bounded selection from a privately inspected library prefix (CR 608.2d,
 /// 701.20e). The complement goes to the bottom of that library (CR 401.4).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -224,6 +223,7 @@ impl LookSelection {
     }
 }
 
+/// CR 613.1: the layer a continuous change applies in.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]

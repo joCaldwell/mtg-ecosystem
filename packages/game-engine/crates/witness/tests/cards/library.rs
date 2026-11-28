@@ -3039,18 +3039,20 @@ fn private_top_selection_takes_multiple_and_bottoms_the_exact_complement() {
 
 #[test]
 fn private_top_selection_reveals_only_the_optional_match_before_bottom_ordering() {
-    for (name, raw, eligible, lands) in [
+    for (name, raw, eligible, lands, commander) in [
         (
             "Glint-Nest Crane",
             GLINT_NEST_CRANE,
             "Sol Ring",
             vec!["Island"; 2],
+            false,
         ),
         (
             "Courageous Outrider",
             COURAGEOUS_OUTRIDER,
-            "Courageous Outrider",
+            "Kamahl, Pit Fighter",
             vec!["Plains"; 4],
+            true,
         ),
     ] {
         let mut worlds = vec![];
@@ -3063,6 +3065,9 @@ fn private_top_selection_reveals_only_the_optional_match_before_bottom_ordering(
             }
             for card in [eligible, hidden, hidden, hidden, "Plains"] {
                 setup = setup.library_card(card, 0);
+            }
+            if commander {
+                setup = setup.commander(CardId(1 + lands.len() as u32));
             }
             let mut game = Game::with_trace(setup.prepare(), TraceMode::Detailed);
             Driver::cast(&mut game, CardId(0));
@@ -3087,6 +3092,28 @@ fn private_top_selection_reveals_only_the_optional_match_before_bottom_ordering(
             assert_recoverable((&game).into());
             let order = objects(&game, &[original[3].0, original[2].0, original[1].0]);
             answer(&mut game, 0, Reason::OrderLibraryBottom, &order);
+            if commander {
+                let d = next_choice(&mut game);
+                assert!(
+                    matches!(d.reason, Reason::CommanderReturn { object: Some(named), .. }
+                    if named == taken)
+                );
+                for seat in 1..4 {
+                    let o = observation(&game, seat);
+                    assert_eq!(
+                        o.view.revealed_library_cards,
+                        vec![(PlayerId(0), identity.clone())]
+                    );
+                    assert!(o.view.known_library_positions.is_empty());
+                }
+                assert_recoverable((&game).into());
+                let response = d
+                    .pick_one(&Candidate::Flag {
+                        flag: Flag::Destination,
+                    })
+                    .unwrap();
+                game.respond(d.player, d.id, response).unwrap();
+            }
             settle(&mut game);
             assert_eq!(
                 library(&game, 0),
@@ -3162,10 +3189,23 @@ fn private_top_selection_randomizes_remainder_after_taking_or_declining() {
                 expected.sort();
                 assert_eq!(bottom, expected);
                 assert_eq!(shuffles(&game, 0), 0);
-                assert!(
-                    game.state.knowledge.visibility[0].own_knowledge.iter().all(
-                        |action| !matches!(action, OwnKnowledgeAction::LibrarySelected { .. })
-                    )
+                let bottom_memory = game.state.knowledge.visibility[0]
+                    .own_knowledge
+                    .iter()
+                    .filter(|action| {
+                        matches!(
+                            action,
+                            OwnKnowledgeAction::LibrarySelected { .. }
+                                | OwnKnowledgeAction::LibraryBottomRandomized { .. }
+                        )
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    bottom_memory,
+                    [OwnKnowledgeAction::LibraryBottomRandomized {
+                        count: size - usize::from(take)
+                    }],
                 );
                 let result = (1..4)
                     .map(|seat| {
@@ -3244,4 +3284,110 @@ fn private_top_selection_places_a_single_other_card_without_an_order_prompt() {
     answer(&mut game, 0, Reason::LookChooseHand, &[taken]);
     settle(&mut game);
     assert_eq!(library(&game, 0), vec![original[2], original[1]]);
+}
+
+#[test]
+fn private_top_selection_decline_invalidates_the_old_opening_bottom_suffix() {
+    let mut setup = board(&[(COMMUNE_WITH_SPIRITS, &[Cell::LookChooseHand])])
+        .permanent_or_hand("Commune with Spirits", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false);
+    for _ in 0..92 {
+        setup = setup.library_card("Forest", 0);
+    }
+    let mut game = Game::with_trace(
+        setup.library_card("Mountain", 0).prepare(),
+        TraceMode::Detailed,
+    );
+    let original = library(&game, 0);
+    let old_bottom = RememberedCard {
+        memory_ref: "opening-bottom-0".into(),
+        oracle_id: identity("Mountain"),
+    };
+    // Feed the same reducer used by search capture an opening memory with
+    // the actual prior bottom card. Before the spell, its count and order
+    // proof is valid. Declining keeps that count valid and changes the suffix.
+    let mut history = vec![OwnKnowledgeAction::OpeningBottom {
+        cards: vec![old_bottom.clone()],
+    }];
+    assert_eq!(
+        known_suffix(&history, original.len()).unwrap(),
+        [old_bottom]
+    );
+
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    answer(&mut game, 0, Reason::LookChooseHand, &[]);
+    settle(&mut game);
+
+    let after = library(&game, 0);
+    assert_eq!(after.len(), original.len());
+    assert_eq!(after[after.len() - 5], *original.last().unwrap());
+    history.extend(
+        game.state.knowledge.visibility[0]
+            .own_knowledge
+            .iter()
+            .cloned(),
+    );
+    assert!(matches!(
+        known_suffix(&history, after.len()),
+        Err(SearchRejection::UnsupportedHistory(reason))
+            if reason == "random library bottom placement is outside foundations search"
+    ));
+}
+
+#[test]
+fn private_top_selection_resumes_the_second_commander_replacement() {
+    // The private board exercises two designations without using production
+    // deck admission. The selected spell's text comes from the frozen archive.
+    let prepared = board(&[(STOCK_UP, &[Cell::LookChooseHand])])
+        .permanent_or_hand("Stock Up", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .library_card("Isamaru, Hound of Konda", 0)
+        .library_card("Kamahl, Pit Fighter", 0)
+        .library_card("Forest", 0)
+        .library_card("Mountain", 0)
+        .library_card("Plains", 0)
+        .library_card("Island", 0)
+        .commander(CardId(4))
+        .commander(CardId(5))
+        .prepare();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1, 2, 3]);
+    let original = library(&game, 0);
+    let selected = objects(&game, &[4, 5]);
+    answer(&mut game, 0, Reason::LookChooseHand, &selected);
+    let bottom = objects(&game, &[8, 7, 6]);
+    answer(&mut game, 0, Reason::OrderLibraryBottom, &bottom);
+
+    for (object, flag) in selected
+        .into_iter()
+        .zip([Flag::CommandZone, Flag::Destination])
+    {
+        let d = next_choice(&mut game);
+        assert!(matches!(
+            d.reason,
+            Reason::CommanderReturn { object: Some(named), destination: Zone::Hand { owner: PlayerId(0) }, .. }
+                if named == object
+        ));
+        assert_recoverable((&game).into());
+        let response = d.pick_one(&Candidate::Flag { flag }).unwrap();
+        game.respond(d.player, d.id, response).unwrap();
+    }
+    settle(&mut game);
+
+    assert_eq!(
+        game.zone(Driver::object(&game, 4)),
+        Some(Zone::Command { owner: PlayerId(0) })
+    );
+    assert_eq!(
+        game.zone(Driver::object(&game, 5)),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    assert_eq!(
+        library(&game, 0),
+        vec![original[5], CardId(8), CardId(7), CardId(6)]
+    );
 }

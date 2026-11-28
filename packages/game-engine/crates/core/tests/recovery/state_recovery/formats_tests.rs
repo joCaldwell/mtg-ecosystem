@@ -570,6 +570,8 @@ fn library_entry_shapes() -> Vec<String> {
             }),
         })
         .unwrap();
+    bottomed["state"]["visibility"][0]["own_knowledge"] =
+        serde_json::json!([OwnKnowledgeAction::LibraryBottomRandomized { count: 2 }]);
     [
         search, entry, reorder, completed, split, look, order, commander, bottomed,
     ]
