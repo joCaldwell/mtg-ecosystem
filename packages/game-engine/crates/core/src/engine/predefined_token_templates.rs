@@ -89,6 +89,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost: ActivationCost::Composite { costs },

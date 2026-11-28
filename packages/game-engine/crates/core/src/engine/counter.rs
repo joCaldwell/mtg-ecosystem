@@ -56,17 +56,79 @@ impl RulesTxn {
         Ok((target, spec.domain))
     }
 
+    /// CR 115.1, 603.2, 702.21a: the stack object whose announcement made a
+    /// permanent this trigger's target, its counter domain and the player
+    /// who controlled it then.
+    pub(super) fn event_stack_object(
+        &self,
+        stack_id: StackId,
+    ) -> Result<(StackId, TargetDomain, PlayerId), String> {
+        let StackKind::Triggered {
+            event: TriggerOccurrenceId::Target(occurrence),
+            witness:
+                TriggerEventWitness::BecameTarget {
+                    actor, is_spell, ..
+                },
+            ..
+        } = &self.entry(stack_id)?.kind
+        else {
+            return Err("event stack object requires a targeting trigger".into());
+        };
+        let domain = if *is_spell {
+            TargetDomain::StackSpell
+        } else {
+            TargetDomain::StackActivatedOrTriggeredAbility
+        };
+        Ok((occurrence.targeting, domain, *actor))
+    }
+
+    /// CR 109.4, 702.21a: "that player" is the current controller of the
+    /// event's stack object, or its controller as it targeted once it has
+    /// left the stack.
+    pub(super) fn event_stack_controller(&self, stack_id: StackId) -> Result<PlayerId, String> {
+        let (target, _, actor) = self.event_stack_object(stack_id)?;
+        Ok(self
+            .state
+            .rules
+            .stack
+            .iter()
+            .find(|entry| entry.id == target)
+            .map_or(actor, |entry| entry.controller))
+    }
+
+    /// The stack object a counter instruction names, its domain and whether
+    /// it is still a legal choice (CR 608.2b): an announced target slot or a
+    /// targeting trigger's event stack object, which is never illegal.
+    fn counter_binding(
+        &self,
+        frame: &Resolving,
+        what: Ref,
+    ) -> Result<(StackId, TargetDomain, bool), String> {
+        match what {
+            Ref::Target { slot } => {
+                let (target, domain) = self.counter_target(frame, slot)?;
+                Ok((
+                    target,
+                    domain,
+                    frame.legal_targets.get(slot as usize) == Some(&true),
+                ))
+            }
+            Ref::EventStackObject => {
+                let (target, domain, _) = self.event_stack_object(frame.stack_id)?;
+                Ok((target, domain, true))
+            }
+            _ => Err("counter requires an announced or event stack object".into()),
+        }
+    }
+
     pub(super) fn execute_counter(
         &mut self,
         frame: Resolving,
         what: Ref,
         source_block: u32,
     ) -> Result<(), String> {
-        let Ref::Target { slot } = what else {
-            return Err("counter requires an announced stack target".into());
-        };
-        let (target, domain) = self.counter_target(&frame, slot)?;
-        let outcome = if frame.legal_targets.get(slot as usize) != Some(&true) {
+        let (target, domain, legal) = self.counter_binding(&frame, what)?;
+        let outcome = if !legal {
             InstructionOutcome::StackTargetIllegal { target }
         } else if !self
             .state
@@ -120,12 +182,11 @@ impl RulesTxn {
             .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize);
-        let Some(kernel!(Counter { what: Ref::Target { slot } } @ block)) = instruction else {
+        let Some(kernel!(Counter { what } @ block)) = instruction else {
             return Err("counter requires a counter instruction".into());
         };
         if *countering != frame.stack_id
-            || self.counter_target(frame, *slot)? != (*target, *domain)
-            || frame.legal_targets.get(*slot as usize) != Some(&true)
+            || self.counter_binding(frame, *what)? != (*target, *domain, true)
             || *cause != self.instruction_cause(frame, *block)?
         {
             return Err("counter occurrence does not match resolution".into());
@@ -173,9 +234,19 @@ impl RulesTxn {
                 }
             }
             InstructionOutcome::Countered { target, movement } => {
-                let (bound, domain) = self.counter_target(frame, 0)?;
+                // A targeting trigger announces no target and counters its
+                // event's stack object (CR 702.21a).
+                let entry = self.entry(frame.stack_id)?;
+                let what = if self.original_program_for(entry)?.targets.is_empty()
+                    && self.event_stack_object(frame.stack_id).is_ok()
+                {
+                    Ref::EventStackObject
+                } else {
+                    Ref::Target { slot: 0 }
+                };
+                let (bound, domain, legal) = self.counter_binding(frame, what)?;
                 if *target != bound
-                    || frame.legal_targets.first() != Some(&true)
+                    || !legal
                     || self
                         .state
                         .rules

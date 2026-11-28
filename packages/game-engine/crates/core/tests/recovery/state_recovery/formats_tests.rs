@@ -26,8 +26,8 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    118,
-    "79e0cbfd0c9f826b36ee34d72c0c3f9d8420b8461263aad258aaecf24e61d3bd",
+    119,
+    "fa2dc623d8573924aab574c5eaecf62f2d84dc3922018a4347557be823695ca3",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     151,
@@ -599,6 +599,7 @@ fn chosen_cost_shapes() -> Vec<Game> {
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
                 minimum_power: None,
                 action,
@@ -691,6 +692,7 @@ fn activation_condition_shapes() -> Vec<Game> {
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,
+                cost_changes: vec![],
                 program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
                     Instruction::act(
                         mtg_contracts::kir::Verb::Draw {
@@ -1193,6 +1195,7 @@ fn loyalty_activation() -> String {
         x_mana_cost: false,
         hybrid_mana: vec![],
         modal: None,
+        cost_changes: vec![],
         cost: ActivationCost::Loyalty {
             change: (-1).into(),
         },

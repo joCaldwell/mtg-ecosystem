@@ -484,6 +484,7 @@ fn modal_activator() -> Definition {
         },
         program: trigger.program,
         modal: trigger.modal,
+        cost_changes: vec![],
     });
     if let Some(labels) = &mut d.source_labels {
         labels.activated = std::mem::take(&mut labels.triggered);
