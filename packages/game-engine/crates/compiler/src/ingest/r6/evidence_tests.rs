@@ -172,6 +172,61 @@ fn source_authority_life_and_discard_need_their_citations_with_the_binder_erased
     );
 }
 
+#[test]
+fn linked_count_needs_its_recipient_and_result_citations_with_the_binder_erased() {
+    let archive = mtg_contracts::accepted_manifest(include_str!(
+        "../../../../../tests/fixtures/archive-manifest-r6-candidate-6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37.json"
+    )).unwrap();
+    let lower = |row: &mut Value| {
+        let raw = rehash(row);
+        crate::compose::lower(archive, &raw, Some(&verified(&raw).unwrap()))
+    };
+    let erase = |raw: &str| {
+        let mut row: Value = serde_json::from_str(raw).unwrap();
+        row["resolution"] = json!({});
+        row["binding"] = json!({"referencesBound":false,"fullyBound":false});
+        row
+    };
+    let syphon = include_str!(
+        "../../../../../tests/fixtures/phase1-r6/abc37d6c-6300-47b5-a679-9db5b83eb54f.json"
+    );
+    let verdict = include_str!(
+        "../../../../../tests/fixtures/phase1-r6/670b5dfb-ffdf-43ed-acc3-855006e352fc.json"
+    );
+    for raw in [syphon, verdict] {
+        assert!(lower(&mut erase(raw)).is_ok());
+    }
+    let rejects = |row: &mut Value, obligation: &str| {
+        let failure = lower(row).unwrap_err();
+        assert_eq!(failure.path, "printed/faces/0/blocks/0");
+        assert!(
+            failure
+                .reason
+                .starts_with(&format!("evidence:missing:P11:{obligation}@O[")),
+            "{obligation}: {}",
+            failure.reason
+        );
+    };
+
+    // "other" no longer links the player filter it proves.
+    let mut row = erase(syphon);
+    fact_mut(&mut row, 0, "form", "other")["field"] = Value::Null;
+    rejects(&mut row, "/effects/0/steps/0/who/filter/other");
+
+    // "this way" no longer links the result's scope.
+    let mut row = erase(syphon);
+    fact_mut(&mut row, 0, "form", "this-way")["field"] = Value::Null;
+    rejects(&mut row, "/effects/1/steps/0/forEach/relation/scope");
+
+    // The printed "land" stays after the AST drops the card type.
+    let mut row = erase(verdict);
+    ast_mut(&mut row, 0)["effects"][1]["steps"][0]["forEach"]
+        .as_object_mut()
+        .unwrap()
+        .remove("types");
+    rejects(&mut row, "/effects/1/steps/0/forEach");
+}
+
 fn expect_check(label: &str, row: &mut Value, expected: &str) {
     let raw = rehash(row);
     let failure = verified(&raw).err().expect("mutation passed the verifier");

@@ -59,7 +59,12 @@ pub(crate) enum Selection {
     SpellController,
     /// CR 608.2h: evaluated in APNAP order at resolution.
     EachPlayer,
+    /// CR 102.2-102.3: each opponent of the controller, evaluated in APNAP
+    /// order at resolution; in a game without teams, every other player.
     EachOpponent,
+    /// CR 102.2-102.3: each player but the controller, which the binder
+    /// leaves unresolved; its `each-player` base is traced on its own.
+    EachOtherPlayer,
     /// CR 601.2c.
     Target {
         slot: u32,
@@ -74,6 +79,9 @@ pub(crate) enum Selection {
         cardinality: Cardinality,
         random: bool,
     },
+    /// CR 608.2c: "this way" reads the actual result of the step at `step`,
+    /// a block-relative AST pointer.
+    LinkedResult { step: String },
 }
 
 #[derive(Clone, Copy, Serialize)]

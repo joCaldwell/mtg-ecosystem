@@ -133,7 +133,11 @@ and folds, aliases, implicit nodes with closed reasons, or hulls; an unlocated
 object, an unusable alias or a root-assigned fact for uncovered tokens yields a
 located `evidence:missing`. P11 requires the resolver to discharge each field
 of the block AST with a verified exact link, a production-specific check of the
-printed phrase and value, or a closed default at its governing node. P12
+printed phrase and value, or a closed default at its governing node. Only a
+family that checks the whole recorded parent phrase may discharge an unlocated
+object the parser synthesized inside it (the `each-player` base of "each other
+player"); words that introduce a composite child ("for each") are claimed at
+its recorded parent. P12
 requires a checked meaning or structural role for every printed fact and token;
 structural roles are verified [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
 at a production boundary (sentence periods, trigger and for-each clause commas,

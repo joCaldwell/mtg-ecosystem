@@ -1,5 +1,5 @@
 //! Frozen R5 card movement, discard and private library procedures.
-//! CR 101.4, 400.2, 400.7, 601.2c, 608.2b-d, 701.9, 701.20, 701.23, 701.24b:
+//! CR 101.4, 102.3, 400.2, 400.7, 601.2c, 608.2b-d, 701.9, 701.20, 701.23, 701.24b:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{Cell, EvaluatedVerb, definition_cells};
 use mtg_core::testkit::*;
@@ -24,6 +24,8 @@ const GORGING_VULTURE: &str = record!("67330f45-d08c-4fe2-8ae3-8d18939c512a");
 const SIBSIG_HOST: &str = record!("11776f73-f504-4f19-b5b6-2f58279f8b15");
 const WHEEL_OF_FORTUNE: &str = record!("a8abd966-de7b-46a3-8ac7-8747ab35653a");
 const HYMN: &str = record!("992d9a72-d34d-47d7-96fb-37f0efb515ef");
+const SYPHON_MIND: &str = record!("abc37d6c-6300-47b5-a679-9db5b83eb54f");
+const GERRARDS_VERDICT: &str = record!("670b5dfb-ffdf-43ed-acc3-855006e352fc");
 const INDEX: &str = record!("613b824e-39d1-4c6e-a19c-c915abdc860b");
 const RECKLESS_HANDLING: &str = record!("f1ea7dc5-01cb-4780-947c-08ea9324c52f");
 const RESURRECTION: &str = record!("837417d8-8260-486d-a3ed-3b5711eaf34a");
@@ -712,4 +714,127 @@ fn ponder_rejects_invalid_completed_reorders_while_waiting_to_shuffle() {
         g.zone(Driver::object(&g, 4)),
         Some(Zone::Hand { owner: PlayerId(0) }),
     );
+}
+
+fn hand_size(g: &Game, seat: u8) -> usize {
+    let hand = Zone::Hand {
+        owner: PlayerId(seat),
+    };
+    g.state
+        .rules
+        .objects
+        .values()
+        .filter(|object| object.zone == hand)
+        .count()
+}
+
+/// CR 102.3, 608.2c, 701.9c: each other player discards, and the caster
+/// draws one card for each card actually discarded; an empty hand adds none.
+#[test]
+fn syphon_mind_draws_for_each_card_the_other_players_discarded() {
+    let hand = |seat| Zone::Hand {
+        owner: PlayerId(seat),
+    };
+    let graveyard = |seat| Zone::Graveyard {
+        owner: PlayerId(seat),
+    };
+    let mut setup = board(&[(SYPHON_MIND, Cell::Evaluated(EvaluatedVerb::Discard))])
+        .seats(4)
+        .card("Syphon Mind", 0, 0, hand(0));
+    for _ in 0..4 {
+        setup = setup.card("Swamp", 0, 0, Zone::Battlefield);
+    }
+    let mut first = Game::new(
+        setup
+            .card("Forest", 1, 1, hand(1))
+            .card("Plains", 1, 1, hand(1))
+            .card("Island", 2, 2, hand(2))
+            .library_card("Forest", 0)
+            .library_card("Plains", 0)
+            .library_card("Island", 0)
+            .prepare(),
+    );
+    Driver::cast(&mut first, CardId(0));
+    Driver::pay(&mut first, &[1, 2, 3, 4]);
+    let choice = next_choice(&mut first);
+    assert_eq!(
+        (choice.player, &choice.reason),
+        (PlayerId(1), &Reason::ResolveDiscard)
+    );
+    // The caster is never asked to discard.
+    assert_eq!(hand_size(&first, 0), 0);
+    assert_recoverable((&first).into());
+    let mut second = first.fork();
+    let (forest, plains) = (Driver::object(&first, 5), Driver::object(&second, 6));
+    Driver::pick_object(&mut first, forest);
+    Driver::pick_object(&mut second, plains);
+    for game in [&mut first, &mut second] {
+        let island = next_choice(game);
+        assert_eq!(
+            (island.player, &island.reason),
+            (PlayerId(2), &Reason::ResolveDiscard)
+        );
+        assert_recoverable((&*game).into());
+        let card = Driver::object(game, 7);
+        Driver::pick_object(game, card);
+        // Seat 3's empty hand discards nothing and asks nothing.
+        settle(game);
+        assert_eq!(game.zone(Driver::object(game, 7)), Some(graveyard(2)));
+        assert_eq!(hand_size(game, 0), 2);
+        assert_eq!(hand_size(game, 1), 1);
+        assert_eq!(hand_size(game, 3), 0);
+        assert_eq!(
+            game.zone(Driver::object(game, 10)),
+            Some(Zone::Library { owner: PlayerId(0) })
+        );
+    }
+    assert_eq!(first.zone(Driver::object(&first, 5)), Some(graveyard(1)));
+    assert_eq!(second.zone(Driver::object(&second, 6)), Some(graveyard(1)));
+}
+
+/// CR 608.2c, 701.9c: the gain counts only land cards among the target
+/// player's actual discards.
+#[test]
+fn gerrards_verdict_gains_three_for_each_land_card_discarded() {
+    let opponent = PlayerId(1);
+    let hand = Zone::Hand { owner: opponent };
+    let mut g = Game::new(
+        board(&[(GERRARDS_VERDICT, Cell::Evaluated(EvaluatedVerb::Discard))])
+            .card("Gerrard's Verdict", 0, 0, Zone::Hand { owner: PlayerId(0) })
+            .card("Plains", 0, 0, Zone::Battlefield)
+            .card("Swamp", 0, 0, Zone::Battlefield)
+            .card("Forest", 1, 1, hand)
+            .card("Grizzly Bears", 1, 1, hand)
+            .card("Island", 1, 1, hand)
+            .prepare(),
+    );
+    let life = g.state.rules.players[0].life.clone();
+    Driver::cast(&mut g, CardId(0));
+    let targets = Driver::request(&mut g, 1);
+    let answer = targets
+        .pick_one(&Candidate::Player { player: opponent })
+        .unwrap();
+    g.respond(targets.player, targets.id, answer).unwrap();
+    Driver::pay(&mut g, &[1, 2]);
+    let d = next_choice(&mut g);
+    assert_eq!((d.player, &d.reason), (opponent, &Reason::ResolveDiscard));
+    assert_recoverable((&g).into());
+    let forest = Driver::object(&g, 3);
+    let bears = Driver::object(&g, 4);
+    let picks = objects(&d)
+        .iter()
+        .enumerate()
+        .filter(|(_, object)| [forest, bears].contains(object))
+        .map(|(index, _)| index as u32)
+        .collect();
+    g.respond(d.player, d.id, Answer::Pick { picks: vec![picks] })
+        .unwrap();
+    settle(&mut g);
+    let graveyard = Some(Zone::Graveyard { owner: opponent });
+    assert_eq!(g.zone(Driver::object(&g, 3)), graveyard);
+    assert_eq!(g.zone(Driver::object(&g, 4)), graveyard);
+    assert_eq!(g.zone(Driver::object(&g, 5)), Some(hand));
+    let mut expected = life;
+    expected.add(&3.into());
+    assert_eq!(g.state.rules.players[0].life, expected);
 }

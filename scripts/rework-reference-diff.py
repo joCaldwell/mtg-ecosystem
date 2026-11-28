@@ -18,6 +18,13 @@ missing, additional, or different occurrence stops the sweep.
 Explained equivalence: an event object that is the source itself ("when
 this creature enters, it ...") reads the same incarnation the resolution
 calls the source (CR 201.5, 603.10a).
+
+Explained decision: the binder leaves "each other player" (a filtered
+each-player with `other`) unresolved as `unsupported-scope`. Rust decides it
+as each player but the controller (CR 102.2-102.3); the occurrence must still
+be exactly that unresolved reference and projection, and its each-player base
+must match the binder's bound selection. A linked result ("discarded this
+way") matches the binder's event-link node for the producing step (CR 608.2c).
 """
 import argparse
 from collections import Counter, defaultdict
@@ -204,6 +211,14 @@ def source_sites(choice):
                         'expression': {'player': noun, 'selectionId': selection['selection_id']}}
                 projected = {'ref': 'target', 'slot': selection['slot']}
                 rule = '601.2c'
+            case 'each-other-player':
+                node = None
+                projected = None
+                rule = '102.3'
+            case 'linked-result':
+                node = {'node': 'event-link', 'action': 'discard', 'step': selection['step']}
+                projected = None
+                rule = '608.2c'
             case 'announced-x':
                 node = {'node': 'announced-number', 'announcement': 'cast'}
                 projected = {'ref': 'announced-x'}
@@ -249,17 +264,35 @@ def compare_source_choices(archive, trace):
                     historical[ref['path'][len(prefix):]].append(ref)
             for ref in projection:
                 projected[ref['path']].append(ref)
-            for path in sorted(chosen.keys() | historical.keys() | projected.keys()):
+            kinds = {selection['path']: selection['kind'] for selection in site['selections']}
+            links = {node['path'][len(prefix):]: node for node in binding['nodes']
+                     if node['node'] == 'event-link' and node['path'].startswith(prefix + '/')}
+            for path in sorted(chosen.keys() | historical.keys() | projected.keys() | links.keys()):
                 node, projection_ref, rule = chosen.get(path, (None, None, None))
                 bound = historical[path]
                 target = nodes.get(bound[0].get('target')) if len(bound) == 1 else None
                 legacy = projected[path]
                 want_projection = ({'path': path, 'ref': projection_ref} if projection_ref
                                    else {'path': path, 'evaluated': 'selection'})
-                agree = (node is not None and target is not None and bound[0]['binding'] == 'bound'
-                         and target.get('scope') == scope
-                         and all(target.get(key) == value for key, value in node.items())
-                         and legacy == [want_projection])
+                explanation = None
+                if kinds.get(path) == 'each-other-player':
+                    agree = (len(bound) == 1 and bound[0]['binding'] == 'unresolved'
+                             and bound[0].get('code') == 'unsupported-scope'
+                             and bound[0]['expression'] == {'player': 'filtered', 'base': {'player': 'each-player'},
+                                                            'filter': {'other': True}}
+                             and legacy == [{'path': path, 'unresolved': 'unsupported-scope'}])
+                    explanation = 'binder unresolved; Rust decides each player but you (CR 102.2-102.3)'
+                elif kinds.get(path) == 'linked-result':
+                    link = links.get(path)
+                    target = link
+                    agree = (link is not None and not bound and not legacy and link.get('scope') == scope
+                             and link.get('action') == node['action']
+                             and link.get('event') == f'card:{identity}{prefix}{node["step"]}#event')
+                else:
+                    agree = (node is not None and target is not None and bound[0]['binding'] == 'bound'
+                             and target.get('scope') == scope
+                             and all(target.get(key) == value for key, value in node.items())
+                             and legacy == [want_projection])
                 table.append({
                     'oracle_id': identity,
                     'name': record['source']['name'],
@@ -272,15 +305,18 @@ def compare_source_choices(archive, trace):
                     'historical_node': target,
                     'projection': legacy,
                     'agrees': agree,
+                    'explanation': explanation if agree else None,
                 })
     by_family = {}
     for family in sorted(families):
         rows = [row for row in table if row['family'] == family]
         by_family[family] = {'identities': len({row['oracle_id'] for row in rows}), 'sites': len(rows),
-                             'divergences': sum(not row['agrees'] for row in rows)}
+                             'divergences': sum(not row['agrees'] for row in rows),
+                             'explained_decisions': sum(bool(row['explanation']) for row in rows)}
     return {'identities': len(choices), 'sites': len(table),
             'historical_bound': sum(ref['binding'] == 'bound' for row in table for ref in row['historical']),
-            'divergences': sum(not row['agrees'] for row in table), 'families': by_family,
+            'divergences': sum(not row['agrees'] for row in table),
+            'explained_decisions': sum(bool(row['explanation']) for row in table), 'families': by_family,
             'occurrences': table}
 
 
