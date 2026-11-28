@@ -153,6 +153,7 @@ pub struct PolicyMemory {
     mana_color: Option<Color>,
     mana_bundle: Option<Vec<Color>>,
     mana_ability: Option<mtg_core::ManaAbilityIdentity>,
+    mana_tap_other: Option<ObjectHandle>,
     payment: PaymentAttempt,
     planned_x: Option<Quantity>,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
@@ -219,6 +220,7 @@ impl PolicyMemory {
         self.mana_color = None;
         self.mana_bundle = None;
         self.mana_ability = None;
+        self.mana_tap_other = None;
         self.hybrid_choices.clear();
         self.alternative_cost = None;
         self.planned_x = None;
@@ -533,6 +535,7 @@ impl Strategy<'_> {
                     self.memory.mana_color = next.color;
                     self.memory.mana_bundle = next.bundle;
                     self.memory.mana_ability = next.ability;
+                    self.memory.mana_tap_other = next.tap_other;
                     if !next.hybrid.is_empty() {
                         self.memory.hybrid_choices = next.hybrid;
                     }
@@ -973,6 +976,31 @@ impl Strategy<'_> {
                                 .collect()
                         })
                         .collect(),
+                }
+            }
+            (
+                Reason::ChosenObjectCost {
+                    action: mtg_contracts::ChosenCostAction::Tap,
+                },
+                Shape::Pick { slots, .. },
+            ) if o
+                .decision_context
+                .as_ref()
+                .and_then(|context| context.source.as_ref())
+                .is_some_and(|source| source.kind == mtg_core::DecisionSourceKind::ManaAbility) =>
+            {
+                let preferred = self.memory.mana_tap_other.take();
+                let allowed = &slots[0].allowed;
+                let pick = allowed
+                    .iter()
+                    .find(|i| {
+                        matches!(&d.candidates[**i as usize], Candidate::Object { object }
+                        if preferred.as_ref() == Some(object))
+                    })
+                    .or_else(|| allowed.first())
+                    .ok_or("empty mana tap choice")?;
+                Answer::Pick {
+                    picks: vec![vec![*pick]],
                 }
             }
             (

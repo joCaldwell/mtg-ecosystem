@@ -13,6 +13,7 @@ pub(super) struct PlannedMana {
     pub color: Option<Color>,
     pub bundle: Option<Vec<Color>>,
     pub ability: Option<ManaAbilityIdentity>,
+    pub tap_other: Option<ObjectHandle>,
     /// CR 107.4e, 605.3a: the announced alternative of each hybrid symbol
     /// of the ability's cost, in printed order.
     pub hybrid: Vec<mtg_contracts::HybridPayment>,
@@ -23,6 +24,7 @@ struct Source<'a> {
     handle: &'a ObjectHandle,
     land: bool,
     taps: bool,
+    tap_other: Option<mtg_contracts::ChosenCostFilter>,
     amount: Quantity,
     production: ManaProduction,
     choose_bundle: bool,
@@ -37,6 +39,7 @@ struct Planner<'a> {
     catalog: &'a Catalog,
     view: &'a PermittedView,
     reserved: &'a [&'a ObjectHandle],
+    exclude: Option<&'a ObjectHandle>,
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
     tapped: Vec<bool>,
@@ -45,6 +48,37 @@ struct Planner<'a> {
     plan: Vec<PlannedMana>,
 }
 impl Planner<'_> {
+    fn tap_helper(&self, source: &Source<'_>) -> Option<usize> {
+        let filter = source.tap_other.as_ref()?;
+        self.view
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(index, object)| {
+                *index != source.object_index
+                    && !self.used[*index]
+                    && !self.tapped[*index]
+                    && !object.tapped
+                    && controlled_permanent(self.view, object)
+                    && self.exclude != Some(&object.handle)
+                    && !self.reserved.contains(&&object.handle)
+                    && object
+                        .characteristics
+                        .as_ref()
+                        .is_some_and(|c| filter.matches(c))
+            })
+            // The helper may be summoning sick. Prefer one that cannot pay a tap
+            // symbol, then one without a mana source in this payment plan.
+            .min_by_key(|(index, object)| {
+                (
+                    available_tap(object),
+                    self.sources.iter().any(|s| s.object_index == *index),
+                    *index,
+                )
+            })
+            .map(|(index, _)| index)
+    }
+
     fn amount(&self, source: &Source<'_>, color: Option<Color>) -> Quantity {
         if matches!(source.production, ManaProduction::ChooseDevotion {}) {
             return color.map_or_else(Quantity::zero, |color| {
@@ -137,6 +171,9 @@ impl Planner<'_> {
                 .iter()
                 .enumerate()
                 .filter(|(index, source)| !self.used[source.object_index] && !skipped[*index])
+                .filter(|(_, source)| {
+                    source.tap_other.is_none() || self.tap_helper(source).is_some()
+                })
                 .filter(|(_, source)| deficit.is_none_or(|color| source.colors.contains(&color)))
                 .filter(|(_, source)| {
                     !matches!(source.production, ManaProduction::Counted { .. })
@@ -166,6 +203,7 @@ impl Planner<'_> {
                             .is_some_and(|cost| spend(cost, &self.pool).is_none()),
                         source.harm,
                         std::cmp::Reverse(useful),
+                        source.tap_other.is_some(),
                         source.colors.len(),
                         source.land,
                         *index,
@@ -187,6 +225,7 @@ impl Planner<'_> {
                 continue;
             }
             let source = &self.sources[i];
+            let tap_other = self.tap_helper(source);
             let colors = if matches!(source.production, ManaProduction::LandsCouldProduce { .. })
                 && (source.taps || self.tapped.iter().any(|tapped| *tapped))
             {
@@ -212,12 +251,17 @@ impl Planner<'_> {
             };
             let amount = self.amount(source, color);
             self.tapped[source.object_index] = source.taps;
+            if let Some(helper) = tap_other {
+                self.tapped[helper] = true;
+                self.used[helper] = true;
+            }
             for &c in symbols {
                 self.pool.entry(c).or_default().add(&amount);
             }
             self.plan.push(PlannedMana {
                 source: source.handle.clone(),
                 ability: Some(source.ability),
+                tap_other: tap_other.map(|index| self.view.objects[index].handle.clone()),
                 color,
                 bundle: source.choose_bundle.then(|| symbols.to_vec()),
                 hybrid: source.hybrid.clone(),
@@ -301,7 +345,7 @@ fn usable_printed(
 ) -> bool {
     !ability.costs.sacrifice
         && ability.costs.pay_life.as_ref().is_none_or(|n| life >= n)
-        && (!ability.costs.tap || available_tap(object))
+        && (!ability.taps_source() || available_tap(object))
         && ability
             .costs
             .remove_source_counters
@@ -670,7 +714,8 @@ pub(super) fn plan_with_reservations(
                             _ => 1.into(),
                         },
                         land,
-                        taps: ability.costs.tap,
+                        taps: ability.taps_source(),
+                        tap_other: ability.chosen_cost.as_ref().map(|cost| cost.filter.clone()),
                         production: production.clone(),
                         choose_bundle,
                         colors: colors.clone(),
@@ -694,6 +739,7 @@ pub(super) fn plan_with_reservations(
                     amount: 1.into(),
                     land,
                     taps: true,
+                    tap_other: None,
                     production: ManaProduction::Fixed {
                         symbols: vec![color],
                     },
@@ -710,6 +756,7 @@ pub(super) fn plan_with_reservations(
         catalog,
         view,
         reserved,
+        exclude,
         sources,
         used: vec![false; view.objects.len()],
         tapped: vec![false; view.objects.len()],
@@ -852,6 +899,7 @@ mod tests {
         let mut v = view();
         let mut forest = land(&c, "Forest", 3);
         forest.granted_mana = vec![ManaAbility {
+            chosen_cost: None,
             restriction: None,
             condition: None,
             costs: mtg_contracts::PermanentActivationCosts {
@@ -1132,6 +1180,37 @@ mod tests {
     }
 
     #[test]
+    fn chosen_mana_tap_plans_a_summoning_sick_helper_and_excludes_reserved_objects() {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r5/e6b77545-de5c-4f4a-b7ea-83498fb33ba8.json"
+            ),
+        ) else {
+            panic!("frozen Holdout Settlement must lower")
+        };
+        catalog.definitions.push(*definition);
+        let mut view = view();
+        view.objects.push(land(&catalog, "Holdout Settlement", 3));
+        let cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::U],
+        };
+        assert!(plan_for(&catalog, &view, &cost, None).is_none());
+        let mut helper = land(&catalog, "Grizzly Bears", 3);
+        helper.attack_ready = false;
+        view.objects.push(helper);
+        let helper = &view.objects[1].handle;
+        let plan = plan_for(&catalog, &view, &cost, None).unwrap();
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].source, view.objects[0].handle);
+        assert_eq!(plan[0].tap_other.as_ref(), Some(helper));
+        assert_eq!(plan[0].color, Some(Color::U));
+        assert!(plan_with_reservations(&catalog, &view, &cost, None, &[], &[helper]).is_none());
+    }
+
+    #[test]
     fn counted_mana_plan_reads_taps_in_payment_order() {
         let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
         let mtg_compiler::CompileResult::Lowered { mut definition } = mtg_compiler::compile(
@@ -1238,12 +1317,14 @@ mod tests {
             catalog: &catalog,
             view: &view,
             reserved: &[],
+            exclude: None,
             sources: vec![Source {
                 object_index: 0,
                 ability: ManaAbilityIdentity::Printed { index: 0 },
                 handle: &source,
                 land: false,
                 taps: true,
+                tap_other: None,
                 amount: 1.into(),
                 production: ManaProduction::AnyColor,
                 choose_bundle: false,

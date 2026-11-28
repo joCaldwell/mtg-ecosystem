@@ -91,7 +91,7 @@ impl RulesTxn {
                 || self.has_keyword(source, KeywordAbility::Haste)?))
     }
 
-    fn eligible_cost_objects(
+    pub(super) fn eligible_cost_objects(
         &self,
         player: PlayerId,
         source: ObjectId,
@@ -333,7 +333,18 @@ impl RulesTxn {
                 Err("unexpected cost selection".into())
             };
         };
-        let eligible = self.eligible_cost_objects(entry.controller, entry.source, &cost)?;
+        self.chosen_cost_events(entry.controller, entry.source, &cost, selected)
+            .map(Some)
+    }
+
+    pub(super) fn chosen_cost_events(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        cost: &ChosenObjectCost,
+        selected: &[ObjectId],
+    ) -> Result<EventGroup, String> {
+        let eligible = self.eligible_cost_objects(player, source, cost)?;
         let payable = if let Some(minimum) = cost.minimum_power {
             self.crew_choices(&eligible, selected, minimum)?.1
         } else {
@@ -346,10 +357,7 @@ impl RulesTxn {
         let occurrences = selected
             .iter()
             .map(|&object| match cost.action {
-                Discard => ProposedEvent::DiscardCard {
-                    object,
-                    player: entry.controller,
-                },
+                Discard => ProposedEvent::DiscardCard { object, player },
                 ExileFromGraveyard => ProposedEvent::Move {
                     object,
                     destination: Zone::Exile,
@@ -358,20 +366,18 @@ impl RulesTxn {
             })
             .collect();
         let group = EventGroup::Simultaneous { occurrences };
-        Ok(Some(if cost.tap_source {
+        Ok(if cost.tap_source {
             EventGroup::Ordered {
                 children: vec![
                     EventGroup::Occurrence {
-                        proposed: ProposedEvent::Tap {
-                            object: entry.source,
-                        },
+                        proposed: ProposedEvent::Tap { object: source },
                     },
                     group,
                 ],
             }
         } else {
             group
-        }))
+        })
     }
 
     pub(super) fn commit_chosen_payment(

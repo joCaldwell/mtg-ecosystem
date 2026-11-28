@@ -1083,6 +1083,7 @@ pub fn granted_mana_supported(
         && !abilities.is_empty()
         && abilities.iter().all(|a| {
             a.costs.tap
+                && a.chosen_cost.is_none()
                 && !a.costs.sacrifice
                 && a.costs.mana.is_none()
                 // CR 107.4e: hybrid symbols are mana costs too.

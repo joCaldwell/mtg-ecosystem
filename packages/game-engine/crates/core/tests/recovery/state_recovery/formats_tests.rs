@@ -27,7 +27,7 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     119,
-    "0571628bcc9cf74bfd980a4f50e79c2a0b7fd8ea3380406bd8f24801a20ce6e4",
+    "d1aca9d159193de9e3218010c592d7c3fde0f0e1db4334fff1c60808aaf05b0f",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     151,
@@ -220,6 +220,7 @@ fn granted_mana() -> Game {
             },
             vec![Change::AddManaAbilities {
                 abilities: vec![mtg_contracts::ManaAbility {
+                    chosen_cost: None,
                     spend_restriction: None,
                     restriction: None,
                     condition: None,

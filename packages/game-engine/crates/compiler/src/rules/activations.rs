@@ -20,13 +20,7 @@ pub(crate) fn lower_permanent_costs(
     is_self: &dyn Fn(&str) -> bool,
 ) -> Result<(PermanentActivationCosts, Vec<ColorHybridSymbol>), Failure> {
     let mut hybrid = vec![];
-    let mut result = PermanentActivationCosts {
-        remove_source_counters: None,
-        tap: false,
-        mana: None,
-        sacrifice: false,
-        pay_life: None,
-    };
+    let mut result = PermanentActivationCosts::default();
     for cost in costs {
         match cost {
             SourceCost::RemoveCounters { .. } if result.remove_source_counters.is_none() => {
@@ -510,7 +504,17 @@ pub(crate) fn lower_mana_ability(
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let (costs, hybrid_mana) = lower_permanent_costs(costs, kind, is_self)?;
+    // CR 118.3, 302.6, 605.3a: the written tap and tap symbol form one
+    // chosen-object cost. Its tap symbol belongs to the source alone.
+    let (costs, chosen_cost, hybrid_mana) =
+        if let [SourceCost::TapSelf {}, cost @ SourceCost::TapObjects { .. }] = costs {
+            let mut chosen = crate::compose::lower_chosen_object_cost(cost)?;
+            chosen.tap_source = true;
+            (PermanentActivationCosts::default(), Some(chosen), vec![])
+        } else {
+            let (costs, hybrid) = lower_permanent_costs(costs, kind, is_self)?;
+            (costs, None, hybrid)
+        };
     if !costs.tap && costs.remove_source_counters.is_some() {
         if costs.mana.is_some()
             || !hybrid_mana.is_empty()
@@ -525,7 +529,7 @@ pub(crate) fn lower_mana_ability(
                 "unsupported counter-removal mana shape",
             ));
         }
-    } else if !costs.tap || restriction.is_some() {
+    } else if !(costs.tap || chosen_cost.is_some()) || restriction.is_some() {
         return Err(unsupported("mana", "unsupported mana cost/restriction"));
     }
     // A rider of a sacrificed source would read last-known information the
@@ -537,6 +541,7 @@ pub(crate) fn lower_mana_ability(
         restriction: restriction.map(|_| ManaActivationRestriction::OnceEachTurn),
         condition: None,
         costs,
+        chosen_cost,
         hybrid_mana,
         production,
         spend_restriction,

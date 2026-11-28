@@ -8,7 +8,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-mod chosen;
+pub(crate) mod chosen;
 
 #[derive(Default)]
 struct Terms {
