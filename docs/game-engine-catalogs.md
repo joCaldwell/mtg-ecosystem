@@ -239,7 +239,8 @@ sacrifice-for-return.
 - `Optional`, `UnlessPays` and `IfPays` take a singleton player expression; both
   payment nodes support life and generic mana. With no live chooser the optional
   effect is skipped; with no live payer only `UnlessPays` performs its node
-  (CR 118.12).
+  (CR 118.12). Ward's `UnlessPays` counters `Ref::EventStackObject`, the stack
+  object its targeting event names, and asks that object's controller (CR 702.21a).
 - `Choose` binds a pool from a matching public set when both bounds force zero
   or the set's size. `ChooseObject` offers one mandatory public object choice
   from a current controller-relative battlefield set; the saved frame derives

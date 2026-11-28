@@ -2135,3 +2135,79 @@ fn observation_only_delve_applies_after_hybrid_choice() {
         Action::Pass
     );
 }
+
+/// CR 702.21a: an opponent's ward trigger on the stack offers this view's
+/// player its payment. The policy pays a generic ward cost it can fund,
+/// declines one it cannot, and pays a life ward only with at least twice
+/// that life.
+#[test]
+fn generic_policy_pays_an_opponents_ward_it_can_afford() {
+    let c = entry_catalog(&[
+        entry_record!("b68cf4e6-205e-40b6-b28b-f4b7d8af7017"), // Tomakul Honor Guard
+        entry_record!("50c477c1-8457-40f6-bba9-1a4ba0862178"), // Owlin Shieldmage
+    ]);
+    let ward = |name: &str, forests: usize, life: i64| {
+        let mut v = board::view();
+        let viewer = v.viewer;
+        let opponent = PlayerId((viewer.0 + 1) % 4);
+        let d = c.definitions.iter().find(|d| d.name == name).unwrap();
+        let index = d
+            .triggered
+            .iter()
+            .position(|t| {
+                matches!(
+                    t.condition.pattern(),
+                    kir::EventPattern::BecomesTarget { .. }
+                )
+            })
+            .unwrap() as u32;
+        let source = board::card(&c, name, opponent.0, Zone::Battlefield);
+        v.stack.push(VisibleStackEntry {
+            mode_mask: None,
+            spell_copy: false,
+            flashback: false,
+            hybrid_colors: vec![],
+            selected_additional_costs: None,
+            x: None,
+            mana_value: None,
+            triggered: Some(mtg_core::VisibleTriggered {
+                handle: StackHandle("ward".into()),
+                source: mtg_core::VisibleTarget {
+                    announced: source.handle.clone(),
+                    current: Some(source.handle.clone()),
+                },
+                oracle_id: d.oracle_id.clone(),
+                ability: mtg_core::VisibleTriggerAbility::Intrinsic { index },
+            }),
+            entity_targets: vec![],
+            handle: Some(StackHandle("ward".into())),
+            stack_targets: vec![],
+            spell: None,
+            ability: None,
+            player_targets: vec![],
+            controller: opponent,
+            cast_complete: true,
+            targets: vec![],
+        });
+        v.objects.push(source);
+        for _ in 0..forests {
+            v.objects
+                .push(board::card(&c, "Forest", viewer.0, Zone::Battlefield));
+        }
+        for (n, o) in v.objects.iter_mut().enumerate() {
+            if o.oracle_id != d.oracle_id {
+                o.handle = ObjectHandle(format!("land-{n}"));
+            }
+        }
+        for player in &mut v.players {
+            if player.player == viewer {
+                player.life = Quantity::from(life);
+            }
+        }
+        strategy(&c).optional_effect(&v, None)
+    };
+    assert!(ward("Tomakul Honor Guard", 2, 40));
+    assert!(!ward("Tomakul Honor Guard", 1, 40));
+    assert!(ward("Owlin Shieldmage", 0, 6));
+    assert!(!ward("Owlin Shieldmage", 0, 5));
+}
