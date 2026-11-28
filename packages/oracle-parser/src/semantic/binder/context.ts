@@ -62,7 +62,7 @@ export interface Context {
   directCardChoice?: { path: string; result: Candidate };
   lookedCardChoice?: { path: string; pool: Candidate; excluding: string };
   performedRepeat?: { decision: string; path: string };
-  groupChoice?: { path: string; group: Candidate; member: Candidate; result: Candidate; eachType: boolean; ownNonlands: boolean };
+  groupChoice?: { path: string; group: Candidate; member: Candidate; result: Candidate; eachType: boolean; listedTypes?: string[]; ownNonlands: boolean };
   explicitExiledCast?: { path: string; result: Candidate };
   boundOperand?: { path: string; candidate: Candidate; rules: string[] };
   targetLegalityQuery?: true;

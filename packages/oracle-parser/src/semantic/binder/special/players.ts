@@ -1,6 +1,6 @@
 // Single-template recognisers: per-player choices and grouped actions.
 import { isDeepStrictEqual } from "node:util";
-import type { Effect, Sentence } from "../../../ast.ts";
+import type { Effect, ObjectFilter, Sentence } from "../../../ast.ts";
 import { isPluralPlayerRef } from "../../../parser/refs.ts";
 import type { Analyzer } from "../analyzer.ts";
 import { chosenRange } from "../choices.ts";
@@ -260,6 +260,10 @@ export function multiplayerChoices(this: Analyzer, effect: Extract<Effect, { eff
   const eachType = effect.who.player === "each-opponent" && !effect.startingWith && what.ref === "each" &&
     isDeepStrictEqual(effect.perPermanentType, { skipMissing: true, sameObjectForMultipleTypes: true }) &&
     isDeepStrictEqual(what.filter, { cls: "permanent", controlledBy: { player: "they" } });
+  const nonlandPool = { cls: "permanent", nonTypes: ["land"], controlledBy: { player: "they" } };
+  const listedTypes = effect.who.player === "each-player" && !effect.startingWith && what.ref === "each" &&
+    effect.perPermanentType?.types?.length && isDeepStrictEqual(what.filter, nonlandPool)
+      ? effect.perPermanentType.types : undefined;
   const ownNonlands = !effect.perPermanentType && !effect.startingWith && effect.who.player === "each-player" &&
     what.ref === "filter" && !what.random && !what.groupConstraints && what.count.amount === "fixed" &&
     isDeepStrictEqual(what.filter, { cls: "permanent", nonTypes: ["land"], controlledBy: { player: "they" } });
@@ -268,7 +272,7 @@ export function multiplayerChoices(this: Analyzer, effect: Extract<Effect, { eff
     isDeepStrictEqual(what.count, { amount: "fixed", value: 1 }) && what.upTo && what.filter.cls === "permanent" &&
     Object.keys(what.filter).every(key => ["cls", "properties", "fromAmong"].includes(key)) &&
     isDeepStrictEqual(what.filter.fromAmong, { ref: "each", filter: { cls: "permanent", control: "opponent" } });
-  if (!eachType && !ownNonlands && !amongOpponents) return false;
+  if (!eachType && !listedTypes && !ownNonlands && !amongOpponents) return false;
 
   const rules = ["101.4", "110.4", "608.2d", "608.2e", "609.3"];
   const group = this.player(effect.who, child(path, "who"), context);
@@ -283,11 +287,12 @@ export function multiplayerChoices(this: Analyzer, effect: Extract<Effect, { eff
   const chosen = this.eventResult(path, event, "objects", "many", "same-objects", { cls: "permanent" });
   this.node({ id: this.id(path, "multiplayer-choice"), path, node: "multiplayer-choice", scope: context.ability, event,
     group: group.id, member: member.id, selector: selector.id, result: chosen.id,
-    ...(first ? { startWith: first.id } : {}), choose: eachType ? "one-per-permanent-type" : "printed-count", rules });
+    ...(first ? { startWith: first.id } : {}), choose: eachType || listedTypes ? "one-per-permanent-type" : "printed-count",
+    ...(listedTypes ? { types: listedTypes } : {}), rules });
   this.engineFeature("multiplayer-choice", path,
     "Make choices in the specified player order and remember each player's selections and their union.", rules);
   context.objects = combine(context.objects, [chosen]);
-  context.groupChoice = { path, group, member, result: chosen, eachType, ownNonlands };
+  context.groupChoice = { path, group, member, result: chosen, eachType, listedTypes, ownNonlands };
   context.quantities = [];
   context.uncertainMeasureOrigin = true;
   return true;
@@ -308,17 +313,18 @@ export function afterMultiplayerChoices(this: Analyzer, effect: Effect, path: st
     this.bound({ ref: "them" }, `${what}/filter/other`, choice.result.id, rules);
     const selection = this.bound(effect.what, what, unchosen, rules);
     this.event(path, context, effect.effect, [selection], context.conditional ? { conditional: true } : {});
-  } else if (choice.eachType && effect.effect === "sacrifice" &&
-      effect.who.player === "each-opponent" && !effect.chosenBy && effect.what.ref === "rest" && isDeepStrictEqual(effect.what, {
-        ref: "rest", exclude: "own-preceding-choices", of: { ref: "each", filter: { cls: "permanent", controlledBy: { player: "they" } } },
-      })) {
+  } else if ((choice.eachType || choice.listedTypes) && effect.effect === "sacrifice" &&
+      effect.who.player === (choice.eachType ? "each-opponent" : "each-player") && !effect.chosenBy &&
+      effect.what.ref === "rest") {
+    const filter: ObjectFilter = { cls: "permanent", controlledBy: { player: "they" }, ...(choice.listedTypes ? { nonTypes: ["land"] } : {}) };
+    if (!isDeepStrictEqual(effect.what, { ref: "rest", exclude: "own-preceding-choices", of: { ref: "each", filter } })) return false;
     const what = child(path, "what");
     if (!effect.what.of) return false;
     this.bound(effect.who, child(path, "who"), choice.group.id, rules);
     this.object(effect.what.of, child(what, "of"), { ...context, actor: choice.member });
     const unchosen = this.node({ id: this.id(what, "unchosen-permanents"), path: what, node: "unchosen-permanents",
       scope: context.ability, chosen: choice.result.id, member: choice.member.id,
-      filter: { cls: "permanent", controlledBy: { player: "they" } }, exclude: "own-choices", cardinality: "many", rules });
+      filter, exclude: "own-choices", cardinality: "many", rules });
     const selection = this.bound(effect.what, what, unchosen, rules);
     this.event(path, context, effect.effect, [choice.member, selection], context.conditional ? { conditional: true } : {});
   } else return false;

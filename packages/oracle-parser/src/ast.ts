@@ -900,7 +900,7 @@ export type Effect = EffectBase &
     | { effect: "choose-object"; who: PlayerRef; what: ObjectRef | PlayerRef;
         /** CR 110.4, 205.2b, 608.2d: at most one from the pool per permanent
          * type, with the same multitype permanent eligible for multiple types. */
-        perPermanentType?: { skipMissing: true; sameObjectForMultipleTypes: true } }
+        perPermanentType?: { skipMissing: true; sameObjectForMultipleTypes: true; types?: string[] } }
     /** "For each player, choose friend or foe": as this instruction resolves,
      * `who` labels every player of `players` (you included) either friend or
      * foe (CR 608.2d); it is neither a target nor a vote. Later "each friend"

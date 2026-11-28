@@ -639,3 +639,25 @@ test("printed counts, zones, and cost adjustments retain their own token spans",
     assert.equal(spelling(face, text, span(block(face), path)), expected, path);
   }
 });
+
+test("records listed permanent types and the per-player pool (Cataclysmic Gearhulk)", () => {
+  const trigger = "When this creature enters, each player chooses an artifact, a creature, an enchantment, and a planeswalker from among the nonland permanents they control, then sacrifices the rest.";
+  const text = `Vigilance\n${trigger}`;
+  const typeLine = "Artifact Creature — Construct";
+  const face = read(text, "Cataclysmic Gearhulk", typeLine);
+  const found = block(face, 1);
+  const choice = "/effects/0/steps/0";
+  assert.equal(spelling(face, text, span(found, `${choice}/perPermanentType`)),
+    "an artifact, a creature, an enchantment, and a planeswalker");
+  assert.equal(spelling(face, text, span(found, `${choice}/what/filter`)),
+    "nonland permanents they control");
+  assert.equal(spelling(face, text, span(found, "/effects/0/steps/1/what")), "the rest");
+  assertLocated(face);
+  for (const near of [
+    trigger.replace(", and a planeswalker", ", and a creature"),
+    trigger.replace("the nonland permanents they control", "the permanents they control"),
+    trigger.replace("then sacrifices the rest", "then sacrifices one of them"),
+  ]) {
+    assert.equal(parseOracleText(near, "Witness", { typeLine }).ok, false, near);
+  }
+});
