@@ -537,9 +537,7 @@ fn lower(
                 Some(ast::Amount::Count(n)) => Some(cda_set(&n.of).map_err(|e| {
                     gap(&format!(
                         "enters-with-counters:multiplier:{}",
-                        e.reason
-                            .strip_prefix("static:cda-pt:")
-                            .unwrap_or(&e.reason)
+                        e.reason.strip_prefix("static:cda-pt:").unwrap_or(&e.reason)
                     ))
                 })?),
                 Some(other) => {
@@ -1372,9 +1370,7 @@ fn modify(
                     let set = cda_set(each).map_err(|e| {
                         gap(&format!(
                             "modifier:for-each:{}",
-                            e.reason
-                                .strip_prefix("static:cda-pt:")
-                                .unwrap_or(&e.reason)
+                            e.reason.strip_prefix("static:cda-pt:").unwrap_or(&e.reason)
                         ))
                     })?;
                     Change::PowerToughness {

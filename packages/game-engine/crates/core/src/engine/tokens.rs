@@ -361,13 +361,15 @@ impl RulesTxn {
                     tapped,
                 }
             }
-            mtg_contracts::kir::TokenSpec::Creature { spec } => ProposedEvent::CreateCreatureTokens {
-                controller,
-                source,
-                count,
-                token: Box::new(spec.clone()),
-                tapped,
-            },
+            mtg_contracts::kir::TokenSpec::Creature { spec } => {
+                ProposedEvent::CreateCreatureTokens {
+                    controller,
+                    source,
+                    count,
+                    token: Box::new(spec.clone()),
+                    tapped,
+                }
+            }
         };
         self.commit(event, cause).map(Some)
     }

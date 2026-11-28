@@ -181,11 +181,11 @@ fn counted_static_modifications_lower_over_public_counts() {
     );
     let guard = lowered(BENALISH_HONOR_GUARD);
     assert!(guard.static_abilities.iter().any(|a| matches!(&a.effect,
-        StaticEffect::Continuous { changes, .. }
-            if matches!(changes.as_slice(), [Change::PowerToughness {
-                power: Amount::Count { .. },
-                toughness: Amount::Fixed { .. },
-            }]))));
+    StaticEffect::Continuous { changes, .. }
+        if matches!(changes.as_slice(), [Change::PowerToughness {
+            power: Amount::Count { .. },
+            toughness: Amount::Fixed { .. },
+        }]))));
     let mask = lowered(ANCESTRAL_MASK);
     assert!(mask.static_abilities.iter().any(|a| matches!(&a.effect,
         StaticEffect::Continuous { affects: Scope::Attachment { .. }, changes, .. }
@@ -194,7 +194,10 @@ fn counted_static_modifications_lower_over_public_counts() {
             }] if matches!(&**of, Amount::Count { set: SetExpr::Matching { filter, .. } }
                 if filter.0.contains(&Atom::IsNot { object: mtg_contracts::kir::Ref::Source }))))));
     let squad = rejected(MOGG_SQUAD);
-    assert!(squad.contains("static:modifier:for-each:negative"), "{squad}");
+    assert!(
+        squad.contains("static:modifier:for-each:negative"),
+        "{squad}"
+    );
 }
 
 /// CR 608.2h, 611.3a: the count is read whenever the stat is: Wight of
@@ -292,7 +295,9 @@ fn ghoulcaller_gisa_reads_the_sacrificed_creatures_power() {
             .permanent_or_hand("Colossal Dreadmaw", 0, 0, false)
             .permanent_or_hand("Swamp", 0, 0, false),
     );
-    assert!(evaluated_tokens(g.copiable_definition(Driver::object(&g, 0)).unwrap()));
+    assert!(evaluated_tokens(
+        g.copiable_definition(Driver::object(&g, 0)).unwrap()
+    ));
     let gisa = Driver::object(&g, 0);
     Driver::action(
         &mut g,
@@ -425,11 +430,16 @@ fn sacrifice_costs_filter_by_color_and_token_status() {
 #[test]
 fn entry_counters_count_as_the_permanent_enters() {
     let gargoyle = lowered(GATEKEEPER_GARGOYLE);
-    assert!(gargoyle.static_abilities.iter().any(|a| matches!(&a.effect,
+    assert!(gargoyle.static_abilities.iter().any(|a| matches!(
+        &a.effect,
         StaticEffect::EntersWithPlusOneCounters {
-            for_each: Some(SetExpr::Matching { zone: ZoneExpr::Battlefield, .. }),
+            for_each: Some(SetExpr::Matching {
+                zone: ZoneExpr::Battlefield,
+                ..
+            }),
             ..
-        })));
+        }
+    )));
     let mut g = game(
         board(&[DIREGRAF_COLOSSUS, DEATH_BARON])
             .permanent_or_hand("Diregraf Colossus", 0, 0, true)

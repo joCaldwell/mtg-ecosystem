@@ -33,7 +33,8 @@ impl Walk<'_, '_> {
             if count.as_fixed().and_then(Quantity::to_u32).is_none() {
                 return kind("token count above the supported range");
             }
-            if you && matches!(token, TokenSpec::Creature { spec } if spec.additional_types.is_empty())
+            if you
+                && matches!(token, TokenSpec::Creature { spec } if spec.additional_types.is_empty())
             {
                 return Ok(Cell::CreatureTokens);
             }
