@@ -1,12 +1,10 @@
 # Multiverse game application
 
-`web/` holds the React/Vite harness, operator-issued joining, session recovery and
-source-bound decisions; shared table/inspection comes from game-ui. `server/` owns
-account-scoped admission/launch/recovery, native supervision and `/api/games`;
-`shared/` owns coordination DTOs. Multiverse composes `/server` with the existing
-deck/account host in one process. `@multiverse/game-client` preserves the former
-browser exports. Ownership rules are in [the package manual](AGENTS.md); behavior
-and remaining gates are in [client contracts](../../docs/game-client.md).
+Setup, public exports and commands for this package. Ownership rules are in
+[the package manual](AGENTS.md); behavior and remaining gates are in
+[client contracts](../../docs/game-client.md). Multiverse composes `/server` with
+the existing deck/account host in one process; `@multiverse/game-client` preserves
+the former browser exports.
 
 ## Public integration boundary
 

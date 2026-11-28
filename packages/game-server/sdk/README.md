@@ -25,10 +25,9 @@ as source-qualified exports. Executable mode calls `schema` and `bootstrap-schem
 `generated/` so all checks consume one output.
 
 `build:browser` generates declarations, route data and standalone Ajv validators
-with no runtime schema compilation, Node globals or unsafe-eval. The generator
-rejects external references, unconstrained types and malformed route descriptors
-and publishes only complete output. `verify` repeats the build, strict types and
-transport/generator tests and writes `generated/verification.{json,log}`;
+(no runtime schema compilation, Node globals or unsafe-eval) and publishes only
+complete output. `verify` repeats the build, strict types and transport/generator
+tests and writes `generated/verification.{json,log}`;
 `generated/generation.json` and `dist/build.json` pin inputs and bytes. Changed
 native exports or SDK source need explicit regeneration.
 
@@ -48,17 +47,17 @@ const page = await client.poll({ after: '0', limit: 32, waitMs: 20_000 });
 | Reads | `manifest`, `resume`, `poll`, `events`, `presentation` |
 | Commands | `prepareCommand`, `parsePreparedCommand`, `submitExact`, `submit`, `execution`, `cancel` |
 
-Protocol validation is not gameplay legality or seat authorization; the SDK has no
-persistence, journal or retry policy. [Server routes](../../../docs/game-engine-server.md)
-own limits and cursor semantics; [the client contract](../../../docs/game-client.md)
-owns [journaling](../../../docs/game-client.md#durable-command-journal),
-presentation and [inline decision candidates](../../../docs/game-client.md#core-action-discovery).
+Protocol validation is not gameplay legality or seat authorization.
+[Server routes](../../../docs/game-engine-server.md) own limits and cursor
+semantics; the client contract owns
+[journaling](../../../docs/game-client.md#durable-command-journal), presentation and
+[inline decision candidates](../../../docs/game-client.md#core-action-discovery).
 The Node-only `./presentation-producer` export checks pinned source identities via
 [`presentation.schema.json`](../tools/presentation.schema.json).
 
 ## Browser proofs
 
-After explicit build, use the locked browsers; downloads are separate setup:
+After an explicit build, use the locked browsers (downloads are separate setup):
 
 ```sh
 sh scripts/engine-env.sh node packages/game-server/sdk/node_modules/playwright/cli.js install chromium firefox
@@ -106,5 +105,5 @@ only on unknown transport outcomes and 429/503: at most 24 attempts and 8 minute
 per operation within 25 minutes overall, and at most 5,000 accepted inputs per seat
 (20,000 total). Stale revision stops instead of minting a new ID. Accepted counts
 are acknowledgments, not resolution; there is no process-crash resume guarantee,
-and resource/deadline/input stops never become rules outcomes. Four-client proofs
-keep separate [host qualification](../../../docs/game-engine-server.md#hosted-profiles).
+and resource/deadline/input stops are not rules outcomes. Four-client proofs keep
+separate [host qualification](../../../docs/game-engine-server.md#hosted-profiles).
