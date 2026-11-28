@@ -161,7 +161,9 @@ visible_effects! {
         origin: VisibleEffectSource<O> => nested,
         targets: Vec<VisibleTarget<O>> => targets,
         values: CharacteristicSet,
-        expires_in_cleanup_of_turn: u64,
+        expires_in_cleanup_of_turn: Option<u64>,
+        expires_at_controller_next_turn: bool,
+        while_source_remains: bool,
     },
     ModifyPowerToughness(handle) {
         origin: VisibleEffectSource<O> => nested,

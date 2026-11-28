@@ -2322,6 +2322,9 @@ pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
                     | KeywordAbility::Haste
                     | KeywordAbility::Menace
                     | KeywordAbility::Trample
+                    | KeywordAbility::Shroud
+                    | KeywordAbility::Fear
+                    | KeywordAbility::Intimidate
                     | KeywordAbility::FirstStrike
             ) && !keywords[..index].contains(keyword)
         })

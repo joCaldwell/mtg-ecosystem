@@ -825,6 +825,24 @@ impl RulesTxn {
             Distribution::EachSimultaneous if signature.verb == EvaluatedVerb::Mill => {
                 self.perform_mill(&task, players, &amount, block)
             }
+            Distribution::Single if signature.verb == EvaluatedVerb::AdditionalLandPlays => {
+                let frame = self.kernel_root()?.clone();
+                if players.as_slice() != [self.entry(frame.stack_id)?.controller] {
+                    return Err("invalid additional land-play recipient".into());
+                }
+                let actual = self.create_resolved_effect(
+                    &frame,
+                    ResolvedEffectKind::AdditionalLandPlays { count: amount },
+                    block,
+                )?;
+                self.complete_evaluated(
+                    &task,
+                    None,
+                    [InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    }],
+                )
+            }
             Distribution::EachSequential => {
                 task.stage = Stage::Step(StepProgress::Sequence {
                     players: players

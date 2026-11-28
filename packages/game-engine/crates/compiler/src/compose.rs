@@ -233,7 +233,39 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
 /// Decode one effect sentence; evaluated actions (including discard and mill)
 /// decode through the generated effect schema in `Step::deserialize`.
 pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
-    serde_json::from_value(raw.clone()).map_err(|e| mirror_gap(raw, &e))
+    let Some(steps) = raw["steps"]
+        .as_array()
+        .filter(|steps| steps.iter().any(|step| step["effect"] == "set-pt"))
+    else {
+        return serde_json::from_value(raw.clone()).map_err(|e| mirror_gap(raw, &e));
+    };
+
+    // CR 608.2c, 611.2d: decode new layer setters directly from the generated
+    // AST. Reuse the sentence decoder for its qualifiers and bindings.
+    let mut shell = raw.clone();
+    shell["steps"] = serde_json::json!([]);
+    let mut sentence: Sentence = serde_json::from_value(shell).map_err(|e| mirror_gap(raw, &e))?;
+    fn reads_x(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Object(fields) => {
+                fields.get("amount").and_then(|amount| amount.as_str()) == Some("x")
+                    || fields.values().any(reads_x)
+            }
+            serde_json::Value::Array(items) => items.iter().any(reads_x),
+            _ => false,
+        }
+    }
+    for step in steps {
+        let decoded = if step["effect"] == "set-pt" {
+            typed::<ast::Effect>(step, "set-pt").map(|effect| Step::Evaluated(Box::new(effect)))?
+        } else {
+            serde_json::from_value(step.clone()).map_err(|e| mirror_gap(raw, &e))?
+        };
+        sentence.steps.push(decoded);
+        sentence.reads_x.push(reads_x(step));
+        sentence.introduces.push(Introduced::of_step(step));
+    }
+    Ok(sentence)
 }
 
 /// A reviewed trigger lowers typed sentences only. A sentence of step table
@@ -1033,7 +1065,7 @@ fn compose(
         front.back_face = Some(Box::new(back));
         front.capabilities = front.requirements();
     } else {
-        keywords::printed(&card.shape, &front.keywords)?;
+        keywords::printed_with_grants(&card.shape, &front)?;
     }
     front
         .validate()

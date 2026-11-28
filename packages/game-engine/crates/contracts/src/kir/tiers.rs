@@ -169,14 +169,7 @@ pub enum Cell {
     PumpSource,
     PumpTarget,
     /// CR 603.10, 611.2c: the creature an attack event names.
-    PumpEventObject,
-    PumpSet,
-    PumpAnnouncedX,
     /// CR 608.2h: a P/T change by a resolution count, read once.
-    PumpCounted,
-    SourceKeywordsUntilEndOfTurn,
-    TargetKeywordsUntilEndOfTurn,
-    SetKeywordsUntilEndOfTurn,
     CombatProhibitionUntilEndOfTurn,
     /// CR 615.1, 611.2a: prevent all matching damage this turn.
     PreventDamageThisTurn,
@@ -355,13 +348,6 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::PlayerCounters
         | C::Proliferate
         | C::RemoveLoreCounter
-        | C::PumpEventObject
-        | C::PumpSet
-        | C::PumpAnnouncedX
-        | C::PumpCounted
-        | C::SourceKeywordsUntilEndOfTurn
-        | C::TargetKeywordsUntilEndOfTurn
-        | C::SetKeywordsUntilEndOfTurn
         | C::CombatProhibitionUntilEndOfTurn
         | C::PreventDamageThisTurn
         | C::PreventionShield

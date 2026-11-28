@@ -316,6 +316,32 @@ pub(super) fn printed(
     source: &serde_json::Value,
     lowered: &[KeywordAbility],
 ) -> Result<(), Failure> {
+    check_printed(source, lowered, |_| false)
+}
+
+pub(super) fn printed_with_grants(
+    source: &serde_json::Value,
+    definition: &Definition,
+) -> Result<(), Failure> {
+    check_printed(source, &definition.keywords, |ability| {
+        matches!(
+            definition.characteristics.kind,
+            CardKind::Instant | CardKind::Sorcery
+        ) && definition
+            .spell_programs()
+            .flat_map(|program| &program.instructions)
+            .any(|instruction| {
+                matches!(instruction.verb(), Some(kir::Verb::SetCharacteristics { values, .. })
+                    if values.keywords.contains(ability))
+            })
+    })
+}
+
+fn check_printed(
+    source: &serde_json::Value,
+    lowered: &[KeywordAbility],
+    also_granted: impl Fn(&KeywordAbility) -> bool,
+) -> Result<(), Failure> {
     let mismatch = || unsupported("source.keywords", "keyword list differs from the AST");
     let listed: BTreeSet<String> = source["keywords"]
         .as_array()
@@ -324,9 +350,17 @@ pub(super) fn printed(
         .map(|k| k.as_str().map(str::to_lowercase).ok_or_else(mismatch))
         .collect::<Result<_, _>>()?;
     for (name, ability) in TABLE {
-        if listed.contains(*name) != lowered.contains(ability) {
-            return Err(mismatch());
+        let observed = listed.contains(*name);
+        if observed == lowered.contains(ability) {
+            continue;
         }
+        // A spell's metadata can index a combat keyword its effect grants
+        // (CR 113.10a, 611.2c). The exact lowered grant accounts for this
+        // extra tag. A missing intrinsic keyword still fails the test.
+        if observed && also_granted(ability) {
+            continue;
+        }
+        return Err(mismatch());
     }
     if listed.contains("protection") != lowered.iter().any(|k| k.fixed_protection_color().is_some())
     {

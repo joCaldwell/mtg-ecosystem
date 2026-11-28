@@ -3220,6 +3220,7 @@ impl RulesTxn {
                 self.rules_mut().active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
                     self.expire_player_protection(*owner);
+                    self.expire_characteristics_at_turn_start(previous_owner, *owner);
                     self.rules_mut().players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.rules_mut().mana_ability_uses.clear();
                     self.rules_mut().activation_uses.clear();

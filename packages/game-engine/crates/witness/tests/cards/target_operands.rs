@@ -139,7 +139,7 @@ fn activate(g: &mut Game, card: u32, ability: u32) {
 fn blossoming_defense_targets_only_a_creature_you_control() {
     let prepared = board(&[(
         BLOSSOMING_DEFENSE,
-        &[Cell::PumpTarget, Cell::TargetKeywordsUntilEndOfTurn],
+        &[Cell::PumpTarget, Cell::SetCharacteristics],
         Tiers::EXECUTES,
     )])
     .permanent_or_hand("Blossoming Defense", 0, 0, true)

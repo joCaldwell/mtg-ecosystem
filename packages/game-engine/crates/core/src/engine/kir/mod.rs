@@ -194,33 +194,10 @@ impl RulesTxn {
         if let Node::Do(
             verb @ (Verb::GainControl { .. }
             | Verb::SetCharacteristics { .. }
-            | Verb::ModifyUntil {
-                change: mtg_contracts::kir::Change::PowerToughnessX { .. },
-                ..
-            }),
+            | Verb::ModifyUntil { .. }),
         ) = &node
         {
             return self.kernel_continuous(frame, verb, source_block);
-        }
-        // CR 611.2c, 613.4c, 613.1f: an end-of-turn change keeps the set,
-        // source and target effect executors, whose captured members and
-        // effect origins recovery re-derives.
-        if let Node::Do(Verb::ModifyUntil {
-            what,
-            change: mtg_contracts::kir::Change::AddKeywords { keywords },
-            ..
-        }) = &node
-        {
-            return self.kernel_grant_keywords(frame, what, keywords, source_block);
-        }
-        if matches!(node, Node::Do(Verb::ModifyUntil { .. })) {
-            let instruction = Instruction::Kernel { node, source_block };
-            let set = matches!(instruction.pumped(), Some((SetExpr::Matching { .. }, ..)));
-            return if set {
-                self.execute_wipes_instruction(frame, instruction)
-            } else {
-                self.execute_effect_instruction(frame, instruction)
-            };
         }
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());

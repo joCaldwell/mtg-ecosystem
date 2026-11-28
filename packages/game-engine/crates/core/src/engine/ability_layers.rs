@@ -14,9 +14,20 @@
 //! so a removal applies before the grants and removals its recipients' own
 //! abilities generate. Effects that started in an earlier layer continue
 //! (CR 613.6). Printed abilities are always earlier than any removal.
+//!
+//! Battlefield statics use KIR scopes, predicates, conditions and
+//! characteristic changes. The first applicable layer selects recipients
+//! for the effect's later layers (CR 611.3, 613.6). Additive layer-4
+//! effects support artifact and enchantment types and creature subtypes.
+//! Layer 5 sets colors, layer 6 grants supported keywords and mana
+//! abilities, and layer 7 applies base setters, anthems and counters.
+//! A filter can exclude the source or read live controller and subtype
+//! facts. Layer-4 subtype filters and layer-5 color filters reject.
+//! Creature-subtype additions may depend on an earlier resolved animation.
+//!
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::kir::{Animation, Change, Layer, Scope};
+use mtg_contracts::kir::{Animation, Change, CharacteristicSet, Layer, Scope};
 use std::borrow::Cow;
 
 /// One battlefield static ability of one incarnation.
@@ -206,7 +217,7 @@ struct Eff<'a> {
 enum EffKind<'a> {
     Resolved {
         targets: Vec<ObjectId>,
-        animation: &'a Animation,
+        values: &'a CharacteristicSet,
     },
     Static {
         key: StaticKey,
@@ -396,8 +407,10 @@ impl RulesTxn {
     fn compute_global_types(&self) -> Result<GlobalTypes, String> {
         let mut effects: Vec<Eff<'_>> = vec![];
         for effect in &self.state.rules.effects {
-            if let ResolvedEffectKind::SetCharacteristics { targets, values } = &effect.kind
-                && let Some(animation) = &values.animation
+            if let ResolvedEffectKind::SetCharacteristics {
+                targets, values, ..
+            } = &effect.kind
+                && (values.animation.is_some() || values.type_change.is_some())
             {
                 let targets: Vec<ObjectId> = targets
                     .iter()
@@ -409,7 +422,7 @@ impl RulesTxn {
                     .collect();
                 effects.push(Eff {
                     order: (effect.timestamp, 1, 0, effects.len()),
-                    kind: EffKind::Resolved { targets, animation },
+                    kind: EffKind::Resolved { targets, values },
                 });
             }
         }
@@ -639,8 +652,13 @@ impl RulesTxn {
                 applied: vec![],
             });
             match &effect.kind {
-                EffKind::Resolved { animation, .. } => {
-                    apply_animation(&mut entry.facts, animation, printed)
+                EffKind::Resolved { values, .. } => {
+                    if let Some(animation) = &values.animation {
+                        apply_animation(&mut entry.facts, animation, printed);
+                    }
+                    if let Some(change) = &values.type_change {
+                        apply_type_change(&mut entry.facts, change, printed, &mut entry.removed);
+                    }
                 }
                 EffKind::Static { key, changes, .. } => {
                     for change in changes.iter().filter(|c| c.layer() == Layer::Type) {
