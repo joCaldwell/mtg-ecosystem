@@ -150,9 +150,9 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         kir::Node::Optional { node, .. }
         | kir::Node::UnlessPays { node, .. }
         | kir::Node::IfPays { node, .. } => cost_conditions(node, out),
-        kir::Node::ForEach { body, .. } | kir::Node::Choose { body, .. } => {
-            cost_conditions(body, out)
-        }
+        kir::Node::ForEach { body, .. }
+        | kir::Node::Choose { body, .. }
+        | kir::Node::ChooseCreatureType { body, .. } => cost_conditions(body, out),
         kir::Node::Delayed { .. } | kir::Node::Reflexive { .. } => Ok(()),
     }
 }
@@ -549,12 +549,18 @@ fn validate_target_bindings(
                 })
             )
         });
-    let independent_modal_objects = modal
+    let simultaneous_targets = p.instructions.iter().any(|instruction| match instruction.verb() {
+        Some(kir::Verb::Destroy { what, .. } | kir::Verb::Tap { what } | kir::Verb::Untap { what }) => {
+            matches!(what, kir::SetExpr::Targets { slots } if slots.iter().copied().eq(0..p.targets.len() as u32))
+        }
+        _ => false,
+    });
+    let independent_objects = (modal || simultaneous_targets)
         && p.targets
             .iter()
             .all(|t| domain(t.domain).is_some_and(|(route, _)| route == Route::Object));
     if !fight_pair
-        && !independent_modal_objects
+        && !independent_objects
         && p.targets
             .windows(2)
             .any(|pair| pair[0].domain != pair[1].domain || pair[0].filter != pair[1].filter)
@@ -1886,16 +1892,15 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
 /// Multiple spell targets share the object announcement route.
 fn modal_shape(base: &SpellProgram, modal: &ModalSpell, ability: bool) -> Result<(), String> {
     let count = modal.labels.len();
+    let choices = ModalSpell::choices(count, modal.min, modal.max, modal.repeat);
     if !(2..=ModalSpell::MAX_MODES).contains(&count)
         || modal.labels.iter().any(|label| label.trim().is_empty())
         || modal.max == 0
         || modal.min > modal.max
-        || modal.max as usize > count
-        || !modal
-            .selections
-            .keys()
-            .copied()
-            .eq(ModalSpell::masks(count, modal.min, modal.max))
+        || (!modal.repeat && modal.max as usize > count)
+        || (modal.repeat && ability)
+        || choices.is_empty()
+        || !modal.selections.keys().eq(choices.keys())
         || base.functioning_zone != FunctioningZone::Stack
         || base.resolution != SpellResolution::Instructions
         || !base.targets.is_empty()

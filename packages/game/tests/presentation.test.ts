@@ -121,3 +121,17 @@ test('live adapter states core face, creature-type and stack facts', async () =>
   assert.ok(facts.some(fact => fact.label === 'Creature types' && fact.value === 'All creature types'));
   assert.ok(facts.some(fact => fact.label === 'Subtypes' && fact.value === 'Shapeshifter'));
 });
+
+test('live adapter shows repeated printed modes to another seat', async () => {
+  const { liveTable } = await import('../web/src/presentation/live-table.ts');
+  const changed = structuredClone(resume);
+  if (changed.state.status !== 'available') assert.fail();
+  const entry = {
+    spell: null, controller: 1, cast_complete: true, targets: [],
+    mode_mask: 5, chosen_modes: [0, 0, 2],
+  };
+  changed.state.observation.view.stack = [entry];
+  const shown = liveTable(changed, null)!.stack[0]!;
+  assert.deepEqual(shown.currentFacts.find(fact => fact.label === 'Chosen modes'),
+    { label: 'Chosen modes', value: 'Mode 1 · Mode 1 · Mode 3' });
+});

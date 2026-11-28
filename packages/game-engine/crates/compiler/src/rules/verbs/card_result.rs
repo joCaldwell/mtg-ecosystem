@@ -208,6 +208,63 @@ fn link(cx: &mut StepCx<'_>, family: ResultFamily) -> Result<usize, Failure> {
     Ok(index)
 }
 
+/// CR 121.2 and 608.2c: "each player who drew a card this way" reads the
+/// successful draws of the immediately preceding draw instruction, including
+/// draws each player accepted. The filter reads no private characteristics.
+pub(crate) fn reads_draw_players(filter: &ast::PlayerFilter) -> bool {
+    let expected = typed::<ast::PlayerFilter>(
+        &serde_json::json!({
+            "eventResults": {
+                "of": {"cls": "card", "relation": {
+                    "relation": "event-result", "event": "draw", "scope": "this-way"
+                }},
+                "comparison": {"op": "ge", "value": {"amount": "fixed", "value": 1}}
+            }
+        }),
+        "player",
+    )
+    .expect("typed draw-player filter");
+    *filter == expected
+}
+
+pub(super) fn players_who_drew(
+    cx: &mut StepCx<'_>,
+    filter: &ast::PlayerFilter,
+) -> Result<PlayerExpr, Failure> {
+    if !reads_draw_players(filter) {
+        return Err(operand("result", "qualified_draw_players"));
+    }
+    let Some((index, Instruction::Kernel { node, source_block })) =
+        cx.program.instructions.iter().enumerate().next_back()
+    else {
+        return Err(operand("result", "unbound_draw_players"));
+    };
+    let action = match node {
+        kir::Node::Optional { node, .. } => node.as_ref(),
+        node => node,
+    };
+    if index < cx.floor.instructions
+        || *source_block != cx.source_block
+        || !matches!(
+            action.verb(),
+            Some(Verb::Draw {
+                player: PlayerExpr::EachPlayer,
+                ..
+            })
+        )
+        || cx.result_from.is_some_and(|previous| previous != index)
+    {
+        return Err(operand("result", "unbound_draw_players"));
+    }
+    cx.result_from = Some(index);
+    Ok(PlayerExpr::Is {
+        who: Ref::StepResult {
+            step: 0,
+            role: kir::StepRole::Player,
+        },
+    })
+}
+
 pub(super) fn join_instructions(program: &mut SpellProgram, from: usize, instruction: Instruction) {
     let Instruction::Kernel { node, source_block } = instruction;
     let mut nodes: Vec<_> = program

@@ -26,12 +26,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    117,
-    "359217a19e2703b3bdd5c7351401d4417bfbe37e4d7eb9948fccc899049fc417",
+    118,
+    "79e0cbfd0c9f826b36ee34d72c0c3f9d8420b8461263aad258aaecf24e61d3bd",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    150,
-    "235978e40b6e00501b2c3d38d2997498f691af62bc1810eb9b440ae15211ed33",
+    151,
+    "4a89a541671a9dec1c95c3f4ceca45899a43e457c4add810d0f74aca667e3ff2",
 );
 const WORK_PIN: (u32, &str) = (
     71,
@@ -1262,6 +1262,39 @@ fn loyalty_activation() -> String {
     serde_json::to_string(&sample).unwrap()
 }
 
+/// The kernel can suspend during APNAP choice collection, while asking for a
+/// creature type, or with the chosen type bound in the child. Check these
+/// private frame shapes through the real decoder.
+fn kernel_choice_shapes() -> impl Iterator<Item = String> {
+    use mtg_contracts::kir::CreatureType;
+    use serde_json::json;
+
+    let game = super::kernel_control_tests::suspended_control();
+    let sample: Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    assert_eq!(sample["state"]["frame"]["stage"], "kernel");
+    [
+        (
+            json!({"stage": "optional_draws", "remaining": [PlayerId(1)], "choices": [(PlayerId(0), true)]}),
+            json!({}),
+        ),
+        (json!({"stage": "creature_type", "chooser": PlayerId(0)}), json!({})),
+        (
+            json!({"stage": "run"}),
+            json!({"0": {"creature_type": CreatureType::from_name("Bear").unwrap()}}),
+        ),
+    ]
+    .into_iter()
+    .map(move |(stage, bindings)| {
+        let mut sample = sample.clone();
+        let frame = &mut sample["state"]["frame"];
+        frame["task"]["stage"] = stage;
+        frame["task"]["bindings"] = bindings;
+        let decoded: Frame = serde_json::from_value(frame.clone()).unwrap();
+        assert_eq!(*frame, serde_json::to_value(decoded).unwrap());
+        serde_json::to_string(&sample).unwrap()
+    })
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -1286,6 +1319,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .chain(activation_condition_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
+        .chain(kernel_choice_shapes())
         .chain(intervening_comparison_shapes())
         .chain([{
             let mut sample: Value =

@@ -238,10 +238,10 @@ sacrifice-for-return.
   `Not` and `All`; `Satisfies` can test the printed creature type of a
   bound graveyard card after exile (CR 608.2b, 608.2h). `ForEach` binds a
   player or a singleton object.
-- `Optional`, `UnlessPays` and `IfPays` take a singleton player expression; both
-  payment nodes support life and generic mana. With no live chooser the optional
-  effect is skipped; with no live payer only `UnlessPays` performs its node
-  (CR 118.12).
+- `UnlessPays` and `IfPays` take a singleton player expression and support
+  life and generic mana. With no live payer only `UnlessPays` performs its
+  node (CR 118.12). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
+  for optional effects, creature-type choices and APNAP draws.
 - `Choose` binds a pool from a matching public set when both bounds force zero
   or the set's size. `ChooseObject` offers one mandatory public object choice
   from a current controller-relative battlefield set; the saved frame derives
@@ -328,6 +328,9 @@ The Rust [pronoun resolver](../packages/game-engine/crates/compiler/src/rules/ve
 owns player and object candidates, their scope and their located rejections.
 `scripts/rework-reference-diff.py` compares bound object references against
 the frozen archive at sweep time.
+
+[Modal announcement and repeated occurrences](../packages/game-engine/crates/core/src/engine/modal.rs)
+own the selection and public projection contract.
 
 The [card result resolver](../packages/game-engine/crates/compiler/src/rules/verbs/card_result.rs)
 owns printed links to actual card results. Card predicates read the exact public

@@ -1,4 +1,4 @@
-//! Rank prospective entry choices from the chooser's deck and permitted board.
+//! Rank linked entry and resolution choices from the chooser's deck and permitted board.
 use super::definition;
 use mtg_contracts::{
     CardKind, Catalog, Characteristics, Color, Definition,
@@ -49,14 +49,13 @@ pub(super) fn pick<'a>(
         Candidate::CreatureType { .. } => Atom::SourceChosenCreatureType {},
         _ => return None,
     };
-    let Reason::ReplacementOrder { subject } = &decision.reason else {
-        return None;
+    let subject = match &decision.reason {
+        Reason::ReplacementOrder { subject } => subject.as_ref(),
+        Reason::ChooseCreatureType => None,
+        _ => return None,
     };
-    let source = view
-        .objects
-        .iter()
-        .find(|o| Some(&o.handle) == subject.as_ref());
-    let filter = source.and_then(|object| {
+    let filter = subject.and_then(|subject| {
+        let object = view.objects.iter().find(|o| &o.handle == subject)?;
         let printed = definition(catalog, &object.oracle_id).ok()?;
         let printed = match object.faces.as_ref().and_then(|f| f.active_face) {
             Some(face) => printed.face(face)?,
@@ -84,6 +83,19 @@ pub(super) fn pick<'a>(
         .filter_map(|id| definition(catalog, id).ok())
         .map(Definition::card_characteristics)
         .collect();
+    // A resolving type count can use the current board to break deck ties,
+    // including when a view-only caller has no original roster.
+    let controlled_creatures: Vec<_> = view
+        .objects
+        .iter()
+        .filter(|object| {
+            matches!(decision.reason, Reason::ChooseCreatureType)
+                && object.zone == Zone::Battlefield
+                && object.controller == view.viewer
+                && !object.phased_out
+        })
+        .filter_map(|object| object.characteristics.as_ref())
+        .collect();
     let rank = |hits, own: usize| {
         // A missing source or unclassified effect defaults to the deck's
         // most common value. For a known shrink, prioritize opposing hits
@@ -108,10 +120,11 @@ pub(super) fn pick<'a>(
                     |c: &Characteristics| c.has_type(CardKind::Creature) && c.has_subtype(name);
                 let hits = opponents.iter().filter(|c| matches(c)).count();
                 let own = deck.iter().filter(|c| matches(c)).count();
-                Some((rank(hits, own), Reverse(name), index))
+                let controlled = controlled_creatures.iter().filter(|c| matches(c)).count();
+                Some((rank(hits, own), controlled, Reverse(name), index))
             })
             .max()
-            .map(|(_, _, index)| index),
+            .map(|(_, _, _, index)| index),
         Atom::SourceChosenColor {} => {
             let commander_colors = view
                 .commanders
