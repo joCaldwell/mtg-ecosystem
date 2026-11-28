@@ -7117,6 +7117,150 @@
       "ast_sha256": "91a2d004a0d0dcc9c325037126784d67d3b5b360fed14dd2cd816746e3650086",
       "archive": "archive-manifest-phase1-r5.json",
       "archive_line": 30457
+    },
+    {
+      "file": "phase1-r5/0595b074-8f25-469d-9e82-ed60c4a7a2cd.json",
+      "oracle_id": "0595b074-8f25-469d-9e82-ed60c4a7a2cd",
+      "record_sha256": "726618a83435d35eba1a9f9150ec4153b44affad4d92a482f3763e79e6127753",
+      "source_sha256": "4f3ccf05b38f4e59c8e56f19159a436b9cda87013cb65519d187032eff81f028",
+      "ast_sha256": "0b8be9b8565a1ae91424ebd57856f9b1e01fe0e712e37775058598e2cd5e6658",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 884
+    },
+    {
+      "file": "phase1-r5/0dd894cb-1968-471c-af08-ea7ec5ce8428.json",
+      "oracle_id": "0dd894cb-1968-471c-af08-ea7ec5ce8428",
+      "record_sha256": "eb97021f836152998de69deda5222c4b8b2373de6a7d9deead6784c863b2e08b",
+      "source_sha256": "304b967c78b524f7e3e6c594ea1c8cd1405833ea76a46d567690b3bcc8f83540",
+      "ast_sha256": "cfa640935b07f61da934384fc50476ebafb6edbe0c99be446c7d02e1f3c275c1",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 2093
+    },
+    {
+      "file": "phase1-r5/118cdf8b-44fb-4c3e-86c4-e7f4b1267646.json",
+      "oracle_id": "118cdf8b-44fb-4c3e-86c4-e7f4b1267646",
+      "record_sha256": "98b782d5c4375ddbdcc91b1ec9b9c0e028feb2db6e2e84ebdaeeb7edc2ed7234",
+      "source_sha256": "cad5bf8c1cbb77e7290f0550912c38058ddb1f3416c5dd1cd57d406b8d5f4368",
+      "ast_sha256": "b527abce87a66768db73f771e73776ca89de0785dad9ec83133f9f6db5a93c9c",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 2665
+    },
+    {
+      "file": "phase1-r5/123d2b6e-114e-4767-860d-50790382ca4a.json",
+      "oracle_id": "123d2b6e-114e-4767-860d-50790382ca4a",
+      "record_sha256": "06d259447313423b2356c2df5ae20e64c4d8231b59d36908b7e3eef9215e3b3c",
+      "source_sha256": "02128a34ef02b3e8ceaa2f017a74789d402ba631405d52e89e917ba506beb90e",
+      "ast_sha256": "11d759560c7edd2665e29410855a0910094470f45b553c5849b12552ad315773",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 2789
+    },
+    {
+      "file": "phase1-r5/19bb51dd-2b93-45f0-927d-bbafddadd0a3.json",
+      "oracle_id": "19bb51dd-2b93-45f0-927d-bbafddadd0a3",
+      "record_sha256": "d478a851fab1979ce1c37b3b8b6b95c442ee1b230b1662c403485a8384642c11",
+      "source_sha256": "b6aa9a2daa394fb31fdd407f0ff668e72e7c97852c2587ff8a228797cb044a36",
+      "ast_sha256": "b6fee41b43ded3e893f25a09b6685d3fbea3120e7732f225858f1464a60b2018",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 3946
+    },
+    {
+      "file": "phase1-r5/30aa362b-7ab1-486e-9802-1171e0dc2416.json",
+      "oracle_id": "30aa362b-7ab1-486e-9802-1171e0dc2416",
+      "record_sha256": "7886bd004a78188b9459f56ac3810f692f1fe78e0865a4b12b27cb04ea0365d2",
+      "source_sha256": "e2a310db2cba80f9f98ece63d01a01bf7c4c46798716be95a21bc019d39bbc01",
+      "ast_sha256": "0c80c02578febd44deaddfd7e61535f44547a7db71674f81131f110bcf321c5b",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 7262
+    },
+    {
+      "file": "phase1-r5/388168b3-ec68-4af2-b88c-6a5ec88c15f6.json",
+      "oracle_id": "388168b3-ec68-4af2-b88c-6a5ec88c15f6",
+      "record_sha256": "a02c0fce8ec8b467ae649f55d6c28f36d90d7f9d3928b8a449b5fc718eed55c0",
+      "source_sha256": "dfad9e4f8ee5b9d6c1b9c3df92831b2a262f95b118074cdf9256a2266efe0075",
+      "ast_sha256": "c257eac76304daad7f14dd1a285e9fa7739d265f14524c710c0d4092dfea3204",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 8455
+    },
+    {
+      "file": "phase1-r5/4372205f-45e6-49c7-b1fd-13a41e20d4de.json",
+      "oracle_id": "4372205f-45e6-49c7-b1fd-13a41e20d4de",
+      "record_sha256": "1ef723ce154e3ff968479349ea1814311f0579a55cdad8a9071d9f5e49f745f2",
+      "source_sha256": "05ed9ebb478bd4313d23061af361fbef6080f64f6a1f596914220b5d264f09a4",
+      "ast_sha256": "c2c15f49b991503cd05e0faf20455cc1a9eca2680e76d96db106d2e43b92e032",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 10127
+    },
+    {
+      "file": "phase1-r5/4dac142a-c8f8-45c8-85d3-40e170dee112.json",
+      "oracle_id": "4dac142a-c8f8-45c8-85d3-40e170dee112",
+      "record_sha256": "93bf444cda8359ac5e247e6dc04349c28b8b55511be535cb4eeff098cf166f02",
+      "source_sha256": "0c758352ee5db4be69751c8df49df05d661f17f15bb64acb3dc8798f9afed980",
+      "ast_sha256": "f2851c749679c7e127755a07c3cda7f99048a98ec11609b4908feba20c247a4c",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 11687
+    },
+    {
+      "file": "phase1-r5/6397c046-4c59-4f0b-9b44-2a804eb95edf.json",
+      "oracle_id": "6397c046-4c59-4f0b-9b44-2a804eb95edf",
+      "record_sha256": "9f56486801444d74be1d841ef44a0934c79a9e208674d6e41d5d3f353ae7c701",
+      "source_sha256": "e7b20fff5b352f87b9293cfb60229d1cef4317275e21711ca267a20a20ebe9bd",
+      "ast_sha256": "5bc8c666d1d30c4cd909c29d7bfe4dbe91e94f686ee74d200e2a57b28506b585",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 14951
+    },
+    {
+      "file": "phase1-r5/69d4ecac-4735-4667-bfc1-c8800b436d08.json",
+      "oracle_id": "69d4ecac-4735-4667-bfc1-c8800b436d08",
+      "record_sha256": "206413e7c2a81a8b6f9875f65824e64fa50b8f04e7ddfa76530d1835dc3fe18c",
+      "source_sha256": "6831ea236a5d24c6c8d395bc35b049efa8031cfc12f2a4909985e85053fd7910",
+      "ast_sha256": "d66c75ea25b891b89f4b7007d48fbfae14d54a77a989060e60cc2c2d3d05fe98",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 15951
+    },
+    {
+      "file": "phase1-r5/99024aa8-5687-4d38-8a4b-feef42d6c1ff.json",
+      "oracle_id": "99024aa8-5687-4d38-8a4b-feef42d6c1ff",
+      "record_sha256": "022136049895dd607ba4a0bbcd3e856263d5ef3e2528900c33ec890d48d5fde7",
+      "source_sha256": "9e77b7e34dc4de7577ee8084ea229b8cf8e9db4e627a7ceb51067810ac9159d9",
+      "ast_sha256": "2811ccdeb2016a9921c4b65362c3337e1c718149fa3385f6ba1427bbea6c30f7",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 23051
+    },
+    {
+      "file": "phase1-r5/a175de44-3a7e-4165-8f9a-8173c0df13d6.json",
+      "oracle_id": "a175de44-3a7e-4165-8f9a-8173c0df13d6",
+      "record_sha256": "5256a572751d36d7e61df0e709946c6dbaa178b18b7efdfa5a68ba9849688eb4",
+      "source_sha256": "ef693bffbbb48124c3eb8f11572efc6f03e9e82afdfe33fc871c729623e9b86f",
+      "ast_sha256": "26cdcf3b708320a147cf357cd966f471431b27b7b69527f57a92fd0388d1fb45",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 24346
+    },
+    {
+      "file": "phase1-r5/cb491d8a-2e9f-46fe-9590-44c3b4a25f1b.json",
+      "oracle_id": "cb491d8a-2e9f-46fe-9590-44c3b4a25f1b",
+      "record_sha256": "ce73e73ca462b13c32d9be035147bf9be77ae27f5ffefd4f32cc6cdd8792b4ce",
+      "source_sha256": "d1314b44de8ab7ee360d2c677647df2bd900f9d371223e327f2f8d409b4bf265",
+      "ast_sha256": "d2da3c9804117edeaddfbd8b0a4a8b3ac666e1f17d0e2bf8168313316162966d",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 30641
+    },
+    {
+      "file": "phase1-r5/db5380ed-ba28-4ea2-abc3-4998e2022903.json",
+      "oracle_id": "db5380ed-ba28-4ea2-abc3-4998e2022903",
+      "record_sha256": "b7f3c1bf42fb215831b697b0ba07075a379222404082e642b622695ccddf0d49",
+      "source_sha256": "a69cd8955703705a55c9f72159d6d2247838cbbf6c830e6cdd6dabef4bb2dcaa",
+      "ast_sha256": "90788cebd0f149a4ee4d0f90e5d87b0a62d21bd48687153e497cec20f26b7ffc",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 33124
+    },
+    {
+      "file": "phase1-r5/fd62ad01-601f-4250-bc2a-8ef3982e45c4.json",
+      "oracle_id": "fd62ad01-601f-4250-bc2a-8ef3982e45c4",
+      "record_sha256": "88e14e2286b8e6507af09be069fb2c3a046bb66dfcb1362d037075103cc52d57",
+      "source_sha256": "c02a71b81c8f1fa0364de5e4290d7681e22bb8f170eb616d1832584ec659f46f",
+      "ast_sha256": "a0ecb7b9eae886b5114f3ecb50b2bbaac13b5f046e327a2c3e13291d457849ee",
+      "archive": "archive-manifest-phase1-r5.json",
+      "archive_line": 38322
     }
   ]
 }
