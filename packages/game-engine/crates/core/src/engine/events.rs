@@ -447,6 +447,9 @@ enum BatchAuthority<'a> {
         face: CardFace,
         face_down: bool,
     },
+    ResolvingPermanent {
+        stack: StackId,
+    },
     Graveyard(
         &'a BTreeMap<ObjectId, Zone>,
         &'a [regeneration::ShieldMember],
@@ -464,6 +467,15 @@ enum BatchAuthority<'a> {
         land: Option<(ObjectId, PlayerId, CardFace)>,
     },
 }
+impl BatchAuthority<'_> {
+    fn resolving_permanent(self) -> Option<StackId> {
+        match self {
+            Self::ResolvingPermanent { stack } => Some(stack),
+            _ => None,
+        }
+    }
+}
+
 fn independent_footprints(
     footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
 ) -> bool {
@@ -1824,6 +1836,18 @@ impl RulesTxn {
                 face: *face,
                 face_down: *face_down,
             }
+        } else if let BatchCause::SpellCompletion {
+            stack_id, source, ..
+        } = &cause
+            && matches!(events.as_slice(),
+                [ProposedEvent::Move { object, destination: Zone::Battlefield }
+                | ProposedEvent::EnterAttached { object, .. }] if object == source)
+        {
+            let spell = self.entry(*stack_id)?;
+            if spell.source != *source || !spell.kind.is_spell() {
+                return Err("permanent spell completion source mismatch".into());
+            }
+            BatchAuthority::ResolvingPermanent { stack: *stack_id }
         } else {
             BatchAuthority::Ordinary
         };
@@ -2481,6 +2505,7 @@ impl RulesTxn {
                     battlefield_entry::EntryModifiers {
                         tapped: force_tapped,
                         attached_to: Some(*target),
+                        resolving_spell: authority.resolving_permanent(),
                         ..Default::default()
                     },
                 )?
@@ -3568,6 +3593,7 @@ impl RulesTxn {
                     battlefield_entry::EntryModifiers {
                         tapped: force_tapped,
                         accepted: payment,
+                        resolving_spell: authority.resolving_permanent(),
                         ..Default::default()
                     },
                 )?

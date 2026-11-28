@@ -990,6 +990,24 @@ fn board_intervening(condition: &serde_json::Value) -> Result<kir::Intervening, 
         }
         _ => return Err(reject()),
     };
+    // CR 202.3, 603.4: compare with the entire set, including the
+    // controller's own permanents. Ties qualify; an empty own set does not.
+    if !absent
+        && condition["condition"] == "control"
+        && let Some([kind]) = filter["types"].as_array().map(Vec::as_slice)
+        && let Some(kind) = kind.as_str()
+        && *filter
+            == serde_json::json!({
+                "types":[kind],"properties":[{"property":"mana-value",
+                    "comparison":{"op":"eq","value":{"amount":"attribute-extremum",
+                      "extremum":"maximum","attribute":"mana-value","among":{"types":[kind]}}}}]
+            })
+    {
+        let candidate = kir::Intervening::ControlsGreatestManaValue {
+            kind: card_kind(kind, "abilities.condition")?,
+        };
+        return kir::Intervening::of(&candidate.condition()).map_err(|_| reject());
+    }
     if filter.get("control").is_some() || filter.get("zone").is_some() {
         return Err(reject());
     }

@@ -707,11 +707,17 @@ fn lower_filter_for(
             // the value of X announced for this invocation.
             if announced_bound
                 && property.property == ast::PropertyConstraintProperty::ManaValue
-                && property.comparison.op == ast::ComparisonOp::Le
+                && matches!(
+                    property.comparison.op,
+                    ast::ComparisonOp::Le | ast::ComparisonOp::Eq
+                )
                 && matches!(&*property.comparison.value, ast::Amount::X(_))
             {
                 Ok(Atom::ManaValue {
-                    cmp: Cmp::AtMost,
+                    cmp: match property.comparison.op {
+                        ast::ComparisonOp::Eq => Cmp::Exactly,
+                        _ => Cmp::AtMost,
+                    },
                     value: Amount::announced_x(),
                 })
             } else {

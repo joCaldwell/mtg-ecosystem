@@ -49,6 +49,7 @@ pub(super) struct EntryModifiers {
     pub(super) tapped: bool,
     pub(super) accepted: Option<bool>,
     pub(super) attached_to: Option<ObjectId>,
+    pub(super) resolving_spell: Option<StackId>,
 }
 
 #[derive(Clone)]
@@ -169,6 +170,7 @@ impl RulesTxn {
                         | StaticEffect::PayLifeOrEnterTapped { .. }
                         | StaticEffect::RevealOrEnterTapped { .. }
                         | StaticEffect::EntersWithCounters { .. }
+                        | StaticEffect::EntersWithAnnouncedXCounters { .. }
                         | StaticEffect::ChooseOnEntry { .. }
                 )
             })
@@ -222,19 +224,35 @@ impl RulesTxn {
         // one contained placement per kind.
         let mut counters = BTreeMap::<mtg_contracts::kir::CounterKind, Quantity>::new();
         for ability in &definition.static_abilities {
-            if let StaticEffect::EntersWithCounters { kind, count, per } = &ability.effect {
-                let mut count = count.clone();
-                if let Some(set) = per {
-                    // CR 614.12: use the common prior occupancy, relative
-                    // to the incoming permanent's controller.
-                    let matches = self.static_count(entrant, set)?;
-                    count.multiply(&Quantity::from(
-                        i64::try_from(matches).map_err(|_| "entry count exceeds object limit")?,
-                    ));
+            let (kind, count) = match &ability.effect {
+                StaticEffect::EntersWithCounters { kind, count, per } => {
+                    let mut count = count.clone();
+                    if let Some(set) = per {
+                        // CR 614.12: use the common prior occupancy, relative
+                        // to the incoming permanent's controller.
+                        let matches = self.static_count(entrant, set)?;
+                        count.multiply(&Quantity::from(
+                            i64::try_from(matches)
+                                .map_err(|_| "entry count exceeds object limit")?,
+                        ));
+                    }
+                    (kind, count)
                 }
-                if count > Quantity::zero() {
-                    counters.entry(kind.clone()).or_default().add(&count);
+                StaticEffect::EntersWithAnnouncedXCounters { kind } => {
+                    // CR 107.3m: only the spell whose resolution causes this
+                    // entry supplies X. All other entries use zero.
+                    let count = modifiers
+                        .resolving_spell
+                        .map(|id| self.entry(id))
+                        .transpose()?
+                        .and_then(|spell| spell.x.clone())
+                        .unwrap_or_default();
+                    (kind, count)
                 }
+                _ => continue,
+            };
+            if count > Quantity::zero() {
+                counters.entry(kind.clone()).or_default().add(&count);
             }
         }
         if prospective.characteristics.has_subtype("Saga") {

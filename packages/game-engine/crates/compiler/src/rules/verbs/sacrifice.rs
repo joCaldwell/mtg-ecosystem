@@ -32,6 +32,13 @@ pub(super) fn lower(
         return Err(step("sacrifice", "chooser_or_distribution"));
     }
     check_optional_chooser("sacrifice", optional.is_some(), who, decided_by.as_deref())?;
+    if matches!(
+        &**who,
+        ast::PlayerRef::EachPlayer(_) | ast::PlayerRef::EachOpponent(_)
+    ) && matches!(&**what, ast::ObjectRef::All(set) if set.filter.controlled_by.is_some())
+    {
+        return Err(step("sacrifice", "all_per_player_actuals"));
+    }
     let player = pilot_player(cx, who)?;
     let ast::ObjectRef::Filter(selection) = what.as_ref() else {
         if !matches!(

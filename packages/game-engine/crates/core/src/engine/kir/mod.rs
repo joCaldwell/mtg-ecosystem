@@ -366,7 +366,7 @@ impl RulesTxn {
         let you = entry.controller;
         fn bind_bounds(pred: &mut Pred, x: Option<&Quantity>) -> Result<(), String> {
             for atom in &mut pred.0 {
-                if mtg_contracts::kir::mana_value_at_most_announced_x(atom)
+                if mtg_contracts::kir::mana_value_compares_to_announced_x(atom)
                     && let Atom::ManaValue { value, .. } = atom
                 {
                     *value = Amount::fixed(x.ok_or("missing announced set bound")?.clone());
@@ -387,14 +387,19 @@ impl RulesTxn {
         let excluded = filter.0.contains(&other).then_some(entry.source);
         fn has_bound(pred: &Pred) -> bool {
             pred.0.iter().any(|atom| {
-                mtg_contracts::kir::mana_value_at_most_announced_x(atom)
+                mtg_contracts::kir::mana_value_compares_to_announced_x(atom)
                     || matches!(atom, Atom::AnyOf { alternatives } if alternatives.iter().any(has_bound))
             })
         }
+        let history = Atom::ControllerTookSourceCombatDamage {};
+        let source = filter.0.contains(&history).then_some(ObjectId {
+            face: CardFace::Front,
+            ..entry.source
+        });
         let bound;
-        let filter = if excluded.is_some() || has_bound(filter) {
+        let filter = if source.is_some() || excluded.is_some() || has_bound(filter) {
             let mut resolved = filter.clone();
-            resolved.0.retain(|a| *a != other);
+            resolved.0.retain(|a| *a != other && *a != history);
             bind_bounds(&mut resolved, entry.x.as_ref())?;
             bound = resolved;
             &bound
@@ -408,6 +413,11 @@ impl RulesTxn {
             .values()
             .filter(|object| {
                 Some(object.id) != excluded
+                    && source.is_none_or(|source| {
+                        self.state.rules.cast_history[object.controller.0 as usize]
+                            .combat_damage_sources
+                            .contains(&source)
+                    })
                     && crate::query::matches_zone_pred(
                         &self.object_facts(object),
                         you,

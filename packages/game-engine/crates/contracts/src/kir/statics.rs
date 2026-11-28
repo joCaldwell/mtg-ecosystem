@@ -74,6 +74,10 @@ pub enum StaticEffect {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         per: Option<SetExpr>,
     },
+    /// CR 107.3m, 122.6: X comes from the resolving permanent spell.
+    EntersWithAnnouncedXCounters {
+        kind: CounterKind,
+    },
     Continuous {
         affects: Scope,
         changes: Vec<Change>,
@@ -436,7 +440,9 @@ impl StaticEffect {
             Self::RevealOrEnterTapped { .. } => Capability::EntryRevealV1,
             Self::EntersTapped => Capability::EntersTappedV1,
             Self::ChooseOnEntry { .. } => Capability::EntryChoiceV1,
-            Self::EntersWithCounters { .. } => Capability::EntryCountersV1,
+            Self::EntersWithCounters { .. } | Self::EntersWithAnnouncedXCounters { .. } => {
+                Capability::EntryCountersV1
+            }
             Self::Rule {
                 rule:
                     StaticRule::CantBeCountered {
@@ -554,7 +560,8 @@ fn predicate_in_layer(filter: &Pred, layer: Layer) -> bool {
         | Atom::Keyword { .. }
         | Atom::NotKeyword { .. }
         | Atom::Is { .. }
-        | Atom::Counters { .. } => false,
+        | Atom::Counters { .. }
+        | Atom::ControllerTookSourceCombatDamage {} => false,
     })
 }
 
@@ -628,7 +635,8 @@ fn cda_pred(filter: &Pred, battlefield: bool) -> bool {
         | Atom::Is { .. }
         | Atom::Counters { .. }
         | Atom::SourceChosenColor {}
-        | Atom::SourceChosenCreatureType {} => false,
+        | Atom::SourceChosenCreatureType {}
+        | Atom::ControllerTookSourceCombatDamage {} => false,
     })
 }
 
@@ -739,7 +747,8 @@ fn declaration_pred_valid(filter: &Pred) -> bool {
         Atom::Is { .. }
         | Atom::Counters { .. }
         | Atom::SourceChosenColor {}
-        | Atom::SourceChosenCreatureType {} => false,
+        | Atom::SourceChosenCreatureType {}
+        | Atom::ControllerTookSourceCombatDamage {} => false,
     })
 }
 
@@ -1056,6 +1065,13 @@ impl crate::StaticAbility {
                     Ok(())
                 } else {
                     invalid("conditional-entry-tapped")
+                }
+            }
+            StaticEffect::EntersWithAnnouncedXCounters { kind } => {
+                if on_battlefield && kind.admitted() {
+                    Ok(())
+                } else {
+                    invalid("entry-counters:announced-x")
                 }
             }
             StaticEffect::EntersWithCounters { kind, count, per } => {

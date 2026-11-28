@@ -403,6 +403,25 @@ impl RulesTxn {
                                 .is_ok_and(|d| d.characteristics.has_type(CardKind::Creature))
                         })
             }
+            Cond::TurnHistory {
+                fact:
+                    fact @ (mtg_contracts::kir::TurnFact::SpellsCastFromGraveyard
+                    | mtg_contracts::kir::TurnFact::AbilitiesActivatedFromGraveyard),
+                cmp,
+                value,
+            } => {
+                let controller = self.entry(self.kernel_root()?.stack_id)?.controller;
+                let observed = crate::engine::triggers::TurnCastHistory::measure(
+                    &self.state.rules.cast_history,
+                    controller,
+                    *fact,
+                )?;
+                match cmp {
+                    Cmp::Exactly => observed == *value,
+                    Cmp::AtLeast => observed >= *value,
+                    Cmp::AtMost => observed <= *value,
+                }
+            }
             Cond::Satisfies { .. }
             | Cond::CastBy { .. }
             | Cond::TurnHistory { .. }

@@ -422,6 +422,7 @@ impl RulesTxn {
             | Atom::Keyword { .. }
             | Atom::NotKeyword { .. }
             | Atom::Is { .. }
+            | Atom::ControllerTookSourceCombatDamage {}
             | Atom::Counters { .. } => false,
         }
     }
@@ -2378,6 +2379,20 @@ impl RulesTxn {
             });
         }
         // The entire group was validated above, before any recipient/history write.
+        if tx.kind == DamageKind::Combat {
+            for hit in &actual {
+                if let DamageRecipient::Player { player } = hit.recipient {
+                    // CR 400.7, 701.27: zone changes create a new object. Turning
+                    // over or transforming the same permanent does not.
+                    self.rules_mut().cast_history[player.0 as usize]
+                        .combat_damage_sources
+                        .insert(ObjectId {
+                            face: CardFace::Front,
+                            ..hit.source.object
+                        });
+                }
+            }
+        }
         let mut results = vec![];
         for ((kind, id), amount) in totals {
             if kind == 0 {

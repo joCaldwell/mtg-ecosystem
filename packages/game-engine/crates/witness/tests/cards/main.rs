@@ -16,6 +16,7 @@ mod evaluated_moves;
 mod evasion;
 mod evasion_rules;
 mod face_down;
+mod grammar_batch_two;
 mod keywords;
 mod library;
 mod modal_double_faced;

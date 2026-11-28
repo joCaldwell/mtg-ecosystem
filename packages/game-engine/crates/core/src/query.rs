@@ -334,7 +334,8 @@ pub fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tr
         Atom::Is { .. }
         | Atom::IsNot { .. }
         | Atom::SourceChosenColor {}
-        | Atom::SourceChosenCreatureType {} => Tri::Unknown,
+        | Atom::SourceChosenCreatureType {}
+        | Atom::ControllerTookSourceCombatDamage {} => Tri::Unknown,
         Atom::AnyOf { alternatives } => alternatives.iter().fold(Tri::No, |found, pred| {
             match (found, matches_pred(object, you, pred)) {
                 (Tri::Yes, _) | (_, Tri::Yes) => Tri::Yes,

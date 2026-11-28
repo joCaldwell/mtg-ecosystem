@@ -391,7 +391,9 @@ impl RulesTxn {
         ability: u32,
     ) -> Result<(), String> {
         // The activated face, fixed as the ability was put on the stack.
-        let face = self.entry(stack_id)?.source_face;
+        let entry = self.entry(stack_id)?;
+        let face = entry.source_face;
+        let from_graveyard = matches!(entry.cast_from, Zone::Graveyard { .. });
         if let Some(limit) = self.activation_limit(source, face, ability)?
             && self.current(source).is_ok()
         {
@@ -406,6 +408,12 @@ impl RulesTxn {
             {
                 return Err("activation limit already used".into());
             }
+        }
+        // CR 602.2b: count completed activations, even if a cost moved the
+        // card out of the graveyard. The announcement pins the original zone.
+        if from_graveyard {
+            let count = &mut self.rules_mut().cast_history[player.0 as usize].graveyard_activations;
+            *count = count.checked_add(1).ok_or("turn history count limit")?;
         }
         self.record_event(Event::AbilityActivated {
             stack_id,

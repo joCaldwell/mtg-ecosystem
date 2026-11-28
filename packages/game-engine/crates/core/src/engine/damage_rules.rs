@@ -210,7 +210,8 @@ impl RulesTxn {
             Atom::Is { .. }
             | Atom::Counters { .. }
             | Atom::SourceChosenColor {}
-            | Atom::SourceChosenCreatureType {} => false,
+            | Atom::SourceChosenCreatureType {}
+            | Atom::ControllerTookSourceCombatDamage {} => false,
         })
     }
 

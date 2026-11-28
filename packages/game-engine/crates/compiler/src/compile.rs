@@ -123,6 +123,7 @@ const R6_INPUT_KEYS: &[(&str, &[&str])] = &[
             "archiveManifest",
             "legacyArchive",
             "rulesPath",
+            "legacyRows",
             "printed",
             "nameCatalog",
         ],
@@ -139,9 +140,9 @@ const R6_INPUT_KEYS: &[(&str, &[&str])] = &[
     ),
     ("/r6/nameCatalog", &["sha256", "names"]),
 ];
-/// Pinning the producer inside a tracked manifest is circular, so it is the
-/// only optional pin. When present it must equal this binary's identity.
-const OPTIONAL_PINS: &[&str] = &["/compiler/buildId"];
+/// The producer pin is optional because tracking this binary's identity would
+/// be circular. The grammar generation mode is required only by grammar cuts.
+const OPTIONAL_PINS: &[&str] = &["/compiler/buildId", "/r6/legacyRows"];
 /// Location-only fields: they resolve bytes but never enter logical identity.
 const LOCATION_FIELDS: &[&str] = &[
     "/oracle/path",
@@ -174,8 +175,15 @@ struct R6InputPins {
     archive_manifest: String,
     legacy_archive: String,
     rules_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_rows: Option<LegacyRows>,
     printed: PrintedPins,
     name_catalog: NameCatalogPin,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum LegacyRows {
+    Changed,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -539,7 +547,14 @@ fn check_registration(inputs: &FrozenInputs) -> Result<&'static AcceptedArchive,
             .as_ref()
             .filter(|_| !registered.pending && !registered.candidate)
             .ok_or_else(|| fail("schema 2 requires a promoted R6 registration".into()))?;
+        let base_r6 = accepted_archives()
+            .map_err(fail)?
+            .iter()
+            .find(|row| row.cut == ArchiveCut::R6)
+            .ok_or_else(|| fail("R6 registration has no base origin".into()))?;
+        let grammar = registered.manifest_sha256 != base_r6.manifest_sha256;
         if archive.bytes != pins.file_bytes
+            || r6.legacy_rows.is_some() != grammar
             || inputs.oracle.canonical_records_sha256 != pins.canonical_records_sha256
             || r6.printed.schema_sha256 != pins.printed_schema_sha256
             || r6.printed.vocabulary_sha256 != pins.printed_vocabulary_sha256
@@ -745,7 +760,8 @@ fn generate_archive(
             Err(e) => return Err(reader(e)),
         }
     };
-    let status = Command::new("sh")
+    let mut command = Command::new("sh");
+    command
         .arg(root.join("scripts/engine-env.sh"))
         .args(["node", "--max-old-space-size=8192"])
         .arg(root.join("scripts/archive-parser.ts"))
@@ -762,10 +778,11 @@ fn generate_archive(
         .arg("--expect-source")
         .arg(&inputs.reader.source_sha256)
         .arg("--expect-generator")
-        .arg(&r6.printed.generator_sha256)
-        .stdout(Stdio::null())
-        .status()
-        .map_err(reader)?;
+        .arg(&r6.printed.generator_sha256);
+    if r6.legacy_rows == Some(LegacyRows::Changed) {
+        command.args(["--legacy-rows", "changed"]);
+    }
+    let status = command.stdout(Stdio::null()).status().map_err(reader)?;
     // The writer exits 3 before parsing when this checkout's parser source or
     // printed generator is not the pinned reader: after a grammar change the
     // registered cut is readable from its retained cache only.
