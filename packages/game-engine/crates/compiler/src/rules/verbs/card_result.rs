@@ -6,8 +6,135 @@
 //! a single mill addressed to that player, constrained to that destination.
 //! Competing producers, different players, other destinations and
 //! characteristic tests on draws reject.
+//! CR 400.7j, 608.2c: a pronoun immediately following a public move can
+//! name the actual new incarnation. An explicit "exiled this way" names
+//! the unique earlier exile in its sequence. A singular mention needs a
+//! single-object producer.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+
+/// A direct result mention, classified by printed number and noun.
+pub(crate) fn movement_mention(object: &ast::ObjectRef, zone: kir::ResultZone) -> Option<bool> {
+    use ast::ObjectRefCopyResultNumber::Plural;
+    use ast::ObjectRelationEventResultEvent::Exile;
+    use ast::ObjectRelationEventResultScope::{Contextual, ThisWay};
+
+    match object {
+        ast::ObjectRef::It(_) => Some(false),
+        ast::ObjectRef::Them(_) => Some(true),
+        ast::ObjectRef::That(mention)
+            if zone == kir::ResultZone::Exile
+                && ast_is(&*mention.filter, serde_json::json!({"cls": "card"})) =>
+        {
+            Some(mention.plural.is_some())
+        }
+        ast::ObjectRef::Related(mention)
+            if zone == kir::ResultZone::Exile
+                && matches!(&*mention.relation, ast::ObjectRelation::EventResult(event)
+                    if event.event == Exile && matches!(event.scope, Contextual | ThisWay)
+                        && event.who.is_none() && event.period.is_none())
+                && ast_is(&*mention.filter, serde_json::json!({"cls": "card"})) =>
+        {
+            Some(mention.number == Plural)
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn movement_result(
+    cx: &mut StepCx<'_>,
+    object: &ast::ObjectRef,
+) -> Result<Option<(SetExpr, Option<u32>)>, Failure> {
+    let instructions = &cx.program.instructions;
+    let start = cx.floor.instructions;
+    let Some((index, previous)) = instructions.iter().enumerate().next_back() else {
+        return Ok(None);
+    };
+    if index < start || previous.source_block() != cx.source_block {
+        return Ok(None);
+    }
+    fn family(verb: &Verb) -> Option<(kir::ResultZone, &SetExpr)> {
+        match verb {
+            Verb::Move {
+                to: Destination::Exile,
+                what,
+            } => Some((kir::ResultZone::Exile, what)),
+            Verb::Move {
+                to: Destination::Battlefield { .. },
+                what,
+            } => Some((kir::ResultZone::Battlefield, what)),
+            _ => None,
+        }
+    }
+    let index = if matches!(object, ast::ObjectRef::Related(_)) {
+        if movement_mention(object, kir::ResultZone::Exile).is_none() {
+            return Ok(None);
+        }
+        let base = instructions[start..]
+            .iter()
+            .rposition(|instruction| instruction.source_block() != cx.source_block)
+            .map_or(start, |index| start + index + 1);
+        base + producer(
+            instructions[base..]
+                .iter()
+                .map(|Instruction::Kernel { node, .. }| node),
+            ResultFamily::Exile,
+        )?
+    } else {
+        index
+    };
+    let batch = match &instructions[index] {
+        Instruction::Kernel {
+            node:
+                kir::Node::RemoveTargets {
+                    count,
+                    variable: None,
+                    removal: kir::GroupRemoval::Exile,
+                },
+            ..
+        } if *count > 1 => Some(Verb::Move {
+            what: SetExpr::Targets {
+                slots: (0..*count).collect(),
+            },
+            to: Destination::Exile,
+        }),
+        _ => None,
+    };
+    let Some((zone, what)) = batch
+        .as_ref()
+        .or_else(|| instructions[index].verb())
+        .and_then(family)
+    else {
+        return Ok(None);
+    };
+    let Some(plural) = movement_mention(object, zone) else {
+        return Ok(None);
+    };
+    let single = matches!(what, SetExpr::One { .. });
+    if single == plural {
+        return Err(operand("result", "movement_cardinality"));
+    }
+    // An unqualified pronoun following a move uses that move's named
+    // object. Another target, source mention or untargeted object makes
+    // this inference unsafe unless the result noun spells out exile.
+    if !matches!(object, ast::ObjectRef::Related(_)) && (index != start || cx.source_named) {
+        return Err(operand("result", "ambiguous_movement_antecedent"));
+    }
+    if cx.result_from.is_some_and(|prior| prior != index) {
+        return Err(operand("result", "multiple_projections"));
+    }
+    let slot = match what {
+        SetExpr::One {
+            object: Ref::Target { slot },
+        } => Some(*slot),
+        _ => None,
+    };
+    if let Some(verb) = batch {
+        cx.program.instructions[index] = cx.act(verb);
+    }
+    cx.result_from = Some(index);
+    Ok(Some((SetExpr::LiveResult { step: 0, zone }, slot)))
+}
 
 /// The action whose result a printed "this way" names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

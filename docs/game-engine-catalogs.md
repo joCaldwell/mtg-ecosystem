@@ -346,6 +346,14 @@ successor or its last known characteristics (CR 400.7, 608.2h, 701.9c, 701.17c).
 A destination test uses the recorded move. A card hidden in both origin and
 destination supplies no characteristics.
 
+An action on a public move's result reads the successor and recorded
+destination from the published move facets. It acts only on that incarnation
+while it remains in that zone (CR 400.7j, 608.2c). The
+[public library reveal lowerer](../packages/game-engine/crates/compiler/src/compose/revealed.rs)
+owns the admitted reveal and selection forms. Their bindings capture the
+revealed library incarnations and the selected subset for the rest of the
+instruction (CR 701.20, 608.2d).
+
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write.
 `Single` and `EachSequential` act on one member or members in turn;

@@ -656,6 +656,33 @@ impl RulesTxn {
                 .cloned()
                 .map(|power| power.max(Quantity::zero()))
                 .ok_or_else(|| "measured target has no power".into()),
+            Amount::StatOf {
+                object: Ref::Target { slot },
+                stat: mtg_contracts::kir::Stat::Toughness,
+            } => Ok(self
+                .kernel_target_facts(frame, *slot)?
+                .toughness()
+                .cloned()
+                .unwrap_or_default()
+                .max(Quantity::zero())),
+            Amount::StatOf {
+                object: Ref::Source,
+                stat,
+            } => {
+                let facts = self.source_facts(self.entry(frame.stack_id)?)?;
+                let value = match stat {
+                    mtg_contracts::kir::Stat::ManaValue => {
+                        facts.characteristics.printed_mana_value()
+                    }
+                    mtg_contracts::kir::Stat::Power => {
+                        facts.characteristics.power.unwrap_or_default()
+                    }
+                    mtg_contracts::kir::Stat::Toughness => {
+                        facts.characteristics.toughness.unwrap_or_default()
+                    }
+                };
+                Ok(value.max(Quantity::zero()))
+            }
             _ => Err("kernel amount has no audited evaluation".into()),
         }
     }

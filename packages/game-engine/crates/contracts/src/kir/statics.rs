@@ -569,7 +569,11 @@ fn condition_set(set: &SetExpr) -> bool {
                     && filter.0.is_empty()
         }
         SetExpr::One { object } => *object == Ref::Source,
-        SetExpr::Pool { .. } | SetExpr::Targets { .. } | SetExpr::Result { .. } => false,
+        SetExpr::Pool { .. }
+        | SetExpr::Targets { .. }
+        | SetExpr::Result { .. }
+        | SetExpr::LiveResult { .. }
+        | SetExpr::Revealed { .. } => false,
     }
 }
 

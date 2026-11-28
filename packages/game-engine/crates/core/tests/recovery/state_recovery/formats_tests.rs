@@ -1,6 +1,6 @@
-//! Golden wire fingerprints, one per versioned format in `formats`. A changed
-//! fingerprint with an unchanged version constant fails with the constant to
-//! bump; after bumping, re-pin the `(version, fingerprint)` pair below.
+//! Golden wire fingerprints for Observation, Snapshot and SavedWork. Re-pin
+//! the fingerprint after reviewing a changed shape. See `formats` for the
+//! version policy.
 //!
 //! `Observation` derives `JsonSchema`, so its pin covers the complete schema.
 //! The private `Snapshot` and `SavedWork` envelopes do not (deriving it across
@@ -27,11 +27,11 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     119,
-    "dbd294c3f554eb8bd5dc00c4484ab1bc0ea58ee3edd04113ac3d7cae422df27d",
+    "6e8b751225cbc5fcd01064dfa5d026455f10344846aa41c89d878385597bf255",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     151,
-    "4a89a541671a9dec1c95c3f4ceca45899a43e457c4add810d0f74aca667e3ff2",
+    "473818f20d8859e1d0cb1c427404b7ef6c9706ff0fb29e766442af362e273393",
 );
 const WORK_PIN: (u32, &str) = (
     71,
@@ -1265,8 +1265,8 @@ fn loyalty_activation() -> String {
 }
 
 /// The kernel can suspend during APNAP choice collection, while asking for a
-/// creature type, or with the chosen type bound in the child. Check these
-/// private frame shapes through the real decoder.
+/// creature type, or with a chosen type or revealed objects bound in the
+/// child. Check these private frame shapes through the real decoder.
 fn kernel_choice_shapes() -> impl Iterator<Item = String> {
     use mtg_contracts::kir::CreatureType;
     use serde_json::json;
@@ -1283,6 +1283,10 @@ fn kernel_choice_shapes() -> impl Iterator<Item = String> {
         (
             json!({"stage": "run"}),
             json!({"0": {"creature_type": CreatureType::from_name("Bear").unwrap()}}),
+        ),
+        (
+            json!({"stage": "run"}),
+            json!({"0": {"revealed": [Driver::object(&game, 0)]}}),
         ),
     ]
     .into_iter()

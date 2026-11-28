@@ -24,6 +24,7 @@ pub(crate) mod keywords;
 mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
+pub(super) mod revealed;
 mod sagas;
 mod source_action;
 mod source_authority;
@@ -169,6 +170,7 @@ struct LoyaltyCost {
 enum Part {
     Typed(Sentence),
     Table(Vec<serde_json::Value>),
+    Revealed(Vec<serde_json::Value>),
     Reflexive(ManaCost, serde_json::Value),
     Departure(SpellProgram),
 }
@@ -205,7 +207,9 @@ fn quoted_ability(
         .into_iter()
         .map(|p| match p {
             Part::Typed(s) => Ok(s),
-            Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(quoted()),
+            Part::Table(_) | Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => {
+                Err(quoted())
+            }
         })
         .collect::<Result<_, _>>()?;
     let mana =
@@ -214,6 +218,9 @@ fn quoted_ability(
 }
 
 fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
+    if revealed::candidate(effects) {
+        return Ok(vec![Part::Revealed(effects.to_vec())]);
+    }
     effects
         .iter()
         .map(|sentence| {
@@ -250,7 +257,7 @@ fn reviewed_sentence(part: Part) -> Result<Sentence, Failure> {
         Part::Table(steps) => {
             serde_json::from_value(serde_json::json!({ "steps": steps })).map_err(|_| table())
         }
-        Part::Reflexive(..) | Part::Departure(_) => Err(table()),
+        Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => Err(table()),
     }
 }
 
@@ -342,7 +349,7 @@ fn append_effects(
             .into_iter()
             .map(|p| match p {
                 Part::Typed(s) => s,
-                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => {
+                Part::Table(_) | Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => {
                     unreachable!("all parts are typed")
                 }
             })
@@ -385,6 +392,7 @@ fn append_effects(
                     program.instructions.push(instruction);
                 }
             }
+            Part::Revealed(effects) => revealed::lower(&effects, program, slots, context, label)?,
             Part::Reflexive(..) | Part::Departure(_) => {
                 return Err(unsupported(
                     "compose.step",
@@ -628,7 +636,7 @@ fn trigger_event(
         && !parts.iter().any(|part| match part {
             Part::Typed(_) => false,
             Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
-            Part::Reflexive(..) | Part::Departure(_) => true,
+            Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => true,
         });
     if table.is_none()
         && reviewed_effects
@@ -1715,7 +1723,10 @@ fn compose_face(
                         .iter()
                         .map(|p| match p {
                             Part::Typed(s) => Some(s.clone()),
-                            Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => None,
+                            Part::Table(_)
+                            | Part::Revealed(_)
+                            | Part::Reflexive(..)
+                            | Part::Departure(_) => None,
                         })
                         .collect();
                     // A mana ability has no resolution-time control (CR 605.3b).

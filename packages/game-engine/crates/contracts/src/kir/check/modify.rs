@@ -292,7 +292,17 @@ impl Walk<'_, '_> {
                 }) {
                     return unaudited("mixed pump counts");
                 }
-                Self::audit_verb_amount(x)?;
+                match x {
+                    Amount::StatOf {
+                        object: Ref::Source,
+                        ..
+                    } if self.env.context != Context::Spell => {}
+                    Amount::StatOf {
+                        object: Ref::Target { slot },
+                        ..
+                    } if self.target_has_facts(*slot) => {}
+                    _ => Self::audit_verb_amount(x)?,
+                }
                 match what {
                     SetExpr::One {
                         object: Ref::Source,

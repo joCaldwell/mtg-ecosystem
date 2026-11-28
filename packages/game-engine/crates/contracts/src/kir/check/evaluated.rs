@@ -472,6 +472,10 @@ impl Walk<'_, '_> {
             SetExpr::Pool {
                 pool: Ref::BoundVar { .. } | Ref::StepResult { .. },
             } => {}
+            SetExpr::LiveResult {
+                zone: ResultZone::Battlefield,
+                ..
+            } => {}
             // CR 608.2b, 608.2f: one placement on each legal member of a
             // counted creature occurrence.
             SetExpr::Targets { slots } => {
