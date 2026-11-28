@@ -96,3 +96,34 @@ fn conditional_mana_with_turn_history_stays_explicitly_unsupported() {
         "{result:?}"
     );
 }
+
+#[test]
+fn conditional_mana_resumes_its_output_after_a_concession() {
+    let mut game = Game::new(
+        board(CARYATID, "Ilysian Caryatid")
+            .permanent_or_hand("Colossal Dreadmaw", 1, 0, false)
+            .prepare(),
+    );
+    let source = Driver::object(&game, 0);
+    let answer = game.next_test_decision().activate_mana(source);
+    Driver::answer(&mut game, u64::MAX, answer);
+    assert!(matches!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::ManaColor { .. }
+    ));
+    game.concede(PlayerId(1)).unwrap();
+    let choice = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(choice.reason, Reason::ManaColor { .. }));
+    assert!(!game.live_players().contains(&PlayerId(1)));
+    assert_recoverable((&game).into());
+    let answer = choice
+        .pick_one(&Candidate::Color { color: Color::U })
+        .unwrap();
+    Driver::answer(&mut game, u64::MAX, answer);
+    Driver::request(&mut game, u64::MAX);
+    assert_eq!(
+        game.state.rules.players[0].mana.get(&Color::U),
+        Some(&2.into())
+    );
+    assert_recoverable((&game).into());
+}

@@ -297,7 +297,8 @@ nested payment rechecks outer costs.
 
 Printed conditional production and written tap costs use the
 [mana ability checker](../packages/game-engine/crates/contracts/src/kir/check/mana.rs).
-The engine reads the production condition after costs (CR 614.15, 605.3b).
+The engine reads the production condition after costs and retains the chosen
+branch through a pending color decision (CR 614.15, 605.3b, 608.2c).
 A written tap cost can choose a summoning-sick creature (CR 302.6), and
 reversal restores both taps on their exact incarnations (CR 733.1).
 The simulator reserves the chosen helper before planning further payments.

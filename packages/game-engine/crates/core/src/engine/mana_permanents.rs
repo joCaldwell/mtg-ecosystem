@@ -48,6 +48,10 @@ pub struct ManaActivation {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     granted: bool,
     ability: ManaAbility,
+    /// CR 608.2c, 614.15: the branch selected as resolution began.
+    /// A pending color choice resumes that branch after a departure.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    replacement_applied: bool,
     /// CR 608.2c: the next rider to perform once the mana is added.
     #[serde(default, skip_serializing_if = "is_zero")]
     rider: u32,
@@ -61,6 +65,19 @@ pub struct ManaActivation {
     paid: Option<Box<PermanentManaUndo>>,
 }
 impl ManaActivation {
+    fn production(&self) -> &ManaProduction {
+        match &self.ability.production {
+            ManaProduction::Conditional { base, instead, .. } => {
+                if self.replacement_applied {
+                    instead
+                } else {
+                    base
+                }
+            }
+            production => production,
+        }
+    }
+
     /// CR 601.2f, 602.2b: the fixed mana cost plus each announced hybrid
     /// color.
     fn payment_cost(&self) -> Option<ManaCost> {
@@ -483,10 +500,16 @@ impl RulesTxn {
         player: PlayerId,
         production: &'a ManaProduction,
     ) -> &'a ManaProduction {
-        production.select(|filter| {
-            let count = self.mana_count(player, &mtg_contracts::kir::ZoneExpr::Battlefield, filter);
-            Quantity::from(i64::try_from(count).expect("bounded battlefield count"))
-        })
+        production.select(|filter| self.mana_battlefield_count(player, filter))
+    }
+
+    fn mana_battlefield_count(
+        &self,
+        player: PlayerId,
+        filter: &mtg_contracts::kir::Pred,
+    ) -> Quantity {
+        let count = self.mana_count(player, &mtg_contracts::kir::ZoneExpr::Battlefield, filter);
+        Quantity::from(i64::try_from(count).expect("bounded battlefield count"))
     }
 
     pub(super) fn mana_colors(
@@ -1001,6 +1024,7 @@ impl RulesTxn {
                 ManaStage::Hybrid
             },
             ability,
+            replacement_applied: false,
             hybrid: vec![],
             resume: self.save_frame(resume),
             receipts: vec![],
@@ -1037,7 +1061,7 @@ impl RulesTxn {
                 self.activation_mana_use(a.source, None)?,
             ),
             ManaStage::Color => {
-                let candidates = match &a.ability.production {
+                let candidates = match a.production() {
                     ManaProduction::Bundles { options } => options
                         .iter()
                         .cloned()
@@ -1245,15 +1269,18 @@ impl RulesTxn {
             self.rules_mut().mana_ability_uses.insert(k);
         }
         a.paid = Some(Box::new(receipt));
-        match self.mana_output(a.player, &a.ability.production) {
+        if let ManaProduction::Conditional {
+            filter, minimum, ..
+        } = &a.ability.production
+        {
+            a.replacement_applied = self.mana_battlefield_count(a.player, filter) >= *minimum;
+        }
+        match a.production() {
             ManaProduction::Fixed { .. } | ManaProduction::Counted { .. } => {
                 self.resolve_mana_ability(a, None)
             }
             // CR 106.7: no type of mana is defined, so the ability adds none.
-            _ if self
-                .mana_colors(a.player, &a.ability.production)?
-                .is_empty() =>
-            {
+            _ if self.mana_colors(a.player, a.production())?.is_empty() => {
                 self.resolve_mana_ability(a, None)
             }
             _ => {
@@ -1367,7 +1394,7 @@ impl RulesTxn {
         a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
-        let units = match self.mana_output(a.player, &a.ability.production) {
+        let units = match a.production() {
             ManaProduction::Counted {
                 color,
                 factor,
@@ -1902,7 +1929,7 @@ impl RulesTxn {
             && activation.stage == ManaStage::Color
             && self.is_live(activation.player)
             && self
-                .mana_colors(activation.player, &activation.ability.production)?
+                .mana_colors(activation.player, activation.production())?
                 .is_empty()
         {
             let a = ManaActivation::clone(activation);
@@ -1940,6 +1967,9 @@ impl RulesTxn {
                 || !self.mana_resume_player(self.saved_frame(a.resume)?, a.player)
                 || (a.stage == ManaStage::Color) != a.paid.is_some()
                 || !a.hybrid_bound()
+                || a.replacement_applied
+                    && (a.paid.is_none()
+                        || !matches!(a.ability.production, ManaProduction::Conditional { .. }))
                 || (a.stage == ManaStage::TapObject)
                     != (a.ability.costs.tap_other.is_some() && a.paid.is_none())
                 || (a.stage == ManaStage::Hybrid && !a.receipts.is_empty())
