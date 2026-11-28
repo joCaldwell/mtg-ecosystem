@@ -165,10 +165,15 @@ and are absent from card counts, the shuffle permutation and draws (CR 111.6–8
 121.1, 704.5d–e, 707.10).
 
 A **private top-card selection** looks at a fixed positive prefix of the
-controller's library, chooses one card for hand, and puts the remainder on the
-bottom in a private order (CR 401.2, 401.4, 608.2d, 701.20e); the commander hand
-replacement still applies. Filtered or optional selection, public top-card
-reveals, random bottom ordering and other destinations are unsupported.
+controller's library and picks a fixed number for hand, or up to a fixed
+number meeting printed card characteristics. A printed reveal exposes only
+the selected identities, without library positions or handles, and cards
+moved to hand remain publicly counted by identity. The unselected remainder
+goes to the bottom in the chooser's order or a seeded random order hidden
+from every seat. A mandatory choice takes as many as possible from a short
+prefix. Selected commanders can go to the command zone instead and stay
+excluded from the remainder. Other destinations and variable prefix sizes
+reject (CR 401.2, 401.4, 608.2c–d, 701.20a/e, 903.9b).
 
 ## Battlefield entry replacements
 

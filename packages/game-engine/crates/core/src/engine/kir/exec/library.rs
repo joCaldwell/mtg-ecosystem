@@ -15,6 +15,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 use crate::engine::battlefield_entry::EntryChoice;
+mod look_selection;
 use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchSpec, SelectionZone};
 
 /// The bounds of a search: the cards that may be found, in object order, and
@@ -250,7 +251,8 @@ impl RulesTxn {
                 Ok(())
             }
             Verb::LookChooseHand { ref amount, .. } => {
-                let looked = self.library_prefix(actor, &self.kernel_amount(&frame, amount)?)?;
+                let looked =
+                    self.library_cards_prefix(actor, &self.kernel_amount(&frame, amount)?)?;
                 if looked.is_empty() {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -1243,10 +1245,13 @@ impl RulesTxn {
                 Some(self.order(*player, Reason::OrderLibraryTop, objects(looked), looked.len() as u32))
             }
             ResolutionChoice::LookChooseHand { player, looked, .. } if self.is_live(*player) => {
-                Some(self.pick(*player, Reason::LookChooseHand, objects(looked), 1, 1))
+                let (_, spec, _) = self.look_selection(frame)?;
+                let bounds = self.look_selection_bounds(*player, looked, &spec);
+                Some(self.pick(*player, Reason::LookChooseHand, objects(&bounds.candidates),
+                    bounds.minimum as u32, bounds.maximum as u32))
             }
-            ResolutionChoice::LookOrderBottom { player, looked, hand, .. } if self.is_live(*player) => {
-                let rest = Self::rest(looked, &[*hand]);
+            ResolutionChoice::LookOrderBottom { player, looked, selected, .. } if self.is_live(*player) => {
+                let rest = Self::rest(looked, selected);
                 Some(self.order(*player, Reason::OrderLibraryBottom, objects(&rest), rest.len() as u32))
             }
             ResolutionChoice::Scry {
@@ -1434,32 +1439,23 @@ impl RulesTxn {
                 looked,
                 source_block,
                 ..
-            } => {
-                let [hand] = chosen.as_slice() else {
-                    return Err("expected one looked-at card".into());
-                };
-                let rest = Self::rest(&looked, &[*hand]);
-                if rest.len() > 1 {
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        frame,
-                        choice: ResolutionChoice::LookOrderBottom {
-                            player,
-                            looked,
-                            hand: *hand,
-                            source_block,
-                        },
-                    };
-                    Ok(())
-                } else {
-                    self.route_look_selection(frame, player, looked, *hand, rest, source_block)
-                }
-            }
+            } => self.advance_look_selection(frame, player, looked, chosen, source_block),
             ResolutionChoice::LookOrderBottom {
                 looked,
-                hand,
+                selected,
                 source_block,
                 ..
-            } => self.route_look_selection(frame, player, looked, hand, chosen, source_block),
+            } => self.route_look_selection(
+                frame,
+                player,
+                LookPartition {
+                    looked,
+                    selected,
+                    bottom: chosen,
+                },
+                vec![],
+                source_block,
+            ),
             ResolutionChoice::Scry {
                 looked,
                 bottom: None,
@@ -1511,125 +1507,6 @@ impl RulesTxn {
             ),
             _ => Err("not a library choice".into()),
         }
-    }
-
-    fn route_look_selection(
-        &mut self,
-        frame: Resolving,
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        hand: ObjectId,
-        bottom: Vec<ObjectId>,
-        source_block: u32,
-    ) -> Result<(), String> {
-        if !self.valid_look_selection(&frame, player, &looked, hand, &bottom, source_block)? {
-            return Err("invalid library prefix selection".into());
-        }
-        let destination = Zone::Hand { owner: player };
-        if self.state.rules.commanders.history(hand.card).is_some() {
-            self.rules_mut().frame = Frame::CommanderReturn {
-                object: hand,
-                destination,
-                continuation: CommanderContinuation::LookHand {
-                    frame,
-                    player,
-                    looked,
-                    bottom,
-                    source_block,
-                },
-            };
-            Ok(())
-        } else {
-            self.commit_look_selection(
-                frame,
-                player,
-                looked,
-                hand,
-                bottom,
-                destination,
-                source_block,
-            )
-        }
-    }
-
-    pub(in crate::engine) fn valid_look_selection(
-        &self,
-        frame: &Resolving,
-        player: PlayerId,
-        looked: &[ObjectId],
-        hand: ObjectId,
-        bottom: &[ObjectId],
-        source_block: u32,
-    ) -> Result<bool, String> {
-        let (
-            Verb::LookChooseHand {
-                player: chooser,
-                amount,
-            },
-            block,
-        ) = self.library_verb(frame)?
-        else {
-            return Ok(false);
-        };
-        Ok(block == source_block
-            && self.library_actor(frame, &chooser)? == Some(player)
-            && looked.contains(&hand)
-            && Self::same_cards(&Self::rest(looked, &[hand]), bottom)
-            && self.library_prefix(player, &self.kernel_amount(frame, &amount)?)? == looked)
-    }
-
-    pub(in crate::engine) fn commit_look_selection(
-        &mut self,
-        frame: Resolving,
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        hand: ObjectId,
-        bottom: Vec<ObjectId>,
-        destination: Zone,
-        source_block: u32,
-    ) -> Result<(), String> {
-        if !self.is_live(player) {
-            return self
-                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
-        }
-        let cause = self.instruction_cause(&frame, source_block)?;
-        let move_card = ProposedEvent::Move {
-            object: hand,
-            destination,
-        };
-        let actual = if bottom.is_empty() {
-            self.commit(move_card, cause)?
-        } else {
-            // No priority or intervening trigger processing. The hand
-            // movement clears the chosen card from the inspected prefix.
-            let batch = self.commit_batch(
-                cause,
-                EventGroup::Ordered {
-                    children: vec![
-                        EventGroup::Occurrence {
-                            proposed: move_card,
-                        },
-                        EventGroup::Occurrence {
-                            proposed: ProposedEvent::PutLibraryPrefixOnBottom {
-                                player,
-                                looked: Self::rest(&looked, &[hand]),
-                                bottom,
-                            },
-                        },
-                    ],
-                },
-            )?;
-            batch
-                .result(&[1])
-                .cloned()
-                .ok_or("missing bottom placement")?
-        };
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            },
-        )
     }
 
     /// CR 701.22a: an order of one card or none needs no decision.
@@ -1736,16 +1613,33 @@ impl RulesTxn {
         )
     }
 
-    /// CR 701.20a: the split choice follows a public reveal of the found
-    /// cards. Only their Oracle identities leave the private choice.
-    pub(in crate::engine) fn revealed_split_search_cards(
+    /// CR 701.20a/e: a printed reveal before a pending choice publishes
+    /// only the revealed cards' Oracle identities, without positions.
+    pub(in crate::engine) fn revealed_library_cards(
         &self,
     ) -> Result<Vec<(PlayerId, String)>, String> {
-        let (frame, player, found): (_, _, &[_]) = match &self.state.rules.frame {
+        let (frame, player, found, look): (_, _, &[_], _) = match &self.state.rules.frame {
+            Frame::ResolutionChoice {
+                frame,
+                choice:
+                    ResolutionChoice::LookOrderBottom {
+                        player, selected, ..
+                    },
+            }
+            | Frame::CommanderReturn {
+                continuation:
+                    CommanderContinuation::LookHand {
+                        frame,
+                        player,
+                        partition: LookPartition { selected, .. },
+                        ..
+                    },
+                ..
+            } => (frame, player, selected, true),
             Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::SearchSplit { player, found, .. },
-            } => (frame, player, found),
+            } => (frame, player, found, false),
             Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::SearchEntry { player, found, .. },
@@ -1759,13 +1653,19 @@ impl RulesTxn {
                         ..
                     },
                 ..
-            } => (frame, player, found),
+            } => (frame, player, found, false),
             _ => return Ok(vec![]),
         };
-        if !self.is_live(*player)
-            || !matches!(self.library_verb(frame)?.0, Verb::Search { search, .. }
+        if !self.is_live(*player) {
+            return Ok(vec![]);
+        }
+        let revealed = if look {
+            self.look_selection(frame)?.1.reveal
+        } else {
+            matches!(self.library_verb(frame)?.0, Verb::Search { search, .. }
                 if search.to == Destination::OneTappedRestOwnerHand)
-        {
+        };
+        if !revealed {
             return Ok(vec![]);
         }
         let mut revealed = found
@@ -1785,9 +1685,12 @@ impl RulesTxn {
         let choice = match &self.state.rules.frame {
             Frame::ResolutionChoice { choice, .. } => choice,
             Frame::CommanderReturn {
-                continuation: CommanderContinuation::LookHand { player, looked, .. },
+                continuation:
+                    CommanderContinuation::LookHand {
+                        player, partition, ..
+                    },
                 ..
-            } => return *player == viewer && looked.contains(&object),
+            } => return *player == viewer && partition.looked.contains(&object),
             _ => return false,
         };
         match choice {
@@ -1899,12 +1802,21 @@ impl RulesTxn {
                 Verb::LookChooseHand { amount, .. },
             ) => self.valid_looked(frame, player, looked, amount)?,
             (
-                ResolutionChoice::LookOrderBottom { looked, hand, .. },
-                Verb::LookChooseHand { amount, .. },
+                ResolutionChoice::LookOrderBottom {
+                    looked, selected, ..
+                },
+                Verb::LookChooseHand {
+                    amount, selection, ..
+                },
             ) => {
-                looked.len() > 2
-                    && looked.contains(hand)
+                !selection.random_bottom
+                    && selected.len() <= selection.maximum as usize
+                    && Self::subset(looked, selected)
+                    && Self::rest(looked, &Self::rest(looked, selected)) == *selected
+                    && looked.len() - selected.len() > 1
                     && self.valid_looked(frame, player, looked, amount)?
+                    && (!self.is_live(player)
+                        || self.valid_look_answer(player, looked, selected, selection))
             }
             // A battlefield search's saved answers, checked before the
             // departure fast path accepts them.
@@ -2008,16 +1920,19 @@ impl RulesTxn {
                         .is_ok_and(|next| next.is_some())
             }
             (
-                ResolutionChoice::ReorderLibraryTop { looked, .. },
-                Verb::ReorderLibraryTop { amount, .. },
-            )
-            | (
                 ResolutionChoice::LookChooseHand { looked, .. },
                 Verb::LookChooseHand { amount, .. },
             )
             | (
                 ResolutionChoice::LookOrderBottom { looked, .. },
                 Verb::LookChooseHand { amount, .. },
+            ) => {
+                let amount = self.kernel_amount(frame, amount)?;
+                self.library_cards_prefix(player, &amount)? == *looked
+            }
+            (
+                ResolutionChoice::ReorderLibraryTop { looked, .. },
+                Verb::ReorderLibraryTop { amount, .. },
             )
             | (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
             | (ResolutionChoice::Surveil { looked, .. }, Verb::Surveil { amount, .. }) => {
@@ -2097,64 +2012,6 @@ impl RulesTxn {
             return Err(invalid());
         }
         Ok(())
-    }
-
-    /// CR 401.4, 701.20e: a completed private selection can retain an
-    /// ordered remainder or the one movement when the prefix was a singleton.
-    pub(in crate::engine) fn validate_look_selection_outcome(
-        &self,
-        frame: &Resolving,
-        instruction: &Instruction,
-        outcome: &InstructionOutcome,
-    ) -> Result<(), String> {
-        let result = match outcome {
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            } => Some(actual),
-            _ => None,
-        };
-        let Some(Verb::LookChooseHand { amount, .. }) = instruction.verb() else {
-            return if matches!(result, Some(EventOutcome::LibraryPrefixBottomed { .. })) {
-                Err("snapshot bottom placement on another instruction".into())
-            } else {
-                Ok(())
-            };
-        };
-        let player = self.entry(frame.stack_id)?.controller;
-        let valid = match result {
-            Some(EventOutcome::LibraryPrefixBottomed {
-                player: actor,
-                looked,
-                bottom,
-            }) => {
-                *actor == player
-                    && self.valid_looked(frame, player, looked, amount)?
-                    && Quantity::from(looked.len() as i64) < self.kernel_amount(frame, amount)?
-                    && Self::same_cards(looked, bottom)
-            }
-            Some(EventOutcome::Moved { movement }) => {
-                movement.from == (Zone::Library { owner: player })
-                    && (movement.destination == (Zone::Hand { owner: player })
-                        || (movement.destination == (Zone::Command { owner: player })
-                            && self
-                                .state
-                                .rules
-                                .commanders
-                                .history(movement.previous.card)
-                                .is_some()))
-            }
-            None => {
-                matches!(outcome, InstructionOutcome::Effect { actual: None })
-                    || matches!(outcome, InstructionOutcome::PlayerActionSkipped { player: actor }
-                    if *actor == player && !self.is_live(player))
-            }
-            _ => false,
-        };
-        if valid {
-            Ok(())
-        } else {
-            Err("snapshot completed library selection invariant".into())
-        }
     }
 
     /// CR 701.22a, 701.25a: the looked-at cards are distinct cards of the

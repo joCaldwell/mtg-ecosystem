@@ -83,7 +83,7 @@ pub enum ResolutionChoice {
         looked: Vec<ObjectId>,
         source_block: u32,
     },
-    /// CR 701.20e: choose a single card to put into hand.
+    /// CR 701.20e: choose the inspected cards to put into hand.
     LookChooseHand {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -93,7 +93,7 @@ pub enum ResolutionChoice {
     LookOrderBottom {
         player: PlayerId,
         looked: Vec<ObjectId>,
-        hand: ObjectId,
+        selected: Vec<ObjectId>,
         source_block: u32,
     },
     /// CR 701.22a: `player` looked at `looked` (top first), then chooses the

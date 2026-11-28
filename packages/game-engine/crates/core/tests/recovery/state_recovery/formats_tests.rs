@@ -538,7 +538,7 @@ fn library_entry_shapes() -> Vec<String> {
         serde_json::to_value(ResolutionChoice::LookOrderBottom {
             player: PlayerId(0),
             looked: vec![object],
-            hand: object,
+            selected: vec![object],
             source_block: 0,
         })
         .unwrap();
@@ -549,8 +549,12 @@ fn library_entry_shapes() -> Vec<String> {
         continuation: CommanderContinuation::LookHand {
             frame: choice_frame,
             player: PlayerId(0),
-            looked: vec![object],
-            bottom: vec![object],
+            partition: LookPartition {
+                looked: vec![object],
+                selected: vec![object],
+                bottom: vec![object],
+            },
+            choices: vec![(object, false)],
             source_block: 0,
         },
     })

@@ -172,7 +172,7 @@ pub use actions::{ResolutionChoice, StackKind};
 pub use stack_costs::AnnouncementOrigin;
 pub mod commander;
 pub mod payments;
-pub use commander::CommanderContinuation;
+pub use commander::{CommanderContinuation, LookPartition};
 pub mod combat;
 pub mod legend;
 pub mod scenarios;

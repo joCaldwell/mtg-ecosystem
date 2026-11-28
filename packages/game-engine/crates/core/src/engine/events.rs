@@ -2417,7 +2417,8 @@ impl RulesTxn {
                 player,
                 looked,
                 bottom,
-            } => self.apply_library_prefix_to_bottom(*player, looked, bottom)?,
+                random,
+            } => self.apply_library_prefix_to_bottom(*player, looked, bottom, *random)?,
             ProposedEvent::Scry {
                 player,
                 looked,

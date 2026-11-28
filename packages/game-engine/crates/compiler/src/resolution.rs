@@ -105,6 +105,15 @@ fn local_creature_type_choice(site: &Site<'_>, result: &ast::ResolvedRefStepResu
             .starts_with(&format!("{effects}/{}/steps/0/", sentence + 1))
 }
 
+/// CR 608.2c/d, 701.20e: the private inspection lowerer proves the
+/// whole resolving block before discharging its local binder verdicts.
+fn certified_private_look(ability: &Value) -> bool {
+    ability["effects"].as_array().is_some_and(|effects| {
+        super::compose::private_look::candidate(effects)
+            && super::compose::private_look::certify(effects).is_ok()
+    })
+}
+
 impl Resolution {
     /// Decode and hash-check the record's resolution. Its absence means the
     /// archive predates R4; composition never reads the diagnostic graph.
@@ -154,28 +163,41 @@ impl Resolution {
             if block.residuals.is_empty() {
                 continue;
             }
+            let private_look = certified_private_look(ability);
             let mut covered = ControlCoverage::default();
             let mut residuals = BTreeSet::new();
             for reference in &block.refs {
                 if let RefEntry::Unresolved(entry) = reference
-                    && entry.unresolved == "unsupported-scope"
-                    && (draw_players_after_draw(ability, &entry.path)
-                        || counted_iteration_site(
-                            ability,
-                            &entry.path,
-                            &["/each", "/each/filter/control", "/effects/0/steps/0/who"],
+                    && ((private_look
+                        && entry.path.starts_with("/effects/")
+                        && matches!(
+                            entry.unresolved.as_str(),
+                            "unsupported-scope"
+                                | "unsupported-reference"
+                                | "missing-antecedent"
+                                | "ambiguous-antecedent"
+                                | "cardinality-mismatch"
+                                | "unresolved-dependency"
                         ))
+                        || (entry.unresolved == "unsupported-scope"
+                            && (draw_players_after_draw(ability, &entry.path)
+                                || counted_iteration_site(
+                                    ability,
+                                    &entry.path,
+                                    &["/each", "/each/filter/control", "/effects/0/steps/0/who"],
+                                ))))
                 {
                     residuals.extend([
-                        "diagnostic:unsupported-scope".to_owned(),
-                        "ref:unsupported-scope".to_owned(),
+                        format!("diagnostic:{}", entry.unresolved),
+                        format!("ref:{}", entry.unresolved),
                     ]);
                     covered.references.insert(entry.path.clone());
                 }
             }
             for step in &block.steps {
                 if let StepEntry::Unaccounted(entry) = step
-                    && counted_iteration_site(ability, &entry.path, &["/effects/0/steps/0"])
+                    && (private_look && entry.path.starts_with("/effects/")
+                        || counted_iteration_site(ability, &entry.path, &["/effects/0/steps/0"]))
                 {
                     residuals.insert(format!("step:{}", entry.ast_effect.as_str()));
                     covered.steps.insert(entry.path.clone());
@@ -306,6 +328,7 @@ impl Resolution {
         for (index, block) in self.blocks()?.iter().enumerate() {
             let ability = &abilities[index];
             let kind = BlockKind::of(ability);
+            let private_look = certified_private_look(ability);
             for entry in &block.refs {
                 let (path, scope, role) = match entry {
                     RefEntry::Ref(r) => (&r.path, r.scope.as_deref(), Role::Resolved(&r.r#ref)),
@@ -329,11 +352,10 @@ impl Resolution {
                         continue;
                     }
                     RefEntry::Unresolved(u)
-                        if u.unresolved == "unsupported-scope"
-                            && self
-                                .control
-                                .get(&(self.face, index))
-                                .is_some_and(|covered| covered.references.contains(&u.path)) =>
+                        if self
+                            .control
+                            .get(&(self.face, index))
+                            .is_some_and(|covered| covered.references.contains(&u.path)) =>
                     {
                         continue;
                     }
@@ -349,6 +371,9 @@ impl Resolution {
                     scope,
                     operand: ability.pointer(path),
                 };
+                if private_look && path.starts_with("/effects/") {
+                    continue;
+                }
                 if let Role::Resolved(ResolvedRef::LinkedResult(link)) = role
                     && linked_entry_choice(abilities, &site, link)
                 {
