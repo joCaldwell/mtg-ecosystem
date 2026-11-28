@@ -602,9 +602,10 @@ fn lower_filter_for(
         });
     }
     if let Some(all_of) = &filter.all_of {
-        atoms.push(Atom::AnyType {
-            kinds: type_alternatives(all_of, "filter")?,
-        });
+        match type_alternatives(all_of, "filter") {
+            Ok(kinds) => atoms.push(Atom::AnyType { kinds }),
+            Err(error) => atoms.push(color_alternatives(all_of).ok_or(error)?),
+        }
     }
     for kind in listed(&filter.non_types, "non_types")? {
         atoms.push(Atom::NotType {
@@ -655,6 +656,7 @@ fn lower_filter_for(
     for c in listed(&filter.non_colors, "non_colors")? {
         atoms.push(Atom::NotColor { color: color(c) });
     }
+    lower_color_cardinality(filter, &mut atoms)?;
     match &filter.control {
         None => {}
         // CR 109.5: "you control" uses the binding for this ability.
@@ -725,6 +727,87 @@ fn lower_filter_for(
     }
     lower_counter_constraints(filter, "filter", &mut atoms)?;
     Ok(Pred(atoms))
+}
+
+/// CR 105.1–2: tests of the five current colors (CR 613.1e), represented
+/// by the same conjunctive and disjunctive predicates as named colors.
+fn lower_color_cardinality(
+    filter: &ast::ObjectFilter,
+    atoms: &mut Vec<Atom>,
+) -> Result<(), Failure> {
+    match filter.colorless {
+        None => {}
+        Some(true) => atoms.extend(COLORS.map(|color| Atom::NotColor { color })),
+        Some(false) => atoms.push(Atom::AnyOf {
+            alternatives: COLORS.map(|color| Pred(vec![Atom::Color { color }])).into(),
+        }),
+    }
+    match filter.monocolored {
+        None => {}
+        Some(true) => atoms.push(Atom::AnyOf {
+            alternatives: COLORS
+                .map(|only| {
+                    Pred(
+                        COLORS
+                            .map(|color| {
+                                if color == only {
+                                    Atom::Color { color }
+                                } else {
+                                    Atom::NotColor { color }
+                                }
+                            })
+                            .into(),
+                    )
+                })
+                .into(),
+        }),
+        Some(false) => return Err(operand("filter", "monocolored:false")),
+    }
+    match filter.multicolored {
+        None => {}
+        Some(true) => atoms.push(multicolored()),
+        Some(false) => return Err(operand("filter", "multicolored:false")),
+    }
+    Ok(())
+}
+
+const COLORS: [Color; 5] = [Color::W, Color::U, Color::B, Color::R, Color::G];
+
+fn multicolored() -> Atom {
+    let alternatives = COLORS
+        .iter()
+        .enumerate()
+        .flat_map(|(index, &first)| {
+            COLORS[index + 1..].iter().map(move |&second| {
+                Pred(vec![
+                    Atom::Color { color: first },
+                    Atom::Color { color: second },
+                ])
+            })
+        })
+        .collect();
+    Atom::AnyOf { alternatives }
+}
+
+fn color_alternatives(all_of: &[ast::ObjectFilter]) -> Option<Atom> {
+    let [group] = all_of else { return None };
+    let (Some("any_of"), Some(alternatives @ [_, _, ..])) =
+        (only_field(group), group.any_of.as_deref())
+    else {
+        return None;
+    };
+    let alternatives = alternatives
+        .iter()
+        .map(
+            |alternative| match (only_field(alternative), alternative.colors.as_deref()) {
+                (Some("colors"), Some([printed])) => Some(Pred(vec![Atom::Color {
+                    color: color(printed),
+                }])),
+                _ => None,
+            },
+        )
+        .collect::<Option<_>>()?;
+    Some(Atom::AnyOf { alternatives })
 }
 
 /// CR 208.1, 202.3: a fixed comparison of power, toughness or mana value.
@@ -990,7 +1073,7 @@ pub(crate) fn lower_event_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fai
 }
 
 /// The filter terms a board set represents.
-const BOARD_FILTER_TERMS: [&str; 18] = [
+const BOARD_FILTER_TERMS: [&str; 21] = [
     "cls",
     "types",
     "all_of",
@@ -1001,6 +1084,9 @@ const BOARD_FILTER_TERMS: [&str; 18] = [
     "non_subtypes",
     "colors",
     "non_colors",
+    "colorless",
+    "monocolored",
+    "multicolored",
     "control",
     "status",
     "non_token",
@@ -1389,7 +1475,7 @@ pub(crate) fn bind_optional_target_group(
 fn lower_target_filter(
     filter: &ast::ObjectFilter,
 ) -> Result<(TargetDomain, PermanentFilter), Failure> {
-    const TERMS: [&str; 19] = [
+    const TERMS: [&str; 22] = [
         "cls",
         "types",
         "all_of",
@@ -1401,6 +1487,9 @@ fn lower_target_filter(
         "non_subtypes",
         "colors",
         "non_colors",
+        "colorless",
+        "monocolored",
+        "multicolored",
         "control",
         "status",
         "non_token",
@@ -1491,6 +1580,7 @@ fn lower_target_filter(
     properties.append(&mut atoms);
     let mut atoms = properties;
     target_characteristic_atoms(filter, &mut atoms)?;
+    lower_color_cardinality(filter, &mut atoms)?;
     lower_counter_constraints(filter, "target_filter", &mut atoms)?;
     if token {
         atoms.push(Atom::Token);
@@ -1974,7 +2064,7 @@ pub(crate) fn bind_graveyard_target(
     let mut printed = filter.clone();
     printed.zone = None;
     let permanent = printed.permanent.take();
-    let multicolored = printed.multicolored.take();
+    let requires_multicolored = printed.multicolored.take();
     // CR 107.3, 202.3, 601.2b-c: the only dynamic property admitted here
     // is a card's printed mana value at most the spell's announced X.
     let at_most_x = foreign.is_none() && printed.properties.as_deref().is_some_and(|properties| {
@@ -1992,26 +2082,11 @@ pub(crate) fn bind_graveyard_target(
             value: Amount::announced_x(),
         });
     }
-    if let Some(multicolored) = multicolored {
-        if !multicolored {
+    if let Some(required) = requires_multicolored {
+        if !required {
             return Err(invalid_filter());
         }
-        // CR 105.1–2: two different colors suffice. Test color, not color
-        // identity (CR 903.4), using the existing card predicate evaluator.
-        let colors = [Color::W, Color::U, Color::B, Color::R, Color::G];
-        let alternatives = colors
-            .iter()
-            .enumerate()
-            .flat_map(|(index, first)| {
-                colors[index + 1..].iter().map(move |second| {
-                    Pred(vec![
-                        Atom::Color { color: *first },
-                        Atom::Color { color: *second },
-                    ])
-                })
-            })
-            .collect();
-        predicate.0.push(Atom::AnyOf { alternatives });
+        predicate.0.push(multicolored());
     }
     if permanent.is_some() {
         // CR 110.4: the permanent card types in the admitted catalog.
@@ -2476,17 +2551,18 @@ pub(crate) fn lower_counter_amount(
     resolve: impl FnOnce(&ast::ObjectRef) -> Result<Ref, Failure>,
 ) -> Result<Amount, Failure> {
     let ast::AmountCounterCount { counter, on, total } = count;
-    let (ast::ObjectFilterCounterConstraintsItemCounter::CounterSpec(spec), None) =
-        (&**counter, total)
-    else {
-        return Err(operand("amount", "counter_count:kind"));
+    use ast::ObjectFilterCounterConstraintsItemCounter as Counter;
+    let counter = match (&**counter, total) {
+        (Counter::CounterSpec(spec), None) => Some(object_counter_kind(&spec.r#type)?),
+        (Counter::Any, _) => None,
+        _ => return Err(operand("amount", "counter_count:kind")),
     };
     let ast::AmountCounterCountOn::ObjectRef(on) = &**on else {
         return Err(operand("amount", "counter_count:player"));
     };
     Ok(Amount::CountersOn {
         object: resolve(on)?,
-        counter: object_counter_kind(&spec.r#type)?,
+        counter,
     })
 }
 

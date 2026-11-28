@@ -1,5 +1,8 @@
 //! Zone changes (CR 400.3, 400.7). One evaluated cell admits every reviewed
 //! combination of moved objects and destination; the evaluator performs it.
+//! Public graveyard sets can go to exile or owners' hands. Battlefield entry
+//! from a set admits the mover's graveyard only. Foreign graveyard entry
+//! remains on the single-target path with its reviewed target constraints.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -32,23 +35,27 @@ impl Walk<'_, '_> {
                 },
                 to,
             ) => self.audit_target_move(*slot, to),
-            // CR 404.1, 400.3: exile every card in one announced player's
-            // graveyard.
+            // CR 404.1, 400.3: a matching card set in a denoted public
+            // graveyard goes to exile or the cards' owners' hands.
             (
                 SetExpr::Matching {
-                    zone:
-                        ZoneExpr::Graveyard {
-                            of:
-                                PlayerExpr::Is {
-                                    who: Ref::Target { slot },
-                                },
-                        },
+                    zone: ZoneExpr::Graveyard { of },
                     filter,
                 },
-                Destination::Exile,
-            ) if filter.0.is_empty() && self.domain(*slot)? == TargetDomain::AnyPlayer => Ok(MOVED),
-            // CR 400.3, 400.7: exile, or return to owners' hands, every
-            // matching battlefield permanent; or exile every graveyard card.
+                Destination::Exile | Destination::OwnerHand,
+            ) if of.is_you() || self.player_target(of)?.is_some() => {
+                Self::library_card_filter(filter).map(|()| MOVED)
+            }
+            (
+                SetExpr::Matching {
+                    zone: ZoneExpr::Graveyard { of },
+                    filter,
+                },
+                Destination::Battlefield { controller, .. },
+            ) if of.is_you() && *controller == PlayerExpr::you(self.env.context) => {
+                Self::library_card_filter(filter).map(|()| MOVED)
+            }
+            // CR 400.3, 400.7: exile or return every matching permanent.
             (
                 SetExpr::Matching {
                     zone: ZoneExpr::Battlefield,
@@ -61,8 +68,8 @@ impl Walk<'_, '_> {
                     zone: ZoneExpr::Graveyards,
                     filter,
                 },
-                Destination::Exile,
-            ) if filter.0.is_empty() => Ok(MOVED),
+                Destination::Exile | Destination::OwnerHand,
+            ) => Self::library_card_filter(filter).map(|()| MOVED),
             _ => unaudited("verb"),
         }
     }

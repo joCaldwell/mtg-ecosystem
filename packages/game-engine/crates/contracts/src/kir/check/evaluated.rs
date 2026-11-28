@@ -79,7 +79,22 @@ impl Walk<'_, '_> {
                     | Ref::CostResult { .. }
                     | Ref::BoundVar { .. },
                 counter,
-            } if counter.admitted() => Ok(()),
+            } if counter.as_ref().is_none_or(CounterKind::admitted) => Ok(()),
+            Amount::CountersOn {
+                object: Ref::Target { slot },
+                counter,
+            } if matches!(
+                self.domain(*slot)?,
+                TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BlockingBattlefieldCreature
+                    | TargetDomain::CreatureOrPlaneswalker
+            ) && counter.as_ref().is_none_or(CounterKind::admitted) =>
+            {
+                Ok(())
+            }
             Amount::StatOf {
                 object:
                     Ref::Source

@@ -336,6 +336,7 @@ impl RulesTxn {
                             prior: object,
                             successor: None,
                             controller_before: self.current(object)?.controller,
+                            destination: None,
                             public_card: None,
                         });
                     }
@@ -514,6 +515,7 @@ impl RulesTxn {
                     prior: object,
                     successor: None,
                     controller_before: controller,
+                    destination: None,
                     public_card: None,
                 });
             }

@@ -548,7 +548,7 @@ impl RulesTxn {
                 counter,
             } => Ok(self
                 .source_facts(self.entry(frame.stack_id)?)?
-                .counter_balance(Some(counter))),
+                .counter_balance(counter.as_ref())),
             Amount::Times { factor, of } => {
                 let mut value = self.kernel_amount(frame, of)?;
                 value.multiply(factor);

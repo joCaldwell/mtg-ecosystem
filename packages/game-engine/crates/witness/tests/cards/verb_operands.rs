@@ -4,6 +4,8 @@
 use mtg_contracts::kir::{Cell, Tiers, definition_cells, definition_tiers};
 use mtg_core::testkit::*;
 
+mod batch_two;
+
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(

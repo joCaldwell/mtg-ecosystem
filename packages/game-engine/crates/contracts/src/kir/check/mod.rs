@@ -583,7 +583,11 @@ impl Walk<'_, '_> {
                         .map(drop)
                 })
             }
-            SetExpr::Result { step, filter } => {
+            SetExpr::Result {
+                step,
+                filter,
+                destination,
+            } => {
                 self.expect(
                     &Ref::StepResult {
                         step: *step,
@@ -602,6 +606,15 @@ impl Walk<'_, '_> {
                         })
                 {
                     return unaudited("result without public card characteristics");
+                }
+                if let Some(destination) = destination {
+                    let ZoneExpr::Graveyard { of } = destination else {
+                        return unaudited("result destination");
+                    };
+                    self.player(of)?;
+                    if !of.is_you() && self.player_target(of)?.is_none() {
+                        return unaudited("result destination owner");
+                    }
                 }
                 Self::library_card_filter(filter)
             }
@@ -1673,7 +1686,7 @@ impl Walk<'_, '_> {
             Amount::CountersOn {
                 object: Ref::Source,
                 counter,
-            } if counter.admitted() => Ok(()),
+            } if counter.as_ref().is_none_or(CounterKind::admitted) => Ok(()),
             // CR 702.23a: creatures blocking the ability's own source.
             // CR 702.121a: the combat's declared defenders.
             Amount::BlockersOf {
