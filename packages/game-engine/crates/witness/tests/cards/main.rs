@@ -8,6 +8,7 @@ mod characteristic_pt;
 mod continuous;
 mod control;
 mod costs;
+mod counted_amounts;
 mod counter_regeneration;
 mod counters;
 mod damage_triggers;

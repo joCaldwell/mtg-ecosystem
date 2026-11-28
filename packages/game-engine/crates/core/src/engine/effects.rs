@@ -770,19 +770,6 @@ impl RulesTxn {
         Ok(rules)
     }
 
-    pub(super) fn static_changes<'a>(
-        &'a self,
-        target: ObjectId,
-        layer: Layer,
-        sources: Option<&'a [CardId]>,
-    ) -> Result<Vec<(u64, &'a Change)>, String> {
-        Ok(self
-            .static_changes_by_source(target, layer, sources)?
-            .into_iter()
-            .map(|(timestamp, _, change)| (timestamp, change))
-            .collect())
-    }
-
     /// The layer's applicable static changes with the object whose static
     /// ability generates each, in timestamp order (CR 613.7a).
     pub(super) fn static_changes_by_source<'a>(
@@ -1233,7 +1220,7 @@ impl RulesTxn {
     /// layer 1-5 characteristics. Tokens cease to exist in graveyards
     /// (CR 111.7); phased-out permanents are treated as though they don't
     /// exist (CR 702.26b).
-    fn characteristic_set(
+    pub(super) fn characteristic_set(
         &self,
         source: &Object,
         set: &SetExpr,
@@ -1336,16 +1323,24 @@ impl RulesTxn {
                 t.subtract(&minus);
             }
         }
-        for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources)? {
+        for (_, source, change) in
+            self.static_changes_by_source(object, Layer::PowerToughnessModify, sources)?
+        {
             if let Change::PowerToughness { power, toughness } = change {
-                c.power
-                    .as_mut()
-                    .ok_or("static power")?
-                    .add(power.as_fixed().ok_or("static power operand")?);
+                // CR 608.2h, 611.3a, 613.4c: a counted modification ("+1/+1
+                // for each ...") is recounted whenever the stat is read. Its
+                // count reads only layers 1-5 of the counted objects
+                // (`kir::statics`), so it never reads a layer-7 result.
+                let source = self.current(source)?;
+                let delta = |amount: &Amount| match amount.as_fixed() {
+                    Some(value) => Ok(value.clone()),
+                    None => self.characteristic_amount(source, amount),
+                };
+                c.power.as_mut().ok_or("static power")?.add(&delta(power)?);
                 c.toughness
                     .as_mut()
                     .ok_or("static toughness")?
-                    .add(toughness.as_fixed().ok_or("static toughness operand")?);
+                    .add(&delta(toughness)?);
             }
         }
         for e in &self.state.rules.effects {

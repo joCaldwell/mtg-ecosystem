@@ -93,8 +93,12 @@ fn amount(
         _ if bound.is_some() => Err(unsupported("bindings", "unconsumed count binding")),
         ast::Amount::Count(count) => lower_count(&count, cx.context),
         ast::Amount::CounterCount(_) | ast::Amount::Product(_) => source_counter_amount(&count),
-        other => Ok(Amount::Fixed {
-            value: fixed_positive_amount(&other)?,
+        ast::Amount::Fixed(_) => Ok(Amount::Fixed {
+            value: fixed_positive_amount(&count)?,
         }),
+        // CR 608.2h: any other number the shared evaluator measures when
+        // the step is performed ("that many", a life total, an object's
+        // stat with last-known information).
+        other => pilot_amount(cx, &other),
     }
 }

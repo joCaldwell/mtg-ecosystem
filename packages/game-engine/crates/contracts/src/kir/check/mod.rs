@@ -632,7 +632,7 @@ impl Walk<'_, '_> {
                 .expect(object, &[RefKind::Object], "blocked object")
                 .map(drop),
             Amount::OpponentsAttacked {} => Ok(()),
-            Amount::Times { of, .. } => self.amount(of),
+            Amount::Times { of, .. } | Amount::Half { of, .. } => self.amount(of),
             Amount::Sum { terms } => terms.iter().try_for_each(|term| self.amount(term)),
             Amount::Difference {
                 minuend,
@@ -1717,7 +1717,8 @@ impl Walk<'_, '_> {
             | Verb::PutCounters { .. }
             | Verb::Sacrifice { .. }
             | Verb::Mill { .. }
-            | Verb::Discard { .. } => self.audit_evaluated(verb),
+            | Verb::Discard { .. }
+            | Verb::CreateTokens { .. } => self.audit_evaluated(verb),
             Verb::Move { .. } if verb.is_evaluated() => self.audit_evaluated(verb),
             Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
             Verb::Fight { first, second } => self.audit_fight(first, second),
@@ -1732,12 +1733,6 @@ impl Walk<'_, '_> {
             Verb::Move { what, to } => self.audit_move(what, to),
             Verb::Tap { what } => self.audit_tap(what),
             Verb::Untap { what } => self.audit_untap(what),
-            Verb::CreateTokens {
-                controller,
-                count,
-                token,
-                ..
-            } => self.audit_tokens(controller, count, token),
             Verb::RemoveLoreCounter { from } => match from {
                 Ref::Target { slot }
                     if matches!(

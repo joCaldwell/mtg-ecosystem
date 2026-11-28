@@ -88,6 +88,30 @@ impl RulesTxn {
                 self.install_kernel(task);
                 Ok(())
             }
+            (
+                Distribution::Single,
+                Evaluated::Tokens {
+                    controller,
+                    token,
+                    tapped,
+                    ..
+                },
+            ) => {
+                let Some(players) = Self::present_operand(
+                    &signature.slots[0],
+                    self.evaluated_players(&task, controller)?,
+                )?
+                else {
+                    return self.complete_evaluated(&task, None, [empty]);
+                };
+                let [controller] = players.as_slice() else {
+                    return Err("token creation names one player".into());
+                };
+                let cause = self.instruction_cause(self.kernel_root()?, block)?;
+                let actual =
+                    self.create_evaluated_tokens(*controller, &amount, token, tapped, cause)?;
+                self.complete_evaluated(&task, None, [InstructionOutcome::Effect { actual }])
+            }
             _ => Err("unsupported evaluated distribution".into()),
         }
     }

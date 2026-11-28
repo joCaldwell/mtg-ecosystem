@@ -42,6 +42,12 @@ impl Walk<'_, '_> {
                 filter,
                 greatest_power,
             } => self.audit_evaluated_sacrifice(&operands, player, count, filter, greatest_power),
+            Evaluated::Tokens {
+                controller,
+                count,
+                token,
+                ..
+            } => self.audit_evaluated_tokens(controller, count, token),
             Evaluated::Move { what, to } => self.audit_move(what, to),
         }
     }
@@ -102,6 +108,8 @@ impl Walk<'_, '_> {
                 Ok(())
             }
             Amount::Times { factor, of } if *factor >= Quantity::from(1) => self.audit_quantity(of),
+            // CR 107.1a: half of an evaluated number, rounded as printed.
+            Amount::Half { of, .. } => self.audit_quantity(of),
             Amount::Sum { terms } if terms.len() >= 2 => {
                 terms.iter().try_for_each(|term| self.audit_quantity(term))
             }

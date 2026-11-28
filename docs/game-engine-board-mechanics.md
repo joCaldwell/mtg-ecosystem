@@ -229,8 +229,11 @@ ordinary Saga lore are contained counter members produced by a replacement
 (CR 122.6, 306.5b, 714.3a), as is the megamorph counter (CR 614.1e). Printed
 placement uses one positive quantity per counter kind, optionally multiplied by
 a checked count of battlefield permanents or graveyard cards read from prior
-occupancy for the incoming controller; kicker-count and mana-spent multipliers
-need cast facts and reject until supported. For a quantity-order question, the
+occupancy for the incoming controller. The count reads structural (layer-4)
+characteristics, so color filters reject; a card entering from the counted
+graveyard counts itself, and "other" over a graveyard rejects because that card
+is not the entrant (CR 400.7). Kicker-count and mana-spent multipliers need cast
+facts and reject until supported. For a quantity-order question, the
 entering card is the order subject unless it comes from a hidden zone or is a
 token. Precombat-main lore stays a turn-based action (CR 714.3c) and is not
 doubled. A loyalty cost under Doubling Season stays at its paid amount, while a
@@ -313,7 +316,12 @@ mana value, devotion and `Distinct` card types (exhaustive over
 layers 1–5 of other objects, never P/T or abilities. Chosen players, life
 totals, counters, event objects, exile and other values reject under
 `static:cda-pt:*`; a star without a CDA rejects under `source.power` or
-`source.toughness`.
+`source.toughness`. A static "+N/+M for each [filter]" is a layer-7c change over
+the same counts, recounted whenever the stat is read (CR 608.2h, 613.4c); "other"
+or "other than this" excludes the source, and a penalty ("-1/-1 for each")
+rejects as `static:modifier:for-each:negative`. A lord scope may be a union whose
+every alternative names a creature type ("Skeletons you control and other
+Zombies you control").
 
 Printed triggered keywords lower to the triggers their rules define, each
 instance triggering separately; the keyword line must print each N, the source
@@ -702,9 +710,12 @@ the same program: `Amount::Count` over objects you or opponents control,
 graveyard cards or (not for draws) your hand, `Times` for N above one,
 `Greatest` power, toughness or mana value among permanents (never below zero,
 CR 107.1b) and your devotion (CR 700.5). Draws, life changes, set or player
-damage, token creation and P/T changes read them; a P/T change keeps its value
-in the saved effect (CR 611.2c) and a counted draw its recorded attempts.
-Several steps may re-read one X only across draws, life changes and damage. A
-step that cannot read X, a hand count re-read, announced or minimum quantities,
-event results ("this way"), another player's referents and per-object iteration
-reject under `bindings:*` or `operand:bindings:*`.
+damage, token creation and P/T changes read them; token counts also read a life
+total, an object's stat with last-known information (a destroyed target, a
+cost's sacrificed object), "that many" and half of a number rounded as printed
+(CR 107.1a), and an X binding never names a token its own reading step creates.
+A P/T change keeps its value in the saved effect (CR 611.2c) and a counted draw
+its recorded attempts. Several steps may re-read one X only across draws, life
+changes and damage. A step that cannot read X, a hand count re-read, announced
+or minimum quantities, event results ("this way"), another player's referents
+and per-object iteration reject under `bindings:*` or `operand:bindings:*`.

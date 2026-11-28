@@ -280,11 +280,12 @@ capability and tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Draw, life, damage, permanent counter placement, sacrifice, discard, mill and
-zone changes (`Move`) use `kir::signatures`. The resolving spell shuffling
-itself (CR 608.2n) and the resolution object choice stay outside it.
-`kir::Verb` remains the wire representation. Damage prevention and commit,
-counter placement and graveyard moves retain their transaction authorities.
+Draw, life, damage, permanent counter placement, sacrifice, discard, mill,
+token creation (`CreateTokens`) and zone changes (`Move`) use `kir::signatures`.
+The resolving spell shuffling itself (CR 608.2n) and the resolution object
+choice stay outside it. `kir::Verb` remains the wire representation. Damage
+prevention and commit, counter placement and graveyard moves retain their
+transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env` (context,
@@ -368,6 +369,7 @@ replacement.
 | `Damage` | > 0 | `EachSimultaneous` through the damage transaction | damage dealt, never life lost or prevented | permanents dealt damage | players dealt damage |
 | `PutCounters` | > 0 | `EachSimultaneous` | counters actually put | recipients | none |
 | `Sacrifice` | > 0, as many as possible (CR 609.3) | `CollectThenSimultaneous` (CR 701.21a) | number sacrificed | permanents sacrificed, whatever the destination | sacrificing players |
+| `CreateTokens` | ≥ 0; zero creates nothing (CR 111.1) | `Single`, one creation event | none | none | none |
 | `Move` | none | `EachSimultaneous` (CR 608.2c) | objects that reached the destination | their prior and successor incarnations; public facts unless the destination is hidden | none |
 
 A second projection of one verb ("life lost this way" from damage, "died this

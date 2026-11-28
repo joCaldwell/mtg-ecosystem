@@ -127,6 +127,7 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
             filter: SacrificeFilter {
                 types: vec![CardKind::Artifact],
                 subtypes: vec![],
+                ..Default::default()
             },
             mana: None,
             tap: true,

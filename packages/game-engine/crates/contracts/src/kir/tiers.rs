@@ -151,19 +151,15 @@ pub enum Cell {
     /// CR 701.21a: the source's current controller, or the ability's
     /// controller, sacrifices that exact permanent if they control it.
     SacrificeTargetOpponent,
-    // CR 111: tokens.
-    PredefinedTokens,
     Fight,
     Populate,
     PlayerCounters,
     Proliferate,
     RemoveLoreCounter,
+    /// CR 111.1-111.4: the controller creates a positive fixed number of
+    /// plain creature tokens; every other creation is
+    /// `Evaluated(CreateTokens)`.
     CreatureTokens,
-    MultiTypeCreatureTokens,
-    TokensForTargetController,
-    /// CR 608.2h: the controller creates the announced X or a resolution
-    /// count of tokens, read once.
-    CountedTokens,
     // CR 122: counters.
     PlusOneCountersSource,
     PlusOneCountersTarget,
@@ -354,15 +350,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::UntapSet
         | C::UntapControllerLands
         | C::TransformSource
-        | C::PredefinedTokens
         | C::Fight
         | C::Populate
         | C::PlayerCounters
         | C::Proliferate
         | C::RemoveLoreCounter
-        | C::MultiTypeCreatureTokens
-        | C::TokensForTargetController
-        | C::CountedTokens
         | C::PumpEventObject
         | C::PumpSet
         | C::PumpAnnouncedX
