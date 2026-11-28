@@ -203,7 +203,7 @@ fn general_filter_terms_each_become_one_atom_in_fixed_order() {
 fn unrepresented_filter_terms_reject_the_whole_set() {
     for filter in [
         // Terms with no reviewed atom.
-        json!({"cls":"permanent","multicolored":true}),
+        json!({"cls":"permanent","multicolored":false}),
         json!({"types":["creature"],"counterConstraints":[]}),
         json!({"types":["creature"],"damageHistory":{"role":"source"}}),
         json!({"types":["creature"],"other":true}),
