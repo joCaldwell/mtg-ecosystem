@@ -178,6 +178,7 @@ pub(super) fn search(
             vec![cx.act(Verb::Search {
                 player,
                 search: kir::SearchSpec {
+                    group: None,
                     filter,
                     maximum: Amount::fixed(1),
                     to: Destination::OwnerLibraryTop,
@@ -224,6 +225,7 @@ pub(super) fn search(
         let search = cx.act(Verb::Search {
             player: player.clone(),
             search: kir::SearchSpec {
+                group: None,
                 filter,
                 maximum: Amount::fixed(maximum),
                 to: Destination::OneTappedRestOwnerHand,
@@ -261,6 +263,7 @@ pub(super) fn search(
     let search = cx.act(Verb::Search {
         player: player.clone(),
         search: kir::SearchSpec {
+            group: None,
             filter,
             maximum: Amount::fixed(maximum),
             to,
