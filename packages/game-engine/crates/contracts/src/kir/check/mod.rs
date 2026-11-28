@@ -194,6 +194,11 @@ fn battlefield_target_atom(atom: &Atom, top: bool) -> Result<(), KirError> {
         Atom::IsNot {
             object: Ref::Source,
         } if top => Ok(()),
+        Atom::Counters { counter, value, .. }
+            if !value.is_negative() && counter.as_ref().is_none_or(CounterKind::admitted) =>
+        {
+            Ok(())
+        }
         Atom::AnyOf { alternatives }
             if alternatives.len() >= 2 && alternatives.iter().all(|a| !a.0.is_empty()) =>
         {
@@ -505,7 +510,8 @@ impl Walk<'_, '_> {
                 | Atom::Token
                 | Atom::NotToken
                 | Atom::Keyword { .. }
-                | Atom::NotKeyword { .. } => {}
+                | Atom::NotKeyword { .. }
+                | Atom::Counters { .. } => {}
                 Atom::AnyType { kinds } => {
                     if kinds.is_empty() {
                         return kind("empty type alternatives");
@@ -1816,11 +1822,15 @@ impl Walk<'_, '_> {
 
     /// The atoms the core can evaluate for a set in this zone (CR 608.2h).
     fn audited_filter(zone: &ZoneExpr, filter: &Pred) -> Result<(), KirError> {
+        Self::audit_set_filter(zone, filter, false)
+    }
+
+    fn audit_set_filter(zone: &ZoneExpr, filter: &Pred, read_x: bool) -> Result<(), KirError> {
         for atom in &filter.0 {
             match atom {
                 // CR 110.5d, 506.3–4, 109.4: graveyard cards have no
                 // permanent status, combat participation, or controller.
-                Atom::Tapped | Atom::Untapped | Atom::Attacking | Atom::Blocking
+                Atom::Tapped | Atom::Untapped | Atom::Attacking | Atom::Blocking | Atom::Counters { .. }
                 | Atom::ControlledBy { .. } if *zone != ZoneExpr::Battlefield => {
                     return unaudited("battlefield predicate outside the battlefield");
                 }
@@ -1849,6 +1859,9 @@ impl Walk<'_, '_> {
                         return unaudited("set controller");
                     }
                 }
+                Atom::OwnedBy { player } if player.is_you() => {}
+                Atom::Counters { .. } => battlefield_target_atom(atom, true)?,
+                atom if read_x && *zone == ZoneExpr::Battlefield && mana_value_at_most_announced_x(atom) => {}
                 Atom::Power { value, .. }
                 | Atom::Toughness { value, .. }
                 | Atom::ManaValue { value, .. } => {
@@ -1859,7 +1872,7 @@ impl Walk<'_, '_> {
                 Atom::AnyOf { alternatives } => {
                     alternatives
                         .iter()
-                        .try_for_each(|alternative| Self::audited_filter(zone, alternative))?;
+                        .try_for_each(|alternative| Self::audit_set_filter(zone, alternative, read_x))?;
                 }
                 Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } | Atom::Is { .. } => {
                     return unaudited("set filter atom");

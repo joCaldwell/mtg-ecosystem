@@ -205,7 +205,7 @@ impl RulesTxn {
         }
     }
 
-    fn evaluated_players(
+    fn denoted_players(
         &self,
         task: &Task,
         player: &PlayerExpr,
@@ -274,14 +274,42 @@ impl RulesTxn {
             }
             _ => self.control_players(task, player)?,
         };
-        if players.is_empty() {
-            return Ok(Resolved::Present(players));
+        Ok(Resolved::Present(players))
+    }
+
+    fn evaluated_players(
+        &self,
+        task: &Task,
+        player: &PlayerExpr,
+    ) -> Result<Resolved<Vec<PlayerId>>, String> {
+        let mut players = match self.denoted_players(task, player)? {
+            Resolved::Present(players) => players,
+            Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+        };
+        if !players.is_empty() {
+            players.retain(|player| self.is_live(*player));
+            if players.is_empty() {
+                return Ok(Resolved::Absent(AbsentReason::DepartedPlayer));
+            }
         }
-        let players: Vec<_> = players.into_iter().filter(|p| self.is_live(*p)).collect();
-        if players.is_empty() {
-            Ok(Resolved::Absent(AbsentReason::DepartedPlayer))
-        } else {
-            Ok(Resolved::Present(players))
+        Ok(Resolved::Present(players))
+    }
+
+    // CR 608.2b, 800.4i: a reference still denotes a player who was a legal
+    // target at resolution start. Information reads can use departure LKI.
+    fn measured_player(
+        &self,
+        task: &Task,
+        player: &PlayerExpr,
+    ) -> Result<Resolved<PlayerId>, String> {
+        match self.denoted_players(task, player)? {
+            Resolved::Present(players) => {
+                let [player] = players.as_slice() else {
+                    return Err("player measure requires one player".into());
+                };
+                Ok(Resolved::Present(*player))
+            }
+            Resolved::Absent(reason) => Ok(Resolved::Absent(reason)),
         }
     }
 
@@ -387,7 +415,7 @@ impl RulesTxn {
                 Resolved::Present(id) => vec![id],
                 Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
             },
-            SetExpr::Matching { zone, filter } => self.evaluated_set(task, zone, filter)?,
+            SetExpr::Matching { zone, filter } => return self.evaluated_set(task, zone, filter),
             SetExpr::Pool {
                 pool:
                     Ref::StepResult {
@@ -424,7 +452,7 @@ impl RulesTxn {
         task: &Task,
         zone: &ZoneExpr,
         filter: &Pred,
-    ) -> Result<Vec<ObjectId>, String> {
+    ) -> Result<Resolved<Vec<ObjectId>>, String> {
         let mut controllers: Option<Vec<PlayerId>> = None;
         let mut rest = Vec::new();
         for atom in &filter.0 {
@@ -433,9 +461,11 @@ impl RulesTxn {
                     if !player.is_you()
                         && !matches!(player, PlayerExpr::EachOpponent | PlayerExpr::EachPlayer) =>
                 {
-                    let players = match self.evaluated_players(task, player)? {
+                    let players = match self.denoted_players(task, player)? {
                         Resolved::Present(players) => players,
-                        Resolved::Absent(_) => vec![],
+                        // CR 608.2b: an illegal target cannot supply
+                        // information even when the remaining filter can match.
+                        Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
                     };
                     controllers = Some(match controllers {
                         Some(seen) => seen.into_iter().filter(|p| players.contains(p)).collect(),
@@ -446,7 +476,7 @@ impl RulesTxn {
             }
         }
         let (objects, _) = self.kernel_set(self.kernel_root()?, zone, &Pred(rest))?;
-        Ok(match controllers {
+        Ok(Resolved::Present(match controllers {
             Some(players) => objects
                 .into_iter()
                 .filter(|id| {
@@ -455,7 +485,7 @@ impl RulesTxn {
                 })
                 .collect(),
             None => objects,
-        })
+        }))
     }
 
     fn evaluated_amount(&self, task: &Task, amount: &Amount) -> Result<Resolved<Quantity>, String> {
@@ -493,7 +523,45 @@ impl RulesTxn {
                         zone: zone @ ZoneExpr::Battlefield,
                         filter,
                     },
-            } => Quantity::from(self.evaluated_set(task, zone, filter)?.len() as i64),
+            } => match self.evaluated_set(task, zone, filter)? {
+                Resolved::Present(objects) => Quantity::from(objects.len() as i64),
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
+            Amount::Count {
+                set:
+                    SetExpr::Matching {
+                        zone: zone @ (ZoneExpr::Hand { of } | ZoneExpr::Graveyard { of }),
+                        filter,
+                    },
+            } => {
+                let owner = match self.measured_player(task, of)? {
+                    Resolved::Present(owner) => owner,
+                    Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+                };
+                let count = if matches!(zone, ZoneExpr::Hand { .. }) {
+                    self.player_hand_count(owner)
+                } else {
+                    self.count_graveyard(owner, self.entry(frame.stack_id)?.controller, filter)
+                };
+                Quantity::from(i64::try_from(count).map_err(|_| "zone count exceeds object limit")?)
+            }
+            Amount::Greatest {
+                set:
+                    SetExpr::Matching {
+                        zone: zone @ ZoneExpr::Battlefield,
+                        filter,
+                    },
+                stat,
+            } => match self.evaluated_set(task, zone, filter)? {
+                Resolved::Present(objects) => self.greatest_stat(objects, *stat)?,
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
+            Amount::CountersOn { object, counter } => {
+                let Some(facts) = self.measured_object(task, object)? else {
+                    return Ok(Resolved::Absent(AbsentReason::NoEventMember));
+                };
+                facts.counter_balance(Some(counter))
+            }
             // CR 107.1b: arithmetic stays signed until the verb reads it.
             Amount::Sum { terms } => {
                 let mut sum = Quantity::zero();
@@ -591,13 +659,15 @@ impl RulesTxn {
                 Quantity::from(self.control_objects(task, set)?.len() as i64)
             }
             Amount::LifeOf { player } => {
-                let Resolved::Present(players) = self.evaluated_players(task, player)? else {
-                    return Ok(Resolved::Absent(AbsentReason::DepartedPlayer));
+                let player = match self.measured_player(task, player)? {
+                    Resolved::Present(player) => &self.state.rules.players[player.0 as usize],
+                    Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
                 };
-                let [player] = players.as_slice() else {
-                    return Err("life measure requires one player".into());
-                };
-                self.state.rules.players[player.0 as usize].life.clone()
+                player
+                    .last_known
+                    .as_ref()
+                    .map_or(&player.life, |last| &last.life)
+                    .clone()
             }
             _ => self.kernel_amount(frame, amount)?,
         };

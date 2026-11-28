@@ -26,16 +26,16 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    114,
-    "19d73b8af83f0019dc60ccac8f6f283b95d069c098cdff60857732747ac3e129",
+    115,
+    "14b96ceac134f891fa24afbbd6c413c769dedf4ab0ca2de42729664d17a5fad5",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    147,
-    "e52333a6a716d4eb8f84c0bee7068ff726b63eb4df5f7f57fd3b0bbad23170d0",
+    148,
+    "09b01944bfdca0034ec45c5bf6a2d6166ff5ff84cedbb3d57f5e9c6907f9a5f6",
 );
 const WORK_PIN: (u32, &str) = (
-    69,
-    "21374626abe37f1e047337eb6d879071e541e3f2bc269de746ff056b0969164a",
+    70,
+    "5f071e11dd1a310b17ad5138750df874ff9213dfe6ff6cd4a1efde04714ffd82",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -899,6 +899,9 @@ fn suspended_replacement_order() -> [Game; 3] {
             .permanent_or_hand("Grizzly Bears", 0, 0, false)
             .permanent_or_hand("Darksteel Relic", 0, 0, false)
             .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 2, 2, false)
+            .permanent_or_hand("Forest", 2, 2, true)
+            .card("Forest", 2, 2, Zone::Graveyard { owner: PlayerId(2) })
             .prepare(),
         TraceMode::Detailed,
     );
@@ -1429,6 +1432,48 @@ fn search_with_blocker_limit() -> String {
     serde_json::to_string(&saved).unwrap()
 }
 
+/// A suspended observation keeps the counter predicate in its target offer.
+fn work_with_counter_target() -> String {
+    use mtg_contracts::kir::{Atom, Cmp, Pred};
+
+    let mut catalog = FixtureCatalog::Base.get().clone();
+    let spell = catalog
+        .definitions
+        .iter_mut()
+        .find(|definition| definition.name == "Unsummon")
+        .unwrap();
+    spell.source_labels = None;
+    let target = &mut spell.spell.as_mut().unwrap().targets[0];
+    target.domain = TargetDomain::BattlefieldPermanent;
+    let mut filter =
+        mtg_contracts::PermanentFilter::any().with_types([mtg_contracts::CardKind::Creature]);
+    filter.predicate = Some(Pred(vec![Atom::Counters {
+        counter: None,
+        cmp: Cmp::Exactly,
+        value: 0.into(),
+    }]));
+    target.filter = Some(filter);
+    spell.capabilities = spell.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "formats-counter-target")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    let offer = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(offer.reason, Reason::Targets { .. }));
+    let QueryResult::Incomplete { work, .. } = game.observe(offer.player, Budget::new(1)) else {
+        panic!("target observation should suspend");
+    };
+    let raw = game.save_work(&work).unwrap();
+    assert!(raw.contains(r#""atom":"counters""#));
+    game.restore_work(&raw).unwrap();
+    raw
+}
+
 #[test]
 fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
     // Suspended observation and decision queries; a query finishing within its
@@ -1463,6 +1508,7 @@ fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
     game.restore_work(&raw).unwrap();
     samples.push(raw);
     samples.push(search_with_blocker_limit());
+    samples.push(work_with_counter_target());
     let saga = saga_chapter();
     let viewer = PlayerId(0);
     let units = saga.observation_work_units(viewer).unwrap();

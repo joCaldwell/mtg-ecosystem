@@ -450,7 +450,7 @@ fn event_atom(atom: &Atom, depth: usize) -> Result<(), KirError> {
                 true
             }
         }
-        Atom::OwnedBy { .. } | Atom::Attacking | Atom::Blocking => false,
+        Atom::OwnedBy { .. } | Atom::Attacking | Atom::Blocking | Atom::Counters { .. } => false,
     };
     if ok {
         Ok(())

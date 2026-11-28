@@ -724,3 +724,583 @@ fn verb_operands_damage_and_life_share_the_paid_sacrifice_object() {
     assert!(game.current(pumped).is_err());
     assert!(game.current(other).is_err());
 }
+
+fn hand_size(game: &Game, player: u8) -> usize {
+    game.state
+        .rules
+        .objects
+        .values()
+        .filter(|object| {
+            object.zone
+                == (Zone::Hand {
+                    owner: PlayerId(player),
+                })
+        })
+        .count()
+}
+
+#[test]
+fn lane1_counter_filter_counts_and_selects_the_same_current_creatures() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let mut setup = board(&[
+        (
+            record!("d7f49243-a96e-499f-b2d7-8e9842432420"),
+            Cell::Evaluated(EvaluatedVerb::Draw),
+        ),
+        (
+            record!("6052d2d5-6310-42fb-bdec-7b114d74697d"),
+            Cell::Evaluated(EvaluatedVerb::PutCounters),
+        ),
+        (
+            record!("06ef46c6-00ba-40e6-b866-d0095ab83749"),
+            Cell::Evaluated(EvaluatedVerb::Move),
+        ),
+    ])
+    .permanent_or_hand("Lifecrafter's Gift", 0, 0, true)
+    .permanent_or_hand("Armorcraft Judge", 0, 0, true)
+    .permanent_or_hand("Wave Goodbye", 0, 0, true)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false);
+    for _ in 0..8 {
+        setup = setup.permanent_or_hand("Forest", 0, 0, false);
+    }
+    for _ in 0..4 {
+        setup = setup.permanent_or_hand("Island", 0, 0, false);
+    }
+    let mut game = Game::with_trace(setup.libraries("Forest", 4).prepare(), TraceMode::Detailed);
+    let ours = Driver::object(&game, 3);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pick_object(&mut game, ours);
+    Driver::pay(&mut game, &[5, 6, 7, 8]);
+    resolve(&mut game);
+    // The second step sees the counter the first step just put on the bear.
+    assert_eq!(
+        game.state.rules.objects[&CardId(3)].plus_one_counters,
+        2.into()
+    );
+    Driver::cast(&mut game, CardId(1));
+    Driver::pay(&mut game, &[9, 10, 11, 12]);
+    resolve(&mut game);
+    assert_eq!(hand_size(&game, 0), 2); // Wave Goodbye and exactly one draw.
+    Driver::cast(&mut game, CardId(2));
+    Driver::pay(&mut game, &[13, 14, 15, 16]);
+    resolve(&mut game);
+    assert_eq!(game.state.rules.objects[&CardId(3)].zone, Zone::Battlefield);
+    assert_eq!(
+        game.state.rules.objects[&CardId(4)].zone,
+        Zone::Hand { owner: PlayerId(1) }
+    );
+}
+
+#[test]
+fn lane1_greatest_stat_feeds_draw_and_damage() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let mut setup = board(&[
+        (
+            record!("757eadac-dd29-4a7f-8683-5bc823168326"),
+            Cell::Evaluated(EvaluatedVerb::Draw),
+        ),
+        (
+            record!("00181784-9213-492a-ba8c-2028969b049e"),
+            Cell::Evaluated(EvaluatedVerb::Damage),
+        ),
+    ])
+    .permanent_or_hand("One with the Machine", 0, 0, true)
+    .permanent_or_hand("Torrent of Fire", 0, 0, true)
+    .permanent_or_hand("Sol Ring", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 1, 1, false);
+    for _ in 0..4 {
+        setup = setup.permanent_or_hand("Island", 0, 0, false);
+    }
+    for _ in 0..5 {
+        setup = setup.permanent_or_hand("Mountain", 0, 0, false);
+    }
+    let mut game = Game::with_trace(setup.libraries("Forest", 4).prepare(), TraceMode::Detailed);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[6, 7, 8, 9]);
+    resolve(&mut game);
+    assert_eq!(hand_size(&game, 0), 2); // One draw plus Torrent of Fire.
+    let mut expected = game.state.rules.players[1].life.clone();
+    expected.subtract(&2.into());
+    Driver::cast(&mut game, CardId(1));
+    let decision = Driver::request(&mut game, 1);
+    let answer = decision.entity_targets(vec![TargetEntity::Player {
+        player: PlayerId(1),
+    }]);
+    game.respond(decision.player, decision.id, answer).unwrap();
+    Driver::pay(&mut game, &[10, 11, 12, 13, 14]);
+    resolve(&mut game);
+    assert_eq!(game.state.rules.players[1].life, expected);
+}
+
+#[test]
+fn lane1_target_graveyard_owner_feeds_draw_and_life() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let mut setup = board(&[(
+        record!("281ea9b6-055a-4274-90b3-c74311a6f863"),
+        Cell::Evaluated(EvaluatedVerb::Draw),
+    )])
+    .permanent_or_hand("Eldritch Pact", 0, 0, true)
+    .card(
+        "Grizzly Bears",
+        2,
+        2,
+        Zone::Graveyard { owner: PlayerId(2) },
+    )
+    .card("Forest", 2, 2, Zone::Graveyard { owner: PlayerId(2) })
+    .card("Forest", 1, 1, Zone::Graveyard { owner: PlayerId(1) });
+    for _ in 0..7 {
+        setup = setup.permanent_or_hand("Swamp", 0, 0, false);
+    }
+    let mut game = Game::with_trace(setup.libraries("Forest", 4).prepare(), TraceMode::Detailed);
+    let mut expected = game.state.rules.players[2].life.clone();
+    expected.subtract(&2.into());
+    let untouched = game.state.rules.players[1].life.clone();
+    Driver::cast(&mut game, CardId(0));
+    let decision = Driver::request(&mut game, 1);
+    let answer = decision
+        .pick_one(&Candidate::Player {
+            player: PlayerId(2),
+        })
+        .unwrap();
+    game.respond(decision.player, decision.id, answer).unwrap();
+    Driver::pay(&mut game, &[4, 5, 6, 7, 8, 9, 10]);
+    resolve(&mut game);
+    assert_eq!(hand_size(&game, 0), 0);
+    assert_eq!(hand_size(&game, 1), 0);
+    assert_eq!(hand_size(&game, 2), 2);
+    assert_eq!(game.state.rules.players[2].life, expected);
+    assert_eq!(game.state.rules.players[1].life, untouched);
+}
+
+#[test]
+fn lane1_announced_mana_value_bound_drives_destroy_and_bounce() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    for (raw, cell, name, colored, lands, moved_zone) in [
+        (
+            record!("103d9ad0-d655-4bd5-a899-e9f8869e333d"),
+            Cell::DestroySet,
+            "Gaze of Granite",
+            ["Swamp", "Swamp"],
+            vec![3, 4, 5, 6],
+            Zone::Graveyard { owner: PlayerId(0) },
+        ),
+        (
+            record!("2b3fc609-7b19-441a-ab7e-58ccd70d955b"),
+            Cell::Evaluated(EvaluatedVerb::Move),
+            "Displacement Wave",
+            ["Island", "Island"],
+            vec![3, 4, 5],
+            Zone::Hand { owner: PlayerId(0) },
+        ),
+    ] {
+        let setup = board(&[(raw, cell)])
+            .permanent_or_hand(name, 0, 0, true)
+            .permanent_or_hand("Sol Ring", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand(colored[0], 0, 0, false)
+            .permanent_or_hand(colored[1], 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .libraries("Forest", 4)
+            .prepare();
+        let mut game = Game::with_trace(setup, TraceMode::Detailed);
+        Driver::cast(&mut game, CardId(0));
+        let decision = Driver::request(&mut game, 1);
+        assert_eq!(decision.reason, Reason::AnnounceX);
+        game.respond(
+            decision.player,
+            decision.id,
+            Answer::Number { value: 1.into() },
+        )
+        .unwrap();
+        Driver::pay(&mut game, &lands);
+        resolve(&mut game);
+        assert_eq!(game.state.rules.objects[&CardId(1)].zone, moved_zone);
+        assert_eq!(game.state.rules.objects[&CardId(2)].zone, Zone::Battlefield);
+        assert_eq!(game.state.rules.objects[&CardId(3)].zone, Zone::Battlefield);
+    }
+}
+
+#[test]
+fn lane1_counter_target_rechecks_after_annihilation() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let setup = board(&[
+        (
+            record!("6052d2d5-6310-42fb-bdec-7b114d74697d"),
+            Cell::Evaluated(EvaluatedVerb::PutCounters),
+        ),
+        (
+            record!("38a2ded4-77c5-4d2b-b411-7dca8108aa02"),
+            Cell::Evaluated(EvaluatedVerb::Move),
+        ),
+        (
+            record!("6556a15b-be4b-45ea-867d-3a8e26202b42"),
+            Cell::Evaluated(EvaluatedVerb::PutCounters),
+        ),
+    ])
+    .permanent_or_hand("Lifecrafter's Gift", 0, 0, true)
+    .permanent_or_hand("Razorfin Abolisher", 0, 0, false)
+    .permanent_or_hand("Fume Spitter", 1, 1, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::with_trace(setup, TraceMode::Detailed);
+    let bear = Driver::object(&game, 3);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pick_object(&mut game, bear);
+    Driver::pay(&mut game, &[5, 6, 7, 8]);
+    resolve(&mut game);
+    assert_eq!(
+        game.state.rules.objects[&CardId(3)].plus_one_counters,
+        1.into()
+    );
+    let abolition = Action::ActivateAbility {
+        object: Driver::object(&game, 1),
+        ability: 0,
+    };
+    Driver::action(&mut game, abolition);
+    let targets = Driver::request(&mut game, 1);
+    assert_eq!(targets.objects_offered(), vec![bear]);
+    Driver::answer(&mut game, 1, targets.pick_object(bear));
+    Driver::pay(&mut game, &[9, 10]);
+    Driver::pass(&mut game);
+    let spit = Action::ActivateAbility {
+        object: Driver::object(&game, 2),
+        ability: 0,
+    };
+    Driver::action(&mut game, spit);
+    Driver::pick_object(&mut game, bear);
+    resolve(&mut game);
+    // CR 704.5q and 608.2b. The original incarnation survives and has lost
+    // both counters, so the bounce now has no legal target.
+    assert_eq!(game.object_id(CardId(3)), Some(bear));
+    assert_eq!(game.state.rules.objects[&CardId(3)].zone, Zone::Battlefield);
+    assert_eq!(
+        game.state.rules.objects[&CardId(3)].plus_one_counters,
+        0.into()
+    );
+}
+
+#[test]
+fn lane1_death_player_uses_the_old_controller_and_each_other_excludes_you() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let setup = board(&[
+        (
+            record!("6f4ac4a4-53ec-4bc9-8f5c-d4b801d867b2"),
+            Cell::Evaluated(EvaluatedVerb::Sacrifice),
+        ),
+        (
+            record!("3ba19659-461f-482c-b882-b4fca7d5d1f8"),
+            Cell::Evaluated(EvaluatedVerb::LoseLife),
+        ),
+        (
+            record!("6556a15b-be4b-45ea-867d-3a8e26202b42"),
+            Cell::Evaluated(EvaluatedVerb::PutCounters),
+        ),
+    ])
+    .permanent_or_hand("Grave Pact", 0, 0, false)
+    .permanent_or_hand("Assault Intercessor", 0, 0, false)
+    .permanent_or_hand("Fume Spitter", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 1, 2, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::with_trace(setup, TraceMode::Detailed);
+    let own_life = game.state.rules.players[0].life.clone();
+    let owners_life = game.state.rules.players[1].life.clone();
+    let mut controllers_life = game.state.rules.players[2].life.clone();
+    controllers_life.subtract(&2.into());
+    let bear = Driver::object(&game, 3);
+    let spitter = Driver::object(&game, 2);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: spitter,
+            ability: 0,
+        },
+    );
+    Driver::pick_object(&mut game, bear);
+    let mut chose = false;
+    for _ in 0..32 {
+        let request = Driver::request(&mut game, 1);
+        match request.reason {
+            Reason::ForcedSacrifice { .. } => {
+                assert_eq!(request.player, PlayerId(2));
+                assert_eq!(request.objects_offered(), vec![bear]);
+                Driver::answer(&mut game, 1, request.pick_object(bear));
+                chose = true;
+            }
+            Reason::Priority if game.state.rules.stack.is_empty() => break,
+            Reason::Priority => Driver::pass(&mut game),
+            reason => panic!("unexpected decision {reason:?}"),
+        }
+    }
+    assert!(chose);
+    assert!(game.state.rules.stack.is_empty());
+    assert_eq!(game.state.rules.objects[&CardId(1)].zone, Zone::Battlefield);
+    assert_eq!(
+        game.state.rules.objects[&CardId(3)].zone,
+        Zone::Graveyard { owner: PlayerId(1) }
+    );
+    assert_eq!(game.state.rules.players[0].life, own_life);
+    assert_eq!(game.state.rules.players[1].life, owners_life);
+    assert_eq!(game.state.rules.players[2].life, controllers_life);
+    assert_recoverable((&game).into());
+}
+
+#[test]
+fn lane1_relative_set_reads_opponents_and_their_permanents() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let setup = board(&[(
+        record!("9097243a-39fa-4e18-8316-c0e57699c783"),
+        Cell::Evaluated(EvaluatedVerb::Damage),
+    )])
+    .permanent_or_hand("Tectonic Hazard", 0, 0, true)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 2, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 1, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::with_trace(setup, TraceMode::Detailed);
+    let mut expected: Vec<_> = game
+        .state
+        .rules
+        .players
+        .iter()
+        .map(|p| p.life.clone())
+        .collect();
+    for life in &mut expected[1..] {
+        life.subtract(&1.into());
+    }
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    resolve(&mut game);
+    assert!(
+        game.state
+            .rules
+            .players
+            .iter()
+            .zip(expected)
+            .all(|(p, life)| p.life == life)
+    );
+    assert_eq!(game.state.rules.objects[&CardId(2)].marked_damage, 0.into());
+    assert_eq!(game.state.rules.objects[&CardId(3)].marked_damage, 1.into());
+}
+
+#[test]
+fn lane1_correct_target_filter_does_not_admit_an_unhandled_overload() {
+    let result = mtg_witness::compile(
+        mtg_witness::R5_MANIFEST,
+        record!("3567c3c8-b3c7-45b7-935b-b1fdbc973720"),
+    );
+    match result {
+        mtg_compiler::CompileResult::Unsupported { path, reason } => {
+            assert!(!path.is_empty());
+            assert!(reason.contains("overload"), "{reason}");
+        }
+        result => panic!("expected the printed overload to reject: {result:?}"),
+    }
+}
+
+#[test]
+fn lane1_defender_set_drives_life_loss_and_damage() {
+    use mtg_contracts::kir::EvaluatedVerb;
+    let setup = board(&[
+        (
+            record!("1c0fc9b4-177e-4529-827f-a1e17ff7a752"),
+            Cell::Evaluated(EvaluatedVerb::LoseLife),
+        ),
+        (
+            record!("38013607-dd80-4eb9-b0b6-f07e6023c0d0"),
+            Cell::Evaluated(EvaluatedVerb::Damage),
+        ),
+    ])
+    .permanent_or_hand("Blight Pile", 0, 0, false)
+    .permanent_or_hand("Vent Sentinel", 0, 0, false)
+    .permanent_or_hand("Blight Pile", 1, 1, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Swamp", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::with_trace(setup, TraceMode::Detailed);
+    let start: Vec<_> = game
+        .state
+        .rules
+        .players
+        .iter()
+        .map(|p| p.life.clone())
+        .collect();
+    let pile = Driver::object(&game, 0);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: pile,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut game, &[4, 5, 6]);
+    resolve(&mut game);
+    let sentinel = Driver::object(&game, 1);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: sentinel,
+            ability: 0,
+        },
+    );
+    let decision = Driver::request(&mut game, 1);
+    let answer = decision.entity_targets(vec![TargetEntity::Player {
+        player: PlayerId(1),
+    }]);
+    game.respond(decision.player, decision.id, answer).unwrap();
+    Driver::pay(&mut game, &[7, 8]);
+    resolve(&mut game);
+    for (seat, mut life) in start.into_iter().enumerate() {
+        life.subtract(
+            &match seat {
+                0 => 0,
+                1 => 4,
+                _ => 2,
+            }
+            .into(),
+        );
+        assert_eq!(game.state.rules.players[seat].life, life);
+    }
+}
+
+#[test]
+fn lane1_rejects_the_same_operand_when_archive_evidence_is_incomplete() {
+    let result = mtg_witness::compile(
+        mtg_witness::R5_MANIFEST,
+        record!("09618da4-6e2d-4047-96d7-0576c0754e7d"),
+    );
+    assert!(matches!(result,
+        mtg_compiler::CompileResult::Unsupported { path, reason }
+        if path == "resolution" && reason == "diagnostic:missing-antecedent"
+    ));
+}
+
+#[test]
+fn lane1_target_hand_size_survives_departure_after_discard() {
+    use mtg_contracts::kir::EvaluatedVerb;
+
+    let prepared = board(&[(
+        record!("0d6507b0-c986-49d1-aea3-77b2cf2a7433"),
+        Cell::Evaluated(EvaluatedVerb::Draw),
+    )])
+    .seats(3)
+    .permanent_or_hand("Borrowed Knowledge", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, true)
+    .permanent_or_hand("Forest", 1, 1, true)
+    .permanent_or_hand("Swamp", 1, 1, true)
+    .permanent_or_hand("Island", 1, 1, true)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut game, CardId(0));
+    let modes = Driver::request(&mut game, 1);
+    assert_eq!(modes.reason, Reason::ChooseModes);
+    let first = modes
+        .candidates
+        .iter()
+        .find(|candidate| matches!(candidate, Candidate::Modes { mask: 1, .. }))
+        .unwrap();
+    game.respond(modes.player, modes.id, modes.pick_one(first).unwrap())
+        .unwrap();
+    let target = PlayerId(1);
+    let targets = Driver::request(&mut game, 1);
+    let answer = targets
+        .pick_one(&Candidate::Player { player: target })
+        .unwrap();
+    game.respond(targets.player, targets.id, answer).unwrap();
+    Driver::pay(&mut game, &[5, 6, 7, 8]);
+    let discarded = Zone::Graveyard { owner: PlayerId(0) };
+    for _ in 0..100 {
+        if game.state.rules.objects[&CardId(1)].zone == discarded {
+            break;
+        }
+        match game.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => {}
+            Advance::AwaitingDecision(request) if request.reason == Reason::Priority => {
+                let answer = mtg_witness::temporary::pass(&request);
+                game.respond(request.player, request.id, answer).unwrap();
+            }
+            other => panic!("unexpected discard boundary {other:?}"),
+        }
+    }
+    assert_eq!(game.state.rules.objects[&CardId(1)].zone, discarded);
+    assert_eq!(hand_size(&game, 0), 0);
+    assert_eq!(hand_size(&game, 1), 3);
+    assert_recoverable((&game).into());
+
+    let mut departed = game.fork();
+    departed.concede(target).unwrap();
+    assert!(matches!(
+        departed.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
+    assert_eq!(departed.state.rules.players[1].status, PlayerStatus::Left);
+    assert_eq!(hand_size(&departed, 1), 0);
+    assert_eq!(hand_size(&departed, 0), 0);
+    assert_recoverable((&departed).into());
+
+    for mut branch in [game, departed] {
+        resolve(&mut branch);
+        assert_eq!(hand_size(&branch, 0), 3);
+    }
+}
+
+#[test]
+fn lane1_filtered_graveyard_count_survives_departure_of_resolving_caster() {
+    use mtg_contracts::kir::EvaluatedVerb;
+
+    let mut setup = board(&[(
+        record!("1888b473-e26a-4882-ae18-5a0a6caee410"),
+        Cell::Evaluated(EvaluatedVerb::Damage),
+    )])
+    .seats(3)
+    .permanent_or_hand("Immolating Gyre", 0, 0, true)
+    .card("Unsummon", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
+    .card("Forest", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
+    .card("Unsummon", 1, 1, Zone::Graveyard { owner: PlayerId(1) })
+    .permanent_or_hand("Grizzly Bears", 1, 1, false);
+    for _ in 0..6 {
+        setup = setup.permanent_or_hand("Mountain", 0, 0, false);
+    }
+    let mut game = Game::with_trace(setup.libraries("Forest", 4).prepare(), TraceMode::Detailed);
+    let bear = Driver::object(&game, 4);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[5, 6, 7, 8, 9, 10]);
+
+    // CR 608.2m: once it started resolving, the spell finishes even if it
+    // leaves the stack. CR 800.4i: use the caster's graveyard before departure.
+    advance_until(&mut game, |stage| matches!(stage, Frame::Resolve { .. }));
+    game.concede(PlayerId(0)).unwrap();
+    assert!(matches!(
+        game.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
+    assert_eq!(game.state.rules.players[0].status, PlayerStatus::Left);
+    assert_eq!(game.current(bear).unwrap().marked_damage, 0.into());
+    assert_recoverable((&game).into());
+    resolve(&mut game);
+    assert_eq!(game.current(bear).unwrap().marked_damage, 1.into());
+}

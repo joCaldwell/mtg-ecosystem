@@ -110,11 +110,25 @@ fn stable_rereads(sentence: &Sentence, x: &kir::Amount) -> Result<(), Failure> {
 
 fn pilot_player(cx: &mut StepCx<'_>, who: &ast::PlayerRef) -> Result<PlayerExpr, Failure> {
     match who {
-        ast::PlayerRef::ThatPlayer(_) | ast::PlayerRef::They(_) => cx
-            .player_binding
-            .event_role()
-            .map(PlayerExpr::event)
-            .ok_or_else(|| operand("player", "unbound event player")),
+        ast::PlayerRef::ThatPlayer(_) | ast::PlayerRef::They(_) => {
+            if matches!(cx.player_binding, PlayerBinding::DeathController)
+                && cx.program.instructions.len() == cx.floor.instructions
+                && cx.program.targets.len() == cx.floor.targets
+            {
+                // CR 603.10a: the opponent named by a creature's death
+                // was its controller in the common prior battlefield.
+                Ok(PlayerExpr::ControllerOf {
+                    object: Ref::EventObject {
+                        role: kir::EventObjectRole::Died,
+                    },
+                })
+            } else {
+                cx.player_binding
+                    .event_role()
+                    .map(PlayerExpr::event)
+                    .ok_or_else(|| operand("player", "unbound event player"))
+            }
+        }
         ast::PlayerRef::DefendingPlayer(_)
             if cx.player_binding.event_object_role() == Some(kir::EventObjectRole::Attacked)
                 || cx.player_binding.event_role()
@@ -129,6 +143,34 @@ fn pilot_player(cx: &mut StepCx<'_>, who: &ast::PlayerRef) -> Result<PlayerExpr,
             object: pilot_object(cx, &relation.of)?,
         }),
         ast::PlayerRef::EachPlayer(_) => Ok(PlayerExpr::EachPlayer),
+        // CR 102.2–3: in the supported free-for-all game, each other
+        // player is an opponent. Reject every additional player qualifier.
+        ast::PlayerRef::Filtered(filtered)
+            if matches!(&*filtered.base, ast::PlayerRef::EachPlayer(_))
+                && filtered.random.is_none()
+                && matches!(
+                    &*filtered.filter,
+                    ast::PlayerFilter {
+                        other: Some(_),
+                        all_of: None,
+                        damage_history: None,
+                        hand_size: None,
+                        life_total: None,
+                        counter_constraints: None,
+                        controls: None,
+                        life_change: None,
+                        other_than: None,
+                        attacking_player: None,
+                        preceding_action: None,
+                        event_results: None,
+                        friend_or_foe: None,
+                        searched: None,
+                        voted_for: None,
+                    }
+                ) =>
+        {
+            Ok(PlayerExpr::EachOpponent)
+        }
         ast::PlayerRef::TargetOpponent(target) => match target.as_ref() {
             ast::PlayerRefTargetOpponent {
                 count: None,
@@ -190,6 +232,14 @@ fn pilot_object(cx: &mut StepCx<'_>, object: &ast::ObjectRef) -> Result<Ref, Fai
 }
 
 fn pilot_filter(cx: &mut StepCx<'_>, filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
+    pilot_filter_relative(cx, filter, None)
+}
+
+fn pilot_filter_relative(
+    cx: &mut StepCx<'_>,
+    filter: &ast::ObjectFilter,
+    relative_player: Option<&PlayerExpr>,
+) -> Result<Pred, Failure> {
     let mut filter = filter.clone();
     let controller = match filter.control {
         Some(ast::ObjectFilterControl::ThatPlayer) => {
@@ -204,10 +254,17 @@ fn pilot_filter(cx: &mut StepCx<'_>, filter: &ast::ObjectFilter) -> Result<Pred,
         _ => filter
             .controlled_by
             .take()
-            .map(|who| pilot_player(cx, &who))
+            .map(|who| match (&*who, relative_player) {
+                (ast::PlayerRef::They(_), Some(player)) => Ok(player.clone()),
+                _ => pilot_player(cx, &who),
+            })
             .transpose()?,
     };
-    let other = filter.other.take().unwrap_or(false);
+    let other = match filter.other.take() {
+        Some(false) => return Err(operand("filter", "other:false")),
+        Some(true) => true,
+        None => false,
+    };
     let mut result = lower_filter(&filter, cx.context)?;
     if let Some(player) = controller {
         result.0.push(Atom::ControlledBy { player });
@@ -220,19 +277,28 @@ fn pilot_filter(cx: &mut StepCx<'_>, filter: &ast::ObjectFilter) -> Result<Pred,
     Ok(result)
 }
 
-fn pilot_board_set(cx: &mut StepCx<'_>, set: &ast::ObjectRef) -> Result<SetExpr, Failure> {
+fn pilot_board_set(
+    cx: &mut StepCx<'_>,
+    set: &ast::ObjectRef,
+    relative_player: Option<&PlayerExpr>,
+) -> Result<SetExpr, Failure> {
     let filter = match set {
         ast::ObjectRef::All(set) => &set.filter,
         ast::ObjectRef::Each(set) => &set.filter,
         _ => return Err(operand("set", variant(set))),
     };
-    Ok(SetExpr::battlefield(pilot_filter(cx, filter)?))
+    Ok(SetExpr::battlefield(pilot_filter_relative(
+        cx,
+        filter,
+        relative_player,
+    )?))
 }
 
 fn pilot_each_filter(
     cx: &mut StepCx<'_>,
     filter: &ast::ObjectFilter,
     factor: &ast::Amount,
+    subject: Option<&PlayerExpr>,
 ) -> Result<Amount, Failure> {
     let factor = fixed_positive_amount(factor)?;
     let count = pilot_count(
@@ -240,6 +306,7 @@ fn pilot_each_filter(
         &ast::AmountCount {
             of: Box::new(filter.clone()),
         },
+        subject,
     )?;
     Ok(if factor == Quantity::from(1) {
         count
@@ -251,11 +318,31 @@ fn pilot_each_filter(
     })
 }
 
-fn pilot_count(cx: &mut StepCx<'_>, count: &ast::AmountCount) -> Result<Amount, Failure> {
+fn pilot_count(
+    cx: &mut StepCx<'_>,
+    count: &ast::AmountCount,
+    subject: Option<&PlayerExpr>,
+) -> Result<Amount, Failure> {
+    use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
     if let Some(amount) = card_result::linked_count(cx, &count.of)? {
         return Ok(amount);
     }
-    lower_count_with(count, cx.context, |filter| pilot_filter(cx, filter))
+    // CR 402.3, 404.1, 608.2c,h: an explicit owner, or the sole named
+    // subject of the instruction, identifies whose zone to count.
+    let owner = match count.of.zone.as_deref() {
+        Some(ast::ZoneRef {
+            zone: ast::Zone::Graveyard | ast::Zone::Hand,
+            owner: Some(owner),
+            depth: None,
+            position: None,
+        }) => match &**owner {
+            Owner::PlayerRef(who) => Some(pilot_player(cx, who)?),
+            Owner::Their | Owner::ThatPlayer => subject.cloned(),
+            _ => None,
+        },
+        _ => None,
+    };
+    lower_count_with(count, cx.context, owner, |filter| pilot_filter(cx, filter))
 }
 
 fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Failure> {
@@ -286,8 +373,19 @@ fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Fai
         }
         ast::Amount::Devotion(devotion) => lower_devotion(devotion, cx.context),
         ast::Amount::CastManaValueSum(sum) => lower_other_casts_mana_value(sum, cx.context),
-        ast::Amount::CounterCount(_) => source_counter_amount(amount),
-        ast::Amount::Count(count) => pilot_count(cx, count),
+        ast::Amount::CounterCount(count) => crate::operands::lower_counter_amount(count, |on| {
+            let object = pilot_object(cx, on)?;
+            if matches!(object, Ref::Target { .. }) {
+                return Err(operand("amount", "counter_count:target"));
+            }
+            Ok(object)
+        }),
+        ast::Amount::Count(count) => pilot_count(cx, count, None),
+        ast::Amount::AttributeExtremum(extremum) => {
+            crate::operands::lower_greatest(extremum, cx.context, "amount", |filter| {
+                pilot_filter(cx, filter)
+            })
+        }
         ast::Amount::Attribute(attribute) => {
             use ast::PropertyConstraintProperty as Property;
             let stat = match attribute.attribute {
@@ -346,6 +444,44 @@ fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Am
     let binding: ast::SentenceBindingsItem = typed(binding, "bindings")?;
     if binding.as_of.is_some() {
         return Err(original);
+    }
+    if let ast::Amount::Count(count) = &*binding.value
+        && let Some(zone) = &count.of.zone
+        && matches!(zone.zone, ast::Zone::Graveyard | ast::Zone::Hand)
+    {
+        use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+        let subject = if matches!(
+            zone.owner.as_deref(),
+            Some(Owner::Their | Owner::ThatPlayer)
+        ) {
+            // CR 608.2c: a trailing "their graveyard" can name the common
+            // direct target subject of the sentence. Reject intervening or
+            // differently addressed steps rather than guessing its owner.
+            let mut shared = None;
+            for step in &sentence.steps {
+                let Step::Evaluated(effect) = step else {
+                    return Err(original);
+                };
+                let who = match &**effect {
+                    ast::Effect::Draw(draw) => &draw.who,
+                    ast::Effect::Mill(mill) => &mill.who,
+                    ast::Effect::Variant99(life) => &life.who,
+                    _ => return Err(original),
+                };
+                if !matches!(
+                    &**who,
+                    ast::PlayerRef::TargetPlayer(_) | ast::PlayerRef::TargetOpponent(_)
+                ) || shared.is_some_and(|previous| previous != who)
+                {
+                    return Err(original);
+                }
+                shared = Some(who);
+            }
+            shared.map(|who| pilot_player(cx, who)).transpose()?
+        } else {
+            None
+        };
+        return pilot_count(cx, count, subject.as_ref()).map(Some);
     }
     let target_count = cx.program.targets.len();
     let Ok(amount) = pilot_amount(cx, &binding.value) else {

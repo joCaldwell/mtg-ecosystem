@@ -26,7 +26,7 @@ pub(super) fn lower(cx: &mut StepCx<'_>, mill: &ast::EffectMill) -> Result<Instr
     check_optional_chooser("mill", optional.is_some(), who, decided_by.as_deref())?;
     let player = pilot_player(cx, who)?;
     let amount = match for_each {
-        Some(filter) => pilot_each_filter(cx, filter, amount)?,
+        Some(filter) => pilot_each_filter(cx, filter, amount, Some(&player))?,
         None => pilot_amount(cx, amount)?,
     };
     let verb = Verb::Mill { player, amount };
