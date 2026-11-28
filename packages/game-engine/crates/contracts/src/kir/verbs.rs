@@ -150,9 +150,7 @@ impl CounterKind {
     pub fn admitted(&self) -> bool {
         match self {
             Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Stun | Self::Lore => true,
-            Self::Keyword { keyword } => {
-                crate::supported_temporary_keywords(std::slice::from_ref(keyword))
-            }
+            Self::Keyword { keyword } => crate::supported_keyword_counter(*keyword),
             // Loyalty placement is derived by the rules. Printed counter
             // instructions still require their own reviewed lowering.
             Self::Loyalty => false,
