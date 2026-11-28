@@ -889,7 +889,8 @@ fn board_wide_cells_audit_the_zone_destination_and_every_filter_atom() {
             "{node:?}"
         );
     }
-    // A computed comparison is in scope only with X, and unaudited then.
+    // CR 107.3, 202.3, 608.2h: the mana value bound reads announced X
+    // only when the invocation supplies it. Power bounds stay fixed.
     let by_x = destroy(
         Pred(vec![Atom::ManaValue {
             cmp: Cmp::AtMost,
@@ -902,7 +903,18 @@ fn board_wide_cells_audit_the_zone_destination_and_every_filter_atom() {
     assert!(matches!(check(&by_x, &env), Err(KirError::Scope(_))));
     let mut with_x = spell(&[]);
     with_x.announced_x = true;
-    assert!(matches!(check(&by_x, &with_x), Err(KirError::Unaudited(_))));
+    assert!(check(&by_x, &with_x).unwrap().announced_x);
+    let power_by_x = destroy(
+        Pred(vec![Atom::Power {
+            cmp: Cmp::AtMost,
+            value: Amount::announced_x(),
+        }]),
+        false,
+    );
+    assert!(matches!(
+        check(&power_by_x, &with_x),
+        Err(KirError::Unaudited(_))
+    ));
     // "You control" in a filter obeys the same controller-role rule.
     let yours = |context| {
         destroy(

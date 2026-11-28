@@ -5,6 +5,10 @@ use super::*;
 pub struct PlayerLastKnown {
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,
+    pub(super) hand_count: u32,
+    pub(super) graveyard: Vec<ObjectBefore>,
+    /// Public mana symbols grouped by the colors each symbol contributes to.
+    pub(super) devotion: Vec<(u8, u32)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) restricted_mana: Vec<RestrictedMana>,
 }
@@ -245,23 +249,69 @@ impl RulesTxn {
         self.reconcile_controllers()
     }
 
-    fn begin_departure(&mut self, player: PlayerId) -> Result<Vec<ObjectId>, String> {
-        if self
+    pub(super) fn player_hand_count(&self, player: PlayerId) -> usize {
+        self.state.rules.players[player.0 as usize]
+            .last_known
+            .as_ref()
+            .map_or_else(
+                || {
+                    self.state
+                        .rules
+                        .objects
+                        .values()
+                        .filter(|o| o.zone == (Zone::Hand { owner: player }))
+                        .count()
+                },
+                |last| last.hand_count as usize,
+            )
+    }
+
+    /// CR 800.4i: capture information immediately before the player leaves.
+    /// CR 402.3, 404.2: a hand contributes only its size; graveyards are public.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn capture_player_departure(&self, player: PlayerId) -> Result<PlayerLastKnown, String> {
+        let row = self
             .state
             .rules
             .players
             .get(player.0 as usize)
-            .is_none_or(|p| p.status != PlayerStatus::Live)
-        {
-            return Err("duplicate departure".into());
+            .filter(|row| row.status == PlayerStatus::Live)
+            .ok_or("duplicate departure")?;
+        let mut graveyard = Vec::new();
+        let mut devotion = BTreeMap::new();
+        for object in self.state.rules.objects.values() {
+            if object.zone == (Zone::Graveyard { owner: player })
+                && !self.state.rules.tokens.contains_key(&object.id.card)
+            {
+                graveyard.push(self.object_before(object.id)?);
+            }
+            if object.present_on_battlefield() && object.controller == player {
+                let definition = self.copiable_definition(object.id)?;
+                for mask in definition
+                    .characteristics
+                    .devotion_symbol_masks()
+                    .filter(|mask| *mask != 0)
+                {
+                    *devotion.entry(mask).or_insert(0) += 1;
+                }
+            }
         }
-        let last = PlayerLastKnown {
-            life: self.state.rules.players[player.0 as usize].life.clone(),
-            mana: self.state.rules.players[player.0 as usize].mana.clone(),
-            restricted_mana: self.state.rules.players[player.0 as usize]
-                .restricted_mana
-                .clone(),
-        };
+        Ok(PlayerLastKnown {
+            life: row.life.clone(),
+            mana: row.mana.clone(),
+            restricted_mana: row.restricted_mana.clone(),
+            hand_count: u32::try_from(self.player_hand_count(player))
+                .map_err(|_| "hand count exceeds object limit")?,
+            graveyard,
+            devotion: devotion.into_iter().collect(),
+        })
+    }
+
+    fn begin_departure(
+        &mut self,
+        player: PlayerId,
+        last: PlayerLastKnown,
+    ) -> Result<Vec<ObjectId>, String> {
         self.rules_mut().players[player.0 as usize].last_known = Some(last);
         self.expire_player_protection(player);
         self.rules_mut().players[player.0 as usize].life_frozen_until_next_turn = false;
@@ -323,7 +373,8 @@ impl RulesTxn {
         Ok(removed)
     }
     pub(crate) fn apply_departure(&mut self, player: PlayerId) -> Result<(), String> {
-        let removed = self.begin_departure(player)?;
+        let last = self.capture_player_departure(player)?;
+        let removed = self.begin_departure(player, last)?;
         self.finish_departure(player, &removed)
     }
     fn finish_departure(&mut self, player: PlayerId, removed: &[ObjectId]) -> Result<(), String> {
@@ -596,8 +647,12 @@ impl RulesTxn {
         let mut removed = vec![];
         // 800.4a: every losing owner's objects leave before control grants end.
         // Frozen doomed membership prevents temporary control by another loser.
-        for player in players {
-            removed.push((*player, self.begin_departure(*player)?));
+        let last_known = players
+            .iter()
+            .map(|player| self.capture_player_departure(*player))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (&player, last) in players.iter().zip(last_known) {
+            removed.push((player, self.begin_departure(player, last)?));
         }
         let ended=self.state.rules.control_effects.iter().filter(|e|!self.is_live(e.controller) || self.current(e.object).is_err() || matches!(e.source,ControlSource::Static {object} if self.current(object).is_err())).map(|e|e.id).collect::<Vec<_>>();
         self.rules_mut()
