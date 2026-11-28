@@ -337,6 +337,10 @@ attacked the player with the most life (read once attackers have tapped,
 CR 508.1m), and the combat records its declared defenders. Exalted, battle cry,
 rampage, melee, flanking (marker and trigger only together), dethrone,
 training and afflict follow their rules; rampage and melee count on resolution.
+Ward [cost] (CR 702.21a) on a permanent card is a trigger on becoming the target
+of an opponent's spell or ability that counters that stack object, named by the
+event rather than targeted (CR 115.1, 603.2), unless its controller pays one
+fixed mana cost or "Pay N life"; other ward costs reject as `keyword:ward:cost`.
 Annihilator N makes the defending player sacrifice N permanents together, or all
 if fewer (CR 702.86). Mentor compares both powers at placement and resolution,
 using the mentor's last known power after it leaves (CR 702.134a–b, 608.2b);

@@ -285,6 +285,7 @@ impl ActivatedAbility {
             cost: ActivationCost::Mana { cost },
             program,
             modal: None,
+            cost_changes: vec![],
         }
     }
 
@@ -315,6 +316,7 @@ impl ActivatedAbility {
             cost: ActivationCost::ExileSource { mana: cost },
             program,
             modal: None,
+            cost_changes: vec![],
         }
     }
 

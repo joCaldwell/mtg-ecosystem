@@ -74,6 +74,16 @@ impl Quantity {
         }
     }
 
+    /// Whether this is an exact integer multiple of a positive `of`.
+    pub fn is_multiple_of(&self, of: &Self) -> bool {
+        let big = |q: &Self| match &q.0 {
+            Small(value) => BigInt::from(*value),
+            Big(value) => value.as_ref().clone(),
+        };
+        let of = big(of);
+        of.sign() == Sign::Plus && (big(self) % of).sign() == Sign::NoSign
+    }
+
     fn from_big(value: BigInt) -> Self {
         match value.to_i64() {
             Some(value) => Self(Small(value)),

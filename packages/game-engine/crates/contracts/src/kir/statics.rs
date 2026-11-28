@@ -561,9 +561,12 @@ fn predicate_in_layer(filter: &Pred, layer: Layer) -> bool {
 fn condition_set(set: &SetExpr) -> bool {
     match set {
         SetExpr::Matching { zone, filter } => {
-            (matches!(zone, ZoneExpr::Battlefield | ZoneExpr::Graveyards)
+            ((matches!(zone, ZoneExpr::Battlefield | ZoneExpr::Graveyards)
                 || matches!(zone, ZoneExpr::Graveyard { of } if *of == PlayerExpr::static_controller()))
-                && predicate_in_layer(filter, Layer::Color)
+                && predicate_in_layer(filter, Layer::Color))
+                // CR 402.3: a hand's size is public, its cards are not.
+                || matches!(zone, ZoneExpr::Hand { of } if *of == PlayerExpr::static_controller())
+                    && filter.0.is_empty()
         }
         SetExpr::One { object } => *object == Ref::Source,
         SetExpr::Pool { .. }
@@ -589,6 +592,12 @@ fn graveyard_other(set: &SetExpr) -> bool {
 fn condition_amount(amount: &Amount) -> bool {
     match amount {
         Amount::Fixed { .. } => true,
+        // CR 122.1: counters of one kind on the source are public. A count of
+        // all kinds is rejected first by `counts_all_counter_kinds`.
+        Amount::CountersOn {
+            object: Ref::Source,
+            counter,
+        } => counter.as_ref().is_some_and(|c| *c != CounterKind::Loyalty),
         Amount::Count { set } => condition_set(set),
         Amount::Devotion { player, colors } => {
             *player == PlayerExpr::static_controller()
@@ -677,6 +686,7 @@ fn cda_amount(amount: &Amount) -> bool {
         | Amount::Var { .. }
         | Amount::StatOf { .. }
         | Amount::CountersOn { .. }
+        | Amount::Total { .. }
         | Amount::Greatest { .. }
         | Amount::LifeOf { .. }
         | Amount::BlockersOf { .. }
@@ -685,6 +695,69 @@ fn cda_amount(amount: &Amount) -> bool {
         | Amount::Half { .. }
         | Amount::OtherCastsManaValue { .. } => false,
     }
+}
+
+/// CR 601.2f: a cost change's count is read once, as the total cost is
+/// determined, outside the layer system; besides the static counts it may
+/// read the greatest or total power or toughness of public battlefield
+/// permanents by their current characteristics.
+pub(crate) fn cost_amount(amount: &Amount) -> bool {
+    match amount {
+        Amount::Greatest {
+            set:
+                SetExpr::Matching {
+                    zone: ZoneExpr::Battlefield,
+                    filter,
+                },
+            stat: Stat::Power | Stat::Toughness,
+        }
+        | Amount::Total {
+            set:
+                SetExpr::Matching {
+                    zone: ZoneExpr::Battlefield,
+                    filter,
+                },
+            stat: Stat::Power | Stat::Toughness,
+        } => predicate_in_layer(filter, Layer::Color),
+        other => condition_amount(other),
+    }
+}
+
+/// CR 601.2f, 602.2b: an ability's own cost change reads its multiplier and
+/// condition from its source as a static ability does; a counted change
+/// multiplies generic mana only.
+pub fn activation_cost_change_supported(change: &crate::ActivationCostChange) -> bool {
+    let (SpellCostChange::Increase { mana } | SpellCostChange::Reduce { mana }) = &change.change;
+    !mana.generic.is_negative()
+        && (mana.generic > Quantity::zero() || !mana.colored.is_empty())
+        && !mana.colored.contains(&Color::C)
+        && change.multiplier.as_ref().is_none_or(|m| {
+            mana.colored.is_empty()
+                && cost_amount(m)
+                && !m.as_fixed().is_some_and(Quantity::is_negative)
+        })
+        && change.condition.as_ref().is_none_or(condition_supported)
+}
+
+/// CR 122.1: a cost change's multiplier or a static condition that counts
+/// counters of all kinds on its source is rejected with its own reason until
+/// that count is reviewed; one named kind is read as before.
+pub(crate) fn counts_all_counter_kinds(
+    multiplier: Option<&Amount>,
+    condition: Option<&Cond>,
+) -> bool {
+    fn amount(a: &Amount) -> bool {
+        matches!(a, Amount::CountersOn { counter: None, .. })
+    }
+    fn cond(c: &Cond) -> bool {
+        match c {
+            Cond::Compare { left, right, .. } => amount(left) || amount(right),
+            Cond::Not { condition } => cond(condition),
+            Cond::All { conditions } => conditions.iter().any(cond),
+            _ => false,
+        }
+    }
+    multiplier.is_some_and(amount) || condition.is_some_and(cond)
 }
 
 fn condition_supported(condition: &Cond) -> bool {
@@ -1082,6 +1155,9 @@ impl crate::StaticAbility {
                 changes,
                 condition,
             } => {
+                if counts_all_counter_kinds(None, condition.as_ref()) {
+                    return invalid("all-kinds-counter-count");
+                }
                 let Some(first_layer) = changes.iter().map(Change::layer).min() else {
                     return invalid("empty-continuous");
                 };
@@ -1283,6 +1359,13 @@ impl crate::StaticAbility {
                 }
             }
             StaticEffect::Rule { rule, condition } => {
+                let multiplier = match rule {
+                    StaticRule::SpellCost { multiplier, .. } => multiplier.as_ref(),
+                    _ => None,
+                };
+                if counts_all_counter_kinds(multiplier, condition.as_ref()) {
+                    return invalid("all-kinds-counter-count");
+                }
                 if condition.as_ref().is_some_and(|c| !condition_supported(c)) {
                     return invalid("rule-condition");
                 }
@@ -1317,7 +1400,7 @@ impl crate::StaticAbility {
                             && !mana.generic.is_negative()
                             && multiplier.as_ref().is_none_or(|m| {
                                 mana.colored.is_empty()
-                                    && condition_amount(m)
+                                    && cost_amount(m)
                                     && !m.as_fixed().is_some_and(Quantity::is_negative)
                             })
                             && match affects {

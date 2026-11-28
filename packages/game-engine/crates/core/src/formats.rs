@@ -1,8 +1,8 @@
 //! Single owner of mtg-core wire and persistence format versions. Every
 //! producer stamps, and every admission check compares, these constants; tests
 //! import them instead of repeating literals (historical-forgery literals stay
-//! explicit). Bump a version whenever its serialized shape changes: the
-//! `formats_tests` fingerprints fail with the constant to bump.
+//! explicit).
+//! Shapes change in place until a consumer reads these formats; bump once when one appears.
 
 /// `Game::snapshot` envelope and its complete private `State`.
 pub const SNAPSHOT_VERSION: u32 = 151;

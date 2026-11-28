@@ -133,7 +133,11 @@ and folds, aliases, implicit nodes with closed reasons, or hulls; an unlocated
 object, an unusable alias or a root-assigned fact for uncovered tokens yields a
 located `evidence:missing`. P11 requires the resolver to discharge each field
 of the block AST with a verified exact link, a production-specific check of the
-printed phrase and value, or a closed default at its governing node. P12
+printed phrase and value, or a closed default at its governing node. Only a
+family that checks the whole recorded parent phrase may discharge an unlocated
+object the parser synthesized inside it (the `each-player` base of "each other
+player"); words that introduce a composite child ("for each") are claimed at
+its recorded parent. P12
 requires a checked meaning or structural role for every printed fact and token;
 structural roles are verified [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
 at a production boundary (sentence periods, trigger and for-each clause commas,
@@ -201,6 +205,7 @@ without a manifest edit is not detected ([Cargo rerun-if-changed](https://doc.ru
 `formats_tests` pins the Observation schema and Snapshot/SavedWork shape
 fingerprints, with samples that include resolving and nested Kernel-IR choices.
 Tests import the constants; deliberate historical forgeries use literals.
+Shapes change in place until a consumer reads these formats; bump once when one appears.
 
 `python3 scripts/engine-structure-check.py` verifies declared direct dependency
 boundaries (core has no compiler edge), `#[cfg(test)]` test modules and
@@ -240,7 +245,9 @@ sacrifice-for-return.
   player or a singleton object.
 - `UnlessPays` and `IfPays` take a singleton player expression and support
   life and generic mana. With no live payer only `UnlessPays` performs its
-  node (CR 118.12). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
+  node (CR 118.12). Ward's `UnlessPays` counters `Ref::EventStackObject`, the
+  stack object its targeting event names, and asks that object's controller
+  (CR 702.21a). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
   for optional effects, creature-type choices and APNAP draws.
 - `Choose` binds a pool from a matching public set when both bounds force zero
   or the set's size. `ChooseObject` offers one mandatory public object choice

@@ -42,6 +42,11 @@ const SATYR_WAYFINDER: &str = record!("ead4c01a-e2ae-49c9-95d9-651d81005907");
 const GRISLY_SALVAGE: &str = record!("a89ebf63-63c9-42cd-98b4-ec852cd9b0a8");
 const RASHMI: &str = record!("01a79429-7d57-4a51-9815-a20905ed4707");
 const HOARD_SMELTER: &str = record!("cf9db2be-3c95-45a2-ab85-694e3bd3bf1d");
+const BRAMBLEGUARD_CAPTAIN: &str = record!("104baa4e-a3f3-45dc-979d-4c58b659ba1a");
+const RUIN_GHOST: &str = record!("169705c3-32c1-4628-b108-c37ca5f27e24");
+const DISPLACE: &str = record!("334e2147-5944-4558-b2bc-2f2bfb96dfa5");
+const PACIFISM: &str = record!("5f5e0b10-c8cf-450c-bfd3-bcb0528ec330");
+const HALLOWED_FOUNTAIN: &str = record!("f1750962-a87c-49f6-b731-02ae971ac6ea");
 
 const MOVED: Cell = Cell::Evaluated(EvaluatedVerb::Move);
 
@@ -177,6 +182,100 @@ fn actual_movement_result_reenters_under_the_printed_controller() {
     }
 }
 
+/// CR 303.4f, 400.7: an exiled Aura chooses a legal host as it returns.
+#[test]
+fn flickered_aura_chooses_a_new_host() {
+    let mut game = Game::new(
+        board_of(vec![lowered(FLICKER)], &[PACIFISM], 4)
+            .permanent_or_hand("Flicker", 0, 0, true)
+            .permanent_or_hand("Pacifism", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .prepare(),
+    );
+    let first_host = Driver::object(&game, 2);
+    let next_host = Driver::object(&game, 3);
+    cast_at(&mut game, 1, 2, &[4, 5]);
+    settle(&mut game);
+    let aura = Driver::object(&game, 1);
+    assert_eq!(game.current(aura).unwrap().attached_to, Some(first_host));
+
+    cast_at(&mut game, 0, 1, &[6, 7]);
+    let choice = next_choice(&mut game);
+    assert_eq!(
+        (choice.player, choice.reason),
+        (PlayerId(0), Reason::EntryAttachment)
+    );
+    assert_eq!(game.zone(Driver::object(&game, 1)), Some(Zone::Exile));
+    assert_recoverable((&game).into());
+    Driver::pick_object(&mut game, next_host);
+    settle(&mut game);
+    let returned = Driver::object(&game, 1);
+    assert_eq!(returned.incarnation, aura.incarnation + 2);
+    assert_eq!(game.zone(returned), Some(Zone::Battlefield));
+    assert_eq!(game.current(returned).unwrap().attached_to, Some(next_host));
+}
+
+/// CR 110.2a, 614.12: the incoming controller chooses whether to pay life.
+#[test]
+fn incoming_controller_pays_for_a_land_owned_by_another_player() {
+    let mut game = Game::new(
+        board_of(vec![lowered(RUIN_GHOST)], &[HALLOWED_FOUNTAIN], 4)
+            .permanent_or_hand("Ruin Ghost", 0, 0, false)
+            .permanent_or_hand("Hallowed Fountain", 1, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .prepare(),
+    );
+    let ghost = Driver::object(&game, 0);
+    let land = Driver::object(&game, 1);
+    let mut controller_life = game.state.rules.players[0].life.clone();
+    let owner_life = game.state.rules.players[1].life.clone();
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: ghost,
+            ability: 0,
+        },
+    );
+    Driver::pick_object(&mut game, land);
+    Driver::pay(&mut game, &[2]);
+    let choice = next_choice(&mut game);
+    assert_eq!(
+        (choice.player, &choice.reason),
+        (PlayerId(0), &Reason::OptionalEffect)
+    );
+    assert_recoverable((&game).into());
+    let pay = choice.pick_one(&Candidate::Flag { flag: true }).unwrap();
+    game.respond(choice.player, choice.id, pay).unwrap();
+    settle(&mut game);
+    let returned = Driver::object(&game, 1);
+    assert_eq!(returned.incarnation, land.incarnation + 2);
+    let current = game.current(returned).unwrap();
+    assert_eq!(current.zone, Zone::Battlefield);
+    assert_eq!(
+        (current.owner, current.controller),
+        (PlayerId(1), PlayerId(0))
+    );
+    assert!(!current.tapped);
+    controller_life.subtract(&Quantity::from(2));
+    assert_eq!(game.state.rules.players[0].life, controller_life);
+    assert_eq!(game.state.rules.players[1].life, owner_life);
+}
+
+#[test]
+fn multiple_move_results_with_individual_owners_are_rejected_at_the_return() {
+    let outcome = mtg_witness::compile(mtg_witness::R5_MANIFEST, DISPLACE);
+    let mtg_compiler::CompileResult::Unsupported { path, reason } = outcome else {
+        panic!("expected a located Displace rejection, got {outcome:?}");
+    };
+    assert_eq!(path, "printed/faces/0/blocks/0");
+    assert_eq!(reason, "operand:result:owner_requires_single_target");
+}
+
 #[test]
 fn declining_restoration_angel_does_not_perform_either_move() {
     let mut game = Game::new(
@@ -280,6 +379,39 @@ fn a_later_pump_measures_the_destroyed_targets_mana_value() {
         Some(Zone::Graveyard { owner: PlayerId(1) })
     );
     assert_eq!(game.characteristics(source).unwrap().power, Some(expected));
+}
+
+/// CR 608.2h: the combat trigger reads its source's last battlefield power.
+#[test]
+fn counted_pump_uses_last_known_source_power() {
+    let mut game = Game::new(
+        board_of(vec![], &[BRAMBLEGUARD_CAPTAIN], 4)
+            .permanent_or_hand("Brambleguard Captain", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    let source = Driver::object(&game, 0);
+    let target = Driver::object(&game, 1);
+    let before = game.characteristics(target).unwrap();
+    let mut expected_power = before.power.unwrap();
+    expected_power.add(&game.characteristics(source).unwrap().power.unwrap());
+    let choice = next_choice(&mut game);
+    assert!(
+        matches!(choice.reason, Reason::Targets { .. }),
+        "{choice:?}"
+    );
+    Driver::pick_object(&mut game, target);
+    cast_at(&mut game, 2, 0, &[3]);
+    settle(&mut game);
+    assert_eq!(
+        game.zone(Driver::object(&game, 0)),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    let after = game.characteristics(target).unwrap();
+    assert_eq!(after.power, Some(expected_power));
+    assert_eq!(after.toughness, before.toughness);
 }
 
 #[test]

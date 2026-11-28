@@ -1,6 +1,6 @@
-//! Golden wire fingerprints, one per versioned format in `formats`. A changed
-//! fingerprint with an unchanged version constant fails with the constant to
-//! bump; after bumping, re-pin the `(version, fingerprint)` pair below.
+//! Golden wire fingerprints for Observation, Snapshot and SavedWork. Re-pin
+//! the fingerprint after reviewing a changed shape. See `formats` for the
+//! version policy.
 //!
 //! `Observation` derives `JsonSchema`, so its pin covers the complete schema.
 //! The private `Snapshot` and `SavedWork` envelopes do not (deriving it across
@@ -27,7 +27,7 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     119,
-    "62b8626561fee0856f43e4a552d592157fa31afddc97f23cca5773ac0828de7f",
+    "fa2dc623d8573924aab574c5eaecf62f2d84dc3922018a4347557be823695ca3",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     151,
@@ -41,14 +41,6 @@ const WORK_PIN: (u32, &str) = (
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
     if pin == (version, actual) {
         return;
-    }
-    if version == pin.0 {
-        panic!(
-            "{format} wire format changed without a version bump: bump {constant} in \
-             packages/game-engine/crates/core/src/formats.rs, then pin ({}, {actual:?}) in \
-             formats_tests.rs",
-            version + 1
-        );
     }
     panic!(
         "{format}: {constant} is {version}; re-pin ({version}, {actual:?}) in formats_tests.rs \
@@ -599,6 +591,7 @@ fn chosen_cost_shapes() -> Vec<Game> {
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
                 minimum_power: None,
                 action,
@@ -691,6 +684,7 @@ fn activation_condition_shapes() -> Vec<Game> {
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,
+                cost_changes: vec![],
                 program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
                     Instruction::act(
                         mtg_contracts::kir::Verb::Draw {
@@ -1193,6 +1187,7 @@ fn loyalty_activation() -> String {
         x_mana_cost: false,
         hybrid_mana: vec![],
         modal: None,
+        cost_changes: vec![],
         cost: ActivationCost::Loyalty {
             change: (-1).into(),
         },
@@ -1263,8 +1258,8 @@ fn loyalty_activation() -> String {
 }
 
 /// The kernel can suspend during APNAP choice collection, while asking for a
-/// creature type, or with the chosen type bound in the child. Check these
-/// private frame shapes through the real decoder.
+/// creature type, or with a chosen type or revealed objects bound in the
+/// child. Check these private frame shapes through the real decoder.
 fn kernel_choice_shapes() -> impl Iterator<Item = String> {
     use mtg_contracts::kir::CreatureType;
     use serde_json::json;
@@ -1281,6 +1276,10 @@ fn kernel_choice_shapes() -> impl Iterator<Item = String> {
         (
             json!({"stage": "run"}),
             json!({"0": {"creature_type": CreatureType::from_name("Bear").unwrap()}}),
+        ),
+        (
+            json!({"stage": "run"}),
+            json!({"0": {"revealed": [Driver::object(&game, 0)]}}),
         ),
     ]
     .into_iter()

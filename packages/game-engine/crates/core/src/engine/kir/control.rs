@@ -364,6 +364,9 @@ impl RulesTxn {
                 Players::Nobody => vec![],
                 Players::EachOpponent => return Err("invalid target controller".into()),
             },
+            PlayerExpr::ControllerOf {
+                object: Ref::EventStackObject,
+            } => vec![self.event_stack_controller(frame.stack_id)?],
             PlayerExpr::OwnerOf { object } | PlayerExpr::ControllerOf { object } => {
                 let objects = self.control_objects(task, &SetExpr::One { object: *object })?;
                 let [id] = objects.as_slice() else {
@@ -1128,7 +1131,7 @@ impl RulesTxn {
             Node::RevealTop {
                 var, player, count, ..
             } => {
-                // CR 701.20c: revealing leaves each card in its place.
+                // CR 701.20b: revealing leaves each card in its place.
                 // A token that was put in the library is not a card (111.6).
                 let Resolved::Present(player) = self.measured_player(&task, player)? else {
                     return self.return_kernel(task.resume);

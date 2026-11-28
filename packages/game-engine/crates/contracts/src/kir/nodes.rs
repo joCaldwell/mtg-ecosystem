@@ -150,7 +150,7 @@ pub enum Node {
         chooser: PlayerExpr,
         body: Box<Node>,
     },
-    /// CR 701.20a, 701.20c: publicly reveal a library prefix in place and
+    /// CR 701.20a, 701.20b: publicly reveal a library prefix in place and
     /// bind the cards named by the following instructions.
     RevealTop {
         var: u32,
