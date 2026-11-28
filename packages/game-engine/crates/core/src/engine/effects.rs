@@ -86,6 +86,13 @@ impl ResolvedEffect {
         self.lasts_until_controller_turn()
             || matches!(
                 self.kind,
+                ResolvedEffectKind::SetCharacteristics {
+                    until: Until::ControllerNextTurn | Until::SourceLeaves,
+                    ..
+                }
+            )
+            || matches!(
+                self.kind,
                 ResolvedEffectKind::GainControl {
                     until: Until::Indefinite | Until::SourceLeaves,
                     ..
@@ -93,17 +100,8 @@ impl ResolvedEffect {
             )
     }
 
-    fn survives_cleanup(&self, owner: PlayerId, turn: u64) -> bool {
-        matches!(
-            self.kind,
-            ResolvedEffectKind::GainControl {
-                until: Until::Indefinite | Until::SourceLeaves,
-                ..
-            }
-        ) || (self.extends_beyond_creation_turn()
-            && (self.lasts_until_controller_turn()
-                || self.origin.controller != owner
-                || self.expires_in_cleanup_of_turn == turn))
+    fn survives_cleanup(&self) -> bool {
+        self.extends_beyond_creation_turn()
     }
 
     pub(super) fn additional_land_plays(&self, player: PlayerId, turn: u64) -> Option<&Quantity> {
@@ -159,6 +157,7 @@ pub enum ResolvedEffectKind {
     SetCharacteristics {
         targets: Vec<ObjectId>,
         values: CharacteristicSet,
+        until: Until,
     },
     PumpAnnouncedX {
         targets: Vec<ObjectId>,
@@ -330,11 +329,9 @@ impl RulesTxn {
             .effects
             .iter()
             .filter_map(move |effect| match &effect.kind {
-                ResolvedEffectKind::SetCharacteristics { targets, values }
-                    if present && targets.contains(&object) =>
-                {
-                    Some((effect.timestamp, values))
-                }
+                ResolvedEffectKind::SetCharacteristics {
+                    targets, values, ..
+                } if present && targets.contains(&object) => Some((effect.timestamp, values)),
                 _ => None,
             })
     }
@@ -1458,78 +1455,6 @@ impl RulesTxn {
             .map(|e| EffectKey::Resolved { id: e.id })
             .collect()
     }
-    pub(crate) fn execute_effect_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String> {
-        let (kind, block) = match instruction {
-            kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
-            {
-                let target = self.entry(frame.stack_id)?.source;
-                if !self.target_is_creature(target) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ResolvedEffectKind::ModifyPowerToughness {
-                        target,
-                        power,
-                        toughness,
-                    },
-                    source_block,
-                )
-            }
-            kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
-            {
-                let target = *self
-                    .entry(frame.stack_id)?
-                    .targets
-                    .get(target_slot as usize)
-                    .ok_or("missing modifier target")?;
-                if !frame
-                    .legal_targets
-                    .get(target_slot as usize)
-                    .copied()
-                    .unwrap_or(false)
-                    || !self.is_battlefield_creature(target)?
-                {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ResolvedEffectKind::ModifyPowerToughness {
-                        target,
-                        power,
-                        toughness,
-                    },
-                    source_block,
-                )
-            }
-            // CR 603.10, 611.2c: the exact creature the event named, while it
-            // is still that creature on the battlefield (CR 400.7).
-            kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
-            {
-                let target = self.event_object_target(&frame)?;
-                if !self.is_battlefield_creature(target)? {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ResolvedEffectKind::ModifyPowerToughness {
-                        target,
-                        power,
-                        toughness,
-                    },
-                    source_block,
-                )
-            }
-
-            _ => return Err("unexpected effect instruction".into()),
-        };
-        self.commit_resolved_effect(frame, kind, block)
-    }
-
     /// CR 603.10: the exact incarnation the resolving trigger's event bound.
     pub(super) fn event_object_target(&self, frame: &Resolving) -> Result<ObjectId, String> {
         Ok(self
@@ -1546,13 +1471,47 @@ impl RulesTxn {
         kind: ResolvedEffectKind,
         block: u32,
     ) -> Result<(), String> {
-        let consumes_choice = false;
+        let actual = self.create_resolved_effect(&frame, kind, block)?;
+        self.finish_instruction(
+            frame,
+            InstructionOutcome::Effect {
+                actual: Some(actual),
+            },
+        )
+    }
+
+    pub(in crate::engine) fn create_resolved_effect(
+        &mut self,
+        frame: &Resolving,
+        kind: ResolvedEffectKind,
+        block: u32,
+    ) -> Result<EventOutcome, String> {
         let handles = match &self.entry(frame.stack_id)?.kind {
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
             StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
         };
         let target_handles = match &kind {
+            ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
+            | ResolvedEffectKind::PumpSet { targets, .. }
+            | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
+            | ResolvedEffectKind::GainControl { targets, .. }
+            | ResolvedEffectKind::SetCharacteristics { targets, .. }
+            | ResolvedEffectKind::PumpAnnouncedX { targets, .. }
+            | ResolvedEffectKind::ExileDamaged { targets } => {
+                let capacity = self.event_group_limit();
+                if targets.len() > capacity {
+                    return Err(self.capacity_error(RuleFault::EventGroupCapacityExceeded {
+                        capacity,
+                        requested: targets.len(),
+                    }));
+                }
+                let mut handles = Vec::new();
+                for target in targets {
+                    handles.extend(self.capture_trigger_source_handles(*target)?);
+                }
+                handles
+            }
             ResolvedEffectKind::RegenerationShield { target }
             | ResolvedEffectKind::GrantKeywords { target, .. }
             | ResolvedEffectKind::ModifyPowerToughness { target, .. }
@@ -1586,26 +1545,11 @@ impl RulesTxn {
             expires_in_cleanup_of_turn: self.state.rules.turn.number,
             kind,
         };
-        let actual = self.commit(
+        self.commit(
             ProposedEvent::CreateEffect {
                 effect: Box::new(effect),
             },
-            BatchCause::Instruction {
-                stack_id: frame.stack_id,
-                player: self.entry(frame.stack_id)?.controller,
-                source: self.entry(frame.stack_id)?.source,
-                cursor: frame.cursor,
-                source_block: block,
-            },
-        )?;
-        if consumes_choice {
-            self.rules_mut().pending = None;
-        }
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            },
+            self.instruction_cause(frame, block)?,
         )
     }
     // CR 608.2b / 611.2c: creation rechecks current control; the captured
@@ -1768,6 +1712,30 @@ impl RulesTxn {
         self.rules_mut()
             .effects
             .retain(|e| !e.lasts_until_controller_turn() || e.origin.controller != player);
+    }
+    // CR 800.4m: if the controller left, the effect ends at the boundary
+    // where their seat would have taken a turn.
+    // Seat distance assumes turns pass only in seat order (`next_turn_state`
+    // via `next_live`). Extra turns (CR 500.7) would end every player's
+    // effect here; supporting them must first track, per controller, whether
+    // their next turn has begun.
+    pub(super) fn expire_characteristics_at_turn_start(
+        &mut self,
+        previous: PlayerId,
+        next: PlayerId,
+    ) {
+        let seats = self.state.rules.players.len() as u8;
+        let distance = |p: PlayerId| (p.0 + seats - previous.0 + seats - 1) % seats;
+        let boundary = distance(next);
+        self.rules_mut().effects.retain(|effect| {
+            !matches!(
+                effect.kind,
+                ResolvedEffectKind::SetCharacteristics {
+                    until: Until::ControllerNextTurn,
+                    ..
+                }
+            ) || distance(effect.origin.controller) > boundary
+        });
     }
     // CR 702.16e,h/616.1: the existing each-color grant is represented
     // by one candidate for matching prepared damage. Printed named-color
@@ -2135,10 +2103,23 @@ impl RulesTxn {
                         },
                         kind @ (ResolvedEffectKind::GainControl { .. }
                         | ResolvedEffectKind::SetCharacteristics { .. }
-                        | ResolvedEffectKind::PumpAnnouncedX { .. }),
+                        | ResolvedEffectKind::PumpAnnouncedX { .. }
+                        | ResolvedEffectKind::PumpSet { .. }
+                        | ResolvedEffectKind::ModifyPowerToughness { .. }
+                        | ResolvedEffectKind::GrantKeywords { .. }
+                        | ResolvedEffectKind::GrantKeywordsSet { .. }),
                     ) => {
                         *source_block == effect.origin.source_block
                             && self.continuous_kind(frame, verb)?.as_ref() == Some(kind)
+                    }
+                    (
+                        kernel!(AdditionalLandPlays { amount, .. } @ source_block),
+                        ResolvedEffectKind::AdditionalLandPlays { count },
+                    ) => {
+                        self.is_live(effect.origin.controller)
+                            && *source_block == effect.origin.source_block
+                            && amount.as_fixed() == Some(count)
+                            && *count > Quantity::zero()
                     }
                     (
                         kernel!(RestrictCombat { affects, restriction, .. } @ source_block),
@@ -2157,87 +2138,6 @@ impl RulesTxn {
                         *source_block == effect.origin.source_block
                             && self.prevention_kind(frame, prevention)?.as_ref() == Some(kind)
                     }
-                    (
-                        i,
-                        ResolvedEffectKind::PumpSet {
-                            targets,
-                            power: p,
-                            toughness: t,
-                        },
-                    ) if mtg_contracts::ObjectSet::pumped(i).is_some() => i.pumped().is_some_and(
-                        |(what, power, toughness, source_block)| {
-                            matches!(what, mtg_contracts::kir::SetExpr::Matching { zone, filter }
-                                    if self.kernel_set(frame, zone, filter)
-                                        .is_ok_and(|(members, _)| *targets == members))
-                                && p == power
-                                && t == toughness
-                                && source_block == effect.origin.source_block
-                        },
-                    ),
-
-                    (
-                        kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
-                        ResolvedEffectKind::ModifyPowerToughness {
-                            target,
-                            power: p,
-                            toughness: t,
-                        },
-                    ) => {
-                        *target == self.entry(frame.stack_id)?.source
-                            && self.target_is_creature(*target)
-                            && power == p
-                            && toughness == t
-                            && *source_block == effect.origin.source_block
-                    }
-                    (
-                        kernel!(ModifyUntil {
-                            what,
-                            change: Change::AddKeywords { keywords },
-                            until: mtg_contracts::kir::Until::EndOfTurn,
-                            ..
-                        } @ source_block),
-                        kind @ (ResolvedEffectKind::GrantKeywords { .. }
-                        | ResolvedEffectKind::GrantKeywordsSet { .. }),
-                    ) => {
-                        *source_block == effect.origin.source_block
-                            && supported_temporary_keywords(keywords)
-                            && self.keyword_grant_kind(frame, what, keywords)?.as_ref()
-                                == Some(kind)
-                    }
-
-                    (
-                        kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
-                        ResolvedEffectKind::ModifyPowerToughness {
-                            target,
-                            power: p,
-                            toughness: t,
-                        },
-                    ) => {
-                        self.entry(frame.stack_id)?
-                            .targets
-                            .get(*target_slot as usize)
-                            == Some(target)
-                            && frame.legal_targets.get(*target_slot as usize) == Some(&true)
-                            && self.is_battlefield_creature(*target)?
-                            && power == p
-                            && toughness == t
-                            && *source_block == effect.origin.source_block
-                    }
-                    (
-                        kernel!(ModifyUntil { what: event_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
-                        ResolvedEffectKind::ModifyPowerToughness {
-                            target,
-                            power: p,
-                            toughness: t,
-                        },
-                    ) => {
-                        self.event_object_target(frame).ok() == Some(*target)
-                            && self.is_battlefield_creature(*target)?
-                            && power == p
-                            && toughness == t
-                            && *source_block == effect.origin.source_block
-                    }
-
                     _ => false,
                 };
                 let valid_handles = match &self.entry(frame.stack_id)?.kind {
@@ -2351,14 +2251,12 @@ impl RulesTxn {
 
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
-                let turn = self.state.rules.turn.number;
-                let owner = self.state.rules.turn_owner;
                 let expired = self
                     .state
                     .rules
                     .effects
                     .iter()
-                    .filter(|e| !e.survives_cleanup(owner, turn))
+                    .filter(|e| !e.survives_cleanup())
                     .map(|e| e.id)
                     .collect();
                 let previous = self
@@ -2369,9 +2267,7 @@ impl RulesTxn {
                     .filter(|o| o.marked_damage > Quantity::zero())
                     .map(|o| (o.id, o.marked_damage.clone()))
                     .collect();
-                self.rules_mut()
-                    .effects
-                    .retain(|e| e.survives_cleanup(owner, turn));
+                self.rules_mut().effects.retain(|e| e.survives_cleanup());
                 for o in self.rules_mut().objects.values_mut() {
                     o.marked_damage = Quantity::zero();
                     o.deathtouch_damage = false;
@@ -2593,14 +2489,37 @@ impl RulesTxn {
                             })
                     }
                     (
-                        kernel!(SetCharacteristics { what, values, until: Until::EndOfTurn } @ source_block),
+                        kernel!(AdditionalLandPlays { amount, .. } @ source_block),
+                        ResolvedEffectKind::AdditionalLandPlays { count },
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && amount.as_fixed() == Some(count)
+                            && *count > Quantity::zero()
+                            && e.target_handles.is_empty()
+                    }
+                    (
+                        kernel!(SetCharacteristics { what, values, until } @ source_block),
                         ResolvedEffectKind::SetCharacteristics {
                             targets,
                             values: saved,
+                            until: duration,
                         },
                     ) => {
+                        let mut expected = values.clone();
+                        let valid_values = if expected.base_from.take().is_some() {
+                            expected.base_power.clone_from(&saved.base_power);
+                            expected.base_toughness.clone_from(&saved.base_toughness);
+                            saved.base_power.as_ref().is_some_and(|p| !p.is_negative())
+                                && saved.base_power == saved.base_toughness
+                                && expected == *saved
+                        } else {
+                            values == saved
+                        };
                         *source_block == e.origin.source_block
-                            && values == saved
+                            && until == duration
+                            && (until != &Until::SourceLeaves
+                                || self.control_source_remains(e.origin.source))
+                            && valid_values
                             && self.valid_continuous_capture(e, what, targets)
                     }
                     (
@@ -3113,13 +3032,18 @@ impl RulesTxn {
                     .then_some(e.expires_in_cleanup_of_turn),
             },
             ResolvedEffectKind::SetCharacteristics {
-                targets, values, ..
+                targets,
+                values,
+                until,
             } => VisibleEffect::SetCharacteristics {
                 handle,
                 origin,
                 targets: set_views(targets)?,
                 values: values.clone(),
-                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                expires_in_cleanup_of_turn: (*until == Until::EndOfTurn)
+                    .then_some(e.expires_in_cleanup_of_turn),
+                expires_at_controller_next_turn: *until == Until::ControllerNextTurn,
+                while_source_remains: *until == Until::SourceLeaves,
             },
             ResolvedEffectKind::PumpAnnouncedX {
                 targets, modifier, ..
@@ -3562,6 +3486,10 @@ impl RulesTxn {
                     _ => None,
                 })
                 .flatten()
+                .chain(
+                    self.characteristic_set_vocabulary()
+                        .filter_map(|values| values.type_change.as_ref()),
+                )
         };
         // CR 205.1a, 305.7: admitted type replacement can change any card
         // type or subtype to one its vocabulary names; replay proves which.
@@ -3664,16 +3592,7 @@ impl RulesTxn {
         // type, and a resolved creature-subtype replacement can remove it.
         if base.all_creature_types != c.all_creature_types {
             let gained = c.all_creature_types
-                && self
-                    .prepared
-                    .catalog
-                    .definitions
-                    .iter()
-                    .flat_map(|d| &d.static_abilities)
-                    .any(|a| {
-                        matches!(&a.effect, StaticEffect::Continuous { changes, .. }
-                        if changes.contains(&Change::AllCreatureTypes))
-                    });
+                && vocabulary().any(|change| matches!(change, Change::AllCreatureTypes));
             let lost = !c.all_creature_types
                 && self
                     .characteristic_set_vocabulary()

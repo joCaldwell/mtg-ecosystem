@@ -155,7 +155,7 @@ fn verb_operands_swords_gains_life_from_the_exiled_incarnation() {
 fn verb_operands_heroic_intervention_captures_permanents_and_expires() {
     let prepared = board(&[(
         record!("24882fa2-3fe9-4c1b-aa3d-0e6488b9db27"),
-        Cell::SetKeywordsUntilEndOfTurn,
+        Cell::SetCharacteristics,
     )])
     .permanent_or_hand("Heroic Intervention", 0, 0, true)
     .permanent_or_hand("Grizzly Bears", 0, 0, false)
@@ -432,7 +432,7 @@ fn verb_operands_swords_treats_negative_power_as_zero() {
 fn verb_operands_keyword_grant_does_not_follow_a_bounced_target() {
     let prepared = board(&[(
         record!("6e460d39-0f18-4a2d-9c8d-3eaba301d285"),
-        Cell::TargetKeywordsUntilEndOfTurn,
+        Cell::SetCharacteristics,
     )])
     .permanent_or_hand("Rush of Vitality", 0, 0, true)
     .permanent_or_hand("Unsummon", 0, 0, true)
@@ -621,7 +621,7 @@ fn verb_operands_damage_and_counters_share_the_death_event_power() {
 fn verb_operands_damage_rechecks_hexproof_at_resolution() {
     let prepared = board(&[(
         record!("24882fa2-3fe9-4c1b-aa3d-0e6488b9db27"),
-        Cell::SetKeywordsUntilEndOfTurn,
+        Cell::SetCharacteristics,
     )])
     .seats(4)
     .permanent_or_hand("Lightning Bolt", 0, 0, true)

@@ -150,9 +150,7 @@ impl CounterKind {
     pub fn admitted(&self) -> bool {
         match self {
             Self::PlusOnePlusOne | Self::MinusOneMinusOne | Self::Stun | Self::Lore => true,
-            Self::Keyword { keyword } => {
-                crate::supported_temporary_keywords(std::slice::from_ref(keyword))
-            }
+            Self::Keyword { keyword } => crate::supported_keyword_counter(*keyword),
             // Loyalty placement is derived by the rules. Printed counter
             // instructions still require their own reviewed lowering.
             Self::Loyalty => false,
@@ -360,6 +358,12 @@ impl Change {
 pub struct CharacteristicSet {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub animation: Option<Animation>,
+    /// A second, unconditional layer-4 operation on the captured recipient.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_change: Option<Change>,
+    /// CR 611.2d: read once for both base stats, then store the resulting values.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_from: Option<Amount>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colors: Option<Vec<Color>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -650,6 +654,11 @@ pub enum Verb {
         what: SetExpr,
         values: CharacteristicSet,
         until: Until,
+    },
+    /// CR 305.2, 514.2, 613.11: increase the controller's land-play allowance this turn.
+    AdditionalLandPlays {
+        player: PlayerExpr,
+        amount: Amount,
     },
     /// CR 701.3.
     Attach {

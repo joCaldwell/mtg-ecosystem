@@ -42,6 +42,17 @@ const THRAN_LENS: &str = record!("0ac723bf-ce86-4028-a693-0ef498e4c82d");
 const LOSE_CALM: &str = record!("73d71731-f694-471c-b2ad-a36854bb06a1");
 const RUBBLEBELT_MAVERICK: &str = record!("1ba59349-a162-4444-b3e0-cddfc01ef03b");
 
+const EXPLORE: &str = record!("b8f566ea-8283-4afa-9ac8-737e26419283");
+const MIRROR_ENTITY: &str = record!("17e905ca-c0bd-473d-95a7-e180ba5fea43");
+const BIOMASS_MUTATION: &str = record!("2dbe8aaa-2e34-4552-8da7-cf8ecbbaa7b6");
+const SQUARE_UP: &str = record!("013a465b-7034-45fe-bf62-c3d273131ec5");
+const VEDALKEN_HUMILIATOR: &str = record!("17c3a888-84d2-4c21-8fa3-d2d825dd7601");
+const GLORIOUS_CHARGE: &str = record!("754d5009-7887-4293-b554-b3decddb33f7");
+const LEAP: &str = record!("e89a3ce0-6b38-4326-a7af-8575af371baa");
+const SYLVAN_AWAKENING: &str = record!("66b46257-b64c-4672-bf47-12bf0bcd6f8f");
+const SKILLED_ANIMATOR: &str = record!("6e51a0b2-e07f-4c9d-b055-dd1dcd2e29d4");
+const GRIM_CAPTAINS_LOCKER: &str = record!("29931e18-9dac-46fe-b9a4-72d838d79882");
+
 fn lowered(raw: &str) -> Definition {
     let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
@@ -179,7 +190,7 @@ fn resolved_continuous_shapes_have_cells_and_reject_ability_removal() {
         (CRIMSON_WISPS, Cell::SetCharacteristics),
         (TURTLE_DUCK, Cell::SetCharacteristics),
         (CELESTIAL_COLONNADE, Cell::SetCharacteristics),
-        (DEATH_WIND, Cell::PumpAnnouncedX),
+        (DEATH_WIND, Cell::SetCharacteristics),
     ] {
         assert!(definition_cells(&lowered(raw)).unwrap().contains(&cell));
     }
@@ -207,6 +218,200 @@ fn cast_on(g: &mut Game, spell: u32, targets: &[TargetEntity], mana: &[u32]) {
     }
     Driver::pay(g, mana);
     settle(g, &[]);
+}
+
+#[test]
+fn lane4_exact_fixed_and_announced_base_setters_and_quoted_boundary() {
+    for raw in [SQUARE_UP, BIOMASS_MUTATION, MIRROR_ENTITY] {
+        assert!(
+            definition_cells(&lowered(raw))
+                .unwrap()
+                .contains(&Cell::SetCharacteristics)
+        );
+    }
+    assert!(matches!(
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, VEDALKEN_HUMILIATOR),
+        mtg_compiler::CompileResult::Unsupported { reason, .. }
+            if reason.contains("verb:lose-abilities")
+    ));
+    assert!(matches!(
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, GRIM_CAPTAINS_LOCKER),
+        mtg_compiler::CompileResult::Unsupported { reason, .. }
+            if reason.contains("operand:granted_ability:quoted")
+    ));
+}
+
+#[test]
+fn lane4_later_base_setter_keeps_the_locked_pump() {
+    let mut g = with(
+        board(&[GLORIOUS_CHARGE, MIRROR_ENTITY, LEAP]),
+        &[
+            ("Glorious Charge", 0, true),
+            ("Mirror Entity", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 0, true),
+            ("Leap", 0, true),
+            ("Grizzly Bears", 1, false),
+            ("Plains", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Island", 0, false),
+        ],
+    );
+    let bears = object(&g, 2);
+    cast_on(&mut g, 0, &[], &[6, 7]);
+    assert_eq!(g.characteristics(bears).unwrap().power, Some(3.into()));
+    cast_on(&mut g, 3, &[], &[8, 9]);
+    let entrant = object(&g, 3);
+    assert_eq!(g.characteristics(entrant).unwrap().power, Some(2.into()));
+
+    let entity = object(&g, 1);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: entity,
+            ability: 0,
+        },
+    );
+    Driver::answer(&mut g, u64::MAX, Answer::Number { value: 3.into() });
+    Driver::pay(&mut g, &[10, 11, 12]);
+    settle(&mut g, &[]);
+    assert_eq!(g.characteristics(bears).unwrap().power, Some(4.into()));
+    assert_eq!(g.characteristics(entrant).unwrap().power, Some(3.into()));
+    assert!(g.characteristics(bears).unwrap().all_creature_types);
+    assert!(g.characteristics(entrant).unwrap().all_creature_types);
+
+    cast_on(&mut g, 4, &[target(bears)], &[13]);
+    assert!(keywords(&g, bears).contains(&KeywordAbility::Flying));
+    let block = blockers(&mut g, &[bears]);
+    assert!(!may_block(&block, object(&g, 5), bears));
+    g.respond(block.player, block.id, block.block(vec![]))
+        .unwrap();
+    next_turn(&mut g);
+    assert_eq!(g.characteristics(bears).unwrap().power, Some(2.into()));
+    assert!(!g.characteristics(bears).unwrap().all_creature_types);
+    assert!(!keywords(&g, bears).contains(&KeywordAbility::Flying));
+    checked(&g);
+}
+
+#[test]
+fn lane4_characteristics_expire_at_the_creators_next_turn() {
+    let mut g = with(
+        board(&[SYLVAN_AWAKENING]),
+        &[
+            ("Sylvan Awakening", 0, true),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, true),
+        ],
+    );
+    cast_on(&mut g, 0, &[], &[1, 2, 3]);
+    let land = object(&g, 1);
+    assert_eq!(g.characteristics(land).unwrap().power, Some(2.into()));
+    assert!(keywords(&g, land).contains(&KeywordAbility::Reach));
+    let late = object(&g, 4);
+    Driver::action(&mut g, Action::PlayLand { object: late });
+    settle(&mut g, &[]);
+    assert!(
+        !g.characteristics(object(&g, 4))
+            .unwrap()
+            .has_type(CardKind::Creature)
+    );
+    for seat in 1..4 {
+        next_turn(&mut g);
+        assert_eq!(g.state.rules.turn_owner, PlayerId(seat));
+        assert_eq!(g.characteristics(land).unwrap().power, Some(2.into()));
+        checked(&g);
+    }
+    next_turn(&mut g);
+    assert_eq!(g.state.rules.turn_owner, PlayerId(0));
+    assert!(
+        !g.characteristics(land)
+            .unwrap()
+            .has_type(CardKind::Creature)
+    );
+    assert!(!keywords(&g, land).contains(&KeywordAbility::Reach));
+    checked(&g);
+}
+
+#[test]
+fn lane4_characteristics_end_when_the_exact_source_leaves() {
+    let mut g = with(
+        board(&[SKILLED_ANIMATOR, DARKSTEEL_BRUTE]),
+        &[
+            ("Skilled Animator", 0, true),
+            ("Darksteel Brute", 0, false),
+            ("Lightning Bolt", 0, true),
+            ("Island", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Mountain", 0, false),
+        ],
+    );
+    let artifact = object(&g, 1);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[3, 4, 5]);
+    settle(&mut g, &[target(artifact)]);
+    assert_eq!(g.characteristics(artifact).unwrap().power, Some(5.into()));
+    let animator = object(&g, 0);
+    cast_on(&mut g, 2, &[target(animator)], &[6]);
+    assert!(
+        !g.characteristics(artifact)
+            .unwrap()
+            .has_type(CardKind::Creature)
+    );
+    checked(&g);
+}
+
+#[test]
+fn lane4_land_allowance_preserves_main_phase_limits_and_expires() {
+    let mut g = with(
+        board(&[EXPLORE]).seats(2),
+        &[
+            ("Explore", 0, true),
+            ("Forest", 0, true),
+            ("Forest", 0, true),
+            ("Forest", 0, true),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+        ],
+    );
+    let first = object(&g, 1);
+    Driver::action(&mut g, Action::PlayLand { object: first });
+    settle(&mut g, &[]);
+    let extra = object(&g, 2);
+    let extra_land = Candidate::Action {
+        action: Action::PlayLand { object: extra },
+    };
+    assert!(
+        !Driver::request(&mut g, u64::MAX)
+            .candidates
+            .contains(&extra_land)
+    );
+    cast_on(&mut g, 0, &[], &[4, 5]);
+    assert!(
+        Driver::request(&mut g, u64::MAX)
+            .candidates
+            .contains(&extra_land)
+    );
+    Driver::action(&mut g, Action::PlayLand { object: extra });
+    settle(&mut g, &[]);
+    let third = object(&g, 3);
+    assert!(
+        !Driver::request(&mut g, u64::MAX)
+            .candidates
+            .contains(&Candidate::Action {
+                action: Action::PlayLand { object: third }
+            },)
+    );
+    next_turn(&mut g);
+    assert!(g.state.rules.effects.is_empty());
+    checked(&g);
 }
 
 fn next_turn(g: &mut Game) {

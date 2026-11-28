@@ -139,6 +139,16 @@ impl RulesTxn {
             .effects
             .iter()
             .filter_map(|effect| {
+                if matches!(
+                    effect.kind,
+                    ResolvedEffectKind::SetCharacteristics {
+                        until: mtg_contracts::kir::Until::SourceLeaves,
+                        ..
+                    }
+                ) && !self.control_source_remains(effect.origin.source)
+                {
+                    return Some(effect.id);
+                }
                 let ResolvedEffectKind::GainControl {
                     targets,
                     controller,

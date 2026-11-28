@@ -282,9 +282,9 @@ impl RulesTxn {
                 } if targets.contains(&object) && on_battlefield => {
                     rows.push((order, Row::Grant(keywords)));
                 }
-                ResolvedEffectKind::SetCharacteristics { targets, values }
-                    if targets.contains(&object) && on_battlefield =>
-                {
+                ResolvedEffectKind::SetCharacteristics {
+                    targets, values, ..
+                } if targets.contains(&object) && on_battlefield => {
                     rows.push((order, Row::Grant(&values.keywords)));
                 }
                 _ => {}

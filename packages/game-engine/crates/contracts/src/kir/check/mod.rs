@@ -1004,6 +1004,10 @@ impl Walk<'_, '_> {
                 }
                 self.pred(filter)
             }
+            Verb::AdditionalLandPlays { player, amount } => {
+                self.player(player)?;
+                self.amount(amount)
+            }
             Verb::AddMana { player, mana } => {
                 self.player(player)?;
                 match mana {
@@ -1031,7 +1035,13 @@ impl Walk<'_, '_> {
                 self.set(what)?;
                 self.player(controller)
             }
-            Verb::SetCharacteristics { what, .. } => self.set(what),
+            Verb::SetCharacteristics { what, values, .. } => {
+                self.set(what)?;
+                if let Some(amount) = &values.base_from {
+                    self.amount(amount)?;
+                }
+                Ok(())
+            }
             Verb::Attach { what, to } => {
                 self.expect(what, &[RefKind::Object], "attachment")?;
                 self.expect(to, &[RefKind::Object], "attachment host")
@@ -1643,7 +1653,8 @@ impl Walk<'_, '_> {
             | Verb::RestrictCombat { .. }
             | Verb::PreventDamage { .. }
             | Verb::GainControl { .. }
-            | Verb::SetCharacteristics { .. } => {
+            | Verb::SetCharacteristics { .. }
+            | Verb::AdditionalLandPlays { .. } => {
                 unaudited("nested leaf needs persistent provenance")
             }
             Verb::Fight { .. }
@@ -1779,7 +1790,8 @@ impl Walk<'_, '_> {
             | Verb::Sacrifice { .. }
             | Verb::Mill { .. }
             | Verb::Discard { .. }
-            | Verb::CreateTokens { .. } => self.audit_evaluated(verb),
+            | Verb::CreateTokens { .. }
+            | Verb::AdditionalLandPlays { .. } => self.audit_evaluated(verb),
             Verb::Move { .. } if verb.is_evaluated() => self.audit_evaluated(verb),
             Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
             Verb::Fight { first, second } => self.audit_fight(first, second),
@@ -1994,8 +2006,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::GainControl { .. } => {
             out.insert(Capability::ResolvedControlV1);
         }
-        Verb::SetCharacteristics { .. } => {
+        Verb::SetCharacteristics { values, .. } => {
             out.insert(Capability::ResolvedCharacteristicsV1);
+            modify::grant_capabilities(&values.keywords, out);
         }
         Verb::RestrictCombat { .. } => {
             out.insert(Capability::TemporaryCombatProhibitionV1);
@@ -2059,6 +2072,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::Scry { .. }
         | Verb::Surveil { .. }
         | Verb::AddMana { .. }
+        | Verb::AdditionalLandPlays { .. }
         | Verb::Search { .. }
         | Verb::CopyStackObject { .. }
         | Verb::Attach { .. }

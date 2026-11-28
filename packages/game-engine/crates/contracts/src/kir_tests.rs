@@ -569,8 +569,8 @@ fn permanent_source_modifications_require_an_executable_context() {
     assert!(check(&grant(KeywordAbility::Flying), &triggered).is_err());
     assert!(check(&grant(KeywordAbility::Flying), &spell(&[])).is_err());
     assert!(check(&grant(KeywordAbility::Menace), &activated).is_ok());
+    assert!(check(&grant(KeywordAbility::Shroud), &activated).is_ok());
     for keyword in [
-        KeywordAbility::Shroud,
         KeywordAbility::Defender,
         KeywordAbility::ProtectionFromEachColor,
     ] {

@@ -256,18 +256,9 @@ object's timestamp; resolved effects, entry haste grants and counter stacks keep
 their own creation or latest placement time. Dependencies override timestamp
 order (CR 613.8).
 
-Battlefield static abilities use KIR scopes, predicates, conditions and
-characteristic changes; the first applicable layer selects recipients for every
-change of the effect (CR 611.3, 613.6). Layer 4 adds artifact and enchantment
-types or named creature subtypes; layer 5 sets colors; layer 6 grants supported
-keywords, including basic landwalk; layer 7b sets base power and toughness;
-layer 7c applies signed modifiers, including anthems filtered by live
-controller or subtype, and counters (CR 613.4c). An “other” filter excludes the
-source. Layer-4 creature-subtype filters and layer-5 color filters reject.
-Additive creature subtypes can read Creature membership after a resolving
-animation grants it (CR 613.8). Ordered setters apply by source or creation
-timestamp (CR 613.7). Granted triggered abilities stay fenced at the observer
-boundary (`EffectiveTriggerAbility` has only `Intrinsic` and `Followup`) until
+[Battlefield layers](../packages/game-engine/crates/core/src/engine/ability_layers.rs)
+own static applicability and the interaction with resolved changes
+(CR 611.3, 613.6–8). Granted triggers require the observer work in
 [Stage 4](game-engine-rework.md#carried-forward-from-the-first-audits).
 
 Vehicles retain printed power and toughness off the battlefield (CR 208.3) and
@@ -477,22 +468,9 @@ the stack and battlefield or without morph.
 
 ### Temporary keyword and set families
 
-A temporary effect needs a checked KIR operation and runtime support for its
-exact target, duration and modifier. Grants and settled effects follow creation
-order, expire at cleanup and affect only their captured incarnations (CR 400.7,
-514.2, 611.2c).
+The [resolving effects evaluator](../packages/game-engine/crates/core/src/engine/kir/exec/continuous.rs)
+owns checked captures, ordered characteristic changes and effect expiry.
 
-- `SetCharacteristics` captures a battlefield target, the exact source or a
-  matching set under one timestamp. Animation adds creature, optionally
-  artifact, keeping previous types; fixed creature subtypes are added, or
-  replace only creature subtypes where printed. It can also set colors, grant
-  keywords and set base power and toughness, each stat's setters competing by
-  timestamp. Counters persist after animation expires (CR 122.2).
-- Signed pumps take fixed deltas or signed announced X, read at resolution, on
-  one announced creature or an activated ability's source (CR 107.3, 611.2d).
-  Until-end-of-turn grants add supported keywords to one announced creature,
-  the source or a captured set. Copy effects, ability removal, chosen
-  characteristics and computed pump amounts reject.
 - `RestrictCombat` is a rules effect, not a characteristic change (CR 613.11).
   "Can't attack", "can't block", "can't attack or block" and "can't be blocked"
   this turn bind one announced creature; "can't block" can also name all

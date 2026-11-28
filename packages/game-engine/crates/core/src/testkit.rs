@@ -247,13 +247,6 @@ pub trait GameTestkit {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String>;
-    fn execute_effect_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String>;
-    fn execute_wipes_instruction(&mut self, frame: Resolving, i: Instruction)
-    -> Result<(), String>;
     fn finish_committed_player_losses(&mut self, batch: &CommittedBatch) -> Result<bool, String>;
     fn trigger_payload_charge(&self) -> usize;
     fn graveyard_target_legal(
@@ -804,20 +797,6 @@ impl GameTestkit for Game {
     ) -> Result<(), String> {
         let Instruction::Kernel { node, source_block } = instruction;
         RulesTxn::execute_kernel(self, frame, node, source_block)
-    }
-    fn execute_effect_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String> {
-        RulesTxn::execute_effect_instruction(self, frame, instruction)
-    }
-    fn execute_wipes_instruction(
-        &mut self,
-        frame: Resolving,
-        i: Instruction,
-    ) -> Result<(), String> {
-        RulesTxn::execute_wipes_instruction(self, frame, i)
     }
     fn finish_committed_player_losses(&mut self, batch: &CommittedBatch) -> Result<bool, String> {
         RulesTxn::finish_committed_player_losses(self, batch)
