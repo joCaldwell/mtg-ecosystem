@@ -147,8 +147,15 @@ impl RulesTxn {
                     })
                     .map(move |o| (owner, *o))
             })
-            .filter(|(owner, _)| self.is_live(*owner))
+            .filter(|(owner, object)| self.commander_present(*owner, *object))
             .collect()
+    }
+
+    /// CR 400.7, 800.4a, 903.9b: a commander's owner is asked only while
+    /// that owner remains in the game and the incarnation the move read is
+    /// still current.
+    fn commander_present(&self, owner: PlayerId, object: ObjectId) -> bool {
+        self.is_live(owner) && self.current(object).is_ok_and(|o| o.id == object)
     }
 
     /// The members that enter under `player`'s own entry questions: the
@@ -255,7 +262,7 @@ impl RulesTxn {
             let Some(Verb::Move { to, .. }) = self.node_at(task)?.0.verb() else {
                 return Err("missing admitted move".into());
             };
-            if !self.is_live(owner) || !self.current(object).is_ok_and(|o| o.id == object) {
+            if !self.commander_present(owner, object) {
                 return Ok(None);
             }
             let destination = self.move_zone(object, to)?;
@@ -307,7 +314,7 @@ impl RulesTxn {
             remaining.remove(0);
             // CR 800.4a: a departed owner's cards have left the game.
             while let Some(&(owner, object)) = remaining.first() {
-                if self.is_live(owner) && self.current(object).is_ok_and(|o| o.id == object) {
+                if self.commander_present(owner, object) {
                     break;
                 }
                 remaining.remove(0);
@@ -621,15 +628,11 @@ impl RulesTxn {
         {
             return Err("invalid move progress".into());
         }
-        // CR 608.2c, 903.9b: the progress holds every member the step still
-        // reads (a suspension only loses members, by concession), and each
-        // commander among them bound for a hand or library is pending or
-        // already answered.
-        if let Resolved::Present(members) = self.move_members(task, what)?
-            && members.iter().any(|member| !objects.contains(member))
-        {
-            return Err("move progress omits a member".into());
-        }
+        // CR 608.2c, 903.9b: the members were fixed as the step began and
+        // are not read again; a departure (CR 800.4a) can end effects that
+        // excluded a permanent, so the set's current matches may differ.
+        // Each commander still present among them bound for a hand or
+        // library is pending or already answered.
         if self.commander_moves(objects, to).iter().any(|(_, object)| {
             !remaining.iter().any(|(_, pending)| pending == object)
                 && !choices.iter().any(|(answered, _)| answered == object)

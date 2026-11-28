@@ -1074,6 +1074,67 @@ fn an_optional_move_of_a_departed_target_offers_no_choice() {
     }
 }
 
+/// CR 608.2c, 800.4a, 903.9b: a suspended set move holds the members it
+/// read as the step began. A departure can end the effects that kept a
+/// permanent out of a battlefield set (an Aura making a creature a land),
+/// read. Such progress decodes under the state invariants (the checks
+/// restore runs before its replay proof, which a hand-built state cannot
+/// pass), and only its own members move.
+#[test]
+fn a_suspended_set_move_restores_when_its_set_would_now_differ() {
+    let node = Node::Do(Verb::Move {
+        what: SetExpr::Matching {
+            zone: ZoneExpr::Battlefield,
+            filter: Pred::creatures(),
+        },
+        to: mtg_contracts::kir::Destination::OwnerHand,
+    });
+    let prepared = edict_with_kernel(node, TargetDomain::OpponentPlayer);
+    let mut game = super::formats_tests::cast_edict(prepared);
+    // Player 1's commander, Isamaru, waits on its owner's choice.
+    assert!(matches!(
+        next_reason(&mut game),
+        Reason::CommanderReturn { .. }
+    ));
+    // Stand in for that departure: one Bears, still a creature, is not
+    // among the frozen members.
+    let mut snapshot: serde_json::Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    let stage = &mut snapshot["state"]["frame"]["task"]["stage"];
+    assert_eq!(stage["progress"], "moves");
+    let bears = serde_json::to_value(game.object_id(CardId(1)).unwrap()).unwrap();
+    let objects = stage["objects"].as_array_mut().unwrap();
+    let read = objects.len();
+    objects.retain(|object| *object != bears);
+    assert_eq!(objects.len() + 1, read);
+    snapshot["state_sha256"] = mtg_contracts::digest(&snapshot["state"])
+        .unwrap()
+        .into();
+    let (mut restored, _) = Game::read_snapshot(
+        game.prepared.as_ref().clone(),
+        &serde_json::to_string(&snapshot).unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        next_reason(&mut restored),
+        Reason::CommanderReturn { .. }
+    ));
+    let answer = restored.next_test_decision().select(Candidate::Flag {
+        flag: Flag::CommandZone,
+    });
+    let Advance::AwaitingDecision(request) = restored.advance(Budget::unlimited()) else {
+        panic!("expected the commander choice")
+    };
+    restored
+        .respond(request.player, request.id, answer)
+        .unwrap();
+    assert_eq!(next_reason(&mut restored), Reason::Priority);
+    restored.validate_state().unwrap();
+    let zone = |card| restored.state.rules.objects[&CardId(card)].zone;
+    assert_eq!(zone(0), Zone::Command { owner: PlayerId(1) });
+    assert_eq!(zone(1), Zone::Battlefield);
+    assert_eq!(zone(5), Zone::Hand { owner: PlayerId(1) });
+}
+
 fn each_opponent_gains(amount: i64) -> Node {
     Node::ForEach {
         var: 5,
