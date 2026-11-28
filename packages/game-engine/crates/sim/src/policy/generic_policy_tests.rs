@@ -117,6 +117,183 @@ fn observation(view: PermittedView) -> Observation {
         view,
     }
 }
+
+macro_rules! entry_record {
+    ($id:literal) => {
+        include_str!(concat!(
+            "../../../../tests/fixtures/phase1-r5/",
+            $id,
+            ".json"
+        ))
+    };
+}
+
+fn entry_catalog(records: &[&str]) -> Catalog {
+    let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+    for record in records {
+        let lowered = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r5.json"),
+            record,
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } = lowered else {
+            panic!("entry choice fixture failed to lower: {lowered:?}");
+        };
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+}
+
+fn entry_observation(
+    catalog: &Catalog,
+    source: &str,
+    candidates: Vec<Candidate<Viewer>>,
+) -> Observation {
+    let mut view = board::view();
+    let owner = view.viewer;
+    let card = board::card(catalog, source, owner.0, Zone::Hand { owner });
+    let object = card.handle.clone();
+    view.objects.push(card);
+    let mut decision = pick_fixture(
+        owner,
+        Reason::ReplacementOrder {
+            subject: Some(object.clone()),
+        },
+        candidates,
+        vec![mtg_core::SlotRole::Choice],
+        vec![],
+    );
+    let Shape::Pick { slots, .. } = &mut decision.shape else {
+        unreachable!()
+    };
+    slots[0].subject = Some(decision.candidates.len() as u32);
+    decision.candidates.push(Candidate::Object { object });
+    let mut observation = observation(view);
+    observation.decision = Some(decision);
+    observation
+}
+
+fn entry_pick(catalog: &Catalog, observation: &Observation, deck: &[&str]) -> Candidate<Viewer> {
+    let decision = observation.decision.as_ref().unwrap();
+    let Shape::Pick { slots, .. } = &decision.shape else {
+        unreachable!()
+    };
+    let own_deck = deck.iter().map(|name| {
+        catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == *name)
+            .unwrap()
+            .oracle_id
+            .as_str()
+    });
+    let pick = crate::policy::entry_choice::pick(
+        catalog,
+        &observation.view,
+        decision,
+        &slots[0],
+        own_deck,
+    )
+    .expect("entry choice policy handles the offered values");
+    decision.candidate(pick).unwrap().clone()
+}
+
+fn creature_type(name: &str) -> Candidate<Viewer> {
+    Candidate::CreatureType {
+        kind: kir::CreatureType::from_name(name).unwrap(),
+    }
+}
+
+#[test]
+fn entry_choice_tribal_lands_prefer_their_own_decks_goblins() {
+    let catalog = entry_catalog(&[
+        entry_record!("584b15f2-6ae9-413a-8b8d-9244dbea4878"),
+        entry_record!("79ba18fd-f184-43c1-86df-56ee18ce806c"),
+        entry_record!("50608184-90d3-43d2-a221-deb186c78323"),
+        entry_record!("343ecf2f-0bbc-4840-8fb3-f5f61b26e76f"),
+    ]);
+    for source in ["Unclaimed Territory", "Secluded Courtyard"] {
+        let mut candidates: Vec<_> = kir::CreatureType::all()
+            .map(|kind| Candidate::CreatureType { kind })
+            .collect();
+        for deck in [
+            ["Goblin Piker", "Swab Goblin", "Elvish Visionary"],
+            ["Elvish Visionary", "Swab Goblin", "Goblin Piker"],
+        ] {
+            let observation = entry_observation(&catalog, source, candidates.clone());
+            assert_eq!(
+                entry_pick(&catalog, &observation, &deck),
+                creature_type("Goblin")
+            );
+            assert_eq!(
+                entry_pick(&catalog, &observation, &["Goblin Piker"]),
+                creature_type("Goblin")
+            );
+            candidates.reverse();
+        }
+    }
+}
+
+#[test]
+fn entry_choice_engineered_plague_prefers_visible_opponents() {
+    let catalog = entry_catalog(&[
+        entry_record!("dc8210b4-8e17-4156-994b-e95e215e3e34"),
+        entry_record!("50608184-90d3-43d2-a221-deb186c78323"),
+    ]);
+    let mut observation = entry_observation(
+        &catalog,
+        "Engineered Plague",
+        vec![
+            creature_type("Goblin"),
+            creature_type("Bear"),
+            creature_type("Elf"),
+        ],
+    );
+    let deck = ["Goblin Piker", "Grizzly Bears"];
+    assert_eq!(
+        entry_pick(&catalog, &observation, &deck),
+        creature_type("Elf")
+    );
+
+    let bear = board::card(&catalog, "Grizzly Bears", 0, Zone::Battlefield);
+    let mut phased = board::card(&catalog, "Goblin Piker", 0, Zone::Battlefield);
+    phased.phased_out = true;
+    let exiled = board::card(&catalog, "Goblin Piker", 1, Zone::Exile);
+    observation.view.objects.extend([bear, phased, exiled]);
+    assert_eq!(
+        entry_pick(&catalog, &observation, &deck),
+        creature_type("Bear")
+    );
+    let decision = observation.decision.as_ref().unwrap();
+    assert_eq!(
+        strategy(&catalog).choose(&observation).unwrap(),
+        decision.pick_one(&creature_type("Bear")).unwrap(),
+    );
+}
+
+#[test]
+fn entry_choice_mono_green_deck_names_green() {
+    let catalog = entry_catalog(&[entry_record!("716632dd-2947-4641-a1db-50e0a2b0b4e8")]);
+    let observation = entry_observation(
+        &catalog,
+        "Hall of Triumph",
+        [Color::W, Color::U, Color::B, Color::R, Color::G]
+            .into_iter()
+            .map(|color| Candidate::Color { color })
+            .collect(),
+    );
+    assert_eq!(
+        entry_pick(
+            &catalog,
+            &observation,
+            &["Grizzly Bears", "Elvish Visionary", "Forest"]
+        ),
+        Candidate::Color { color: Color::G },
+    );
+}
+
 fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = board::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {

@@ -6,6 +6,7 @@ use mtg_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod entry_choice;
 mod generic_policy;
 mod mana_policy;
 use crate::mana_spend::{payment, spend};
@@ -408,11 +409,14 @@ impl Strategy<'_> {
                         })
                 };
                 let slot = slots.first().ok_or("missing replacement order slot")?;
-                let pick = slot
-                    .allowed
-                    .iter()
-                    .copied()
-                    .find(adds)
+                // An acting seat knows its original deck roster.
+                let own_deck = game
+                    .into_iter()
+                    .flat_map(|game| &game.config().cards)
+                    .filter(|card| card.owner == v.viewer)
+                    .map(|card| card.oracle_id.as_str());
+                let pick = entry_choice::pick(self.catalog, v, d, slot, own_deck)
+                    .or_else(|| slot.allowed.iter().copied().find(adds))
                     .or_else(|| slot.allowed.first().copied())
                     .ok_or("empty replacement order")?;
                 Answer::Pick {
