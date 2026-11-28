@@ -10,9 +10,10 @@ resolution in the archive, over every lowered definition, and exits 1 on
 any unexplained disagreement. It also compares each baseline definition's
 Kernel IR with the candidate's and lists every change for review.
 
-For D3 source-authority choices, join each traced occurrence to the original
-binder graph as well as the historical projection. A missing, additional, or
-different occurrence stops the sweep.
+For D3 source-authority choices, join each traced selection (family, block
+and its block-relative path, kind and slot/selection/domain or cardinality)
+to every original binder reference and projection in the claimed block. A
+missing, additional, or different occurrence stops the sweep.
 
 Explained equivalence: an event object that is the source itself ("when
 this creature enters, it ...") reads the same incarnation the resolution
@@ -182,45 +183,60 @@ def compare_references(archive, trace, unchanged):
 
 
 def source_sites(choice):
-    player = choice['player']
-    match player['kind']:
-        case 'spell-controller':
-            node = {'node': 'runtime-player', 'role': 'spell-controller'}
-            projected = {'ref': 'controller', 'role': 'spell-controller'}
-            rule = '109.5'
-        case 'each-player':
-            node = {'node': 'selection', 'selection': 'evaluate-reference',
-                    'timing': 'resolution', 'cardinality': 'many',
-                    'expression': {'player': 'each-player'}}
-            projected = None
-            rule = '608.2h'
-        case 'target':
-            noun = {'any_player': 'target-player', 'opponent_player': 'target-opponent'}[player['domain']]
-            node = {'node': 'selection', 'selection': 'target',
-                    'timing': 'stack-announcement', 'cardinality': 'one',
-                    'expression': {'player': noun, 'selectionId': player['selection_id']}}
-            projected = {'ref': 'target', 'slot': player['slot']}
-            rule = '601.2c'
-        case _:
-            raise ValueError(f'unknown source authority player {player}')
-    yield choice['step'] + '/who', node, projected, rule
-    if choice['announced_x']:
-        yield (choice['step'] + '/amount', {'node': 'announced-number', 'announcement': 'cast'},
-               {'ref': 'announced-x'}, '107.3a')
+    """Each traced selection with the binder node and projection it must match."""
+    for selection in choice['selections']:
+        kind = selection['kind']
+        match kind:
+            case 'spell-controller':
+                node = {'node': 'runtime-player', 'role': 'spell-controller'}
+                projected = {'ref': 'controller', 'role': 'spell-controller'}
+                rule = '109.5'
+            case 'each-player' | 'each-opponent':
+                node = {'node': 'selection', 'selection': 'evaluate-reference',
+                        'timing': 'resolution', 'cardinality': 'many',
+                        'expression': {'player': kind}}
+                projected = None
+                rule = '608.2h'
+            case 'target':
+                noun = {'any_player': 'target-player', 'opponent_player': 'target-opponent'}[selection['domain']]
+                node = {'node': 'selection', 'selection': 'target',
+                        'timing': 'stack-announcement', 'cardinality': 'one',
+                        'expression': {'player': noun, 'selectionId': selection['selection_id']}}
+                projected = {'ref': 'target', 'slot': selection['slot']}
+                rule = '601.2c'
+            case 'announced-x':
+                node = {'node': 'announced-number', 'announcement': 'cast'}
+                projected = {'ref': 'announced-x'}
+                rule = '107.3a'
+            case 'resolution-cards':
+                # The binder records no random flag; the occurrence is the
+                # recipient's resolution-time selection either way.
+                node = {'node': 'selection', 'selection': 'evaluate-reference',
+                        'timing': 'resolution', 'cardinality': selection['cardinality']}
+                projected = None
+                rule = '701.9b'
+            case _:
+                raise ValueError(f'unknown source authority selection {selection}')
+        yield selection['path'], node, projected, rule
 
 
 def compare_source_choices(archive, trace):
+    """Join every traced selection to the original binder graph and its
+    projection over the whole claimed block: a missing, additional or
+    different occurrence is a divergence."""
     with trace.open() as stream:
         choices = {row['oracle_id']: row['source_choices']
                    for line in stream if (row := json.loads(line)).get('source_choices')}
     records = read_archive(archive, choices.keys()) if choices else {}
     table = []
+    families = Counter()
     for identity, sites in sorted(choices.items()):
         record = records[identity]
         binding = record['binding']
         nodes = {node['id']: node for node in binding['nodes']}
         for site in sites:
-            face, block, step = site['face'], site['block'], site['step']
+            face, block = site['face'], site['block']
+            families[site['family']] += 1
             prefix = f'/faces/{face}/abilities/{block}'
             scope = f'card:{identity}{prefix}#ability'
             projection = record['resolution']['faces'][face]['blocks'][block]['refs']
@@ -229,11 +245,10 @@ def compare_source_choices(archive, trace):
             historical = defaultdict(list)
             projected = defaultdict(list)
             for ref in binding['references']:
-                if ref['path'].startswith(prefix + step + '/'):
+                if ref['path'] == prefix or ref['path'].startswith(prefix + '/'):
                     historical[ref['path'][len(prefix):]].append(ref)
             for ref in projection:
-                if ref['path'].startswith(step + '/'):
-                    projected[ref['path']].append(ref)
+                projected[ref['path']].append(ref)
             for path in sorted(chosen.keys() | historical.keys() | projected.keys()):
                 node, projection_ref, rule = chosen.get(path, (None, None, None))
                 bound = historical[path]
@@ -248,6 +263,7 @@ def compare_source_choices(archive, trace):
                 table.append({
                     'oracle_id': identity,
                     'name': record['source']['name'],
+                    'family': site['family'],
                     'oracle_text': record['faces'][face]['result']['lines'][block]['text'],
                     'path': prefix + path,
                     'rule': rule,
@@ -257,9 +273,15 @@ def compare_source_choices(archive, trace):
                     'projection': legacy,
                     'agrees': agree,
                 })
+    by_family = {}
+    for family in sorted(families):
+        rows = [row for row in table if row['family'] == family]
+        by_family[family] = {'identities': len({row['oracle_id'] for row in rows}), 'sites': len(rows),
+                             'divergences': sum(not row['agrees'] for row in rows)}
     return {'identities': len(choices), 'sites': len(table),
             'historical_bound': sum(ref['binding'] == 'bound' for row in table for ref in row['historical']),
-            'divergences': sum(not row['agrees'] for row in table), 'occurrences': table}
+            'divergences': sum(not row['agrees'] for row in table), 'families': by_family,
+            'occurrences': table}
 
 
 def diff_paths(a, b, path='', out=None, limit=12):

@@ -35,25 +35,54 @@ pub enum Resolved {
     },
 }
 
+/// One whole-card source-authority decision: the registered family and every
+/// selection it made, each at its block-relative AST path.
 #[derive(Serialize)]
 pub(crate) struct SourceChoice {
+    pub family: &'static str,
     pub face: usize,
     pub block: usize,
-    pub step: &'static str,
-    pub player: SourcePlayer,
-    pub announced_x: bool,
+    pub selections: Vec<SourceSelection>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SourceSelection {
+    pub path: String,
+    #[serde(flatten)]
+    pub selection: Selection,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-pub(crate) enum SourcePlayer {
+pub(crate) enum Selection {
+    /// CR 109.5.
     SpellController,
+    /// CR 608.2h: evaluated in APNAP order at resolution.
     EachPlayer,
+    EachOpponent,
+    /// CR 601.2c.
     Target {
         slot: u32,
         selection_id: String,
         domain: TargetDomain,
     },
+    /// CR 107.3a, 601.2b.
+    AnnouncedX,
+    /// CR 608.2h, 701.9b: the recipient, or a random process, chooses the
+    /// cards at resolution.
+    ResolutionCards {
+        cardinality: Cardinality,
+        random: bool,
+    },
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Cardinality {
+    One,
+    Many,
+    /// The announced X may be zero or one.
+    Unknown,
 }
 
 #[derive(Default)]
