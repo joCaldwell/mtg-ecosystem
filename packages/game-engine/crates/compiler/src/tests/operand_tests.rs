@@ -524,6 +524,29 @@ fn entry_reveal_lowers_one_filtered_hand_card_or_rejects() {
     }
 }
 
+#[test]
+fn entry_choice_rejects_a_linked_counters_clause() {
+    let site = StaticSite {
+        quoted: &|_| unreachable!("no quoted ability"),
+    };
+    let mut choice = json!({
+        "static": "as-enters",
+        "what": {"ref": "this", "noun": "artifact"},
+        "effects": [{"steps": [{
+            "effect": "choose-value", "who": {"player": "you"}, "category": "creature-type"
+        }]}]
+    });
+    assert!(lower_static(&choice, &site).is_ok());
+    choice["entersWith"] = json!({
+        "static": "enters-with-counters",
+        "what": {"ref": "this", "noun": "artifact"},
+        "counter": {"type": "fellowship"},
+        "count": {"amount": "fixed", "value": 1}
+    });
+    let failure = lower_static(&choice, &site).expect_err("reject the combined entry ability");
+    assert_eq!(code(failure), "static:entry-choice:with-counters");
+}
+
 /// CR 208.2a, 604.3: a printed star is zero until one self CDA defines the
 /// stat; `N+*` prints the fixed term of that CDA's sum, and a CDA cannot
 /// define a stat printed as a number.

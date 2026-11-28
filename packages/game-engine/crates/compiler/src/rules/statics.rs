@@ -430,7 +430,15 @@ fn lower(
         S::SpellAdditionalCost(_) => return Err(gap("spell-additional-cost")),
         S::AsEnters(x) => {
             use serde_json::json;
-            if !entry_source(&x.what) {
+            let ast::StaticEffectAsEnters {
+                what,
+                effects: _,
+                enters_with: None,
+            } = &**x
+            else {
+                return Err(gap("entry-choice:with-counters"));
+            };
+            if !entry_source(what) {
                 return Err(gap("entry-choice:source"));
             }
             let choose = |category| {
