@@ -463,6 +463,21 @@ impl RulesTxn {
     }
 
     fn count_graveyard(&self, owner: PlayerId, you: PlayerId, filter: &Pred) -> usize {
+        if let Some(last) = &self.state.rules.players[owner.0 as usize].last_known {
+            return last
+                .graveyard
+                .iter()
+                .filter(|facts| {
+                    let card = triggers::Frozen {
+                        facts,
+                        token: false,
+                        live: false,
+                    };
+                    crate::query::matches_zone_pred(&card, you, &ZoneExpr::Graveyards, filter)
+                        .is_yes()
+                })
+                .count();
+        }
         self.state
             .rules
             .objects
@@ -527,9 +542,9 @@ impl RulesTxn {
                         let owner = self.entry(frame.stack_id)?.controller;
                         self.count_graveyard(owner, owner, filter)
                     }
-                    ZoneExpr::Hand { of } if of.is_you() && filter.0.is_empty() => self
-                        .action_hand(self.entry(frame.stack_id)?.controller)
-                        .len(),
+                    ZoneExpr::Hand { of } if of.is_you() && filter.0.is_empty() => {
+                        self.player_hand_count(self.entry(frame.stack_id)?.controller)
+                    }
                     _ => return Err("kernel count set has no audited evaluation".into()),
                 };
                 Ok(Quantity::from(
@@ -564,7 +579,19 @@ impl RulesTxn {
             }
             // CR 700.5: the controller's devotion as the verb reads it.
             Amount::Devotion { player, colors } if player.is_you() => {
-                self.devotion(self.entry(frame.stack_id)?.controller, colors)
+                let player = self.entry(frame.stack_id)?.controller;
+                if let Some(last) = &self.state.rules.players[player.0 as usize].last_known {
+                    let mask = Characteristics::devotion_color_mask(colors.iter().copied());
+                    Ok(Quantity::from(
+                        last.devotion
+                            .iter()
+                            .filter(|(pips, _)| pips & mask != 0)
+                            .map(|(_, count)| i64::from(*count))
+                            .sum::<i64>(),
+                    ))
+                } else {
+                    self.devotion(player, colors)
+                }
             }
             Amount::OtherCastsManaValue { caster } if caster.is_you() => {
                 self.other_casts_mana_value(self.entry(frame.stack_id)?)

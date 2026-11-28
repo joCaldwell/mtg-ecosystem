@@ -193,22 +193,29 @@ impl Characteristics {
 
     /// CR 700.5a: a hybrid symbol contributes at most once.
     pub fn devotion_symbols(&self, colors: &[Color]) -> usize {
+        let mask = Self::devotion_color_mask(colors.iter().copied());
+        self.devotion_symbol_masks()
+            .filter(|pips| pips & mask != 0)
+            .count()
+    }
+
+    pub fn devotion_color_mask(colors: impl IntoIterator<Item = Color>) -> u8 {
+        colors
+            .into_iter()
+            .fold(0, |mask, color| mask | (1 << color as u8))
+    }
+
+    /// Each pip has one mask even if it can be paid with multiple colors.
+    pub fn devotion_symbol_masks(&self) -> impl Iterator<Item = u8> + '_ {
         self.mana_cost
             .colored
             .iter()
-            .filter(|color| colors.contains(color))
-            .count()
-            + self
-                .hybrid_mana
-                .iter()
-                .filter(|symbol| {
-                    symbol
-                        .colors
-                        .iter()
-                        .filter_map(|payment| payment.color())
-                        .any(|color| colors.contains(&color))
-                })
-                .count()
+            .map(|color| 1 << *color as u8)
+            .chain(self.hybrid_mana.iter().map(|symbol| {
+                Self::devotion_color_mask(
+                    symbol.colors.iter().filter_map(|payment| payment.color()),
+                )
+            }))
     }
 
     pub fn has_type(&self, kind: CardKind) -> bool {

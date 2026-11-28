@@ -1191,3 +1191,115 @@ fn lane1_rejects_the_same_operand_when_archive_evidence_is_incomplete() {
         if path == "resolution" && reason == "diagnostic:missing-antecedent"
     ));
 }
+
+#[test]
+fn lane1_target_hand_size_survives_departure_after_discard() {
+    use mtg_contracts::kir::EvaluatedVerb;
+
+    let prepared = board(&[(
+        record!("0d6507b0-c986-49d1-aea3-77b2cf2a7433"),
+        Cell::Evaluated(EvaluatedVerb::Draw),
+    )])
+    .seats(3)
+    .permanent_or_hand("Borrowed Knowledge", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, true)
+    .permanent_or_hand("Forest", 1, 1, true)
+    .permanent_or_hand("Swamp", 1, 1, true)
+    .permanent_or_hand("Island", 1, 1, true)
+    .permanent_or_hand("Mountain", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut game, CardId(0));
+    let modes = Driver::request(&mut game, 1);
+    assert_eq!(modes.reason, Reason::ChooseModes);
+    let first = modes
+        .candidates
+        .iter()
+        .find(|candidate| matches!(candidate, Candidate::Modes { mask: 1, .. }))
+        .unwrap();
+    game.respond(modes.player, modes.id, modes.pick_one(first).unwrap())
+        .unwrap();
+    let target = PlayerId(1);
+    let targets = Driver::request(&mut game, 1);
+    let answer = targets
+        .pick_one(&Candidate::Player { player: target })
+        .unwrap();
+    game.respond(targets.player, targets.id, answer).unwrap();
+    Driver::pay(&mut game, &[5, 6, 7, 8]);
+    let discarded = Zone::Graveyard { owner: PlayerId(0) };
+    for _ in 0..100 {
+        if game.state.rules.objects[&CardId(1)].zone == discarded {
+            break;
+        }
+        match game.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => {}
+            Advance::AwaitingDecision(request) if request.reason == Reason::Priority => {
+                let answer = mtg_witness::temporary::pass(&request);
+                game.respond(request.player, request.id, answer).unwrap();
+            }
+            other => panic!("unexpected discard boundary {other:?}"),
+        }
+    }
+    assert_eq!(game.state.rules.objects[&CardId(1)].zone, discarded);
+    assert_eq!(hand_size(&game, 0), 0);
+    assert_eq!(hand_size(&game, 1), 3);
+    assert_recoverable((&game).into());
+
+    let mut departed = game.fork();
+    departed.concede(target).unwrap();
+    assert!(matches!(
+        departed.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
+    assert_eq!(departed.state.rules.players[1].status, PlayerStatus::Left);
+    assert_eq!(hand_size(&departed, 1), 0);
+    assert_eq!(hand_size(&departed, 0), 0);
+    assert_recoverable((&departed).into());
+
+    for mut branch in [game, departed] {
+        resolve(&mut branch);
+        assert_eq!(hand_size(&branch, 0), 3);
+    }
+}
+
+#[test]
+fn lane1_filtered_graveyard_count_survives_departure_of_resolving_caster() {
+    use mtg_contracts::kir::EvaluatedVerb;
+
+    let mut setup = board(&[(
+        record!("1888b473-e26a-4882-ae18-5a0a6caee410"),
+        Cell::Evaluated(EvaluatedVerb::Damage),
+    )])
+    .seats(3)
+    .permanent_or_hand("Immolating Gyre", 0, 0, true)
+    .card("Unsummon", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
+    .card("Forest", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
+    .card("Unsummon", 1, 1, Zone::Graveyard { owner: PlayerId(1) })
+    .permanent_or_hand("Grizzly Bears", 1, 1, false);
+    for _ in 0..6 {
+        setup = setup.permanent_or_hand("Mountain", 0, 0, false);
+    }
+    let mut game = Game::with_trace(setup.libraries("Forest", 4).prepare(), TraceMode::Detailed);
+    let bear = Driver::object(&game, 4);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[5, 6, 7, 8, 9, 10]);
+
+    // CR 608.2m: once it started resolving, the spell finishes even if it
+    // leaves the stack. CR 800.4i: use the caster's graveyard before departure.
+    advance_until(&mut game, |stage| matches!(stage, Frame::Resolve { .. }));
+    game.concede(PlayerId(0)).unwrap();
+    assert!(matches!(
+        game.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
+    assert_eq!(game.state.rules.players[0].status, PlayerStatus::Left);
+    assert_eq!(game.current(bear).unwrap().marked_damage, 0.into());
+    assert_recoverable((&game).into());
+    resolve(&mut game);
+    assert_eq!(game.current(bear).unwrap().marked_damage, 1.into());
+}

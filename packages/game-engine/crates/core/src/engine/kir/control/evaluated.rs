@@ -185,7 +185,7 @@ impl RulesTxn {
         }
     }
 
-    fn evaluated_players(
+    fn denoted_players(
         &self,
         task: &Task,
         player: &PlayerExpr,
@@ -254,14 +254,42 @@ impl RulesTxn {
             }
             _ => self.control_players(task, player)?,
         };
-        if players.is_empty() {
-            return Ok(Resolved::Present(players));
+        Ok(Resolved::Present(players))
+    }
+
+    fn evaluated_players(
+        &self,
+        task: &Task,
+        player: &PlayerExpr,
+    ) -> Result<Resolved<Vec<PlayerId>>, String> {
+        let mut players = match self.denoted_players(task, player)? {
+            Resolved::Present(players) => players,
+            Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+        };
+        if !players.is_empty() {
+            players.retain(|player| self.is_live(*player));
+            if players.is_empty() {
+                return Ok(Resolved::Absent(AbsentReason::DepartedPlayer));
+            }
         }
-        let players: Vec<_> = players.into_iter().filter(|p| self.is_live(*p)).collect();
-        if players.is_empty() {
-            Ok(Resolved::Absent(AbsentReason::DepartedPlayer))
-        } else {
-            Ok(Resolved::Present(players))
+        Ok(Resolved::Present(players))
+    }
+
+    // CR 608.2b, 800.4i: a reference still denotes a player who was a legal
+    // target at resolution start. Information reads can use departure LKI.
+    fn measured_player(
+        &self,
+        task: &Task,
+        player: &PlayerExpr,
+    ) -> Result<Resolved<PlayerId>, String> {
+        match self.denoted_players(task, player)? {
+            Resolved::Present(players) => {
+                let [player] = players.as_slice() else {
+                    return Err("player measure requires one player".into());
+                };
+                Ok(Resolved::Present(*player))
+            }
+            Resolved::Absent(reason) => Ok(Resolved::Absent(reason)),
         }
     }
 
@@ -413,7 +441,7 @@ impl RulesTxn {
                     if !player.is_you()
                         && !matches!(player, PlayerExpr::EachOpponent | PlayerExpr::EachPlayer) =>
                 {
-                    let players = match self.evaluated_players(task, player)? {
+                    let players = match self.denoted_players(task, player)? {
                         Resolved::Present(players) => players,
                         // CR 608.2b: an illegal target cannot supply
                         // information even when the remaining filter can match.
@@ -486,18 +514,14 @@ impl RulesTxn {
                         filter,
                     },
             } => {
-                let players = match self.evaluated_players(task, of)? {
-                    Resolved::Present(players) => players,
+                let owner = match self.measured_player(task, of)? {
+                    Resolved::Present(owner) => owner,
                     Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
                 };
-                let [owner] = players.as_slice() else {
-                    return Err("zone count requires one player".into());
-                };
                 let count = if matches!(zone, ZoneExpr::Hand { .. }) {
-                    // CR 402.3: only the public hand size can be read.
-                    self.action_hand(*owner).len()
+                    self.player_hand_count(owner)
                 } else {
-                    self.count_graveyard(*owner, self.entry(frame.stack_id)?.controller, filter)
+                    self.count_graveyard(owner, self.entry(frame.stack_id)?.controller, filter)
                 };
                 Quantity::from(i64::try_from(count).map_err(|_| "zone count exceeds object limit")?)
             }
@@ -608,13 +632,15 @@ impl RulesTxn {
                 Quantity::from(self.control_objects(task, set)?.len() as i64)
             }
             Amount::LifeOf { player } => {
-                let Resolved::Present(players) = self.evaluated_players(task, player)? else {
-                    return Ok(Resolved::Absent(AbsentReason::DepartedPlayer));
+                let player = match self.measured_player(task, player)? {
+                    Resolved::Present(player) => &self.state.rules.players[player.0 as usize],
+                    Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
                 };
-                let [player] = players.as_slice() else {
-                    return Err("life measure requires one player".into());
-                };
-                self.state.rules.players[player.0 as usize].life.clone()
+                player
+                    .last_known
+                    .as_ref()
+                    .map_or(&player.life, |last| &last.life)
+                    .clone()
             }
             _ => self.kernel_amount(frame, amount)?,
         };

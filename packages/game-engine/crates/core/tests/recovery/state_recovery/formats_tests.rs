@@ -29,8 +29,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "3339d6f7e34df4b8a3f789a754639f76c924256ddb16442552180ac18c705178",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    146,
-    "91310cdbf94614686eeca19e91a699529d49e7b4783c4eeb331cb9f6ac94b8b5",
+    147,
+    "003538ff1466013060005494faa6d7b9d566ec1bd01987007179299ca67d4657",
 );
 const WORK_PIN: (u32, &str) = (
     70,
@@ -898,6 +898,9 @@ fn suspended_replacement_order() -> [Game; 3] {
             .permanent_or_hand("Grizzly Bears", 0, 0, false)
             .permanent_or_hand("Darksteel Relic", 0, 0, false)
             .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 2, 2, false)
+            .permanent_or_hand("Forest", 2, 2, true)
+            .card("Forest", 2, 2, Zone::Graveyard { owner: PlayerId(2) })
             .prepare(),
         TraceMode::Detailed,
     );

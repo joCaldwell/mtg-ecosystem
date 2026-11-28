@@ -327,12 +327,6 @@ impl RulesTxn {
 
     fn control_amount(&self, task: &Task, amount: &Amount) -> Result<Quantity, String> {
         match amount {
-            Amount::LifeOf { player } => Ok(self.state.rules.players[self
-                .chooser(task, player)?
-                .ok_or("missing kernel life subject")?
-                .0 as usize]
-                .life
-                .clone()),
             Amount::Count { set } => {
                 Ok(Quantity::from(self.control_objects(task, set)?.len() as i64))
             }
