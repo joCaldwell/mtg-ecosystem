@@ -372,6 +372,7 @@ pub fn encode(
             Candidate::Trigger { .. } => (2, -1, -1, 0, 0),
             Candidate::DamageEffect { .. } => (3, -1, -1, 0, 0),
             Candidate::Color { color: c } => (4, -1, -1, color(*c) as i32, 0),
+            Candidate::CreatureType { kind } => (17, -1, -1, i32::from(kind.index()), 0),
             Candidate::ManaBundle { symbols } => {
                 let mut counts = [0i32; 6];
                 for symbol in symbols {

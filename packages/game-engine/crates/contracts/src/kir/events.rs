@@ -450,7 +450,11 @@ fn event_atom(atom: &Atom, depth: usize) -> Result<(), KirError> {
                 true
             }
         }
-        Atom::OwnedBy { .. } | Atom::Attacking | Atom::Blocking => false,
+        Atom::OwnedBy { .. }
+        | Atom::Attacking
+        | Atom::Blocking
+        | Atom::SourceChosenColor {}
+        | Atom::SourceChosenCreatureType {} => false,
     };
     if ok {
         Ok(())

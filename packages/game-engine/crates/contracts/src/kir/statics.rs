@@ -40,9 +40,21 @@ pub enum EntryCondition {
     },
 }
 
+/// CR 614.1c, 614.12: a public value chosen by the entering controller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "choose", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EntryChoiceSpec {
+    Color,
+    CreatureType,
+    Player { opponent: bool },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    ChooseOnEntry {
+        choice: EntryChoiceSpec,
+    },
     EntersTapped,
     PayLifeOrEnterTapped {
         amount: Quantity,
@@ -55,8 +67,12 @@ pub enum StaticEffect {
     EntersTappedIf {
         condition: EntryCondition,
     },
-    EntersWithPlusOneCounters {
+    /// CR 122.6, 614.1c: the placement is part of the modified entry.
+    EntersWithCounters {
+        kind: CounterKind,
         count: Quantity,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        per: Option<SetExpr>,
     },
     Continuous {
         affects: Scope,
@@ -419,7 +435,8 @@ impl StaticEffect {
             Self::PayLifeOrEnterTapped { .. } => Capability::EntryLifePaymentV1,
             Self::RevealOrEnterTapped { .. } => Capability::EntryRevealV1,
             Self::EntersTapped => Capability::EntersTappedV1,
-            Self::EntersWithPlusOneCounters { .. } => Capability::EntryPlusOneCountersV1,
+            Self::ChooseOnEntry { .. } => Capability::EntryChoiceV1,
+            Self::EntersWithCounters { .. } => Capability::EntryCountersV1,
             Self::Rule {
                 rule:
                     StaticRule::CantBeCountered {
@@ -525,6 +542,7 @@ fn predicate_in_layer(filter: &Pred, layer: Layer) -> bool {
         | Atom::Token
         | Atom::NotToken => true,
         Atom::Color { .. } | Atom::NotColor { .. } => layer > Layer::Color,
+        Atom::SourceChosenColor {} | Atom::SourceChosenCreatureType {} => layer > Layer::Ability,
         Atom::ControlledBy { player } | Atom::OwnedBy { player } => player_is_bound(player),
         Atom::ManaValue { value, .. } => value.as_fixed().is_some(),
         Atom::IsNot { object } => *object == Ref::Source,
@@ -594,7 +612,9 @@ fn cda_pred(filter: &Pred, battlefield: bool) -> bool {
         | Atom::Toughness { .. }
         | Atom::Keyword { .. }
         | Atom::NotKeyword { .. }
-        | Atom::Is { .. } => false,
+        | Atom::Is { .. }
+        | Atom::SourceChosenColor {}
+        | Atom::SourceChosenCreatureType {} => false,
     })
 }
 
@@ -700,7 +720,7 @@ fn declaration_pred_valid(filter: &Pred) -> bool {
         Atom::AnyOf { alternatives } => {
             !alternatives.is_empty() && alternatives.iter().all(declaration_pred_valid)
         }
-        Atom::Is { .. } => false,
+        Atom::Is { .. } | Atom::SourceChosenColor {} | Atom::SourceChosenCreatureType {} => false,
     })
 }
 
@@ -728,7 +748,28 @@ fn scope_valid(scope: &Scope, d: &crate::Definition, layer: Layer) -> bool {
             }
         }),
     };
-    bound && scope.filter().is_none_or(|p| predicate_in_layer(p, layer))
+    bound
+        && scope
+            .filter()
+            .is_none_or(|p| predicate_in_layer(p, layer) && choice_predicate_linked(p, d))
+}
+
+fn choice_predicate_linked(pred: &Pred, definition: &crate::Definition) -> bool {
+    pred.0.iter().all(|atom| {
+        let spec = match atom {
+            Atom::SourceChosenColor {} => EntryChoiceSpec::Color,
+            Atom::SourceChosenCreatureType {} => EntryChoiceSpec::CreatureType,
+            Atom::AnyOf { alternatives } => {
+                return alternatives
+                    .iter()
+                    .all(|p| choice_predicate_linked(p, definition));
+            }
+            _ => return true,
+        };
+        definition.static_abilities.iter().any(|ability| {
+            matches!(ability.effect, StaticEffect::ChooseOnEntry { choice } if choice == spec)
+        })
+    })
 }
 
 // CR 613.8: only the Creature term can depend on a layer-4 change.
@@ -933,7 +974,7 @@ pub fn granted_mana_supported(
                 && a.costs.mana.is_none()
                 // CR 107.4e: hybrid symbols are mana costs too.
                 && a.hybrid_mana.is_empty()
-                && a.costs.remove_source_plus_one_counters.is_none()
+                && a.costs.remove_source_counters.is_none()
                 && a.costs
                     .pay_life
                     .as_ref()
@@ -942,6 +983,7 @@ pub fn granted_mana_supported(
                 && a.condition.is_none()
                 && a.riders.is_empty()
                 && a.spend_restriction.is_none()
+                && !matches!(a.production, crate::ManaProduction::SourceChosenColor)
                 && super::tiers::mana_production_supported(&a.production)
         })
 }
@@ -954,6 +996,8 @@ impl crate::StaticAbility {
         let on_battlefield = permanent && self.functioning_zone == Battlefield;
         let invalid = |reason| Err(format!("cell:static:{reason}"));
         match &self.effect {
+            StaticEffect::ChooseOnEntry { .. } if on_battlefield => Ok(()),
+            StaticEffect::ChooseOnEntry { .. } => invalid("entry-choice"),
             StaticEffect::EntersTapped if on_battlefield => Ok(()),
             StaticEffect::EntersTapped => invalid("enters-tapped"),
             StaticEffect::PayLifeOrEnterTapped { amount } => {
@@ -987,11 +1031,17 @@ impl crate::StaticAbility {
                     invalid("conditional-entry-tapped")
                 }
             }
-            StaticEffect::EntersWithPlusOneCounters { count } => {
-                if on_battlefield && *count > Quantity::zero() {
+            StaticEffect::EntersWithCounters { kind, count, per } => {
+                if on_battlefield
+                    && kind.admitted()
+                    && *count > Quantity::zero()
+                    && per.as_ref().is_none_or(|set| {
+                        matches!(set, SetExpr::Matching { .. }) && condition_set(set)
+                    })
+                {
                     Ok(())
                 } else {
-                    invalid("entry-plus-one-counters")
+                    invalid("entry-counters")
                 }
             }
             StaticEffect::Continuous {

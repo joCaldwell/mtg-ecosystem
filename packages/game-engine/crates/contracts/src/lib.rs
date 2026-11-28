@@ -294,7 +294,8 @@ pub enum Capability {
     EntryLifePaymentV1,
     EntryRevealV1,
     ConditionalEntryTappedV1,
-    EntryPlusOneCountersV1,
+    EntryCountersV1,
+    EntryChoiceV1,
 
     TypedNonbasicIntrinsicManaV1,
     FlashV1,
@@ -1291,7 +1292,7 @@ pub enum ActivationCost {
 #[serde(deny_unknown_fields)]
 pub struct PermanentActivationCosts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remove_source_plus_one_counters: Option<Quantity>,
+    pub remove_source_counters: Option<RemoveCounterCost>,
     pub tap: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana: Option<ManaCost>,
@@ -1301,6 +1302,18 @@ pub struct PermanentActivationCosts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]
     pub pay_life: Option<Quantity>,
+}
+/// CR 118.3, 122.1, 602.2b: remove exactly this many counters from the source.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveCounterCost {
+    pub kind: kir::CounterKind,
+    pub amount: Quantity,
+}
+impl RemoveCounterCost {
+    pub(crate) fn valid(&self) -> bool {
+        self.kind.admitted() && self.amount > Quantity::zero()
+    }
 }
 /// CR 106.1, 106.4: the mana one resolving mana ability adds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1320,6 +1333,8 @@ pub enum ManaProduction {
         options: Vec<Vec<Color>>,
     },
     AnyColor,
+    /// CR 607.2d: the linked public color chosen as the source entered.
+    SourceChosenColor,
     CommanderColor,
     /// `amount` mana of one color its controller chooses from `colors` as
     /// the ability resolves (CR 106.1a, 605.3b): "Add {W} or {U}" and "Add
@@ -1338,6 +1353,16 @@ pub enum ManaProduction {
         controller: ManaLandController,
         colors_only: bool,
     },
+}
+impl ManaProduction {
+    pub fn bind_color(&self, chosen: Option<Color>) -> Self {
+        match self {
+            Self::SourceChosenColor => Self::Fixed {
+                symbols: chosen.into_iter().collect(),
+            },
+            production => production.clone(),
+        }
+    }
 }
 /// Whose lands a "could produce" ability inspects, relative to the mana
 /// ability's controller (CR 109.5, 102.3).

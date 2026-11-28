@@ -46,6 +46,9 @@ pub enum Atom {
     NotColor {
         color: Color,
     },
+    /// CR 607.2d: read the source's linked choice in a continuous scope.
+    SourceChosenColor {},
+    SourceChosenCreatureType {},
     /// CR 109.5: controlled by one of the denoted players.
     ControlledBy {
         player: PlayerExpr,

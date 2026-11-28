@@ -136,7 +136,7 @@ impl RulesTxn {
                         || !ability.hybrid_mana.is_empty()
                         || ability.costs.pay_life.is_some()
                         || !ability.riders.is_empty()
-                        || ability.costs.remove_source_plus_one_counters.is_some()
+                        || ability.costs.remove_source_counters.is_some()
                     {
                         continue;
                     }

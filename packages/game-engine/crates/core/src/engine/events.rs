@@ -121,6 +121,8 @@ pub enum EventGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectBefore {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_selection: Option<EntrySelection>,
     /// CR 701.27a: the object's transform count (`Object::transforms`).
     #[serde(default, skip_serializing_if = "state::is_zero_count")]
     pub transforms: u32,
@@ -192,6 +194,7 @@ impl ObjectBefore {
     /// captured and restored here.
     pub(in crate::engine) fn restored_object(&self) -> Object {
         let ObjectBefore {
+            entry_selection,
             transforms,
             face_down,
             keyword_timestamp,
@@ -225,6 +228,7 @@ impl ObjectBefore {
             characteristics: _,
         } = self.clone();
         Object {
+            entry_selection,
             hideaway,
             phased_out,
             attached_to,
@@ -3356,15 +3360,30 @@ impl RulesTxn {
                 if amount.is_negative() || !self.is_live(*player) {
                     return Err("negative mana or departed recipient".into());
                 }
+                if let Some(rule) = restriction {
+                    if *amount == Quantity::zero() || !rule.valid_bucket() {
+                        return Err("invalid restricted mana production".into());
+                    }
+                    let pool = &self.state.rules.players[player.0 as usize].restricted_mana;
+                    if pool.len() == restricted_mana::MAX_RESTRICTED_BUCKETS
+                        && pool
+                            .binary_search_by_key(&(*rule, *color), RestrictedMana::key)
+                            .is_err()
+                    {
+                        return Err(self.capacity_error(
+                            RuleFault::RestrictedManaBucketCapacityExceeded {
+                                capacity: restricted_mana::MAX_RESTRICTED_BUCKETS,
+                                requested: restricted_mana::MAX_RESTRICTED_BUCKETS + 1,
+                            },
+                        ));
+                    }
+                }
                 let p = self
                     .rules_mut()
                     .players
                     .get_mut(player.0 as usize)
                     .ok_or("missing mana player")?;
                 if let Some(restriction) = restriction {
-                    if *amount == Quantity::zero() {
-                        return Err("empty restricted mana production".into());
-                    }
                     restricted_mana::credit(
                         &mut p.restricted_mana,
                         &RestrictedMana {

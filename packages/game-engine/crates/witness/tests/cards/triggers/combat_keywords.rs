@@ -330,7 +330,9 @@ fn myriad_rejects_entry_replacements_by_name() {
     );
     for effect in [
         StaticEffect::EntersTapped,
-        StaticEffect::EntersWithPlusOneCounters {
+        StaticEffect::EntersWithCounters {
+            kind: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+            per: None,
             count: Quantity::from(1),
         },
     ] {
