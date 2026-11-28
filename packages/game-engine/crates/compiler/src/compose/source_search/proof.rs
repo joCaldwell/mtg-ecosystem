@@ -18,10 +18,6 @@ static TOKEN: LazyLock<Regex> = LazyLock::new(|| {
 pub(super) struct Run(u32, u32);
 
 impl Run {
-    pub(super) fn width(self) -> u32 {
-        self.1 - self.0
-    }
-
     pub(super) fn first(self, count: u32) -> Self {
         Self(self.0, self.0 + count)
     }
@@ -285,6 +281,16 @@ impl<'text, 'check, 'block, 'evidence> Proof<'text, 'check, 'block, 'evidence> {
                         && self.commas.get(&fact.tok.0[1]) == Some(&fact.at) =>
                 {
                     Some("/kind")
+                }
+                PrintedFact::Punct(fact)
+                    if fact.role == PrintedFactPunctRole::Other
+                        && spelling(fact.tok.0) == Some("/") =>
+                {
+                    let field = format!("{}/combine", fact.at);
+                    self.meanings
+                        .get_key_value(&field)
+                        .filter(|(_, tokens)| tokens.contains(&fact.tok.0[1]))
+                        .map(|(path, _)| path.as_str())
                 }
                 PrintedFact::Mention(fact) if fact.possessive.is_none() => spelling(fact.tok.0)
                     .is_some_and(|text| text.eq_ignore_ascii_case(fact.form.as_str()))

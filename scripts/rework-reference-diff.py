@@ -202,6 +202,27 @@ def source_sites(choice):
                 node = {'node': 'runtime-player', 'role': 'spell-controller'}
                 projected = {'ref': 'controller', 'role': 'spell-controller'}
                 rule = '109.5'
+            case 'activator' | 'trigger-controller':
+                node = {'node': 'runtime-player', 'role': kind}
+                projected = {'ref': 'controller', 'role': 'ability-controller'}
+                rule = '109.5'
+            case 'source':
+                node = {'node': 'source'}
+                projected = {'ref': 'source'}
+                rule = '201.5'
+            case 'activation-sacrifice':
+                node = {'node': 'selection', 'selection': 'evaluate-reference',
+                        'timing': 'payment', 'cardinality': 'one',
+                        'expression': {'ref': 'filter', 'filter': {'types': ['creature']},
+                                       'count': {'amount': 'fixed', 'value': 1}}}
+                projected = None
+                rule = '602.2b'
+            case 'search-group' | 'search-result':
+                node = {'node': kind, 'expression': selection['expression']}
+                if kind == 'search-result':
+                    node['step'] = selection['step']
+                projected = None
+                rule = '701.23a–b' if kind == 'search-group' else '608.2c'
             case 'each-player' | 'each-opponent':
                 node = {'node': 'selection', 'selection': 'evaluate-reference',
                         'timing': 'resolution', 'cardinality': 'many',
@@ -237,6 +258,31 @@ def source_sites(choice):
             case _:
                 raise ValueError(f'unknown source authority selection {selection}')
         yield selection['path'], node, projected, rule
+
+
+def compare_grouped_search(node, group, bound, target, legacy, path, code, scope):
+    if (not group or group['node'] != 'search-group' or len(bound) != 1
+            or bound[0].get('expression') != node['expression']):
+        return False, None
+    if (bound[0]['binding'] == 'unresolved' and bound[0].get('code') == code
+            and legacy == [{'path': path, 'unresolved': code}]):
+        return True, 'The binder left this occurrence unresolved. Rust proves the one search and its result.'
+    # The legacy binder recognizes color slots in a separate search node.
+    # Its projection still rejects the group and its result at both sites.
+    members = group['expression'].get('members', [])
+    colors = [member['filter'].get('colors', []) for member in members]
+    if not colors or not all(len(color) == 1 for color in colors):
+        return False, None
+    agree = (
+        bound[0]['binding'] == 'bound' and target is not None
+        and target.get('node') == 'distinct-library-search' and target.get('scope') == scope
+        and target.get('chooser') == target.get('libraryOwner') == scope.removesuffix('#ability') + '#you'
+        and target.get('slots') == [color[0] for color in colors]
+        and target.get('allocation') == 'distinct-objects'
+        and target.get('perSlot') == 'zero-or-one' and target.get('cardinality') == 'many'
+        and legacy == [{'path': path, 'unresolved': 'distinct-library-search'}]
+    )
+    return agree, 'Rust executes the distinct color slots the binder recorded but could not project.'
 
 
 def compare_source_choices(archive, trace):
@@ -292,6 +338,16 @@ def compare_source_choices(archive, trace):
                     agree = (link is not None and not bound and not legacy and link.get('scope') == scope
                              and link.get('action') == node['action']
                              and link.get('event') == f'card:{identity}{prefix}{node["step"]}#event')
+                elif kinds.get(path) == 'source':
+                    agree = (len(bound) == 1 and bound[0]['binding'] == 'bound'
+                             and target is not None and target.get('node') == 'source'
+                             and target.get('identity') == identity and legacy == [want_projection])
+                elif kinds.get(path) in {'search-group', 'search-result'}:
+                    group = node if node['node'] == 'search-group' else chosen.get(
+                        node['step'] + '/for', (None, None, None))[0]
+                    code = 'unsupported-scope' if node['node'] == 'search-group' else 'missing-antecedent'
+                    agree, explanation = compare_grouped_search(
+                        node, group, bound, target, legacy, path, code, scope)
                 else:
                     agree = (node is not None and target is not None and bound[0]['binding'] == 'bound'
                              and target.get('scope') == scope

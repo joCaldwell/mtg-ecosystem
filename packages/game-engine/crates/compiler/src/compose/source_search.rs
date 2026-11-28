@@ -26,7 +26,7 @@ pub(super) type Searches = BTreeMap<usize, CheckedSearch>;
 enum Header {
     Spell,
     Activated(Vec<SourceCost>),
-    Enters(Value),
+    Enters,
 }
 
 pub(super) struct CheckedSearch {
@@ -152,6 +152,15 @@ type Gap = String;
 
 fn parse_search(proof: &mut Proof<'_, '_, '_, '_>, card: &Card<'_>) -> Result<CheckedSearch, Gap> {
     let (header, prefix, mut selections) = parse_header(proof, card)?;
+    let controller = match &header {
+        Header::Spell => Selection::SpellController,
+        Header::Activated(_) => Selection::Activator,
+        Header::Enters => Selection::TriggerController,
+    };
+    let traced_controller = |path| SourceSelection {
+        path,
+        selection: controller.clone(),
+    };
     let search_path = "/effects/0/steps/0";
     let verb = proof.take("search", search_path)?;
     proof.mark("/kind", &prefix["kind"], verb)?;
@@ -164,10 +173,10 @@ fn parse_search(proof: &mut Proof<'_, '_, '_, '_>, card: &Card<'_>) -> Result<Ch
     let for_word = proof.take("for", search_path)?;
     proof.mark(&format!("{search_path}/effect"), "search", for_word)?;
     proof.controller(&format!("{search_path}/who/player"))?;
-    selections.push(SourceSelection {
-        path: format!("{search_path}/who"),
-        selection: Selection::SpellController,
-    });
+    selections.extend([
+        traced_controller(format!("{search_path}/who")),
+        traced_controller(format!("{zone}/owner")),
+    ]);
 
     let find_path = format!("{search_path}/for");
     let (group, filter, maximum, find) = if proof.peek("up") {
@@ -177,7 +186,9 @@ fn parse_search(proof: &mut Proof<'_, '_, '_, '_>, card: &Card<'_>) -> Result<Ch
     };
     selections.push(SourceSelection {
         path: find_path,
-        selection: Selection::SearchGroup,
+        selection: Selection::SearchGroup {
+            expression: find.clone(),
+        },
     });
     let search = json!({
         "effect":"search", "who":{"player":"you"},
@@ -200,6 +211,7 @@ fn parse_search(proof: &mut Proof<'_, '_, '_, '_>, card: &Card<'_>) -> Result<Ch
         let verb = proof.take("reveal", &path)?;
         proof.mark(&format!("{path}/effect"), "reveal", verb)?;
         proof.controller(&format!("{path}/who/player"))?;
+        selections.push(traced_controller(format!("{path}/who")));
         let what = found_object(proof, &path, search_path, &mut selections)?;
         tail.push(json!({"effect":"reveal","who":{"player":"you"},"what":what}));
         proof.structure(",", &format!("/effects/{sentence}"))?;
@@ -209,6 +221,7 @@ fn parse_search(proof: &mut Proof<'_, '_, '_, '_>, card: &Card<'_>) -> Result<Ch
     let path = format!("/effects/{sentence}/steps/{current}");
     let put = proof.take("put", &path)?;
     proof.mark(&format!("{path}/effect"), "move-zone", put)?;
+    selections.push(traced_controller(format!("{path}/who")));
     let what = found_object(proof, &path, search_path, &mut selections)?;
     let (destination, to, tapped) = if proof.peek("onto") {
         let phrase = proof.take("onto the battlefield", &path)?;
@@ -236,6 +249,7 @@ fn parse_search(proof: &mut Proof<'_, '_, '_, '_>, card: &Card<'_>) -> Result<Ch
         };
         let phrase = proof.take(&format!("your {zone}"), &path)?;
         proof.mark(&format!("{path}/to/owner"), "your", phrase.first(1))?;
+        selections.push(traced_controller(format!("{path}/to/owner")));
         proof.mark(&format!("{path}/to/zone"), zone, phrase.last(1))?;
         let destination = if zone == "hand" {
             SearchDestination::Hand
@@ -257,6 +271,10 @@ fn parse_search(proof: &mut Proof<'_, '_, '_, '_>, card: &Card<'_>) -> Result<Ch
     proof.controller(&format!("{path}/who/player"))?;
     proof.controller(&format!("{path}/library/owner/player"))?;
     proof.zone_default(&format!("{path}/library/zone"), "library")?;
+    selections.extend([
+        traced_controller(format!("{path}/who")),
+        traced_controller(format!("{path}/library/owner")),
+    ]);
     tail.push(json!({"effect":"shuffle","who":{"player":"you"},"library":{"zone":"library","owner":{"player":"you"}}}));
     proof.period(&format!("/effects/{sentence}"))?;
     let mut expected = prefix;
@@ -288,6 +306,9 @@ fn parse_header(
     }
     if proof.peek("when") {
         let path = "/trigger";
+        if !card.is_self("creature") {
+            return Err(path.to_owned());
+        }
         let head = proof.take("when this creature enters", path)?;
         proof.mark("/trigger/trigger", "enters", head.last(1))?;
         proof.mark("/trigger/what/ref", "this", head.within(1, 1))?;
@@ -296,7 +317,7 @@ fn parse_header(
         proof.clause_comma(path)?;
         let event = json!({"trigger":"enters","what":{"ref":"this","noun":"creature"}});
         return Ok((
-            Header::Enters(event.clone()),
+            Header::Enters,
             json!({"kind":"triggered","trigger":event}),
             vec![SourceSelection {
                 path: "/trigger/what".into(),
@@ -305,6 +326,7 @@ fn parse_header(
         ));
     }
     let mut costs = Vec::new();
+    let mut selections = Vec::new();
     let mut symbols = Vec::new();
     while let Some(symbol) = proof.mana_symbol() {
         symbols.push(symbol.to_ascii_uppercase());
@@ -320,13 +342,17 @@ fn parse_header(
     let path = format!("/costs/{}", costs.len());
     let tap = proof.take("{t}", &path)?;
     proof.mark(&format!("{path}/cost"), "tap-self", tap)?;
+    selections.push(SourceSelection {
+        path: format!("{path}/source"),
+        selection: Selection::Source,
+    });
     costs.push(json!({"cost":"tap-self"}));
     proof.cost_comma(&path)?;
 
     let path = format!("/costs/{}", costs.len());
     let sacrifice = proof.take("sacrifice", &path)?;
     proof.mark(&format!("{path}/cost"), "sacrifice", sacrifice)?;
-    let (what, selections) = if proof.peek("this") {
+    let (what, selection) = if proof.peek("this") {
         let referent = proof.take("this", &path)?;
         let (noun, noun_run) = proof.word(&path)?;
         if !card.is_self(&noun) {
@@ -336,10 +362,10 @@ fn parse_header(
         proof.mark(&format!("{path}/what/noun"), &noun, noun_run)?;
         (
             json!({"ref":"this","noun":noun}),
-            vec![SourceSelection {
+            SourceSelection {
                 path: format!("{path}/what"),
                 selection: Selection::Source,
-            }],
+            },
         )
     } else {
         let article = proof.take("a", &path)?;
@@ -349,13 +375,18 @@ fn parse_header(
         proof.count(&format!("{path}/what/count"), 1, article)?;
         (
             json!({"ref":"filter","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}}),
-            vec![SourceSelection {
+            SourceSelection {
                 path: format!("{path}/what"),
                 selection: Selection::ActivationSacrifice,
-            }],
+            },
         )
     };
     costs.push(json!({"cost":"sacrifice","what":what}));
+    selections.push(selection);
+    selections.extend((0..costs.len()).map(|index| SourceSelection {
+        path: format!("/costs/{index}/payer"),
+        selection: Selection::Activator,
+    }));
     proof.cost_colon(&path)?;
     let terms = serde_json::from_value(json!(costs)).map_err(|_| "/costs".to_owned())?;
     Ok((
@@ -409,7 +440,8 @@ fn separate_slots(
     let mut slots = Vec::new();
     let mut members = Vec::new();
     let start = proof.position();
-    loop {
+    let mut final_separator = None;
+    let combine = loop {
         if members.len() == 8 {
             return Err(path.to_owned());
         }
@@ -419,40 +451,39 @@ fn separate_slots(
         let (filter, pred) = card_filter(proof, &format!("{member}/filter"), "card")?;
         slots.push(pred);
         members.push(json!({"filter":filter,"count":{"amount":"fixed","value":1}}));
-        if proof.peek("and") {
-            let and = if proof.peek_phrase("and/or") {
-                proof.take("and/or", path)?
-            } else {
-                proof.take("and", path)?
-            };
-            let combine = if and.width() == 3 {
-                "any-nonempty"
-            } else {
-                "all"
-            };
-            let member = format!("{path}/members/{}", members.len());
-            let article = proof.either("a", "an", &member)?;
-            proof.count(&format!("{member}/count"), 1, article)?;
-            let (filter, pred) = card_filter(proof, &format!("{member}/filter"), "card")?;
-            slots.push(pred);
-            members.push(json!({"filter":filter,"count":{"amount":"fixed","value":1}}));
-            proof.mark(&format!("{path}/combine"), combine, and)?;
-            let full = proof.since(start);
-            proof.mark(&format!("{path}/ref"), "card-extraction-group", full)?;
-            proof.mark(&format!("{path}/allocation"), "distinct-objects", full)?;
-            let maximum = slots.len() as i64;
-            return Ok((
-                kir::SearchGroup::Separate { slots },
-                Pred(vec![]),
-                maximum,
-                json!({
-                    "ref":"card-extraction-group","combine":combine,
-                    "allocation":"distinct-objects","members":members,
-                }),
-            ));
+        if let Some(combine) = final_separator {
+            break combine;
         }
-        proof.structure(",", path)?;
-    }
+        let comma = proof.peek(",");
+        if comma {
+            proof.structure(",", path)?;
+        }
+        if proof.peek("and") {
+            let (phrase, combine) = if proof.peek_phrase("and/or") {
+                ("and/or", "any-nonempty")
+            } else {
+                ("and", "all")
+            };
+            let run = proof.take(phrase, path)?;
+            proof.mark(&format!("{path}/combine"), combine, run)?;
+            final_separator = Some(combine);
+        } else if !comma {
+            return Err(path.to_owned());
+        }
+    };
+    let full = proof.since(start);
+    proof.mark(&format!("{path}/ref"), "card-extraction-group", full)?;
+    proof.mark(&format!("{path}/allocation"), "distinct-objects", full)?;
+    let maximum = slots.len() as i64;
+    Ok((
+        kir::SearchGroup::Separate { slots },
+        Pred(vec![]),
+        maximum,
+        json!({
+            "ref":"card-extraction-group","combine":combine,
+            "allocation":"distinct-objects","members":members,
+        }),
+    ))
 }
 
 fn card_filter(
@@ -517,6 +548,7 @@ fn found_object(
         path: what,
         selection: Selection::SearchResult {
             step: search_path.to_owned(),
+            expression: object.clone(),
         },
     });
     Ok(object)
@@ -545,7 +577,7 @@ impl CheckedSearch {
                 Context::Spell,
             ),
             Header::Activated(costs) => {
-                let ability = activation(card, &costs, vec![], SpellTiming::Instant, block, line)?;
+                let ability = activation_header(card, &costs, SpellTiming::Instant, line)?;
                 definition.activated.push(ability);
                 labels.activated.push(label);
                 (
@@ -553,9 +585,13 @@ impl CheckedSearch {
                     Context::Activated,
                 )
             }
-            Header::Enters(event) => {
-                let ability = trigger(card, &event, vec![], None, block)?;
-                definition.triggered.push(ability);
+            Header::Enters => {
+                definition.triggered.push(TriggeredAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    condition: TriggerCondition::on(EventPattern::self_enters()),
+                    program: SpellProgram::instructions(SpellTiming::Instant),
+                    modal: None,
+                });
                 labels.triggered.push(label);
                 (
                     &mut definition.triggered.last_mut().unwrap().program,

@@ -5,6 +5,8 @@
 //! Pinned CR 401.2, 608.2d, 608.2h, 701.22a-d, 701.23a-e, 701.24a,
 //! 701.25a-d, 800.4a, 903.9b:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+mod grouped_search;
+
 use mtg_contracts::kir::{Cell, Tiers, definition_cells, definition_tiers};
 use mtg_core::testkit::*;
 

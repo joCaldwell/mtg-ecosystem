@@ -831,6 +831,7 @@ fn a_random_selection_rejects_a_forged_player_choice() {
                 choice: ResolutionChoice::Search {
                     player: PlayerId(0),
                     source_block,
+                    found: vec![],
                 },
             };
             assert!(

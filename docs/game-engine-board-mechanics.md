@@ -133,7 +133,13 @@ object its controller chooses without targeting (CR 303.4f), otherwise stays in
 the library, as does a found instant or sorcery (CR 303.4g, 304.4). Revealed
 hand cards are a public minimum count per owner and Oracle identity, never an
 incarnation (CR 701.23e); a reversed cast restores what its announcement
-consumed. A search can put one found card on top after shuffling the rest
+consumed. A grouped search keeps its found cards private and offers one
+legal addition at a time until the searcher stops or reaches the maximum.
+Every found card in a different-name group has a name and shares none
+with the others (CR 201.2b, 709.4a). A search with several printed quality
+slots can find a card for each slot, assigning flexible matches to any
+eligible slot and using each card at most once (CR 701.23a–b, h).
+A search can put one found card on top after shuffling the rest
 (CR 701.24b); a printed reveal publishes it without a library handle. A
 two-basic split search reveals up to two basic lands, puts one onto the
 battlefield tapped and the other into hand (one found land enters tapped); the

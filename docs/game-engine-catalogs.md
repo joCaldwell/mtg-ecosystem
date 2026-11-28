@@ -150,8 +150,11 @@ Whole-card source authorities register in order in
 [`compose/source_authority.rs`](../packages/game-engine/crates/compiler/src/compose/source_authority.rs);
 composition asks the registry before reading any legacy resolution, and two
 families claiming one card is a registration fault. Each family's module
-rustdoc owns its supported and rejected shapes (currently
-[player actions](../packages/game-engine/crates/compiler/src/compose/source_action.rs)).
+rustdoc owns its supported and rejected shapes. See
+[player actions](../packages/game-engine/crates/compiler/src/compose/source_action.rs)
+and [grouped library searches](../packages/game-engine/crates/compiler/src/compose/source_search.rs).
+An isolated search block can select its own source authority before the
+legacy verdict while sibling blocks keep their own proofs.
 R6 derives every covered run from the recorded node and fact citations and
 records the consumed `printed_sha256` in definition provenance; the exact R5
 sentence remains only as the R5 proof. The trace lists each selection by

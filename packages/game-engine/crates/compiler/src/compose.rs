@@ -413,21 +413,12 @@ fn activation(
     block: usize,
     printed: &str,
 ) -> Result<ActivatedAbility, Failure> {
-    costs::printed(costs, printed)?;
-    let (cost, functioning_zone, hybrid_mana, x_mana_cost) = match costs::exile_source(card, costs)?
-    {
-        Some((cost, zone)) => (cost, zone, vec![], false),
-        None => {
-            let (cost, hybrid, x) = costs::announced(card, costs)?;
-            (cost, FunctioningZone::Battlefield, hybrid, x)
-        }
-    };
+    let mut ability = activation_header(card, costs, timing, printed)?;
     // CR 608.2c: only sacrificing this exact source proves a first pronoun.
-    let first_it_is_self = matches!(cost, ActivationCost::SacrificeSource)
-        || matches!(&cost, ActivationCost::Composite { costs } if costs.sacrifice);
-    let mut program = SpellProgram::instructions(timing);
+    let first_it_is_self = matches!(ability.cost, ActivationCost::SacrificeSource)
+        || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.sacrifice);
     append_effects(
-        &mut program,
+        &mut ability.program,
         parts,
         block,
         &mut BTreeMap::new(),
@@ -437,6 +428,24 @@ fn activation(
         },
         PlayerBinding::Unbound,
     )?;
+    Ok(ability)
+}
+
+fn activation_header(
+    card: &Card<'_>,
+    costs: &[SourceCost],
+    timing: SpellTiming,
+    printed: &str,
+) -> Result<ActivatedAbility, Failure> {
+    costs::printed(costs, printed)?;
+    let (cost, functioning_zone, hybrid_mana, x_mana_cost) = match costs::exile_source(card, costs)?
+    {
+        Some((cost, zone)) => (cost, zone, vec![], false),
+        None => {
+            let (cost, hybrid, x) = costs::announced(card, costs)?;
+            (cost, FunctioningZone::Battlefield, hybrid, x)
+        }
+    };
     Ok(ActivatedAbility {
         x_mana_cost,
         hybrid_mana,
@@ -445,7 +454,7 @@ fn activation(
         functioning_zone,
         restriction: None,
         cost,
-        program,
+        program: SpellProgram::instructions(timing),
     })
 }
 
