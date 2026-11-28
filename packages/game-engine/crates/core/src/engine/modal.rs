@@ -4,6 +4,11 @@
 //! `Frame::ChooseModes`; a triggered ability chooses while it is placed, in
 //! its `Frame::TriggerTargets`, and with no offerable selection it is
 //! removed from the stack (CR 603.3c, 700.2b).
+//! Distinct selections use bitmasks as internal program keys. A declaration
+//! that chooses three modes and permits repeats uses keys from the sorted
+//! lists of printed mode indices. Each occurrence has its own targets and
+//! antecedent scope, and resolves in printed order (CR 700.2d, 608.2c).
+//! The public stack exposes the full index list and its union mask.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::ModalSpell;
@@ -84,6 +89,7 @@ impl RulesTxn {
             .filter(|(mask, _)| legal[*mask])
             .map(|(&mask, _)| Candidate::Modes {
                 mask,
+                chosen_modes: choices[&mask].iter().map(|&index| index as u8).collect(),
                 labels: if mask == 0 {
                     vec!["No modes".into()]
                 } else {
@@ -106,6 +112,24 @@ impl RulesTxn {
             1,
             1,
         )))
+    }
+
+    pub(super) fn announced_mode_indices(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let Some(key) = entry.mode_mask else {
+            return Ok(None);
+        };
+        let modal = self
+            .modal_declaration(entry)?
+            .ok_or("missing modal declaration")?;
+        let mut choices =
+            ModalSpell::choices(modal.labels.len(), modal.min, modal.max, modal.repeat);
+        let indices = choices
+            .remove(&key)
+            .ok_or("missing announced mode selection")?;
+        Ok(Some(indices.into_iter().map(|index| index as u8).collect()))
     }
 
     /// Binds the answered selection to the top occurrence and returns the

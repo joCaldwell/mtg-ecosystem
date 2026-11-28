@@ -175,7 +175,15 @@ impl RulesTxn {
                 }
             }
             Candidate::HybridPayment { payment } => Candidate::HybridPayment { payment },
-            Candidate::Modes { mask, labels } => Candidate::Modes { mask, labels },
+            Candidate::Modes {
+                mask,
+                labels,
+                chosen_modes,
+            } => Candidate::Modes {
+                mask,
+                labels,
+                chosen_modes,
+            },
             Candidate::Flag { flag } => Candidate::Flag { flag },
             Candidate::Action { action } => Candidate::Action {
                 action: match action {

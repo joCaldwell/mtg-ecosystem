@@ -94,8 +94,12 @@ pub enum Candidate<S: Space> {
         mana: ManaCost,
     },
     Modes {
+        /// Selection key within the modal declaration.
         mask: u8,
         labels: Vec<String>,
+        /// Zero-based printed mode indices, with repeats.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        chosen_modes: Vec<u8>,
     },
     HybridPayment {
         payment: HybridPayment,

@@ -383,11 +383,8 @@ targets and instructions (CR 700.2). The frozen R5 resolution is not consulted
 for this choice.
 `scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
 
-A spell that says to choose three modes and permits repeats resolves every
-occurrence in printed mode order (CR 700.2d, 608.2c). Each occurrence announces
-its own targets and has its own antecedent scope. Distinct selections use a
-bitmask. Repeating selections use the ordinal of the sorted mode list, with
-the full list supplied in the decision's labels.
+[Modal announcement and repeated occurrences](../packages/game-engine/crates/core/src/engine/modal.rs)
+own the selection and public projection contract.
 
 **Actual card results.** An unqualified “discarded”, “milled”, “exiled” or
 “returned this way” in a count or condition names the unique earlier direct

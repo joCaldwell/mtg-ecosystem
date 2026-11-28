@@ -6,6 +6,7 @@ use mtg_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod entry_choice;
 mod generic_policy;
 mod mana_policy;
 use crate::mana_spend::{payment, spend};
@@ -312,6 +313,13 @@ impl Strategy<'_> {
     ) -> Result<Answer, String> {
         let v = &o.view;
         let d = o.decision.as_ref().ok_or("missing match decision")?;
+        // An acting seat knows its original deck roster.
+        let own_deck = || {
+            game.into_iter()
+                .flat_map(|game| &game.config().cards)
+                .filter(|card| card.owner == v.viewer)
+                .map(|card| card.oracle_id.as_str())
+        };
         let object = |i: u32| match d.candidate(i)? {
             Candidate::Object { object } => Ok(object.clone()),
             _ => Err("expected object".to_owned()),
@@ -357,7 +365,7 @@ impl Strategy<'_> {
             {
                 flag(d, Flag::Decline)?
             }
-            (Reason::OptionalEffect, _) => flag(
+            (Reason::OptionalEffect | Reason::OptionalResolution { .. }, _) => flag(
                 d,
                 if self.optional_effect(
                     v,
@@ -371,6 +379,12 @@ impl Strategy<'_> {
                     Flag::Decline
                 },
             )?,
+            (Reason::ChooseCreatureType, Shape::Pick { slots, .. }) => {
+                let slot = slots.first().ok_or("missing creature type slot")?;
+                let pick = entry_choice::pick(self.catalog, v, d, slot, own_deck())
+                    .ok_or("no creature type offered")?;
+                d.pick_one(d.candidate(pick)?)?
+            }
             (Reason::MyriadDefender, _) => {
                 let defender = d
                     .candidates
@@ -408,11 +422,8 @@ impl Strategy<'_> {
                         })
                 };
                 let slot = slots.first().ok_or("missing replacement order slot")?;
-                let pick = slot
-                    .allowed
-                    .iter()
-                    .copied()
-                    .find(adds)
+                let pick = entry_choice::pick(self.catalog, v, d, slot, own_deck())
+                    .or_else(|| slot.allowed.iter().copied().find(adds))
                     .or_else(|| slot.allowed.first().copied())
                     .ok_or("empty replacement order")?;
                 Answer::Pick {

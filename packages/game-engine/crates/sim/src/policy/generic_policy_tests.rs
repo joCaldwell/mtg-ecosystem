@@ -121,6 +121,7 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = board::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
         mode_mask: None,
+        chosen_modes: None,
         spell_copy: false,
         flashback: false,
         hybrid_colors: vec![],
@@ -773,6 +774,7 @@ mod activated_permanent_tap_policy_tests {
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
             mode_mask: None,
+            chosen_modes: None,
             spell_copy: false,
             flashback: false,
             hybrid_colors: vec![],
@@ -847,6 +849,7 @@ mod activated_headless_policy_tests {
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
             mode_mask: None,
+            chosen_modes: None,
             spell_copy: false,
             flashback: false,
             hybrid_colors: vec![],
@@ -1085,6 +1088,7 @@ mod temporal_adept_policy_tests {
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
                 mode_mask: None,
+                chosen_modes: None,
                 spell_copy: false,
                 flashback: false,
                 hybrid_colors: vec![],

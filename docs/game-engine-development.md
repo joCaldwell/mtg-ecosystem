@@ -215,7 +215,8 @@ restricted mana or when sources, payments or visible spell-cost reducers make
 funding uncertain. It preserves the original pointers if filtering would empty
 the head. `head` selects pointer (0) or number (1). Pointers 0–127 address
 ordered candidates, 128 ends a slot or ordering, and 129 and 130 finish
-production with undo or keep.
+production with undo or keep. For creature-type decisions spanning several
+pages, 128 advances to the next page and pointers 0–127 address the current page.
 Numbers 0–62 are literal and 63 selects the numeric upper bound, which AnnounceX
 can tighten when resources are fully modeled; otherwise the published maximum
 applies, and an unbounded decision with unknown supply uses the signed 32-bit
@@ -231,8 +232,10 @@ opening observation with the previous episode's reward, done and counters. Info
 columns 0–3 count illegal actions, cast reversals, censor class (0 outcome,
 1 workload limit, 2 engine capacity, 3 tensor capacity) and completed rules
 decisions. Tensor overflow ends the episode with zero reward and a fresh opening
-observation. Numeric features saturate at the signed 32-bit limits. The
-observation wire has no lore-counter or selected-mode field.
+observation. Numeric features saturate at the signed 32-bit limits. Stack
+entity numeric column 22 and mode candidate column 3 encode selected modes in
+three-bit digits, first choice least significant. Digit zero pads the list;
+digit one is the first printed mode. Repeated choices occupy separate digits.
 
 `catalog()` exposes padded 192-token rows, lengths, sixteen numeric features and
 the SHA-256 of the sorted vocabulary encoded as compact JSON. Token IDs start at

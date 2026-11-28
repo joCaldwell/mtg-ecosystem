@@ -1694,12 +1694,40 @@ impl Strategy<'_> {
         })
     }
     pub(super) fn optional_effect(&self, v: &PermittedView, block: Option<u32>) -> bool {
+        fn group_draw_amount(node: &kir::Node) -> Option<u32> {
+            match node {
+                kir::Node::Seq(nodes) => nodes.iter().find_map(group_draw_amount),
+                kir::Node::Optional {
+                    chooser: chooser @ (kir::PlayerExpr::EachPlayer | kir::PlayerExpr::EachOpponent),
+                    node,
+                } => match node.verb()? {
+                    kir::Verb::Draw { player, amount } if player == chooser => {
+                        amount.as_fixed()?.to_u32()
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+
         let Some(s) = v.stack.last() else {
             return false;
         };
         let Some((d, p)) = self.top_program(v) else {
             return false;
         };
+
+        // CR 121.2c, 104.3c: each chooser may take the draw when their own
+        // library can supply it, regardless of who controls the source.
+        if let Some(amount) = p.instructions.iter().find_map(|instruction| {
+            let I::Kernel { node, source_block } = instruction;
+            block
+                .is_none_or(|expected| expected == *source_block)
+                .then(|| group_draw_amount(node))
+                .flatten()
+        }) {
+            return amount as usize <= self.library_count(v);
+        }
 
         // The mana window already plans and spends the exact colored cost.
         // Open it only when it funds our conditional benefit or avoids an
