@@ -6,7 +6,7 @@ owns the pinned environment and per-worktree Cargo lock.
 
 ## Catalog source and commands
 
-The executable source is Archive R5. The full archive stays outside Git;
+Default consumers use Archive R5. The full archives stay outside Git;
 `tests/fixtures/phase1-r5/` holds only the extracted records a manifest, witness
 or compiler test uses. `accepted-archives.json` pins the whole file, header,
 parser and corpus, and each `provenance.json` row pins its exact card line.
@@ -22,7 +22,7 @@ fails closed only through those absent pins and default paths that name R5; a
 consumer explicitly pointed at a candidate file can load it. Oracle parser tests own their pre-R4 records under
 `packages/oracle-parser/test/fixtures/ramos/`.
 
-Schema-5 R6 candidates carry printed evidence and retain the R5 row bytes
+Schema-5 R6 carries printed evidence and retains the R5 row bytes
 projected by the [D0 archive check](oracle_parser.md#ast-archive). The writer
 reports a draft registry entry outside `accepted-archives.json`. Promotion
 requires the Rust evidence and parity checks, measured bulk catalog and index
@@ -78,13 +78,43 @@ manifests, provenance, accepted headers/pins and records, excluding expected IR,
 policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
 
-At R6 promotion, extract the R5 origin's pinned identities with the R6 archive.
-Extraction stores its exact rows under `phase1-r6/` and appends a separate
-origin's record pins to the registry and provenance. Run `verify` on both
-archives before changing fixture manifests. The R5 rows stay available as
-controls. `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM
---archives R5 R6` rehearses this in a scratch copy: it requires one R6 row per
-R5 identity, the same archive line, and the exact R5 bytes plus evidence.
+The promoted R6 cut has an origin under `phase1-r6/`. Both archives verify for
+all R5-origin fixture identities. Each R6 fixture keeps the same archive
+line and adds only `printed` and `printedSha256` to the R5 row. The R5 origin and
+fixture manifests supply the default controls.
+
+### Promote or re-pin R6
+
+After reviewing the candidate's D0 receipt and producer commit, build
+`mtg-sim` from the current checkout and run the promotion script with a new
+scratch directory:
+
+```sh
+sh scripts/engine-env.sh npm run engine:dev -- build -p mtg-sim
+sh scripts/promote-archive-cut.sh /path/to/r6-candidate.jsonl /path/to/d0.json \
+  --r5 /path/to/oracle-ast-phase1-r5.jsonl --sim target/engine/debug/mtg-sim \
+  --producer-revision REVIEWED_COMMIT --out generated/r6-promotion
+```
+
+D0 records the producer's source digest. Supply the reviewed 40-digit commit
+separately. The script reruns D0 and compares the receipt against the verified
+report before staging the candidate registration and exact header with
+empty R6 record pins and only the earlier fixture provenance. It runs
+`catalog extract` for every R5 identity and `catalog verify` against both full
+archives. The script checks matching archive line numbers and the exact R5
+row plus the two evidence fields before installing the R6 fixtures, registry,
+provenance, frozen inputs and registry test header reference. The scratch
+output retains the verified fixtures. Use a new scratch directory each time.
+R6 provenance follows Oracle ID order after the existing R5 rows, so first
+promotion and re-promotion with the same inputs reproduce the same tracked
+bytes. The candidate basename becomes the frozen compile cache name.
+
+The script uses `--promotion` on the offline extraction and verification
+commands to verify the proposed R6 registration from scratch. Earlier origins
+must match the binary's embedded pins. Normal extraction, verification and
+compile use the embedded registry. For a scratch check of the currently
+registered cut, use `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim
+SIM --archives R5 R6`.
 
 `scripts/compare-archive-cut.py d1 BEFORE AFTER` compares bulk payload bytes,
 coverage, blockers, four tier decisions from the compiler's
@@ -573,21 +603,33 @@ physical quantities.
 ### Frozen-input compile
 
 `sh scripts/compile-oracle.sh --inputs FROZEN_MANIFEST --out NEW_DIR` is the root
-compile; `identity --inputs FROZEN_MANIFEST` verifies without compiling. Only the
+compile. `identity --inputs FROZEN_MANIFEST` verifies the cached inputs. Only the
 manifest's pinned content affects output bytes. `MTG_COMPILE_CACHE` names the
 reader cache (default this checkout's `generated/`) and `MTG_COMPILE_SIM` a
 prebuilt `mtg-sim` (default a locked release build); neither enters identity. Exit
 1 names an `input`, `registration`, `reader`, `compiler` or `destination` failure;
 exit 2 is usage.
 
-The strict manifest ([R5](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r5.json))
+The strict input manifest
+([R5](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r5.json),
+[R6](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r6.json))
 pins Oracle and paper-evidence bytes, canonical records, scope, rules, reader,
 archive length/full-file/header hashes and IR/bulk versions. Every pin is mandatory
 except `compiler.buildId`, which must equal the binary when present. Unknown keys
 reject as unpinned inputs. Source paths resolve relative to the manifest and must
-be regular files (hard links, never symlinks). The archive header must be
-[registered](#ir-and-build-identity) with these pins. Archive schema 4 (R5) has
-only the cached path: the retained archive is verified, never regenerated.
+be regular files or hard links. Input schema 1 uses the retained schema-4 archive.
+Input schema 2 requires a promoted schema-5 archive, its exact registered header
+file, the printed schema, vocabulary, generator and record digests, and the
+pre-scope name catalog digest and count. The R6 header also binds the R5 control
+archive hashes for fresh generation.
+
+For R6, `--reader auto` (the default) generates only when the cache entry is
+absent. A present cache entry must match its pins. `--reader cached` requires
+that entry, and `--reader fresh` uses the exact Oracle, paper evidence, rules
+and R5 archive paths in the manifest. The pinned TypeScript producer generates
+at a fixed path in a private temporary directory. The manifest's archive
+basename selects the cache entry. Both paths use the same Rust intake and
+full-file verification.
 
 One stage writes the three bulk format-2 files byte-identical to `build-ir` from the
 same binary, `outcomes.jsonl` and `compile-manifest.json`. Each outcome row joins
@@ -595,9 +637,18 @@ its index row by `oracle_id`, `source_index` and `archive_line` and adds `phase`
 (`scope`, `read`, `lower`, `validate`) and `location` (an archive JSON pointer for
 read failures, the compiler path for lowering). The compile manifest binds the
 path-free logical inputs and their digest, producer, versions, counts and the four
-other files' proofs. Publication re-verifies staged files, renames once and syncs
-the parent; an occupied destination succeeds only when it already holds exactly
-this bundle.
+other files' proofs. Each run writes and syncs the five files in a uniquely
+named private sibling stage, verifies the proofs, and publishes via one
+atomic no-replace rename followed by a parent directory sync. An occupied
+destination succeeds only if it holds exactly those five regular files with
+identical bytes. Errors after staging and identical retries report the retained
+stage's path. Each retry creates a new stage. The `.bulk-stage-` prefix is
+reserved for staging. Use
+[`catalog stages`](game-engine-storage.md#abandoned-bundle-stages) to inspect or
+explicitly remove abandoned stages. Explicit removal unlinks files through an
+identity-verified directory handle, then removes the empty stage by name because
+POSIX has no handle-bound `rmdir`. A concurrent swap at that final step can
+remove only an empty replacement directory and leaves any replacement files intact.
 
 ## Single matches and policy inputs
 
