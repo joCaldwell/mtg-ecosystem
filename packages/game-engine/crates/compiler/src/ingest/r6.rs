@@ -213,28 +213,6 @@ impl<'a> ArchiveEvidence<'a> {
         // performed at registration. A standalone fixture has no source corpus.
         Ok(verify_row(raw, &mut printed::NameClaims::default())?.evidence)
     }
-
-    pub(crate) fn verify_text(
-        archive: &'a AcceptedArchive,
-        text: &str,
-    ) -> Result<(), (usize, String)> {
-        if archive.cut != ArchiveCut::R6 {
-            return Ok(());
-        }
-        let mut lines = text.split_inclusive('\n');
-        let mut evidence =
-            Self::new(archive, lines.next().map_or(0, str::len)).map_err(|error| (1, error))?;
-        for (index, raw) in lines.enumerate() {
-            let line = index + 2;
-            let record = raw
-                .strip_suffix('\n')
-                .ok_or((line, "R6 row is missing LF".into()))?;
-            evidence
-                .record(record, raw.len(), line)
-                .map_err(|error| (line, error))?;
-        }
-        evidence.finish().map_err(|error| (1, error))
-    }
 }
 
 struct RowIdentity {
@@ -329,8 +307,8 @@ fn verify_row(raw: &str, claims: &mut printed::NameClaims) -> Result<RowIdentity
                 r.oracle_identity,
                 r.source,
                 r.source_sha256,
-                r.printed_sha256,
-                Some(CardEvidence::verified(evidence, faces)),
+                r.printed_sha256.clone(),
+                Some(CardEvidence::verified(evidence, faces, r.printed_sha256)),
             )
         };
     let decoded: Value = decode(source.get(), "source")?;

@@ -1642,6 +1642,9 @@ pub struct SourceProvenance {
     pub source_sha256: String,
     pub ast_sha256: String,
     pub binding_sha256: String,
+    /// Verified printed evidence hash when it governed semantic resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub printed_sha256: Option<String>,
     pub archive_manifest_sha256: String,
     pub parser_sha256: String,
     /// Exact compact archive subvalues, not executable text.
@@ -2155,6 +2158,15 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         if !self.composed {
             return Err("definition requires complete Archive R4 composition".into());
+        }
+        if let Some(hash) = &self.provenance.printed_sha256
+            && (!bulk_catalog::is_sha256(hash)
+                || !archives::accepted_archives()?.iter().any(|archive| {
+                    archive.cut == archives::ArchiveCut::R6
+                        && archive.manifest_sha256 == self.provenance.archive_manifest_sha256
+                }))
+        {
+            return Err("definition printed evidence provenance is invalid".into());
         }
         kir::executes(self)
     }
