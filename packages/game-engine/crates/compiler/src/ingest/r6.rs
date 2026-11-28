@@ -123,10 +123,8 @@ fn failure(error: Failure) -> String {
 /// generator only to change the legacy AST decoder and its freeze pin.
 /// `v4_generator_entry_is_this_printed_decoder` proves the equality; when it
 /// fails the printed decoder changed and the v4 entry must go.
-const ACCEPTED_PRINTED_GENERATORS: [&str; 2] = [
-    PRINTED_GENERATOR_SHA256,
-    R6_V4_PRINTED_GENERATOR_SHA256,
-];
+const ACCEPTED_PRINTED_GENERATORS: [&str; 2] =
+    [PRINTED_GENERATOR_SHA256, R6_V4_PRINTED_GENERATOR_SHA256];
 const R6_V4_PRINTED_GENERATOR_SHA256: &str =
     "436b1b172a982c79711de3e6479451431e5645a9ee897fbe45af0f216f2dfa9e";
 
@@ -427,7 +425,10 @@ mod tests {
             .split_inclusive('\n')
             .partition(|line| line.starts_with(generator_line));
         assert_eq!(removed.len(), 1);
-        assert_eq!(sha256(kept.concat().as_bytes()), V4_PRINTED_RS_WITHOUT_GENERATOR);
+        assert_eq!(
+            sha256(kept.concat().as_bytes()),
+            V4_PRINTED_RS_WITHOUT_GENERATOR
+        );
         assert_eq!(sha256(vocab.as_bytes()), V4_VOCAB_RS);
         assert_eq!(
             ACCEPTED_PRINTED_GENERATORS,
@@ -441,9 +442,8 @@ mod tests {
             .unwrap()
             .iter()
             .find(|a| {
-                a.r6.as_ref().is_some_and(|p| {
-                    p.printed_generator_sha256 == R6_V4_PRINTED_GENERATOR_SHA256
-                })
+                a.r6.as_ref()
+                    .is_some_and(|p| p.printed_generator_sha256 == R6_V4_PRINTED_GENERATOR_SHA256)
             })
             .expect("the registered R6 v4 cut");
         assert!(ArchiveEvidence::new(v4, 0).is_ok());
