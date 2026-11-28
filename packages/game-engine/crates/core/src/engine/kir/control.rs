@@ -2,7 +2,7 @@
 //! and iterations save their remaining work on the same stack as rule frames.
 //! No snapshot supplies an executable node.
 use super::*;
-use mtg_contracts::kir::{Cmp, Cond, Domain, Payment};
+use mtg_contracts::kir::{Cmp, Cond, CreatureType, Domain, Payment};
 mod evaluated;
 use evaluated::{StepProgress, StepResults};
 
@@ -11,6 +11,7 @@ use evaluated::{StepProgress, StepResults};
 enum Binding {
     Player(PlayerId),
     Objects(Vec<ObjectId>),
+    CreatureType(CreatureType),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +37,15 @@ enum Stage {
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum AskKind {
     Optional {
+        chooser: PlayerId,
+    },
+    /// CR 101.4, 121.2c: finish every optional draw choice before
+    /// performing any player's draws in APNAP order.
+    OptionalDraws {
+        remaining: Vec<PlayerId>,
+        choices: Vec<(PlayerId, bool)>,
+    },
+    CreatureType {
         chooser: PlayerId,
     },
     ObjectPayment {
@@ -144,7 +154,9 @@ impl Task {
             Stage::Run | Stage::Leaf | Stage::Complete { .. } | Stage::Step(_) => None,
             Stage::Ask(AskKind::Optional { chooser })
             | Stage::MyriadDefender { chooser }
+            | Stage::Ask(AskKind::CreatureType { chooser })
             | Stage::Ask(AskKind::Pick { chooser, .. }) => Some(chooser),
+            Stage::Ask(AskKind::OptionalDraws { ref remaining, .. }) => remaining.first().copied(),
             Stage::Ask(AskKind::PayLife { payer, .. })
             | Stage::Ask(AskKind::ObjectPayment { payer }) => Some(payer),
         }
@@ -217,6 +229,7 @@ impl RulesTxn {
                 },
                 Node::ForEach { body, .. }
                 | Node::Choose { body, .. }
+                | Node::ChooseCreatureType { body, .. }
                 | Node::Optional { node: body, .. }
                 | Node::UnlessPays { node: body, .. }
                 | Node::IfPays { node: body, .. }
@@ -493,6 +506,28 @@ impl RulesTxn {
                 ),
             ));
         }
+        if matches!(task.stage, Stage::Ask(AskKind::CreatureType { .. })) {
+            return Ok(Some(
+                self.pick(
+                    player,
+                    Reason::ChooseCreatureType,
+                    CreatureType::all()
+                        .map(|kind| Candidate::CreatureType { kind })
+                        .collect(),
+                    1,
+                    1,
+                ),
+            ));
+        }
+        if let Stage::Ask(AskKind::OptionalDraws { choices, .. }) = &task.stage {
+            return Ok(Some(self.pick_flags(
+                player,
+                Reason::OptionalResolution {
+                    previous: choices.clone(),
+                },
+                &[Flag::Accept, Flag::Decline],
+            )));
+        }
         Ok(Some(self.pick_flags(
             player,
             Reason::OptionalEffect,
@@ -661,6 +696,36 @@ impl RulesTxn {
                 Ok(())
             }
             (
+                Stage::Ask(AskKind::CreatureType { chooser }),
+                Node::ChooseCreatureType { chooser: named, .. },
+            ) if self.control_players(task, named)? == [*chooser] => Ok(()),
+            (
+                Stage::Ask(AskKind::OptionalDraws { remaining, choices }),
+                Node::Optional {
+                    chooser: named @ (PlayerExpr::EachPlayer | PlayerExpr::EachOpponent),
+                    node,
+                },
+            ) if matches!(node.verb(), Some(Verb::Draw { player, .. }) if player == named) => {
+                let controller = self.entry(root.stack_id)?.controller;
+                let mut ordered = choices
+                    .iter()
+                    .map(|(player, _)| *player)
+                    .chain(remaining.iter().copied());
+                let mut next = ordered.next();
+                for player in self
+                    .apnap_seats()
+                    .filter(|&player| *named == PlayerExpr::EachPlayer || player != controller)
+                {
+                    if next == Some(player) {
+                        next = ordered.next();
+                    }
+                }
+                if remaining.is_empty() || next.is_some() {
+                    return Err("invalid optional draw choices".into());
+                }
+                Ok(())
+            }
+            (
                 Stage::Ask(AskKind::ObjectPayment { payer }),
                 Node::IfPays {
                     payer: named,
@@ -813,8 +878,26 @@ impl RulesTxn {
             };
             return self.paid(task, &node, paid);
         }
+        if let Stage::Ask(AskKind::CreatureType { chooser }) = task.stage {
+            let input = self.rules_mut().pending.take();
+            if !self.is_live(chooser) {
+                return self.return_kernel(task.resume);
+            }
+            let input = input.ok_or("missing creature type decision")?;
+            let Candidate::CreatureType { kind } = input.one()? else {
+                return Err("expected a creature type".into());
+            };
+            let Node::ChooseCreatureType { var, .. } = node else {
+                return Err("missing creature type choice node".into());
+            };
+            let mut child = task.child(0);
+            child.bindings.insert(var, Binding::CreatureType(*kind));
+            self.install_kernel(child);
+            return Ok(());
+        }
         if let Some(player) = task.chooser() {
-            let perform = if self.is_live(player) && self.still_offered(&task)? {
+            let offered = self.is_live(player) && self.still_offered(&task)?;
+            let perform = if offered {
                 let input = self
                     .rules_mut()
                     .pending
@@ -830,6 +913,24 @@ impl RulesTxn {
                     self.install_kernel(task.child(0))
                 }
                 Stage::Ask(AskKind::Optional { .. }) => return self.return_kernel(task.resume),
+                Stage::Ask(AskKind::OptionalDraws {
+                    mut remaining,
+                    mut choices,
+                }) => {
+                    remaining.remove(0);
+                    if offered {
+                        choices.push((player, perform));
+                    }
+                    if remaining.is_empty() {
+                        let accepted = choices
+                            .into_iter()
+                            .filter_map(|(player, chose)| chose.then_some(player))
+                            .collect();
+                        return self.perform_optional_draws(task.child(0), accepted);
+                    }
+                    task.stage = Stage::Ask(AskKind::OptionalDraws { remaining, choices });
+                    self.install_kernel(task);
+                }
                 // CR 118.12: "unless" performs the node when the payer
                 // declines; "if they do" performs it once they have paid.
                 Stage::Ask(AskKind::PayLife { amount, .. }) if perform => {
@@ -865,6 +966,7 @@ impl RulesTxn {
                 | Stage::Leaf
                 | Stage::Step(_)
                 | Stage::Complete { .. }
+                | Stage::Ask(AskKind::CreatureType { .. })
                 | Stage::Ask(AskKind::ObjectPayment { .. })
                 | Stage::MyriadDefender { .. } => {
                     return Err("unexpected kernel input".into());
@@ -893,6 +995,21 @@ impl RulesTxn {
                 chooser,
                 node: child,
             } => {
+                if matches!(chooser, PlayerExpr::EachPlayer | PlayerExpr::EachOpponent) {
+                    if !self.performable(&task, child)? {
+                        return self.return_kernel(task.resume);
+                    }
+                    let remaining = self.control_players(&task, chooser)?;
+                    if remaining.is_empty() {
+                        return self.return_kernel(task.resume);
+                    }
+                    task.stage = Stage::Ask(AskKind::OptionalDraws {
+                        remaining,
+                        choices: Vec::new(),
+                    });
+                    self.install_kernel(task);
+                    return Ok(());
+                }
                 let Some(chooser) = self.chooser(&task, chooser)? else {
                     return self.return_kernel(task.resume);
                 };
@@ -926,6 +1043,13 @@ impl RulesTxn {
                         child
                     }),
                 )?;
+            }
+            Node::ChooseCreatureType { chooser, .. } => {
+                let Some(chooser) = self.chooser(&task, chooser)? else {
+                    return self.return_kernel(task.resume);
+                };
+                task.stage = Stage::Ask(AskKind::CreatureType { chooser });
+                self.install_kernel(task);
             }
             Node::Choose {
                 var,

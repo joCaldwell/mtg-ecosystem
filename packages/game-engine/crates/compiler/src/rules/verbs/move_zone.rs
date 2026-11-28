@@ -261,6 +261,8 @@ mod tests {
                 source_block: 0,
                 x: None,
                 x_consumed: false,
+                chosen_creature_type: None,
+                chosen_creature_type_read: false,
                 result_from: None,
             };
             let movement: ast::EffectMoveZone = serde_json::from_value(json!({

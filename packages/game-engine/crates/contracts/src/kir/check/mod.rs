@@ -47,6 +47,7 @@ pub enum RefKind {
     Entity,
     StackObject,
     Number,
+    CreatureType,
     Pool,
 }
 
@@ -624,6 +625,18 @@ impl Walk<'_, '_> {
                 }
                 self.set(set)
             }
+            Amount::CountChosenCreatureType { set, var } => {
+                if !self
+                    .bound
+                    .iter()
+                    .rev()
+                    .find(|(id, _)| id == var)
+                    .is_some_and(|(_, kind)| *kind == RefKind::CreatureType)
+                {
+                    return scope("chosen creature type outside its choice");
+                }
+                self.set(set)
+            }
             Amount::StatOf { object, .. } | Amount::CountersOn { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
@@ -1182,17 +1195,24 @@ impl Walk<'_, '_> {
                 chooser,
                 node: child,
             } => {
+                // CR 608.2d, 800.4a/g: a player may choose to draw. If
+                // that player has left, the draw cannot be performed.
+                let own_draw = matches!(child.verb(), Some(Verb::Draw { player, .. })
+                    if player == chooser);
                 if self.target_controller_chooser(chooser) {
                     // CR 608.2h, 800.4a, 800.4g: the last-known controller
                     // of a filtered target may only search or shuffle their
                     // own library. Once they leave, that library left with
                     // them, so skipping the choice deprives no live player.
                     self.player(chooser)?;
-                    if !self.scan && !Self::own_library(child, chooser) {
+                    if !self.scan && !own_draw && !Self::own_library(child, chooser) {
                         return unaudited("target controller choice outside their library");
                     }
                 } else {
-                    self.control_player(chooser, true)?;
+                    self.control_player(chooser, !own_draw)?;
+                    if !self.scan && !chooser.is_you() && !own_draw {
+                        return unaudited("optional choice on behalf of another player");
+                    }
                 }
                 // CR 608.2d: "you may destroy target permanent", a choice the
                 // resolving frame offers at this instruction's cursor.
@@ -1246,6 +1266,16 @@ impl Walk<'_, '_> {
                     }
                 };
                 self.bound.push((*var, bound));
+                let result = self.nested(body, true);
+                self.bound.pop();
+                result
+            }
+            Node::ChooseCreatureType { var, chooser, body } => {
+                self.control_player(chooser, true)?;
+                if !chooser.is_you() {
+                    return unaudited("creature type choice needs its controller");
+                }
+                self.bound.push((*var, RefKind::CreatureType));
                 let result = self.nested(body, true);
                 self.bound.pop();
                 result
@@ -2068,7 +2098,9 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         Node::Optional { node, .. } | Node::UnlessPays { node, .. } | Node::IfPays { node, .. } => {
             visit_verbs(node, visit)
         }
-        Node::ForEach { body, .. } | Node::Choose { body, .. } => visit_verbs(body, visit),
+        Node::ForEach { body, .. }
+        | Node::Choose { body, .. }
+        | Node::ChooseCreatureType { body, .. } => visit_verbs(body, visit),
         Node::Delayed { .. }
         | Node::Reflexive { .. }
         | Node::ChooseObject { .. }

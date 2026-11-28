@@ -16,6 +16,12 @@ pub enum Amount {
     Count {
         set: SetExpr,
     },
+    /// CR 608.2h: the members of a public set with a type chosen in
+    /// the enclosing resolution.
+    CountChosenCreatureType {
+        set: SetExpr,
+        var: u32,
+    },
     /// A characteristic of one object, using last known information if it
     /// has left (CR 608.2h).
     StatOf {
@@ -119,6 +125,7 @@ impl Amount {
     pub fn is_resolution_count(&self) -> bool {
         match self {
             Self::Count { .. }
+            | Self::CountChosenCreatureType { .. }
             | Self::Greatest { .. }
             | Self::Devotion { .. }
             | Self::CountersOn { .. }

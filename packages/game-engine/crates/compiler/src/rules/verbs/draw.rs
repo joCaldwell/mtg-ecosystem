@@ -22,17 +22,24 @@ pub(super) fn lower(cx: &mut StepCx<'_>, draw: &ast::EffectDraw) -> Result<Instr
     {
         return Err(step("draw", "qualified"));
     }
-    check_optional_chooser("draw", optional.is_some(), who, decided_by.as_deref())?;
+    if optional.is_none() && decided_by.is_some() {
+        return Err(step("draw", "qualified"));
+    }
     let player = pilot_player(cx, who)?;
     let amount = match for_each {
         Some(filter) => pilot_each_filter(cx, filter, amount, Some(&player))?,
         None => pilot_amount(cx, amount)?,
     };
+    let chooser = match decided_by.as_deref().unwrap_or(who) {
+        ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
+        named if named == who.as_ref() => player.clone(),
+        _ => return Err(unsupported("compose.control", "optional_chooser")),
+    };
     let verb = Verb::Draw { player, amount };
     if optional.is_some() {
         Ok(Instruction::Kernel {
             node: kir::Node::Optional {
-                chooser: PlayerExpr::you(cx.context),
+                chooser,
                 node: Box::new(kir::Node::Do(verb)),
             },
             source_block: cx.source_block,

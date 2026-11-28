@@ -657,7 +657,8 @@ fn cda_amount(amount: &Amount) -> bool {
         Amount::Distinct { set, .. } => {
             matches!(set, SetExpr::Matching { zone, .. } if !zone.hidden()) && cda_set(set)
         }
-        Amount::Var { .. }
+        Amount::CountChosenCreatureType { .. }
+        | Amount::Var { .. }
         | Amount::StatOf { .. }
         | Amount::CountersOn { .. }
         | Amount::Greatest { .. }

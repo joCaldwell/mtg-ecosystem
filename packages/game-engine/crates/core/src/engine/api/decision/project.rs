@@ -76,6 +76,7 @@ impl RulesTxn {
                 offered,
             },
             Reason::OptionalEffect => Reason::OptionalEffect,
+            Reason::OptionalResolution { previous } => Reason::OptionalResolution { previous },
             Reason::ReplacementOrder { subject } => Reason::ReplacementOrder {
                 subject: subject.and_then(|o| object(o).ok()),
             },
@@ -131,6 +132,7 @@ impl RulesTxn {
             Reason::Proliferate => Reason::Proliferate,
             Reason::EntryAttachment => Reason::EntryAttachment,
             Reason::ResolveObjectChoice => Reason::ResolveObjectChoice,
+            Reason::ChooseCreatureType => Reason::ChooseCreatureType,
         })
     }
 

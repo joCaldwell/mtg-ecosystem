@@ -70,6 +70,7 @@ impl RulesTxn {
             .modal_declaration(entry)?
             .ok_or("missing modal declaration")?;
         let source = self.targeting_characteristics(entry)?;
+        let choices = ModalSpell::choices(modal.labels.len(), modal.min, modal.max, modal.repeat);
         let mut legal = BTreeMap::new();
         for (mask, program) in &modal.selections {
             legal.insert(
@@ -86,12 +87,9 @@ impl RulesTxn {
                 labels: if mask == 0 {
                     vec!["No modes".into()]
                 } else {
-                    modal
-                        .labels
+                    choices[&mask]
                         .iter()
-                        .enumerate()
-                        .filter(|(i, _)| mask & (1 << i) != 0)
-                        .map(|(_, label)| label.replace('~', &definition.name))
+                        .map(|&index| modal.labels[index].replace('~', &definition.name))
                         .collect()
                 },
             })

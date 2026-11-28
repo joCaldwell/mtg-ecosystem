@@ -19,10 +19,91 @@ pub(super) struct Resolution {
     card: CardResolution,
     face: usize,
     spend_riders: BTreeSet<(usize, usize)>,
+    control: BTreeMap<(usize, usize), ControlCoverage>,
+}
+
+#[derive(Default)]
+struct ControlCoverage {
+    references: BTreeSet<String>,
+    steps: BTreeSet<String>,
 }
 
 const SPEND_RIDER_STEP: &str = "/effects/0/steps/0/riders/0/effects/0/steps/0";
 const SPEND_RIDER_REF: &str = "/effects/0/steps/0/riders/0/effects/0/steps/0/what";
+
+fn draw_players_after_draw(ability: &Value, path: &str) -> bool {
+    let Some((steps, suffix)) = path.rsplit_once("/steps/") else {
+        return false;
+    };
+    let Some(index) = suffix
+        .strip_suffix("/who")
+        .and_then(|i| i.parse::<usize>().ok())
+        .and_then(|i| i.checked_sub(1))
+    else {
+        return false;
+    };
+    let Some(who) = ability.pointer(path) else {
+        return false;
+    };
+    matches!(typed::<ast::PlayerRef>(who, "player"),
+        Ok(ast::PlayerRef::Filtered(who))
+            if matches!(&*who.base, ast::PlayerRef::EachPlayer(_))
+                && who.random.is_none()
+                && crate::rules::card_result::reads_draw_players(&who.filter))
+        && ability
+            .pointer(&format!("{steps}/steps/{index}"))
+            .is_some_and(|step| step["effect"] == "draw" && step["who"]["player"] == "each-player")
+}
+
+fn counted_iteration_site(ability: &Value, path: &str, fields: &[&str]) -> bool {
+    fields.iter().any(|field| {
+        path.strip_suffix(field)
+            .and_then(|parent| ability.pointer(parent))
+            .and_then(super::compose::control::counted_step)
+            .is_some()
+    })
+}
+
+/// CR 608.2d, 205.3m: the local creature type choice used by the next
+/// instruction. The evaluator independently proves the type and scope.
+fn local_creature_type_choice(site: &Site<'_>, result: &ast::ResolvedRefStepResult) -> bool {
+    if result.role.as_str() != "choice"
+        || !site.path.ends_with("/chosenType")
+        || site.operand != Some(&serde_json::json!({"choice":"chosen-type"}))
+        || !site.ability.pointer(&result.step).is_some_and(|producer| {
+            producer["effect"] == "choose-value"
+                && producer["category"] == "creature-type"
+                && producer["who"] == serde_json::json!({"player":"you"})
+        })
+    {
+        return false;
+    }
+    let Some((producer_sentence, index)) = result.step.rsplit_once("/steps/") else {
+        return false;
+    };
+    let Some(index) = index.parse::<usize>().ok() else {
+        return false;
+    };
+    if site
+        .path
+        .starts_with(&format!("{producer_sentence}/steps/{}/", index + 1))
+    {
+        return true;
+    }
+    let Some((effects, sentence)) = producer_sentence.rsplit_once('/') else {
+        return false;
+    };
+    let Some(sentence) = sentence.parse::<usize>().ok() else {
+        return false;
+    };
+    site.ability
+        .pointer(&format!("{producer_sentence}/steps"))
+        .and_then(Value::as_array)
+        .is_some_and(|steps| index + 1 == steps.len())
+        && site
+            .path
+            .starts_with(&format!("{effects}/{}/steps/0/", sentence + 1))
+}
 
 impl Resolution {
     /// Decode and hash-check the record's resolution. Its absence means the
@@ -54,7 +135,57 @@ impl Resolution {
             card,
             face: 0,
             spend_riders: BTreeSet::new(),
+            control: BTreeMap::new(),
         })
+    }
+
+    /// CR 121.2, 608.2c/h: Rust binds actual draw participants and reduces
+    /// complete instruction-wise counts. The frozen binder had no terms for
+    /// those scopes. All other residuals still go through validation.
+    pub(super) fn cover_control(&mut self, face: usize, raw: &str) -> Result<(), Failure> {
+        let printed: Value = decode(raw, "abilities")?;
+        let Some(printed) = printed.as_array() else {
+            return Ok(());
+        };
+        let Some(blocks) = self.card.faces[face].blocks.as_ref() else {
+            return Ok(());
+        };
+        for (index, (ability, block)) in printed.iter().zip(blocks).enumerate() {
+            if block.residuals.is_empty() {
+                continue;
+            }
+            let mut covered = ControlCoverage::default();
+            let mut residuals = BTreeSet::new();
+            for reference in &block.refs {
+                if let RefEntry::Unresolved(entry) = reference
+                    && entry.unresolved == "unsupported-scope"
+                    && (draw_players_after_draw(ability, &entry.path)
+                        || counted_iteration_site(
+                            ability,
+                            &entry.path,
+                            &["/each", "/each/filter/control", "/effects/0/steps/0/who"],
+                        ))
+                {
+                    residuals.extend([
+                        "diagnostic:unsupported-scope".to_owned(),
+                        "ref:unsupported-scope".to_owned(),
+                    ]);
+                    covered.references.insert(entry.path.clone());
+                }
+            }
+            for step in &block.steps {
+                if let StepEntry::Unaccounted(entry) = step
+                    && counted_iteration_site(ability, &entry.path, &["/effects/0/steps/0"])
+                {
+                    residuals.insert(format!("step:{}", entry.ast_effect.as_str()));
+                    covered.steps.insert(entry.path.clone());
+                }
+            }
+            if block.residuals.iter().cloned().collect::<BTreeSet<_>>() == residuals {
+                self.control.insert((face, index), covered);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn face_count(&self) -> usize {
@@ -146,7 +277,10 @@ impl Resolution {
                         .iter()
                         .flatten()
                         .enumerate()
-                        .filter(move |(block, _)| !self.spend_riders.contains(&(face, *block)))
+                        .filter(move |(block, _)| {
+                            !self.spend_riders.contains(&(face, *block))
+                                && !self.control.contains_key(&(face, *block))
+                        })
                 })
                 .find_map(|(_, b)| b.residuals.first())
         });
@@ -194,6 +328,15 @@ impl Resolution {
                     {
                         continue;
                     }
+                    RefEntry::Unresolved(u)
+                        if u.unresolved == "unsupported-scope"
+                            && self
+                                .control
+                                .get(&(self.face, index))
+                                .is_some_and(|covered| covered.references.contains(&u.path)) =>
+                    {
+                        continue;
+                    }
                     RefEntry::Unresolved(u) => {
                         return Err(unsupported("resolution", format!("ref:{}", u.unresolved)));
                     }
@@ -220,7 +363,9 @@ impl Resolution {
                     }
                     _ => reference_row(role, &site),
                 };
-                if !admitted {
+                if !admitted
+                    && !matches!(role, Role::Resolved(ResolvedRef::StepResult(r)) if local_creature_type_choice(&site, r))
+                {
                     return Err(unsupported(
                         "resolution",
                         format!("ref:{}:{}", describe(entry), kind.name()),
@@ -478,6 +623,10 @@ impl Resolution {
                     && !(path == SPEND_RIDER_STEP
                         && effect == "cant"
                         && self.spend_riders.contains(&(self.face, index)))
+                    && !self
+                        .control
+                        .get(&(self.face, index))
+                        .is_some_and(|covered| covered.steps.contains(path))
                 {
                     unaccounted.push((index, path.clone(), effect.to_string()));
                 }
