@@ -377,6 +377,12 @@ impl Walk<'_, '_> {
                 self.out.event_player = true;
                 RefKind::Player
             }
+            Ref::EventStackObject => {
+                if !self.targeting_event() {
+                    return scope("event stack object outside a targeting trigger");
+                }
+                RefKind::StackObject
+            }
             Ref::EventAmount => {
                 let Some(event) = self
                     .env
@@ -473,6 +479,16 @@ impl Walk<'_, '_> {
         } else {
             kind(format!("{operand} is a {found:?}"))
         }
+    }
+
+    /// CR 115.1, 603.2: a triggered ability whose event is a stack object
+    /// targeting a permanent supplies that stack object.
+    fn targeting_event(&self) -> bool {
+        self.env.context == Context::Triggered
+            && self
+                .env
+                .event
+                .is_some_and(|event| matches!(event.pattern(), EventPattern::BecomesTarget { .. }))
     }
 
     fn player(&mut self, player: &PlayerExpr) -> Result<(), KirError> {

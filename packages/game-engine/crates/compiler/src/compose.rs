@@ -1170,8 +1170,34 @@ fn compose_face(
                 None
             };
             let lowering = bound.as_deref().unwrap_or(raw.get());
-            let ability: Block =
-                serde_json::from_str(lowering).map_err(|e| block_mirror_gap(lowering, &e))?;
+            // CR 702.21a: ward instances lower from the typed AST; the
+            // keyword mirror reads the block's other keywords.
+            let ward = keywords::split_ward(lowering)?;
+            let ward_names: Vec<Option<String>> = match &ward {
+                Some(_) => serde_json::from_str::<serde_json::Value>(lowering)
+                    .ok()
+                    .and_then(|b| b["keywords"].as_array().cloned())
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|k| {
+                        let name = k["keyword"].as_str().unwrap_or_default();
+                        (name != "ward").then(|| name.replace('-', " "))
+                    })
+                    .collect(),
+                None => vec![],
+            };
+            let (lowering, wards) = match &ward {
+                Some((rest, wards)) => (rest.as_str(), wards.as_slice()),
+                None => (lowering, [].as_slice()),
+            };
+            let ability: Block = if !wards.is_empty() && ward_names.iter().all(Option::is_none) {
+                Block::Keywords {
+                    ability_word: None,
+                    keywords: vec![],
+                }
+            } else {
+                serde_json::from_str(lowering).map_err(|e| block_mirror_gap(lowering, &e))?
+            };
             numbers_printed(line, raw.get())?;
             let (activated, triggered) = (definition.activated.len(), definition.triggered.len());
             // A spell's printed blocks share one program; each announces its own
@@ -1185,6 +1211,27 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
+                        // CR 702.21a: each ward instance is its own
+                        // triggered ability beside the listed keywords.
+                        _ if !wards.is_empty() => {
+                            if word.is_some() || keywords.iter().any(keywords::is_triggered) {
+                                return Err(unsupported("keyword", "keyword:ward:printed"));
+                            }
+                            if !keywords.is_empty() {
+                                definition
+                                    .keywords
+                                    .extend(keywords::lower_triggered_companion(
+                                        card.kind, &keywords,
+                                    )?);
+                            }
+                            keywords::ward_printed(&ward_names, wards, text)?;
+                            for ward in wards {
+                                definition
+                                    .triggered
+                                    .push(keywords::ward(&card, ward, label)?);
+                                labels.triggered.push(label);
+                            }
+                        }
                         [one]
                             if matches!(
                                 one.keyword.as_str(),

@@ -33,3 +33,4 @@ mod token_creation;
 mod transform_adventure;
 mod triggers;
 mod verb_operands;
+mod ward;
