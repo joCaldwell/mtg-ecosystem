@@ -425,18 +425,13 @@ enum FactKey {
 }
 // Ephemeral proof from validating a complete root group against the prior
 // state. Raw occurrence application receives no authority.
-#[derive(Clone, Copy)]
-pub(super) enum EntryOverride {
-    ForceTapped,
-    CreatureController {
-        player: PlayerId,
-        tapped: bool,
-    },
+#[derive(Clone, Copy, Default)]
+pub(super) struct EntryOverride {
+    pub(super) tapped: bool,
+    pub(super) controller: Option<PlayerId>,
     /// CR 614.12: the entry choice was made (life paid or card revealed)
     /// or declined.
-    Choice {
-        accepted: bool,
-    },
+    pub(super) accepted: Option<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -463,6 +458,17 @@ enum BatchAuthority<'a> {
         entries: &'a [(ObjectId, EntryOverride)],
         land: Option<(ObjectId, PlayerId, CardFace)>,
     },
+}
+impl BatchAuthority<'_> {
+    fn entry_override(self, object: ObjectId) -> EntryOverride {
+        match self {
+            Self::BattlefieldEntry { entries, .. } => entries
+                .iter()
+                .find_map(|(entrant, entry)| (*entrant == object).then_some(*entry))
+                .unwrap_or_default(),
+            _ => EntryOverride::default(),
+        }
+    }
 }
 fn independent_footprints(
     footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
@@ -2449,13 +2455,15 @@ impl RulesTxn {
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 let prior = entry_state.unwrap_or(self);
                 let source = prior.current(*object)?;
+                let entry = authority.entry_override(*object);
                 {
                     let characteristics = prior.structural_characteristics(*object)?;
                     // CR 303.4f: an Aura entering without being cast (from its
                     // owner's library, hand or graveyard) enchants a chosen
                     // object it could enchant; that choice does not target.
                     let owner = prior.state.rules.cards[&object.card].owner;
-                    let chosen = matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } | Zone::Hand { owner: p } if p == owner);
+                    let chosen = source.zone == Zone::Exile
+                        || matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } | Zone::Hand { owner: p } if p == owner);
                     if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]
@@ -2470,18 +2478,16 @@ impl RulesTxn {
                         return Err("invalid attached Aura entry".into());
                     }
                 }
-                let force_tapped = matches!(authority, BatchAuthority::BattlefieldEntry { entries, .. }
-                    if entries.iter().any(|(entrant, entry)| entrant == object
-                        && matches!(entry, EntryOverride::ForceTapped)));
+                let intended = entry.controller.map(|player| (player, object.face));
                 let EventOutcome::Moved { movement } = self.apply_move(
                     *object,
                     Zone::Battlefield,
-                    (None, false),
+                    (intended, false),
                     entry_state,
                     battlefield_entry::EntryModifiers {
-                        tapped: force_tapped,
+                        tapped: entry.tapped,
+                        accepted: entry.accepted,
                         attached_to: Some(*target),
-                        ..Default::default()
                     },
                 )?
                 else {
@@ -3534,25 +3540,11 @@ impl RulesTxn {
                     }
                     _ => None,
                 };
-                let entry = match authority {
-                    BatchAuthority::BattlefieldEntry { entries, .. } => entries
-                        .iter()
-                        .find(|(entrant, _)| entrant == object)
-                        .map(|(_, entry)| *entry),
-                    _ => None,
-                };
-                let (force_tapped, payment) = match entry {
-                    Some(EntryOverride::ForceTapped) => (true, None),
-                    Some(EntryOverride::CreatureController { tapped, .. }) => (tapped, None),
-                    Some(EntryOverride::Choice { accepted }) => (false, Some(accepted)),
-                    None => (false, None),
-                };
-                let intended = match entry {
-                    Some(EntryOverride::CreatureController { player, .. }) => {
-                        Some((player, object.face))
-                    }
-                    _ => intended,
-                };
+                let entry = authority.entry_override(*object);
+                let intended = entry
+                    .controller
+                    .map(|player| (player, object.face))
+                    .or(intended);
                 let face_down = matches!(
                     authority,
                     BatchAuthority::SpellToStack {
@@ -3566,8 +3558,8 @@ impl RulesTxn {
                     (intended, face_down),
                     entry_state,
                     battlefield_entry::EntryModifiers {
-                        tapped: force_tapped,
-                        accepted: payment,
+                        tapped: entry.tapped,
+                        accepted: entry.accepted,
                         ..Default::default()
                     },
                 )?

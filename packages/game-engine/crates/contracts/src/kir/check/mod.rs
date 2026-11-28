@@ -48,6 +48,7 @@ pub enum RefKind {
     StackObject,
     Number,
     CreatureType,
+    RevealedLibrary,
     Pool,
 }
 
@@ -276,9 +277,36 @@ struct Walk<'a, 'e> {
     /// Variables bound by enclosing `ForEach`/`Choose` nodes, with their kind.
     bound: Vec<(u32, RefKind)>,
     /// Completed steps of the innermost enclosing `Seq`.
-    steps: Vec<Option<&'static VerbSignature>>,
+    steps: Vec<Option<StepProducer>>,
     direct_sequence_member: bool,
     out: DerivedRequirements,
+}
+
+struct StepProducer {
+    signature: &'static VerbSignature,
+    result_zone: Option<ResultZone>,
+}
+
+impl StepProducer {
+    fn of(node: &Node) -> Option<Self> {
+        let (verb, _) = signatures::step_producer_verb(node)?;
+        let (signature, _) = verb.evaluated()?;
+        let result_zone = match verb {
+            Verb::Move {
+                to: Destination::Exile,
+                ..
+            } => Some(ResultZone::Exile),
+            Verb::Move {
+                to: Destination::Battlefield { .. },
+                ..
+            } => Some(ResultZone::Battlefield),
+            _ => None,
+        };
+        Some(Self {
+            signature,
+            result_zone,
+        })
+    }
 }
 
 fn scope<T>(detail: impl Into<String>) -> Result<T, KirError> {
@@ -416,7 +444,7 @@ impl Walk<'_, '_> {
                 let Some(Some(producer)) = self.steps.get(*step as usize) else {
                     return scope(format!("step {step} has no dominating projection"));
                 };
-                if !self.direct_sequence_member || !producer.projections.contains(role) {
+                if !self.direct_sequence_member || !producer.signature.projections.contains(role) {
                     return scope(format!("step {step} does not supply {role:?} here"));
                 }
                 match role {
@@ -584,6 +612,43 @@ impl Walk<'_, '_> {
                         .map(drop)
                 })
             }
+            SetExpr::LiveResult { step, zone } => {
+                self.expect(
+                    &Ref::StepResult {
+                        step: *step,
+                        role: StepRole::Objects,
+                    },
+                    &[RefKind::Pool],
+                    "result",
+                )?;
+                if self.steps[*step as usize]
+                    .as_ref()
+                    .and_then(|producer| producer.result_zone)
+                    != Some(*zone)
+                {
+                    return unaudited("live result destination");
+                }
+                Ok(())
+            }
+            SetExpr::Revealed {
+                var,
+                filter,
+                except,
+            } => {
+                self.expect(
+                    &Ref::BoundVar { id: *var },
+                    &[RefKind::RevealedLibrary],
+                    "revealed pool",
+                )?;
+                if let Some(id) = except {
+                    self.expect(
+                        &Ref::BoundVar { id: *id },
+                        &[RefKind::RevealedLibrary],
+                        "excluded pool",
+                    )?;
+                }
+                Self::library_card_filter(filter)
+            }
             SetExpr::Result {
                 step,
                 filter,
@@ -601,9 +666,10 @@ impl Walk<'_, '_> {
                     && !self
                         .steps
                         .get(*step as usize)
-                        .and_then(|entry| *entry)
+                        .and_then(Option::as_ref)
                         .is_some_and(|producer| {
-                            producer.object_result_read == ObjectUse::ReadCurrentOrLastKnown
+                            producer.signature.object_result_read
+                                == ObjectUse::ReadCurrentOrLastKnown
                         })
                 {
                     return unaudited("result without public card characteristics");
@@ -765,6 +831,7 @@ impl Walk<'_, '_> {
             | SetExpr::Pool {
                 pool: Ref::BoundVar { .. },
             } => Ok(()),
+            SetExpr::Revealed { .. } => Ok(()),
             SetExpr::One {
                 object: Ref::Target { slot },
             } if !matches!(
@@ -1182,8 +1249,7 @@ impl Walk<'_, '_> {
                 let result = nodes.iter().try_for_each(|node| {
                     self.direct_sequence_member = matches!(node, Node::Do(_) | Node::If { .. });
                     self.node(node, true)?;
-                    self.steps
-                        .push(step_producer(node).map(|(signature, _)| signature));
+                    self.steps.push(StepProducer::of(node));
                     Ok(())
                 });
                 self.steps = steps;
@@ -1293,6 +1359,29 @@ impl Walk<'_, '_> {
                 self.bound.pop();
                 result
             }
+            Node::RevealTop {
+                var,
+                player,
+                count,
+                body,
+            } => {
+                self.player(player)?;
+                if *count == 0
+                    || !(player.is_you()
+                        || matches!(
+                            player,
+                            PlayerExpr::OwnerOf {
+                                object: Ref::Target { .. }
+                            }
+                        ))
+                {
+                    return unaudited("reveal library subject or count");
+                }
+                self.bound.push((*var, RefKind::RevealedLibrary));
+                let result = self.nested(body, true);
+                self.bound.pop();
+                result
+            }
             Node::Choose {
                 var,
                 chooser,
@@ -1305,10 +1394,21 @@ impl Walk<'_, '_> {
                 self.control_set(from)?;
                 self.nonnegative_control_amount(minimum)?;
                 self.nonnegative_control_amount(maximum)?;
+                let revealed = matches!(from, SetExpr::Revealed { .. });
                 if !self.scan {
+                    if revealed && !chooser.is_you() {
+                        return unaudited("revealed library choice needs its controller");
+                    }
                     Self::audit_choice(from, minimum, maximum)?;
                 }
-                self.bound.push((*var, RefKind::Pool));
+                self.bound.push((
+                    *var,
+                    if revealed {
+                        RefKind::RevealedLibrary
+                    } else {
+                        RefKind::Pool
+                    },
+                ));
                 let result = self.nested(body, true);
                 self.bound.pop();
                 result
@@ -1596,6 +1696,12 @@ impl Walk<'_, '_> {
             && min > max
         {
             return kind("reversed choice bounds");
+        }
+        if matches!(from, SetExpr::Revealed { .. })
+            && minimum.as_fixed() == Some(&Quantity::zero())
+            && maximum.as_fixed() == Some(&Quantity::from(1))
+        {
+            return Ok(());
         }
         if !matches!(from, SetExpr::Matching { .. }) {
             return unaudited("choice needs a current public object set");
@@ -2108,7 +2214,8 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         }
         Node::ForEach { body, .. }
         | Node::Choose { body, .. }
-        | Node::ChooseCreatureType { body, .. } => visit_verbs(body, visit),
+        | Node::ChooseCreatureType { body, .. }
+        | Node::RevealTop { body, .. } => visit_verbs(body, visit),
         Node::Delayed { .. }
         | Node::Reflexive { .. }
         | Node::ChooseObject { .. }

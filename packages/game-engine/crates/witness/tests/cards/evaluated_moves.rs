@@ -31,6 +31,17 @@ const FAITHFUL_WATCHDOG: &str = record!("139fb542-89fd-4b9e-87e6-ec925bcca93a");
 /// "If one or more +1/+1 counters would be put on a creature you control,
 /// that many plus one +1/+1 counters are put on it instead."
 const HARDENED_SCALES: &str = record!("a1f3da21-af6d-450e-bf0b-985d158418e6");
+const CLOUDSHIFT: &str = record!("6879f5ce-7a1b-4606-bad1-885779b0d456");
+const FLICKER: &str = record!("19ea326f-45ff-4bc0-a957-7d3f22dd8c6f");
+const GHOSTLY_FLICKER: &str = record!("ad0070db-6454-41cb-861f-8f5b8fc2a3b8");
+const RESTORATION_ANGEL: &str = record!("dfbd3afc-9905-4cff-a4f4-df08a4d0a7fa");
+const MIRACULOUS_RECOVERY: &str = record!("cea73a4b-e10a-4517-a92b-24a08321009f");
+const CHAOS_WARP: &str = record!("07a0cba9-8768-4fd9-a3d5-b0f83b4bf8e8");
+const COILING_ORACLE: &str = record!("69fd4ddf-9ed8-4c56-bef3-9944daf05e4f");
+const SATYR_WAYFINDER: &str = record!("ead4c01a-e2ae-49c9-95d9-651d81005907");
+const GRISLY_SALVAGE: &str = record!("a89ebf63-63c9-42cd-98b4-ec852cd9b0a8");
+const RASHMI: &str = record!("01a79429-7d57-4a51-9815-a20905ed4707");
+const HOARD_SMELTER: &str = record!("cf9db2be-3c95-45a2-ab85-694e3bd3bf1d");
 
 const MOVED: Cell = Cell::Evaluated(EvaluatedVerb::Move);
 
@@ -137,6 +148,287 @@ fn known_library(g: &Game, viewer: u8) -> Vec<String> {
         .filter(|o| matches!(o.zone, Zone::Library { .. }))
         .map(|o| o.oracle_id.clone())
         .collect()
+}
+
+#[test]
+fn actual_movement_result_reenters_under_the_printed_controller() {
+    for (raw, spell, controller, mana) in [
+        (CLOUDSHIFT, "Cloudshift", PlayerId(0), &[2][..]),
+        (FLICKER, "Flicker", PlayerId(1), &[2, 3][..]),
+    ] {
+        let mut game = Game::new(
+            board(&[raw], 4)
+                .permanent_or_hand(spell, 0, 0, true)
+                .permanent_or_hand("Grizzly Bears", 1, 0, false)
+                .permanent_or_hand("Plains", 0, 0, false)
+                .permanent_or_hand("Plains", 0, 0, false)
+                .prepare(),
+        );
+        let prior = Driver::object(&game, 1);
+        cast_at(&mut game, 0, 1, mana);
+        settle(&mut game);
+        let returned = Driver::object(&game, 1);
+        assert_eq!(returned.incarnation, prior.incarnation + 2);
+        assert_eq!(game.zone(returned), Some(Zone::Battlefield));
+        assert_eq!(
+            game.state.rules.objects[&returned.card].controller,
+            controller
+        );
+    }
+}
+
+#[test]
+fn declining_restoration_angel_does_not_perform_either_move() {
+    let mut game = Game::new(
+        board(&[RESTORATION_ANGEL], 4)
+            .permanent_or_hand("Restoration Angel", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .prepare(),
+    );
+    let prior = Driver::object(&game, 1);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[2, 3, 4, 5]);
+    assert!(matches!(
+        next_choice(&mut game).reason,
+        Reason::Targets { .. }
+    ));
+    Driver::pick_object(&mut game, prior);
+    let ask = next_choice(&mut game);
+    assert_eq!(ask.reason, Reason::OptionalEffect);
+    assert_recoverable((&game).into());
+    let mut accepted =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+    for (game, flag) in [(&mut game, Flag::Decline), (&mut accepted, Flag::Accept)] {
+        game.respond(
+            ask.player,
+            ask.id,
+            ask.pick_one(&Candidate::Flag { flag }).unwrap(),
+        )
+        .unwrap();
+        settle(game);
+    }
+    assert_eq!(Driver::object(&game, 1), prior);
+    assert_eq!(
+        Driver::object(&accepted, 1).incarnation,
+        prior.incarnation + 2
+    );
+}
+
+#[test]
+fn the_plural_result_tracks_both_successors() {
+    let mut game = Game::new(
+        board(&[GHOSTLY_FLICKER], 4)
+            .permanent_or_hand("Ghostly Flicker", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    let prior = [Driver::object(&game, 1), Driver::object(&game, 2)];
+    Driver::cast(&mut game, CardId(0));
+    let ask = Driver::request(&mut game, 1);
+    let picks = prior
+        .iter()
+        .map(|&object| ask.index(&Candidate::Object { object }).unwrap())
+        .collect();
+    game.respond(ask.player, ask.id, Answer::Pick { picks: vec![picks] })
+        .unwrap();
+    Driver::pay(&mut game, &[3, 4, 5]);
+    settle(&mut game);
+    for old in prior {
+        let next = game.object_id(old.card).unwrap();
+        assert_eq!(next.incarnation, old.incarnation + 2);
+        assert_eq!(game.zone(next), Some(Zone::Battlefield));
+    }
+}
+
+#[test]
+fn a_later_pump_measures_the_destroyed_targets_mana_value() {
+    let mut game = Game::new(
+        board_of(vec![], &[HOARD_SMELTER], 4)
+            .permanent_or_hand("Hoard-Smelter Dragon", 0, 0, false)
+            .permanent_or_hand("Sol Ring", 1, 1, false)
+            .permanent_or_hand("Mountain", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .prepare(),
+    );
+    let source = Driver::object(&game, 0);
+    let target = Driver::object(&game, 1);
+    let mut expected = game.characteristics(source).unwrap().power.unwrap();
+    expected.add(&game.characteristics(target).unwrap().printed_mana_value());
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: source,
+            ability: 0,
+        },
+    );
+    Driver::pick_object(&mut game, target);
+    Driver::pay(&mut game, &[2, 3, 4, 5]);
+    settle(&mut game);
+    let destroyed = Driver::object(&game, 1);
+    assert_eq!(
+        game.zone(destroyed),
+        Some(Zone::Graveyard { owner: PlayerId(1) })
+    );
+    assert_eq!(game.characteristics(source).unwrap().power, Some(expected));
+}
+
+#[test]
+fn counters_act_on_the_entered_incarnation() {
+    let mut game = Game::new(
+        board(&[MIRACULOUS_RECOVERY], 4)
+            .permanent_or_hand("Miraculous Recovery", 0, 0, true)
+            .card(
+                "Grizzly Bears",
+                0,
+                0,
+                Zone::Graveyard { owner: PlayerId(0) },
+            )
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .prepare(),
+    );
+    let prior = Driver::object(&game, 1);
+    cast_at(&mut game, 0, 1, &[2, 3, 4, 5, 6]);
+    settle(&mut game);
+    let entered = Driver::object(&game, 1);
+    assert_eq!(entered.incarnation, prior.incarnation + 1);
+    assert_eq!(game.zone(entered), Some(Zone::Battlefield));
+    assert_eq!(
+        game.state.rules.objects[&entered.card].plus_one_counters,
+        1.into()
+    );
+}
+
+#[test]
+fn the_owner_reveals_after_chaos_warps_shuffle() {
+    let mut game = Game::new(
+        board(&[CHAOS_WARP], 4)
+            .permanent_or_hand("Chaos Warp", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 1, 0, false)
+            .permanent_or_hand("Mountain", 0, 0, false)
+            .permanent_or_hand("Mountain", 0, 0, false)
+            .permanent_or_hand("Mountain", 0, 0, false)
+            .library_card("Island", 0)
+            .prepare(),
+    );
+    let prior = Driver::object(&game, 1);
+    cast_at(&mut game, 0, 1, &[2, 3, 4]);
+    settle(&mut game);
+    let entered = Driver::object(&game, 1);
+    assert_eq!(entered.incarnation, prior.incarnation + 2);
+    assert_eq!(game.zone(entered), Some(Zone::Battlefield));
+    assert_eq!(
+        game.state.rules.objects[&entered.card].controller,
+        PlayerId(1)
+    );
+    assert_eq!(library(&game, 0), [CardId(5)]);
+}
+
+#[test]
+fn a_revealed_top_card_uses_the_matching_branch_and_remains_known_in_hand() {
+    for (name, destination) in [
+        ("Plains", Zone::Battlefield),
+        ("Grizzly Bears", Zone::Hand { owner: PlayerId(0) }),
+    ] {
+        let mut game = Game::new(
+            board(&[COILING_ORACLE], 4)
+                .permanent_or_hand("Coiling Oracle", 0, 0, true)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false)
+                .library_card(name, 0)
+                .library_card("Mountain", 0)
+                .prepare(),
+        );
+        Driver::cast(&mut game, CardId(0));
+        Driver::pay(&mut game, &[1, 2]);
+        settle(&mut game);
+        assert_eq!(game.zone(Driver::object(&game, 3)), Some(destination));
+        let mut seen = vec![];
+        for seat in 0..4 {
+            let view = observation(&game, seat).view;
+            assert!(view.known_library_positions.is_empty());
+            seen.push(view.known_searched_hand);
+        }
+        assert!(seen.windows(2).all(|pair| pair[0] == pair[1]));
+        assert_eq!(
+            seen[0].len(),
+            usize::from(matches!(destination, Zone::Hand { .. }))
+        );
+    }
+}
+
+#[test]
+fn revealed_prefix_choice_binds_only_the_picked_member_and_its_remainder() {
+    let make_game = |tail| {
+        Game::new(
+            board(&[SATYR_WAYFINDER], 4)
+                .permanent_or_hand("Satyr Wayfinder", 0, 0, true)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .permanent_or_hand("Forest", 0, 0, false)
+                .library_card("Grizzly Bears", 0)
+                .library_card("Plains", 0)
+                .library_card("Grizzly Bears", 0)
+                .library_card("Grizzly Bears", 0)
+                .library_card(tail, 0)
+                .prepare(),
+        )
+    };
+    let (mut game, mut alternate) = (make_game("Mountain"), make_game("Island"));
+    for game in [&mut game, &mut alternate] {
+        Driver::cast(game, CardId(0));
+        Driver::pay(game, &[1, 2]);
+    }
+    let ask = next_choice(&mut game);
+    assert_eq!(next_choice(&mut alternate), ask);
+    assert_eq!(ask.player, PlayerId(0));
+    assert_eq!(ask.reason, Reason::OptionalEffect);
+    for seat in 0..4 {
+        let seen = observation(&game, seat);
+        assert_eq!(seen, observation(&alternate, seat));
+        assert_eq!(seen.view.known_library_positions.len(), 4);
+    }
+    assert_recoverable((&game).into());
+    game.respond(
+        ask.player,
+        ask.id,
+        ask.pick_one(&Candidate::Flag { flag: Flag::Accept })
+            .unwrap(),
+    )
+    .unwrap();
+    settle(&mut game);
+    assert_eq!(
+        game.zone(Driver::object(&game, 4)),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    for object in [3, 5, 6] {
+        assert_eq!(
+            game.zone(Driver::object(&game, object)),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+    }
+    assert_eq!(library(&game, 0), [CardId(7)]);
+    assert!(
+        kir::definition_cells(&lowered(GRISLY_SALVAGE))
+            .unwrap()
+            .contains(&MOVED)
+    );
+    assert!(matches!(
+        mtg_witness::compile(mtg_witness::R5_MANIFEST, RASHMI),
+        mtg_compiler::CompileResult::Unsupported { .. }
+    ));
 }
 
 /// CR 608.2b, 400.7: Unsummon's target left before it resolved, so the

@@ -566,7 +566,11 @@ fn condition_set(set: &SetExpr) -> bool {
                 && predicate_in_layer(filter, Layer::Color)
         }
         SetExpr::One { object } => *object == Ref::Source,
-        SetExpr::Pool { .. } | SetExpr::Targets { .. } | SetExpr::Result { .. } => false,
+        SetExpr::Pool { .. }
+        | SetExpr::Targets { .. }
+        | SetExpr::Result { .. }
+        | SetExpr::LiveResult { .. }
+        | SetExpr::Revealed { .. } => false,
     }
 }
 

@@ -2,7 +2,7 @@
 use super::*;
 use mtg_contracts::kir::{
     self, Absent, AbsentReason, Atom, DamageTo, Distribution, Evaluated, EvaluatedVerb,
-    OperandSlot, QuantityDomain, Resolved, Stat, StepRole,
+    OperandSlot, QuantityDomain, Resolved, ResultZone, Stat, StepRole,
 };
 mod hidden;
 mod movement;
@@ -299,7 +299,7 @@ impl RulesTxn {
 
     // CR 608.2b, 800.4i: a reference still denotes a player who was a legal
     // target at resolution start. Information reads can use departure LKI.
-    fn measured_player(
+    pub(super) fn measured_player(
         &self,
         task: &Task,
         player: &PlayerExpr,
@@ -443,10 +443,52 @@ impl RulesTxn {
                 }
                 objects
             }
+            SetExpr::LiveResult { step, zone } => return self.live_result(task, *step, *zone),
+            SetExpr::Revealed {
+                var,
+                filter,
+                except,
+            } => self.revealed_objects(task, *var, filter, *except)?,
             SetExpr::Result { .. } => {
                 return Err("read-only step result used for an object action".into());
             }
         }))
+    }
+
+    /// CR 400.7j, 111.8: only the successor named by the producer and
+    /// still in its recorded public zone can be acted on.
+    fn live_result(
+        &self,
+        task: &Task,
+        step: u32,
+        zone: ResultZone,
+    ) -> Result<Resolved<Vec<ObjectId>>, String> {
+        let Some(result) = self.read_step_result(task, step)? else {
+            return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+        };
+        let expected = match zone {
+            ResultZone::Battlefield => Zone::Battlefield,
+            ResultZone::Exile => Zone::Exile,
+        };
+        Ok(Resolved::Present(
+            result
+                .objects
+                .iter()
+                .filter(|member| member.destination == Some(expected))
+                .filter_map(|member| member.successor)
+                .filter(|id| {
+                    self.current(*id).is_ok_and(|object| {
+                        object.zone == expected
+                            && match zone {
+                                ResultZone::Battlefield => object.present_on_battlefield(),
+                                ResultZone::Exile => {
+                                    !self.state.rules.tokens.contains_key(&id.card)
+                                }
+                            }
+                    })
+                })
+                .collect(),
+        ))
     }
 
     fn evaluated_set(
@@ -1310,8 +1352,16 @@ impl RulesTxn {
                     };
                     scope.insert(*var, kind);
                 }
-                Node::Choose { var, .. } => {
-                    scope.insert(*var, kir::RefKind::Pool);
+                Node::Choose { var, from, .. } => {
+                    let kind = if matches!(from, SetExpr::Revealed { .. }) {
+                        kir::RefKind::RevealedLibrary
+                    } else {
+                        kir::RefKind::Pool
+                    };
+                    scope.insert(*var, kind);
+                }
+                Node::RevealTop { var, .. } => {
+                    scope.insert(*var, kir::RefKind::RevealedLibrary);
                 }
                 Node::ChooseCreatureType { var, .. } => {
                     scope.insert(*var, kir::RefKind::CreatureType);
@@ -1332,6 +1382,10 @@ impl RulesTxn {
                 Some(Binding::Objects(objects)) => {
                     (kind == kir::RefKind::Pool
                         || kind == kir::RefKind::Object && objects.len() == 1)
+                        && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
+                }
+                Some(Binding::Revealed(objects)) => {
+                    kind == kir::RefKind::RevealedLibrary
                         && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
                 }
                 Some(Binding::CreatureType(_)) => kind == kir::RefKind::CreatureType,

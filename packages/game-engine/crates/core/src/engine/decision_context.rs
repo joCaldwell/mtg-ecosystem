@@ -336,10 +336,14 @@ impl RulesTxn {
             let (source_block, candidate) = self.kernel_choice_context(task).ok()?;
             let labels = self.stack_definition(entry).ok()?.source_labels.as_ref();
             let instruction = if let Some(object) = candidate {
-                let handle = self.handle_for(viewer, object).ok()?;
+                let name = if task.publicly_reveals(object) {
+                    self.definition(object.card).ok()?.name.clone()
+                } else {
+                    self.handle_for(viewer, object).ok()?.0
+                };
                 Some(DecisionInstruction {
                     source_block,
-                    text: format!("Include {} among the chosen objects?", handle.0),
+                    text: format!("Include {name} among the chosen objects?"),
                 })
             } else {
                 labels

@@ -112,6 +112,8 @@ def compiled_sites(bound):
             value = 'event-self' if resolved['is_source'] else 'event'
         elif kind == 'source':
             value = 'source'
+        elif kind == 'step-result':
+            value = json.dumps(resolved, sort_keys=True)
         else:
             value = 'other:' + resolved['reference']
         sites[(entry['block'], entry['word'])].add(value)

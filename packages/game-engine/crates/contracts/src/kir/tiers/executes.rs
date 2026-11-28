@@ -152,7 +152,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         | kir::Node::IfPays { node, .. } => cost_conditions(node, out),
         kir::Node::ForEach { body, .. }
         | kir::Node::Choose { body, .. }
-        | kir::Node::ChooseCreatureType { body, .. } => cost_conditions(body, out),
+        | kir::Node::ChooseCreatureType { body, .. }
+        | kir::Node::RevealTop { body, .. } => cost_conditions(body, out),
         kir::Node::Delayed { .. } | kir::Node::Reflexive { .. } => Ok(()),
     }
 }
@@ -463,7 +464,13 @@ fn validate_target_bindings(
         let sacrifice_return = !p.optional_target
             && matches!(targeted.as_slice(),
             [kir::Node::SacrificeForTappedReturn { count: c }] if *c as usize == count);
-        if !(batch || leaves || placement || sacrifice_return) {
+        let linked_batch = battlefield
+            && matches!(targeted.as_slice(), [kir::Node::Seq(nodes)] if matches!(
+                nodes.first().and_then(kir::Node::verb),
+                Some(kir::Verb::Move { what: kir::SetExpr::Targets { slots }, to: kir::Destination::Exile })
+                    if slots.iter().copied().eq(0..count as u32)
+            ));
+        if !(batch || leaves || placement || sacrifice_return || linked_batch) {
             return cell("target", "group_requires_batch_or_order_free_leaves");
         }
     } else if p.targets.len() > 1 && p.optional_target {
