@@ -299,6 +299,9 @@ fn lower(
         }
         S::Modify(x) => return modify(x, raw, site),
         S::Conditional(x) => {
+            if matches!(&*x.effect, S::LinkedCreatureCharacteristics(_)) {
+                return Err(gap("linked-creature-characteristics:last-exiled"));
+            }
             if x.otherwise.is_some() {
                 return Err(gap("conditional:otherwise"));
             }
@@ -324,7 +327,8 @@ fn lower(
                     | StaticEffect::ChooseOnEntry { .. } => {
                         return Err(gap("entry-choice:conditional"));
                     }
-                    StaticEffect::EntersWithCounters { .. } => {
+                    StaticEffect::EntersWithCounters { .. }
+                    | StaticEffect::EntersWithAnnouncedXCounters { .. } => {
                         return Err(gap("enters-with-counters:conditional"));
                     }
                     // CR 604.3a(5): a conditional value is not a CDA.
@@ -543,6 +547,9 @@ fn lower(
         S::VariableConstraints(_) => return Err(gap("variable-constraints")),
         S::PlayerAbilities(_) => return Err(gap("player-abilities")),
         S::Control(_) => return Err(gap("control")),
+        S::LinkedCreatureCharacteristics(_) => {
+            return Err(gap("linked-creature-characteristics:last-exiled"));
+        }
         S::CdaPt(_) => return Err(gap("cda-pt")),
         S::CdaColors(_) => return Err(gap("cda-colors")),
         S::CdaTypes(_) => return Err(gap("cda-types")),
@@ -559,6 +566,14 @@ fn lower(
                 || x.bindings.is_some()
             {
                 return Err(gap("enters-with-counters"));
+            }
+            let kind = object_counter_kind(&x.counter.r#type)
+                .map_err(|_| gap("enters-with-counters:kind"))?;
+            if matches!(&*x.count, ast::Amount::X(_)) && x.multiplier.is_none() {
+                return Ok(vec![ability(
+                    Battlefield,
+                    StaticEffect::EntersWithAnnouncedXCounters { kind },
+                )]);
             }
             let count = fixed_nonnegative(&x.count)?;
             if count == Quantity::zero() {
@@ -599,12 +614,7 @@ fn lower(
             };
             ability(
                 Battlefield,
-                StaticEffect::EntersWithCounters {
-                    kind: object_counter_kind(&x.counter.r#type)
-                        .map_err(|_| gap("enters-with-counters:kind"))?,
-                    count,
-                    per,
-                },
+                StaticEffect::EntersWithCounters { kind, count, per },
             )
         }
         S::EntersWithCounterChoice(_) => return Err(gap("enters-with-counter-choice")),

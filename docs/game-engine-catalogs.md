@@ -98,6 +98,13 @@ same inputs reproduces the same tracked bytes; the candidate basename becomes
 the frozen compile cache name. For a scratch check of the registered cut, use
 `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM --archives R5 R6`.
 
+For a deck-ranked grammar cut, pass `--grammar-cut NAME --previous-r6 PATH`
+and one `--fixture ORACLE_ID` per reviewed witness. Promotion runs D0 in
+listed-change mode, re-extracts and verifies the earlier fixture cohort in
+scratch, and adds the new exact header, registry row, frozen input manifest
+and witness rows. The new witnesses live under `phase1-r6/HEADER_SHA256/`.
+The registered v4 origin remains available from its retained cache.
+
 `scripts/compare-archive-cut.py d1 BEFORE AFTER` compares bulk payload bytes,
 coverage, blockers, four tier decisions from the compiler's
 `compare-archive-tiers` example, and native admission witnesses.
@@ -596,11 +603,14 @@ failure; exit 2 is usage.
 
 The strict input manifest
 ([R5](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r5.json),
-[R6](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r6.json))
+[R6](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r6.json),
+[grammar batch 2](../packages/game-engine/tests/fixtures/compile-inputs-grammar-batch2.json))
 pins Oracle and paper-evidence bytes, canonical records, scope, rules, reader,
 archive length/full-file/header hashes and IR/bulk versions. Every pin is mandatory
-except `compiler.buildId`, which must equal the binary when present; unknown keys
-reject as unpinned inputs. Source paths resolve relative to the manifest and must
+except `compiler.buildId`, which must equal the binary when present. Grammar cuts
+require `r6.legacyRows: "changed"` as a logical input to select listed-change generation.
+The base R6 cut rejects that field. Unknown keys reject as unpinned inputs.
+Source paths resolve relative to the manifest and must
 be regular files or hard links. Input schema 1 uses the retained schema-4 archive.
 Input schema 2 requires a promoted schema-5 archive, its exact registered header
 file, the printed schema, vocabulary, generator and record digests, and the

@@ -31,7 +31,27 @@ impl Walk<'_, '_> {
                 zone: ZoneExpr::Battlefield,
                 filter,
             } => {
-                Self::audit_set_filter(&ZoneExpr::Battlefield, filter, true)?;
+                let history = Atom::ControllerTookSourceCombatDamage {};
+                let ordinary;
+                let checked = if filter.0.contains(&history) {
+                    if self.env.context != Context::Activated || regeneration_forbidden {
+                        return unaudited(
+                            "source combat-damage history outside activated destruction",
+                        );
+                    }
+                    ordinary = Pred(
+                        filter
+                            .0
+                            .iter()
+                            .filter(|atom| **atom != history)
+                            .cloned()
+                            .collect(),
+                    );
+                    &ordinary
+                } else {
+                    filter
+                };
+                Self::audit_set_filter(&ZoneExpr::Battlefield, checked, true)?;
                 if regeneration_forbidden && *filter != Pred::nonland_permanents() {
                     return unaudited("regeneration prohibition for this set");
                 }

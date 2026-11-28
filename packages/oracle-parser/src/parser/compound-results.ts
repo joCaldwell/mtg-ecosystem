@@ -97,6 +97,48 @@ export function parseExileAndSearchPlacement(c: Cursor, previous: Sentence,
  * allowing reuse across types. Once the choices are complete that
  * opponent sacrifices the complement of their own choices (CR 701.21a). */
 export function parsePermanentRepresentatives(c: Cursor): Sentence | null {
+  const listed = c.attempt(c => {
+    const start = c.pos;
+    if (!c.words("each", "player")) return null;
+    const who: PlayerRef = c.mark({ player: "each-player" }, start);
+    if (c.word("chooses") === null) return null;
+    const listStart = c.pos;
+    const types: string[] = [];
+    const readType = () => c.word("a", "an") !== null
+      ? c.word("artifact", "battle", "creature", "enchantment", "planeswalker") : null;
+    let last = false;
+    while (!last) {
+      const type = readType();
+      if (!type || types.includes(type)) return null;
+      types.push(type);
+      const comma = c.punct(",");
+      last = c.word("and") !== null;
+      if (!comma && !last) return null;
+    }
+    const finalType = readType();
+    if (!finalType || types.includes(finalType)) return null;
+    types.push(finalType);
+    const perPermanentType = c.mark({ types, skipMissing: true, sameObjectForMultipleTypes: true } as const, listStart);
+    if (!c.words("from", "among", "the")) return null;
+    const poolStart = c.pos;
+    if (!c.words("nonland", "permanents")) return null;
+    const controlStart = c.pos;
+    if (!c.words("they", "control")) return null;
+    const controlledBy = c.mark({ player: "they" } as const, controlStart, controlStart + 1);
+    const pool: ObjectRef = c.mark({
+      ref: "each", filter: c.mark({ cls: "permanent", nonTypes: ["land"], controlledBy } as const, poolStart),
+    }, poolStart);
+    const choose: Effect = c.mark({ effect: "choose-object", who, what: pool, perPermanentType }, start);
+    const restStart = c.pos;
+    if (!c.punct(",") || !c.words("then", "sacrifices")) return null;
+    const whatStart = c.pos;
+    if (!c.words("the", "rest")) return null;
+    const rest: ObjectRef = c.mark({ ref: "rest", of: c.alias(pool), exclude: "own-preceding-choices" }, whatStart);
+    const sacrifice: Effect = c.mark({ effect: "sacrifice", who: c.alias(who), what: rest }, restStart);
+    if (!c.punct(".") || !c.done()) return null;
+    return { steps: [choose, sacrifice] };
+  });
+  if (listed) return listed;
   return c.attempt(c => {
     if (!c.words("each", "opponent", "chooses", "a", "permanent", "they", "control", "of", "each", "permanent", "type")
       || !c.words("and", "sacrifices", "the", "rest") || !c.punct(".") || !c.done()) return null;

@@ -955,6 +955,7 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                         | StaticEffect::RevealOrEnterTapped { .. }
                         | StaticEffect::EntersTappedIf { .. }
                         | StaticEffect::EntersWithCounters { .. }
+                        | StaticEffect::EntersWithAnnouncedXCounters { .. }
                         | StaticEffect::ChooseOnEntry { .. }
                 )
             })
@@ -1135,6 +1136,7 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
                         | StaticEffect::RevealOrEnterTapped { .. }
                         | StaticEffect::EntersTappedIf { .. }
                         | StaticEffect::EntersWithCounters { .. }
+                        | StaticEffect::EntersWithAnnouncedXCounters { .. }
                         | StaticEffect::ChooseOnEntry { .. }
                 )
             }))
@@ -1628,6 +1630,14 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                     // the first state-based toughness check.
                     let mut entry_toughness = n.clone();
                     for ability in &d.static_abilities {
+                        if matches!(
+                            ability.effect,
+                            kir::StaticEffect::EntersWithAnnouncedXCounters {
+                                kind: kir::CounterKind::PlusOnePlusOne,
+                            } if d.x_mana_cost
+                        ) {
+                            return true;
+                        }
                         if let kir::StaticEffect::EntersWithCounters {
                             kind: kir::CounterKind::PlusOnePlusOne,
                             count,

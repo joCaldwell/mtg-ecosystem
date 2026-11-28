@@ -173,8 +173,8 @@ def pretty(path, value):
 def fixtures(sim, source, out, archives, replacement=None):
     """Regenerate R6 fixtures in OUT and verify both origins without editing the source tree."""
     registry = json.loads((source / 'accepted-archives.json').read_bytes())
-    origins = {origin['cut']: origin for origin in registry}
-    r5, previous_r6 = origins['r5'], origins['r6']
+    r5 = next(origin for origin in registry if origin['cut'] == 'r5')
+    previous_r6 = next(origin for origin in registry if origin['cut'] == 'r6')
     r6, header = replacement or (previous_r6.copy(), (source / previous_r6['manifest_file']).read_bytes())
     r6['record_sha256'] = []
     registry[registry.index(previous_r6)] = r6
@@ -212,9 +212,9 @@ def fixtures(sim, source, out, archives, replacement=None):
     require(all(report['verified_records'] == len(rows) for report in verified.values()), 'verify omitted fixture rows')
     new_rows = {row['oracle_id']: row for row in after['records'] if row['archive'] == r6['manifest_file']}
     require(len(new_rows) == len(rows) == len(extracted['extracted']), 'R6 extraction is not one row per R5 identity')
-    registry_after = {origin['cut']: origin for origin in json.loads((out / 'accepted-archives.json').read_bytes())}
-    require(registry_after['r5'] == r5, 'R5 origin pins changed')
-    require(sorted(registry_after['r6']['record_sha256']) == sorted({row['record_sha256'] for row in new_rows.values()}),
+    registry_after = {origin['manifest_sha256']: origin for origin in json.loads((out / 'accepted-archives.json').read_bytes())}
+    require(registry_after[r5['manifest_sha256']] == r5, 'R5 origin pins changed')
+    require(sorted(registry_after[r6['manifest_sha256']]['record_sha256']) == sorted({row['record_sha256'] for row in new_rows.values()}),
             'R6 origin pins differ from extracted rows')
     kinds = {'excluded': 0, 'extended': 0}
     for old in rows:
@@ -240,25 +240,27 @@ def fixtures(sim, source, out, archives, replacement=None):
             'verified': {cut: report['verified_records'] for cut, report in verified.items()}}
 
 
-def verify_promotion_d0(root, r5, candidate):
+def verify_promotion_d0(root, r5, candidate, grammar):
     done = subprocess.run(
         ['sh', root / 'scripts/engine-env.sh', 'node', root / 'scripts/archive-parser.ts',
-         '--legacy-baseline', r5.resolve(), '--verify-candidate', candidate.resolve()],
+         '--legacy-baseline', r5.resolve(), '--verify-candidate', candidate.resolve(),
+         *(['--legacy-rows', 'changed'] if grammar else [])],
         cwd=root, capture_output=True, check=False,
     )
     require(done.returncode == 0, f'D0 verification failed: {done.stderr.decode(errors="replace").strip()}')
     return json.loads(done.stdout)
 
 
-def promotion_inputs(root, r5, candidate, receipt, revision):
+def promotion_inputs(root, r5, candidate, receipt, revision, grammar=False):
     d0 = receipt['d0']
-    require(receipt['status'] == 'candidate' and d0['status'] == 'passed',
-            'promotion requires a passing D0 candidate receipt')
+    expected = 'passed-with-listed-legacy-changes' if grammar else 'passed'
+    require(receipt['status'] == 'candidate' and d0['status'] == expected,
+            f'promotion requires a D0 candidate receipt with status {expected}')
     require(type(d0['elapsedMs']) is int and d0['elapsedMs'] >= 0, 'invalid D0 elapsed time')
     entry = receipt['registryEntry']
     require(re.fullmatch(r'[0-9a-f]{40}', revision) and entry['parser_revision'] in ('', revision),
             'reviewed producer revision is missing or differs from the receipt')
-    verified = verify_promotion_d0(root, r5, candidate)
+    verified = verify_promotion_d0(root, r5, candidate, grammar)
     # Elapsed time varies across runs. The producer commit is supplied by review.
     supplied = {**receipt, 'd0': {**d0, 'elapsedMs': verified['d0']['elapsedMs']},
                 'registryEntry': {**entry, 'parser_revision': ''}}
@@ -344,11 +346,81 @@ def install_promotion(source, registry_tests, out, previous_r6, r6):
         old_header_path.unlink()
 
 
+def promote_grammar(args, root, source, registry):
+    """Keep prior origins; pin only the new cut's reviewed witness rows."""
+    require(args.previous_r6 and args.fixture, 'grammar promotion requires the previous R6 archive and witness IDs')
+    require(re.fullmatch(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*', args.grammar_cut), 'invalid grammar cut name')
+    require(len(set(args.fixture)) == len(args.fixture)
+            and all(re.fullmatch(r'[0-9a-f-]{36}', oid) for oid in args.fixture), 'invalid witness IDs')
+    r6, raw, header = promotion_inputs(root, args.r5, args.candidate,
+                                       json.loads(args.receipt.read_bytes()), args.producer_revision,
+                                       grammar=True)
+    require(not any(a['manifest_sha256'] == r6['manifest_sha256'] for a in registry), 'cut is already registered')
+    inputs_name = f'compile-inputs-{args.grammar_cut}.json'
+    require(not (source / inputs_name).exists() and not (source / r6['manifest_file']).exists(),
+            'new grammar cut already has local inputs')
+    require(all(not (source / 'phase1-r6' / r6['manifest_sha256'] / f'{oid}.json').exists()
+                for oid in args.fixture), 'new grammar cut already has local fixtures')
+    # Re-extract the prior registered fixture cohort independently. Its row
+    # pins and original files stay in place for cached readers.
+    args.out.mkdir(parents=True)
+    prior = fixtures(args.sim, source, args.out / 'prior', (args.r5, args.previous_r6))
+    staged = args.out / 'grammar'
+    staged.mkdir()
+    provenance = json.loads((source / 'provenance.json').read_bytes())
+    pretty(staged / 'accepted-archives.json', [*registry, r6])
+    pretty(staged / 'provenance.json', provenance)
+    (staged / r6['manifest_file']).write_bytes(raw)
+
+    def sim_json(command, *tail):
+        done = subprocess.run([str(args.sim.resolve()), 'catalog', command, '--promotion',
+                               str(args.candidate), str(staged / 'provenance.json'), *tail],
+                              capture_output=True, check=False)
+        require(done.returncode == 0, f'{command} failed: {done.stderr.decode(errors="replace").strip()}')
+        return json.loads(done.stdout)
+
+    extracted = sim_json('extract', *args.fixture)
+    verified = sim_json('verify')
+    require(len(extracted['extracted']) == verified['verified_records'] == len(args.fixture),
+            'grammar witness extraction or verification omitted rows')
+    installed = json.loads((staged / 'provenance.json').read_bytes())
+    before = provenance['records']
+    after = installed['records']
+    require(after[:len(before)] == before, 'existing provenance rows changed')
+    new_rows = after[len(before):]
+    require({row['oracle_id'] for row in new_rows} == set(args.fixture)
+            and all(row['archive'] == r6['manifest_file'] for row in new_rows),
+            'grammar fixture rows have the wrong identities')
+    pins = json.loads((staged / 'accepted-archives.json').read_bytes())
+    require(pins[:-1] == registry and pins[-1]['record_sha256'] == sorted(r['record_sha256'] for r in new_rows),
+            'grammar promotion altered old pins or failed to pin exact new rows')
+    inputs = json.loads((source / 'compile-inputs-phase1-r6.json').read_bytes())
+    pin_frozen_inputs(inputs, args.candidate, r6, header)
+    inputs['r6']['legacyRows'] = 'changed'
+    pretty(staged / inputs_name, inputs)
+    files = [r6['manifest_file'], inputs_name, *(r['file'] for r in new_rows),
+             'accepted-archives.json', 'provenance.json']
+    with tempfile.TemporaryDirectory(prefix='.promote-grammar-', dir=source) as temp:
+        temp = Path(temp)
+        for name in files:
+            (temp / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(staged / name, temp / name)
+        for name in files:
+            (source / name).parent.mkdir(parents=True, exist_ok=True)
+            os.replace(temp / name, source / name)
+    return {'comparison': 'grammar-promotion', 'cut': args.grammar_cut,
+            'prior': prior, 'verified': verified, 'extracted': extracted,
+            'archive_sha256': r6['file_sha256'], 'header_sha256': r6['manifest_sha256'],
+            'producer_revision': args.producer_revision}
+
+
 def promote(args):
     root = Path(__file__).resolve().parent.parent
     source = root / 'packages/game-engine/tests/fixtures'
     registry_tests = root / 'packages/game-engine/crates/contracts/src/archives.rs'
     registry = json.loads((source / 'accepted-archives.json').read_bytes())
+    if args.grammar_cut:
+        return promote_grammar(args, root, source, registry)
     previous_r6 = next(a for a in registry if a['cut'] == 'r6')
     r6, raw, header = promotion_inputs(root, args.r5, args.candidate,
                                        json.loads(args.receipt.read_bytes()), args.producer_revision)
@@ -372,6 +444,9 @@ def main():
         parser.add_argument('--sim', type=Path, required=True, help='mtg-sim built from this checkout')
         parser.add_argument('--out', type=Path, required=True, help='new scratch directory for the verified fixtures')
         parser.add_argument('--producer-revision', required=True, help='reviewed candidate producer commit')
+        parser.add_argument('--grammar-cut', help='name for an additive grammar cut')
+        parser.add_argument('--previous-r6', type=Path, help='retained R6 base archive for an additive cut')
+        parser.add_argument('--fixture', action='append', help='one Oracle ID to pin from an additive cut')
     else:
         parser.add_argument('mode', choices=('d1', 'd2', 'fixtures'))
         parser.add_argument('before', type=Path, help='D1/D2 earlier run, or the fixtures directory')

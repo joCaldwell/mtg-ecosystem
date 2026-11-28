@@ -244,6 +244,16 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
 /// Decode one effect sentence; evaluated actions (including discard, mill and
 /// set-pt) decode through the generated effect schema in `Step::deserialize`.
 pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
+    if raw["steps"].as_array().is_some_and(|steps| {
+        steps.iter().any(|step| {
+            step["effect"] == "choose-object" && step["perPermanentType"]["types"].is_array()
+        })
+    }) {
+        return Err(unsupported(
+            "compose.step",
+            "per-player choice for listed permanent types needs APNAP selection and complement",
+        ));
+    }
     serde_json::from_value(control::counted_instruction(raw)).map_err(|e| mirror_gap(raw, &e))
 }
 

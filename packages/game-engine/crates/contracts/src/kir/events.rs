@@ -455,7 +455,8 @@ fn event_atom(atom: &Atom, depth: usize) -> Result<(), KirError> {
         | Atom::Blocking
         | Atom::Counters { .. }
         | Atom::SourceChosenColor {}
-        | Atom::SourceChosenCreatureType {} => false,
+        | Atom::SourceChosenCreatureType {}
+        | Atom::ControllerTookSourceCombatDamage {} => false,
     };
     if ok {
         Ok(())
@@ -710,6 +711,8 @@ pub enum TurnFact {
     SpellsCast,
     NoncreatureSpellsCast,
     SpellsCastFromHand,
+    SpellsCastFromGraveyard,
+    AbilitiesActivatedFromGraveyard,
     CardsDrawn,
     LifeGained,
     ArtifactsEnteredUnderYourControl,
@@ -768,6 +771,11 @@ pub enum Intervening {
     ControllerCreatureTotalPower {
         cmp: Cmp,
         value: Quantity,
+    },
+    /// CR 202.3, 603.4: controls a permanent tied for greatest mana value
+    /// among all permanents of that type.
+    ControlsGreatestManaValue {
+        kind: CardKind,
     },
     /// "if you control a creature with power N or greater" (CR 208).
     ControllerHasCreatureWithPower {
@@ -924,6 +932,29 @@ impl Intervening {
                     value: value.clone(),
                 },
             },
+            Self::ControlsGreatestManaValue { kind } => {
+                let all = SetExpr::battlefield(Pred(vec![Atom::Type { kind: *kind }]));
+                let own = SetExpr::battlefield(Pred(vec![
+                    Atom::Type { kind: *kind },
+                    Atom::ControlledBy { player: you },
+                ]));
+                Cond::All {
+                    conditions: vec![
+                        Cond::Exists { set: own.clone() },
+                        Cond::Compare {
+                            left: Amount::Greatest {
+                                set: own,
+                                stat: Stat::ManaValue,
+                            },
+                            cmp: Cmp::Exactly,
+                            right: Amount::Greatest {
+                                set: all,
+                                stat: Stat::ManaValue,
+                            },
+                        },
+                    ],
+                }
+            }
             Self::ControllerHasCreatureWithPower { minimum_power } => Cond::Exists {
                 set: SetExpr::battlefield(Pred(vec![
                     Atom::Type {
@@ -945,6 +976,42 @@ impl Intervening {
     /// has none. A condition is admitted only in exactly one of these forms.
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
+            Cond::All { conditions } => {
+                let [
+                    _,
+                    Cond::Compare {
+                        right:
+                            Amount::Greatest {
+                                set: SetExpr::Matching { filter, .. },
+                                stat: Stat::ManaValue,
+                            },
+                        ..
+                    },
+                ] = conditions.as_slice()
+                else {
+                    return Err(KirError::Unaudited(
+                        "intervening greatest mana value".into(),
+                    ));
+                };
+                let [Atom::Type { kind }] = filter.0.as_slice() else {
+                    return Err(KirError::Unaudited(
+                        "intervening greatest mana value type".into(),
+                    ));
+                };
+                if !matches!(
+                    kind,
+                    CardKind::Artifact
+                        | CardKind::Creature
+                        | CardKind::Enchantment
+                        | CardKind::Land
+                        | CardKind::Planeswalker
+                ) {
+                    return Err(KirError::Unaudited(
+                        "intervening greatest mana value type".into(),
+                    ));
+                }
+                Self::ControlsGreatestManaValue { kind: *kind }
+            }
             Cond::TurnHistory { fact, cmp, value }
                 if !value.is_negative()
                     && (*fact != TurnFact::CreaturesEnteredUnderOpponentsControl

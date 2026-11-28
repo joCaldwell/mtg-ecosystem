@@ -123,6 +123,11 @@ pub enum InterveningCheck {
         count: u32,
         passed: bool,
     },
+    ControlsGreatestManaValue {
+        controller: PlayerId,
+        own: Option<Quantity>,
+        all: Option<Quantity>,
+    },
     ControllerHasCreatureWithPower {
         controller: PlayerId,
         minimum_power: Quantity,
@@ -148,6 +153,7 @@ impl InterveningCheck {
             | Self::ControllerComparison { passed, .. }
             | Self::SourceStatus { passed, .. }
             | Self::BattlefieldCount { passed, .. } => *passed,
+            Self::ControlsGreatestManaValue { own, all, .. } => own.is_some() && own == all,
             Self::ControllerHasCreatureWithPower { qualifying, .. } => qualifying.is_some(),
             Self::SourceCastByController {
                 controller, cast, ..
@@ -311,6 +317,20 @@ impl InterveningCheck {
             ) => {
                 *c == controller
                     && *passed == compare(&Quantity::from(i64::from(*count)), *cmp, value)
+            }
+            (
+                Intervening::ControlsGreatestManaValue { .. },
+                Self::ControlsGreatestManaValue {
+                    controller: c,
+                    own,
+                    all,
+                },
+            ) => {
+                *c == controller
+                    && all.as_ref().is_none_or(|n| !n.is_negative())
+                    && own.as_ref().is_none_or(|n| {
+                        !n.is_negative() && all.as_ref().is_some_and(|max| n <= max)
+                    })
             }
             (
                 Intervening::ControllerHasCreatureWithPower { minimum_power },
@@ -677,6 +697,35 @@ impl RulesTxn {
                     passed: compare(&Quantity::from(i64::from(count)), *cmp, value),
                 }
             }
+            Intervening::ControlsGreatestManaValue { kind } => {
+                let mut own: Option<Quantity> = None;
+                let mut all: Option<Quantity> = None;
+                for object in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield())
+                {
+                    let c = self.characteristics(object.id)?;
+                    if c.has_type(*kind) {
+                        let value = c.printed_mana_value();
+                        if object.controller == controller
+                            && own.as_ref().is_none_or(|max| &value > max)
+                        {
+                            own = Some(value.clone());
+                        }
+                        if all.as_ref().is_none_or(|max| &value > max) {
+                            all = Some(value);
+                        }
+                    }
+                }
+                InterveningCheck::ControlsGreatestManaValue {
+                    controller,
+                    own,
+                    all,
+                }
+            }
             Intervening::ControllerHasCreatureWithPower { minimum_power } => {
                 let mut qualifying = None;
                 for object in self
@@ -797,14 +846,17 @@ impl RulesTxn {
         {
             return Err("cast-entry resolution lost its match evidence".into());
         }
-        if let Some(
-            InterveningCheck::TurnHistory { passed: false, .. }
-            | InterveningCheck::ControllerComparison { passed: false, .. }
-            | InterveningCheck::ControlsOwnCommander { passed: false, .. }
-            | InterveningCheck::OpponentControlsMore { passed: false, .. },
-        ) = &frame.condition_check
-            && (frame.cursor != 0 || frame.random_discard.is_some())
-        {
+        let failed_comparison = match &frame.condition_check {
+            Some(
+                InterveningCheck::TurnHistory { passed: false, .. }
+                | InterveningCheck::ControllerComparison { passed: false, .. }
+                | InterveningCheck::ControlsOwnCommander { passed: false, .. }
+                | InterveningCheck::OpponentControlsMore { passed: false, .. },
+            ) => true,
+            Some(check @ InterveningCheck::ControlsGreatestManaValue { .. }) => !check.passed(),
+            _ => false,
+        };
+        if failed_comparison && (frame.cursor != 0 || frame.random_discard.is_some()) {
             return Err("snapshot progressed after failed intervening comparison".into());
         }
         match (expected, &frame.condition_check, &entry.kind) {
