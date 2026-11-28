@@ -93,6 +93,32 @@ fn change_field(row: &mut Value, index: usize, path: &str, value: Value) {
     *ast_mut(row, index).pointer_mut(path).unwrap() = value;
 }
 
+#[test]
+fn source_action_requires_its_quantity_citation_with_legacy_projection_erased() {
+    let archive = mtg_contracts::accepted_manifest(include_str!(
+        "../../../../../tests/fixtures/archive-manifest-r6-candidate-6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37.json"
+    )).unwrap();
+    let mut row: Value = serde_json::from_str(include_str!(
+        "../../../../../tests/fixtures/phase1-r6/a3d287ec-1a39-4f91-acf1-7c1d2c00ed89.json"
+    ))
+    .unwrap();
+    row["resolution"] = json!({});
+    row["binding"] = json!({"referencesBound":false,"fullyBound":false});
+    let raw = rehash(&mut row);
+    assert!(crate::compose::lower(archive, &raw, Some(&verified(&raw).unwrap())).is_ok());
+
+    let quantity = fact_mut(&mut row, 0, "fact", "quantity");
+    quantity["field"] = Value::Null;
+    let raw = rehash(&mut row);
+    let failure = crate::compose::lower(archive, &raw, Some(&verified(&raw).unwrap())).unwrap_err();
+    assert_eq!(failure.path, "printed/faces/0/blocks/0");
+    assert!(
+        failure
+            .reason
+            .starts_with("evidence:missing:P11:/effects/0/steps/0/amount/value@O[")
+    );
+}
+
 fn expect_check(label: &str, row: &mut Value, expected: &str) {
     let raw = rehash(row);
     let failure = verified(&raw).err().expect("mutation passed the verifier");

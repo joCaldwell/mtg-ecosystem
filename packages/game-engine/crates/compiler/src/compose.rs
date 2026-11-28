@@ -25,6 +25,7 @@ mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
 mod sagas;
+mod source_action;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -877,17 +878,25 @@ pub(super) struct Blockers {
 /// The sentinel a deferred composition returns once some block failed.
 const BLOCKS_FAILED: &str = "blocks failed";
 
-pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
-    compose(archive, record, None)
+pub(super) fn lower(
+    archive: &AcceptedArchive,
+    record: &str,
+    evidence: Option<&evidence::CardEvidence>,
+) -> Result<Definition, Failure> {
+    compose(archive, record, evidence, None)
 }
 
 /// Every blocker the gap report should rank, without changing what lowers:
 /// the card-wide binding checks are recorded instead of returned, so the
 /// first block that also fails is named rather than hidden behind them. The
 /// definition built under deferred checks is discarded; only `lower` admits.
-pub(super) fn blockers(archive: &AcceptedArchive, record: &str) -> Blockers {
+pub(super) fn blockers(
+    archive: &AcceptedArchive,
+    record: &str,
+    evidence: Option<&evidence::CardEvidence>,
+) -> Blockers {
     let mut found = Blockers::default();
-    if let Err(failure) = compose(archive, record, Some(&mut found))
+    if let Err(failure) = compose(archive, record, evidence, Some(&mut found))
         && !(failure.path == "compose" && failure.reason == BLOCKS_FAILED)
     {
         found.card = Some(failure);
@@ -913,9 +922,22 @@ fn binding_gate(
 fn compose(
     archive: &AcceptedArchive,
     record: &str,
+    evidence: Option<&evidence::CardEvidence>,
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
     let mut card = ingest::read_card(archive, record)?;
+    // Select the whole-card authority before decoding any resolution verdict,
+    // projection or segment. A compound ability keeps its existing authority.
+    if matches!(archive.cut, ArchiveCut::R5 | ArchiveCut::R6)
+        && let [(source, face)] = card.faces.as_slice()
+        && face.lines.len() == 1
+        && let Ok(types) = type_line::parse(&source.type_line, false)
+        && matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
+        && let Ok(abilities) = decode::<Vec<ast::Ability>>(face.abilities.get(), "abilities")
+        && let Some(action) = source_action::SourceAction::select(&abilities)
+    {
+        return source_action::compose(archive, &mut card, action, evidence, types);
+    }
     let r = &card.record;
     let mut resolution =
         resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;

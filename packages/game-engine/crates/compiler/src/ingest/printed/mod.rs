@@ -5,13 +5,13 @@ use mtg_oracle_ast::printed::*;
 use serde::Deserialize;
 use serde_json::Value;
 
-// No production family opts into this API until its D3 migration.
 #[allow(
     dead_code,
-    reason = "Stage 2 family migrations opt in after the inert R6 cut"
+    reason = "Later Stage 2 families will opt into the remaining proof operations"
 )]
 pub(crate) mod evidence;
 mod facts;
+pub(crate) use facts::word_number;
 mod nodes;
 mod quotes;
 mod text;

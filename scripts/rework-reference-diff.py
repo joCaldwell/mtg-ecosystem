@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 1 transition differential for pronoun antecedents and lowered IR.
+"""Transition differential for reference selections and lowered IR.
 
 Run via sh scripts/engine-env.sh python3 -B scripts/rework-reference-diff.py --help.
 
@@ -9,6 +9,10 @@ rule chose (`mtg-sim catalog reference-trace`) with the frozen TypeScript
 resolution in the archive, over every lowered definition, and exits 1 on
 any unexplained disagreement. It also compares each baseline definition's
 Kernel IR with the candidate's and lists every change for review.
+
+For D3 source-authority choices, join each traced occurrence to the original
+binder graph as well as the historical projection. A missing, additional, or
+different occurrence stops the sweep.
 
 Explained equivalence: an event object that is the source itself ("when
 this creature enters, it ...") reads the same incarnation the resolution
@@ -177,6 +181,87 @@ def compare_references(archive, trace, unchanged):
             'disagreements': disagreements}
 
 
+def source_sites(choice):
+    player = choice['player']
+    match player['kind']:
+        case 'spell-controller':
+            node = {'node': 'runtime-player', 'role': 'spell-controller'}
+            projected = {'ref': 'controller', 'role': 'spell-controller'}
+            rule = '109.5'
+        case 'each-player':
+            node = {'node': 'selection', 'selection': 'evaluate-reference',
+                    'timing': 'resolution', 'cardinality': 'many',
+                    'expression': {'player': 'each-player'}}
+            projected = None
+            rule = '608.2h'
+        case 'target':
+            noun = {'any_player': 'target-player', 'opponent_player': 'target-opponent'}[player['domain']]
+            node = {'node': 'selection', 'selection': 'target',
+                    'timing': 'stack-announcement', 'cardinality': 'one',
+                    'expression': {'player': noun, 'selectionId': player['selection_id']}}
+            projected = {'ref': 'target', 'slot': player['slot']}
+            rule = '601.2c'
+        case _:
+            raise ValueError(f'unknown source authority player {player}')
+    yield choice['step'] + '/who', node, projected, rule
+    if choice['announced_x']:
+        yield (choice['step'] + '/amount', {'node': 'announced-number', 'announcement': 'cast'},
+               {'ref': 'announced-x'}, '107.3a')
+
+
+def compare_source_choices(archive, trace):
+    with trace.open() as stream:
+        choices = {row['oracle_id']: row['source_choices']
+                   for line in stream if (row := json.loads(line)).get('source_choices')}
+    records = read_archive(archive, choices.keys()) if choices else {}
+    table = []
+    for identity, sites in sorted(choices.items()):
+        record = records[identity]
+        binding = record['binding']
+        nodes = {node['id']: node for node in binding['nodes']}
+        for site in sites:
+            face, block, step = site['face'], site['block'], site['step']
+            prefix = f'/faces/{face}/abilities/{block}'
+            scope = f'card:{identity}{prefix}#ability'
+            projection = record['resolution']['faces'][face]['blocks'][block]['refs']
+            chosen = {path: (node, projected, rule)
+                      for path, node, projected, rule in source_sites(site)}
+            historical = defaultdict(list)
+            projected = defaultdict(list)
+            for ref in binding['references']:
+                if ref['path'].startswith(prefix + step + '/'):
+                    historical[ref['path'][len(prefix):]].append(ref)
+            for ref in projection:
+                if ref['path'].startswith(step + '/'):
+                    projected[ref['path']].append(ref)
+            for path in sorted(chosen.keys() | historical.keys() | projected.keys()):
+                node, projection_ref, rule = chosen.get(path, (None, None, None))
+                bound = historical[path]
+                target = nodes.get(bound[0].get('target')) if len(bound) == 1 else None
+                legacy = projected[path]
+                want_projection = ({'path': path, 'ref': projection_ref} if projection_ref
+                                   else {'path': path, 'evaluated': 'selection'})
+                agree = (node is not None and target is not None and bound[0]['binding'] == 'bound'
+                         and target.get('scope') == scope
+                         and all(target.get(key) == value for key, value in node.items())
+                         and legacy == [want_projection])
+                table.append({
+                    'oracle_id': identity,
+                    'name': record['source']['name'],
+                    'oracle_text': record['faces'][face]['result']['lines'][block]['text'],
+                    'path': prefix + path,
+                    'rule': rule,
+                    'rust': node,
+                    'historical': bound,
+                    'historical_node': target,
+                    'projection': legacy,
+                    'agrees': agree,
+                })
+    return {'identities': len(choices), 'sites': len(table),
+            'historical_bound': sum(ref['binding'] == 'bound' for row in table for ref in row['historical']),
+            'divergences': sum(not row['agrees'] for row in table), 'occurrences': table}
+
+
 def diff_paths(a, b, path='', out=None, limit=12):
     out = [] if out is None else out
     if len(out) >= limit:
@@ -231,6 +316,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     kir = compare_kir(args.baseline_catalog, args.candidate_catalog)
     references = compare_references(args.archive, args.trace, kir.pop('unchanged_ids'))
+    source = compare_source_choices(args.archive, args.trace)
     reviewed = json.loads(args.explained.read_text()) if args.explained else []
     explained = {(e['oracle_id'], e['block'], e['word']): e['reason']
                  for e in reviewed if 'block' in e}
@@ -244,11 +330,15 @@ def main(argv=None):
     references['unexplained'] = len(unexplained)
     (args.out / 'reference-parity.json').write_text(json.dumps(references, indent=2) + '\n')
     (args.out / 'kir-parity.json').write_text(json.dumps(kir, indent=2) + '\n')
+    if source['sites']:
+        (args.out / 'source-resolution-parity.json').write_text(json.dumps(source, indent=2) + '\n')
     summary = {k: v for k, v in references.items() if k != 'disagreements'}
     summary['kir'] = {k: (len(v) if isinstance(v, list) else v)
                       for k, v in kir.items() if k != 'changed_definitions'}
+    summary['source_resolution'] = {k: v for k, v in source.items() if k != 'occurrences'}
     print(json.dumps(summary))
-    return 1 if unexplained or any(not row['explanation'] for row in kir['lost']) else 0
+    return 1 if unexplained or source['divergences'] or any(
+        not row['explanation'] for row in kir['lost']) else 0
 
 
 if __name__ == '__main__':

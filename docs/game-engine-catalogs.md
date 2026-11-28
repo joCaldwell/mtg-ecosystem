@@ -173,6 +173,17 @@ fact. Several checked fields may cite the same occurrence.
 An undischarged field or unconsumed occurrence rejects the card with an original
 byte range.
 
+The first source-authority slice covers a single-face instant or sorcery with
+one unqualified draw or mill sentence. The controller, each player, or one
+announced player or opponent receives a fixed count or the spell's announced
+X. Rust selects that authority from the typed block before reading the legacy
+resolution. The whole R5 Oracle sentence can prove these occurrences. R6
+requires verified coverage of the verb, recipient, quantity, card noun and
+sentence boundary, and records the consumed `printed_sha256` in definition
+provenance. Compound blocks and linked operands still use their existing
+authority. The occurrence differential checks both the frozen binder graph
+and its projection using the trace emitted by the selected Rust path.
+
 Run the frozen witness and mutation harness against the pinned candidate with
 `MTG_R6_VERIFIER_ROWS` set to its path.
 
