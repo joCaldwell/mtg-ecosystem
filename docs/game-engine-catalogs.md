@@ -347,8 +347,9 @@ producer of that event (a move to exile, or to a hand or the battlefield) in
 the same resolving block and chosen mode (CR 608.2c,h, 700.2). The
 checked sequence reads its actual object set and count. Type, subtype and other
 card predicates read the exact public successor or its known characteristics
-when it has left (CR 400.7, 701.9c, 701.17c). An unrevealed hidden destination supplies no
-characteristics. A missing or competing producer rejects at the linked operand.
+when it has left (CR 400.7, 701.9c, 701.17c). An object moved from a public zone
+into a hand or library keeps its last-known public characteristics (CR 608.2h);
+a card hidden in its origin and destination supplies none. A missing or competing producer rejects at the linked operand.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write. One

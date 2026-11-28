@@ -1,7 +1,8 @@
 //! Frozen R5 zone changes performed by the shared evaluator.
 //! CR 110.2a, 400.3, 400.7, 401.4, 603.2, 608.2b-c, 608.2h, 701.24a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-use mtg_contracts::kir::{Cell, EvaluatedVerb, definition_cells};
+use mtg_contracts::kir::{self, Cell, EvaluatedVerb, definition_cells};
+use mtg_contracts::{Definition, Instruction};
 use mtg_core::testkit::*;
 
 macro_rules! record {
@@ -22,18 +23,36 @@ const RUN_AGROUND: &str = record!("6ef9bf18-6b09-4398-a502-6867d999ab0c");
 const NATURAL_OBSOLESCENCE: &str = record!("fbafbe3a-3980-4457-a77b-3f72df7b3329");
 const OBLATION: &str = record!("860e744d-899c-43c7-84bb-d52c69d2f45a");
 const MALANTHROPE: &str = record!("0f99e921-61e7-4fc8-8115-4162712b4737");
+/// "When this creature enters, put target card from an opponent's
+/// graveyard on the bottom of their library." (frozen R5 line 3110)
+const LANDSCAPER_COLOS: &str = record!("144bef8b-3583-4e98-9285-a1965e7e17f8");
+/// "This creature enters with three +1/+1 counters on it."
+const FAITHFUL_WATCHDOG: &str = record!("139fb542-89fd-4b9e-87e6-ec925bcca93a");
+/// "If one or more +1/+1 counters would be put on a creature you control,
+/// that many plus one +1/+1 counters are put on it instead."
+const HARDENED_SCALES: &str = record!("a1f3da21-af6d-450e-bf0b-985d158418e6");
 
 const MOVED: Cell = Cell::Evaluated(EvaluatedVerb::Move);
+
+fn lowered(raw: &str) -> Definition {
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("frozen evaluated move witness failed: {result:?}");
+    };
+    *definition
+}
 
 /// Each frozen card compiles and every one of its moves occupies the
 /// evaluated cell or one of the two reviewed higher-tier labels.
 fn board(cards: &[&str], seats: u8) -> Board {
+    let moves = cards.iter().map(|raw| lowered(raw)).collect();
+    board_of(moves, &[], seats)
+}
+
+/// `moves` carry a move; `others` are frozen cards without one.
+fn board_of(moves: Vec<Definition>, others: &[&str], seats: u8) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
-    for raw in cards {
-        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
-        let mtg_compiler::CompileResult::Lowered { definition } = result else {
-            panic!("frozen evaluated move witness failed: {result:?}");
-        };
+    for definition in moves {
         let cells = definition_cells(&definition).unwrap();
         assert!(
             cells.contains(&MOVED)
@@ -42,8 +61,11 @@ fn board(cards: &[&str], seats: u8) -> Board {
             "{}: {cells:?}",
             definition.name
         );
-        catalog.definitions.push(*definition);
+        catalog.definitions.push(definition);
     }
+    catalog
+        .definitions
+        .extend(others.iter().map(|raw| lowered(raw)));
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -318,7 +340,7 @@ fn four_seat_moves_reveal_nothing_about_other_hidden_cards() {
 
 /// CR 608.2c, 608.2h, 406.2: "for each creature card exiled this way" reads
 /// the cards the earlier step actually exiled, by their characteristics in
-/// exile, once the whole graveyard has moved. A token or land does not count.
+/// exile, once the whole graveyard has moved. A land card does not count.
 #[test]
 fn malanthrope_counts_the_creature_cards_exiled_this_way() {
     let graveyard = Zone::Graveyard { owner: PlayerId(1) };
@@ -354,4 +376,131 @@ fn malanthrope_counts_the_creature_cards_exiled_this_way() {
         g.state.rules.objects[&malanthrope.card].plus_one_counters,
         Quantity::from(2)
     );
+}
+
+/// CR 400.7, 608.2c, 608.2h: a filtered "returned this way" read of a
+/// permanent that went to its owner's hand tests the permanent's last-known
+/// characteristics; the card now in that hand is not read. Nurturing Pixie's
+/// shape ("return ... to its owner's hand. If a permanent was returned this
+/// way, put a +1/+1 counter on this creature"; frozen R5 line 21521) does not
+/// lower yet, so frozen Exclusion Mage's return trigger is followed by frozen
+/// Malanthrope's "put a +1/+1 counter on this creature for each creature card
+/// [moved] this way" step, which reads step 0 with a creature filter.
+#[test]
+fn a_returned_creature_counts_by_its_last_known_characteristics() {
+    let mut mage = lowered(EXCLUSION_MAGE);
+    let malanthrope = lowered(MALANTHROPE);
+    let [
+        Instruction::Kernel {
+            node: kir::Node::Seq(steps),
+            ..
+        },
+    ] = malanthrope.triggered[0].program.instructions.as_slice()
+    else {
+        panic!("Malanthrope's two-step trigger");
+    };
+    let program = &mut mage.triggered[0].program;
+    let [Instruction::Kernel { node, .. }] = program.instructions.as_mut_slice() else {
+        panic!("Exclusion Mage's one-step trigger");
+    };
+    *node = kir::Node::Seq(vec![node.clone(), steps[1].clone()]);
+    mage.source_labels = None;
+    mage.capabilities = mage.requirements();
+    let mut g = Game::new(
+        board_of(vec![mage], &[], 2)
+            .permanent_or_hand("Exclusion Mage", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[2, 3, 4]);
+    let trigger = next_choice(&mut g);
+    assert_eq!(trigger.player, PlayerId(0));
+    let target = Driver::object(&g, 1);
+    Driver::pick_object(&mut g, target);
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 1)),
+        Some(Zone::Hand { owner: PlayerId(1) })
+    );
+    let mage = Driver::object(&g, 0);
+    assert_eq!(
+        g.state.rules.objects[&mage.card].plus_one_counters,
+        Quantity::from(1)
+    );
+}
+
+/// CR 400.3, 401.4: Landscaper Colos puts a card from an opponent's
+/// graveyard on the bottom of that card's owner's library, not its
+/// controller's.
+#[test]
+fn landscaper_colos_puts_an_opponents_card_under_their_library() {
+    let mut setup = board(&[LANDSCAPER_COLOS], 2)
+        .permanent_or_hand("Landscaper Colos", 0, 0, true)
+        .card(
+            "Grizzly Bears",
+            1,
+            1,
+            Zone::Graveyard { owner: PlayerId(1) },
+        );
+    for _ in 0..6 {
+        setup = setup.permanent_or_hand("Plains", 0, 0, false);
+    }
+    let mut g = Game::new(setup.libraries("Forest", 3).prepare());
+    let own = library(&g, 0);
+    let theirs = library(&g, 1);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[2, 3, 4, 5, 6, 7]);
+    let trigger = next_choice(&mut g);
+    assert_eq!(trigger.player, PlayerId(0));
+    let target = Driver::object(&g, 1);
+    Driver::pick_object(&mut g, target);
+    settle(&mut g);
+    assert_eq!(library(&g, 0), own);
+    let mut expected = theirs;
+    expected.push(CardId(1));
+    assert_eq!(library(&g, 1), expected);
+    assert_eq!(
+        g.zone(Driver::object(&g, 1)),
+        Some(Zone::Library { owner: PlayerId(1) })
+    );
+}
+
+/// CR 122.6, 614.1c, 614.12: a creature card returned from a graveyard to
+/// the battlefield enters with its printed counters as replaced by Hardened
+/// Scales: Faithful Watchdog enters with 3 + 1.
+#[test]
+fn a_reanimated_creature_enters_with_replaced_counters() {
+    let mut g = Game::new(
+        board_of(
+            vec![lowered(REANIMATE)],
+            &[FAITHFUL_WATCHDOG, HARDENED_SCALES],
+            2,
+        )
+        .permanent_or_hand("Reanimate", 0, 0, true)
+        .card(
+            "Faithful Watchdog",
+            0,
+            0,
+            Zone::Graveyard { owner: PlayerId(0) },
+        )
+        .permanent_or_hand("Hardened Scales", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .prepare(),
+    );
+    let life = g.state.rules.players[0].life.clone();
+    cast_at(&mut g, 0, 1, &[3]);
+    settle(&mut g);
+    let watchdog = Driver::object(&g, 1);
+    assert_eq!(g.zone(watchdog), Some(Zone::Battlefield));
+    assert_eq!(
+        g.state.rules.objects[&watchdog.card].plus_one_counters,
+        Quantity::from(4)
+    );
+    let mut lost = life;
+    lost.subtract(&Quantity::from(2));
+    assert_eq!(g.state.rules.players[0].life, lost);
 }

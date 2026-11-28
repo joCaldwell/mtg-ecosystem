@@ -498,7 +498,7 @@ impl RulesTxn {
             let controller = *controllers
                 .get(&movement.previous)
                 .ok_or("moved object outside its step")?;
-            let facts = self.public_move_characteristics(movement)?;
+            let facts = self.public_move_characteristics(movement, batch.as_ref())?;
             result.record_move(controller, movement, facts);
         }
         let outcome = match (&what, movements.as_slice()) {
@@ -620,6 +620,21 @@ impl RulesTxn {
                     || !revealed.is_empty()))
         {
             return Err("invalid move progress".into());
+        }
+        // CR 608.2c, 903.9b: the progress holds every member the step still
+        // reads (a suspension only loses members, by concession), and each
+        // commander among them bound for a hand or library is pending or
+        // already answered.
+        if let Resolved::Present(members) = self.move_members(task, what)?
+            && members.iter().any(|member| !objects.contains(member))
+        {
+            return Err("move progress omits a member".into());
+        }
+        if self.commander_moves(objects, to).iter().any(|(_, object)| {
+            !remaining.iter().any(|(_, pending)| pending == object)
+                && !choices.iter().any(|(answered, _)| answered == object)
+        }) {
+            return Err("move progress omits a commander choice".into());
         }
         if let Some(player) = controller
             && self.is_live(*player)
