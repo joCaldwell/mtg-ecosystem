@@ -1106,9 +1106,7 @@ fn a_suspended_set_move_restores_when_its_set_would_now_differ() {
     let read = objects.len();
     objects.retain(|object| *object != bears);
     assert_eq!(objects.len() + 1, read);
-    snapshot["state_sha256"] = mtg_contracts::digest(&snapshot["state"])
-        .unwrap()
-        .into();
+    snapshot["state_sha256"] = mtg_contracts::digest(&snapshot["state"]).unwrap().into();
     let (mut restored, _) = Game::read_snapshot(
         game.prepared.as_ref().clone(),
         &serde_json::to_string(&snapshot).unwrap(),
