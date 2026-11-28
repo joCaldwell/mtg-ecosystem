@@ -310,3 +310,139 @@ fn ward_triggers_for_each_opponent_in_a_four_seat_game() {
     assert_eq!(zone(&g, 2), Zone::Battlefield);
     assert_eq!(zone(&g, 0), Zone::Graveyard { owner: P0 });
 }
+
+/// CR 119.4, 118.12a: a player can't pay more life than they have. With 2
+/// life the Icy Manipulator's controller is never offered Owlin
+/// Shieldmage's "Ward—Pay 3 life"; the ability is countered and the
+/// Shieldmage stays untapped.
+#[test]
+fn ward_life_payment_is_unpayable_with_too_little_life() {
+    let mut g = game(
+        board(2)
+            .life(P0, Quantity::from(2))
+            .permanent_or_hand("Icy Manipulator", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Owlin Shieldmage", 1, 1, false),
+    );
+    let (icy, shieldmage) = (Driver::object(&g, 0), Driver::object(&g, 2));
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: icy,
+            ability: 0,
+        },
+    );
+    pick(&mut g, Candidate::Object { object: shieldmage });
+    Driver::pay(&mut g, &[1]);
+    assert_eq!(g.state.rules.stack.len(), 2);
+    checked(&g);
+    settle(&mut g);
+    assert!(!g.state.rules.objects[&CardId(2)].tapped);
+    assert_eq!(g.state.rules.players[0].life, Quantity::from(2));
+}
+
+/// CR 702.21b: each instance of ward triggers separately. No frozen card
+/// prints two instances, so Tomakul Honor Guard's exact lowered definition
+/// carries Owlin Shieldmage's lowered "Ward—Pay 3 life" trigger beside its
+/// own "Ward {2}". An opponent's Unsummon puts both triggers on the stack;
+/// paying both lets Unsummon resolve, while declining either counters it.
+#[test]
+fn each_ward_instance_triggers_separately() {
+    let ward_of = |d: &Definition| {
+        d.triggered
+            .iter()
+            .find(|t| matches!(t.condition.pattern(), EventPattern::BecomesTarget { .. }))
+            .cloned()
+            .unwrap()
+    };
+    let mut guard = lowered(TOMAKUL_HONOR_GUARD);
+    let [Instruction::Kernel { source_block, .. }] = ward_of(&guard).program.instructions[..]
+    else {
+        panic!("one ward kernel instruction");
+    };
+    // The added instance keeps its node and cites the Honor Guard's own
+    // ward block and label, so its provenance names this definition's text.
+    let mut life_ward = ward_of(&lowered(OWLIN_SHIELDMAGE));
+    for Instruction::Kernel {
+        source_block: block,
+        ..
+    } in &mut life_ward.program.instructions
+    {
+        *block = source_block;
+    }
+    let index = guard
+        .triggered
+        .iter()
+        .position(|t| matches!(t.condition.pattern(), EventPattern::BecomesTarget { .. }))
+        .unwrap();
+    let labels = guard.source_labels.as_mut().unwrap();
+    labels.triggered.push(labels.triggered[index]);
+    guard.triggered.push(life_ward);
+    guard.validate().unwrap();
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    catalog.definitions.push(guard);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    for pay_all in [true, false] {
+        let mut g = game(
+            Board::new(catalog.clone(), "r5-double-ward-witness")
+                .step(TurnStep::PrecombatMain)
+                .seats(2)
+                .permanent_or_hand("Unsummon", 0, 0, true)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Tomakul Honor Guard", 1, 1, false),
+        );
+        Driver::cast(&mut g, CardId(0));
+        let object = Driver::object(&g, 4);
+        pick(&mut g, Candidate::Object { object });
+        Driver::pay(&mut g, &[1]);
+        // Both triggers wait for their controller to order them.
+        let d = Driver::request(&mut g, u64::MAX);
+        assert_eq!((d.player, &d.reason), (P1, &Reason::OrderTriggers), "{d:?}");
+        assert_eq!(d.candidates.len(), 2);
+        checked(&g);
+        g.respond(d.player, d.id, Answer::Order { order: vec![0, 1] })
+            .unwrap();
+        assert_eq!(Driver::request(&mut g, u64::MAX).reason, Reason::Priority);
+        assert_eq!(g.state.rules.stack.len(), 3);
+        assert!(g.state.rules.stack[1..].iter().all(|e| e.controller == P1));
+        // Each trigger asks the Unsummon's controller in turn: the accepted
+        // {2} ward then asks for mana, the accepted life ward pays 3 life.
+        // Declining the second-resolving ward counters Unsummon.
+        let life = |g: &Game| g.state.rules.players[0].life.clone();
+        let mut paid = vec![];
+        for round in 0..2 {
+            if !pay_all && round == 1 {
+                answer_ward(&mut g, P0, None);
+                break;
+            }
+            let before = life(&g);
+            answer_ward(&mut g, P0, Some(&[]));
+            if Driver::request(&mut g, u64::MAX).reason == (Reason::Mana { source: None }) {
+                Driver::pay(&mut g, &[2, 3]);
+                paid.push("mana");
+            } else {
+                let mut after = before;
+                after.subtract(&Quantity::from(3));
+                assert_eq!(life(&g), after);
+                paid.push("life");
+            }
+        }
+        if pay_all {
+            paid.sort_unstable();
+            assert_eq!(paid, ["life", "mana"]);
+        }
+        settle(&mut g);
+        assert_eq!(zone(&g, 0), Zone::Graveyard { owner: P0 });
+        if pay_all {
+            assert_eq!(zone(&g, 4), Zone::Hand { owner: P1 });
+            assert_eq!(life(&g), Quantity::from(37));
+        } else {
+            assert_eq!(zone(&g, 4), Zone::Battlefield);
+        }
+    }
+}
