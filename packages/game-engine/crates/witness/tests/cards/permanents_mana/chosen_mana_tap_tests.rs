@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_compiler::CompileResult;
-use mtg_contracts::{Capability, ChosenCostAction, kir};
+use mtg_contracts::{Capability, ChosenCostAction, ChosenCostFilter, kir};
 
 const R5: &str = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json");
 const SENTINEL: &str = include_str!(
@@ -15,6 +15,26 @@ const SETTLEMENT: &str = include_str!(
 const DRUM: &str = include_str!(
     "../../../../../tests/fixtures/phase1-r5/bdeb440d-a714-40e8-9038-f651e6ae45fb.json"
 );
+
+#[test]
+fn chosen_mana_tap_validates_the_filter_before_deriving_tiers() {
+    let result = mtg_witness::compile(R5, SENTINEL);
+    let CompileResult::Lowered { mut definition } = result else {
+        panic!("Jaspera Sentinel rejected: {result:?}");
+    };
+    for filter in [ChosenCostFilter::Any, ChosenCostFilter::ArtifactOrCreature] {
+        definition.mana_abilities[0]
+            .chosen_cost
+            .as_mut()
+            .unwrap()
+            .filter = filter;
+        assert_eq!(
+            definition.validate().unwrap_err(),
+            "cell:mana:chosen-tap-cost"
+        );
+        assert!(kir::definition_tiers(&definition).is_err());
+    }
+}
 
 fn board(record: &str, name: &str, in_hand: bool) -> Board {
     let result = mtg_witness::compile(R5, record);

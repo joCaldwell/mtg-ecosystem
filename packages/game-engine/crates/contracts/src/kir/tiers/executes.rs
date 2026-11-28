@@ -1185,6 +1185,27 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
 }
 
 fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
+    if let Some(cost) = &a.chosen_cost
+        && (cost.action != crate::ChosenCostAction::Tap
+            || cost.filter != crate::ChosenCostFilter::Type(crate::CardKind::Creature)
+            || cost.count != 1
+            || cost.minimum_power.is_some()
+            || cost.mana.is_some()
+            || !cost.tap_source
+            || a.production != ManaProduction::AnyColor
+            || a.costs.tap
+            || a.costs.sacrifice
+            || a.costs.mana.is_some()
+            || a.costs.pay_life.is_some()
+            || a.costs.remove_source_counters.is_some()
+            || !a.hybrid_mana.is_empty()
+            || a.condition.is_some()
+            || a.restriction.is_some()
+            || a.spend_restriction.is_some()
+            || !a.riders.is_empty())
+    {
+        return cell("mana", "chosen-tap-cost");
+    }
     if !matches!(
         d.characteristics.kind,
         CardKind::Creature | CardKind::Artifact | CardKind::Land

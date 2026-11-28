@@ -45,27 +45,6 @@ pub fn mana_rider(node: &Node) -> Result<Cell, KirError> {
 /// fixed, any-color and commander-color surface (`PermanentManaV1`).
 pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Cell>, KirError> {
     let mut cells = BTreeSet::new();
-    if let Some(cost) = &a.chosen_cost
-        && (cost.action != crate::ChosenCostAction::Tap
-            || cost.filter != crate::ChosenCostFilter::Type(crate::CardKind::Creature)
-            || cost.count != 1
-            || cost.minimum_power.is_some()
-            || cost.mana.is_some()
-            || !cost.tap_source
-            || a.production != ManaProduction::AnyColor
-            || a.costs.tap
-            || a.costs.sacrifice
-            || a.costs.mana.is_some()
-            || a.costs.pay_life.is_some()
-            || a.costs.remove_source_counters.is_some()
-            || !a.hybrid_mana.is_empty()
-            || a.condition.is_some()
-            || a.restriction.is_some()
-            || a.spend_restriction.is_some()
-            || !a.riders.is_empty())
-    {
-        return unaudited("chosen mana tap cost");
-    }
     match &a.production {
         ManaProduction::Fixed { .. }
         | ManaProduction::AnyColor
