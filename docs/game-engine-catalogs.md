@@ -202,6 +202,7 @@ without a manifest edit is not detected ([Cargo rerun-if-changed](https://doc.ru
 
 `crates/core/src/formats.rs` owns the core wire/persistence versions
 (`SNAPSHOT_VERSION`, `OBSERVATION_VERSION`, `WORK_VERSION`, search envelopes).
+Shapes change in place until a consumer reads these formats; bump once when one appears.
 `formats_tests` pins the Observation schema and Snapshot/SavedWork shape
 fingerprints, with samples that include resolving and nested Kernel-IR choices.
 Tests import the constants; deliberate historical forgeries use literals.
@@ -244,7 +245,9 @@ sacrifice-for-return.
   player or a singleton object.
 - `UnlessPays` and `IfPays` take a singleton player expression and support
   life and generic mana. With no live payer only `UnlessPays` performs its
-  node (CR 118.12). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
+  node (CR 118.12). Ward's `UnlessPays` counters `Ref::EventStackObject`, the
+  stack object its targeting event names, and asks that object's controller
+  (CR 702.21a). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
   for optional effects, creature-type choices and APNAP draws.
 - `Choose` binds a pool from a matching public set when both bounds force zero
   or the set's size. `ChooseObject` offers one mandatory public object choice

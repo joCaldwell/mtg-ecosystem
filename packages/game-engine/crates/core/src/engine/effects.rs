@@ -558,6 +558,15 @@ impl RulesTxn {
                             matches!(target.zone, Zone::Graveyard { owner }
                         if self.static_player(of, source.controller, owner))
                         }
+                        // CR 402.3: only the unfiltered hand size is read.
+                        ZoneExpr::Hand { of } if filter.0.is_empty() => {
+                            if matches!(target.zone, Zone::Hand { owner }
+                                if self.static_player(of, source.controller, owner))
+                            {
+                                count += 1;
+                            }
+                            continue;
+                        }
                         _ => false,
                     };
                     if present
@@ -580,10 +589,20 @@ impl RulesTxn {
         })
     }
 
-    fn static_amount(&self, source: &Object, amount: &Amount) -> Result<Option<Quantity>, String> {
+    pub(super) fn static_amount(
+        &self,
+        source: &Object,
+        amount: &Amount,
+    ) -> Result<Option<Quantity>, String> {
         Ok(match amount {
             Amount::Fixed { value } => Some(value.clone()),
             Amount::Count { set } => Some((self.static_count(source, set)? as i64).into()),
+            // CR 122.1: counters of one kind on the source; a count of all
+            // kinds is rejected at validation (`kir::statics`).
+            Amount::CountersOn {
+                object: Ref::Source,
+                counter: Some(counter),
+            } => Some(source.counter_count(counter)),
             // CR 700.5: statics admit only their controller's devotion
             // (`kir::statics`).
             Amount::Devotion { player, colors } => {
@@ -594,6 +613,45 @@ impl RulesTxn {
             }
             _ => None,
         })
+    }
+
+    /// CR 601.2f: a cost change's count, read once as the total cost is
+    /// determined: a static count, or the greatest or total power or
+    /// toughness among public permanents by their current characteristics.
+    /// A negative total counts as zero (CR 107.1b).
+    pub(super) fn cost_amount(
+        &self,
+        source: &Object,
+        amount: &Amount,
+    ) -> Result<Option<Quantity>, String> {
+        use mtg_contracts::kir::Stat;
+        let (set, stat, total) = match amount {
+            Amount::Greatest {
+                set,
+                stat: stat @ (Stat::Power | Stat::Toughness),
+            } => (set, *stat, false),
+            Amount::Total {
+                set,
+                stat: stat @ (Stat::Power | Stat::Toughness),
+            } => (set, *stat, true),
+            _ => return self.static_amount(source, amount),
+        };
+        let mut result = Quantity::zero();
+        for (id, _) in self.characteristic_set(source, set)? {
+            let current = self.characteristics(id)?;
+            let value = if stat == Stat::Power {
+                current.power
+            } else {
+                current.toughness
+            }
+            .unwrap_or_else(Quantity::zero);
+            if total {
+                result.add(&value);
+            } else {
+                result = result.max(value);
+            }
+        }
+        Ok(Some(result.max(Quantity::zero())))
     }
 
     /// CR 700.5, 700.5a: the mana symbols of `colors` among the mana costs
@@ -1015,7 +1073,7 @@ impl RulesTxn {
                 let mut change = change.clone();
                 if let Some(amount) = multiplier {
                     let multiplier = self
-                        .static_amount(source, amount)?
+                        .cost_amount(source, amount)?
                         .ok_or("invalid static cost multiplier")?;
                     let (SpellCostChange::Increase { mana } | SpellCostChange::Reduce { mana }) =
                         &mut change;

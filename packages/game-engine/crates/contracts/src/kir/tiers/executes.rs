@@ -836,6 +836,22 @@ fn activation_mana(cost: &ActivationCost) -> Option<&ManaCost> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 601.2f, 602.2b: an ability's own cost change applies to the mana
+    // its mana window pays.
+    if a.cost_changes.iter().any(|change| {
+        kir::counts_all_counter_kinds(change.multiplier.as_ref(), change.condition.as_ref())
+    }) {
+        return cell("activated", "all_kinds_counter_count");
+    }
+    if !a.cost_changes.is_empty()
+        && (activation_mana(&a.cost).is_none()
+            || !a
+                .cost_changes
+                .iter()
+                .all(kir::activation_cost_change_supported))
+    {
+        return cell("activated", "cost_change");
+    }
     // CR 107.3a, 107.4e-f, 602.2b: a battlefield ability's X and hybrid or
     // Phyrexian symbols are announced before its targets and paid in its
     // mana window; a modal ability or another zone has no announcement.
@@ -1971,6 +1987,7 @@ mod tests {
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost,

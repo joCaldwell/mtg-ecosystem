@@ -1717,6 +1717,50 @@ impl Strategy<'_> {
             return false;
         };
 
+        // CR 702.21a: an opponent's ward would counter our spell or ability.
+        // Pay its generic mana when this view can fund it, and its life only
+        // while at least twice that much life remains.
+        if s.controller != v.viewer
+            && p.instructions.iter().any(|instruction| {
+                let I::Kernel { node, source_block } = instruction;
+                let kir::Node::UnlessPays { payment, node, .. } = node else {
+                    return false;
+                };
+                if block.is_some_and(|expected| expected != *source_block)
+                    || **node
+                        != kir::Node::Do(kir::Verb::Counter {
+                            what: kir::Ref::EventStackObject,
+                        })
+                {
+                    return false;
+                }
+                match payment {
+                    kir::Payment::Generic {
+                        amount: kir::Amount::Fixed { value },
+                    } => {
+                        let mana = ManaCost {
+                            generic: value.clone(),
+                            colored: vec![],
+                        };
+                        mana_policy::plan_for(self.catalog, v, &mana, None).is_some()
+                    }
+                    kir::Payment::Mana { mana } => {
+                        mana_policy::plan_for(self.catalog, v, mana, None).is_some()
+                    }
+                    kir::Payment::Life {
+                        amount: kir::Amount::Fixed { value },
+                    } => v.players.iter().any(|r| {
+                        let mut doubled = value.clone();
+                        doubled.add(value);
+                        r.player == v.viewer && r.life >= doubled && !r.life_frozen_until_next_turn
+                    }),
+                    _ => false,
+                }
+            })
+        {
+            return true;
+        }
+
         // CR 121.2c, 104.3c: each chooser may take the draw when their own
         // library can supply it, regardless of who controls the source.
         if let Some(amount) = p.instructions.iter().find_map(|instruction| {

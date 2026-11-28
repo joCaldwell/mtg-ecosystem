@@ -429,6 +429,7 @@ pub(super) fn crew(
         x_mana_cost: false,
         hybrid_mana: vec![],
         modal: None,
+        cost_changes: vec![],
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,
         cost: ActivationCost::ChooseObjects(ChosenObjectCost {
@@ -478,6 +479,7 @@ pub(super) fn equip(
         x_mana_cost: false,
         hybrid_mana: vec![],
         modal: None,
+        cost_changes: vec![],
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,
         cost,
@@ -536,6 +538,7 @@ pub(super) fn cycling(
         x_mana_cost: false,
         hybrid_mana: vec![],
         modal: None,
+        cost_changes: vec![],
         functioning_zone: FunctioningZone::Hand,
         restriction: None,
         cost: ActivationCost::DiscardSource { mana },
@@ -604,6 +607,7 @@ pub(super) fn typecycling(
         x_mana_cost: false,
         hybrid_mana: vec![],
         modal: None,
+        cost_changes: vec![],
         functioning_zone: FunctioningZone::Hand,
         restriction: None,
         cost: ActivationCost::DiscardSource { mana },
@@ -1203,6 +1207,192 @@ pub(super) fn triggered_instances_printed(
     }
     if printed != parsed {
         return Err(mismatch());
+    }
+    Ok(())
+}
+
+/// CR 702.21a: the ward instances of a keyword block, decoded from the typed
+/// AST and removed from the block the keyword mirror reads. The returned
+/// block keeps every other keyword in order.
+pub(super) fn split_ward(
+    raw: &str,
+) -> Result<Option<(String, Vec<ast::KeywordInstance>)>, Failure> {
+    let reject = || unsupported("keyword", "keyword:ward:cost");
+    let Ok(mut block) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return Ok(None);
+    };
+    if block["kind"] != "keywords" {
+        return Ok(None);
+    }
+    let Some(list) = block
+        .get_mut("keywords")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return Ok(None);
+    };
+    if !list.iter().any(|k| k["keyword"] == "ward") {
+        return Ok(None);
+    }
+    let mut wards = Vec::new();
+    for keyword in list.iter().filter(|k| k["keyword"] == "ward") {
+        wards.push(
+            serde_json::from_value::<ast::KeywordInstance>(keyword.clone())
+                .map_err(|_| reject())?,
+        );
+    }
+    list.retain(|k| k["keyword"] != "ward");
+    Ok(Some((block.to_string(), wards)))
+}
+
+/// CR 702.21a: "Ward [cost]" means "Whenever this permanent becomes the
+/// target of a spell or ability an opponent controls, counter that spell or
+/// ability unless that player pays [cost]." One fixed mana cost or "Pay N
+/// life" lowers; any other cost rejects under `keyword:ward:cost`.
+pub(super) fn ward(
+    card: &Card<'_>,
+    keyword: &ast::KeywordInstance,
+    block: u32,
+) -> Result<TriggeredAbility, Failure> {
+    use kir::{Node, PlayerExpr, Pred, Ref, TargetingKind, Verb};
+    if matches!(card.kind, CardKind::Instant | CardKind::Sorcery) {
+        return Err(unsupported("keyword", "keyword:ward:source"));
+    }
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
+    program.instructions.push(kernel(
+        Node::UnlessPays {
+            payer: PlayerExpr::ControllerOf {
+                object: Ref::EventStackObject,
+            },
+            payment: ward_payment(keyword)?,
+            node: Box::new(Node::Do(Verb::Counter {
+                what: Ref::EventStackObject,
+            })),
+        },
+        block,
+    ));
+    Ok(trigger_on(
+        EventPattern::BecomesTarget {
+            object: Pred::source(),
+            by: PlayerExpr::EachOpponent,
+            kind: TargetingKind::SpellOrAbility,
+        },
+        program,
+    ))
+}
+
+/// The single printed ward cost and its spelling after "ward".
+fn ward_cost(keyword: &ast::KeywordInstance) -> Result<(kir::Payment, String), Failure> {
+    let reject = || unsupported("keyword", "keyword:ward:cost");
+    let ast::KeywordInstance {
+        keyword: _,
+        cost: Some(cost),
+        cost_modifications: None,
+        restriction: None,
+        amount: None,
+        bindings: None,
+        variable_constraints: None,
+        from: None,
+        filter: None,
+        materials: None,
+        companion: None,
+        paired_with: None,
+        enchant_player: None,
+        prototype: None,
+        additional_costs: None,
+        gift: None,
+    } = keyword
+    else {
+        return Err(reject());
+    };
+    match cost.as_slice() {
+        [ast::Cost::Mana(mana)] if mana.multiplier.is_none() => {
+            let symbols = &mana.symbols;
+            if symbols.is_empty()
+                || symbols
+                    .iter()
+                    .any(|s| s.is_empty() || s.contains(['{', '}']))
+            {
+                return Err(reject());
+            }
+            let printed = printed_mana(symbols);
+            let cost = mana_cost(&printed).map_err(|_| reject())?;
+            if cost.colored.contains(&Color::C) || cost.generic.is_negative() {
+                return Err(reject());
+            }
+            let payment = if cost.colored.is_empty() {
+                kir::Payment::Generic {
+                    amount: kir::Amount::Fixed {
+                        value: cost.generic,
+                    },
+                }
+            } else {
+                kir::Payment::Mana { mana: cost }
+            };
+            Ok((payment, format!(" {printed}")))
+        }
+        [ast::Cost::PayLife(life)] if life.multiplier.is_none() => {
+            let ast::Amount::Fixed(n) = &*life.amount else {
+                return Err(reject());
+            };
+            if n.value <= 0 {
+                return Err(reject());
+            }
+            Ok((
+                kir::Payment::Life {
+                    amount: kir::Amount::fixed(n.value),
+                },
+                format!("\u{2014}pay {} life", n.value),
+            ))
+        }
+        _ => Err(reject()),
+    }
+}
+
+fn ward_payment(keyword: &ast::KeywordInstance) -> Result<kir::Payment, Failure> {
+    ward_cost(keyword).map(|(payment, _)| payment)
+}
+
+/// The keyword line prints its keywords left to right, separated by
+/// commas, each ward instance as "ward {cost}" or "ward—Pay N life" (alone
+/// on its line), with at most one terminal period (CR 702.1, 702.21a).
+/// `names` lists every keyword of the block in order, `None` for ward.
+pub(super) fn ward_printed(
+    names: &[Option<String>],
+    wards: &[ast::KeywordInstance],
+    text: &str,
+) -> Result<(), Failure> {
+    let reject = || unsupported("keyword", "keyword:ward:printed");
+    let mut wards = wards.iter();
+    let mut expected = String::new();
+    for (index, name) in names.iter().enumerate() {
+        let item = match name {
+            Some(name) => name.clone(),
+            None => {
+                let (payment, spelling) = ward_cost(wards.next().ok_or_else(reject)?)?;
+                if matches!(payment, kir::Payment::Life { .. }) && names.len() != 1 {
+                    return Err(reject());
+                }
+                format!("ward{spelling}")
+            }
+        };
+        if index > 0 {
+            expected.push_str(", ");
+        }
+        expected.push_str(&item);
+    }
+    if wards.next().is_some() {
+        return Err(reject());
+    }
+    let body = text.strip_suffix('.').unwrap_or(text);
+    let mut chars = expected.chars();
+    let expected: String = match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => return Err(reject()),
+    };
+    if body.to_lowercase() != expected.to_lowercase()
+        || body.chars().next() != expected.chars().next()
+    {
+        return Err(reject());
     }
     Ok(())
 }

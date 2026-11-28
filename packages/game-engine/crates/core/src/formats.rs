@@ -1,17 +1,19 @@
 //! Single owner of mtg-core wire and persistence format versions. Every
 //! producer stamps, and every admission check compares, these constants; tests
 //! import them instead of repeating literals (historical-forgery literals stay
-//! explicit). Bump a version whenever its serialized shape changes: the
-//! `formats_tests` fingerprints fail with the constant to bump.
+//! explicit). The `formats_tests` fingerprints fail when a serialized shape
+//! changes.
+//!
+//! Shapes change in place until a consumer reads these formats; bump once when one appears.
 
 /// `Game::snapshot` envelope and its complete private `State`.
-pub const SNAPSHOT_VERSION: u32 = 152;
+pub const SNAPSHOT_VERSION: u32 = 151;
 /// `Observation`, the permitted per-viewer view and decision.
 pub const OBSERVATION_VERSION: u32 = 119;
 /// `Game::save_work` envelope for suspended queries.
-pub const WORK_VERSION: u32 = 72;
+pub const WORK_VERSION: u32 = 71;
 /// `SearchContext`, the permitted information set a search query returns.
-pub const SEARCH_CONTEXT_VERSION: u32 = 61;
+pub const SEARCH_CONTEXT_VERSION: u32 = 60;
 /// Search sample snapshot envelope.
 pub const SAMPLE_SNAPSHOT_VERSION: u32 = 126;
 /// Search capture profile.

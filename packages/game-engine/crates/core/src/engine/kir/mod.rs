@@ -431,6 +431,11 @@ impl RulesTxn {
                 }
             }
             PlayerExpr::EachOpponent => Players::EachOpponent,
+            // CR 702.21a: the controller of the spell or ability that
+            // targeted this trigger's permanent.
+            PlayerExpr::ControllerOf {
+                object: Ref::EventStackObject,
+            } => Players::One(self.event_stack_controller(frame.stack_id)?),
             PlayerExpr::ControllerOf {
                 object: Ref::Target { slot },
             } => {
