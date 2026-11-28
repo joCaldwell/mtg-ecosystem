@@ -30,7 +30,6 @@ const SHARED_SUMMONS: (&str, &str) = records!("c2c9dbd0-2062-4ee1-b32e-8eeacd955
 const DEATHBELLOW_WAR_CRY: (&str, &str) = records!("947835a2-a72f-44e2-a183-99dcb019d6ff");
 const THREE_DREAMS: (&str, &str) = records!("b3f9da94-c822-49b8-a1fc-be82189206af");
 const UNCAGE_THE_MENAGERIE: (&str, &str) = records!("d2043685-f091-444f-9c35-d238afa24d7b");
-const ALPINE_HOUNDMASTER: (&str, &str) = records!("88939cb3-5f61-4857-95cb-9446c6c1f1aa");
 const DARKSTEEL_MUTATION: &str = records!("05a4f8ff-49da-42af-add5-6248c4b0644b").0;
 
 const TRACE_MODES: [TraceMode; 4] = [
@@ -278,14 +277,13 @@ fn grouped_search_filters_duplicate_names_and_allows_stopping() {
 #[test]
 fn grouped_search_rejects_unsupported_counts_and_scopes_at_their_source() {
     grouped_board(DEATHBELLOW_WAR_CRY, &[]);
-    for (r5, r6) in [UNCAGE_THE_MENAGERIE, ALPINE_HOUNDMASTER] {
-        for (manifest, record) in [(mtg_witness::R5_MANIFEST, r5), (R6, r6)] {
-            let result = mtg_witness::compile(manifest, record);
-            assert!(
-                matches!(&result, mtg_compiler::CompileResult::Unsupported { path, reason }
-                if !path.is_empty() && !reason.is_empty()),
-                "{result:?}"
-            );
-        }
+    let (r5, r6) = UNCAGE_THE_MENAGERIE;
+    for (manifest, record) in [(mtg_witness::R5_MANIFEST, r5), (R6, r6)] {
+        let result = mtg_witness::compile(manifest, record);
+        assert!(
+            matches!(&result, mtg_compiler::CompileResult::Unsupported { path, reason }
+            if !path.is_empty() && !reason.is_empty()),
+            "{result:?}"
+        );
     }
 }

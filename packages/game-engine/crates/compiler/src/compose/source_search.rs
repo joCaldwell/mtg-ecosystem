@@ -640,3 +640,29 @@ impl CheckedSearch {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grouped_search_rejects_an_unaccounted_printed_instruction() {
+        let record: Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/phase1-r5/c2c9dbd0-2062-4ee1-b32e-8eeacd95589c.json"
+        ))
+        .unwrap();
+        let ast = &record["faces"][0]["result"]["abilities"][0];
+        let text = record["source"]["oracle_text"].as_str().unwrap();
+        let card = Card {
+            kind: CardKind::Instant,
+            subtypes: &[],
+            additional_types: &[],
+        };
+        assert!(parse(ast, text, 0, &card, None).is_ok());
+        let failure = parse(ast, &format!("{text} You gain 2 life."), 0, &card, None)
+            .err()
+            .expect("the new instruction has no checked meaning");
+        assert_eq!(failure.path, "faces/0/blocks/0");
+        assert_eq!(failure.reason, "source:grouped-search:printed");
+    }
+}
