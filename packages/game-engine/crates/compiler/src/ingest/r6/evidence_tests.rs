@@ -119,6 +119,59 @@ fn source_action_requires_its_quantity_citation_with_legacy_projection_erased() 
     );
 }
 
+#[test]
+fn source_authority_life_and_discard_need_their_citations_with_the_binder_erased() {
+    let archive = mtg_contracts::accepted_manifest(include_str!(
+        "../../../../../tests/fixtures/archive-manifest-r6-candidate-6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37.json"
+    )).unwrap();
+    let lower = |row: &mut Value| {
+        let raw = rehash(row);
+        crate::compose::lower(archive, &raw, Some(&verified(&raw).unwrap()))
+    };
+    let erase = |raw: &str| {
+        let mut row: Value = serde_json::from_str(raw).unwrap();
+        row["resolution"] = json!({});
+        row["binding"] = json!({"referencesBound":false,"fullyBound":false});
+        row
+    };
+    let nectar = include_str!(
+        "../../../../../tests/fixtures/phase1-r6/30870ee5-6ad7-48a9-983e-d3b018f2344f.json"
+    );
+    let hymn = include_str!(
+        "../../../../../tests/fixtures/phase1-r6/992d9a72-d34d-47d7-96fb-37f0efb515ef.json"
+    );
+    for raw in [nectar, hymn] {
+        assert!(lower(&mut erase(raw)).is_ok());
+    }
+
+    // A quantity fact that no longer links its field.
+    let mut row = erase(nectar);
+    fact_mut(&mut row, 0, "fact", "quantity")["field"] = Value::Null;
+    let failure = lower(&mut row).unwrap_err();
+    assert_eq!(failure.path, "printed/faces/0/blocks/0");
+    assert!(
+        failure
+            .reason
+            .starts_with("evidence:missing:P11:/effects/0/steps/0/amount/value@O[")
+    );
+
+    // "at random" stays printed after the AST drops the rider.
+    let mut row = erase(hymn);
+    ast_mut(&mut row, 0)["effects"][0]["steps"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("random");
+    let failure = lower(&mut row).unwrap_err();
+    assert_eq!(failure.path, "printed/faces/0/blocks/0");
+    assert!(
+        failure
+            .reason
+            .starts_with("evidence:missing:P11:/effects/0/steps/0@O["),
+        "{}",
+        failure.reason
+    );
+}
+
 fn expect_check(label: &str, row: &mut Value, expected: &str) {
     let raw = rehash(row);
     let failure = verified(&raw).err().expect("mutation passed the verifier");

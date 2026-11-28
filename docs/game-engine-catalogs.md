@@ -142,16 +142,18 @@ and the power/toughness slash need a checked field meaning with a bound fact.
 An undischarged field or unconsumed occurrence, such as an omitted qualifier,
 rejects the card with an original byte range.
 
-The first source-authority slice covers a single-face instant or sorcery with
-one unqualified draw or mill sentence. The controller, each player, or one
-announced player or opponent receives a fixed count or the spell's announced
-X. Rust selects that authority from the typed block before reading the legacy
-resolution. The whole R5 Oracle sentence can prove these occurrences. R6
-requires verified coverage of the verb, recipient, quantity, card noun and
-sentence boundary, and records the consumed `printed_sha256` in definition
-provenance. Compound blocks and linked operands still use their existing
-authority. The occurrence differential checks both the frozen binder graph
-and its projection using the trace emitted by the selected Rust path.
+Whole-card source authorities register in order in
+[`compose/source_authority.rs`](../packages/game-engine/crates/compiler/src/compose/source_authority.rs);
+composition asks the registry before reading any legacy resolution, and two
+families claiming one card is a registration fault. Each family's module
+rustdoc owns its supported and rejected shapes (currently
+[player actions](../packages/game-engine/crates/compiler/src/compose/source_action.rs)).
+R6 derives every covered run from the recorded node and fact citations and
+records the consumed `printed_sha256` in definition provenance; the exact R5
+sentence remains only as the R5 proof. The trace lists each selection by
+family, block-relative path and kind, and the occurrence differential
+(`scripts/rework-reference-diff.py`) joins it to every frozen binder reference
+and projection in the claimed block.
 
 Run the frozen witness and mutation harness against the pinned candidate with
 `MTG_R6_VERIFIER_ROWS` set to its path. Verifier-only mutations rehash their

@@ -26,6 +26,7 @@ mod printed;
 pub(super) mod resolution_triggers;
 mod sagas;
 mod source_action;
+mod source_authority;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -928,15 +929,8 @@ fn compose(
     let mut card = ingest::read_card(archive, record)?;
     // Select the whole-card authority before decoding any resolution verdict,
     // projection or segment. A compound ability keeps its existing authority.
-    if matches!(archive.cut, ArchiveCut::R5 | ArchiveCut::R6)
-        && let [(source, face)] = card.faces.as_slice()
-        && face.lines.len() == 1
-        && let Ok(types) = type_line::parse(&source.type_line, false)
-        && matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
-        && let Ok(abilities) = decode::<Vec<ast::Ability>>(face.abilities.get(), "abilities")
-        && let Some(action) = source_action::SourceAction::select(&abilities)
-    {
-        return source_action::compose(archive, &mut card, action, evidence, types);
+    if let Some(claim) = source_authority::select(archive, &card)? {
+        return source_authority::compose(archive, &mut card, claim, evidence);
     }
     let r = &card.record;
     let mut resolution =
