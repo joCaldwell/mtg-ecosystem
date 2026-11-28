@@ -193,6 +193,7 @@ pub(super) fn chosen(
     Ok(Some(cx.act(Verb::Search {
         player: PlayerExpr::you(cx.context),
         search: kir::SearchSpec {
+            group: None,
             filter,
             maximum: Amount::fixed(i64::from(count)),
             to,

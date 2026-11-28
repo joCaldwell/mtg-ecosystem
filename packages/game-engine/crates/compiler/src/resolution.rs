@@ -20,6 +20,7 @@ pub(super) struct Resolution {
     face: usize,
     spend_riders: BTreeSet<(usize, usize)>,
     control: BTreeMap<(usize, usize), ControlCoverage>,
+    source_blocks: BTreeSet<usize>,
 }
 
 #[derive(Default)]
@@ -145,7 +146,17 @@ impl Resolution {
             face: 0,
             spend_riders: BTreeSet::new(),
             control: BTreeMap::new(),
+            source_blocks: BTreeSet::new(),
         })
+    }
+
+    /// Single-face blocks which the selected source authority proved in full.
+    pub(super) fn source_blocks(&mut self, blocks: impl IntoIterator<Item = usize>) {
+        self.source_blocks.extend(blocks);
+    }
+
+    fn source_bound(&self, face: usize, block: usize) -> bool {
+        face == 0 && self.source_blocks.contains(&block)
     }
 
     /// CR 121.2, 608.2c/h: Rust binds actual draw participants and reduces
@@ -302,6 +313,7 @@ impl Resolution {
                         .filter(move |(block, _)| {
                             !self.spend_riders.contains(&(face, *block))
                                 && !self.control.contains_key(&(face, *block))
+                                && !self.source_bound(face, *block)
                         })
                 })
                 .find_map(|(_, b)| b.residuals.first())
@@ -326,6 +338,9 @@ impl Resolution {
         typed: &[ast::Ability],
     ) -> Result<(), Failure> {
         for (index, block) in self.blocks()?.iter().enumerate() {
+            if self.source_bound(self.face, index) {
+                continue;
+            }
             let ability = &abilities[index];
             let kind = BlockKind::of(ability);
             let private_look = certified_private_look(ability);
@@ -408,12 +423,16 @@ impl Resolution {
     }
 
     pub(super) fn validate_delayed_returns(&self, abilities: &Value) -> Result<(), Failure> {
-        for (ability, block) in abilities
+        for (index, (ability, block)) in abilities
             .as_array()
             .into_iter()
             .flatten()
             .zip(self.blocks()?)
+            .enumerate()
         {
+            if self.source_bound(self.face, index) {
+                continue;
+            }
             for entry in &block.steps {
                 let StepEntry::Scope(scope) = entry else {
                     continue;
@@ -463,6 +482,9 @@ impl Resolution {
     /// otherwise leave the lowerer reading the operand by shape alone.
     pub(super) fn referenced(&self, abilities: &Value) -> Result<(), Failure> {
         for (index, block) in self.blocks()?.iter().enumerate() {
+            if self.source_bound(self.face, index) {
+                continue;
+            }
             let resolved: BTreeSet<&str> = block.refs.iter().map(entry_path).collect();
             let mut operands = Vec::new();
             collect_operands(&abilities[index], String::new(), &mut operands);
@@ -618,6 +640,9 @@ impl Resolution {
             ));
         }
         for (index, (ability, block)) in printed.iter().zip(blocks).enumerate() {
+            if self.source_bound(self.face, index) {
+                continue;
+            }
             let mismatch = |what: &str, path: &str| {
                 unsupported(
                     "resolution",
@@ -677,6 +702,10 @@ impl Resolution {
         let list: Vec<Box<RawValue>> = decode(raw, "abilities")?;
         let mut out = Vec::with_capacity(list.len());
         for (index, ability) in list.iter().enumerate() {
+            if self.source_bound(self.face, index) {
+                out.push(ability.get().to_owned());
+                continue;
+            }
             let block = blocks.get(index).ok_or_else(|| {
                 unsupported("resolution", "resolution does not cover the AST blocks")
             })?;

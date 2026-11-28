@@ -27,7 +27,7 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     119,
-    "d6b70e288f629526c5c7053f682ee3361f6a78552cb1a3ac12591ad69e004d9a",
+    "d1aca9d159193de9e3218010c592d7c3fde0f0e1db4334fff1c60808aaf05b0f",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     151,
@@ -526,6 +526,13 @@ fn library_entry_shapes() -> Vec<String> {
             source_block: 0,
         })
         .unwrap();
+    let mut grouped = search.clone();
+    grouped["state"]["rules"]["frame"]["choice"] = serde_json::to_value(ResolutionChoice::Search {
+        player: PlayerId(0),
+        found: vec![object],
+        source_block: 0,
+    })
+    .unwrap();
     let mut look = search.clone();
     look["state"]["rules"]["frame"]["choice"] =
         serde_json::to_value(ResolutionChoice::LookChooseHand {
@@ -573,7 +580,7 @@ fn library_entry_shapes() -> Vec<String> {
     bottomed["state"]["visibility"][0]["own_knowledge"] =
         serde_json::json!([OwnKnowledgeAction::LibraryBottomRandomized { count: 2 }]);
     [
-        search, entry, reorder, completed, split, look, order, commander, bottomed,
+        search, entry, reorder, completed, split, grouped, look, order, commander, bottomed,
     ]
     .iter()
     .map(|value| serde_json::to_string(value).unwrap())

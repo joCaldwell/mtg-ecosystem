@@ -590,6 +590,7 @@ pub(super) fn typecycling(
             Verb::Search {
                 player: player.clone(),
                 search: SearchSpec {
+                    group: None,
                     filter: Pred(atoms),
                     maximum: Amount::Fixed { value: 1.into() },
                     to: Destination::OwnerHand,

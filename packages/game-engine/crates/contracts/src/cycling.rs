@@ -32,6 +32,7 @@ pub(crate) fn typecycling_activation(a: &ActivatedAbility) -> bool {
                     player: searcher,
                     search:
                         SearchSpec {
+                            group: None,
                             filter,
                             maximum: Amount::Fixed { value },
                             to: Destination::OwnerHand,

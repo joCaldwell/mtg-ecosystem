@@ -440,6 +440,8 @@ pub struct SearchSpec {
     pub filter: Pred,
     pub maximum: Amount,
     pub to: Destination,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<SearchGroup>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub reveal: bool,
     /// The searcher's zone the cards come from. Only a library choice is a
@@ -456,6 +458,18 @@ pub struct SearchSpec {
     /// cards rather than chosen (CR 608.2d), so no player decides.
     #[serde(default, skip_serializing_if = "is_false")]
     pub random: bool,
+}
+
+/// Additional criteria for the cards found in one hidden library search
+/// (CR 608.2c, 701.23a–b, 701.23h).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SearchGroup {
+    /// Each card has a name, and no two found cards share one (CR 201.2b).
+    DifferentNames,
+    /// Each found card fills a different slot with its own printed quality.
+    /// A single card cannot fill two slots. Unfilled slots are permitted.
+    Separate { slots: Vec<Pred> },
 }
 
 /// The zone of its chooser that a [`SearchSpec`] selects from (CR 400.1).

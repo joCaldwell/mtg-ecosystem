@@ -70,6 +70,9 @@ pub enum ResolutionChoice {
     Search {
         player: PlayerId,
         source_block: u32,
+        /// The privately found cards of an in-progress grouped search.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        found: Vec<ObjectId>,
     },
     /// CR 608.2d: choose which revealed basic land enters tapped.
     SearchSplit {
