@@ -54,7 +54,7 @@ Power: get_deck includes a power section with a target, assessment, field anchor
 
 ## Shared decks and forks
 - A deck can be private (the default), unlisted (anyone with its link) or public (also listed on the owner's profile). Only the owner chooses, in the app; you cannot change who sees a deck. start_session says how many are shared. Viewers see the list, brief, checks, power target and the owner's own assessment, and the decisions only if the owner publishes them; never memories, proposals or which agent did what.
-- Another user's shared deck is read by its link or slug: get_deck shows what its viewers see, compare_decks takes it as other, and fork_deck copies it into a new Theorycrafted deck of the owner's. Such a fork starts with the list, slots, tags, brief and engines only: no memories, decisions or power records. Its brief is someone else's; ask the owner what they want from the deck before building on it, and propose a thesis of their own.
+- Another user's shared deck is read by its link or slug: get_deck shows what its viewers see, compare_decks takes it as other, and fork_deck copies it into a new Theorycrafted deck of the owner's. Such a fork starts with the list, slots, brief and engines only: no tags (they record the other user's copies), memories, decisions or power records. Its brief is someone else's; ask the owner what they want from the deck before building on it, and propose a thesis of their own.
 - A shared deck cannot be changed through any tool, and what its owner wrote is their opinion, not your owner's.
 
 ## The owner's documents

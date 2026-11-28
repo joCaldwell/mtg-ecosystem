@@ -16,16 +16,17 @@ Rust consumer or located rejection and write their own cut
   fallback, dropped keywords/characters or `any` AST. Wrong success is worse than
   rejection. Prefer a clear experimental AST change over compatibility shims.
 - Keep [tracked normalization](../../docs/oracle_parser.md#pipeline-and-public-api) byte-identical to ordinary normalization.
-- Preserve line/ability boundaries and modal grouping. Every `null` parser result
-  restores cursor and effect context. Keep complete source and explicit diagnostics.
+- Preserve the guide's [line and modal invariants](../../docs/oracle_parser.md#responsibilities-and-invariants);
+  every `null` parser result restores cursor and effect context. Keep complete
+  source and explicit diagnostics.
 - `src/ast.ts` owns shapes; `parser/keywords.ts` owns accepted keyword vocabulary.
   Do not write parallel module/type inventories.
 - Parsed/reference-bound/fully-bound remain separate from compiler/runtime
   support. Use exact data and cited rules; preserve unresolved scopes and target
   provenance.
-- The archive's `resolution` is the compiler's contract; map a new binder node to
-  its vocabulary or leave a named residual. Changing `ast.ts` or
-  `semantic/resolution.ts` requires `node scripts/generate-rust-ast.ts`.
+- The archive's `resolution` is the compiler's contract for unmigrated references;
+  map a new binder node to its vocabulary or leave a named residual. Changing
+  `ast.ts` or `semantic/resolution.ts` requires `node scripts/generate-rust-ast.ts`.
 - Downloaded corpora, raw snapshots and generated archives/reports stay ignored
   and protected. Never refresh a frozen corpus to improve a comparison percentage.
 
@@ -35,7 +36,8 @@ Use pinned Node through `sh scripts/engine-env.sh` from repository root. Reuse
 healthy dependencies; missing/broken installs use the
 [conditional bootstrap](../../docs/game-engine-development.md#fresh-worktree).
 No root `npm install`, implicit toolchain download, Java or emitted build step.
-Node executes explicit `.ts` imports with erasable syntax only.
+Node executes explicit `.ts` imports with erasable syntax only. The gate runs
+TypeScript plus structural/negative Node tests, with no network or bulk cache:
 
 ```sh
 sh scripts/engine-env.sh npm --prefix packages/oracle-parser run check --workspaces=false
