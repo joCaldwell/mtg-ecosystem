@@ -41,7 +41,7 @@ pub(super) fn lower(
                     && cards.random.is_none() =>
             {
                 Some(match for_each {
-                    Some(filter) => pilot_each_filter(cx, filter, &cards.count)?,
+                    Some(filter) => pilot_each_filter(cx, filter, &cards.count, Some(&player))?,
                     None => pilot_amount(cx, &cards.count)?,
                 })
             }

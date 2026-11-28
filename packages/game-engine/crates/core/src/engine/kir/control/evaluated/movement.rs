@@ -85,7 +85,10 @@ impl RulesTxn {
             SetExpr::Matching {
                 zone: zone @ ZoneExpr::Battlefield,
                 filter,
-            } => self.evaluated_set(task, zone, filter)?,
+            } => match self.evaluated_set(task, zone, filter)? {
+                Resolved::Present(ids) => ids,
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
             SetExpr::Matching {
                 zone: zone @ ZoneExpr::Graveyards,
                 filter,

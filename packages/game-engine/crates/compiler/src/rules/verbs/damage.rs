@@ -61,7 +61,7 @@ pub(super) fn lower(
     // CR 608.2c: "its" in the amount is the object dealing the damage.
     cx.subject = Some(source);
     let amount = if let Some(filter) = for_each {
-        pilot_each_filter(cx, filter, amount)
+        pilot_each_filter(cx, filter, amount, None)
     } else {
         pilot_amount(cx, amount)
     };
@@ -78,7 +78,7 @@ pub(super) fn lower(
                 )?,
             },
         },
-        ast::DamageTarget::Object(to) => recipient_object(cx, &to.r#ref)?,
+        ast::DamageTarget::Object(to) => recipient_object(cx, &to.r#ref, None)?,
         ast::DamageTarget::Player(to) => recipient_player(cx, &to.r#ref)?,
         ast::DamageTarget::Them(_) => kir::DamageTo::Players {
             players: cx
@@ -88,12 +88,24 @@ pub(super) fn lower(
                 .ok_or_else(|| operand("damage_recipient", "unbound event player"))?,
         },
         ast::DamageTarget::Each(to) => {
+            // CR 608.2c: "each opponent and each permanent they control"
+            // supplies a relative player domain to the second conjunct.
+            // Only the exact pair gives a unique preceding player mention.
+            use ast::AmountCounterCountOn::{ObjectRef, PlayerRef};
+            let relative_player = match to.refs.as_slice() {
+                [PlayerRef(player), ObjectRef(_)]
+                    if matches!(&**player, ast::PlayerRef::EachOpponent(_)) =>
+                {
+                    Some(PlayerExpr::EachOpponent)
+                }
+                _ => None,
+            };
             let mut parts = to
                 .refs
                 .iter()
                 .map(|part| match part {
-                    ast::AmountCounterCountOn::PlayerRef(player) => recipient_player(cx, player),
-                    ast::AmountCounterCountOn::ObjectRef(object) => recipient_object(cx, object),
+                    PlayerRef(player) => recipient_player(cx, player),
+                    ObjectRef(object) => recipient_object(cx, object, relative_player.as_ref()),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             if parts.len() == 1 {
@@ -121,10 +133,11 @@ pub(super) fn lower(
 fn recipient_object(
     cx: &mut StepCx<'_>,
     object: &ast::ObjectRef,
+    relative_player: Option<&PlayerExpr>,
 ) -> Result<kir::DamageTo, Failure> {
     if is_set(object) {
         return Ok(kir::DamageTo::Objects {
-            set: pilot_board_set(cx, object)?,
+            set: pilot_board_set(cx, object, relative_player)?,
         });
     }
     let who = match object {

@@ -199,10 +199,15 @@ impl SampleBuildWork {
             // CR 106.4a-b, 106.6: the public pool, restricted buckets included.
             p.restricted_mana = row.restricted_mana.clone();
             p.status = row.status;
+            // A fresh search root has no in-flight invocation or triggers
+            // that could retain a reference to an already departed player.
             p.last_known = (row.status == PlayerStatus::Left).then(|| PlayerLastKnown {
                 life: row.life.clone(),
                 mana: row.mana.clone(),
                 restricted_mana: row.restricted_mana.clone(),
+                hand_count: 0,
+                graveyard: vec![],
+                devotion: vec![],
             });
         }
         for row in &view.commanders {

@@ -16,6 +16,20 @@ impl RulesTxn {
 }
 
 impl ObjectFacts for DerivedObject<'_> {
+    fn counters(&self, kind: Option<&mtg_contracts::kir::CounterKind>) -> Option<Quantity> {
+        (self.object.zone == Zone::Battlefield).then(|| {
+            crate::query::counter_balance(
+                kind,
+                &self.object.plus_one_counters,
+                &self.object.loyalty_counters,
+                self.object
+                    .counters
+                    .iter()
+                    .map(|stack| (&stack.kind, &stack.count)),
+            )
+        })
+    }
+
     fn zone(&self) -> Zone {
         self.object.zone
     }

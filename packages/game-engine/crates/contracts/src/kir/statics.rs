@@ -535,7 +535,8 @@ fn predicate_in_layer(filter: &Pred, layer: Layer) -> bool {
         | Atom::Toughness { .. }
         | Atom::Keyword { .. }
         | Atom::NotKeyword { .. }
-        | Atom::Is { .. } => false,
+        | Atom::Is { .. }
+        | Atom::Counters { .. } => false,
     })
 }
 
@@ -594,7 +595,8 @@ fn cda_pred(filter: &Pred, battlefield: bool) -> bool {
         | Atom::Toughness { .. }
         | Atom::Keyword { .. }
         | Atom::NotKeyword { .. }
-        | Atom::Is { .. } => false,
+        | Atom::Is { .. }
+        | Atom::Counters { .. } => false,
     })
 }
 
@@ -700,7 +702,7 @@ fn declaration_pred_valid(filter: &Pred) -> bool {
         Atom::AnyOf { alternatives } => {
             !alternatives.is_empty() && alternatives.iter().all(declaration_pred_valid)
         }
-        Atom::Is { .. } => false,
+        Atom::Is { .. } | Atom::Counters { .. } => false,
     })
 }
 

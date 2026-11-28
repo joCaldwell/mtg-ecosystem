@@ -79,7 +79,7 @@ policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
 
 The promoted R6 cut has an origin under `phase1-r6/`. Both archives verify for
-all 753 R5-origin fixture identities. Each R6 fixture keeps the same archive
+all R5-origin fixture identities. Each R6 fixture keeps the same archive
 line and adds only `printed` and `printedSha256` to the R5 row. The R5 origin and
 fixture manifests supply the default controls.
 
@@ -341,6 +341,18 @@ Each slot declares:
 
 Last-known information answers a read and never authorizes acting on a new
 incarnation (CR 400.7, 608.2h).
+
+Battlefield sets and permanent targets share counter-balance predicates.
+They read a specified counter kind or the total of all kinds on the current
+incarnation (CR 122.1). Announced targets recheck the predicate at resolution
+(CR 601.2c, 608.2b). Observation 114 includes counter predicates in public
+target specifications. Battlefield movement and destruction sets can compare
+mana value against announced X (CR 107.3, 202.3). A quantity may read the
+greatest current stat in a battlefield set or count a resolved player's
+public graveyard cards or hand size (CR 402.3, 404.1, 608.2h). The checker
+rejects characteristic filters on hand counts (CR 400.2). An illegal target
+cannot supply a player identity for a zone count or relative filter
+(CR 608.2b).
 
 A triggered invocation stores an `EventBinding` for the event's player, object
 and quantity when supplied. Death reads the common prior battlefield. An
