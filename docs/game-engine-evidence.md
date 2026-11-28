@@ -32,9 +32,8 @@ server build `c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15`.
 Focused mechanic qualifications (temporary-keyword families, atomic and
 controlled-permanent keywords, Aura control, attachments, draw/library/mill/scry
 and compiler input rejection) keep raw roots under their original lanes'
-`generated/` directories. Sources, executable/schema hashes, counts, failures,
-bridges and omissions are in the
-[frozen ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/c9f57aa09329d7dcc6bdd256b3f22639f67952da/docs/game-engine-evidence.md#later-focused-engine-qualification)
+`generated/` directories; sources, hashes, counts, failures, bridges and
+omissions are in the [frozen ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/c9f57aa09329d7dcc6bdd256b3f22639f67952da/docs/game-engine-evidence.md#later-focused-engine-qualification)
 and its [later revision](https://github.com/joCaldwell/mtg-ecosystem/blob/13704bf5781362a4fcf51848dc8a2f3e398fd87b/docs/game-engine-evidence.md#later-focused-engine-qualification).
 
 ## Search, hosting and performance
@@ -49,9 +48,8 @@ and [original P8 evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3e
 
 Admission source `207af2f9` admits 85 definitions (IR 1/75/52/48); seed zero
 completed and replayed under `generated/ramos-play.SGT13TWn/` in the closing
-worktree. Earlier Ramos milestones (cascade, costs, land, fetch, cycling, mana,
-removal, sweeps, Saga/Bestow) keep producers under `generated/ramos/` and counts
-in [Git](https://github.com/joCaldwell/mtg-ecosystem/blob/13704bf5781362a4fcf51848dc8a2f3e398fd87b/docs/game-engine-evidence.md#ramos-land-and-library-choice-integration).
+worktree. Earlier Ramos milestones keep producers under `generated/ramos/` and
+counts in [Git](https://github.com/joCaldwell/mtg-ecosystem/blob/13704bf5781362a4fcf51848dc8a2f3e398fd87b/docs/game-engine-evidence.md#ramos-land-and-library-choice-integration).
 
 ## Historical provenance lookup
 
@@ -66,3 +64,8 @@ and read-only root
 nothing at HEAD rebuilds or re-verifies it. Raw evidence belongs to preserved
 worktrees; absence in a fresh checkout grants no permission to recreate,
 relocate or delete it.
+
+The rework's signed analysis and selectors are in ignored storage under
+`generated/architecture-rfc/` (`final-plan.md`, `scripts/`) with Sweep 5
+receipts under `generated/stage2-sweep5/`; the [rework plan](game-engine-rework.md#how-far-the-evidence-reaches)
+keeps the measurements that size its gates.
