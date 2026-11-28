@@ -171,19 +171,17 @@ receipts to every delegate brief.
 
 ## Batched NumPy environment
 
+`mtg_env.VecEnv` advances a batch of four-seat Commander games in lockstep for
+training rollouts and throughput measurement, exposing only the acting seat's
+permitted knowledge as read-only NumPy tensors. Its signatures, shapes, dtypes,
+action encoding, errors, determinism and threading contracts live in the typed
+stub [`mtg_env.pyi`](../packages/game-engine/crates/env/python/mtg_env.pyi).
+
 Build the native extension with `PYO3_PYTHON=/usr/bin/python3 sh scripts/engine-env.sh cargo build --locked -p mtg-env`.
 On Linux, `python3 packages/game-engine/crates/env/python/smoke.py target/engine/debug/libmtg_env.so`
-loads that exact library; `import mtg_env` needs it on the module search path as
-`mtg_env.so`. Native PyO3 supports Python 3.14; the runtime requires NumPy.
-
-`VecEnv(catalog_dir_or_profile, pods=None, num_envs=1, threads=32, seed=0, config=None)`
-accepts a profile name and its default decks, or pod files selected by
-environment index modulo pod count. An embedded-profile pod file contains the
-four serialized decklists. A bulk catalog directory requires a `manifest_sha256`
-configuration value and dynamic pod files in the simulator's `{"decks": [...]}`
-multi-seat format. Episode seeds bind the supplied seed, environment index and
-episode ordinal; explicit reset restarts episode zero. Each rules and query call
-uses the pod driver's 1024-unit quantum.
+loads that exact library and checks the stub's names against it; `import mtg_env`
+needs it on the module search path as `mtg_env.so`. Native PyO3 supports Python
+3.14; the runtime requires NumPy.
 
 ```python
 env = mtg_env.VecEnv("commander-foundations-v1", num_envs=32, seed=57)
@@ -193,47 +191,6 @@ with env.buffers() as batch:
     actions = batch["ptr_mask"].argmax(axis=1).astype("int32")
 env.step(actions)
 ```
-
-Arrays from `buffers()` borrow contiguous Rust storage. Batch exit or `release()`
-drops the batch's references; slices and retained arrays keep a lease, and the
-next step or reset raises while any lease is live, so copy tensors to keep them.
-Reset and step release the GIL. Each environment owns a persistent thread pool;
-worker `w` writes rows whose batch index modulo the worker count is `w`. An
-internal fault requires a reset; an invalid input leaves all games at the
-previous decision.
-
-`payment` is `auto` (default) or `manual`; spend always uses the exact solver.
-`opponents` is `self_play` (default) or `baseline` (seat zero acts, other seats
-use Develop). `mask_unfundable` defaults to true: the encoder proves fixed costs
-from the unrestricted pool and intrinsic single-color lands. It keeps an
-otherwise unfundable candidate with funding code 2 when the pool contains
-restricted mana or when sources, payments or visible spell-cost reducers make
-funding uncertain, and preserves the original pointers if filtering would empty
-the head. `head` selects pointer (0) or number (1). Pointers 0–127 address
-ordered candidates, 128 ends a slot or ordering, and 129 and 130 finish
-production with undo or keep. Numbers 0–62 are literal and 63 selects the numeric
-upper bound, which AnnounceX can tighten when resources are fully modeled;
-otherwise the published maximum applies, and an unbounded decision with unknown
-supply uses the signed 32-bit ceiling. The bound never falls below the decision's
-published minimum.
-
-Entity rows preserve object order, then stack order, then remembered library
-positions, then one hand-zone row per publicly known revealed hand card in
-published order; remembered positions and known hand cards have no targetable
-handle. Missing entity and seat references are -1; card zero is absent identity.
-Player features and entity seat references rotate around the viewer; `seat` and
-terminal rewards use absolute seat order. A terminal step returns the next
-opening observation with the previous episode's reward, done and counters. Info
-columns 0–3 count illegal actions, cast reversals, censor class (0 outcome,
-1 workload limit, 2 engine capacity, 3 tensor capacity) and completed rules
-decisions. Tensor overflow ends the episode with zero reward and a fresh opening
-observation. Numeric features saturate at the signed 32-bit limits. The
-observation wire has no lore-counter or selected-mode field.
-
-`catalog()` exposes padded 192-token rows, lengths, sixteen numeric features and
-the SHA-256 of the sorted vocabulary encoded as compact JSON. Token IDs start at
-one; an overlength definition ends with a truncation token. Bind model inputs to
-both catalog and vocabulary identity.
 
 ## Measurement and deck work
 

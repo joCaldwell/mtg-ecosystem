@@ -1,4 +1,5 @@
 """Exercise the extension boundary on two independent thread schedules."""
+import ast
 import sys
 from pathlib import Path
 import numpy as np
@@ -10,6 +11,17 @@ envs = [mod.VecEnv("commander-foundations-v1", None, n, threads, 86) for threads
 fields = dict(globals=(48,), players=(4, 24), ent_int=(256, 10), ent_num=(256, 24),
               ent_mask=(256,), cand=(128, 6), ptr_mask=(131,), num_mask=(64,),
               head=(), seat=(), reward=(4,), done=(), info=(8,))
+# mtg_env.pyi names exactly the public classes, methods and Batch keys.
+stub = ast.parse(Path(__file__).with_name("mtg_env.pyi").read_text())
+classes = {c.name: c for c in stub.body if isinstance(c, ast.ClassDef) and c.name[0] != "_"}
+assert classes.keys() == {k for k in vars(mod) if k[0] != "_"}, sorted(classes)
+for name, node in classes.items():
+    methods = {f.name for f in node.body if isinstance(f, ast.FunctionDef)}
+    assert all(hasattr(getattr(mod, name), m) for m in methods), name
+    assert {m for m in methods if m[0] != "_"} == {m for m in dir(getattr(mod, name)) if m[0] != "_"}, name
+keys = {e.value for f in classes["Batch"].body if isinstance(f, ast.FunctionDef) and f.name == "__getitem__"
+        for e in ast.walk(f.args) if isinstance(e, ast.Constant)}
+assert keys == fields.keys(), keys ^ fields.keys()
 rng = np.random.default_rng(2)
 for env in envs:
     env.reset()
