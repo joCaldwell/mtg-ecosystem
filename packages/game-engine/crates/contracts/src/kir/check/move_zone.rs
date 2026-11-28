@@ -1,7 +1,7 @@
 //! Zone changes (CR 400.3, 400.7). One evaluated cell admits every reviewed
 //! combination of moved objects and destination; the evaluator performs it.
-//! Public graveyard sets can go to exile or owners' hands. Battlefield entry
-//! from a set admits the mover's graveyard only. Foreign graveyard entry
+//! Public graveyard sets can go to exile. Return to hand and battlefield
+//! entry from a set admit the mover's graveyard only. Foreign graveyard entry
 //! remains on the single-target path with its reviewed target constraints.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -42,10 +42,17 @@ impl Walk<'_, '_> {
                     zone: ZoneExpr::Graveyard { of },
                     filter,
                 },
-                Destination::Exile | Destination::OwnerHand,
+                Destination::Exile,
             ) if of.is_you() || self.player_target(of)?.is_some() => {
                 Self::library_card_filter(filter).map(|()| MOVED)
             }
+            (
+                SetExpr::Matching {
+                    zone: ZoneExpr::Graveyard { of },
+                    filter,
+                },
+                Destination::OwnerHand,
+            ) if of.is_you() => Self::library_card_filter(filter).map(|()| MOVED),
             (
                 SetExpr::Matching {
                     zone: ZoneExpr::Graveyard { of },
@@ -68,7 +75,7 @@ impl Walk<'_, '_> {
                     zone: ZoneExpr::Graveyards,
                     filter,
                 },
-                Destination::Exile | Destination::OwnerHand,
+                Destination::Exile,
             ) => Self::library_card_filter(filter).map(|()| MOVED),
             _ => unaudited("verb"),
         }
