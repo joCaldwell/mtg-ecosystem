@@ -58,12 +58,27 @@ pub(super) fn lower(
         }
         _ => return Err(step("damage", "source")),
     };
+    // CR 608.2c: "they control" in a count can refer to the single
+    // explicitly targeted recipient. Only declare the recipient early
+    // when this count needs it; unrelated targets keep printed order.
+    let relative = match to.as_ref() {
+        ast::DamageTarget::Player(to)
+            if matches!(
+                to.r#ref.as_ref(),
+                ast::PlayerRef::TargetPlayer(_) | ast::PlayerRef::TargetOpponent(_)
+            ) && (for_each.as_deref().is_some_and(names_controller)
+                || count_names_controller(amount)) =>
+        {
+            Some(pilot_player(cx, &to.r#ref)?)
+        }
+        _ => None,
+    };
     // CR 608.2c: "its" in the amount is the object dealing the damage.
     cx.subject = Some(source);
     let amount = if let Some(filter) = for_each {
-        pilot_each_filter(cx, filter, amount, None)
+        pilot_each_filter(cx, filter, amount, relative.as_ref())
     } else {
-        pilot_amount(cx, amount)
+        pilot_amount_relative(cx, amount, relative.as_ref())
     };
     cx.subject = None;
     let amount = amount?;
@@ -79,7 +94,10 @@ pub(super) fn lower(
             },
         },
         ast::DamageTarget::Object(to) => recipient_object(cx, &to.r#ref, None)?,
-        ast::DamageTarget::Player(to) => recipient_player(cx, &to.r#ref)?,
+        ast::DamageTarget::Player(to) => match relative {
+            Some(players) => kir::DamageTo::Players { players },
+            None => recipient_player(cx, &to.r#ref)?,
+        },
         ast::DamageTarget::Them(_) => kir::DamageTo::Players {
             players: cx
                 .player_binding
@@ -127,6 +145,21 @@ pub(super) fn lower(
         })
     } else {
         Ok(cx.act(verb))
+    }
+}
+
+fn names_controller(filter: &ast::ObjectFilter) -> bool {
+    matches!(
+        filter.controlled_by.as_deref(),
+        Some(ast::PlayerRef::They(_))
+    )
+}
+
+fn count_names_controller(amount: &ast::Amount) -> bool {
+    match amount {
+        ast::Amount::Count(count) => names_controller(&count.of),
+        ast::Amount::Twice(twice) => count_names_controller(&twice.of),
+        _ => false,
     }
 }
 

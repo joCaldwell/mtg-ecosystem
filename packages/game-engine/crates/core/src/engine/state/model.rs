@@ -285,6 +285,7 @@ pub(crate) fn is_zero_u64(count: &u64) -> bool {
 pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(in crate::engine) target_triggers: Vec<triggers::TargetTriggerDraft>,
+    /// Private program key. Repeat declarations use an ordinal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_mask: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

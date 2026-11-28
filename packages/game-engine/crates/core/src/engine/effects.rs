@@ -600,10 +600,11 @@ impl RulesTxn {
         Ok(match amount {
             Amount::Fixed { value } => Some(value.clone()),
             Amount::Count { set } => Some((self.static_count(source, set)? as i64).into()),
-            // CR 122.1: counters of one kind on the source.
+            // CR 122.1: counters of one kind on the source; a count of all
+            // kinds is rejected at validation (`kir::statics`).
             Amount::CountersOn {
                 object: Ref::Source,
-                counter,
+                counter: Some(counter),
             } => Some(source.counter_count(counter)),
             // CR 700.5: statics admit only their controller's devotion
             // (`kir::statics`).

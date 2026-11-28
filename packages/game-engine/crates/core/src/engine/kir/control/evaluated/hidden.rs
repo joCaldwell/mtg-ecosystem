@@ -16,6 +16,7 @@ impl StepResult {
             prior: movement.previous,
             successor: Some(movement.successor),
             controller_before: player,
+            destination: Some(movement.destination),
             public_card,
         });
         if !self.players.contains(&player) {
@@ -63,12 +64,24 @@ impl RulesTxn {
         task: &Task,
         step: u32,
         filter: &Pred,
-    ) -> Result<Vec<ObjectId>, String> {
+        destination: Option<&ZoneExpr>,
+    ) -> Result<Resolved<Vec<ObjectId>>, String> {
         let Some(result) = self.read_step_result(task, step)? else {
-            return Ok(vec![]);
+            return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+        };
+        let destination = match destination {
+            None => None,
+            Some(ZoneExpr::Graveyard { of }) => match self.measured_player(task, of)? {
+                Resolved::Present(owner) => Some(Zone::Graveyard { owner }),
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
+            Some(_) => return Err("unsupported result destination".into()),
         };
         let mut matching = vec![];
         for member in &result.objects {
+            if destination.is_some() && member.destination != destination {
+                continue;
+            }
             if filter.0.is_empty() {
                 matching.push(member.prior);
             } else if let Some(facts) = &member.public_card {
@@ -91,7 +104,7 @@ impl RulesTxn {
                 }
             }
         }
-        Ok(matching)
+        Ok(Resolved::Present(matching))
     }
 
     pub(super) fn begin_discard(

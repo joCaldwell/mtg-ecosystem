@@ -273,6 +273,14 @@ impl<'a> BlockEvidence<'a> {
         }
     }
 
+    /// The normalized text of a nonempty run of one line's tokens.
+    fn text(&self, [line, start, end]: [u32; 3]) -> &'a str {
+        let tokens = self.tokens(line);
+        let start = normalized_range(&tokens[start as usize])[0] as usize;
+        let end = normalized_range(&tokens[end as usize - 1])[1] as usize;
+        &self.normalized[start..end]
+    }
+
     fn range(&self, runs: impl Iterator<Item = [u32; 3]>) -> Option<[u32; 2]> {
         runs.flat_map(|[line, start, end]| &self.tokens(line)[start as usize..end as usize])
             .map(token_range)
@@ -575,7 +583,7 @@ impl<'a> Coverage<'_, 'a> {
     pub(crate) fn meaning(
         &mut self,
         field: &str,
-        run @ [line, start, end]: [u32; 3],
+        run @ [_, start, end]: [u32; 3],
         verify: impl FnOnce(&Value, &str) -> bool,
     ) -> Result<(), EvidenceError> {
         let owner = self
@@ -586,13 +594,7 @@ impl<'a> Coverage<'_, 'a> {
         if start >= end || !contains(proof.value, run) {
             return Err(self.missing(field));
         }
-        let tokens = self.block.tokens(line);
-        let start = normalized_range(&tokens[start as usize])[0] as usize;
-        let end = normalized_range(&tokens[end as usize - 1])[1] as usize;
-        if !verify(
-            self.block.ast.pointer(field).unwrap(),
-            &self.block.normalized[start..end],
-        ) {
+        if !verify(self.block.ast.pointer(field).unwrap(), self.block.text(run)) {
             return Err(self.block.error(
                 Check::P11,
                 field,
@@ -600,6 +602,91 @@ impl<'a> Coverage<'_, 'a> {
             ));
         }
         self.record(field, run);
+        Ok(())
+    }
+
+    /// Check a field of an unlocated object the parser synthesized inside its
+    /// recorded parent production ("each other player" yields a filtered
+    /// player whose `each-player` base has no span of its own). The run must
+    /// be exactly the parent's single recorded span, with no folds, and the
+    /// family verifies that whole printed phrase against the synthesized
+    /// value. A recorded, aliased or implicit owner uses [`Self::meaning`]
+    /// instead.
+    pub(crate) fn synthesized(
+        &mut self,
+        field: &str,
+        run @ [_, start, end]: [u32; 3],
+        verify: impl FnOnce(&Value, &str) -> bool,
+    ) -> Result<(), EvidenceError> {
+        let owner = self
+            .obligations
+            .get(field)
+            .ok_or_else(|| self.missing(field))?;
+        let Some(PrintedNode::Unlocated(_)) = self.block.nodes.get(owner.as_str()) else {
+            return Err(self.missing(field));
+        };
+        let (parent, _) = owner.rsplit_once('/').ok_or_else(|| self.missing(field))?;
+        let Some(PrintedNode::Recorded(node)) = self.block.nodes.get(parent) else {
+            return Err(self.missing(field));
+        };
+        let whole = matches!(node.span.as_slice(), [only] if only.0 == run)
+            && node.folds.as_deref().is_none_or(<[_]>::is_empty);
+        if start >= end || !whole {
+            return Err(self.missing(field));
+        }
+        let text = self.block.text(run);
+        if !verify(self.block.ast.pointer(field).unwrap(), text) {
+            return Err(self.block.error(
+                Check::P11,
+                field,
+                self.block.range(std::iter::once(run)).unwrap(),
+            ));
+        }
+        self.record(field, run);
+        Ok(())
+    }
+
+    /// Claim the printed words that introduce a composite child of a recorded
+    /// production, such as "for each" before a for-each filter. The words lie
+    /// in the parent's own runs, outside the child's, and end exactly where
+    /// the child's first recorded run begins on the same line; the child's
+    /// fields are discharged separately. Facts on the words bind to `child`.
+    pub(crate) fn introducer(
+        &mut self,
+        child: &str,
+        run @ [line, start, end]: [u32; 3],
+        verify: impl FnOnce(&str) -> bool,
+    ) -> Result<(), EvidenceError> {
+        let (parent, _) = child.rsplit_once('/').ok_or_else(|| self.missing(child))?;
+        if !self.block.ast.pointer(child).is_some_and(Value::is_object) {
+            return Err(self.missing(child));
+        }
+        let proof = self.block.node(parent)?;
+        let Some(PrintedNode::Recorded(node)) = self.block.nodes.get(child) else {
+            return Err(self.missing(child));
+        };
+        let adjacent = node.span.first().is_some_and(|first| {
+            let [l, s, _] = first.0;
+            l == line && s == end
+        });
+        let inside_child =
+            (start..end).any(|index| contains(self.block.nodes[child], [line, index, index + 1]));
+        if proof.basis != Basis::Recorded
+            || start >= end
+            || !contains(proof.value, run)
+            || !adjacent
+            || inside_child
+        {
+            return Err(self.missing(child));
+        }
+        if !verify(self.block.text(run)) {
+            return Err(self.block.error(
+                Check::P11,
+                child,
+                self.block.range(std::iter::once(run)).unwrap(),
+            ));
+        }
+        self.record(child, run);
         Ok(())
     }
 

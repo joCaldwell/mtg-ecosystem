@@ -353,7 +353,7 @@ fn counted_target_groups_lower_one_leaf_per_member_and_step() {
 }
 
 #[test]
-fn optional_draw_and_life_require_a_printed_controller_chooser() {
+fn another_player_can_choose_their_own_optional_draw() {
     for effect in ["draw", "gain-life", "lose-life"] {
         let lower = |who, decided_by| {
             let mut step = json!({
@@ -380,6 +380,21 @@ fn optional_draw_and_life_require_a_printed_controller_chooser() {
         let you = json!({"player":"you"});
         let target = json!({"player":"target-player","selectionId":"line:0:1"});
         for (who, chooser) in [(target.clone(), None), (you.clone(), Some(target.clone()))] {
+            if effect == "draw" && who == target {
+                assert!(matches!(
+                    lower(who, chooser).unwrap().as_slice(),
+                    [Instruction::Kernel {
+                        node: kir::Node::Optional {
+                            chooser: PlayerExpr::Is {
+                                who: Ref::Target { slot: 0 }
+                            },
+                            ..
+                        },
+                        ..
+                    }]
+                ));
+                continue;
+            }
             let failure = lower(who, chooser).expect_err("a non-controller would choose");
             assert_eq!(code(failure), "compose.control:optional_chooser");
         }

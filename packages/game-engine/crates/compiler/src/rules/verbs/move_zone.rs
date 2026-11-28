@@ -57,6 +57,16 @@ pub(super) fn lower(
             controller: PlayerExpr::you(cx.context),
             tapped: *tapped == Some(true),
         };
+        if let Some(set) = graveyard_set(cx, &what)? {
+            if !matches!(&set, SetExpr::Matching { zone: kir::ZoneExpr::Graveyard { of }, .. } if of.is_you())
+            {
+                return Err(operand("set", "graveyard_entry_owner"));
+            }
+            return Ok(cx.act(Verb::Move {
+                what: set,
+                to: entry,
+            }));
+        }
         if let Some(choice) = chosen(cx, &what, entry)? {
             return Ok(choice);
         }
@@ -261,6 +271,8 @@ mod tests {
                 source_block: 0,
                 x: None,
                 x_consumed: false,
+                chosen_creature_type: None,
+                chosen_creature_type_read: false,
                 result_from: None,
             };
             let movement: ast::EffectMoveZone = serde_json::from_value(json!({

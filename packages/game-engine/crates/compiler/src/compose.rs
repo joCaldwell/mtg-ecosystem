@@ -17,7 +17,7 @@ use super::*;
 mod activation_restrictions;
 #[cfg(test)]
 mod antecedent_tests;
-mod control;
+pub(crate) mod control;
 mod costs;
 mod events;
 pub(crate) mod keywords;
@@ -26,6 +26,7 @@ mod printed;
 pub(super) mod resolution_triggers;
 mod sagas;
 mod source_action;
+mod source_authority;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -236,7 +237,7 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
 /// Decode one effect sentence; evaluated actions (including discard and mill)
 /// decode through the generated effect schema in `Step::deserialize`.
 pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
-    serde_json::from_value(raw.clone()).map_err(|e| mirror_gap(raw, &e))
+    serde_json::from_value(control::counted_instruction(raw)).map_err(|e| mirror_gap(raw, &e))
 }
 
 /// A reviewed trigger lowers typed sentences only. A sentence of step table
@@ -933,15 +934,8 @@ fn compose(
     let mut card = ingest::read_card(archive, record)?;
     // Select the whole-card authority before decoding any resolution verdict,
     // projection or segment. A compound ability keeps its existing authority.
-    if matches!(archive.cut, ArchiveCut::R5 | ArchiveCut::R6)
-        && let [(source, face)] = card.faces.as_slice()
-        && face.lines.len() == 1
-        && let Ok(types) = type_line::parse(&source.type_line, false)
-        && matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
-        && let Ok(abilities) = decode::<Vec<ast::Ability>>(face.abilities.get(), "abilities")
-        && let Some(action) = source_action::SourceAction::select(&abilities)
-    {
-        return source_action::compose(archive, &mut card, action, evidence, types);
+    if let Some(claim) = source_authority::select(archive, &card)? {
+        return source_authority::compose(archive, &mut card, claim, evidence);
     }
     let r = &card.record;
     let mut resolution =
@@ -951,6 +945,7 @@ fn compose(
     }
     for (index, (_, face)) in card.faces.iter().enumerate() {
         resolution.cover_spend_riders(index, face.abilities.get())?;
+        resolution.cover_control(index, face.abilities.get())?;
         if face.abilities.get().contains("\"final-chapter-ability\"") {
             let abilities: Vec<serde_json::Value> = decode(face.abilities.get(), "abilities")?;
             if abilities

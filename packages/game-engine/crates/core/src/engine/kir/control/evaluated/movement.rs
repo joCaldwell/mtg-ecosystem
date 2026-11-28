@@ -99,20 +99,21 @@ impl RulesTxn {
                         of: player @ PlayerExpr::Is { .. },
                     },
                 filter,
-            } if filter.0.is_empty() => {
-                let Resolved::Present(players) = self.evaluated_players(task, player)? else {
-                    return Ok(Resolved::Absent(AbsentReason::IllegalTarget));
+            } => {
+                let owner = match self.measured_player(task, player)? {
+                    Resolved::Present(player) => player,
+                    Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
                 };
-                self.state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| {
-                        players
-                            .iter()
-                            .any(|p| o.zone == Zone::Graveyard { owner: *p })
+                if !self.is_live(owner) {
+                    return Ok(Resolved::Absent(AbsentReason::DepartedPlayer));
+                }
+                self.kernel_set(frame, &ZoneExpr::Graveyards, filter)?
+                    .0
+                    .into_iter()
+                    .filter(|id| {
+                        self.current(*id)
+                            .is_ok_and(|o| o.zone == Zone::Graveyard { owner })
                     })
-                    .map(|o| o.id)
                     .collect()
             }
             _ => return Err("move set has no audited evaluation".into()),

@@ -25,6 +25,8 @@ pub(super) struct ResultObject {
     successor: Option<ObjectId>,
     controller_before: PlayerId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    destination: Option<Zone>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     public_card: Option<Box<ObjectBefore>>,
 }
 
@@ -504,6 +506,17 @@ impl RulesTxn {
             }
             Amount::Count {
                 set:
+                    SetExpr::Result {
+                        step,
+                        filter,
+                        destination,
+                    },
+            } => match self.result_cards(task, *step, filter, destination.as_ref())? {
+                Resolved::Present(objects) => Quantity::from(objects.len() as i64),
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
+            Amount::Count {
+                set:
                     set @ SetExpr::Pool {
                         pool: Ref::StepResult { .. },
                     },
@@ -527,6 +540,19 @@ impl RulesTxn {
                 Resolved::Present(objects) => Quantity::from(objects.len() as i64),
                 Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
             },
+            Amount::CountChosenCreatureType { set, var } => {
+                let Some(Binding::CreatureType(kind)) = task.bindings.get(var) else {
+                    return Err("missing chosen creature type".into());
+                };
+                let Resolved::Present(objects) = self.evaluated_objects(task, set)? else {
+                    return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+                };
+                let mut count = 0i64;
+                for object in objects {
+                    count += i64::from(self.characteristics(object)?.has_subtype(kind.name()));
+                }
+                Quantity::from(count)
+            }
             Amount::Count {
                 set:
                     SetExpr::Matching {
@@ -556,11 +582,21 @@ impl RulesTxn {
                 Resolved::Present(objects) => self.greatest_stat(objects, *stat)?,
                 Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
             },
+            Amount::CountersOn {
+                object: Ref::Target { slot },
+                counter,
+            } => {
+                if frame.legal_targets.get(*slot as usize) != Some(&true) {
+                    return Ok(Resolved::Absent(AbsentReason::IllegalTarget));
+                }
+                self.kernel_target_facts(frame, *slot)?
+                    .counter_balance(counter.as_ref())
+            }
             Amount::CountersOn { object, counter } => {
                 let Some(facts) = self.measured_object(task, object)? else {
                     return Ok(Resolved::Absent(AbsentReason::NoEventMember));
                 };
-                facts.counter_balance(Some(counter))
+                facts.counter_balance(counter.as_ref())
             }
             // CR 107.1b: arithmetic stays signed until the verb reads it.
             Amount::Sum { terms } => {
@@ -747,7 +783,7 @@ impl RulesTxn {
 
     pub(super) fn evaluate_step(
         &mut self,
-        mut task: Task,
+        task: Task,
         verb: &Verb,
         block: u32,
     ) -> Result<(), String> {
@@ -802,24 +838,7 @@ impl RulesTxn {
             Distribution::EachSimultaneous if signature.verb == EvaluatedVerb::Mill => {
                 self.perform_mill(&task, players, &amount, block)
             }
-            Distribution::EachSequential => {
-                task.stage = Stage::Step(StepProgress::Sequence {
-                    players: players
-                        .into_iter()
-                        .map(|player| PlayerDrawAttempts {
-                            player,
-                            attempted: Quantity::zero(),
-                            failed: Quantity::zero(),
-                        })
-                        .collect(),
-                    at: 0,
-                    remaining: amount.clone(),
-                    total: amount,
-                    result,
-                    last: None,
-                });
-                self.step_sequence(task)
-            }
+            Distribution::EachSequential => self.begin_draw_sequence(task, players, amount, result),
             Distribution::EachSimultaneous => {
                 let proposed = players
                     .into_iter()
@@ -865,6 +884,57 @@ impl RulesTxn {
             }
             _ => Err("unsupported evaluated distribution".into()),
         }
+    }
+
+    fn begin_draw_sequence(
+        &mut self,
+        mut task: Task,
+        players: Vec<PlayerId>,
+        amount: Quantity,
+        result: StepResult,
+    ) -> Result<(), String> {
+        task.stage = Stage::Step(StepProgress::Sequence {
+            players: players
+                .into_iter()
+                .map(|player| PlayerDrawAttempts {
+                    player,
+                    attempted: Quantity::zero(),
+                    failed: Quantity::zero(),
+                })
+                .collect(),
+            at: 0,
+            remaining: amount.clone(),
+            total: amount,
+            result,
+            last: None,
+        });
+        self.step_sequence(task)
+    }
+
+    pub(super) fn perform_optional_draws(
+        &mut self,
+        task: Task,
+        mut players: Vec<PlayerId>,
+    ) -> Result<(), String> {
+        let Node::Do(Verb::Draw { amount, .. }) = self.node_at(&task)?.0 else {
+            return Err("optional draw group has no draw body".into());
+        };
+        let Resolved::Present(amount) = self.evaluated_amount(&task, amount)? else {
+            return self.return_kernel(task.resume);
+        };
+        players.retain(|&player| self.is_live(player));
+        if players.is_empty() || amount <= Quantity::zero() {
+            return self.return_kernel(task.resume);
+        }
+        self.begin_draw_sequence(
+            task,
+            players,
+            amount,
+            StepResult {
+                amount: Some(Quantity::zero()),
+                ..StepResult::default()
+            },
+        )
     }
 
     fn draw_player(task: &Task) -> Result<PlayerId, String> {
@@ -1007,6 +1077,7 @@ impl RulesTxn {
                     prior: movement.previous,
                     successor: Some(movement.successor),
                     controller_before: controller_before.ok_or("missing draw prior controller")?,
+                    destination: Some(movement.destination),
                     public_card: None,
                 });
                 if !result.players.contains(&player) {
@@ -1119,15 +1190,33 @@ impl RulesTxn {
         {
             return Err("invalid draw sequence progress".into());
         }
-        if let Resolved::Present(expected) = self.evaluated_players(task, operand)?
-            && expected
-                != players
-                    .iter()
-                    .filter(|p| self.is_live(p.player))
-                    .map(|p| p.player)
-                    .collect::<Vec<_>>()
-        {
-            return Err("invalid draw sequence recipient".into());
+        if let Resolved::Present(expected) = self.evaluated_players(task, operand)? {
+            let mut actual = players
+                .iter()
+                .filter(|p| self.is_live(p.player))
+                .map(|p| p.player);
+            let mut parent = task.clone();
+            let optional_group = parent.path.pop() == Some(0)
+                && matches!(
+                    self.node_at(&parent)?.0,
+                    Node::Optional {
+                        chooser: PlayerExpr::EachPlayer | PlayerExpr::EachOpponent,
+                        ..
+                    }
+                );
+            if optional_group {
+                let mut next = actual.next();
+                for player in expected {
+                    if next == Some(player) {
+                        next = actual.next();
+                    }
+                }
+                if next.is_some() {
+                    return Err("invalid optional draw sequence recipient".into());
+                }
+            } else if !expected.into_iter().eq(actual) {
+                return Err("invalid draw sequence recipient".into());
+            }
         }
         let (completed, first_batch) = self.step_collector()?;
         let last_completed = completed
@@ -1215,10 +1304,17 @@ impl RulesTxn {
         for &index in &task.path {
             match self.node_at(&prefix)?.0 {
                 Node::ForEach { var, over, .. } => {
-                    scope.insert(*var, (matches!(over, Domain::Players { .. }), true));
+                    let kind = match over {
+                        Domain::Players { .. } => kir::RefKind::Player,
+                        Domain::Objects { .. } => kir::RefKind::Object,
+                    };
+                    scope.insert(*var, kind);
                 }
                 Node::Choose { var, .. } => {
-                    scope.insert(*var, (false, false));
+                    scope.insert(*var, kir::RefKind::Pool);
+                }
+                Node::ChooseCreatureType { var, .. } => {
+                    scope.insert(*var, kir::RefKind::CreatureType);
                 }
                 _ => {}
             }
@@ -1227,16 +1323,18 @@ impl RulesTxn {
         if scope.len() != task.bindings.len() {
             return Err("unexpected lexical step bindings".into());
         }
-        for (var, (player, singleton)) in scope {
+        for (var, kind) in scope {
             let valid = match task.bindings.get(&var) {
                 Some(Binding::Player(player_id)) => {
-                    player && self.state.rules.original_seating.contains(player_id)
+                    kind == kir::RefKind::Player
+                        && self.state.rules.original_seating.contains(player_id)
                 }
                 Some(Binding::Objects(objects)) => {
-                    !player
-                        && (!singleton || objects.len() == 1)
+                    (kind == kir::RefKind::Pool
+                        || kind == kir::RefKind::Object && objects.len() == 1)
                         && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
                 }
+                Some(Binding::CreatureType(_)) => kind == kir::RefKind::CreatureType,
                 None => false,
             };
             if !valid {
@@ -1343,6 +1441,7 @@ impl RulesTxn {
                 .any(|p| !rules.original_seating.contains(p))
             || result.objects.iter().any(|object| {
                 !rules.original_seating.contains(&object.controller_before)
+                    || object.destination.is_some() != moved
                     || match (moved, object.successor) {
                         (true, Some(next)) => {
                             next.card != object.prior.card

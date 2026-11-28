@@ -19,6 +19,8 @@ struct Declaration {
     effect: String,
     count: Value,
     options: Vec<OptionBody>,
+    #[serde(rename = "allowRepeat")]
+    allow_repeat: Option<bool>,
 }
 
 fn unsupported_modal(detail: &str) -> Failure {
@@ -70,6 +72,7 @@ struct Printed {
     max: u32,
     labels: Vec<String>,
     options: Vec<Vec<Value>>,
+    repeat: bool,
 }
 
 fn printed(
@@ -94,6 +97,7 @@ fn printed(
         effect,
         count,
         options,
+        allow_repeat,
     } = serde_json::from_value(step.clone()).map_err(|_| unsupported_modal("declaration"))?;
     let len = options.len();
     if effect != "modal" || !(2..=ModalSpell::MAX_MODES).contains(&len) {
@@ -117,11 +121,19 @@ fn printed(
         (Header::Spell, Some(p)) => p.strip_prefix("Choose "),
         (_, p) => p,
     };
+    let repeat = matches!(header, Header::Spell)
+        && phrase == Some("three. You may choose the same mode more than once.");
+    if allow_repeat != repeat.then_some(true) {
+        return Err(unsupported_modal("printed_repeat"));
+    }
     let (expected, min, max) = match phrase {
         Some("one —") => (json!({"exactly": 1}), 1, 1),
         Some("up to one —") => (json!({"min": 0, "max": 1}), 0, 1),
         Some("any number —") => (json!({"atLeast": 0}), 0, len as u32),
         Some("two —") => (json!({"exactly": 2}), 2, 2),
+        Some("three. You may choose the same mode more than once.") if repeat => {
+            (json!({"exactly": 3}), 3, 3)
+        }
         Some("one or both —") if len == 2 => (json!({"min": 1, "max": 2}), 1, 2),
         Some("one or more —") => (json!({"atLeast": 1}), 1, len as u32),
         _ => return Err(unsupported_modal("printed_count")),
@@ -162,6 +174,7 @@ fn printed(
         max,
         labels: labels.into_iter().map(str::to_owned).collect(),
         options: options.into_iter().map(|o| o.effects).collect(),
+        repeat,
     })
 }
 
@@ -173,7 +186,7 @@ fn declaration(
     declared: Printed,
     timing: SpellTiming,
     site: &control::Site<'_>,
-    combine: impl Fn(u8, &Printed) -> Result<SpellProgram, Failure>,
+    combine: impl Fn(&[usize], &Printed) -> Result<SpellProgram, Failure>,
 ) -> Result<ModalSpell, Failure> {
     let mut archive_targets = Vec::new();
     for mode in &modes {
@@ -196,35 +209,29 @@ fn declaration(
     site.resolution
         .target_slots(site.index, site.printed, &archive_targets)?;
     let mut selections = BTreeMap::new();
-    for mask in ModalSpell::masks(modes.len(), declared.min, declared.max) {
-        let chosen = || {
-            modes
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| mask & (1 << index) != 0)
-        };
-        let selection = if chosen()
-            .filter(|(_, mode)| !mode.targets.is_empty())
-            .count()
-            > 1
-        {
-            if chosen().any(|(_, mode)| {
-                mode.optional_target
-                    || mode.target_group().is_some()
-                    || mode.variable_target_count().is_some()
-            }) {
-                return Err(unsupported_modal("mixed_target_groups"));
-            }
-            combine(mask, &declared)?
-        } else {
-            let mut selection = SpellProgram::instructions(timing);
-            for (_, mode) in chosen() {
-                selection.targets.extend_from_slice(&mode.targets);
-                selection.instructions.extend_from_slice(&mode.instructions);
-                selection.optional_target |= mode.optional_target;
-            }
-            selection
-        };
+    for (mask, indexes) in
+        ModalSpell::choices(modes.len(), declared.min, declared.max, declared.repeat)
+    {
+        let chosen = || indexes.iter().map(|&index| &modes[index]);
+        let selection =
+            if declared.repeat || chosen().filter(|mode| !mode.targets.is_empty()).count() > 1 {
+                if chosen().any(|mode| {
+                    mode.optional_target
+                        || mode.target_group().is_some()
+                        || mode.variable_target_count().is_some()
+                }) {
+                    return Err(unsupported_modal("mixed_target_groups"));
+                }
+                combine(&indexes, &declared)?
+            } else {
+                let mut selection = SpellProgram::instructions(timing);
+                for mode in chosen() {
+                    selection.targets.extend_from_slice(&mode.targets);
+                    selection.instructions.extend_from_slice(&mode.instructions);
+                    selection.optional_target |= mode.optional_target;
+                }
+                selection
+            };
         selections.insert(mask, selection);
     }
     Ok(ModalSpell {
@@ -232,6 +239,7 @@ fn declaration(
         min: declared.min,
         max: declared.max,
         labels: declared.labels,
+        repeat: declared.repeat,
         selections,
     })
 }
@@ -276,11 +284,15 @@ pub(super) fn lower(
         append(&mut mode, option)?;
         modes.push(mode);
     }
-    declaration(modes, declared, timing, site, |mask, declared| {
+    declaration(modes, declared, timing, site, |indexes, declared| {
         let mut selection = SpellProgram::instructions(timing);
-        for (index, option) in declared.options.iter().enumerate() {
-            if mask & (1 << index) != 0 {
-                append(&mut selection, option)?;
+        for (ordinal, &index) in indexes.iter().enumerate() {
+            let before = selection.targets.len();
+            append(&mut selection, &declared.options[index])?;
+            if ordinal != 0 && indexes[ordinal - 1] == index {
+                for target in &mut selection.targets[before..] {
+                    target.selection_id.push_str(&format!("#repeat-{ordinal}"));
+                }
             }
         }
         Ok(selection)

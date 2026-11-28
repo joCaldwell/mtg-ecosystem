@@ -399,8 +399,9 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
 - **Cost changes** "costs {N} less/more [for each ...] [if ...]" apply as the
   total locks (CR 601.2f): spells' static changes and an activated ability's own
   `cost_changes`, read from the source like its statics and locked on the
-  activation (CR 602.2b). Counts include counters on the source, the
-  controller's unfiltered hand size and, for "{X} less, where X is", the greatest
+  activation (CR 602.2b). Counts include counters of one named kind on the
+  source (a count of all kinds, in a cost change or static condition, rejects as
+  `all-kinds-counter-count`), the controller's unfiltered hand size and, for "{X} less, where X is", the greatest
   or total power or toughness of public permanents (`Amount::Total`); generic
   mana never goes below zero (CR 118.7d). Maximum-reduction, colored-only and
   other qualifiers reject.

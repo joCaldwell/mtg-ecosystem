@@ -588,11 +588,12 @@ fn graveyard_other(set: &SetExpr) -> bool {
 fn condition_amount(amount: &Amount) -> bool {
     match amount {
         Amount::Fixed { .. } => true,
-        // CR 122.1: counters on the source are public.
+        // CR 122.1: counters of one kind on the source are public. A count of
+        // all kinds is rejected first by `counts_all_counter_kinds`.
         Amount::CountersOn {
             object: Ref::Source,
             counter,
-        } => *counter != CounterKind::Loyalty,
+        } => counter.as_ref().is_some_and(|c| *c != CounterKind::Loyalty),
         Amount::Count { set } => condition_set(set),
         Amount::Devotion { player, colors } => {
             *player == PlayerExpr::static_controller()
@@ -677,7 +678,8 @@ fn cda_amount(amount: &Amount) -> bool {
         Amount::Distinct { set, .. } => {
             matches!(set, SetExpr::Matching { zone, .. } if !zone.hidden()) && cda_set(set)
         }
-        Amount::Var { .. }
+        Amount::CountChosenCreatureType { .. }
+        | Amount::Var { .. }
         | Amount::StatOf { .. }
         | Amount::CountersOn { .. }
         | Amount::Total { .. }
@@ -731,6 +733,27 @@ pub fn activation_cost_change_supported(change: &crate::ActivationCostChange) ->
                 && !m.as_fixed().is_some_and(Quantity::is_negative)
         })
         && change.condition.as_ref().is_none_or(condition_supported)
+}
+
+/// CR 122.1: a cost change's multiplier or a static condition that counts
+/// counters of all kinds on its source is rejected with its own reason until
+/// that count is reviewed; one named kind is read as before.
+pub(crate) fn counts_all_counter_kinds(
+    multiplier: Option<&Amount>,
+    condition: Option<&Cond>,
+) -> bool {
+    fn amount(a: &Amount) -> bool {
+        matches!(a, Amount::CountersOn { counter: None, .. })
+    }
+    fn cond(c: &Cond) -> bool {
+        match c {
+            Cond::Compare { left, right, .. } => amount(left) || amount(right),
+            Cond::Not { condition } => cond(condition),
+            Cond::All { conditions } => conditions.iter().any(cond),
+            _ => false,
+        }
+    }
+    multiplier.is_some_and(amount) || condition.is_some_and(cond)
 }
 
 fn condition_supported(condition: &Cond) -> bool {
@@ -1128,6 +1151,9 @@ impl crate::StaticAbility {
                 changes,
                 condition,
             } => {
+                if counts_all_counter_kinds(None, condition.as_ref()) {
+                    return invalid("all-kinds-counter-count");
+                }
                 let Some(first_layer) = changes.iter().map(Change::layer).min() else {
                     return invalid("empty-continuous");
                 };
@@ -1329,6 +1355,13 @@ impl crate::StaticAbility {
                 }
             }
             StaticEffect::Rule { rule, condition } => {
+                let multiplier = match rule {
+                    StaticRule::SpellCost { multiplier, .. } => multiplier.as_ref(),
+                    _ => None,
+                };
+                if counts_all_counter_kinds(multiplier, condition.as_ref()) {
+                    return invalid("all-kinds-counter-count");
+                }
                 if condition.as_ref().is_some_and(|c| !condition_supported(c)) {
                     return invalid("rule-condition");
                 }

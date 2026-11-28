@@ -190,7 +190,7 @@ fn printed_activation_cost_changes_lower_with_their_counts_and_conditions() {
         diary.activated[0].cost_changes.as_slice(),
         [c] if c.multiplier == Some(Amount::CountersOn {
             object: Ref::Source,
-            counter: CounterKind::Named { name: "page".into() },
+            counter: Some(CounterKind::Named { name: "page".into() }),
         })
     ));
     let esquire = lowered(ESQUIRE_OF_THE_KING);

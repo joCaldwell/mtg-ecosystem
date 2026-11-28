@@ -204,7 +204,9 @@ class Batch:
     Actions: ``head`` selects the pointer (0) or number (1) head; the inactive
     head's mask is all zero. Pointers 0-127 address ``cand`` rows in candidate
     order, 128 ends a slot or ordering, and 129 and 130 finish mana production
-    with undo or keep. Numbers 0-62 are literal and 63 selects the upper
+    with undo or keep. For a creature-type decision spanning several pages,
+    128 advances to the next page and 0-127 address the current page.
+    Numbers 0-62 are literal and 63 selects the upper
     bound: the lesser of the published maximum and, for AnnounceX with a fully
     modeled supply, that supply; the signed 32-bit ceiling when neither
     exists; never below the published minimum. For a distribution, 63 is the
@@ -218,9 +220,12 @@ class Batch:
     Entities (``ent_mask`` marks used rows): objects in published order, stack
     entries in stack order, remembered library positions, one hand-zone row
     per publicly known revealed hand card, then revealed library cards; the
-    last three kinds have no targetable handle. No column carries a stack
-    entry's announced modes; ``ent_num[..., 21]`` sums every counter kind but
-    -1/-1 (``ent_num[..., 20]``), lore included.
+    last three kinds have no targetable handle. ``ent_num[..., 21]`` sums
+    every counter kind but -1/-1 (``ent_num[..., 20]``), lore included.
+    Stack entity numeric column 22 and mode candidate column 3 pack the
+    printed choices into three-bit digits, first choice least significant.
+    Zero pads the list, one denotes the first printed mode, and repeated
+    choices occupy separate digits.
 
     Episodes: when ``done[i] == 1``, row ``i`` already holds the next
     episode's opening decision with the finished episode's ``reward`` and

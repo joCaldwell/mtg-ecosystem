@@ -367,9 +367,14 @@ impl<O> VisibleEntityTarget<O> {
 #[schemars(rename = "VisibleStackEntry")]
 #[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>"))]
 pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle> {
-    /// Bit zero is the first printed mode. Absent until modes are announced.
+    /// Union of chosen modes. Bit zero is the first printed mode.
+    /// Absent until modes are announced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_mask: Option<u8>,
+    /// Zero-based indices in printed order, including each repeated choice.
+    /// Absent until modes are announced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_modes: Option<Vec<u8>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -408,6 +413,7 @@ impl<H, O> VisibleStackEntry<H, O> {
     ) -> VisibleStackEntry<T, P> {
         VisibleStackEntry {
             mode_mask: self.mode_mask,
+            chosen_modes: self.chosen_modes,
             selected_additional_costs: self.selected_additional_costs,
             x: self.x,
             hybrid_colors: self.hybrid_colors,

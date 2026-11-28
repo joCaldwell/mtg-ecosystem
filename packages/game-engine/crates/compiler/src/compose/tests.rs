@@ -325,13 +325,13 @@ fn source_action_leaves_draw_with_controller_filter_to_legacy() {
         }] }]
     });
     let parse = |ability| serde_json::from_value::<[ast::Ability; 1]>(json!([ability])).unwrap();
-    assert!(source_action::SourceAction::select(&parse(ability.clone())).is_some());
+    assert!(source_action::draw(&parse(ability.clone())).is_some());
 
     ability["effects"][0]["steps"][0]["forEach"] = json!({
         "types": ["creature"],
         "controllerMatches": { "choseOption": { "option": "war" } }
     });
-    assert!(source_action::SourceAction::select(&parse(ability)).is_none());
+    assert!(source_action::draw(&parse(ability)).is_none());
 }
 
 #[test]
@@ -379,6 +379,396 @@ fn source_action_uses_frozen_text_on_both_cuts_without_the_resolution_gate() {
         assert_eq!(failure.path, "printed/faces/0/blocks/0");
         assert!(failure.reason.starts_with("evidence:requires-r6:"));
     }
+}
+const NECTAR_R5: &str = include_str!("../../../../tests/fixtures/phase1-r5/sacred-nectar.json");
+const NECTAR_R6: &str =
+    include_str!("../../../../tests/fixtures/phase1-r6/30870ee5-6ad7-48a9-983e-d3b018f2344f.json");
+const HYMN_R5: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/992d9a72-d34d-47d7-96fb-37f0efb515ef.json");
+const HYMN_R6: &str =
+    include_str!("../../../../tests/fixtures/phase1-r6/992d9a72-d34d-47d7-96fb-37f0efb515ef.json");
+
+/// Rewrite a one-line spell's printed sentence and its AST step together.
+fn respelled(raw: &str, text: &str, step: serde_json::Value) -> String {
+    changed(raw, |row| {
+        row["source"]["oracle_text"] = json!(text);
+        row["faces"][0]["result"]["lines"][0]["text"] = json!(text);
+        row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0] = step;
+    })
+}
+
+fn only_verb(definition: &Definition) -> &Verb {
+    let [instruction] = definition.spell.as_ref().unwrap().instructions.as_slice() else {
+        panic!("one instruction");
+    };
+    instruction.verb().unwrap()
+}
+
+#[test]
+fn source_authority_decides_life_and_discard_alike_on_both_cuts() {
+    let r5 = accepted_manifest(R5).unwrap();
+    let r6 = accepted_manifest(R6).unwrap();
+    for (old, new) in [(NECTAR_R5, NECTAR_R6), (HYMN_R5, HYMN_R6)] {
+        let before = lower(r5, old).unwrap();
+        let after = lower(r6, new).unwrap();
+        assert_eq!(before.spell, after.spell);
+        assert!(before.provenance.printed_sha256.is_none());
+        let row: serde_json::Value = serde_json::from_str(new).unwrap();
+        assert_eq!(
+            after.provenance.printed_sha256.as_deref(),
+            row["printedSha256"].as_str()
+        );
+        // The binder's projection is never read.
+        let no_resolution = changed(old, |row| {
+            let row = row.as_object_mut().unwrap();
+            row.remove("resolution").unwrap();
+            row.remove("resolutionSha256").unwrap();
+        });
+        assert_eq!(lower(r5, &no_resolution).unwrap().spell, before.spell);
+    }
+    assert!(matches!(
+        only_verb(&lower(r5, NECTAR_R5).unwrap()),
+        Verb::GainLife { player, amount } if player.is_you() && *amount == Amount::fixed(4)
+    ));
+    assert!(matches!(
+        only_verb(&lower(r5, HYMN_R5).unwrap()),
+        Verb::Discard { player: PlayerExpr::Is { who: kir::Ref::Target { slot: 0 } }, amount: Some(amount), random: true }
+            if *amount == Amount::fixed(2)
+    ));
+}
+
+#[test]
+fn source_authority_reads_each_opponent_for_every_registered_family() {
+    let r5 = accepted_manifest(R5).unwrap();
+    let each = json!({ "player": "each-opponent" });
+    let four = json!({ "amount": "fixed", "value": 4 });
+    for (text, step) in [
+        (
+            "Each opponent loses 4 life.",
+            json!({ "effect": "lose-life", "who": each, "amount": four }),
+        ),
+        (
+            "Each opponent gains 4 life.",
+            json!({ "effect": "gain-life", "who": each, "amount": four }),
+        ),
+        (
+            "Each opponent draws four cards.",
+            json!({ "effect": "draw", "who": each, "amount": four }),
+        ),
+        (
+            "Each opponent mills four cards.",
+            json!({ "effect": "mill", "who": each, "amount": four }),
+        ),
+        (
+            "Each opponent discards four cards.",
+            json!({ "effect": "discard", "who": each,
+            "what": { "ref": "filter", "filter": { "cls": "card" }, "count": four } }),
+        ),
+    ] {
+        let definition = lower(r5, &respelled(NECTAR_R5, text, step)).unwrap();
+        let player = match only_verb(&definition) {
+            Verb::LoseLife { player, .. }
+            | Verb::GainLife { player, .. }
+            | Verb::Draw { player, .. }
+            | Verb::Mill { player, .. }
+            | Verb::Discard { player, .. } => player,
+            verb => panic!("{text}: {verb:?}"),
+        };
+        assert_eq!(*player, PlayerExpr::EachOpponent, "{text}");
+    }
+}
+
+#[test]
+fn source_authority_requires_r6_when_the_r5_sentence_disagrees() {
+    let r5 = accepted_manifest(R5).unwrap();
+    let lose = json!({ "effect": "lose-life", "who": { "player": "each-opponent" },
+        "amount": { "amount": "fixed", "value": 4 } });
+    // The AST and its printed sentence name different recipients.
+    for text in [
+        "Each player loses 4 life.",
+        "Each opponent loses 3 life.",
+        "Each opponent gains 4 life.",
+    ] {
+        let failure = lower(r5, &respelled(NECTAR_R5, text, lose.clone())).unwrap_err();
+        assert_eq!(failure.path, "printed/faces/0/blocks/0", "{text}");
+        assert!(
+            failure.reason.starts_with("evidence:requires-r6:"),
+            "{text}"
+        );
+    }
+    // The random rider is printed but absent from the AST.
+    let step = |random: Option<bool>| {
+        let mut step = json!({ "effect": "discard",
+            "who": { "player": "target-player", "selectionId": "line:0:0" },
+            "what": { "ref": "filter", "filter": { "cls": "card" }, "count": { "amount": "fixed", "value": 2 } } });
+        if let Some(random) = random {
+            step["random"] = json!(random);
+        }
+        step
+    };
+    let text = "Target player discards two cards at random.";
+    let failure = lower(r5, &respelled(HYMN_R5, text, step(None))).unwrap_err();
+    assert!(failure.reason.starts_with("evidence:requires-r6:"));
+    let chosen = lower(
+        r5,
+        &respelled(HYMN_R5, "Target player discards two cards.", step(None)),
+    )
+    .unwrap();
+    assert!(matches!(
+        only_verb(&chosen),
+        Verb::Discard { random: false, .. }
+    ));
+    // An explicit non-random flag is not a registered shape.
+    let failure = lower(
+        r5,
+        &respelled(
+            HYMN_R5,
+            "Target player discards two cards.",
+            step(Some(false)),
+        ),
+    )
+    .unwrap_err();
+    assert!(
+        !failure.reason.starts_with("evidence:"),
+        "{}",
+        failure.reason
+    );
+}
+const SYPHON_R5: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/abc37d6c-6300-47b5-a679-9db5b83eb54f.json");
+const SYPHON_R6: &str =
+    include_str!("../../../../tests/fixtures/phase1-r6/abc37d6c-6300-47b5-a679-9db5b83eb54f.json");
+const VERDICT_R5: &str =
+    include_str!("../../../../tests/fixtures/phase1-r5/670b5dfb-ffdf-43ed-acc3-855006e352fc.json");
+const VERDICT_R6: &str =
+    include_str!("../../../../tests/fixtures/phase1-r6/670b5dfb-ffdf-43ed-acc3-855006e352fc.json");
+
+/// The two verbs of a linked count's one kernel sequence.
+fn linked_verbs(definition: &Definition) -> [&Verb; 2] {
+    let [instruction] = definition.spell.as_ref().unwrap().instructions.as_slice() else {
+        panic!("one instruction");
+    };
+    let Instruction::Kernel {
+        node: kir::Node::Seq(nodes),
+        source_block: 0,
+    } = instruction
+    else {
+        panic!("one kernel sequence: {instruction:?}");
+    };
+    let [kir::Node::Do(first), kir::Node::Do(second)] = nodes.as_slice() else {
+        panic!("two actions: {nodes:?}");
+    };
+    [first, second]
+}
+
+/// The abilities of a linked count spelled with `second` as its second step.
+fn linked_abilities(first: serde_json::Value, second: serde_json::Value) -> Vec<ast::Ability> {
+    serde_json::from_value(json!([{
+        "kind": "spell",
+        "effects": [{ "steps": [first] }, { "steps": [second] }]
+    }]))
+    .unwrap()
+}
+
+#[test]
+fn source_authority_counts_the_cards_discarded_this_way_on_both_cuts() {
+    let r5 = accepted_manifest(R5).unwrap();
+    let r6 = accepted_manifest(R6).unwrap();
+    for (old, new) in [(SYPHON_R5, SYPHON_R6), (VERDICT_R5, VERDICT_R6)] {
+        let before = lower(r5, old).unwrap();
+        let after = lower(r6, new).unwrap();
+        assert_eq!(before.spell, after.spell);
+        assert!(before.provenance.printed_sha256.is_none());
+        let row: serde_json::Value = serde_json::from_str(new).unwrap();
+        assert_eq!(
+            after.provenance.printed_sha256.as_deref(),
+            row["printedSha256"].as_str()
+        );
+        // The binder's projection is never read.
+        let no_resolution = changed(old, |row| {
+            let row = row.as_object_mut().unwrap();
+            row.remove("resolution").unwrap();
+            row.remove("resolutionSha256").unwrap();
+        });
+        assert_eq!(lower(r5, &no_resolution).unwrap().spell, before.spell);
+    }
+    let result = |filter: Vec<kir::Atom>| Amount::Count {
+        set: SetExpr::Result {
+            step: 0,
+            filter: kir::Pred(filter),
+            destination: None,
+        },
+    };
+    // CR 806.1, 903.2, 608.2c: each other player discards; you draw one card
+    // for each card they actually discarded.
+    let syphon = lower(r5, SYPHON_R5).unwrap();
+    assert!(syphon.spell.as_ref().unwrap().targets.is_empty());
+    let [discard, draw] = linked_verbs(&syphon);
+    assert!(matches!(discard,
+        Verb::Discard { player: PlayerExpr::EachOpponent, amount: Some(amount), random: false }
+            if *amount == Amount::fixed(1)));
+    assert!(
+        matches!(draw, Verb::Draw { player, amount } if player.is_you() && *amount == result(vec![]))
+    );
+    // Three life for each land card among the target player's two discards.
+    let verdict = lower(r5, VERDICT_R5).unwrap();
+    let [discard, gain] = linked_verbs(&verdict);
+    assert!(matches!(discard,
+        Verb::Discard { player: PlayerExpr::Is { who: kir::Ref::Target { slot: 0 } }, amount: Some(amount), random: false }
+            if *amount == Amount::fixed(2)));
+    let land = vec![kir::Atom::Type {
+        kind: CardKind::Land,
+    }];
+    assert!(
+        matches!(gain, Verb::GainLife { player, amount } if player.is_you()
+        && *amount == Amount::Times { factor: Quantity::from(3), of: Box::new(result(land)) })
+    );
+}
+
+#[test]
+fn linked_count_leaves_other_results_and_recipients_to_the_existing_authority() {
+    let other = json!({ "player": "filtered", "base": { "player": "each-player" },
+        "filter": { "other": true } });
+    let discard = |who: &serde_json::Value| {
+        json!({ "effect": "discard", "who": who,
+        "what": { "ref": "filter", "filter": { "cls": "card" }, "count": { "amount": "fixed", "value": 1 } } })
+    };
+    let each = |filter: serde_json::Value| {
+        json!({ "effect": "draw", "who": { "player": "you" },
+        "amount": { "amount": "fixed", "value": 1 }, "forEach": filter })
+    };
+    let this_way =
+        |event: &str| json!({ "relation": "event-result", "event": event, "scope": "this-way" });
+    let card = json!({ "cls": "card", "relation": this_way("discard") });
+    assert!(
+        source_action::linked_count(&linked_abilities(discard(&other), each(card.clone())))
+            .is_some()
+    );
+    // Only the registered families claim the shape: no single-step family
+    // claims two sentences, and no other filter or producer is linked.
+    for (first, second) in [
+        // Another event, scope or card qualifier.
+        (
+            discard(&other),
+            each(json!({ "cls": "card", "relation": this_way("mill") })),
+        ),
+        (
+            discard(&other),
+            each(json!({ "cls": "card", "relation":
+                { "relation": "event-result", "event": "discard", "scope": "contextual" } })),
+        ),
+        (
+            discard(&other),
+            each(
+                json!({ "types": ["creature"], "colors": ["black"], "cls": "card", "relation": this_way("discard") }),
+            ),
+        ),
+        (
+            discard(&other),
+            each(json!({ "types": ["Elf"], "cls": "card", "relation": this_way("discard") })),
+        ),
+        // A count of X per card, or none.
+        (
+            discard(&other),
+            json!({ "effect": "draw", "who": { "player": "you" },
+                "amount": { "amount": "x" }, "forEach": card }),
+        ),
+        // A producer that is not a discard, and an unlinked second step.
+        (
+            json!({ "effect": "mill", "who": { "player": "you" }, "amount": { "amount": "fixed", "value": 2 } }),
+            each(json!({ "cls": "card", "relation": this_way("mill") })),
+        ),
+        (
+            discard(&other),
+            json!({ "effect": "draw", "who": { "player": "you" }, "amount": { "amount": "fixed", "value": 1 } }),
+        ),
+        // A counted step for anyone but you.
+        (
+            discard(&other),
+            json!({ "effect": "draw", "who": { "player": "each-player" },
+                "amount": { "amount": "fixed", "value": 1 }, "forEach": card }),
+        ),
+        (
+            discard(&other),
+            json!({ "effect": "draw", "who": { "player": "each-opponent" },
+                "amount": { "amount": "fixed", "value": 1 }, "forEach": card }),
+        ),
+        // Another player filter, or a random player.
+        (
+            discard(
+                &json!({ "player": "filtered", "base": { "player": "each-player" },
+                "filter": { "other": true, "handSize": { "op": "ge", "value": { "amount": "fixed", "value": 1 } } } }),
+            ),
+            each(card.clone()),
+        ),
+        (
+            discard(
+                &json!({ "player": "filtered", "base": { "player": "each-opponent" },
+                "filter": { "other": true } }),
+            ),
+            each(card.clone()),
+        ),
+    ] {
+        let abilities = linked_abilities(first.clone(), second.clone());
+        assert!(
+            source_action::linked_count(&abilities).is_none(),
+            "{first} / {second}"
+        );
+        for single in [
+            source_action::draw,
+            source_action::mill,
+            source_action::discard,
+            source_action::gain_life,
+            source_action::lose_life,
+        ] {
+            assert!(single(&abilities).is_none());
+        }
+    }
+    // A third sentence is not part of the shape.
+    let three: Vec<ast::Ability> = serde_json::from_value(json!([{
+        "kind": "spell",
+        "effects": [{ "steps": [discard(&other)] }, { "steps": [each(card.clone())] },
+            { "steps": [each(card)] }]
+    }]))
+    .unwrap();
+    assert!(source_action::linked_count(&three).is_none());
+}
+
+#[test]
+fn linked_count_requires_r6_when_the_r5_text_disagrees() {
+    let r5 = accepted_manifest(R5).unwrap();
+    for text in [
+        // A different factor, card type or result.
+        "Each other player discards a card. You draw two cards for each card discarded this way.",
+        "Each other player discards a card. You draw a card for each land card discarded this way.",
+        "Each other player discards a card. You draw a card for each card milled this way.",
+        // A different recipient, or one sentence.
+        "Each opponent discards a card. You draw a card for each card discarded this way.",
+        "Each other player discards a card and you draw a card for each card discarded this way.",
+    ] {
+        let raw = changed(SYPHON_R5, |row| {
+            row["source"]["oracle_text"] = json!(text);
+            row["faces"][0]["result"]["lines"][0]["text"] = json!(text);
+        });
+        let failure = lower(r5, &raw).unwrap_err();
+        assert_eq!(failure.path, "printed/faces/0/blocks/0", "{text}");
+        assert!(
+            failure.reason.starts_with("evidence:requires-r6:"),
+            "{text}: {}",
+            failure.reason
+        );
+    }
+    // The AST names a creature card where the text names a land card.
+    let raw = changed(VERDICT_R5, |row| {
+        row["faces"][0]["result"]["abilities"][0]["effects"][1]["steps"][0]["forEach"]["types"] =
+            json!(["creature"]);
+    });
+    let failure = lower(r5, &raw).unwrap_err();
+    assert!(
+        failure.reason.starts_with("evidence:requires-r6:"),
+        "{}",
+        failure.reason
+    );
 }
 const STRIP: &str = include_str!("../../../../tests/fixtures/phase1-r5/compose-strip-mine.json");
 const SEAL: &str =

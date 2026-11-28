@@ -133,7 +133,11 @@ and folds, aliases, implicit nodes with closed reasons, or hulls; an unlocated
 object, an unusable alias or a root-assigned fact for uncovered tokens yields a
 located `evidence:missing`. P11 requires the resolver to discharge each field
 of the block AST with a verified exact link, a production-specific check of the
-printed phrase and value, or a closed default at its governing node. P12
+printed phrase and value, or a closed default at its governing node. Only a
+family that checks the whole recorded parent phrase may discharge an unlocated
+object the parser synthesized inside it (the `each-player` base of "each other
+player"); words that introduce a composite child ("for each") are claimed at
+its recorded parent. P12
 requires a checked meaning or structural role for every printed fact and token;
 structural roles are verified [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
 at a production boundary (sentence periods, trigger and for-each clause commas,
@@ -142,16 +146,18 @@ and the power/toughness slash need a checked field meaning with a bound fact.
 An undischarged field or unconsumed occurrence, such as an omitted qualifier,
 rejects the card with an original byte range.
 
-The first source-authority slice covers a single-face instant or sorcery with
-one unqualified draw or mill sentence. The controller, each player, or one
-announced player or opponent receives a fixed count or the spell's announced
-X. Rust selects that authority from the typed block before reading the legacy
-resolution. The whole R5 Oracle sentence can prove these occurrences. R6
-requires verified coverage of the verb, recipient, quantity, card noun and
-sentence boundary, and records the consumed `printed_sha256` in definition
-provenance. Compound blocks and linked operands still use their existing
-authority. The occurrence differential checks both the frozen binder graph
-and its projection using the trace emitted by the selected Rust path.
+Whole-card source authorities register in order in
+[`compose/source_authority.rs`](../packages/game-engine/crates/compiler/src/compose/source_authority.rs);
+composition asks the registry before reading any legacy resolution, and two
+families claiming one card is a registration fault. Each family's module
+rustdoc owns its supported and rejected shapes (currently
+[player actions](../packages/game-engine/crates/compiler/src/compose/source_action.rs)).
+R6 derives every covered run from the recorded node and fact citations and
+records the consumed `printed_sha256` in definition provenance; the exact R5
+sentence remains only as the R5 proof. The trace lists each selection by
+family, block-relative path and kind, and the occurrence differential
+(`scripts/rework-reference-diff.py`) joins it to every frozen binder reference
+and projection in the claimed block.
 
 Run the frozen witness and mutation harness against the pinned candidate with
 `MTG_R6_VERIFIER_ROWS` set to its path. Verifier-only mutations rehash their
@@ -236,11 +242,12 @@ sacrifice-for-return.
   `Not` and `All`; `Satisfies` can test the printed creature type of a
   bound graveyard card after exile (CR 608.2b, 608.2h). `ForEach` binds a
   player or a singleton object.
-- `Optional`, `UnlessPays` and `IfPays` take a singleton player expression; both
-  payment nodes support life and generic mana. With no live chooser the optional
-  effect is skipped; with no live payer only `UnlessPays` performs its node
-  (CR 118.12). Ward's `UnlessPays` counters `Ref::EventStackObject`, the stack
-  object its targeting event names, and asks that object's controller (CR 702.21a).
+- `UnlessPays` and `IfPays` take a singleton player expression and support
+  life and generic mana. With no live payer only `UnlessPays` performs its
+  node (CR 118.12). Ward's `UnlessPays` counters `Ref::EventStackObject`, the
+  stack object its targeting event names, and asks that object's controller
+  (CR 702.21a). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
+  for optional effects, creature-type choices and APNAP draws.
 - `Choose` binds a pool from a matching public set when both bounds force zero
   or the set's size. `ChooseObject` offers one mandatory public object choice
   from a current controller-relative battlefield set; the saved frame derives
@@ -304,7 +311,10 @@ acting on a new incarnation (CR 400.7, 608.2h).
 Battlefield sets and permanent targets share counter-balance predicates over a
 specified counter kind or the total of all kinds on the current incarnation
 (CR 122.1); announced targets recheck them at resolution (CR 601.2c, 608.2b),
-and Observation 114 includes them in public target specifications. Battlefield
+and Observation includes them in public target specifications. Sets and
+targets also share color predicates over current colors (CR 105.2, 613.1e).
+Counter amounts can read an announced permanent's current or last-known balance
+(CR 608.2h). Battlefield
 movement and destruction sets can compare mana value against announced X (CR
 107.3, 202.3). A quantity may read the greatest current stat in a battlefield
 set or count a resolved player's public graveyard cards or hand size (CR 402.3,
@@ -320,38 +330,19 @@ action for the original one. A cast spell's mana value is its stack value with
 the announced X the cast witness recorded, which stays its last known value
 after the spell leaves (CR 202.3e).
 
-**Pronoun antecedents** (`rules/verbs/antecedent.rs`, CR 608.2c). An
-operand's `it` or `that <noun>` names one object the block already introduced.
-Inside a step performed by an object, `its` means that performer ("this creature
-deals damage equal to its power"). Otherwise the antecedent is the one announced
-target whose domain the noun admits: a battlefield permanent of the noun's type,
-a card outside the battlefield for `that card`, or a stack spell for `that spell`.
-An earlier step's "this creature" (or the card's name) is a candidate for a bare
-`it` (CR 201.5, 700.7) that ties with a target and outranks the event object.
-Failing those, it is the trigger's event object when its pattern's types admit
-the noun and it is not the source; a source the trigger condition names besides
-that object ("a spell that targets this creature", "this creature becomes
-blocked by a creature") ties with it. `That <noun>` never means the source. `It`
-in a trigger on the source itself means that event object. Two admissible
-targets, a tie, a player-or-object target, or an untargeted object an earlier
-printed step named (chosen, created, revealed or set) reject as
-`operand:object:ambiguous_antecedent`; no candidate rejects as
-`unbound_antecedent`. A step acting on the pronoun as a permanent never binds a
-cast spell (CR 110.1), and rejects when it names a card or spell target or any
-object an earlier instruction moved, destroyed, sacrificed or countered
-(CR 400.7). In a selection of several chosen modes, each mode sees only its own
-targets and instructions (CR 700.2). The frozen R5 resolution is not consulted;
-`scripts/rework-reference-diff.py` compares against it at sweep time.
+The Rust [pronoun resolver](../packages/game-engine/crates/compiler/src/rules/verbs/antecedent.rs)
+owns player and object candidates, their scope and their located rejections.
+`scripts/rework-reference-diff.py` compares bound object references against
+the frozen archive at sweep time.
 
-**Actual card results.** An unqualified “discarded”, “milled”, “exiled” or
-“returned this way” in a count or condition names the unique earlier direct
-producer of that event (a move to exile, or to a hand or the battlefield) in
-the same resolving block and chosen mode (CR 608.2c,h, 700.2), and reads its
-actual object set and count. Card predicates read the exact public successor or
-its known characteristics when it has left (CR 400.7, 701.9c, 701.17c). An
-object moved from a public zone into a hand or library keeps its last-known
-public characteristics (CR 608.2h); a card hidden in both origin and destination
-supplies none. A missing or competing producer rejects at the linked operand.
+[Modal announcement and repeated occurrences](../packages/game-engine/crates/core/src/engine/modal.rs)
+own the selection and public projection contract.
+
+The [card result resolver](../packages/game-engine/crates/compiler/src/rules/verbs/card_result.rs)
+owns printed links to actual card results. Card predicates read the exact public
+successor or its last known characteristics (CR 400.7, 608.2h, 701.9c, 701.17c).
+A destination test uses the recorded move. A card hidden in both origin and
+destination supplies no characteristics.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write.
@@ -394,8 +385,10 @@ number, objects and players through the ordinary step collector.
 evaluator-admitted node is `Cell::Evaluated(verb)` at `Executes`.
 
 **Zone changes** read their members once as the step is performed: the
-source's or an announced object's same incarnation in its zone, or the
-matching set (CR 400.7, 608.2b,h). Each goes to its owner's hand, library or
+source's or an announced object's same incarnation in its zone, or a matching
+battlefield or public graveyard set (CR 400.7, 404.1, 608.2b,h). The
+[move checker](../packages/game-engine/crates/contracts/src/kir/check/move_zone.rs)
+owns the admitted domains and destinations. Each goes to its owner's hand, library or
 exile (CR 400.3), or enters under the mover's control (CR 110.2a). A commander
 bound for a hand or library waits for its owner's command-zone choice in APNAP
 order (CR 903.9b); a card entering asks the shared card-entry questions (Aura

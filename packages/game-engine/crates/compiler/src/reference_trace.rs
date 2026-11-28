@@ -35,25 +35,63 @@ pub enum Resolved {
     },
 }
 
+/// One whole-card source-authority decision: the registered family and every
+/// selection it made, each at its block-relative AST path.
 #[derive(Serialize)]
 pub(crate) struct SourceChoice {
+    pub family: &'static str,
     pub face: usize,
     pub block: usize,
-    pub step: &'static str,
-    pub player: SourcePlayer,
-    pub announced_x: bool,
+    pub selections: Vec<SourceSelection>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SourceSelection {
+    pub path: String,
+    #[serde(flatten)]
+    pub selection: Selection,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-pub(crate) enum SourcePlayer {
+pub(crate) enum Selection {
+    /// CR 109.5.
     SpellController,
+    /// CR 608.2h: evaluated in APNAP order at resolution.
     EachPlayer,
+    /// CR 102.2, 806.1, 903.2: each opponent of the controller, evaluated
+    /// in APNAP order at resolution; in two-player and Free-for-All
+    /// Commander, every other player.
+    EachOpponent,
+    /// CR 102.2, 806.1, 903.2: each player but the controller, which the binder
+    /// leaves unresolved; its `each-player` base is traced on its own.
+    EachOtherPlayer,
+    /// CR 601.2c.
     Target {
         slot: u32,
         selection_id: String,
         domain: TargetDomain,
     },
+    /// CR 107.3a, 601.2b.
+    AnnouncedX,
+    /// CR 608.2h, 701.9b: the recipient, or a random process, chooses the
+    /// cards at resolution.
+    ResolutionCards {
+        cardinality: Cardinality,
+        random: bool,
+    },
+    /// CR 608.2c: "this way" reads the actual result of the step at `step`,
+    /// a block-relative AST pointer.
+    LinkedResult { step: String },
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Cardinality {
+    One,
+    Many,
+    /// The announced X may be zero or one.
+    Unknown,
 }
 
 #[derive(Default)]
