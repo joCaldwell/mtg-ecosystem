@@ -81,6 +81,29 @@ impl Walk<'_, '_> {
         {
             return kind("search maximum exceeds the card bound");
         }
+        if let Some(group) = &search.group {
+            if !matches!(
+                search.to,
+                Destination::Battlefield { .. }
+                    | Destination::OwnerHand
+                    | Destination::OwnerGraveyard
+            ) {
+                return unaudited("grouped search destination");
+            }
+            match group {
+                SearchGroup::DifferentNames if !search.filter.0.is_empty() => {}
+                SearchGroup::Separate { slots }
+                    if (2..=8).contains(&slots.len())
+                        && search.filter.0.is_empty()
+                        && search.maximum.as_fixed()
+                            == Some(&Quantity::from(slots.len() as i64))
+                        && slots.iter().all(|slot| !slot.0.is_empty()) =>
+                {
+                    slots.iter().try_for_each(Self::library_card_filter)?;
+                }
+                _ => return unaudited("grouped search selection"),
+            }
+        }
         match &search.to {
             // CR 110.2: the searching player puts the card onto the
             // battlefield, under their own control.
@@ -131,7 +154,7 @@ impl Walk<'_, '_> {
     /// into its owner's hand. Nothing is revealed, and only a "may" or "up
     /// to" choice may choose fewer than it can.
     fn audit_selection(&self, player: &PlayerExpr, search: &SearchSpec) -> Result<Cell, KirError> {
-        if self.library_player(player)? || search.reveal {
+        if self.library_player(player)? || search.reveal || search.group.is_some() {
             return unaudited("resolution card choice player");
         }
         // CR 608.2d: a random selection takes as many as it can from a

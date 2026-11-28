@@ -15,7 +15,8 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 use crate::engine::battlefield_entry::EntryChoice;
-use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchSpec, SelectionZone};
+use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchGroup, SearchSpec, SelectionZone};
+mod search_group;
 
 /// The bounds of a search: the cards that may be found, in object order, and
 /// how many must and may be found (CR 701.23b, d).
@@ -126,8 +127,14 @@ impl RulesTxn {
         let library = candidates.len();
         candidates.retain(|id| {
             self.current(*id).is_ok_and(|object| {
-                crate::query::matches_pred(&self.object_facts(object), player, &search.filter)
-                    .is_yes()
+                let facts = self.object_facts(object);
+                crate::query::matches_pred(&facts, player, &search.filter).is_yes()
+                    && match &search.group {
+                        Some(SearchGroup::Separate { slots }) => slots
+                            .iter()
+                            .any(|slot| crate::query::matches_pred(&facts, player, slot).is_yes()),
+                        Some(SearchGroup::DifferentNames) | None => true,
+                    }
             })
         });
         // The order of a library is hidden even from the searcher.
@@ -141,7 +148,7 @@ impl RulesTxn {
         // find. A hand or graveyard choice takes as many as it can unless
         // it is optional (CR 608.2d).
         let minimum = match search.from {
-            SelectionZone::Library if !search.filter.0.is_empty() => 0,
+            SelectionZone::Library if search.group.is_some() || !search.filter.0.is_empty() => 0,
             SelectionZone::Hand | SelectionZone::Graveyard if search.optional => 0,
             _ => maximum.min(candidates.len()),
         };
@@ -228,6 +235,7 @@ impl RulesTxn {
                     choice: ResolutionChoice::Search {
                         player: actor,
                         source_block,
+                        found: vec![],
                     },
                 };
                 Ok(())
@@ -1185,10 +1193,9 @@ impl RulesTxn {
         let bounds = self.search_bounds(player, search)?;
         let commanders = self.found_commanders(frame, found)?;
         let asked: Vec<_> = choices.iter().map(|(o, _)| *o).collect();
-        Ok(Self::subset(&bounds.candidates, found)
+        Ok(self.valid_search_answer(player, search, &bounds, found)?
             && (search.to == Destination::OneTappedRestOwnerHand
                 || found.windows(2).all(|w| w[0] < w[1]))
-            && (bounds.minimum..=bounds.maximum).contains(&found.len())
             && remaining.first() == Some(&object)
             && asked.iter().chain(remaining).copied().collect::<Vec<_>>() == commanders)
     }
@@ -1207,13 +1214,16 @@ impl RulesTxn {
                 .collect()
         };
         Ok(match choice {
-            ResolutionChoice::Search { player, .. } if self.is_live(*player) => {
+            ResolutionChoice::Search { player, found, .. } if self.is_live(*player) => {
                 let (Verb::Search { search, .. }, _) = self.library_verb(frame)? else {
                     return Err("search choice lost its instruction".into());
                 };
                 // CR 701.23a: the searcher sees the whole library; only the
                 // matching cards are offered, possibly none at all.
-                let bounds = self.search_bounds(*player, &search)?;
+                let mut bounds = self.search_bounds(*player, &search)?;
+                if let Some(group) = &search.group {
+                    self.grouped_search_offer(*player, group, found, &mut bounds)?;
+                }
                 Some(self.pick(
                     *player,
                     if search.from == SelectionZone::Library {
@@ -1420,8 +1430,19 @@ impl RulesTxn {
                 },
                 source_block,
             ),
-            ResolutionChoice::Search { source_block, .. } => {
-                self.complete_search(frame, player, chosen, source_block)
+            ResolutionChoice::Search {
+                source_block,
+                found,
+                ..
+            } => {
+                let (Verb::Search { search, .. }, _) = self.library_verb(&frame)? else {
+                    return Err("search answer lost its instruction".into());
+                };
+                if search.group.is_some() {
+                    self.answer_grouped_search(frame, player, found, chosen, &search, source_block)
+                } else {
+                    self.complete_search(frame, player, chosen, source_block)
+                }
             }
             ResolutionChoice::SearchSplit {
                 mut found,
@@ -1833,6 +1854,7 @@ impl RulesTxn {
             ResolutionChoice::Search {
                 player,
                 source_block,
+                ..
             }
             | ResolutionChoice::SearchSplit {
                 player,
@@ -1989,8 +2011,16 @@ impl RulesTxn {
             return Ok(true);
         }
         Ok(match (choice, &verb) {
-            (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => {
-                self.search_bounds(player, search)?.needs_choice()
+            (ResolutionChoice::Search { found, .. }, Verb::Search { search, .. }) => {
+                let bounds = self.search_bounds(player, search)?;
+                bounds.needs_choice()
+                    && if search.group.is_some() {
+                        found.is_empty()
+                            || (found.len() < bounds.maximum
+                                && self.valid_search_answer(player, search, &bounds, found)?)
+                    } else {
+                        found.is_empty()
+                    }
             }
             (ResolutionChoice::SearchSplit { found, .. }, Verb::Search { search, .. }) => {
                 Self::subset(&self.search_bounds(player, search)?.candidates, found)
@@ -2006,8 +2036,7 @@ impl RulesTxn {
                 Verb::Search { search, .. },
             ) => {
                 let bounds = self.search_bounds(player, search)?;
-                Self::subset(&bounds.candidates, found)
-                    && (bounds.minimum..=bounds.maximum).contains(&found.len())
+                self.valid_search_answer(player, search, &bounds, found)?
                     && self
                         .card_entry_question(frame, player, found, hosts, paid, revealed)
                         .is_ok_and(|next| next.is_some())

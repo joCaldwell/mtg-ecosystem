@@ -27,6 +27,7 @@ pub(super) mod resolution_triggers;
 mod sagas;
 mod source_action;
 mod source_authority;
+mod source_search;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -937,9 +938,42 @@ fn compose(
     if let Some(claim) = source_authority::select(archive, &card)? {
         return source_authority::compose(archive, &mut card, claim, evidence);
     }
+    let mut searches = source_search::discover(archive, &card, evidence)?;
+    // A sole claimed spell has no untouched block that requires the binder.
+    if searches
+        .get(&0)
+        .is_some_and(source_search::CheckedSearch::spell)
+        && card.faces[0].1.lines.len() == 1
+    {
+        let search = searches.remove(&0).unwrap();
+        let (source, result) = card.faces.pop().unwrap();
+        let types = type_line::parse(&source.type_line, false)?;
+        let (mut definition, mut labels) =
+            assemble::shell(archive, &card, 0, source, &result, types)?;
+        search.lower(
+            &Card {
+                kind: definition.characteristics.kind,
+                additional_types: &[],
+                subtypes: &[],
+            },
+            0,
+            &result.lines[0].text,
+            &mut definition,
+            &mut labels,
+        )?;
+        keywords::printed_with_grants(&card.shape, &definition)?;
+        definition.provenance.printed_sha256 = evidence.and_then(|e| e.sha256()).map(str::to_owned);
+        let definition = assemble::finish(definition, labels);
+        definition
+            .validate()
+            .map_err(|e| unsupported("composition", e))?;
+        return Ok(definition);
+    }
+    let proved_source = !searches.is_empty();
     let r = &card.record;
     let mut resolution =
         resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;
+    resolution.source_blocks(searches.keys().copied());
     if resolution.face_count() != card.faces.len() {
         return Err(invalid("resolution", "missing or duplicated resolved face"));
     }
@@ -969,6 +1003,7 @@ fn compose(
             index,
             face,
             &resolution,
+            &mut searches,
             deferred.as_deref_mut(),
         );
         match result {
@@ -1041,6 +1076,9 @@ fn compose(
     } else {
         keywords::printed_with_grants(&card.shape, &front)?;
     }
+    if proved_source {
+        front.provenance.printed_sha256 = evidence.and_then(|e| e.sha256()).map(str::to_owned);
+    }
     front
         .validate()
         .map_err(|e| unsupported("composition", e))?;
@@ -1053,6 +1091,7 @@ fn compose_face(
     part: usize,
     (source, result): (SourceFace, ParseResult),
     resolution: &resolution::Resolution,
+    searches: &mut source_search::Searches,
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
     let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
@@ -1158,6 +1197,9 @@ fn compose_face(
         let lowered = (|| -> Result<(), Failure> {
             let label = source_block(block)?;
             let line = &result.lines[block].text;
+            if let Some(search) = searches.remove(&block) {
+                return search.lower(&card, block, line, &mut definition, &mut labels);
+            }
             resolution.spans(block, line, &printed[block])?;
             let bound = if line.contains("you may have ") || line.contains("You may have ") {
                 printed::bind_evaluated_choosers(raw.get(), line, &resolution.segments(block)?)?

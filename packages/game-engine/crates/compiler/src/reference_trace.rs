@@ -83,6 +83,14 @@ pub(crate) enum Selection {
     /// CR 608.2c: "this way" reads the actual result of the step at `step`,
     /// a block-relative AST pointer.
     LinkedResult { step: String },
+    /// CR 201.5: the current ability's source.
+    Source,
+    /// CR 601.2h, 602.2b, 701.21a: the permanent chosen for the cost.
+    ActivationSacrifice,
+    /// CR 701.23a–b: the subset chosen from the searcher's own library.
+    SearchGroup,
+    /// CR 608.2c, 701.23e: the cards found by the earlier search.
+    SearchResult { step: String },
 }
 
 #[derive(Clone, Copy, Serialize)]

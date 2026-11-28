@@ -1335,6 +1335,7 @@ fn search(player: PlayerExpr, filter: Pred, maximum: i64, to: Destination) -> No
     Node::Do(Verb::Search {
         player,
         search: SearchSpec {
+            group: None,
             filter,
             maximum: Amount::fixed(maximum),
             to,
