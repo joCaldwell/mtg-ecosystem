@@ -308,6 +308,7 @@ fn lane2_scour_for_scrap_keeps_the_search_pronoun_in_its_mode() {
         .card("Sol Ring", 0, 0, Zone::Graveyard { owner: PlayerId(0) })
         .library_card("Sol Ring", 0)
         .libraries("Forest", 2)
+        .seed([9; 32])
         .prepare(),
     );
     Driver::cast(&mut game, CardId(0));
