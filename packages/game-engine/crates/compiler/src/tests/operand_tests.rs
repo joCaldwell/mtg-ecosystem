@@ -31,6 +31,17 @@ fn unrepresented_filter_terms_name_their_field() {
             json!({"types":["creature"],"status":["blocking"]}),
             "operand:filter:status:blocking",
         ),
+        // Grammar batch 1 (Steel Hellkite, Archangel of Strife): a described
+        // controller has no runtime predicate yet (CR 108.4).
+        (
+            json!({"types":["creature"],"controllerMatches":{"choseOption":{"option":"war"}}}),
+            "operand:filter:controller_matches",
+        ),
+        (
+            json!({"cls":"permanent","nonTypes":["land"],"controllerMatches":{"damageHistory":{"role":"recipient",
+                "window":{"during":"this-turn"},"damage":"combat","source":{"ref":"this","noun":"creature"}}}}),
+            "operand:filter:controller_matches",
+        ),
     ] {
         let what = json!({"ref":"all","filter":filter});
         let failure = object(&what)

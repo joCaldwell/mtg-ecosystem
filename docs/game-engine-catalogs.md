@@ -97,8 +97,11 @@ payload hashes. The same producer, payload lengths and all decisions must agree.
 
 ### Rust printed evidence
 
-The intake verifier applies P1–P10 to each applicable R6 row before its card is
-assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
+Intake requires a registered R6 cut's printed schema and vocabulary pins to
+equal the compiled decoder's. Its generator pin is producer provenance,
+checked against the header, so a grammar batch's generator still reads an
+earlier cut's identical printed evidence. The intake verifier applies P1–P10
+to each applicable R6 row before its card is assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
 wire format and evidence bases. P6 rebuilds quote regions from the original
 text through verified normalization, lexing and punctuation order. A quoted
 grant's AST body enters the region bounded by its wrapper's matching marks.

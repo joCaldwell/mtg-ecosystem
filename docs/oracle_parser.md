@@ -225,11 +225,24 @@ printed digest and the source, AST, binding and resolution hash preimages. A
 mismatch identifies the first failing line and blocks publication. `--legacy-baseline
 PATH --verify-candidate PATH` repeats D0 on existing files. The JSON receipt
 includes the exact archive pins, counts by capture basis, elapsed check time,
-and largest raw line including LF. For printed capture changes,
+and largest raw line including LF.
+
+A deck-ranked grammar batch (rework plan, format cut 3) is its own cut on the
+same frozen inputs. `--legacy-rows changed` lets D0 accept a reparsed in-scope
+row only when it is the writer's canonical serialization, keeps the R5 source
+and scope, and passes its own AST, binding and resolution hash preimages. The
+receipt's `changedLegacyRows` lists each such row with its status before and
+after. The header's legacy counts must equal the counts recomputed from the
+candidate's own rows. Every other row keeps the exact R5 projection. Each batch
+pins its own legacy decoder in `scripts/generate-rust-ast.ts`. A new AST
+variant goes at the end of its union so the generated Rust names of existing
+variants do not move. For printed capture changes,
 `python3 scripts/check-printed-regressions.py BASELINE CANDIDATE PREVIOUS`
 compares D0-verified candidates at the same AST paths. Its JSON receipt
 reports every node change and rejects lost token coverage or a downgrade
-from recorded, alias or implicit evidence. Alias coverage follows the
+from recorded, alias or implicit evidence. A block that stops reading is a
+regression. A newly read block (`gainedBlocks`) and a block whose legacy AST
+changed (`reparsedBlocks`, which D0 also lists) are reported, not compared. Alias coverage follows the
 canonical occurrence. The candidate manifest and frozen snapshots
 are published beside the archive by content identity. Rust acceptance and
 registration follow the [catalog contract](game-engine-catalogs.md#catalog-source-and-commands).
