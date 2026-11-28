@@ -71,7 +71,7 @@ pub use tiers::*;
 pub use verbs::*;
 mod creature_types;
 pub use creature_types::{
-    is_basic_land_type, is_creature_subtype, is_land_subtype, subtype_card_type,
+    CreatureType, is_basic_land_type, is_creature_subtype, is_land_subtype, subtype_card_type,
 };
 
 // ---------------------------------------------------------------------------

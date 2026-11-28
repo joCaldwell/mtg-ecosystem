@@ -244,7 +244,11 @@ impl Walk<'_, '_> {
                 | Atom::OwnedBy { .. }
                 | Atom::IsNot { .. }
                 | Atom::Is { .. }
-                | Atom::Counters { .. } => return unaudited("library card filter atom"),
+                | Atom::Counters { .. }
+                | Atom::SourceChosenColor {}
+                | Atom::SourceChosenCreatureType {} => {
+                    return unaudited("library card filter atom");
+                }
             }
         }
         Ok(())

@@ -73,7 +73,7 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
         .unwrap(),
         ActivationCost::Composite {
             costs: PermanentActivationCosts {
-                remove_source_plus_one_counters: None,
+                remove_source_counters: None,
                 tap: true,
                 mana: Some(mana_cost("{2}").unwrap()),
                 sacrifice: true,
@@ -140,7 +140,10 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
         .unwrap(),
         ActivationCost::Composite {
             costs: PermanentActivationCosts {
-                remove_source_plus_one_counters: Some(1.into()),
+                remove_source_counters: Some(RemoveCounterCost {
+                    kind: kir::CounterKind::PlusOnePlusOne,
+                    amount: 1.into(),
+                }),
                 tap: false,
                 mana: Some(mana_cost("{B}").unwrap()),
                 sacrifice: false,

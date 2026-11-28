@@ -843,10 +843,24 @@ pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fa
     let each = plain.all_of.take();
     let any = plain.any_of.take();
     let other = plain.other.take();
+    let chosen_type = plain.chosen_type.take();
+    let chosen_color = plain.chosen_color.take();
     if other == Some(false) {
         return Err(operand("filter", "other:false"));
     }
     let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller(), false)?;
+    if let Some(chosen) = chosen_type {
+        if chosen.kind.is_some() {
+            return Err(operand("filter", "chosen-type:kind"));
+        }
+        pred.0.push(Atom::SourceChosenCreatureType {});
+    }
+    if let Some(chosen) = chosen_color {
+        if chosen.which != ast::ObjectFilterChosenColorWhich::Chosen {
+            return Err(operand("filter", "chosen-color:which"));
+        }
+        pred.0.push(Atom::SourceChosenColor {});
+    }
     if let Some(children) = each {
         if children.is_empty() {
             return Err(operand("filter", "all_of:empty"));

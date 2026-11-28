@@ -304,9 +304,9 @@ fn usable_printed(
         && (!ability.costs.tap || available_tap(object))
         && ability
             .costs
-            .remove_source_plus_one_counters
+            .remove_source_counters
             .as_ref()
-            .is_none_or(|n| object.plus_one_counters >= *n)
+            .is_none_or(|cost| object.can_remove_counters(cost))
         && !(ability.restriction.is_some() && object.mana_ability_used == Some(true))
 }
 
@@ -424,6 +424,7 @@ fn production_colors(
 ) -> Vec<Color> {
     match mana {
         ManaProduction::Fixed { symbols } => symbols.clone(),
+        ManaProduction::SourceChosenColor => vec![],
         ManaProduction::Counted { color, .. } => vec![*color],
         ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
         ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
@@ -502,7 +503,9 @@ fn could_produce_table(
                     }
                 }
                 production => {
-                    types.extend(production_colors(catalog, view, production, o.controller))
+                    let production =
+                        production.bind_color(o.entry_selection.and_then(|choice| choice.color()));
+                    types.extend(production_colors(catalog, view, &production, o.controller))
                 }
             }
         }
@@ -645,7 +648,10 @@ pub(super) fn plan_with_reservations(
                     .cloned()
                     .map(|symbols| (ManaProduction::Fixed { symbols }, true))
                     .collect(),
-                production => vec![(production.clone(), false)],
+                production => vec![(
+                    production.bind_color(o.entry_selection.and_then(|choice| choice.color())),
+                    false,
+                )],
             };
             for (production, choose_bundle) in productions {
                 let colors = production_colors(catalog, view, &production, view.viewer);
@@ -808,6 +814,7 @@ mod tests {
     fn land(c: &Catalog, name: &str, controller: u8) -> mtg_core::VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         mtg_core::VisibleObject {
+            entry_selection: None,
             faces: None,
             face_down: false,
             exiled_by: None,
@@ -848,7 +855,7 @@ mod tests {
             restriction: None,
             condition: None,
             costs: mtg_contracts::PermanentActivationCosts {
-                remove_source_plus_one_counters: None,
+                remove_source_counters: None,
                 tap: true,
                 mana: None,
                 sacrifice: false,

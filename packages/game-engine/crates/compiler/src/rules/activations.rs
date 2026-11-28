@@ -17,10 +17,11 @@ fn fixed_amount(value: &serde_json::Value) -> Result<Quantity, Failure> {
 pub(crate) fn lower_permanent_costs(
     costs: &[SourceCost],
     kind: CardKind,
+    is_self: &dyn Fn(&str) -> bool,
 ) -> Result<(PermanentActivationCosts, Vec<ColorHybridSymbol>), Failure> {
     let mut hybrid = vec![];
     let mut result = PermanentActivationCosts {
-        remove_source_plus_one_counters: None,
+        remove_source_counters: None,
         tap: false,
         mana: None,
         sacrifice: false,
@@ -28,19 +29,8 @@ pub(crate) fn lower_permanent_costs(
     };
     for cost in costs {
         match cost {
-            SourceCost::RemoveCounters {
-                counter,
-                count,
-                from,
-            } if result.remove_source_plus_one_counters.is_none()
-                && counter.r#type == "+1/+1"
-                && count.amount == "fixed"
-                && count.value > 0
-                && kind == CardKind::Creature
-                && *from == serde_json::json!({"ref":"this","noun":"creature"}) =>
-            {
-                result.remove_source_plus_one_counters =
-                    Some(Quantity::from(i64::from(count.value)));
+            SourceCost::RemoveCounters { .. } if result.remove_source_counters.is_none() => {
+                result.remove_source_counters = Some(lower_remove_counter_cost(cost, is_self)?);
             }
             SourceCost::TapSelf {} if !result.tap => result.tap = true,
             SourceCost::Mana { symbols } if result.mana.is_none() && hybrid.is_empty() => {
@@ -90,6 +80,31 @@ pub(crate) fn lower_permanent_costs(
         }
     }
     Ok((result, hybrid))
+}
+
+/// CR 602.1a: the cost names the source and a positive fixed number.
+pub(crate) fn lower_remove_counter_cost(
+    cost: &SourceCost,
+    is_self: &dyn Fn(&str) -> bool,
+) -> Result<RemoveCounterCost, Failure> {
+    if let SourceCost::RemoveCounters {
+        counter,
+        count,
+        from,
+    } = cost
+        && (from == &serde_json::json!({"ref":"self"})
+            || from.as_object().is_some_and(|o| o.len() == 2)
+                && from["ref"] == "this"
+                && from["noun"].as_str().is_some_and(is_self))
+        && count.amount == "fixed"
+        && count.value > 0
+    {
+        return Ok(RemoveCounterCost {
+            kind: crate::operands::object_counter_kind(&counter.r#type)?,
+            amount: Quantity::from(i64::from(count.value)),
+        });
+    }
+    Err(unsupported("cost", "unsupported source counter removal"))
 }
 
 fn zero_cost() -> ManaCost {
@@ -149,6 +164,13 @@ fn production(mana: &SourceMana, you: &PlayerSelector) -> Result<ManaProduction,
             symbols: symbols.clone(),
         },
         SourceMana::AnyColor { amount } if fixed_one(amount) => ManaProduction::AnyColor,
+        SourceMana::ChosenColor { amount, choice }
+            if *amount == serde_json::json!({"amount":"fixed","value":1})
+                && *choice
+                    == serde_json::json!({"choice":"chosen-value","category":"color","which":"chosen"}) =>
+        {
+            ManaProduction::SourceChosenColor
+        }
         SourceMana::CommanderColor { amount, whose } if fixed_one(amount) && whose == you => {
             ManaProduction::CommanderColor
         }
@@ -316,10 +338,32 @@ pub(crate) fn lower_spend_restriction(
             "effects":[{"steps":[{"effect":"cant","what":{"ref":"that","filter":{"cls":"spell"}},"action":"be-countered"}]}]
         }])
     };
+    // CR 607.2d, 106.6: bind the printed choice when the mana is produced,
+    // then evaluate its permission and any rider at that exact payment.
+    let chosen_filter = |cls| {
+        json!({"types":["creature"],"cls":cls,
+        "chosenType":{"choice":"chosen-type"}})
+    };
+    let chosen_spell = json!([cast(chosen_filter("spell"))]);
+    let chosen_spell_or_ability = json!([
+        cast(chosen_filter("spell")),
+        activated(chosen_filter("source"))
+    ]);
+    let chosen = |ability_sources, on_spend| R::CreatureType {
+        selection: mtg_contracts::mana_spend::CreatureTypeSpend::SourceChoice,
+        ability_sources,
+        on_spend,
+    };
     if let Some(riders) = riders {
         let uses = json!([cast(legendary)]);
         return if restriction_matches(uses.clone()) && *riders == cant_counter(uses) {
             Ok(Some(R::LegendarySpellUncounterable))
+        } else if restriction_matches(chosen_spell.clone()) && *riders == cant_counter(chosen_spell)
+        {
+            Ok(Some(chosen(
+                false,
+                Some(mtg_contracts::mana_spend::ManaSpendRider::UncounterableSpell),
+            )))
         } else if restriction.is_none()
             && *riders == cant_counter(json!([cast(instant_or_sorcery)]))
         {
@@ -330,6 +374,12 @@ pub(crate) fn lower_spend_restriction(
     }
     if restriction.is_none() {
         return Ok(None);
+    }
+    if restriction_matches(chosen_spell) {
+        return Ok(Some(chosen(false, None)));
+    }
+    if restriction_matches(chosen_spell_or_ability) {
+        return Ok(Some(chosen(true, None)));
     }
     if restriction_matches(json!([{"use":"activate"}])) {
         return Ok(Some(R::ActivatedAbility));
@@ -460,10 +510,9 @@ pub(crate) fn lower_mana_ability(
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let (costs, hybrid_mana) = lower_permanent_costs(costs, kind)?;
-    if costs.remove_source_plus_one_counters.is_some() {
-        if costs.tap
-            || costs.mana.is_some()
+    let (costs, hybrid_mana) = lower_permanent_costs(costs, kind, is_self)?;
+    if !costs.tap && costs.remove_source_counters.is_some() {
+        if costs.mana.is_some()
             || !hybrid_mana.is_empty()
             || costs.sacrifice
             || costs.pay_life.is_some()

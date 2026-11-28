@@ -760,9 +760,9 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
         // source are paid with the other source terms after any mana.
         ActivationCost::Composite { costs } => {
             costs
-                .remove_source_plus_one_counters
+                .remove_source_counters
                 .as_ref()
-                .is_none_or(|n| *n > Quantity::zero())
+                .is_none_or(RemoveCounterCost::valid)
                 && costs
                     .pay_life
                     .as_ref()
@@ -771,7 +771,7 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
                 && (costs.tap
                     || costs.sacrifice
                     || costs.pay_life.is_some()
-                    || costs.remove_source_plus_one_counters.is_some())
+                    || costs.remove_source_counters.is_some())
                 && match route {
                     None | Some(Route::Object | Route::Stack) => true,
                     // The entity announcement pays a combined cost only
@@ -918,7 +918,8 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                         | StaticEffect::PayLifeOrEnterTapped { .. }
                         | StaticEffect::RevealOrEnterTapped { .. }
                         | StaticEffect::EntersTappedIf { .. }
-                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                        | StaticEffect::EntersWithCounters { .. }
+                        | StaticEffect::ChooseOnEntry { .. }
                 )
             })
         {
@@ -1097,7 +1098,8 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
                         | StaticEffect::PayLifeOrEnterTapped { .. }
                         | StaticEffect::RevealOrEnterTapped { .. }
                         | StaticEffect::EntersTappedIf { .. }
-                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                        | StaticEffect::EntersWithCounters { .. }
+                        | StaticEffect::ChooseOnEntry { .. }
                 )
             }))
     {
@@ -1136,6 +1138,7 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
                 })
         }
         ManaProduction::AnyColor
+        | ManaProduction::SourceChosenColor
         | ManaProduction::CommanderColor
         | ManaProduction::ChooseDevotion {}
         | ManaProduction::LandsCouldProduce { .. } => true,
@@ -1159,10 +1162,33 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
             .pay_life
             .as_ref()
             .is_some_and(|life| *life < Quantity::from(1))
-        || a.costs.remove_source_plus_one_counters.is_some()
+        || a.costs
+            .remove_source_counters
+            .as_ref()
+            .is_some_and(|cost| !cost.valid())
         || a.restriction.is_some()
-        || a.spend_restriction.is_some_and(|r| !r.is_canonical())
+        || a.spend_restriction.is_some_and(|r| {
+            !r.valid_production()
+                || r.reads_creature_type_choice()
+                    && !d.static_abilities.iter().any(|a| {
+                        matches!(
+                            a.effect,
+                            StaticEffect::ChooseOnEntry {
+                                choice: kir::EntryChoiceSpec::CreatureType
+                            }
+                        )
+                    })
+        })
         || !mana_production_supported(&a.production)
+        || matches!(a.production, ManaProduction::SourceChosenColor)
+            && !d.static_abilities.iter().any(|a| {
+                matches!(
+                    a.effect,
+                    StaticEffect::ChooseOnEntry {
+                        choice: kir::EntryChoiceSpec::Color
+                    }
+                )
+            })
     {
         return cell("mana", name(&a.production));
     }
@@ -1566,9 +1592,15 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                     // the first state-based toughness check.
                     let mut entry_toughness = n.clone();
                     for ability in &d.static_abilities {
-                        if let kir::StaticEffect::EntersWithPlusOneCounters { count } =
-                            &ability.effect
+                        if let kir::StaticEffect::EntersWithCounters {
+                            kind: kir::CounterKind::PlusOnePlusOne,
+                            count,
+                            per,
+                        } = &ability.effect
                         {
+                            if per.is_some() {
+                                return true;
+                            }
                             entry_toughness.add(count);
                         }
                     }
@@ -1818,6 +1850,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 a.effect,
                 kir::StaticEffect::PayLifeOrEnterTapped { .. }
                     | kir::StaticEffect::RevealOrEnterTapped { .. }
+                    | kir::StaticEffect::ChooseOnEntry { .. }
             )
         })
         .count()
@@ -2001,7 +2034,7 @@ mod tests {
                 d.activated.push(ability(
                     ActivationCost::Composite {
                         costs: PermanentActivationCosts {
-                            remove_source_plus_one_counters: None,
+                            remove_source_counters: None,
                             tap: true,
                             mana: Some(ManaCost {
                                 generic: 1.into(),
@@ -2051,7 +2084,7 @@ mod tests {
                         restriction: None,
                         condition: None,
                         costs: PermanentActivationCosts {
-                            remove_source_plus_one_counters: None,
+                            remove_source_counters: None,
                             tap: true,
                             mana: None,
                             sacrifice: false,
@@ -2296,7 +2329,7 @@ mod tests {
             restriction: None,
             condition: None,
             costs: PermanentActivationCosts {
-                remove_source_plus_one_counters: None,
+                remove_source_counters: None,
                 tap: true,
                 mana: None,
                 sacrifice: false,
@@ -2350,7 +2383,7 @@ mod tests {
         let mut a = ability(
             ActivationCost::Composite {
                 costs: PermanentActivationCosts {
-                    remove_source_plus_one_counters: None,
+                    remove_source_counters: None,
                     tap: false,
                     mana: Some(ManaCost {
                         generic: Quantity::zero(),

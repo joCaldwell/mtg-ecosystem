@@ -80,6 +80,9 @@ pub enum Candidate<S: Space> {
     Color {
         color: Color,
     },
+    CreatureType {
+        kind: mtg_contracts::kir::CreatureType,
+    },
     ManaBundle {
         symbols: Vec<Color>,
     },

@@ -45,7 +45,8 @@ pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Ce
     match &a.production {
         ManaProduction::Fixed { .. }
         | ManaProduction::AnyColor
-        | ManaProduction::CommanderColor => {}
+        | ManaProduction::CommanderColor
+        | ManaProduction::SourceChosenColor => {}
         ManaProduction::Counted {
             zone,
             filter,
