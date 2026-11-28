@@ -15,6 +15,7 @@ pub enum EvaluatedVerb {
     CreateTokens,
     /// CR 400.3, 400.7: a zone change.
     Move,
+    AdditionalLandPlays,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -419,6 +420,22 @@ const MOVE: VerbSignature = VerbSignature {
     object_result_read: ObjectUse::ReadCurrentOrLastKnown,
     projections: &[StepRole::Amount, StepRole::Objects],
 };
+const LAND_PLAYS: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::AdditionalLandPlays,
+    slots: &[
+        OperandSlot {
+            accepts: &[OperandClass::Controller],
+            ..PLAYER_AMOUNT[0]
+        },
+        OperandSlot {
+            accepts: &[OperandClass::Fixed],
+            ..quantity(QuantityDomain::Positive)
+        },
+    ],
+    distribution: Distribution::Single,
+    object_result_read: ObjectUse::ActOnLiveIncarnation,
+    projections: &[],
+};
 const SACRIFICE: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::Sacrifice,
     slots: SACRIFICE_SLOTS,
@@ -582,6 +599,9 @@ impl Verb {
     /// The signature and operands of a verb the resolving evaluator performs.
     pub fn evaluated(&self) -> Option<(&'static VerbSignature, Evaluated<'_>)> {
         match self {
+            Self::AdditionalLandPlays { player, amount } => {
+                Some((&LAND_PLAYS, Evaluated::PlayerAmount { player, amount }))
+            }
             Self::Mill { player, amount } => {
                 Some((&MILL, Evaluated::PlayerAmount { player, amount }))
             }

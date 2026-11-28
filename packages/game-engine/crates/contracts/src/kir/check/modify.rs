@@ -31,8 +31,23 @@ impl Walk<'_, '_> {
         values: &CharacteristicSet,
         until: Until,
     ) -> Result<Cell, KirError> {
-        if until != Until::EndOfTurn
+        if !matches!(
+            until,
+            Until::EndOfTurn | Until::ControllerNextTurn | Until::SourceLeaves
+        ) || (until == Until::SourceLeaves && self.env.context == Context::Spell)
             || values == &CharacteristicSet::default()
+            || (values.base_from.is_some()
+                && (values.base_power.is_some() || values.base_toughness.is_some()))
+            || values
+                .type_change
+                .as_ref()
+                .is_some_and(|change| !match change {
+                    Change::AddTypes { kinds } => {
+                        kinds == &[CardKind::Artifact] && values.animation.is_none()
+                    }
+                    Change::AllCreatureTypes => true,
+                    _ => false,
+                })
             || values.colors.as_ref().is_some_and(|colors| {
                 colors
                     .iter()
@@ -43,6 +58,7 @@ impl Walk<'_, '_> {
                 && !crate::supported_temporary_keywords(&values.keywords))
             || values.animation.as_ref().is_some_and(|animation| {
                 ((values.base_power.is_none() || values.base_toughness.is_none())
+                    && values.base_from.is_none()
                     && !(self.env.context == Context::Activated
                         && *what
                             == (SetExpr::One {
@@ -66,6 +82,11 @@ impl Walk<'_, '_> {
             })
         {
             return unaudited("characteristic setter values or duration");
+        }
+        if let Some(amount) = &values.base_from
+            && !amount.is_announced_x()
+        {
+            Self::audit_verb_amount(amount)?;
         }
         self.audit_continuous_objects(what)?;
         Ok(Cell::SetCharacteristics)
@@ -219,7 +240,7 @@ impl Walk<'_, '_> {
                 // ("that creature"), bound to the exact declared incarnation.
                 SetExpr::One {
                     object: Ref::EventObject { .. },
-                } if !self.plain_leaf => Ok(Cell::PumpEventObject),
+                } if !self.plain_leaf => Ok(Cell::SetCharacteristics),
                 SetExpr::One {
                     object: Ref::Target { slot },
                 } => match self.domain(*slot)? {
@@ -249,7 +270,8 @@ impl Walk<'_, '_> {
                     {
                         return unaudited("pump set exclusion");
                     }
-                    Self::audited_filter(&ZoneExpr::Battlefield, &rest).map(|()| Cell::PumpSet)
+                    Self::audited_filter(&ZoneExpr::Battlefield, &rest)
+                        .map(|()| Cell::SetCharacteristics)
                 }
                 _ => unaudited("pump set"),
             },
@@ -284,10 +306,10 @@ impl Walk<'_, '_> {
                 match what {
                     SetExpr::One {
                         object: Ref::Source,
-                    } if self.env.context != Context::Spell => Ok(Cell::PumpCounted),
+                    } if self.env.context != Context::Spell => Ok(Cell::SetCharacteristics),
                     SetExpr::One {
                         object: Ref::Target { slot },
-                    } if self.creature_target(*slot)? => Ok(Cell::PumpCounted),
+                    } if self.creature_target(*slot)? => Ok(Cell::SetCharacteristics),
                     SetExpr::Matching {
                         zone: ZoneExpr::Battlefield,
                         filter,
@@ -296,7 +318,7 @@ impl Walk<'_, '_> {
                     }) =>
                     {
                         Self::audited_filter(&ZoneExpr::Battlefield, filter)
-                            .map(|()| Cell::PumpCounted)
+                            .map(|()| Cell::SetCharacteristics)
                     }
                     _ => unaudited("counted pump recipient"),
                 }
@@ -318,7 +340,7 @@ impl Walk<'_, '_> {
                     _ => false,
                 };
                 if valid {
-                    Ok(Cell::PumpAnnouncedX)
+                    Ok(Cell::SetCharacteristics)
                 } else {
                     unaudited("announced X pump recipient")
                 }
@@ -330,7 +352,7 @@ impl Walk<'_, '_> {
                     && self.env.context == Context::Activated
                     && crate::supported_temporary_keywords(keywords) =>
             {
-                Ok(Cell::SourceKeywordsUntilEndOfTurn)
+                Ok(Cell::SetCharacteristics)
             }
             (Layer::Ability, Change::AddKeywords { keywords }, Until::EndOfTurn)
                 if crate::supported_temporary_keywords(keywords) =>
@@ -338,13 +360,13 @@ impl Walk<'_, '_> {
                 match what {
                     SetExpr::One {
                         object: Ref::Target { slot },
-                    } if self.creature_target(*slot)? => Ok(Cell::TargetKeywordsUntilEndOfTurn),
+                    } if self.creature_target(*slot)? => Ok(Cell::SetCharacteristics),
                     SetExpr::Matching {
                         zone: ZoneExpr::Battlefield,
                         filter,
                     } => {
                         Self::audited_filter(&ZoneExpr::Battlefield, filter)?;
-                        Ok(Cell::SetKeywordsUntilEndOfTurn)
+                        Ok(Cell::SetCharacteristics)
                     }
                     _ => unaudited("keyword grant targets"),
                 }
@@ -359,6 +381,9 @@ impl Walk<'_, '_> {
 /// its complete ability (`Definition::requirements`). CR 613.1f: the
 /// source's own keyword grant.
 pub(super) fn capabilities(what: &SetExpr, change: &Change, out: &mut BTreeSet<Capability>) {
+    if let Change::AddKeywords { keywords } = change {
+        grant_capabilities(keywords, out);
+    }
     match (what, change) {
         (
             SetExpr::One {
@@ -383,6 +408,19 @@ pub(super) fn capabilities(what: &SetExpr, change: &Change, out: &mut BTreeSet<C
             out.insert(Capability::ActivatedSourceKeywordGrantV1);
         }
         _ => {}
+    }
+}
+
+pub(super) fn grant_capabilities(keywords: &[KeywordAbility], out: &mut BTreeSet<Capability>) {
+    // Preserve the existing grant capabilities and fence the new keywords
+    // by the same consumers that implement their intrinsic forms.
+    for keyword in keywords {
+        if matches!(
+            keyword,
+            KeywordAbility::Shroud | KeywordAbility::Fear | KeywordAbility::Intimidate
+        ) {
+            out.extend(crate::intrinsic_keyword_capability(*keyword));
+        }
     }
 }
 

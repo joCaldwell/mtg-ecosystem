@@ -13,6 +13,16 @@ impl Walk<'_, '_> {
             self.audit_quantity(amount)?;
         }
         match operands {
+            Evaluated::PlayerAmount { player, amount }
+                if signature.verb == EvaluatedVerb::AdditionalLandPlays =>
+            {
+                if *player != PlayerExpr::you(self.env.context)
+                    || !amount.as_fixed().is_some_and(|n| *n > Quantity::zero())
+                {
+                    return unaudited("additional land-play allowance");
+                }
+                Ok(Cell::Evaluated(signature.verb))
+            }
             Evaluated::PlayerAmount { player, amount } => {
                 self.audit_evaluated_player(player)?;
                 Ok(self.player_amount_cell(signature.verb, player, amount)?)

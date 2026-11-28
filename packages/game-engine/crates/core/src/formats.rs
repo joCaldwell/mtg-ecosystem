@@ -1,7 +1,9 @@
 //! Single owner of mtg-core wire and persistence format versions. Every
 //! producer stamps, and every admission check compares, these constants; tests
 //! import them instead of repeating literals (historical-forgery literals stay
-//! explicit).
+//! explicit). The `formats_tests` fingerprints fail when a serialized shape
+//! changes.
+//!
 //! Shapes change in place until a consumer reads these formats; bump once when one appears.
 
 /// `Game::snapshot` envelope and its complete private `State`.

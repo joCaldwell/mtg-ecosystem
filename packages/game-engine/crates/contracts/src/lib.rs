@@ -2355,24 +2355,34 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     }
     Ok(())
 }
+/// The reviewed layer-6 counter vocabulary (CR 122.1b, 613.1f).
+pub(crate) fn supported_keyword_counter(keyword: KeywordAbility) -> bool {
+    matches!(
+        keyword,
+        KeywordAbility::Flying
+            | KeywordAbility::DoubleStrike
+            | KeywordAbility::Vigilance
+            | KeywordAbility::Reach
+            | KeywordAbility::Deathtouch
+            | KeywordAbility::Indestructible
+            | KeywordAbility::Lifelink
+            | KeywordAbility::Hexproof
+            | KeywordAbility::Haste
+            | KeywordAbility::Menace
+            | KeywordAbility::Trample
+            | KeywordAbility::FirstStrike
+    )
+}
+
 pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
     !keywords.is_empty()
         && keywords.iter().enumerate().all(|(index, keyword)| {
-            matches!(
-                keyword,
-                KeywordAbility::Flying
-                    | KeywordAbility::DoubleStrike
-                    | KeywordAbility::Vigilance
-                    | KeywordAbility::Reach
-                    | KeywordAbility::Deathtouch
-                    | KeywordAbility::Indestructible
-                    | KeywordAbility::Lifelink
-                    | KeywordAbility::Hexproof
-                    | KeywordAbility::Haste
-                    | KeywordAbility::Menace
-                    | KeywordAbility::Trample
-                    | KeywordAbility::FirstStrike
-            ) && !keywords[..index].contains(keyword)
+            (supported_keyword_counter(*keyword)
+                || matches!(
+                    keyword,
+                    KeywordAbility::Shroud | KeywordAbility::Fear | KeywordAbility::Intimidate
+                ))
+                && !keywords[..index].contains(keyword)
         })
 }
 /// Borrowed parameters of one complete ordinary targeted temporary keyword program.

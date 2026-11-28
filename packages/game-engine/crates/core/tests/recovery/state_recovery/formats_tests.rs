@@ -27,11 +27,11 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     119,
-    "fa2dc623d8573924aab574c5eaecf62f2d84dc3922018a4347557be823695ca3",
+    "6e8b751225cbc5fcd01064dfa5d026455f10344846aa41c89d878385597bf255",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     151,
-    "4a89a541671a9dec1c95c3f4ceca45899a43e457c4add810d0f74aca667e3ff2",
+    "473818f20d8859e1d0cb1c427404b7ef6c9706ff0fb29e766442af362e273393",
 );
 const WORK_PIN: (u32, &str) = (
     71,
@@ -41,6 +41,13 @@ const WORK_PIN: (u32, &str) = (
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
     if pin == (version, actual) {
         return;
+    }
+    if version == pin.0 {
+        // Shapes change in place until a consumer reads them (formats.rs).
+        panic!(
+            "{format} wire format changed: keep {constant} and re-pin ({version}, {actual:?}) \
+             in formats_tests.rs after reviewing the {format} change"
+        );
     }
     panic!(
         "{format}: {constant} is {version}; re-pin ({version}, {actual:?}) in formats_tests.rs \

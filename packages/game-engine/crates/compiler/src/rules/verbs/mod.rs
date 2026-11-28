@@ -754,6 +754,25 @@ pub(crate) fn append_spell_effects(
             if reads(at..at + 1) {
                 cx.x = bound.clone();
             }
+            if let Step::Evaluated(effect) = s
+                && let ast::Effect::SetPt(setter) = &**effect
+                && let Some(Step::ModifyCharacteristics {
+                    what,
+                    modifiers,
+                    duration,
+                    stated_as: None,
+                    ..
+                }) = sentence.steps.get(at + 1)
+                && continuous::all_types_with_setter(setter, what, modifiers, duration)
+            {
+                let instruction = continuous::set_pt(&mut cx, setter, true)?;
+                if cx.x.is_some() && !cx.x_consumed {
+                    return Err(unsupported("bindings", "unconsumed count binding"));
+                }
+                program.instructions.push(instruction);
+                at += 2;
+                continue;
+            }
             if let Step::ChooseValue { who, category } = s {
                 let following = if at + 1 == sentence.steps.len() {
                     sentences.peek().copied().filter(|next| {
@@ -902,6 +921,7 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             ast::Effect::Exile(action) => exile::lower(cx, action),
             ast::Effect::ReturnToHand(action) => return_to_hand::lower(cx, action),
             ast::Effect::MoveZone(action) => move_zone::lower(cx, action),
+            ast::Effect::SetPt(action) => continuous::set_pt(cx, action, false),
             // CR 610.3: a return linked to a duration has no executable
             // delayed form yet.
             ast::Effect::ExileUntil(_) => Err(step("exile-until", "linked_return")),
@@ -911,7 +931,10 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
         Step::LoseAbilities { .. } => Err(step("lose-abilities", "unlowered")),
         Step::PlayCard { .. } => Err(step("play-card", "unlowered")),
         Step::LoseGame { .. } => Err(step("lose-game", "unlowered")),
-        Step::AdditionalLandPlays { .. } => Err(step("additional-land-plays", "unlowered")),
+        Step::AdditionalLandPlays {
+            allowance,
+            duration,
+        } => continuous::land_plays(cx, allowance, duration),
         Step::LookAt { .. } => Err(step("look-at", "unlowered")),
         Step::Simultaneous { steps } => simultaneous::lower(cx, steps),
         Step::ShuffleIntoLibrary {

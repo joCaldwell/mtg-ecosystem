@@ -241,8 +241,8 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
         .collect()
 }
 
-/// Decode one effect sentence; evaluated actions (including discard and mill)
-/// decode through the generated effect schema in `Step::deserialize`.
+/// Decode one effect sentence; evaluated actions (including discard, mill and
+/// set-pt) decode through the generated effect schema in `Step::deserialize`.
 pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
     serde_json::from_value(control::counted_instruction(raw)).map_err(|e| mirror_gap(raw, &e))
 }
@@ -1047,7 +1047,7 @@ fn compose(
         front.back_face = Some(Box::new(back));
         front.capabilities = front.requirements();
     } else {
-        keywords::printed(&card.shape, &front.keywords)?;
+        keywords::printed_with_grants(&card.shape, &front)?;
     }
     front
         .validate()

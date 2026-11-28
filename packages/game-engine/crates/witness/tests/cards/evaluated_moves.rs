@@ -249,17 +249,17 @@ fn incoming_controller_pays_for_a_land_owned_by_another_player() {
         (PlayerId(0), &Reason::OptionalEffect)
     );
     assert_recoverable((&game).into());
-    let pay = choice.pick_one(&Candidate::Flag { flag: true }).unwrap();
+    let pay = choice
+        .pick_one(&Candidate::Flag { flag: Flag::Accept })
+        .unwrap();
     game.respond(choice.player, choice.id, pay).unwrap();
     settle(&mut game);
     let returned = Driver::object(&game, 1);
     assert_eq!(returned.incarnation, land.incarnation + 2);
     let current = game.current(returned).unwrap();
     assert_eq!(current.zone, Zone::Battlefield);
-    assert_eq!(
-        (current.owner, current.controller),
-        (PlayerId(1), PlayerId(0))
-    );
+    assert_eq!(game.state.rules.cards[&returned.card].owner, PlayerId(1));
+    assert_eq!(current.controller, PlayerId(0));
     assert!(!current.tapped);
     controller_life.subtract(&Quantity::from(2));
     assert_eq!(game.state.rules.players[0].life, controller_life);
@@ -272,7 +272,7 @@ fn multiple_move_results_with_individual_owners_are_rejected_at_the_return() {
     let mtg_compiler::CompileResult::Unsupported { path, reason } = outcome else {
         panic!("expected a located Displace rejection, got {outcome:?}");
     };
-    assert_eq!(path, "printed/faces/0/blocks/0");
+    assert_eq!(path, "operand");
     assert_eq!(reason, "operand:result:owner_requires_single_target");
 }
 
@@ -390,19 +390,27 @@ fn counted_pump_uses_last_known_source_power() {
             .permanent_or_hand("Grizzly Bears", 0, 0, false)
             .permanent_or_hand("Unsummon", 0, 0, true)
             .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Giant Growth", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false)
             .prepare(),
     );
     let source = Driver::object(&game, 0);
     let target = Driver::object(&game, 1);
     let before = game.characteristics(target).unwrap();
-    let mut expected_power = before.power.unwrap();
-    expected_power.add(&game.characteristics(source).unwrap().power.unwrap());
     let choice = next_choice(&mut game);
     assert!(
         matches!(choice.reason, Reason::Targets { .. }),
         "{choice:?}"
     );
     Driver::pick_object(&mut game, target);
+    cast_at(&mut game, 4, 0, &[5]);
+    for _ in 0..4 {
+        Driver::pass(&mut game);
+    }
+    assert_eq!(Driver::request(&mut game, 1).reason, Reason::Priority);
+    assert_eq!(game.state.rules.stack.len(), 1);
+    let last_power = game.characteristics(source).unwrap().power.unwrap();
+    assert_eq!(last_power, Quantity::from(5));
     cast_at(&mut game, 2, 0, &[3]);
     settle(&mut game);
     assert_eq!(
@@ -410,6 +418,8 @@ fn counted_pump_uses_last_known_source_power() {
         Some(Zone::Hand { owner: PlayerId(0) })
     );
     let after = game.characteristics(target).unwrap();
+    let mut expected_power = before.power.unwrap();
+    expected_power.add(&last_power);
     assert_eq!(after.power, Some(expected_power));
     assert_eq!(after.toughness, before.toughness);
 }
