@@ -666,11 +666,20 @@ fn sacrifice_filter(f: &SacrificeFilter) -> bool {
         .all(|(n, k)| !f.types[..n].contains(k));
     let subtype_ok =
         |s: &String| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphabetic() || c == '-');
+    // CR 105.1-105.2: one or more distinct colors, never colorless.
+    let colors_ok = f.colors.iter().all(|c| *c != Color::C)
+        && f.colors
+            .iter()
+            .enumerate()
+            .all(|(n, c)| !f.colors[..n].contains(c));
     types_ok
-        && match (f.types.is_empty(), f.subtypes.as_slice()) {
+        && colors_ok
+        && match f.subtypes.as_slice() {
             // CR 110.1: "a permanent" names any controlled permanent.
-            (true, []) | (false, []) => true,
-            (true, [subtype]) => subtype_ok(subtype),
+            [] => true,
+            // A subtype alone or with the type it belongs to ("a Cleric
+            // creature"); a subtype conjoined with a union is not printed.
+            [subtype] => f.types.len() <= 1 && subtype_ok(subtype),
             _ => false,
         }
 }

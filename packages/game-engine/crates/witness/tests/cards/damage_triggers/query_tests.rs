@@ -352,14 +352,17 @@ fn query_matches_expected_board_sets_on_derived_and_permitted_facts() {
         SacrificeFilter {
             types: vec![CardKind::Creature],
             subtypes: vec![],
+            ..Default::default()
         },
         SacrificeFilter {
             types: vec![CardKind::Artifact, CardKind::Land],
             subtypes: vec![],
+            ..Default::default()
         },
         SacrificeFilter {
             types: vec![],
             subtypes: vec!["Bear".into()],
+            ..Default::default()
         },
     ];
     let keywords = [

@@ -358,9 +358,13 @@ pub fn matches_sacrifice_filter(
     if !present(object) || object.controller() != you {
         return Tri::No;
     }
+    if filter.token.is_some_and(|token| token != object.is_token()) {
+        return Tri::No;
+    }
     known(object.derived(), |c| {
         (filter.types.is_empty() || filter.types.iter().any(|kind| c.has_type(*kind)))
             && filter.subtypes.iter().all(|s| c.has_subtype(s))
+            && filter.colors.iter().all(|color| c.colors.contains(color))
     })
 }
 
