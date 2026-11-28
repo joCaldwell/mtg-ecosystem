@@ -521,7 +521,6 @@ fn lower(
             if !source
                 || x.counter.r#type != "+1/+1"
                 || x.additional.is_some()
-                || x.multiplier.is_some()
                 || x.condition.is_some()
                 || x.condition_kind.is_some()
                 || x.bindings.is_some()
@@ -532,9 +531,27 @@ fn lower(
             if count == Quantity::zero() {
                 return Err(gap("enters-with-counters:zero"));
             }
+            // CR 614.12: "a +1/+1 counter on it for each [filter]".
+            let for_each = match x.multiplier.as_deref() {
+                None => None,
+                Some(ast::Amount::Count(n)) => Some(cda_set(&n.of).map_err(|e| {
+                    gap(&format!(
+                        "enters-with-counters:multiplier:{}",
+                        e.reason
+                            .strip_prefix("static:cda-pt:")
+                            .unwrap_or(&e.reason)
+                    ))
+                })?),
+                Some(other) => {
+                    return Err(gap(&format!(
+                        "enters-with-counters:multiplier:{}",
+                        variant(other)
+                    )));
+                }
+            };
             ability(
                 Battlefield,
-                StaticEffect::EntersWithPlusOneCounters { count },
+                StaticEffect::EntersWithPlusOneCounters { count, for_each },
             )
         }
         S::EntersWithCounterChoice(_) => return Err(gap("enters-with-counter-choice")),

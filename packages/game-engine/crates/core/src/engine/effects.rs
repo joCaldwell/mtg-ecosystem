@@ -1213,7 +1213,7 @@ impl RulesTxn {
     /// layer 1-5 characteristics. Tokens cease to exist in graveyards
     /// (CR 111.7); phased-out permanents are treated as though they don't
     /// exist (CR 702.26b).
-    fn characteristic_set(
+    pub(super) fn characteristic_set(
         &self,
         source: &Object,
         set: &SetExpr,

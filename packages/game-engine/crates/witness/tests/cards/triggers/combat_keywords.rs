@@ -332,6 +332,7 @@ fn myriad_rejects_entry_replacements_by_name() {
         StaticEffect::EntersTapped,
         StaticEffect::EntersWithPlusOneCounters {
             count: Quantity::from(1),
+            for_each: None,
         },
     ] {
         let mut d = definition.clone();

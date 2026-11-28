@@ -806,7 +806,8 @@ struct Site<'a> {
 }
 
 impl Site<'_> {
-    /// CR 614.12: the incoming controller binds the printed entry condition.
+    /// CR 614.12: the incoming controller binds the printed entry condition
+    /// and the count its entry counters are multiplied by.
     fn controller(&self) -> Option<ControllerRole> {
         if self.kind == BlockKind::Static
             && ((self.path.starts_with("/effect/condition/")
@@ -816,7 +817,9 @@ impl Site<'_> {
                     "/effect/who"
                         | "/effect/costs/0/payer"
                         | "/effect/costs/0/what/filter/zone/owner"
-                ) && self.ability["effect"]["static"] == "entry-choice"))
+                ) && self.ability["effect"]["static"] == "entry-choice")
+                || (self.path.starts_with("/effect/multiplier/")
+                    && self.ability["effect"]["static"] == "enters-with-counters"))
         {
             Some(ControllerRole::EnteringController)
         } else if self.quoted_ability() {

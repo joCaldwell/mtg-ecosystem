@@ -203,8 +203,18 @@ impl RulesTxn {
         // one contained placement per kind.
         let mut plus_one = Quantity::zero();
         for ability in &definition.static_abilities {
-            if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
-                plus_one.add(count);
+            if let StaticEffect::EntersWithPlusOneCounters { count, for_each } = &ability.effect {
+                let mut count = count.clone();
+                if let Some(set) = for_each {
+                    // CR 614.12: counted as the entrant would exist under
+                    // its incoming controller, before it enters; a card
+                    // entering from the counted graveyard still counts.
+                    let members = self.characteristic_set(entrant, set)?.len();
+                    count.multiply(&Quantity::from(
+                        i64::try_from(members).map_err(|_| "entry count exceeds object limit")?,
+                    ));
+                }
+                plus_one.add(&count);
             }
         }
         if plus_one > Quantity::zero() {

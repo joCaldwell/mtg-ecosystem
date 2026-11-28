@@ -55,8 +55,13 @@ pub enum StaticEffect {
     EntersTappedIf {
         condition: EntryCondition,
     },
+    /// CR 122.6, 614.1c: `count` +1/+1 counters, or `count` for each
+    /// object of `for_each` counted with "you" as the incoming controller
+    /// (CR 614.12) as the permanent enters.
     EntersWithPlusOneCounters {
         count: Quantity,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        for_each: Option<SetExpr>,
     },
     Continuous {
         affects: Scope,
@@ -996,8 +1001,30 @@ impl crate::StaticAbility {
                     invalid("conditional-entry-tapped")
                 }
             }
-            StaticEffect::EntersWithPlusOneCounters { count } => {
-                if on_battlefield && *count > Quantity::zero() {
+            // CR 614.12: a multiplier counts battlefield permanents or the
+            // incoming controller's graveyard through layers 1-5.
+            StaticEffect::EntersWithPlusOneCounters { count, for_each } => {
+                if on_battlefield
+                    && *count > Quantity::zero()
+                    && for_each.as_ref().is_none_or(|set| {
+                        // "Other" would name an incarnation that has not
+                        // entered yet; it is not admitted.
+                        cda_set(set)
+                            && set.filter().is_none_or(|f| {
+                                !f.0.iter().any(|a| matches!(a, Atom::IsNot { .. }))
+                            })
+                            && matches!(
+                                set,
+                                SetExpr::Matching {
+                                    zone: ZoneExpr::Battlefield,
+                                    ..
+                                } | SetExpr::Matching {
+                                    zone: ZoneExpr::Graveyard { .. },
+                                    ..
+                                }
+                            )
+                    })
+                {
                     Ok(())
                 } else {
                     invalid("entry-plus-one-counters")
