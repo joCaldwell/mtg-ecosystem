@@ -297,6 +297,7 @@ impl RulesTxn {
                 })
                 .and_then(|row| row.label)
                 .unwrap_or_else(|| effect.0.clone()),
+            Candidate::CreatureType { kind } => kind.name().into(),
             Candidate::Color { color } => format!("{color:?}"),
             Candidate::ManaBundle { symbols } => symbols
                 .iter()

@@ -206,6 +206,11 @@ impl Resolution {
                     scope,
                     operand: ability.pointer(path),
                 };
+                if let Role::Resolved(ResolvedRef::LinkedResult(link)) = role
+                    && linked_entry_choice(abilities, &site, link)
+                {
+                    continue;
+                }
                 let evaluated = typed
                     .get(index)
                     .and_then(|block| evaluated_site(block, path));
@@ -786,6 +791,45 @@ impl BlockKind {
     }
 }
 
+/// CR 607.2d: the consuming term reads the unique printed choice on this
+/// face. Verify the frozen archive's producer against the actual source AST.
+fn linked_entry_choice(
+    abilities: &Value,
+    site: &Site<'_>,
+    link: &ast::ResolvedRefLinkedResult,
+) -> bool {
+    if site.scope.is_some() || link.role != ast::StepResultRole::Choice {
+        return false;
+    }
+    let category = match (site.kind, site.path) {
+        (
+            BlockKind::Activated,
+            "/effects/0/steps/0/restriction/uses/0/filter/chosenType"
+            | "/effects/0/steps/0/restriction/uses/1/source/chosenType"
+            | "/effects/0/steps/0/riders/0/spentOn/0/filter/chosenType",
+        ) if site.ability["effects"][0]["steps"][0]["effect"] == "add-mana" => "creature-type",
+        (BlockKind::Static, "/effect/what/filter/chosenType") => "creature-type",
+        (BlockKind::Activated, "/effects/0/steps/0/mana/choice")
+            if site.ability["effects"][0]["steps"][0]["mana"]["mana"] == "chosen-color" =>
+        {
+            "color"
+        }
+        (BlockKind::Static, "/effect/what/filter/chosenColor") => "color",
+        _ => return false,
+    };
+    let Ok(index) = usize::try_from(link.block) else {
+        return false;
+    };
+    let producer = &abilities[index];
+    let path = "/effect/effects/0/steps/0";
+    producer["kind"] == "static"
+        && producer["effect"]["static"] == "as-enters"
+        && link.step == path
+        && producer
+            .pointer(path)
+            .is_some_and(|step| step["effect"] == "choose-value" && step["category"] == category)
+}
+
 /// A reference entry's role: resolved in the closed vocabulary, or a
 /// derived/evaluated entry with no antecedent object of its own.
 #[derive(Clone, Copy)]
@@ -816,7 +860,17 @@ impl Site<'_> {
                     "/effect/who"
                         | "/effect/costs/0/payer"
                         | "/effect/costs/0/what/filter/zone/owner"
-                ) && self.ability["effect"]["static"] == "entry-choice"))
+                ) && self.ability["effect"]["static"] == "entry-choice")
+                || (self.path.starts_with("/effect/multiplier/")
+                    && self.ability["effect"]["static"] == "enters-with-counters")
+                || self
+                    .path
+                    .strip_suffix("/effects/0/steps/0/who")
+                    .is_some_and(|parent| {
+                        self.ability
+                            .pointer(parent)
+                            .is_some_and(|effect| effect["static"] == "as-enters")
+                    }))
         {
             Some(ControllerRole::EnteringController)
         } else if self.quoted_ability() {
@@ -1213,9 +1267,7 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
         Some(ResolvedRef::LinkedPool(p)) => word_row(word, at, |at| {
             at.effects_operand() && p.id.starts_with("/effects/")
         }),
-        // CR 607.1–607.2d, 601.2h: a result another block of the face
-        // established (an as-enters choice, a paid cost's object) needs
-        // per-object storage the kernel does not have yet; rejected by name.
+        // Only the typed entry-choice producers above bind across blocks.
         Some(ResolvedRef::LinkedResult(_)) => false,
         Some(ResolvedRef::Controller(_)) => {
             controller_row(resolved, at) && word_row(word, at, |_| false)

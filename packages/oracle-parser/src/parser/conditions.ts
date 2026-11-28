@@ -5,8 +5,9 @@
 // (declared combat actions), 608.2i (history), 700.4 (dies), and 119:
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 
-import type { Amount, Comparison, Condition, Cost, CounterSpec, GroupConstraint, ObjectFilter, ObjectRef, PhaseName, PlayerRef, ZoneRef } from "../ast.ts";
+import type { Amount, CombatDefender, Comparison, Condition, Cost, CounterSpec, GroupConstraint, ObjectFilter, ObjectRef, PhaseName, PlayerRef, ZoneRef } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
+import type { Token } from "../lexer.ts";
 import { isManaSymbol } from "../symbols.ts";
 import { parseKeywordName } from "./keywords.ts";
 import { parseDiceCondition } from "./dice.ts";
@@ -299,6 +300,35 @@ function parseDeclaredAttackersCount(c: Cursor, g: ConditionGrammar): Condition 
         { defender: "object", what: { ref: "each", filter: { types: ["planeswalker"], control: "you" } } },
       ],
     } };
+  });
+}
+
+/** "If they attacked you and/or a planeswalker you control": in the
+ * enclosing trigger's declaration, an attacker is attacking a listed
+ * defender. Without a declaration context the past tense has no period. */
+function parseDeclarationAttacked(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt((c): Condition | null => {
+    const who = g.parsePlayerRef(c);
+    if (!who || c.word("attacked") === null) return null;
+    const defender = (c: Cursor): CombatDefender | null => c.attempt(c => {
+      const player = g.parsePlayerRef(c);
+      if (player) return { defender: "player" as const, who: player };
+      const what = g.parseObjectRef(c);
+      return what && { defender: "object" as const, what };
+    });
+    const first = defender(c);
+    if (!first) return null;
+    const defenders = [first];
+    const join = c.attempt(c => {
+      if (c.word("or") !== null) return true;
+      return c.word("and") !== null && c.punct("/") && c.word("or") !== null ? true : null;
+    });
+    if (join) {
+      const second = defender(c);
+      if (!second) return null;
+      defenders.push(second);
+    }
+    return c.isPunct(",") ? { condition: "declaration-attacked", who, defenders } : null;
   });
 }
 
@@ -983,7 +1013,7 @@ function parseAtom(c: Cursor, g: ConditionGrammar): Condition | null {
   if (dice) return dice;
   const aggregate = parseAggregateCondition(c, g) ?? parsePlayerCounters(c, g);
   if (aggregate) return aggregate;
-  return parseCountWithCounters(c, g) ?? (g.declaredAttackers ? parseDeclaredAttackersCount(c, g) : null) ?? parseSingleTargetCondition(c)
+  return parseCountWithCounters(c, g) ?? (g.declaredAttackers ? parseDeclaredAttackersCount(c, g) ?? parseDeclarationAttacked(c, g) : null) ?? parseSingleTargetCondition(c)
     ?? parseCoordinatedEntryHistory(c, g) ?? parsePutActionOutcome(c, g) ?? parseEventOutcome(c, g) ?? parseAttributeComparison(c, g) ?? parseGraveyardPosition(c, g) ?? parseCharacteristicRelationCondition(c, g) ?? parseSearchHistory(c, g) ?? parseZoneState(c, g) ?? parseKicked(c, g) ?? parseHandCount(c, g) ?? parsePersonalZoneCount(c, g) ?? parseOwnedInExile(c, g) ?? parseZoneSize(c, g) ?? parseCopularZoneCount(c, g) ?? parseQualifiedCount(c, g)
     ?? parseHasKeyword(c, g) ?? parseManaSpent(c, g) ?? parseDamageHistory(c, g)
     ?? parseCombatHistory(c, g) ?? parseCastObjectHistory(c, g) ?? parseZoneHistory(c, g)
@@ -993,7 +1023,50 @@ function parseAtom(c: Cursor, g: ConditionGrammar): Condition | null {
 /** Repeated complete clauses can form an unambiguous boolean expression.
  * Object-filter alternatives remain inside parseFilter. Mixed AND/OR clauses
  * without an explicit grouping syntax fail instead of inventing precedence. */
+/** "You've cast a spell from a graveyard or activated an ability of a card
+ * in a graveyard this turn": two history predicates of one printed subject,
+ * the subject stated before the first and the period after the last. Each
+ * alternative is read as a complete clause with that subject and period. */
+function parseSharedHistoryAlternatives(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt((c): Condition | null => {
+    const start = c.pos;
+    const subject = c.tokens[start];
+    if (subject?.kind !== "word" || subject.value !== "you've") return null;
+    const isWord = (index: number, ...values: string[]) => {
+      const token = c.tokens[index];
+      return token?.kind === "word" && !token.possessive && values.includes(token.value);
+    };
+    let or = -1;
+    for (let i = start + 1; i < c.tokens.length && !(c.tokens[i].kind === "punct"); i++)
+      if (isWord(i, "or") && isWord(i + 1, "cast", "activated")) { or = i; break; }
+    if (or < 0) return null;
+    let period = -1;
+    for (let i = or + 2; i + 1 < c.tokens.length && c.tokens[i].kind !== "punct"; i++)
+      if (isWord(i, "this") && isWord(i + 1, "turn")) period = i;
+    if (period < 0 || (c.tokens[period + 2] && c.tokens[period + 2].kind !== "punct")) return null;
+    const clause = (tokens: Token[]): Condition | null => {
+      const sub = new Cursor(tokens);
+      const parsed = parseAtom(sub, g);
+      return parsed && sub.done() ? parsed : null;
+    };
+    const periodTokens = c.tokens.slice(period, period + 2);
+    const first = clause([...c.tokens.slice(start, or), ...periodTokens]);
+    const second = first && clause([subject, ...c.tokens.slice(or + 1, period + 2)]);
+    if (!first || !second || !("who" in first) || !("who" in second)) return null;
+    // Each alternative proves only its own clause; the subject is the first
+    // clause's occurrence and the shared period belongs to the disjunction.
+    c.mark(first, start, or, "complete-production");
+    c.mark(second, or + 1, period, "complete-production");
+    (second as { who: PlayerRef }).who = c.alias(first.who as PlayerRef);
+    c.pos = period + 2;
+    const either: Condition = { condition: "any-of", conditions: [first, second] };
+    return c.hull(either, start, c.pos);
+  });
+}
+
 export function parseConditionExpression(c: Cursor, g: ConditionGrammar): Condition | null {
+  const shared = parseSharedHistoryAlternatives(c, g);
+  if (shared) return shared;
   return c.attempt(c => {
     const first = parseAtom(c, g);
     if (!first) return null;

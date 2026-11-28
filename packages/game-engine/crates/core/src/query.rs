@@ -331,7 +331,10 @@ pub fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tr
                 compare_quantities(&actual, *cmp, value).into()
             }),
         // Identity against an invocation's reference is the caller's fact.
-        Atom::Is { .. } | Atom::IsNot { .. } => Tri::Unknown,
+        Atom::Is { .. }
+        | Atom::IsNot { .. }
+        | Atom::SourceChosenColor {}
+        | Atom::SourceChosenCreatureType {} => Tri::Unknown,
         Atom::AnyOf { alternatives } => alternatives.iter().fold(Tri::No, |found, pred| {
             match (found, matches_pred(object, you, pred)) {
                 (Tri::Yes, _) | (_, Tri::Yes) => Tri::Yes,
