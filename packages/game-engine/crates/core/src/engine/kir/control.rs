@@ -1076,15 +1076,6 @@ impl RulesTxn {
             }
             Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
             Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
-            Node::Do(Verb::CreateTokens {
-                controller, count, ..
-            }) => {
-                self.control_amount(task, count)? > Quantity::zero()
-                    && self
-                        .control_players(task, controller)?
-                        .into_iter()
-                        .any(|p| self.is_live(p))
-            }
             Node::Do(Verb::CreateMyriadToken { defender }) => {
                 self.myriad_defender(task, defender)?.is_some()
             }

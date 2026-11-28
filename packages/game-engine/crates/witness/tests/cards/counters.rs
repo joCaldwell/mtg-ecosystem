@@ -564,7 +564,7 @@ fn assemble_the_legion_counts_its_own_muster_counters() {
         ASSEMBLE_THE_LEGION,
         &[
             Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::PutCounters),
-            Cell::CountedTokens,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::CreateTokens),
         ],
     )])
     .permanent_or_hand("Assemble the Legion", 0, 0, false)

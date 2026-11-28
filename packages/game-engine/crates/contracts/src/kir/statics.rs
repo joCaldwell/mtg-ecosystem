@@ -891,15 +891,23 @@ fn replacement_scope_valid(scope: &Scope, d: &crate::Definition, changes: &[Chan
 fn creature_scope(scope: &Scope, kind: CardKind) -> bool {
     match scope {
         Scope::Source => kind == CardKind::Creature,
-        Scope::Matching { filter } | Scope::Attachment { filter, .. } => {
-            filter.0.iter().any(|atom| match atom {
-                Atom::Type { kind } => *kind == CardKind::Creature,
-                // CR 205.3d,m: admitted definitions have no kindred card type.
-                Atom::Subtype { subtype } => is_creature_subtype(subtype),
-                _ => false,
-            })
-        }
+        Scope::Matching { filter } | Scope::Attachment { filter, .. } => only_creatures(filter),
     }
+}
+
+/// Whether every object `filter` admits is a creature: it names the
+/// creature type or a creature subtype, or each alternative of a printed
+/// union does ("Skeletons you control and other Zombies you control").
+fn only_creatures(filter: &Pred) -> bool {
+    filter.0.iter().any(|atom| match atom {
+        Atom::Type { kind } => *kind == CardKind::Creature,
+        // CR 205.3d,m: admitted definitions have no kindred card type.
+        Atom::Subtype { subtype } => is_creature_subtype(subtype),
+        Atom::AnyOf { alternatives } => {
+            !alternatives.is_empty() && alternatives.iter().all(only_creatures)
+        }
+        _ => false,
+    })
 }
 
 /// CR 113.10a, 605.1a, 613.1f: the admitted quoted mana abilities. A
@@ -1042,8 +1050,17 @@ impl crate::StaticAbility {
                 }
                 for change in changes {
                     let supported = match change {
-                        Change::PowerToughness { power, toughness }
-                        | Change::SetPowerToughness { power, toughness } => {
+                        // CR 608.2h, 613.4c: an additive change is fixed or
+                        // a nonnegative count of public objects read through
+                        // layers 1-5, the values a CDA may read (CR 604.3),
+                        // so it never depends on a layer-7 result.
+                        Change::PowerToughness { power, toughness } => {
+                            creature_scope(affects, kind)
+                                && [power, toughness]
+                                    .into_iter()
+                                    .all(|n| n.as_fixed().is_some() || cda_amount(n))
+                        }
+                        Change::SetPowerToughness { power, toughness } => {
                             creature_scope(affects, kind)
                                 && power.as_fixed().is_some()
                                 && toughness.as_fixed().is_some()

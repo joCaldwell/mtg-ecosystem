@@ -646,6 +646,29 @@ fn signed(n: &ast::SignedAmount) -> Result<Amount, Failure> {
     }))
 }
 
+/// CR 608.2h, 613.4c: "+N/+M for each [filter]": each stat gains its
+/// printed bonus times the number of matching public objects, recounted
+/// whenever it is read. A bonus of zero contributes nothing. A penalty
+/// ("-1/-1 for each") has no nonnegative count form and rejects by name.
+fn counted(n: &ast::SignedAmount, set: &SetExpr) -> Result<Amount, Failure> {
+    let value = fixed_nonnegative(&n.amount)?;
+    if value == Quantity::zero() {
+        return Ok(Amount::fixed(0));
+    }
+    if matches!(&*n.sign, ast::SignedAmountSign::Minus1) {
+        return Err(gap("modifier:for-each:negative"));
+    }
+    let count = Amount::Count { set: set.clone() };
+    Ok(if value == Quantity::from(1) {
+        count
+    } else {
+        Amount::Times {
+            factor: value,
+            of: Box::new(count),
+        }
+    })
+}
+
 fn negative(value: &Quantity) -> Quantity {
     let mut result = Quantity::zero();
     result.subtract(value);
@@ -1322,13 +1345,34 @@ fn modify(
     }
     for (modifier, raw_modifier) in x.modifiers.iter().zip(raw_modifiers) {
         let change = match modifier {
-            M::Pt(m) => {
-                plain!(m);
-                Change::PowerToughness {
-                    power: signed(&m.power)?,
-                    toughness: signed(&m.toughness)?,
+            M::Pt(m) => match &m.for_each {
+                Some(each)
+                    if m.multiplier.is_none()
+                        && m.value_scope.is_none()
+                        && m.condition.is_none()
+                        && m.condition_scope.is_none() =>
+                {
+                    let set = cda_set(each).map_err(|e| {
+                        gap(&format!(
+                            "modifier:for-each:{}",
+                            e.reason
+                                .strip_prefix("static:cda-pt:")
+                                .unwrap_or(&e.reason)
+                        ))
+                    })?;
+                    Change::PowerToughness {
+                        power: counted(&m.power, &set)?,
+                        toughness: counted(&m.toughness, &set)?,
+                    }
                 }
-            }
+                _ => {
+                    plain!(m);
+                    Change::PowerToughness {
+                        power: signed(&m.power)?,
+                        toughness: signed(&m.toughness)?,
+                    }
+                }
+            },
             M::BasePt(m) => {
                 plain!(m);
                 let (Some(power), Some(toughness)) = (&m.power, &m.toughness) else {

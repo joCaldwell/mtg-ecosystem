@@ -12,6 +12,7 @@ pub enum EvaluatedVerb {
     Sacrifice,
     Discard,
     Mill,
+    CreateTokens,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -382,6 +383,31 @@ const SACRIFICE: VerbSignature = VerbSignature {
     projections: &[StepRole::Amount, StepRole::Objects, StepRole::Player],
 };
 
+/// CR 111.1-111.2, 608.2h: who creates the tokens and how many, read as the
+/// step is performed. The creating player is the ability's controller or the
+/// current or last-known controller of an announced target.
+const TOKEN_SLOTS: &[OperandSlot] = &[
+    OperandSlot {
+        field: "controller",
+        role: SlotRole::Recipient,
+        sort: Sort::Player,
+        accepts: &[OperandClass::Controller, OperandClass::TargetRelation],
+        quantity: None,
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ReadCurrentOrLastKnown,
+        absent: Absent::SkipVerb,
+    },
+    quantity(QuantityDomain::NonNegative),
+];
+
+const TOKENS: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::CreateTokens,
+    slots: TOKEN_SLOTS,
+    distribution: Distribution::Single,
+    object_result_read: ObjectUse::ActOnLiveIncarnation,
+    projections: &[],
+};
+
 /// The operands of an evaluated verb, in signature slot order.
 #[derive(Clone, Copy, Debug)]
 pub enum Evaluated<'a> {
@@ -410,6 +436,12 @@ pub enum Evaluated<'a> {
         filter: &'a Pred,
         greatest_power: bool,
     },
+    Tokens {
+        controller: &'a PlayerExpr,
+        count: &'a Amount,
+        token: &'a TokenSpec,
+        tapped: bool,
+    },
 }
 
 impl<'a> Evaluated<'a> {
@@ -419,7 +451,8 @@ impl<'a> Evaluated<'a> {
             Self::PlayerAmount { amount, .. }
             | Self::Damage { amount, .. }
             | Self::Counters { amount, .. }
-            | Self::Sacrifice { count: amount, .. } => Some(amount),
+            | Self::Sacrifice { count: amount, .. }
+            | Self::Tokens { count: amount, .. } => Some(amount),
             Self::Discard { amount, .. } => amount,
         }
     }
@@ -467,6 +500,12 @@ impl<'a> Evaluated<'a> {
             Self::Counters { on, amount, .. } => vec![
                 (slot(0), OperandClass::set(on)),
                 (slot(1), OperandClass::amount(amount)),
+            ],
+            Self::Tokens {
+                controller, count, ..
+            } => vec![
+                (slot(0), OperandClass::player(controller)),
+                (slot(1), OperandClass::amount(count)),
             ],
             Self::Sacrifice { player, count, .. } => vec![
                 (slot(0), OperandClass::player(player)),
@@ -538,6 +577,20 @@ impl Verb {
                     count,
                     filter,
                     greatest_power: *greatest_power,
+                },
+            )),
+            Self::CreateTokens {
+                controller,
+                count,
+                token,
+                tapped,
+            } => Some((
+                &TOKENS,
+                Evaluated::Tokens {
+                    controller,
+                    count,
+                    token,
+                    tapped: *tapped,
                 },
             )),
             _ => None,

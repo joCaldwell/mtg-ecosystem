@@ -42,6 +42,12 @@ impl Walk<'_, '_> {
                 filter,
                 greatest_power,
             } => self.audit_evaluated_sacrifice(&operands, player, count, filter, greatest_power),
+            Evaluated::Tokens {
+                controller,
+                count,
+                token,
+                ..
+            } => self.audit_evaluated_tokens(controller, count, token),
         }
     }
 

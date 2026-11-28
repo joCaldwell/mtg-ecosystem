@@ -331,77 +331,45 @@ impl RulesTxn {
             ProposedEvent::CeaseSpellCopy { object: object.id }
         })
     }
-    pub(super) fn execute_token_instruction(
+    /// CR 111.1-111.2, 608.2h: the evaluated creation step. The evaluator
+    /// has read the count and the creating player once; zero tokens or an
+    /// absent player creates nothing. The proposed event authenticates its
+    /// recipe and replacements apply before commit (`created_count`).
+    pub(super) fn create_evaluated_tokens(
         &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String> {
-        let (event, block) = match instruction {
-            kernel!(CreateTokens {
-                controller: player,
-                count,
-                token,
-                tapped,
-            } @ source_block) => {
-                // CR 107.3, 608.2h: a fixed number, the announced X or a
-                // resolution count read now; zero creates nothing.
-                let count = self.kernel_amount(&frame, &count)?;
-                if count <= Quantity::zero() {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+        controller: PlayerId,
+        count: &Quantity,
+        token: &mtg_contracts::kir::TokenSpec,
+        tapped: bool,
+        cause: BatchCause,
+    ) -> Result<Option<EventOutcome>, String> {
+        if *count <= Quantity::zero() || !self.is_live(controller) {
+            return Ok(None);
+        }
+        let count = count.to_u32().unwrap_or(u32::MAX);
+        self.check_token_capacity(count)?;
+        let BatchCause::Instruction { source, .. } = cause else {
+            return Err("token creation outside an instruction".into());
+        };
+        let event = match token {
+            mtg_contracts::kir::TokenSpec::Predefined { kind } => {
+                ProposedEvent::CreatePredefinedTokens {
+                    controller,
+                    source,
+                    count,
+                    kind: *kind,
+                    tapped,
                 }
-                let count = count.to_u32().unwrap_or(u32::MAX);
-                let kir::Players::One(controller) = self.kernel_players(&frame, &player)? else {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                };
-                if !self.is_live(controller) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                self.check_token_capacity(count)?;
-                let source = self.entry(frame.stack_id)?.source;
-                (
-                    match token {
-                        mtg_contracts::kir::TokenSpec::Predefined { kind } => {
-                            ProposedEvent::CreatePredefinedTokens {
-                                controller,
-                                source,
-                                count,
-                                kind,
-                                tapped,
-                            }
-                        }
-                        mtg_contracts::kir::TokenSpec::Creature { spec: token } => {
-                            ProposedEvent::CreateCreatureTokens {
-                                controller,
-                                source,
-                                count,
-                                token: Box::new(token),
-                                tapped,
-                            }
-                        }
-                    },
-                    source_block,
-                )
             }
-
-            _ => return Err("unexpected token instruction".into()),
-        };
-        let cause = BatchCause::Instruction {
-            stack_id: frame.stack_id,
-            player: self.entry(frame.stack_id)?.controller,
-            source: self.entry(frame.stack_id)?.source,
-            cursor: frame.cursor,
-            source_block: block,
-        };
-        let actual = self.commit(event, cause)?;
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
+            mtg_contracts::kir::TokenSpec::Creature { spec } => ProposedEvent::CreateCreatureTokens {
+                controller,
+                source,
+                count,
+                token: Box::new(spec.clone()),
+                tapped,
             },
-        )
+        };
+        self.commit(event, cause).map(Some)
     }
     /// CR 111.1, 614.1a, 614.16: the number of tokens one creation of
     /// `count` makes under `controller`'s control after the quantity

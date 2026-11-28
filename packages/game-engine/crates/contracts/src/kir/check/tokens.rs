@@ -2,52 +2,43 @@
 use super::*;
 
 impl Walk<'_, '_> {
-    /// CR 111.1-111.4, 111.10: "you" create a positive fixed number of
-    /// tokens of one exact recipe. CR 107.3, 608.2h: the controller's count
-    /// may instead be the announced X or a resolution count, read once as
-    /// the step is performed; zero creates nothing.
-    pub(super) fn audit_tokens(
+    /// CR 111.1-111.4, 111.10: the ability's controller, or the current or
+    /// last-known controller of an announced permanent target, creates tokens
+    /// of one exact recipe. CR 107.3, 608.2h: the count is a positive fixed
+    /// number or a quantity the shared evaluator reads once as the step is
+    /// performed (`audit_evaluated` has checked it); zero creates nothing.
+    /// A positive fixed number of plain creature tokens for "you" keeps its
+    /// reviewed cell and tiers.
+    pub(super) fn audit_evaluated_tokens(
         &self,
         controller: &PlayerExpr,
         count: &Amount,
         token: &TokenSpec,
     ) -> Result<Cell, KirError> {
-        if count.is_announced_x() || count.is_resolution_count() {
-            if !matches!(
-                controller,
-                PlayerExpr::Is {
-                    who: Ref::Controller { .. },
-                }
-            ) {
-                return unaudited("counted token controller");
-            }
-            if !count.is_announced_x() {
-                Self::audit_verb_amount(count)?;
-            }
-            return Ok(Cell::CountedTokens);
-        }
-        Self::fixed_at_least(count, 1, "token count")?;
-        if count.as_fixed().and_then(Quantity::to_u32).is_none() {
-            return kind("token count above the supported range");
-        }
-        match controller {
-            PlayerExpr::ControllerOf {
-                object: Ref::Target { slot },
-            } if self.target_has_facts(*slot) => {
-                return Ok(Cell::TokensForTargetController);
-            }
+        let you = matches!(
+            controller,
             PlayerExpr::Is {
                 who: Ref::Controller { .. },
-            } => {}
+            }
+        );
+        match controller {
+            _ if you => {}
+            PlayerExpr::ControllerOf {
+                object: Ref::Target { slot },
+            } if self.target_has_facts(*slot) => {}
             _ => return unaudited("token controller"),
         }
-        Ok(match token {
-            TokenSpec::Predefined { .. } => Cell::PredefinedTokens,
-            TokenSpec::Creature { spec } if !spec.additional_types.is_empty() => {
-                Cell::MultiTypeCreatureTokens
+        if count.as_fixed().is_some() {
+            Self::fixed_at_least(count, 1, "token count")?;
+            if count.as_fixed().and_then(Quantity::to_u32).is_none() {
+                return kind("token count above the supported range");
             }
-            TokenSpec::Creature { .. } => Cell::CreatureTokens,
-        })
+            if you && matches!(token, TokenSpec::Creature { spec } if spec.additional_types.is_empty())
+            {
+                return Ok(Cell::CreatureTokens);
+            }
+        }
+        Ok(Cell::Evaluated(EvaluatedVerb::CreateTokens))
     }
 }
 

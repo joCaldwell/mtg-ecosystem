@@ -616,7 +616,10 @@ impl RulesTxn {
                         })
                     })
             }
-            Evaluated::PlayerAmount { player, .. } => {
+            Evaluated::PlayerAmount { player, .. }
+            | Evaluated::Tokens {
+                controller: player, ..
+            } => {
                 matches!(self.evaluated_players(task, player)?, Resolved::Present(players) if !players.is_empty())
             }
             Evaluated::Damage { source, to, .. } => {

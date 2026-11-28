@@ -325,7 +325,7 @@ fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Am
         Ok(amount) => return Ok(amount),
         Err(failure) => failure,
     };
-    if !sentence.steps.iter().all(|step| step.effect().is_some()) {
+    if !sentence.steps.iter().all(Step::is_evaluated) {
         return Err(original);
     }
     let [binding] = sentence.bindings.as_slice() else {
