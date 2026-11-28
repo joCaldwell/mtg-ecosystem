@@ -16,7 +16,10 @@ type RetargetEffect = Extract<Effect, { effect: "choose-new-targets" }>;
  * identity confines it to this first instruction even through parser retries;
  * an identical-looking later pronoun or another body cannot reuse it. */
 export interface StackCopyInputProof {
-  readonly token: Token;
+  readonly token?: Token;
+  /** "When you cast this spell, … copy ~": the trigger's own spell, so its
+   * name refers to that spell on the stack (CR 201.5, 707.10). */
+  readonly selfSpell?: true;
   readonly event: "cast" | "activate";
   readonly casterIsYou?: true;
   /** A complete opening cast-trigger reference, usable only for its exact
@@ -54,7 +57,18 @@ export function uniqueStackTriggerEvent(trigger: Trigger): "cast" | "activate" |
   return trigger.trigger;
 }
 
+/** The spell's own cast trigger: "When you cast this spell". */
+export function selfSpellCopyInput(trigger: Trigger): StackCopyInputProof | undefined {
+  if (trigger.trigger !== "cast" || trigger.grouping || trigger.who.player !== "you" || !("ref" in trigger.what)) return undefined;
+  const what = trigger.what;
+  return what.ref === "self" || (what.ref === "this" && what.noun === "spell") ? { event: "cast", selfSpell: true } : undefined;
+}
+
 export function prepareStackCopyInput(c: Cursor, trigger: Trigger): StackCopyInputProof | undefined {
+  return prepareItCopyInput(c, trigger) ?? selfSpellCopyInput(trigger);
+}
+
+function prepareItCopyInput(c: Cursor, trigger: Trigger): StackCopyInputProof | undefined {
   const event = uniqueStackTriggerEvent(trigger);
   if (!event) return undefined;
   const body = new Cursor(c.tokens.slice(c.pos));
@@ -160,8 +174,10 @@ export function parseStackCopy(c: Cursor, previousActor?: PlayerRef, proof?: Sta
     if (!by) return null;
     const inputToken = c.peek();
     let what = parseObjectRef(c);
-    if (what?.ref === "it" && proof && proof.token === inputToken)
+    if (what?.ref === "it" && proof?.token && proof.token === inputToken)
       what = { ref: "trigger-event-object", event: proof.event };
+    // CR 201.5: in the spell's own cast trigger, its name is that spell.
+    if (what?.ref === "self" && proof?.selfSpell) what = c.mark({ ref: "this", noun: "spell" }, c.pos - 1);
     if (!what || !stackReference(what)) return c.fail("explicit spell or proven trigger object to copy");
     let count: Amount = { amount: "fixed", value: 1 };
     if (c.word("twice") !== null) count = { amount: "fixed", value: 2 };
@@ -180,7 +196,7 @@ export function parseStackCopy(c: Cursor, previousActor?: PlayerRef, proof?: Sta
     const copied: CopyEffect = { effect: "copy-stack-object", what, who: by.who, count,
       ...(copyExceptions ? { copyExceptions } : {}),
       ...(by.optional ? { optional: true } : {}), ...(by.decidedBy ? { decidedBy: by.decidedBy } : {}) };
-    const continuation = proof && proof.token === inputToken ? proof.castContinuation : undefined;
+    const continuation = proof?.token && proof.token === inputToken ? proof.castContinuation : undefined;
     if (continuation && !copied.optional && !copyExceptions && count.amount === "fixed" && count.value === 1) {
       const castSpell = { ref: "trigger-event-object" as const, event: "cast" as const };
       if (by.who.player === "that-player" && continuation.singleTargetSubtype) {

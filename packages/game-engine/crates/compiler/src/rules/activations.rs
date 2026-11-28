@@ -266,6 +266,7 @@ fn rider(step: &Step, is_self: &dyn Fn(&str) -> bool) -> Result<kir::Node, Failu
                     to,
                     unpreventable: None,
                     excess_to: None,
+                    excess_condition: None,
                 } = damage.as_ref()
                 && match source.as_ref() {
                     ast::ObjectRef::This(this) => is_self(&this.noun),

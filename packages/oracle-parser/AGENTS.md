@@ -6,7 +6,9 @@ syntax AST and diagnostic reference analysis; root scripts own ingestion/archive
 tooling; Rust owns semantic lowering and executable IR
 ([system ownership](../../README.md#system-architecture),
 [current engine scope](../../docs/game-engine-current.md)). Broad grammar
-expansion is paused.
+expansion is paused; Stage 4 deck-ranked batches pair each production with its
+Rust consumer or located rejection and write their own cut
+([grammar cuts](../../docs/oracle_parser.md#ast-archive)).
 
 ## Constraints
 
