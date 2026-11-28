@@ -5,6 +5,7 @@ import { parsePregameDeckReveal } from "./pregame-deck.ts";
 import type { Amount, Color, Condition, ObjectRef, StaticEffect, StaticModifier } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import type { Token } from "../lexer.ts";
+import { canonicalSubtypeName } from "../vocab.ts";
 import { bindStaticOtherExclusions } from "./other-exclusion.ts";
 import { parseAbilityRemoval, parseBasePt, parseCantAction, parseGainedAbilities, parsePtModifier, parseSentences } from "./effects.ts";
 import { parseStaticPrevention } from "./prevention.ts";
@@ -786,10 +787,42 @@ function parseLinkedExileLook(c: Cursor): StaticEffect | null {
   });
 }
 
+/** CR 607.2a, 613.1d, 613.4b: take only the stated characteristics
+ * from the most recently exiled matching card. The final sentence retains
+ * a subtype of the affected permanent in the same continuous effect. */
+function parseLinkedCreatureCharacteristics(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    const what = parseObjectRef(c);
+    if (!what || !(what.ref === "self" || (what.ref === "this" && what.noun === "creature"))
+        || !c.words("has", "the")) return null;
+    const attributes = c.attempt(c => {
+      return c.words("power") && c.punct(",") && c.words("toughness") && c.punct(",") &&
+        c.words("and", "creature", "types") ? { power: true, toughness: true, creatureTypes: true } as const : null;
+    });
+    if (!attributes || c.word("of") === null) return null;
+    const from = c.attempt(c => {
+      if (!c.words("the", "last")) return null;
+      const start = c.pos;
+      if (!c.words("creature", "card")) return null;
+      const filter = c.mark({ cls: "card" as const, types: ["creature"] }, start);
+      if (!c.words("exiled", "with")) return null;
+      const linkedTo = parseObjectRef(c);
+      return linkedTo?.ref === "it" ? { order: "last" as const, filter, linkedTo } : null;
+    });
+    if (!from || !c.punct(".") || !c.words("it's", "still") || c.word("a", "an") === null) return null;
+    const subtype = c.peek();
+    const retainSubtype = subtype?.kind === "word" && !subtype.possessive ? canonicalSubtypeName(subtype.raw) : null;
+    if (!retainSubtype) return null;
+    c.pos++;
+    if (!c.punct(".") || !c.done()) return null;
+    return { static: "linked-creature-characteristics", what, attributes, from, retainSubtype };
+  });
+}
+
 function parseStaticBase(c: Cursor): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
-    const linkedLook = parseLinkedExileLook(c);
-    if (linkedLook) return linkedLook;
+    const linked = parseLinkedExileLook(c) ?? parseLinkedCreatureCharacteristics(c);
+    if (linked) return linked;
     const entryCopy = parseEntryCopy(c, parseGainedAbilities);
     if (entryCopy) return entryCopy;
     const persistent = parsePersistentRule(c) ?? parsePregameRule(c, body => parseSentences(body, { modalOptions: [] }));

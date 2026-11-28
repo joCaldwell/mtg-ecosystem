@@ -2326,6 +2326,12 @@ export type StaticEffect =
       duration?: Duration;
       bindings?: { variable: "x"; value: Amount }[];
     }
+  /** CR 607.2a, 613.1d, 613.4b: read the last matching card still in
+   * exile from the linked ability, with an explicitly retained subtype. */
+  | { static: "linked-creature-characteristics"; what: ObjectRef;
+      attributes: { power: true; toughness: true; creatureTypes: true };
+      from: { order: "last"; filter: ObjectFilter; linkedTo: ObjectRef };
+      retainSubtype: string }
   | { static: "cda-pt"; what: ObjectRef; stat: "power" | "toughness" | "both"; value: Amount }
   | { static: "conditional"; condition: Condition; effect: StaticEffect; otherwise?: StaticEffect }
   | { static: "cda-colors"; what: ObjectRef; operation: "set" | "add"; colors: Color[] | ChosenValueRef<"color"> }

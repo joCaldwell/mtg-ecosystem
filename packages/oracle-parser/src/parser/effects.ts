@@ -2042,6 +2042,38 @@ const parseTapUntap: StepParser = transactionalStep((c, ctx) => {
   return refs.map((what): Effect => ({ effect: tapped ? "tap" : "untap", what, ...actor }));
 });
 
+/** CR 101.4, 608.2c, 701.21a: "all [types] and nonbasic lands they
+ * control" is one collection per actor. The final controller qualifies the
+ * union. "Nonbasic" qualifies just the land branch. */
+function parseControlledNonbasicUnion(c: Cursor): ObjectRef | null {
+  return c.attempt(c => {
+    const start = c.pos;
+    if (c.word("all") === null) return null;
+    const filterStart = c.pos;
+    const terms: ObjectFilter[] = [];
+    for (;;) {
+      const termStart = c.pos;
+      const noun = c.word("artifacts", "battles", "creatures", "enchantments", "planeswalkers");
+      if (!noun) return null;
+      const type = singularize(noun);
+      if (terms.some(term => term.types?.includes(type))) return null;
+      terms.push(c.mark({ types: [type] }, termStart));
+      const comma = c.punct(",");
+      if (c.word("and") !== null) break;
+      if (!comma) return null;
+    }
+    const landStart = c.pos;
+    if (!c.words("nonbasic", "lands")) return null;
+    terms.push(c.mark({ types: ["land"], nonSupertypes: ["basic"] }, landStart));
+    const union = c.hull({ anyOf: terms }, filterStart);
+    const control = c.pos;
+    if (!c.words("they", "control") || !c.isPunct(".")) return null;
+    const controlledBy = c.mark({ player: "they" } as const, control, control + 1);
+    const filter: ObjectFilter = c.mark({ allOf: [union], controlledBy }, filterStart);
+    return c.mark({ ref: "all", filter }, start);
+  });
+}
+
 const parseSacrifice: StepParser = transactionalStep((c, ctx) => {
   // "That player chooses and sacrifices one of those creatures": the
   // sacrificing player chooses among the identified objects, as with "one of
@@ -2075,7 +2107,9 @@ const parseSacrifice: StepParser = transactionalStep((c, ctx) => {
         attribute: "power", extremum: "maximum", among: { ...pool } } },
     }] } };
   });
-  const what = greatest || parseObjectRef(c);
+  const controlledUnion = who.player === "each-player" || who.player === "each-opponent"
+    ? parseControlledNonbasicUnion(c) : null;
+  const what = greatest || controlledUnion || parseObjectRef(c);
   if (!what) return null;
   const chosenBy = c.attempt((c): PlayerRef | null => {
     if (c.word("of") === null) return null;
