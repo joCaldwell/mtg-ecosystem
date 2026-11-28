@@ -19,6 +19,7 @@ mod activation_restrictions;
 mod antecedent_tests;
 pub(crate) mod control;
 mod costs;
+pub(crate) use costs::chosen::lower as lower_chosen_object_cost;
 mod events;
 pub(crate) mod keywords;
 mod modal;
@@ -1756,6 +1757,9 @@ fn compose_face(
                     if let Some(mut mana) = mana {
                         if !cost_changes.is_empty() {
                             return Err(unsupported("compose.block", "mana ability cost change"));
+                        }
+                        if mana.chosen_cost.is_some() {
+                            costs::printed(&costs, &result.lines[block].text)?;
                         }
                         if spell_kind
                             || timing != SpellTiming::Instant

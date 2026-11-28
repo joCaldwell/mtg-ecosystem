@@ -494,6 +494,15 @@ pub(crate) fn lower_reviewed_set(
         ObjectSet::NonflyingCreatures,
     ];
     let mut set = lower_board_set(what, context)?;
+    // CR 205.3m, 611.2c: "all non-[subtype] creatures" captures the
+    // creatures without that subtype when the P/T effect begins.
+    if matches!(&set, SetExpr::Matching { filter, .. }
+        if matches!(filter.0.as_slice(),
+            [Atom::Type { kind: CardKind::Creature }, Atom::NotSubtype { subtype }]
+            if kir::is_creature_subtype(subtype)))
+    {
+        return Ok(set);
+    }
     // CR 205.3m, 308.2: a positive creature subtype also identifies a
     // creature here, because no admitted card or effect adds the Kindred
     // type. This is the controlled-subtype form of a fixed pump.

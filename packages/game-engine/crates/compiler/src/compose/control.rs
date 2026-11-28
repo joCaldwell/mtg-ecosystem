@@ -288,6 +288,12 @@ fn peel_step(
         }
         // CR 614.15: select the event before applying either alternative.
         Some("self-replacement") => {
+            if step["original"]["effect"] == "add-mana" {
+                return Err(unsupported(
+                    "compose.mana-replacement",
+                    "conditional production requires a checked mana evaluator",
+                ));
+            }
             let Some([replacement]) = step["instead"].as_array().map(Vec::as_slice) else {
                 return reject("self_replacement_shape");
             };

@@ -114,7 +114,9 @@ player” is the active player from the original event (CR 500.1, 603.2).
 **Board-wide sets** include granted keywords at execution. Destruction, exile,
 bounce and all-recipient damage commit atomically; temporary P/T sets capture
 recipients at resolution; set tap and untap change matching permanents
-simultaneously. Destroy, exile and return-to-hand of "all"/"each" permanents
+simultaneously. A printed "all non-[subtype] creatures" P/T change reads each
+creature's current subtypes as it captures recipients (CR 205.3m, 611.2c).
+Destroy, exile and return-to-hand of "all"/"each" permanents
 read a general filter as performed (CR 608.2h): conjunctions of card types,
 type alternatives, excluded types, basic/legendary, subtypes, colors, controller
 (you or your opponents), tapped, untapped, attacking, token, flying and fixed
