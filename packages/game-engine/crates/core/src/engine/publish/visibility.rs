@@ -1057,7 +1057,7 @@ impl RulesTxn {
         Ok(PermittedView {
             known_searched_hand: self.publicly_searched_hand(viewer)?,
             known_library_positions: self.known_library_positions(viewer)?,
-            revealed_library_cards: self.revealed_split_search_cards()?,
+            revealed_library_cards: self.revealed_library_cards()?,
             revealed_face_down: self.state.knowledge.visibility[viewer.0 as usize]
                 .revealed_face_down
                 .clone(),

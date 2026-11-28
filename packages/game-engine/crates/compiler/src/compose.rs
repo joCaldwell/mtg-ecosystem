@@ -24,6 +24,7 @@ mod events;
 pub(crate) mod keywords;
 mod modal;
 mod printed;
+pub(super) mod private_look;
 pub(super) mod resolution_triggers;
 pub(super) mod revealed;
 mod sagas;

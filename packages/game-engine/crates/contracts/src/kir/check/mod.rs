@@ -999,7 +999,7 @@ impl Walk<'_, '_> {
             | Verb::LoseLife { player, amount }
             | Verb::Mill { player, amount }
             | Verb::ReorderLibraryTop { player, amount }
-            | Verb::LookChooseHand { player, amount }
+            | Verb::LookChooseHand { player, amount, .. }
             | Verb::Scry { player, amount }
             | Verb::Surveil { player, amount } => {
                 self.player(player)?;
@@ -1961,7 +1961,18 @@ impl Walk<'_, '_> {
             Verb::ReorderLibraryTop { player, amount } => {
                 self.audit_look(player, amount, Cell::ReorderLibraryTop)
             }
-            Verb::LookChooseHand { player, amount } => {
+            Verb::LookChooseHand {
+                player,
+                amount,
+                selection,
+            } => {
+                Self::library_card_filter(&selection.filter)?;
+                if selection.maximum == 0
+                    || (selection.reveal && !selection.optional)
+                    || (!selection.filter.is_empty() && !selection.optional)
+                {
+                    return unaudited("private library selection bounds or reveal");
+                }
                 self.audit_look(player, amount, Cell::LookChooseHand)
             }
             Verb::Scry { player, amount } => self.audit_look(player, amount, Cell::ScryController),

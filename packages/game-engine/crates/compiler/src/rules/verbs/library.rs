@@ -81,52 +81,33 @@ pub(super) fn reorder_top(cx: &mut StepCx<'_>, steps: &[Step]) -> Result<Instruc
     }))
 }
 
-/// CR 401.2, 608.2c-d, 701.20e: the hand choice and the bottom order
-/// partition exactly the preceding private look. R5's binding proves
-/// the same pool and its remainder across both sentences.
+/// A mandatory hand selection can be followed by independent instructions
+/// in the same spell or ability. Consume precisely the two linked sentences.
 pub(super) fn look_choose_hand(
     look: &Sentence,
-    move_cards: &Sentence,
+    movement: &Sentence,
     context: Context,
 ) -> Result<Option<Verb>, Failure> {
+    use crate::compose::private_look;
     let [Step::LookAt { who, what }] = look.steps.as_slice() else {
         return Ok(None);
     };
-    let [Step::Simultaneous { steps: members }] = move_cards.steps.as_slice() else {
+    let [Step::Simultaneous { steps: members }] = movement.steps.as_slice() else {
         return Ok(None);
     };
-    if [look, move_cards].into_iter().any(|sentence| {
+    if [look, movement].iter().any(|sentence| {
         sentence.condition.is_some()
             || sentence.condition_kind.is_some()
             || !sentence.bindings.is_empty()
-    }) || *who != json!({"player":"you"})
-        || members
-            != &[
-                json!({
-                    "effect": "move-zone",
-                    "what": {"ref":"from-pool","pool":{"ref":"them"},"count":{"amount":"fixed","value":1}},
-                    "to": {"zone":"hand","owner":"your"},
-                }),
-                json!({
-                    "effect":"move-zone", "what":{"ref":"rest"},
-                    "to":{"zone":"library","owner":"your","position":"bottom"},
-                    "order":"any",
-                }),
-            ]
-    {
-        return Ok(None);
+    }) {
+        return Err(step("look-at", "qualified_sentence"));
     }
-    let Some(top) = what.get("top") else {
-        return Ok(None);
-    };
-    if *what != json!({"top":top,"of":{"zone":"library","owner":"your"}}) {
-        return Ok(None);
-    }
-    let amount = fixed_positive_amount(&typed::<ast::Amount>(top, "amount")?)?;
-    Ok(Some(Verb::LookChooseHand {
-        player: PlayerExpr::you(context),
-        amount: Amount::Fixed { value: amount },
-    }))
+    let amount = private_look::prefix(who, what)?;
+    Ok(Some(private_look::verb(
+        context,
+        amount,
+        private_look::mandatory(amount, members)?,
+    )))
 }
 
 /// CR 701.23a, 608.2c: lower the search run starting at `steps[0]`.

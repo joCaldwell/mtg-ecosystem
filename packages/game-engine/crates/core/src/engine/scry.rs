@@ -45,6 +45,34 @@ impl RulesTxn {
         }
         Ok(looked)
     }
+
+    /// CR 111.6, 121.1: a noncard object temporarily in the library does
+    /// not occupy a card's place in an instruction to look at N cards.
+    pub(crate) fn library_cards_prefix(
+        &self,
+        player: PlayerId,
+        amount: &Quantity,
+    ) -> Result<Vec<ObjectId>, String> {
+        let maximum = amount.to_u32().ok_or("invalid inspected library count")? as usize;
+        self.state
+            .rules
+            .libraries
+            .get(&player)
+            .into_iter()
+            .flatten()
+            .filter(|card| !self.state.rules.tokens.contains_key(card))
+            .take(maximum)
+            .map(|card| {
+                let object = self
+                    .object_id(*card)
+                    .ok_or("missing inspected library card")?;
+                if self.zone(object) != Some(Zone::Library { owner: player }) {
+                    return Err("inspected card is outside that library".into());
+                }
+                Ok(object)
+            })
+            .collect()
+    }
 }
 
 impl RulesTxn {
@@ -245,36 +273,78 @@ impl RulesTxn {
         player: PlayerId,
         looked: &[ObjectId],
         bottom: &[ObjectId],
+        random: bool,
     ) -> Result<EventOutcome, String> {
-        let count = Quantity::from(i64::try_from(looked.len()).map_err(|_| "look limit")?);
-        if !self.is_live(player)
-            || looked.is_empty()
-            || self.library_prefix(player, &count)? != looked
-        {
+        if !self.is_live(player) || looked.is_empty() {
+            return Err("invalid library prefix for bottom placement".into());
+        }
+        let n = i64::try_from(looked.len()).map_err(|_| "look limit")?;
+        if self.library_cards_prefix(player, &Quantity::from(n))? != looked {
             return Err("invalid library prefix for bottom placement".into());
         }
         Self::library_partition(looked, [bottom, &[]])?;
+        let mut bottom = bottom.to_vec();
+        if random && bottom.len() > 1 {
+            self.randomize_library_remainder(player, &mut bottom)?;
+        }
         let cards = self
             .rules_mut()
             .libraries
             .get_mut(&player)
             .ok_or("missing library")?;
-        cards.drain(..looked.len());
+        let remainder: BTreeSet<_> = looked.iter().map(|id| id.card).collect();
+        cards.retain(|card| !remainder.contains(card));
         cards.extend(bottom.iter().map(|object| object.card));
-        let sequence = self.state.knowledge.visibility[player.0 as usize]
-            .own_knowledge
-            .len();
-        self.remember_library_action(
-            player,
+        let action = if random && bottom.len() > 1 {
+            OwnKnowledgeAction::LibraryBottomRandomized {
+                count: bottom.len(),
+            }
+        } else {
+            let sequence = self.state.knowledge.visibility[player.0 as usize]
+                .own_knowledge
+                .len();
             OwnKnowledgeAction::LibrarySelected {
-                bottom: self.remembered(bottom, &format!("memory-{sequence}-bottom"))?,
-            },
-        )?;
+                bottom: self.remembered(&bottom, &format!("memory-{sequence}-bottom"))?,
+            }
+        };
+        self.remember_library_action(player, action)?;
         Ok(EventOutcome::LibraryPrefixBottomed {
             player,
             looked: looked.to_vec(),
-            bottom: bottom.to_vec(),
+            bottom,
         })
+    }
+
+    /// Use a seat-local stream for the private permutation. This is not a
+    /// whole-library shuffle (CR 701.24a) and does not increment that history.
+    fn randomize_library_remainder(
+        &mut self,
+        player: PlayerId,
+        cards: &mut [ObjectId],
+    ) -> Result<(), String> {
+        let random = &mut self
+            .rules_mut()
+            .match_state
+            .as_mut()
+            .ok_or("random library ordering requires a seeded match")?
+            .random;
+        if random.open.is_some() {
+            return Err("random library ordering with an open stream".into());
+        }
+        let ordinal = &mut random.seat_random[player.0 as usize];
+        let stream = setup::stream_id(setup::SEAT_RANDOM, player, *ordinal)?;
+        *ordinal += 1;
+        for index in (1..cards.len()).rev() {
+            let upper = u32::try_from(index + 1).map_err(|_| "library ordering range")?;
+            let selected = loop {
+                if let Some(selected) = setup::sample_bounded_word(random.word(stream)?, upper) {
+                    break selected;
+                }
+            };
+            cards.swap(index, selected as usize);
+        }
+        random.open = None;
+        Ok(())
     }
 
     /// CR 701.24a-b: randomize the library with the seeded Fisher-Yates

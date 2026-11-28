@@ -16,6 +16,9 @@ fn reject(detail: &str) -> Failure {
 /// This family owns a block beginning with a library-prefix reveal, optionally
 /// after a shuffle. The typed lowerer checks the complete block.
 pub(super) fn candidate(effects: &[Value]) -> bool {
+    if super::private_look::candidate(effects) {
+        return true;
+    }
     let Some(steps) = effects.first().and_then(|s| s["steps"].as_array()) else {
         return false;
     };
@@ -44,6 +47,9 @@ pub(super) fn lower(
     context: Context,
     block: u32,
 ) -> Result<(), Failure> {
+    if super::private_look::candidate(effects) {
+        return super::private_look::lower(effects, program, context, block);
+    }
     let effects: Vec<ast::Sentence> = typed(&effects, "reveal effects")?;
     let Some((first, following)) = effects.split_first() else {
         return Err(reject("empty"));

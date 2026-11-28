@@ -34,11 +34,12 @@ pub enum ProposedEvent {
         top: Vec<ObjectId>,
     },
     /// CR 401.2, 401.4: move the remaining privately inspected prefix to
-    /// the bottom, still in the library and in the selected order.
+    /// the bottom, still in the library, in the selected or a random order.
     PutLibraryPrefixOnBottom {
         player: PlayerId,
         looked: Vec<ObjectId>,
         bottom: Vec<ObjectId>,
+        random: bool,
     },
     /// CR 701.22a: `looked` is the library's top; `top` goes back on top in
     /// that order and `bottom` beneath the rest in that order.

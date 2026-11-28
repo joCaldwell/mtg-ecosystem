@@ -2962,3 +2962,453 @@ fn run_aground_puts_either_permanent_type_on_its_owners_library() {
         assert_recoverable((&g).into());
     }
 }
+
+const STOCK_UP: &str = record!("2251e34e-4ce8-4452-9dc6-d8cce8583996");
+const DIG_THROUGH_TIME: &str = record!("f8b17b89-26ce-4208-874a-9e1d66514640");
+const SLEIGHT_OF_HAND: &str = record!("05a039ad-1689-4d13-b393-6c1219583b5d");
+const GLINT_NEST_CRANE: &str = record!("1983478a-cedb-4053-adab-ac5f1a163296");
+const COURAGEOUS_OUTRIDER: &str = record!("00915480-ffa8-4930-a158-b1c1f75b7876");
+const WANDERING_MIND: &str = record!("0fa886c2-9b58-4368-b2d0-e619c62a554f");
+const COMMUNE_WITH_SPIRITS: &str = record!("68f8ed23-024e-414f-bbb2-ab73fbe21b69");
+const PICTURES_OF_SPIDER_MAN: &str = record!("4fd74a8c-a4e7-4988-ae02-9a73ab6ec89e");
+const ELVISH_REJUVENATOR: &str = record!("71d14755-b81d-4aec-b94d-1637884a5844");
+
+fn inspect_private_prefix(
+    game: &mut Game,
+    size: usize,
+    eligible: usize,
+    minimum: u32,
+    maximum: u32,
+) -> Vec<Observation> {
+    let d = next_choice(game);
+    assert_eq!((d.player, d.reason), (PlayerId(0), Reason::LookChooseHand));
+    let Shape::Pick { slots, .. } = d.shape else {
+        panic!("private library selection must be a pick");
+    };
+    assert_eq!((slots[0].min, slots[0].max), (minimum, maximum));
+    assert_eq!(d.candidates.len(), eligible);
+    assert_eq!(library_view(game, 0).len(), size);
+    // This proves snapshot/journal recovery with quanta 1 and u64::MAX
+    // and all four trace modes, including the suspended private choice.
+    assert_recoverable((&*game).into());
+    (1..4)
+        .map(|seat| {
+            let o = observation(game, seat);
+            assert!(o.decision.is_none());
+            assert!(
+                o.view
+                    .objects
+                    .iter()
+                    .all(|o| !matches!(o.zone, Zone::Library { .. }))
+            );
+            assert!(o.view.revealed_library_cards.is_empty());
+            o
+        })
+        .collect()
+}
+
+#[test]
+fn private_top_selection_takes_multiple_and_bottoms_the_exact_complement() {
+    for (name, raw, mana, size) in [
+        ("Stock Up", STOCK_UP, 3, 5),
+        ("Dig Through Time", DIG_THROUGH_TIME, 8, 7),
+    ] {
+        let mut worlds = vec![];
+        for hidden in ["Forest", "Plains"] {
+            let mut setup = board(&[(raw, &[Cell::LookChooseHand])])
+                .seats(4)
+                .permanent_or_hand(name, 0, 0, true);
+            for _ in 0..mana {
+                setup = setup.permanent_or_hand("Island", 0, 0, false);
+            }
+            for name in std::iter::repeat_n(hidden, size).chain(["Island"]) {
+                setup = setup.library_card(name, 0);
+            }
+            let mut game = Game::with_trace(setup.prepare(), TraceMode::Detailed);
+            Driver::cast(&mut game, CardId(0));
+            Driver::pay(&mut game, &(1..=mana).collect::<Vec<_>>());
+            let pending = inspect_private_prefix(&mut game, size, size, 2, 2);
+            let original = library(&game, 0);
+            let selected = objects(&game, &[original[1].0, original[0].0]);
+            answer(&mut game, 0, Reason::LookChooseHand, &selected);
+            assert_eq!(next_choice(&mut game).reason, Reason::OrderLibraryBottom);
+            assert_recoverable((&game).into());
+            let bottom = original[2..size].iter().rev().copied().collect::<Vec<_>>();
+            let order = objects(&game, &bottom.iter().map(|c| c.0).collect::<Vec<_>>());
+            answer(&mut game, 0, Reason::OrderLibraryBottom, &order);
+            settle(&mut game);
+            assert_eq!(
+                library(&game, 0),
+                [&original[size..], bottom.as_slice()].concat()
+            );
+            for card in &original[..2] {
+                assert_eq!(
+                    game.zone(Driver::object(&game, card.0)),
+                    Some(Zone::Hand { owner: PlayerId(0) })
+                );
+            }
+            worlds.push((
+                pending,
+                (1..4)
+                    .map(|seat| observation(&game, seat))
+                    .collect::<Vec<_>>(),
+            ));
+        }
+        assert_eq!(worlds[0], worlds[1], "private subset of {name} leaked");
+    }
+}
+
+#[test]
+fn private_top_selection_reveals_only_the_optional_match_before_bottom_ordering() {
+    for (name, raw, eligible, lands, commander) in [
+        (
+            "Glint-Nest Crane",
+            GLINT_NEST_CRANE,
+            "Sol Ring",
+            vec!["Island"; 2],
+            false,
+        ),
+        (
+            "Courageous Outrider",
+            COURAGEOUS_OUTRIDER,
+            "Kamahl, Pit Fighter",
+            vec!["Plains"; 4],
+            true,
+        ),
+    ] {
+        let mut worlds = vec![];
+        for hidden in ["Forest", "Island"] {
+            let mut setup = board(&[(raw, &[Cell::LookChooseHand])])
+                .seats(4)
+                .permanent_or_hand(name, 0, 0, true);
+            for land in &lands {
+                setup = setup.permanent_or_hand(land, 0, 0, false);
+            }
+            for card in [eligible, hidden, hidden, hidden, "Plains"] {
+                setup = setup.library_card(card, 0);
+            }
+            if commander {
+                setup = setup.commander(CardId(1 + lands.len() as u32));
+            }
+            let mut game = Game::with_trace(setup.prepare(), TraceMode::Detailed);
+            Driver::cast(&mut game, CardId(0));
+            Driver::pay(&mut game, &(1..=lands.len() as u32).collect::<Vec<_>>());
+            let pending = inspect_private_prefix(&mut game, 4, 1, 0, 1);
+            let original = library(&game, 0);
+            let taken = Driver::object(&game, original[0].0);
+            answer(&mut game, 0, Reason::LookChooseHand, &[taken]);
+            assert_eq!(next_choice(&mut game).reason, Reason::OrderLibraryBottom);
+            let identity = identity_in(&game.prepared.catalog, eligible);
+            let ordered = (1..4)
+                .map(|seat| {
+                    let o = observation(&game, seat);
+                    assert_eq!(
+                        o.view.revealed_library_cards,
+                        vec![(PlayerId(0), identity.clone())]
+                    );
+                    assert!(o.view.known_library_positions.is_empty());
+                    o
+                })
+                .collect::<Vec<_>>();
+            assert_recoverable((&game).into());
+            let order = objects(&game, &[original[3].0, original[2].0, original[1].0]);
+            answer(&mut game, 0, Reason::OrderLibraryBottom, &order);
+            if commander {
+                let d = next_choice(&mut game);
+                assert!(
+                    matches!(d.reason, Reason::CommanderReturn { object: Some(named), .. }
+                    if named == taken)
+                );
+                for seat in 1..4 {
+                    let o = observation(&game, seat);
+                    assert_eq!(
+                        o.view.revealed_library_cards,
+                        vec![(PlayerId(0), identity.clone())]
+                    );
+                    assert!(o.view.known_library_positions.is_empty());
+                }
+                assert_recoverable((&game).into());
+                let response = d
+                    .pick_one(&Candidate::Flag {
+                        flag: Flag::Destination,
+                    })
+                    .unwrap();
+                game.respond(d.player, d.id, response).unwrap();
+            }
+            settle(&mut game);
+            assert_eq!(
+                library(&game, 0),
+                vec![original[4], original[3], original[2], original[1]]
+            );
+            let result = (1..4)
+                .map(|seat| {
+                    let o = observation(&game, seat);
+                    assert_eq!(
+                        o.view.known_searched_hand,
+                        vec![(PlayerId(0), identity.clone())]
+                    );
+                    o
+                })
+                .collect::<Vec<_>>();
+            worlds.push((pending, ordered, result));
+        }
+        assert_eq!(worlds[0], worlds[1], "related hidden cards leaked");
+    }
+}
+
+#[test]
+fn private_top_selection_randomizes_remainder_after_taking_or_declining() {
+    for (name, raw, eligible, lands, size) in [
+        (
+            "Wandering Mind",
+            WANDERING_MIND,
+            "Lightning Bolt",
+            vec!["Island", "Mountain", "Island"],
+            6,
+        ),
+        (
+            "Commune with Spirits",
+            COMMUNE_WITH_SPIRITS,
+            "Forest",
+            vec!["Forest"],
+            4,
+        ),
+    ] {
+        for take in [false, true] {
+            let mut worlds = vec![];
+            for hidden in ["Grizzly Bears", "Isamaru, Hound of Konda"] {
+                let mut setup = board(&[(raw, &[Cell::LookChooseHand])])
+                    .seats(4)
+                    .permanent_or_hand(name, 0, 0, true);
+                for land in &lands {
+                    setup = setup.permanent_or_hand(land, 0, 0, false);
+                }
+                for card in std::iter::once(eligible)
+                    .chain(std::iter::repeat_n(hidden, size - 1))
+                    .chain(["Plains"])
+                {
+                    setup = setup.library_card(card, 0);
+                }
+                let mut game = Game::with_trace(setup.prepare(), TraceMode::Detailed);
+                Driver::cast(&mut game, CardId(0));
+                Driver::pay(&mut game, &(1..=lands.len() as u32).collect::<Vec<_>>());
+                let pending = inspect_private_prefix(&mut game, size, 1, 0, 1);
+                let original = library(&game, 0);
+                let eligible_card = [Driver::object(&game, original[0].0)];
+                answer(
+                    &mut game,
+                    0,
+                    Reason::LookChooseHand,
+                    &eligible_card[..usize::from(take)],
+                );
+                settle(&mut game);
+                let after = library(&game, 0);
+                assert_eq!(after[0], original[size]);
+                let mut bottom = after[1..].to_vec();
+                bottom.sort();
+                let mut expected = original[usize::from(take)..size].to_vec();
+                expected.sort();
+                assert_eq!(bottom, expected);
+                assert_eq!(shuffles(&game, 0), 0);
+                let bottom_memory = game.state.knowledge.visibility[0]
+                    .own_knowledge
+                    .iter()
+                    .filter(|action| {
+                        matches!(
+                            action,
+                            OwnKnowledgeAction::LibrarySelected { .. }
+                                | OwnKnowledgeAction::LibraryBottomRandomized { .. }
+                        )
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    bottom_memory,
+                    [OwnKnowledgeAction::LibraryBottomRandomized {
+                        count: size - usize::from(take)
+                    }],
+                );
+                let result = (1..4)
+                    .map(|seat| {
+                        let o = observation(&game, seat);
+                        assert_eq!(o.view.known_searched_hand.len(), usize::from(take));
+                        o
+                    })
+                    .collect::<Vec<_>>();
+                worlds.push((pending, result));
+            }
+            assert_eq!(worlds[0], worlds[1], "randomized hidden cards leaked");
+        }
+    }
+}
+
+#[test]
+fn private_top_selection_rejects_adjacent_destination() {
+    let planning = record!("02b5acf3-47cb-4d39-9307-e02656f1879b");
+    for raw in [ELVISH_REJUVENATOR, planning] {
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
+        let mtg_compiler::CompileResult::Unsupported { path, reason } = result else {
+            panic!("different looked-card destination was accepted: {result:?}");
+        };
+        assert!(!path.is_empty());
+        assert!(
+            reason.contains("step-result:remainder") || reason.contains("look-at"),
+            "{reason}"
+        );
+    }
+}
+
+#[test]
+fn private_top_selection_up_to_two_keeps_filter_feasibility_private() {
+    let mut worlds = vec![];
+    for (hidden, eligible) in [("Grizzly Bears", 2), ("Forest", 0)] {
+        let prepared = board(&[(PICTURES_OF_SPIDER_MAN, &[Cell::LookChooseHand])])
+            .seats(4)
+            .permanent_or_hand("Pictures of Spider-Man", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .library_card(hidden, 0)
+            .library_card(hidden, 0)
+            .library_card("Plains", 0)
+            .prepare();
+        let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut game, CardId(0));
+        Driver::pay(&mut game, &[1, 2, 3]);
+        let pending = inspect_private_prefix(&mut game, 3, eligible, 0, eligible as u32);
+        answer(&mut game, 0, Reason::LookChooseHand, &[]);
+        settle(&mut game);
+        worlds.push((
+            pending,
+            (1..4)
+                .map(|seat| observation(&game, seat))
+                .collect::<Vec<_>>(),
+        ));
+    }
+    assert_eq!(worlds[0], worlds[1]);
+}
+
+#[test]
+fn private_top_selection_places_a_single_other_card_without_an_order_prompt() {
+    let prepared = board(&[(SLEIGHT_OF_HAND, &[Cell::LookChooseHand])])
+        .permanent_or_hand("Sleight of Hand", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .library_card("Grizzly Bears", 0)
+        .library_card("Forest", 0)
+        .library_card("Plains", 0)
+        .prepare();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    let original = library(&game, 0);
+    let taken = Driver::object(&game, original[0].0);
+    answer(&mut game, 0, Reason::LookChooseHand, &[taken]);
+    settle(&mut game);
+    assert_eq!(library(&game, 0), vec![original[2], original[1]]);
+}
+
+#[test]
+fn private_top_selection_decline_invalidates_the_old_opening_bottom_suffix() {
+    let mut setup = board(&[(COMMUNE_WITH_SPIRITS, &[Cell::LookChooseHand])])
+        .permanent_or_hand("Commune with Spirits", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false);
+    for _ in 0..92 {
+        setup = setup.library_card("Forest", 0);
+    }
+    let mut game = Game::with_trace(
+        setup.library_card("Mountain", 0).prepare(),
+        TraceMode::Detailed,
+    );
+    let original = library(&game, 0);
+    let old_bottom = RememberedCard {
+        memory_ref: "opening-bottom-0".into(),
+        oracle_id: identity("Mountain"),
+    };
+    // Feed the same reducer used by search capture an opening memory with
+    // the actual prior bottom card. Before the spell, its count and order
+    // proof is valid. Declining keeps that count valid and changes the suffix.
+    let mut history = vec![OwnKnowledgeAction::OpeningBottom {
+        cards: vec![old_bottom.clone()],
+    }];
+    assert_eq!(
+        known_suffix(&history, original.len()).unwrap(),
+        [old_bottom]
+    );
+
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    answer(&mut game, 0, Reason::LookChooseHand, &[]);
+    settle(&mut game);
+
+    let after = library(&game, 0);
+    assert_eq!(after.len(), original.len());
+    assert_eq!(after[after.len() - 5], *original.last().unwrap());
+    history.extend(
+        game.state.knowledge.visibility[0]
+            .own_knowledge
+            .iter()
+            .cloned(),
+    );
+    assert!(matches!(
+        known_suffix(&history, after.len()),
+        Err(SearchRejection::UnsupportedHistory(reason))
+            if reason == "random library bottom placement is outside foundations search"
+    ));
+}
+
+#[test]
+fn private_top_selection_resumes_the_second_commander_replacement() {
+    // The private board exercises two designations without using production
+    // deck admission. The selected spell's text comes from the frozen archive.
+    let prepared = board(&[(STOCK_UP, &[Cell::LookChooseHand])])
+        .permanent_or_hand("Stock Up", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Island", 0, 0, false)
+        .library_card("Isamaru, Hound of Konda", 0)
+        .library_card("Kamahl, Pit Fighter", 0)
+        .library_card("Forest", 0)
+        .library_card("Mountain", 0)
+        .library_card("Plains", 0)
+        .library_card("Island", 0)
+        .commander(CardId(4))
+        .commander(CardId(5))
+        .prepare();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1, 2, 3]);
+    let original = library(&game, 0);
+    let selected = objects(&game, &[4, 5]);
+    answer(&mut game, 0, Reason::LookChooseHand, &selected);
+    let bottom = objects(&game, &[8, 7, 6]);
+    answer(&mut game, 0, Reason::OrderLibraryBottom, &bottom);
+
+    for (object, flag) in selected
+        .into_iter()
+        .zip([Flag::CommandZone, Flag::Destination])
+    {
+        let d = next_choice(&mut game);
+        assert!(matches!(
+            d.reason,
+            Reason::CommanderReturn { object: Some(named), destination: Zone::Hand { owner: PlayerId(0) }, .. }
+                if named == object
+        ));
+        assert_recoverable((&game).into());
+        let response = d.pick_one(&Candidate::Flag { flag }).unwrap();
+        game.respond(d.player, d.id, response).unwrap();
+    }
+    settle(&mut game);
+
+    assert_eq!(
+        game.zone(Driver::object(&game, 4)),
+        Some(Zone::Command { owner: PlayerId(0) })
+    );
+    assert_eq!(
+        game.zone(Driver::object(&game, 5)),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    assert_eq!(
+        library(&game, 0),
+        vec![original[5], CardId(8), CardId(7), CardId(6)]
+    );
+}

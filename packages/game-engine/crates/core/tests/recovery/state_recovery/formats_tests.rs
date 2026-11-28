@@ -27,11 +27,11 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     119,
-    "d1aca9d159193de9e3218010c592d7c3fde0f0e1db4334fff1c60808aaf05b0f",
+    "0284fe689151098d46dcf76c6a2fe4e68f7a303d081d775d0b119928968f6a7f",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     151,
-    "473818f20d8859e1d0cb1c427404b7ef6c9706ff0fb29e766442af362e273393",
+    "5b782b19d71d4ad7028f6c67950af6064e94e2df97cb3c7844d271fafbf54cc9",
 );
 const WORK_PIN: (u32, &str) = (
     71,
@@ -546,7 +546,7 @@ fn library_entry_shapes() -> Vec<String> {
         serde_json::to_value(ResolutionChoice::LookOrderBottom {
             player: PlayerId(0),
             looked: vec![object],
-            hand: object,
+            selected: vec![object],
             source_block: 0,
         })
         .unwrap();
@@ -557,8 +557,12 @@ fn library_entry_shapes() -> Vec<String> {
         continuation: CommanderContinuation::LookHand {
             frame: choice_frame,
             player: PlayerId(0),
-            looked: vec![object],
-            bottom: vec![object],
+            partition: LookPartition {
+                looked: vec![object],
+                selected: vec![object],
+                bottom: vec![object],
+            },
+            choices: vec![(object, false)],
             source_block: 0,
         },
     })
@@ -573,6 +577,8 @@ fn library_entry_shapes() -> Vec<String> {
             }),
         })
         .unwrap();
+    bottomed["state"]["visibility"][0]["own_knowledge"] =
+        serde_json::json!([OwnKnowledgeAction::LibraryBottomRandomized { count: 2 }]);
     [
         search, entry, reorder, completed, split, grouped, look, order, commander, bottomed,
     ]

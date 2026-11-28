@@ -1,6 +1,14 @@
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LookPartition {
+    pub looked: Vec<ObjectId>,
+    pub selected: Vec<ObjectId>,
+    pub bottom: Vec<ObjectId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommanderContinuation {
     BoardReturn {
@@ -28,13 +36,13 @@ pub enum CommanderContinuation {
         choices: Vec<(ObjectId, bool)>,
         source_block: u32,
     },
-    /// CR 903.9b: the card selected from a private prefix may go to the
-    /// command zone instead of hand. The rest still go to the bottom.
+    /// CR 903.9b: each selected commander can go to the command zone
+    /// instead of hand. The unselected cards still go to the bottom.
     LookHand {
         frame: Resolving,
         player: PlayerId,
-        looked: Vec<ObjectId>,
-        bottom: Vec<ObjectId>,
+        partition: LookPartition,
+        choices: Vec<(ObjectId, bool)>,
         source_block: u32,
     },
     Draw {
@@ -290,19 +298,12 @@ impl RulesTxn {
             CommanderContinuation::LookHand {
                 frame,
                 player,
-                looked,
-                bottom,
+                partition,
+                mut choices,
                 source_block,
             } => {
-                self.commit_look_selection(
-                    frame,
-                    player,
-                    looked,
-                    object,
-                    bottom,
-                    actual_destination,
-                    source_block,
-                )?;
+                choices.push((object, to_command));
+                self.route_look_selection(frame, player, partition, choices, source_block)?;
             }
             CommanderContinuation::Draw { player } => {
                 if present {
@@ -512,18 +513,19 @@ impl RulesTxn {
                 CommanderContinuation::LookHand {
                     frame,
                     player,
-                    looked,
-                    bottom,
+                    partition,
+                    choices,
                     source_block,
                 } => {
+                    self.validate_resolving(frame)?;
                     if *player != owner
                         || *destination != (Zone::Hand { owner })
-                        || !self.valid_look_selection(
+                        || !self.valid_look_commander(
                             frame,
                             owner,
-                            looked,
+                            partition,
+                            choices,
                             *object,
-                            bottom,
                             *source_block,
                         )?
                     {

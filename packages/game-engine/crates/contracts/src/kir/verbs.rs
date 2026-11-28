@@ -193,6 +193,36 @@ pub enum ManaSpec {
     AnyCombination { colors: Vec<Color>, amount: Amount },
 }
 
+/// A bounded selection from a privately inspected library prefix (CR 608.2d,
+/// 701.20e). The complement goes to the bottom of that library (CR 401.4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LookSelection {
+    pub filter: Pred,
+    pub maximum: u32,
+    pub optional: bool,
+    pub reveal: bool,
+    pub random_bottom: bool,
+}
+
+impl Default for LookSelection {
+    fn default() -> Self {
+        Self {
+            filter: Pred::default(),
+            maximum: 1,
+            optional: false,
+            reveal: false,
+            random_bottom: false,
+        }
+    }
+}
+
+impl LookSelection {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// CR 613.1: the layer a continuous change applies in.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -747,11 +777,13 @@ pub enum Verb {
         player: PlayerExpr,
         amount: Amount,
     },
-    /// CR 401.2, 608.2d, 701.20e: look at a private prefix, put one card
-    /// into hand, and privately order the rest on the bottom.
+    /// CR 401.2, 608.2d, 701.20e: privately inspect a library prefix,
+    /// choose cards for hand, and put the remainder on the bottom.
     LookChooseHand {
         player: PlayerExpr,
         amount: Amount,
+        #[serde(default, skip_serializing_if = "LookSelection::is_default")]
+        selection: LookSelection,
     },
     Scry {
         player: PlayerExpr,
