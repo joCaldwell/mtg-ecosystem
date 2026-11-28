@@ -138,6 +138,9 @@ enum Block {
         ability_word: Option<String>,
         costs: Vec<SourceCost>,
         effects: Vec<serde_json::Value>,
+        /// CR 601.2f, 602.2b: "This ability costs ... less to activate".
+        #[serde(rename = "costModifications")]
+        cost_modifications: Option<Vec<serde_json::Value>>,
     },
     /// CR 601.2b, 601.2f-h: "As an additional cost to cast this spell, ...".
     #[serde(rename = "additional-cost")]
@@ -185,6 +188,7 @@ fn quoted_ability(
         ability_word: None,
         costs,
         effects,
+        cost_modifications: None,
     }) = serde_json::from_value::<Block>(raw.clone())
     else {
         return Err(quoted());
@@ -427,6 +431,7 @@ fn activation(
         x_mana_cost,
         hybrid_mana,
         modal: None,
+        cost_changes: vec![],
         functioning_zone,
         restriction: None,
         cost,
@@ -1577,6 +1582,7 @@ fn compose_face(
                         x_mana_cost: false,
                         hybrid_mana: vec![],
                         modal: None,
+                        cost_changes: vec![],
                         functioning_zone: FunctioningZone::Battlefield,
                         restriction: None,
                         cost: ActivationCost::Loyalty {
@@ -1591,8 +1597,14 @@ fn compose_face(
                     restriction,
                     costs,
                     effects,
+                    cost_modifications,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
+                    let cost_changes = cost_modifications
+                        .iter()
+                        .flatten()
+                        .map(activation_cost_change)
+                        .collect::<Result<Vec<_>, _>>()?;
                     let (timing, restriction) = activation_restrictions::lower(
                         restriction,
                         &result.lines[block].text,
@@ -1613,6 +1625,12 @@ fn compose_face(
                     // activated; a mana ability has no modes here.
                     if modal::declared(&effects) {
                         modal::reject_mana_modes(&effects)?;
+                        if !cost_changes.is_empty() {
+                            return Err(unsupported(
+                                "compose.block",
+                                "modal activation cost change",
+                            ));
+                        }
                         let text = &result.lines[block].text;
                         let site = control::Site {
                             resolution,
@@ -1672,6 +1690,9 @@ fn compose_face(
                         None => None,
                     };
                     if let Some(mut mana) = mana {
+                        if !cost_changes.is_empty() {
+                            return Err(unsupported("compose.block", "mana ability cost change"));
+                        }
                         if spell_kind
                             || timing != SpellTiming::Instant
                             || restriction
@@ -1707,6 +1728,7 @@ fn compose_face(
                             ));
                         }
                         ability.restriction = restriction;
+                        ability.cost_changes = cost_changes;
                         let site = control::Site {
                             resolution,
                             index: block,

@@ -893,6 +893,31 @@ fn counted_set(
             position: None,
             owner: None,
         }) => ZoneExpr::Battlefield,
+        // CR 402.3: the number of cards in a player's hand is public; the
+        // cards' characteristics are not, so only the unfiltered count reads.
+        Some(ast::ZoneRef {
+            zone: ast::Zone::Hand,
+            depth: None,
+            position: None,
+            owner,
+        }) => {
+            use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+            if owner.as_deref() != Some(&Owner::Your)
+                || controller.is_some()
+                || serde_json::from_value::<ast::ObjectFilter>(serde_json::json!({"cls": "card"}))
+                    .ok()
+                    .as_ref()
+                    != Some(&terms)
+            {
+                return Err(gap("conditional:hand"));
+            }
+            return Ok(SetExpr::Matching {
+                zone: ZoneExpr::Hand {
+                    of: PlayerExpr::static_controller(),
+                },
+                filter: Pred::default(),
+            });
+        }
         Some(other) => graveyard_zone(other)?,
     };
     if !matches!(zone, ZoneExpr::Battlefield) && terms.cls == Some(ast::ObjectFilterCls::Card) {
@@ -914,6 +939,9 @@ fn amount(value: &ast::Amount) -> Result<Amount, Failure> {
         ast::Amount::Count(n) => Ok(Amount::Count {
             set: counted_set(&n.of, None)?,
         }),
+        // CR 122.1: counters of one kind on the source itself.
+        ast::Amount::CounterCount(_) => crate::operands::source_counter_amount(value)
+            .map_err(|_| gap("conditional:amount:counter_count")),
         ast::Amount::Devotion(n) => {
             let colors = match &*n.colors {
                 ast::AmountDevotionColors::Array((a,)) => vec![color(a)],
@@ -1281,20 +1309,7 @@ fn spell_cost(x: &ast::StaticEffectCostModification) -> Result<StaticAbility, Fa
     {
         return Err(gap("cost-modification:qualifier"));
     }
-    if x.change.symbols.is_empty() || x.change.symbols.iter().any(|s| s.contains(['{', '}'])) {
-        return Err(gap("cost-modification:symbols"));
-    }
-    let text = x
-        .change
-        .symbols
-        .iter()
-        .map(|symbol| format!("{{{symbol}}}"))
-        .collect::<String>();
-    let mana = mana_cost(&text).map_err(|_| gap("cost-modification:symbols"))?;
-    let change = match x.change.direction {
-        ast::CostModificationChangeDirection::Increase => SpellCostChange::Increase { mana },
-        ast::CostModificationChangeDirection::Reduce => SpellCostChange::Reduce { mana },
-    };
+    let change = cost_change(&x.change)?;
     let affects = scope(&scope_data.spells, true)?;
     let zone = if affects == Scope::Source {
         FunctioningZone::Stack
@@ -1317,6 +1332,45 @@ fn spell_cost(x: &ast::StaticEffectCostModification) -> Result<StaticAbility, Fa
         },
         x.condition.as_deref().map(condition).transpose()?,
     ))
+}
+
+/// CR 601.2f, 602.2b: "This ability costs [symbols] more/less to activate
+/// [for each ...] [if ...]". The multiplier and condition read the source as
+/// its statics do; any other qualifier rejects the whole ability.
+pub(crate) fn activation_cost_change(
+    raw: &serde_json::Value,
+) -> Result<mtg_contracts::ActivationCostChange, Failure> {
+    let x: ast::CostModification = serde_json::from_value(raw.clone())
+        .map_err(|_| gap("cost-modification:activation-shape"))?;
+    if x.bindings.is_some()
+        || x.minimum_total_mana.is_some()
+        || x.maximum_reduction.is_some()
+        || x.colored_only.is_some()
+        || x.only_color.is_some()
+    {
+        return Err(gap("cost-modification:activation-qualifier"));
+    }
+    Ok(mtg_contracts::ActivationCostChange {
+        change: cost_change(&x.change)?,
+        multiplier: x.multiplier.as_deref().map(amount).transpose()?,
+        condition: x.condition.as_deref().map(condition).transpose()?,
+    })
+}
+
+fn cost_change(change: &ast::CostModificationChange) -> Result<SpellCostChange, Failure> {
+    if change.symbols.is_empty() || change.symbols.iter().any(|s| s.contains(['{', '}'])) {
+        return Err(gap("cost-modification:symbols"));
+    }
+    let text = change
+        .symbols
+        .iter()
+        .map(|symbol| format!("{{{symbol}}}"))
+        .collect::<String>();
+    let mana = mana_cost(&text).map_err(|_| gap("cost-modification:symbols"))?;
+    Ok(match change.direction {
+        ast::CostModificationChangeDirection::Increase => SpellCostChange::Increase { mana },
+        ast::CostModificationChangeDirection::Reduce => SpellCostChange::Reduce { mana },
+    })
 }
 
 fn graveyard_zone(zone: &ast::ZoneRef) -> Result<ZoneExpr, Failure> {

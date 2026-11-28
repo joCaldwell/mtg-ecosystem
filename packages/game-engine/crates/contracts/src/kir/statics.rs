@@ -561,9 +561,12 @@ fn predicate_in_layer(filter: &Pred, layer: Layer) -> bool {
 fn condition_set(set: &SetExpr) -> bool {
     match set {
         SetExpr::Matching { zone, filter } => {
-            (matches!(zone, ZoneExpr::Battlefield | ZoneExpr::Graveyards)
+            ((matches!(zone, ZoneExpr::Battlefield | ZoneExpr::Graveyards)
                 || matches!(zone, ZoneExpr::Graveyard { of } if *of == PlayerExpr::static_controller()))
-                && predicate_in_layer(filter, Layer::Color)
+                && predicate_in_layer(filter, Layer::Color))
+                // CR 402.3: a hand's size is public, its cards are not.
+                || matches!(zone, ZoneExpr::Hand { of } if *of == PlayerExpr::static_controller())
+                    && filter.0.is_empty()
         }
         SetExpr::One { object } => *object == Ref::Source,
         SetExpr::Pool { .. } | SetExpr::Targets { .. } | SetExpr::Result { .. } => false,
@@ -585,6 +588,11 @@ fn graveyard_other(set: &SetExpr) -> bool {
 fn condition_amount(amount: &Amount) -> bool {
     match amount {
         Amount::Fixed { .. } => true,
+        // CR 122.1: counters on the source are public.
+        Amount::CountersOn {
+            object: Ref::Source,
+            counter,
+        } => *counter != CounterKind::Loyalty,
         Amount::Count { set } => condition_set(set),
         Amount::Devotion { player, colors } => {
             *player == PlayerExpr::static_controller()
@@ -680,6 +688,22 @@ fn cda_amount(amount: &Amount) -> bool {
         | Amount::Half { .. }
         | Amount::OtherCastsManaValue { .. } => false,
     }
+}
+
+/// CR 601.2f, 602.2b: an ability's own cost change reads its multiplier and
+/// condition from its source as a static ability does; a counted change
+/// multiplies generic mana only.
+pub fn activation_cost_change_supported(change: &crate::ActivationCostChange) -> bool {
+    let (SpellCostChange::Increase { mana } | SpellCostChange::Reduce { mana }) = &change.change;
+    !mana.generic.is_negative()
+        && (mana.generic > Quantity::zero() || !mana.colored.is_empty())
+        && !mana.colored.contains(&Color::C)
+        && change.multiplier.as_ref().is_none_or(|m| {
+            mana.colored.is_empty()
+                && condition_amount(m)
+                && !m.as_fixed().is_some_and(Quantity::is_negative)
+        })
+        && change.condition.as_ref().is_none_or(condition_supported)
 }
 
 fn condition_supported(condition: &Cond) -> bool {

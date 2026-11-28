@@ -64,6 +64,58 @@ fn apply_static_cost_changes(
     Ok(())
 }
 
+impl CostLock {
+    /// CR 601.2f, 602.2b: an activation's own changes, read once as its
+    /// total is determined. An activation pays no commander tax.
+    pub(super) fn activation(static_changes: Vec<SpellCostChange>) -> Self {
+        Self {
+            increases: Quantity::zero(),
+            static_changes,
+        }
+    }
+}
+
+/// CR 601.2f, 602.2b: the announced activation total after its locked
+/// changes (no lock: the announced total itself).
+pub(super) fn locked_activation_total(
+    mut cost: ManaCost,
+    lock: Option<&CostLock>,
+) -> Result<ManaCost, String> {
+    if let Some(lock) = lock {
+        if lock.increases != Quantity::zero() {
+            return Err("activation cost lock with tax".into());
+        }
+        apply_static_cost_changes(&mut cost, &lock.static_changes)?;
+    }
+    Ok(cost)
+}
+
+/// The locked changes are, in printed order, a subsequence of the printed
+/// changes: each keeps its direction and colored symbols, and a counted one
+/// a nonnegative multiple of its generic mana (replay authenticates which
+/// applied and the count; CR 601.2f).
+fn activation_lock_consistent(
+    printed: &[mtg_contracts::ActivationCostChange],
+    locked: &[SpellCostChange],
+) -> bool {
+    let mut printed = printed.iter();
+    locked.iter().all(|locked| {
+        printed.any(|p| match (&p.change, locked) {
+            (SpellCostChange::Increase { mana: a }, SpellCostChange::Increase { mana: b })
+            | (SpellCostChange::Reduce { mana: a }, SpellCostChange::Reduce { mana: b }) => {
+                a.colored == b.colored
+                    && !b.generic.is_negative()
+                    && if p.multiplier.is_some() {
+                        a.generic > Quantity::zero() && b.generic.is_multiple_of(&a.generic)
+                    } else {
+                        a.generic == b.generic
+                    }
+            }
+            _ => false,
+        })
+    })
+}
+
 pub fn entry_cost_lock_charge(entry: &StackInstance) -> usize {
     entry
         .cost_lock
@@ -103,6 +155,39 @@ impl RulesTxn {
             increases,
             static_changes,
         })
+    }
+    /// CR 601.2f, 602.2b: the activated ability's own cost changes that
+    /// apply now, each multiplied by its count, read from `source` as its
+    /// statics are.
+    pub(super) fn activation_cost_lock(
+        &self,
+        source: ObjectId,
+        changes: &[mtg_contracts::ActivationCostChange],
+    ) -> Result<Option<CostLock>, String> {
+        if changes.is_empty() {
+            return Ok(None);
+        }
+        let object = self.current(source)?;
+        let mut locked = Vec::new();
+        for change in changes {
+            if !self.condition_holds(object, change.condition.as_ref())? {
+                continue;
+            }
+            let mut applied = change.change.clone();
+            if let Some(amount) = &change.multiplier {
+                let count = self
+                    .static_amount(object, amount)?
+                    .ok_or("invalid activation cost multiplier")?;
+                if count.is_negative() {
+                    return Err("negative activation cost multiplier".into());
+                }
+                let (SpellCostChange::Increase { mana } | SpellCostChange::Reduce { mana }) =
+                    &mut applied;
+                mana.generic.multiply(&count);
+            }
+            locked.push(applied);
+        }
+        Ok(Some(CostLock::activation(locked)))
     }
     pub(super) fn validate_hybrid_colors(
         &self,
@@ -315,10 +400,27 @@ impl RulesTxn {
             if entry.x.is_some() && needs_choice && entry.hybrid_colors.is_empty() {
                 return Err("activation announcement order invariant".into());
             }
-            return if entry.cost_lock.is_none() {
-                Ok(())
-            } else {
-                Err("nonspell cost lock".into())
+            let changes = match entry.kind {
+                StackKind::Activated { ability, .. } => {
+                    &self
+                        .stack_definition(entry)?
+                        .activated
+                        .get(ability as usize)
+                        .ok_or("missing activated cost definition")?
+                        .cost_changes
+                }
+                _ => &vec![],
+            };
+            return match &entry.cost_lock {
+                None if changes.is_empty() => Ok(()),
+                Some(lock)
+                    if !changes.is_empty()
+                        && lock.increases == Quantity::zero()
+                        && activation_lock_consistent(changes, &lock.static_changes) =>
+                {
+                    Ok(())
+                }
+                _ => Err("activation cost lock invariant".into()),
             };
         }
         // CR 601.2b: optional additional costs, then hybrid symbols, then X are

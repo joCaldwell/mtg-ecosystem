@@ -561,6 +561,15 @@ impl RulesTxn {
                             matches!(target.zone, Zone::Graveyard { owner }
                         if self.static_player(of, source.controller, owner))
                         }
+                        // CR 402.3: only the unfiltered hand size is read.
+                        ZoneExpr::Hand { of } if filter.0.is_empty() => {
+                            if matches!(target.zone, Zone::Hand { owner }
+                                if self.static_player(of, source.controller, owner))
+                            {
+                                count += 1;
+                            }
+                            continue;
+                        }
                         _ => false,
                     };
                     if present
@@ -583,10 +592,19 @@ impl RulesTxn {
         })
     }
 
-    fn static_amount(&self, source: &Object, amount: &Amount) -> Result<Option<Quantity>, String> {
+    pub(super) fn static_amount(
+        &self,
+        source: &Object,
+        amount: &Amount,
+    ) -> Result<Option<Quantity>, String> {
         Ok(match amount {
             Amount::Fixed { value } => Some(value.clone()),
             Amount::Count { set } => Some((self.static_count(source, set)? as i64).into()),
+            // CR 122.1: counters of one kind on the source.
+            Amount::CountersOn {
+                object: Ref::Source,
+                counter,
+            } => Some(source.counter_count(counter)),
             // CR 700.5: statics admit only their controller's devotion
             // (`kir::statics`).
             Amount::Devotion { player, colors } => {

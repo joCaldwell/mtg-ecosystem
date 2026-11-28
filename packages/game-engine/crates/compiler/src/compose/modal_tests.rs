@@ -241,6 +241,7 @@ fn modal_ability_executable_shape_is_closed() {
                 cost: cost.clone(),
                 program: trigger.program,
                 modal: trigger.modal,
+                cost_changes: vec![],
             });
             if let Some(labels) = &mut d.source_labels {
                 labels.activated = std::mem::take(&mut labels.triggered);

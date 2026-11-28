@@ -599,6 +599,7 @@ fn chosen_cost_shapes() -> Vec<Game> {
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
                 minimum_power: None,
                 action,
@@ -691,6 +692,7 @@ fn activation_condition_shapes() -> Vec<Game> {
                     condition: Some(controls(CardKind::Land)),
                 }),
                 modal: None,
+                cost_changes: vec![],
                 program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
                     Instruction::act(
                         mtg_contracts::kir::Verb::Draw {
@@ -1193,6 +1195,7 @@ fn loyalty_activation() -> String {
         x_mana_cost: false,
         hybrid_mana: vec![],
         modal: None,
+        cost_changes: vec![],
         cost: ActivationCost::Loyalty {
             change: (-1).into(),
         },
