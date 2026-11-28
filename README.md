@@ -1,27 +1,19 @@
 # Project Multiverse
 
 An agent-first Commander platform: a deck library and product application backed
-by a finite, deterministic Rust rules engine. Start with [AGENTS.md](AGENTS.md)
-for package ownership and development constraints.
-
-## Current product
-
-[Multiverse](packages/multiverse/README.md) owns account/session UX, navigation,
-Home, the deck editor and the browser build/process. [Game](packages/game/README.md)
-owns the session UI, launch/recovery, native supervision and shared DTOs, composed
-in that process. The [deck-builder backend](packages/deck-builder/AGENTS.md) owns
-authentication, Actor/SQLite capabilities, deck data, CLI and MCP; there is one
-account/data system. Product sign-in grants no Rust seat. [Application boundaries](packages/multiverse/web/ARCHITECTURE.md#application-boundaries)
-and [game launch](packages/multiverse/web/ARCHITECTURE.md#game-launch) own
-current launch scope and remaining gates.
+by a finite, deterministic Rust rules engine. [AGENTS.md](AGENTS.md) owns package
+ownership and development constraints. [Multiverse](packages/multiverse/README.md)
+composes the [deck-builder backend](packages/deck-builder/AGENTS.md), the one
+account/data system, with the [game](packages/game/README.md) session in one
+process; product sign-in grants no Rust seat.
 
 ## Documentation map
 
 | Task | Canonical starting point |
 | --- | --- |
-| Package/language ownership and dependency boundaries | [System architecture](#system-architecture) |
-| Product setup and browser conventions | [Product README](packages/multiverse/README.md), [frontend architecture](packages/multiverse/web/ARCHITECTURE.md), [design](packages/multiverse/web/DESIGN.md) |
-| Deck behavior, permissions and public compatibility | [Deck specification](docs/deck-builder-spec.md), [MCP workflows](docs/deck-builder-mcp-workflows.md) |
+| Package/language ownership and dependency boundaries | [System architecture](#system-architecture), [application boundaries](packages/multiverse/web/ARCHITECTURE.md#application-boundaries) |
+| Product setup, browser conventions and launch gates | [Product README](packages/multiverse/README.md), [frontend architecture](packages/multiverse/web/ARCHITECTURE.md), [design](packages/multiverse/web/DESIGN.md), [game launch](packages/multiverse/web/ARCHITECTURE.md#game-launch) |
+| Deck behavior, permissions, MCP workflows and public compatibility | [Deck specification](docs/deck-builder-spec.md), [agent method skill](packages/deck-builder/skill/commander-deck-building/SKILL.md) |
 | Backend operations and checks | [Operations](packages/deck-builder/OPERATIONS.md), [test gate](packages/deck-builder/AGENTS.md#focused-test-gate) |
 | Client/session contracts, delivery and acceptance | [Game client](docs/game-client.md), [client setup](packages/game/README.md) |
 | Engine and parser rework: stages, gates and training target | [Rework plan](docs/game-engine-rework.md) |
@@ -29,19 +21,18 @@ current launch scope and remaining gates.
 | Engine environment, verification and storage | [Development and verification](docs/game-engine-development.md), [storage](docs/game-engine-storage.md) |
 | Parser, archives and ingestion | [Parser](docs/oracle_parser.md), [data contracts](docs/oracle_parser.md#data-contracts), [Scryfall](docs/oracle_parser.md#ingestion) |
 
-Read the target package's `AGENTS.md` before editing and use its locked tools
-and focused checks; there is no root application/native acceptance command.
-Manuals describe current supported behavior; Rust/types/data and exact evidence
-identities resolve details, and old plans live in Git history. See
-[documentation and handoff policy](AGENTS.md#documentation-and-handoff).
+Read the target package's `AGENTS.md` before editing and use its locked tools and
+focused checks; there is no root application/native acceptance command. Manuals
+describe current supported behavior; Rust/types/data and exact evidence identities
+resolve details ([handoff policy](AGENTS.md#documentation-and-handoff)).
 
 ## System architecture
 
-The adopted stack is TypeScript for ingestion, normalization, parsing, archives,
-browser applications and generated SDK consumers; Rust for semantic compilation,
-executable contracts, deterministic rules, native simulation/search and hosting.
-Cargo/npm keep separate toolchains and locks. Commander is the supported format;
-browser-local Wasm rules are deferred. Runtime rules never invoke an LLM.
+TypeScript owns ingestion, normalization, parsing, archives, browser applications
+and generated SDK consumers; Rust owns semantic compilation, executable contracts,
+deterministic rules, native simulation/search and hosting, with separate Cargo/npm
+toolchains and locks. Commander is the supported format; browser-local Wasm rules
+are deferred. Runtime rules never invoke an LLM.
 
 ```text
 Scryfall → TypeScript parser → nonexecutable source/AST archive
@@ -57,17 +48,16 @@ Scryfall → TypeScript parser → nonexecutable source/AST archive
 
 Compile complete supported sources or reject them. Parser acceptance/reference
 binding, compiler support, pod admission, hosting/search review and browser
-qualification are separate claims. Core imports the IR contracts and permitted
-view and has no host I/O, clocks or OS randomness; profiles select admission data,
-never mechanics. The NumPy gym runs native matches and encodes the choosing seat's
+qualification are separate claims. Core imports the IR contracts and permitted view
+with no host I/O, clocks or OS randomness; profiles select admission data, never
+mechanics. The NumPy gym runs native matches and encodes the choosing seat's
 observation. The host owns HTTP/auth/SQLite, resource groups and exact durable
-recovery, with its own build identity. [Engine scope](docs/game-engine-current.md)
+recovery with its own build identity; [engine scope](docs/game-engine-current.md)
 and [host contracts](docs/game-engine-server.md) define the finite supported
 release. Per-set `build-ir` emission and complete printing/set indexes remain
-unfinished; generated card data is not hand-edited source.
-
-The deck library uses independent Scryfall/SQLite facts, not parser AST or Card IR.
-External agents use MCP and the same Actor-scoped capabilities as HTTP.
+unfinished; generated card data is not hand-edited. The deck library uses
+independent Scryfall/SQLite facts, not parser AST or Card IR; external agents use
+MCP over the same Actor-scoped capabilities as HTTP.
 
 ## Vocabulary
 
