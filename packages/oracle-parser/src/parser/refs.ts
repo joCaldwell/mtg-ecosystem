@@ -1887,7 +1887,9 @@ function parseChoseOption(c: Cursor): PlayerFilter | null {
     const start = c.pos;
     if (!c.words("who", "chose")) return null;
     const token = c.peek();
-    if (token?.kind !== "word" || token.possessive || !/^[a-z]+$/.test(token.value)) return null;
+    // A determiner or quantity starts a chosen object or number, not an option word.
+    if (token?.kind !== "word" || token.possessive || !/^[a-z]+$/.test(token.raw)
+      || ["a", "an", "the", "that", "this", "those", "one", "any", "each", "no", "not", "to", "it", "them"].includes(token.value)) return null;
     c.pos++;
     return { choseOption: c.mark({ option: token.value }, start) };
   });

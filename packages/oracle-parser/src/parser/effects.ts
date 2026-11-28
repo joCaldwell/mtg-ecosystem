@@ -2057,8 +2057,13 @@ const parseSacrifice: StepParser = transactionalStep((c, ctx) => {
     ctx.lastPlayer = chooser;
     return [{ effect: "sacrifice", who: chooser, what, chosenBy: c.alias(chooser) }];
   }
+  const actorAt = c.pos;
   const who = parseActor(c, ctx, "sacrifice", "sacrifices", true);
   if (!who) return null;
+  // "You and that player each sacrifice": only a printed group subject; an
+  // elided group actor of a coordinated sacrifice stays unsupported.
+  if (who.player === "group" && !(c.tokens[actorAt]?.kind === "word" && (c.tokens[actorAt] as { value: string }).value === "you"))
+    return c.fail("explicit grouped sacrifice subject");
   const greatest = who.player === "each-opponent" && c.attempt((c): ObjectRef | null => {
     // CR 701.21a: each player sacrifices their own permanent. The greatest
     // power is compared within each player's controlled creatures.

@@ -57,6 +57,8 @@ describe("object controllers described by player history and choices", () => {
     rejected("When this creature enters, choose war, peace, or famine.", "Creature — Bear");
     rejected("When this creature enters, choose war or war.", "Creature — Bear");
     rejected("Creatures controlled by players who chose war and peace get +3/+0.", "Creature — Angel");
+    rejected("Creatures controlled by players who chose a get +3/+0.", "Creature — Angel");
+    rejected("Creatures controlled by players who chose Island get +3/+0.", "Creature — Angel");
   });
 });
 
@@ -233,5 +235,6 @@ describe("linked objects and placements", () => {
     const sacrifice = (abilities[0] as { effects: { steps: { who: unknown }[] }[] }).effects[1].steps[0];
     assert.deepEqual(sacrifice.who, { player: "group", members: [you, { player: "that-player" }], multiplicity: "per-member-occurrence" });
     rejected("Choose an opponent. You and each opponent each sacrifice a creature.", "Sorcery");
+    rejected("Choose an opponent. You and that player each draw a card and sacrifice a creature.", "Sorcery");
   });
 });
