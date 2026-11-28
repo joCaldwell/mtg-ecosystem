@@ -662,6 +662,8 @@ impl Walk<'_, '_> {
             | Amount::OtherCastsManaValue { caster: player } => self.player(player),
             // CR 604.3: characteristic-defining values have no kernel reader.
             Amount::Distinct { .. } => kind("characteristic-defining amount outside its static"),
+            // CR 601.2f: a cost-determination total has no kernel reader.
+            Amount::Total { .. } => kind("cost total outside a cost change"),
         }
     }
 

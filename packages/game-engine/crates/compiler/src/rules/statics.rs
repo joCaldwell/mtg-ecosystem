@@ -1301,7 +1301,6 @@ fn spell_cost(x: &ast::StaticEffectCostModification) -> Result<StaticAbility, Fa
     if scope_data.from.is_some()
         || scope_data.not_from.is_some()
         || scope_data.occurrence.is_some()
-        || x.bindings.is_some()
         || x.minimum_total_mana.is_some()
         || x.maximum_reduction.is_some()
         || x.colored_only.is_some()
@@ -1309,7 +1308,8 @@ fn spell_cost(x: &ast::StaticEffectCostModification) -> Result<StaticAbility, Fa
     {
         return Err(gap("cost-modification:qualifier"));
     }
-    let change = cost_change(&x.change)?;
+    let (change, multiplier) =
+        bound_cost_change(&x.change, x.bindings.as_deref(), x.multiplier.as_deref())?;
     let affects = scope(&scope_data.spells, true)?;
     let zone = if affects == Scope::Source {
         FunctioningZone::Stack
@@ -1328,7 +1328,7 @@ fn spell_cost(x: &ast::StaticEffectCostModification) -> Result<StaticAbility, Fa
             affects,
             caster,
             change,
-            multiplier: x.multiplier.as_deref().map(amount).transpose()?,
+            multiplier,
         },
         x.condition.as_deref().map(condition).transpose()?,
     ))
@@ -1342,19 +1342,80 @@ pub(crate) fn activation_cost_change(
 ) -> Result<mtg_contracts::ActivationCostChange, Failure> {
     let x: ast::CostModification = serde_json::from_value(raw.clone())
         .map_err(|_| gap("cost-modification:activation-shape"))?;
-    if x.bindings.is_some()
-        || x.minimum_total_mana.is_some()
+    if x.minimum_total_mana.is_some()
         || x.maximum_reduction.is_some()
         || x.colored_only.is_some()
         || x.only_color.is_some()
     {
         return Err(gap("cost-modification:activation-qualifier"));
     }
+    let (change, multiplier) =
+        bound_cost_change(&x.change, x.bindings.as_deref(), x.multiplier.as_deref())?;
     Ok(mtg_contracts::ActivationCostChange {
-        change: cost_change(&x.change)?,
-        multiplier: x.multiplier.as_deref().map(amount).transpose()?,
+        change,
+        multiplier,
         condition: x.condition.as_deref().map(condition).transpose()?,
     })
+}
+
+/// CR 107.3, 601.2f: "costs {X} less, where X is [amount]" is {1} less for
+/// each of that amount; any other binding rejects as a qualifier.
+fn bound_cost_change(
+    change: &ast::CostModificationChange,
+    bindings: Option<&[ast::CostModificationBindingsItem]>,
+    multiplier: Option<&ast::Amount>,
+) -> Result<(SpellCostChange, Option<Amount>), Failure> {
+    match (bindings, multiplier) {
+        (None, multiplier) => Ok((cost_change(change)?, multiplier.map(amount).transpose()?)),
+        (Some([binding]), None) if change.symbols == ["X"] => {
+            let mana = ManaCost {
+                generic: 1.into(),
+                colored: vec![],
+            };
+            let change = match change.direction {
+                ast::CostModificationChangeDirection::Increase => {
+                    SpellCostChange::Increase { mana }
+                }
+                ast::CostModificationChangeDirection::Reduce => SpellCostChange::Reduce { mana },
+            };
+            Ok((change, Some(cost_amount(&binding.value)?)))
+        }
+        _ => Err(gap("cost-modification:qualifier")),
+    }
+}
+
+/// CR 601.2f: what a cost change counts, read as the cost is determined:
+/// a static amount, or the greatest or total power or toughness among
+/// battlefield permanents.
+fn cost_amount(value: &ast::Amount) -> Result<Amount, Failure> {
+    use ast::ObjectFilterImplicitComparisonAttribute as A;
+    let stat = |attribute: &A| match attribute {
+        A::Power => Ok(kir::Stat::Power),
+        A::Toughness => Ok(kir::Stat::Toughness),
+        A::ManaValue => Err(gap("cost-modification:amount:mana-value")),
+    };
+    match value {
+        ast::Amount::AttributeExtremum(x)
+            if x.extremum == ast::AmountAttributeExtremumExtremum::Maximum =>
+        {
+            Ok(Amount::Greatest {
+                set: counted_set(&x.among, None)?,
+                stat: stat(&x.attribute)?,
+            })
+        }
+        ast::Amount::AttributeSum(x) => {
+            let filter = match &*x.among {
+                ast::ObjectRef::Each(each) => &each.filter,
+                ast::ObjectRef::All(all) => &all.filter,
+                _ => return Err(gap("cost-modification:amount:among")),
+            };
+            Ok(Amount::Total {
+                set: counted_set(filter, None)?,
+                stat: stat(&x.attribute)?,
+            })
+        }
+        other => amount(other),
+    }
 }
 
 fn cost_change(change: &ast::CostModificationChange) -> Result<SpellCostChange, Failure> {

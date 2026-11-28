@@ -176,7 +176,7 @@ impl RulesTxn {
             let mut applied = change.change.clone();
             if let Some(amount) = &change.multiplier {
                 let count = self
-                    .static_amount(object, amount)?
+                    .cost_amount(object, amount)?
                     .ok_or("invalid activation cost multiplier")?;
                 if count.is_negative() {
                     return Err("negative activation cost multiplier".into());

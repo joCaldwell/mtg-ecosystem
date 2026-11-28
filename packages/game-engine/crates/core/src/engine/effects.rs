@@ -617,6 +617,45 @@ impl RulesTxn {
         })
     }
 
+    /// CR 601.2f: a cost change's count, read once as the total cost is
+    /// determined: a static count, or the greatest or total power or
+    /// toughness among public permanents by their current characteristics.
+    /// A negative total counts as zero (CR 107.1b).
+    pub(super) fn cost_amount(
+        &self,
+        source: &Object,
+        amount: &Amount,
+    ) -> Result<Option<Quantity>, String> {
+        use mtg_contracts::kir::Stat;
+        let (set, stat, total) = match amount {
+            Amount::Greatest {
+                set,
+                stat: stat @ (Stat::Power | Stat::Toughness),
+            } => (set, *stat, false),
+            Amount::Total {
+                set,
+                stat: stat @ (Stat::Power | Stat::Toughness),
+            } => (set, *stat, true),
+            _ => return self.static_amount(source, amount),
+        };
+        let mut result = Quantity::zero();
+        for (id, _) in self.characteristic_set(source, set)? {
+            let current = self.characteristics(id)?;
+            let value = if stat == Stat::Power {
+                current.power
+            } else {
+                current.toughness
+            }
+            .unwrap_or_else(Quantity::zero);
+            if total {
+                result.add(&value);
+            } else {
+                result = result.max(value);
+            }
+        }
+        Ok(Some(result.max(Quantity::zero())))
+    }
+
     /// CR 700.5, 700.5a: the mana symbols of `colors` among the mana costs
     /// of the permanents `player` controls; a hybrid symbol contributes at
     /// most one.
@@ -1036,7 +1075,7 @@ impl RulesTxn {
                 let mut change = change.clone();
                 if let Some(amount) = multiplier {
                     let multiplier = self
-                        .static_amount(source, amount)?
+                        .cost_amount(source, amount)?
                         .ok_or("invalid static cost multiplier")?;
                     let (SpellCostChange::Increase { mana } | SpellCostChange::Reduce { mana }) =
                         &mut change;

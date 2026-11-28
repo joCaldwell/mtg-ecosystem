@@ -27,6 +27,11 @@ const DIARY_OF_DREAMS: &str = record!("98b43c61-4563-4a29-8cf0-fb8b34f337ce");
 const ESQUIRE_OF_THE_KING: &str = record!("3ccaa78e-f3e5-4de4-b53c-cecd73a73b9c");
 const STARPORT_SECURITY: &str = record!("5454dddf-c6e5-4b0d-b96d-4904c13606dc");
 const BARU: &str = record!("1cf27d78-d6ae-4fa2-9c8d-c277913f821c");
+const SURVEY_MECHAN: &str = record!("53745903-de8f-42cf-a949-842e5831de30");
+const GHALTA_PRIMAL_HUNGER: &str = record!("b0b6be0c-41cf-4757-9f0e-87227b6ba6b3");
+const THE_GREAT_HENGE: &str = record!("78427103-9543-41fb-b6d4-72963fe87275");
+const VALIANT_CHANGELING: &str = record!("65d9b8b6-5215-4037-8e50-e0ca80c5dc9e");
+const NYXBORN_BEHEMOTH: &str = record!("58e20ca7-5fe3-49ff-bee0-0388722e3cab");
 
 fn lowered(raw: &str) -> Definition {
     let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
@@ -132,10 +137,12 @@ fn hand(g: &Game, player: u8) -> usize {
 /// Logbook counts other artifacts its controller controls, Loreseeker's
 /// Stone the cards in its controller's hand (a public size, CR 402.3),
 /// Diary of Dreams its own page counters and Esquire of the King a
-/// legendary-creature condition. Starport Security's condition reads
-/// counters on other creatures, outside the static reader, and Baru's
-/// "where X is the greatest power" binding is a qualifier; both reject the
-/// whole card.
+/// legendary-creature condition, and Baru's "{X} less, where X is the
+/// greatest power among Wurms you control" {1} less for each of that
+/// greatest power (CR 107.3). Starport Security's condition reads counters
+/// on other creatures, outside the static reader, and Survey Mechan's count
+/// of differently named lands has no cost reader; both reject the whole
+/// card.
 #[test]
 fn printed_activation_cost_changes_lower_with_their_counts_and_conditions() {
     let logbook = lowered(TAMIYOS_LOGBOOK);
@@ -198,11 +205,113 @@ fn printed_activation_cost_changes_lower_with_their_counts_and_conditions() {
         starport.contains("cell:activated:cost_change"),
         "{starport}"
     );
-    let baru = rejected(BARU);
+    let baru = lowered(BARU);
+    assert!(matches!(
+        baru.activated[0].cost_changes.as_slice(),
+        [c] if c.change == SpellCostChange::Reduce { mana: mana(1, &[]) }
+            && matches!(c.multiplier, Some(Amount::Greatest {
+                stat: mtg_contracts::kir::Stat::Power, ..
+            }))
+    ));
+    let mechan = rejected(SURVEY_MECHAN);
     assert!(
-        baru.contains("static:cost-modification:activation-qualifier"),
-        "{baru}"
+        mechan.contains("static:conditional:amount:distinct_count"),
+        "{mechan}"
     );
+}
+
+/// "This spell costs {X} less to cast, where X is [amount]" is {1} less for
+/// each of that amount, read as the total is determined (CR 107.3,
+/// 601.2f): Ghalta, Primal Hunger totals the power of creatures its caster
+/// controls and The Great Henge reads the greatest. Valiant Changeling's
+/// "can't reduce ... by more than {5}" and Nyxborn Behemoth's total mana
+/// value are outside the cost reader and reject.
+#[test]
+fn spell_cost_bindings_lower_to_counted_generic_reductions() {
+    use mtg_contracts::kir::{Stat, StaticRule};
+    let multiplier = |d: &Definition| {
+        d.static_abilities
+            .iter()
+            .find_map(|a| match &a.effect {
+                StaticEffect::Rule {
+                    rule:
+                        StaticRule::SpellCost {
+                            change: SpellCostChange::Reduce { mana: m },
+                            multiplier,
+                            ..
+                        },
+                    ..
+                } if *m == mana(1, &[]) => multiplier.clone(),
+                _ => None,
+            })
+            .expect("a counted spell cost reduction")
+    };
+    assert!(matches!(
+        multiplier(&lowered(GHALTA_PRIMAL_HUNGER)),
+        Amount::Total {
+            stat: Stat::Power,
+            ..
+        }
+    ));
+    assert!(matches!(
+        multiplier(&lowered(THE_GREAT_HENGE)),
+        Amount::Greatest {
+            stat: Stat::Power,
+            ..
+        }
+    ));
+    let changeling = rejected(VALIANT_CHANGELING);
+    assert!(
+        changeling.contains("static:cost-modification:qualifier"),
+        "{changeling}"
+    );
+    let behemoth = rejected(NYXBORN_BEHEMOTH);
+    assert!(
+        behemoth.contains("static:cost-modification:amount:mana-value"),
+        "{behemoth}"
+    );
+}
+
+/// Ghalta, Primal Hunger ({10}{G}{G}) with Colossal Dreadmaw (6/6) and
+/// Grizzly Bears (2/2) locks {2}{G}{G}; The Great Henge ({7}{G}{G}) with
+/// the same creatures reads only the Dreadmaw's 6 and locks {1}{G}{G}. Both
+/// resolve with exactly that mana.
+#[test]
+fn spell_cost_bindings_read_current_power_as_the_cost_locks() {
+    for (raw, name, total) in [
+        (
+            GHALTA_PRIMAL_HUNGER,
+            "Ghalta, Primal Hunger",
+            mana(2, &[Color::G, Color::G]),
+        ),
+        (
+            THE_GREAT_HENGE,
+            "The Great Henge",
+            mana(1, &[Color::G, Color::G]),
+        ),
+    ] {
+        let lands: u32 = 4 + u32::from(name == "Ghalta, Primal Hunger");
+        let mut b = board(&[raw])
+            .permanent_or_hand(name, 0, 0, true)
+            .permanent_or_hand("Colossal Dreadmaw", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false);
+        for _ in 0..lands {
+            b = b.permanent_or_hand("Forest", 0, 0, false);
+        }
+        let mut g = game(b);
+        Driver::cast(&mut g, CardId(0));
+        Driver::request(&mut g, u64::MAX);
+        assert_eq!(g.state.rules.stack.last().unwrap().total_cost, total);
+        let paid: Vec<u32> =
+            (3..3 + total.colored.len() as u32 + total.generic.to_u32().unwrap()).collect();
+        Driver::pay(&mut g, &paid);
+        resolve(&mut g);
+        assert_eq!(
+            g.state.rules.objects[&CardId(0)].zone,
+            Zone::Battlefield,
+            "{name}"
+        );
+    }
 }
 
 /// Tamiyo's Logbook: "{5}{U}, {T}: Draw a card. This ability costs {1} less

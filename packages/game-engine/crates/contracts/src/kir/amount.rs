@@ -80,6 +80,13 @@ pub enum Amount {
         #[serde(default, skip_serializing_if = "super::is_false")]
         round_up: bool,
     },
+    /// CR 107.1, 208.1: the sum of `stat` over the objects of a set ("the
+    /// total power of creatures you control"); zero when the set is empty.
+    /// Read only as a cost is determined (CR 601.2f, `kir::statics`).
+    Total {
+        set: SetExpr,
+        stat: Stat,
+    },
     /// CR 205.2a, 205.3i, 105.1: how many different card types, basic land
     /// types or colors the objects of a set have among them. Read only by a
     /// characteristic-defining ability (`kir::statics`).

@@ -680,6 +680,7 @@ fn cda_amount(amount: &Amount) -> bool {
         Amount::Var { .. }
         | Amount::StatOf { .. }
         | Amount::CountersOn { .. }
+        | Amount::Total { .. }
         | Amount::Greatest { .. }
         | Amount::LifeOf { .. }
         | Amount::BlockersOf { .. }
@@ -687,6 +688,32 @@ fn cda_amount(amount: &Amount) -> bool {
         | Amount::Difference { .. }
         | Amount::Half { .. }
         | Amount::OtherCastsManaValue { .. } => false,
+    }
+}
+
+/// CR 601.2f: a cost change's count is read once, as the total cost is
+/// determined, outside the layer system; besides the static counts it may
+/// read the greatest or total power or toughness of public battlefield
+/// permanents by their current characteristics.
+pub(crate) fn cost_amount(amount: &Amount) -> bool {
+    match amount {
+        Amount::Greatest {
+            set:
+                SetExpr::Matching {
+                    zone: ZoneExpr::Battlefield,
+                    filter,
+                },
+            stat: Stat::Power | Stat::Toughness,
+        }
+        | Amount::Total {
+            set:
+                SetExpr::Matching {
+                    zone: ZoneExpr::Battlefield,
+                    filter,
+                },
+            stat: Stat::Power | Stat::Toughness,
+        } => predicate_in_layer(filter, Layer::Color),
+        other => condition_amount(other),
     }
 }
 
@@ -700,7 +727,7 @@ pub fn activation_cost_change_supported(change: &crate::ActivationCostChange) ->
         && !mana.colored.contains(&Color::C)
         && change.multiplier.as_ref().is_none_or(|m| {
             mana.colored.is_empty()
-                && condition_amount(m)
+                && cost_amount(m)
                 && !m.as_fixed().is_some_and(Quantity::is_negative)
         })
         && change.condition.as_ref().is_none_or(condition_supported)
@@ -1336,7 +1363,7 @@ impl crate::StaticAbility {
                             && !mana.generic.is_negative()
                             && multiplier.as_ref().is_none_or(|m| {
                                 mana.colored.is_empty()
-                                    && condition_amount(m)
+                                    && cost_amount(m)
                                     && !m.as_fixed().is_some_and(Quantity::is_negative)
                             })
                             && match affects {
