@@ -188,6 +188,20 @@ pub struct ObjectBefore {
     pub characteristics: Characteristics,
 }
 impl ObjectBefore {
+    pub(super) fn counter_balance(
+        &self,
+        kind: Option<&mtg_contracts::kir::CounterKind>,
+    ) -> Quantity {
+        crate::query::counter_balance(
+            kind,
+            &self.plus_one_counters,
+            &self.loyalty_counters,
+            self.counters
+                .iter()
+                .map(|stack| (&stack.kind, &stack.count)),
+        )
+    }
+
     /// CR 733.1: the exact object row these facts were captured from, for a
     /// reversal that puts it back. Both rows are destructured in full, so a
     /// new `Object` or `ObjectBefore` field fails to compile until it is

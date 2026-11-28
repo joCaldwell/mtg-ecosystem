@@ -14,7 +14,7 @@
 //! state. Target legality additionally needs hexproof, shroud, protection, a
 //! required filter and per-ability restrictions, which stay with the core.
 use crate::{PermittedView, PlayerId, PlayerStatus, VisibleObject, Zone};
-use mtg_contracts::kir::{Amount, Atom, Cmp, PlayerExpr, Pred, Ref, ZoneExpr};
+use mtg_contracts::kir::{Amount, Atom, Cmp, CounterKind, PlayerExpr, Pred, Ref, ZoneExpr};
 use mtg_contracts::{
     CardKind, Characteristics, CreaturePowerFilter, KeywordAbility, ObjectSet, PermanentFilter,
     Quantity, SacrificeFilter, TargetDomain,
@@ -78,6 +78,34 @@ pub trait ObjectFacts {
     fn attacking(&self) -> Tri;
     /// CR 506.4: a blocker stays a blocking creature after its attacker leaves.
     fn blocking(&self) -> Tri;
+    /// CR 122.1: known battlefield counter balances. None means hidden facts.
+    fn counters(&self, _kind: Option<&CounterKind>) -> Option<Quantity> {
+        None
+    }
+}
+
+pub(crate) fn counter_balance<'a>(
+    kind: Option<&CounterKind>,
+    plus_one: &'a Quantity,
+    loyalty: &'a Quantity,
+    other: impl IntoIterator<Item = (&'a CounterKind, &'a Quantity)>,
+) -> Quantity {
+    match kind {
+        Some(CounterKind::PlusOnePlusOne) => plus_one.clone(),
+        Some(CounterKind::Loyalty) => loyalty.clone(),
+        Some(kind) => other
+            .into_iter()
+            .find(|(found, _)| *found == kind)
+            .map_or_else(Quantity::zero, |(_, count)| count.clone()),
+        None => {
+            let mut total = plus_one.clone();
+            total.add(loyalty);
+            for (_, count) in other {
+                total.add(count);
+            }
+            total
+        }
+    }
 }
 
 /// CR 110.1/702.26b: on the battlefield and phased in.
@@ -234,6 +262,10 @@ fn compare(actual: Option<&Quantity>, cmp: Cmp, value: &Amount) -> bool {
     let (Some(actual), Amount::Fixed { value }) = (actual, value) else {
         return false;
     };
+    compare_quantities(actual, cmp, value)
+}
+
+fn compare_quantities(actual: &Quantity, cmp: Cmp, value: &Quantity) -> bool {
     match cmp {
         Cmp::AtLeast => actual >= value,
         Cmp::AtMost => actual <= value,
@@ -289,6 +321,15 @@ pub fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tr
         Atom::ManaValue { cmp, value } => known(object.copiable(), |c| {
             compare(Some(&c.printed_mana_value()), *cmp, value)
         }),
+        Atom::Counters {
+            counter,
+            cmp,
+            value,
+        } => object
+            .counters(counter.as_ref())
+            .map_or(Tri::Unknown, |actual| {
+                compare_quantities(&actual, *cmp, value).into()
+            }),
         // Identity against an invocation's reference is the caller's fact.
         Atom::Is { .. }
         | Atom::IsNot { .. }
@@ -468,6 +509,19 @@ pub fn spell_matches_filter(
 /// A visible object alone. Facts that need the surrounding view are unknown;
 /// use [`in_view`] to supply them.
 impl ObjectFacts for VisibleObject {
+    fn counters(&self, kind: Option<&CounterKind>) -> Option<Quantity> {
+        (self.zone == Zone::Battlefield).then(|| {
+            counter_balance(
+                kind,
+                &self.plus_one_counters,
+                &self.loyalty_counters,
+                self.counters
+                    .iter()
+                    .map(|stack| (&stack.kind, &stack.count)),
+            )
+        })
+    }
+
     fn zone(&self) -> Zone {
         self.zone
     }
@@ -553,6 +607,10 @@ impl InView<'_> {
 }
 
 impl ObjectFacts for InView<'_> {
+    fn counters(&self, kind: Option<&CounterKind>) -> Option<Quantity> {
+        self.object.counters(kind)
+    }
+
     fn zone(&self) -> Zone {
         self.object.zone()
     }

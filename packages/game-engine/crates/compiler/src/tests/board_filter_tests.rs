@@ -211,9 +211,9 @@ fn unrepresented_filter_terms_reject_the_whole_set() {
         json!({"cls":"card","zone":{"owner":"your","zone":"library"}}),
         // A card type the engine does not model.
         json!({"types":["battle"]}),
-        // A computed or X comparison, an unknown property or operator.
+        // A computed power bound, an unknown property or operator.
         json!({"types":["creature"],"properties":[
-            {"property":"mana-value","comparison":{"op":"le","value":{"amount":"x"}}}]}),
+            {"property":"power","comparison":{"op":"le","value":{"amount":"x"}}}]}),
         json!({"types":["creature"],"properties":[
             {"property":"loyalty","comparison":{"op":"le","value":{"amount":"fixed","value":1}}}]}),
         json!({"types":["creature"],"properties":[

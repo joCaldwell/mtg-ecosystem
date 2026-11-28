@@ -463,11 +463,16 @@ pub(crate) fn variant<T: std::fmt::Debug>(value: &T) -> String {
 /// CR 608.2h: an "all"/"each" operand is the set of battlefield permanents
 /// that satisfy its whole filter when the instruction is performed.
 pub(crate) fn lower_board_set(what: &ast::ObjectRef, context: Context) -> Result<SetExpr, Failure> {
-    match what {
-        ast::ObjectRef::All(set) => Ok(SetExpr::battlefield(lower_filter(&set.filter, context)?)),
-        ast::ObjectRef::Each(set) => Ok(SetExpr::battlefield(lower_filter(&set.filter, context)?)),
-        other => Err(operand("set", format!("ref_{}", variant(other)))),
-    }
+    let filter = match what {
+        ast::ObjectRef::All(set) => &set.filter,
+        ast::ObjectRef::Each(set) => &set.filter,
+        other => return Err(operand("set", format!("ref_{}", variant(other)))),
+    };
+    Ok(SetExpr::battlefield(lower_filter_for(
+        filter,
+        PlayerExpr::you(context),
+        true,
+    )?))
 }
 
 /// The board sets an end-of-turn pump or a set damage step was reviewed
@@ -569,10 +574,14 @@ pub(crate) fn type_alternatives(
 /// CR 608.2h: every printed term of a board filter becomes one predicate
 /// atom, in this fixed order; a term with no atom rejects the operand.
 pub(crate) fn lower_filter(filter: &ast::ObjectFilter, context: Context) -> Result<Pred, Failure> {
-    lower_filter_for(filter, PlayerExpr::you(context))
+    lower_filter_for(filter, PlayerExpr::you(context), false)
 }
 
-fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred, Failure> {
+fn lower_filter_for(
+    filter: &ast::ObjectFilter,
+    you: PlayerExpr,
+    announced_bound: bool,
+) -> Result<Pred, Failure> {
     if let Some(field) = present_fields(filter)
         .into_iter()
         .find(|field| !BOARD_FILTER_TERMS.contains(field))
@@ -649,11 +658,15 @@ fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred,
     match &filter.control {
         None => {}
         // CR 109.5: "you control" uses the binding for this ability.
-        Some(ast::ObjectFilterControl::You) => atoms.push(Atom::ControlledBy { player: you }),
-        // CR 102.3: "your opponents control".
-        Some(ast::ObjectFilterControl::Opponent) => atoms.push(Atom::ControlledBy {
-            player: PlayerExpr::EachOpponent,
+        Some(ast::ObjectFilterControl::You) => atoms.push(Atom::ControlledBy {
+            player: you.clone(),
         }),
+        // CR 102.3: "your opponents control".
+        Some(ast::ObjectFilterControl::Opponent | ast::ObjectFilterControl::NotYou) => {
+            atoms.push(Atom::ControlledBy {
+                player: PlayerExpr::EachOpponent,
+            })
+        }
         Some(other) => return Err(operand("filter", format!("control:{}", variant(other)))),
     }
     for status in listed(&filter.status, "status")? {
@@ -674,11 +687,11 @@ fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred,
         (&filter.without_ability, "without_ability", false),
     ] {
         for ability in listed(list, field)? {
-            // CR 702.9: flying is the one keyword the set evaluator reviews.
-            if ability != "flying" {
-                return Err(operand("filter", format!("{field}:{ability}")));
-            }
-            let keyword = KeywordAbility::Flying;
+            let keyword = match ability.as_str() {
+                "flying" => KeywordAbility::Flying,
+                "defender" => KeywordAbility::Defender,
+                _ => return Err(operand("filter", format!("{field}:{ability}"))),
+            };
             atoms.push(if has {
                 Atom::Keyword { keyword }
             } else {
@@ -687,29 +700,36 @@ fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred,
         }
     }
     for property in listed(&filter.properties, "properties")? {
-        atoms.push(lower_fixed_property(property)?);
+        atoms.push(lower_fixed_property(property).or_else(|error| {
+            // CR 107.3, 202.3, 608.2h: compare public permanents against
+            // the value of X announced for this invocation.
+            if announced_bound
+                && property.property == ast::PropertyConstraintProperty::ManaValue
+                && property.comparison.op == ast::ComparisonOp::Le
+                && matches!(&*property.comparison.value, ast::Amount::X(_))
+            {
+                Ok(Atom::ManaValue {
+                    cmp: Cmp::AtMost,
+                    value: Amount::announced_x(),
+                })
+            } else {
+                Err(error)
+            }
+        })?);
     }
+    // CR 108.3, 110.2: ownership is independent of current control.
+    match filter.own {
+        Some(ast::ObjectFilterOwn::You) => atoms.push(Atom::OwnedBy { player: you }),
+        Some(owner) => return Err(operand("filter", format!("own:{}", owner.as_str()))),
+        None => {}
+    }
+    lower_counter_constraints(filter, "filter", &mut atoms)?;
     Ok(Pred(atoms))
 }
 
 /// CR 208.1, 202.3: a fixed comparison of power, toughness or mana value.
 pub(crate) fn lower_fixed_property(property: &ast::PropertyConstraint) -> Result<Atom, Failure> {
-    let ast::Amount::Fixed(bound) = &*property.comparison.value else {
-        return Err(operand(
-            "filter",
-            format!("properties:{}", variant(&*property.comparison.value)),
-        ));
-    };
-    let bound = bound.value;
-    let overflow = || operand("filter", "properties:bound");
-    // Integers: "less than N" is "at most N-1" (CR 107.1).
-    let (cmp, bound) = match property.comparison.op {
-        ast::ComparisonOp::Ge => (Cmp::AtLeast, bound),
-        ast::ComparisonOp::Gt => (Cmp::AtLeast, bound.checked_add(1).ok_or_else(overflow)?),
-        ast::ComparisonOp::Le => (Cmp::AtMost, bound),
-        ast::ComparisonOp::Lt => (Cmp::AtMost, bound.checked_sub(1).ok_or_else(overflow)?),
-        ast::ComparisonOp::Eq => (Cmp::Exactly, bound),
-    };
+    let (cmp, bound) = fixed_comparison(&property.comparison, "filter", "properties")?;
     let value = Amount::fixed(bound);
     Ok(match property.property {
         ast::PropertyConstraintProperty::Power => Atom::Power { cmp, value },
@@ -719,6 +739,59 @@ pub(crate) fn lower_fixed_property(property: &ast::PropertyConstraint) -> Result
             return Err(operand("filter", format!("properties:{}", variant(other))));
         }
     })
+}
+
+fn fixed_comparison(
+    comparison: &ast::Comparison,
+    family: &str,
+    field: &str,
+) -> Result<(Cmp, i64), Failure> {
+    let ast::Amount::Fixed(bound) = &*comparison.value else {
+        return Err(operand(
+            family,
+            format!("{field}:{}", variant(&*comparison.value)),
+        ));
+    };
+    let bound = bound.value;
+    let overflow = || operand(family, format!("{field}:bound"));
+    // Integers: "less than N" is "at most N-1" (CR 107.1).
+    Ok(match comparison.op {
+        ast::ComparisonOp::Ge => (Cmp::AtLeast, bound),
+        ast::ComparisonOp::Gt => (Cmp::AtLeast, bound.checked_add(1).ok_or_else(overflow)?),
+        ast::ComparisonOp::Le => (Cmp::AtMost, bound),
+        ast::ComparisonOp::Lt => (Cmp::AtMost, bound.checked_sub(1).ok_or_else(overflow)?),
+        ast::ComparisonOp::Eq => (Cmp::Exactly, bound),
+    })
+}
+
+// CR 122.1: count markers on the current permanent. Targets read the
+// same facts at announcement and the resolution recheck (CR 601.2c, 608.2b).
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn lower_counter_constraints(
+    filter: &ast::ObjectFilter,
+    family: &str,
+    atoms: &mut Vec<Atom>,
+) -> Result<(), Failure> {
+    use ast::ObjectFilterCounterConstraintsItemCounter as Kind;
+    for constraint in listed(&filter.counter_constraints, "counter_constraints")? {
+        let counter = match &*constraint.counter {
+            Kind::Any => None,
+            Kind::CounterSpec(spec) => Some(
+                object_counter_kind(&spec.r#type)
+                    .map_err(|_| operand(family, "counter_constraints:kind"))?,
+            ),
+        };
+        let (cmp, bound) = fixed_comparison(&constraint.comparison, family, "counter_constraints")?;
+        if bound < 0 {
+            return Err(operand(family, "counter_constraints:negative"));
+        }
+        atoms.push(Atom::Counters {
+            counter,
+            cmp,
+            value: bound.into(),
+        });
+    }
+    Ok(())
 }
 
 /// CR 205, 208, 202.3: the printed characteristics a library card is
@@ -742,7 +815,7 @@ pub(crate) fn lower_card_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fail
         return Err(operand("filter", format!("library_card:{field}")));
     }
     // Context only names "you" for a control atom, which is rejected above.
-    let mut pred = lower_filter_for(&plain, PlayerExpr::you(Context::Spell))?;
+    let mut pred = lower_filter_for(&plain, PlayerExpr::you(Context::Spell), false)?;
     if let Some(children) = each {
         if children.is_empty() {
             return Err(operand("filter", "all_of:empty"));
@@ -775,7 +848,7 @@ pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fa
     if other == Some(false) {
         return Err(operand("filter", "other:false"));
     }
-    let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller())?;
+    let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller(), false)?;
     if let Some(chosen) = chosen_type {
         if chosen.kind.is_some() {
             return Err(operand("filter", "chosen-type:kind"));
@@ -840,7 +913,7 @@ pub(crate) fn lower_declaration_filter(filter: &ast::ObjectFilter) -> Result<Pre
     if postmodified && (each.iter().flatten().any(nouns) || nouns(filter)) {
         return Err(operand("filter", "declaration:postmodified_alternatives"));
     }
-    let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller())?;
+    let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller(), false)?;
     for (list, field, has) in [
         (&with, "with_ability", true),
         (&without, "without_ability", false),
@@ -889,7 +962,7 @@ pub(crate) fn lower_event_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fai
     if other == Some(false) {
         return Err(operand("filter", "other:false"));
     }
-    let mut pred = lower_filter_for(&plain, PlayerExpr::you(Context::Triggered))?;
+    let mut pred = lower_filter_for(&plain, PlayerExpr::you(Context::Triggered), false)?;
     if let Some(children) = each {
         if children.is_empty() {
             return Err(operand("filter", "all_of:empty"));
@@ -917,7 +990,7 @@ pub(crate) fn lower_event_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fai
 }
 
 /// The filter terms a board set represents.
-const BOARD_FILTER_TERMS: [&str; 16] = [
+const BOARD_FILTER_TERMS: [&str; 18] = [
     "cls",
     "types",
     "all_of",
@@ -934,6 +1007,8 @@ const BOARD_FILTER_TERMS: [&str; 16] = [
     "with_ability",
     "without_ability",
     "properties",
+    "own",
+    "counter_constraints",
 ];
 
 /// The sole printed term of a filter, if it has exactly one.
@@ -1312,7 +1387,7 @@ pub(crate) fn bind_optional_target_group(
 fn lower_target_filter(
     filter: &ast::ObjectFilter,
 ) -> Result<(TargetDomain, PermanentFilter), Failure> {
-    const TERMS: [&str; 18] = [
+    const TERMS: [&str; 19] = [
         "cls",
         "types",
         "all_of",
@@ -1331,6 +1406,7 @@ fn lower_target_filter(
         "without_ability",
         "properties",
         "other",
+        "counter_constraints",
     ];
     if let Some(field) = present_fields(filter)
         .into_iter()
@@ -1368,7 +1444,7 @@ fn lower_target_filter(
     }
     let token = match &filter.cls {
         None => false,
-        Some(ast::ObjectFilterCls::Permanent) if types.is_empty() => false,
+        Some(ast::ObjectFilterCls::Permanent) => false,
         Some(ast::ObjectFilterCls::Token) => true,
         Some(other) => return Err(operand("target_filter", format!("cls:{}", variant(other)))),
     };
@@ -1384,7 +1460,9 @@ fn lower_target_filter(
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     let (domain, opponent) = match &filter.control {
         None => (TargetDomain::BattlefieldPermanent, false),
-        Some(ast::ObjectFilterControl::Opponent) => (TargetDomain::BattlefieldPermanent, true),
+        Some(ast::ObjectFilterControl::Opponent | ast::ObjectFilterControl::NotYou) => {
+            (TargetDomain::BattlefieldPermanent, true)
+        }
         Some(ast::ObjectFilterControl::You) => {
             (TargetDomain::ControlledBattlefieldPermanent, false)
         }
@@ -1411,6 +1489,7 @@ fn lower_target_filter(
     properties.append(&mut atoms);
     let mut atoms = properties;
     target_characteristic_atoms(filter, &mut atoms)?;
+    lower_counter_constraints(filter, "target_filter", &mut atoms)?;
     if token {
         atoms.push(Atom::Token);
     }
@@ -2054,12 +2133,13 @@ pub(crate) fn fixed_product(factors: Vec<Amount>) -> Result<Amount, Failure> {
 /// size of your hand. The engine never counts filtered hidden cards.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(crate) fn lower_count(count: &ast::AmountCount, context: Context) -> Result<Amount, Failure> {
-    lower_count_with(count, context, |filter| lower_filter(filter, context))
+    lower_count_with(count, context, None, |filter| lower_filter(filter, context))
 }
 
 pub(crate) fn lower_count_with(
     count: &ast::AmountCount,
     context: Context,
+    resolved_owner: Option<PlayerExpr>,
     lower: impl FnOnce(&ast::ObjectFilter) -> Result<Pred, Failure>,
 ) -> Result<Amount, Failure> {
     use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
@@ -2082,15 +2162,21 @@ pub(crate) fn lower_count_with(
                 of: PlayerExpr::you(context),
             },
             Some(Owner::Any | Owner::EachPlayer | Owner::AllPlayers) => kir::ZoneExpr::Graveyards,
-            _ => return Err(operand("amount", "count:graveyard_owner")),
+            _ => kir::ZoneExpr::Graveyard {
+                of: resolved_owner.ok_or_else(|| operand("amount", "count:graveyard_owner"))?,
+            },
         },
         Some(ast::ZoneRef {
             zone: ast::Zone::Hand,
             owner,
             depth: None,
             position: None,
-        }) if owner.as_deref() == Some(&Owner::Your) => kir::ZoneExpr::Hand {
-            of: PlayerExpr::you(context),
+        }) => kir::ZoneExpr::Hand {
+            of: if owner.as_deref() == Some(&Owner::Your) {
+                PlayerExpr::you(context)
+            } else {
+                resolved_owner.ok_or_else(|| operand("amount", "count:hand_owner"))?
+            },
         },
         Some(other) => return Err(operand("amount", format!("count:{}", variant(&other.zone)))),
     };
@@ -2175,36 +2261,52 @@ pub(crate) fn lower_x_binding(
         ast::Amount::Count(count) => lower_count(count, context).map(Some),
         amount @ ast::Amount::CounterCount(_) => source_counter_amount(amount).map(Some),
         ast::Amount::AttributeExtremum(extremum) => {
-            if extremum.extremum != ast::AmountAttributeExtremumExtremum::Maximum {
-                return Err(operand("bindings", "attribute_extremum:minimum"));
-            }
-            let Amount::Count {
-                set:
-                    set @ SetExpr::Matching {
-                        zone: kir::ZoneExpr::Battlefield,
-                        ..
-                    },
-            } = lower_count(
-                &ast::AmountCount {
-                    of: extremum.among.clone(),
-                },
-                context,
-            )?
-            else {
-                return Err(operand("bindings", "attribute_extremum:zone"));
-            };
-            Ok(Some(Amount::Greatest {
-                set,
-                stat: match extremum.attribute {
-                    ast::ObjectFilterImplicitComparisonAttribute::Power => kir::Stat::Power,
-                    ast::ObjectFilterImplicitComparisonAttribute::Toughness => kir::Stat::Toughness,
-                    ast::ObjectFilterImplicitComparisonAttribute::ManaValue => kir::Stat::ManaValue,
-                },
-            }))
+            lower_greatest(extremum, context, "bindings", |filter| {
+                lower_filter(filter, context)
+            })
+            .map(Some)
         }
         ast::Amount::Devotion(devotion) => lower_devotion(devotion, context).map(Some),
         other => Err(operand("bindings", variant(other))),
     }
+}
+
+/// CR 208.1, 202.3, 608.2h: the greatest current stat in a public set.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(crate) fn lower_greatest(
+    extremum: &ast::AmountAttributeExtremum,
+    context: Context,
+    operand_kind: &str,
+    lower: impl FnOnce(&ast::ObjectFilter) -> Result<Pred, Failure>,
+) -> Result<Amount, Failure> {
+    if extremum.extremum != ast::AmountAttributeExtremumExtremum::Maximum {
+        return Err(operand(operand_kind, "attribute_extremum:minimum"));
+    }
+    let Amount::Count {
+        set:
+            set @ SetExpr::Matching {
+                zone: kir::ZoneExpr::Battlefield,
+                ..
+            },
+    } = lower_count_with(
+        &ast::AmountCount {
+            of: extremum.among.clone(),
+        },
+        context,
+        None,
+        lower,
+    )?
+    else {
+        return Err(operand(operand_kind, "attribute_extremum:zone"));
+    };
+    Ok(Amount::Greatest {
+        set,
+        stat: match extremum.attribute {
+            ast::ObjectFilterImplicitComparisonAttribute::Power => kir::Stat::Power,
+            ast::ObjectFilterImplicitComparisonAttribute::Toughness => kir::Stat::Toughness,
+            ast::ObjectFilterImplicitComparisonAttribute::ManaValue => kir::Stat::ManaValue,
+        },
+    })
 }
 
 pub(crate) fn lower_devotion(
@@ -2350,6 +2452,27 @@ pub(crate) fn source_counter_amount(amount: &ast::Amount) -> Result<kir::Amount,
         },
         other => return Err(operand("amount", variant(other))),
     };
+    let of = lower_counter_amount(count, |on| {
+        if is_this_permanent(on) {
+            Ok(Ref::Source)
+        } else {
+            Err(operand("amount", "counter_count:recipient"))
+        }
+    })?;
+    Ok(if factor == 1 {
+        of
+    } else {
+        kir::Amount::Times {
+            factor: Quantity::from(factor),
+            of: Box::new(of),
+        }
+    })
+}
+
+pub(crate) fn lower_counter_amount(
+    count: &ast::AmountCounterCount,
+    resolve: impl FnOnce(&ast::ObjectRef) -> Result<Ref, Failure>,
+) -> Result<Amount, Failure> {
     let ast::AmountCounterCount { counter, on, total } = count;
     let (ast::ObjectFilterCounterConstraintsItemCounter::CounterSpec(spec), None) =
         (&**counter, total)
@@ -2359,20 +2482,9 @@ pub(crate) fn source_counter_amount(amount: &ast::Amount) -> Result<kir::Amount,
     let ast::AmountCounterCountOn::ObjectRef(on) = &**on else {
         return Err(operand("amount", "counter_count:player"));
     };
-    if !is_this_permanent(on) {
-        return Err(operand("amount", "counter_count:recipient"));
-    }
-    let of = kir::Amount::CountersOn {
-        object: kir::Ref::Source,
+    Ok(Amount::CountersOn {
+        object: resolve(on)?,
         counter: object_counter_kind(&spec.r#type)?,
-    };
-    Ok(if factor == 1 {
-        of
-    } else {
-        kir::Amount::Times {
-            factor: Quantity::from(factor),
-            of: Box::new(of),
-        }
     })
 }
 

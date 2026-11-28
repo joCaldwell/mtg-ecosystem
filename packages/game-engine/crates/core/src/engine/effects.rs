@@ -421,7 +421,8 @@ impl RulesTxn {
             | Atom::Toughness { .. }
             | Atom::Keyword { .. }
             | Atom::NotKeyword { .. }
-            | Atom::Is { .. } => false,
+            | Atom::Is { .. }
+            | Atom::Counters { .. } => false,
         }
     }
 

@@ -302,6 +302,10 @@ Departures preserve seating and Commander history; simultaneous losers all leave
 before cleanup and adjudication, and their objects and mana never return.
 Surviving activators keep paid abilities when a borrowed source's owner leaves;
 personal effects for a departed invocation controller skip rather than redirect.
+Information about a specific player uses their current state or their last known
+state immediately before departure (CR 800.4i). The latter includes hand size,
+public graveyard facts, life and devotion. Targets still need to be legal at the
+start of resolution (CR 608.2b).
 
 Typed nonbasic lands derive intrinsic mana. Fetch activations atomically tap,
 pay life and sacrifice the source before the typed search, which keeps LKI

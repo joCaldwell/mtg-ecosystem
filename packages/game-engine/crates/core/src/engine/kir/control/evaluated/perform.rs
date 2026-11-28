@@ -591,8 +591,12 @@ impl RulesTxn {
                 _ => vec![],
             });
         }
-        let options: Vec<ObjectId> = self
-            .evaluated_set(task, &ZoneExpr::Battlefield, filter)?
+        let Resolved::Present(objects) =
+            self.evaluated_set(task, &ZoneExpr::Battlefield, filter)?
+        else {
+            return Ok(vec![]);
+        };
+        let options: Vec<ObjectId> = objects
             .into_iter()
             .filter(|object| self.sacrificeable(player, *object))
             .collect();

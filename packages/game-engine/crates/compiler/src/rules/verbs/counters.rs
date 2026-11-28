@@ -40,13 +40,13 @@ pub(super) fn lower(
     }
     let counter = object_counter_kind(&counter.r#type)?;
     let amount = if let Some(filter) = for_each {
-        pilot_each_filter(cx, filter, count)?
+        pilot_each_filter(cx, filter, count, None)?
     } else {
         pilot_amount(cx, count)?
     };
     let on = on.as_ref();
     let on = if is_set(on) {
-        pilot_board_set(cx, on)?
+        pilot_board_set(cx, on, None)?
     } else if is_this_creature(on) || (!counter.needs_creature() && is_this_permanent(on)) {
         kir::SetExpr::source()
     } else if matches!(on, ast::ObjectRef::It(_) | ast::ObjectRef::That(_)) {

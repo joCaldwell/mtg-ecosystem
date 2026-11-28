@@ -682,10 +682,10 @@ impl TriggerEventWitness {
 /// CR 603.10: the facts an event froze for its object, read as the object
 /// was at that moment: the entering permanent, the declared attacker, the
 /// cast spell or the damage source's battlefield appearance.
-struct Frozen<'a> {
-    facts: &'a ObjectBefore,
-    token: bool,
-    live: bool,
+pub(super) struct Frozen<'a> {
+    pub(super) facts: &'a ObjectBefore,
+    pub(super) token: bool,
+    pub(super) live: bool,
 }
 
 impl ObjectFacts for Frozen<'_> {
