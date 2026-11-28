@@ -1,8 +1,8 @@
 # Engine structural capacity policy
 
 These are executor resource ceilings, not claims that every admitted game
-terminates within them. A ceiling never determines a Magic winner.
-`engine/capacities.rs` is the runtime authority; catalog names, schema versions,
+terminates within them; a ceiling never determines a Magic winner.
+`engine/capacities.rs` is the runtime authority. Catalog names, schema versions,
 card identities and publication order never select a capacity, and checked
 identity/cursor arithmetic remains an independent invariant.
 
@@ -30,7 +30,7 @@ below half the stack ceiling. Profile flags never bypass runtime checks; a catal
 with more trigger sources must revisit the shared ceiling.
 
 Live-token and temporary-effect ceilings are reachable in legal games (repeated
-token creation and sacrifice, repeated pumps); they are deliberate boundaries with
+token creation and sacrifice, repeated pumps): they are deliberate boundaries with
 typed atomic faults, not complete legal-game coverage. Damage and event-member
 ceilings exceed the 656-creature group plus four players; group depth is structural
 IR nesting.
@@ -45,8 +45,9 @@ Copied/granted token abilities must extend this proof before admission. Before
 publishing a batch, the engine preflights its entire emission against retained
 stack/pending count, TriggerId arithmetic and StackId headroom; overflow rolls back
 payment, events, IDs and all siblings atomically. Cascade has no executable R5 form
-([mechanics](game-engine-mechanics.md)); a future lowering must bound its progress,
-exile and permutation lists by the 100-card library and charge retained capacity.
+([board mechanics](game-engine-board-mechanics.md)); a future lowering must bound
+its progress, exile and permutation lists by the 100-card library and charge
+retained capacity.
 
 ## Fault semantics
 
@@ -57,15 +58,15 @@ check totals before application. Snapshot validation checks bounds and fault
 metadata; restoration still proves accepted-input replay. A fault is never a rules
 loss, draw or silent truncation.
 
-Whole-state forking per step is a known performance limitation; mutable staging,
+Whole-state forking per step is a known performance limitation: mutable staging,
 exact quantities, export strings, queries and snapshot proof can cost more than
-retained charges. Any performance claim needs fresh measurement
+retained charges, so performance claims need fresh measurement
 ([evidence](game-engine-evidence.md#search-hosting-and-performance)).
 
 ## Retained history accounting
 
-History2 shares each viewer's `VisiblePlayer` row after typed equality with that
-viewer's predecessor, so unchanged players, objects and stack prefixes are not
+Retained history shares each viewer's `VisiblePlayer` row after typed equality with
+that viewer's predecessor, so unchanged players, objects and stack prefixes are not
 retained or charged again; nothing is interned across viewers, and public JSON and
 secrecy are unchanged. The charge is the canonical encoded length of each newly
 retained row, stack node, commander collection and view metadata, plus 256 fixed

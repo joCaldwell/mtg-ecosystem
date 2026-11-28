@@ -1,10 +1,9 @@
 # Game client contracts, delivery and acceptance
 
 `packages/game/web` owns generated-protocol decision/session adapters, a qualified
-captured preview and a standalone harness; `game-ui` owns shared permitted display;
-`multiverse` owns product UX and Play setup; `deck-builder` keeps the
-auth/Actor/SQLite backend. Rust host/core own admission, legality, visibility and
-durable execution. Product sign-in does not grant a Rust seat. See
+captured preview and a standalone harness; Rust host/core own admission, legality,
+visibility and durable execution. Product sign-in does not grant a Rust seat. See
+the [package manual](../packages/game/AGENTS.md#boundaries) for layering,
 [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch)
 and [client setup](../packages/game/README.md).
 
@@ -22,10 +21,6 @@ results after shutdown; a retained table may be read-only while the host resolve
 a pending command. The product preview uses a captured sample and local choices.
 
 ## Package, privacy and presentation boundaries
-
-[The package manual](../packages/game/AGENTS.md#boundaries) owns layering. The
-router-free preview imports no session/auth/SDK runtime; its Node-only verifier
-checks capture and producer hashes.
 
 Core-observed current characteristics override printed reference values. Metadata
 is offline-produced from exact archived source with catalog/printing/face/source
@@ -50,8 +45,7 @@ file select a proxy target, or persist bearer tokens.
 Acquire the exclusive Web Lock before every session network/journal operation; no
 forced takeover, secret broadcasting or fallback ownership. The single read owner
 controls cursor and recovery and keeps the last Observation/token across
-lifecycle-only pages. A changed generation/seat/
-identity invalidates all asynchronous completions, drafts and effects before I/O.
+lifecycle-only pages. A changed generation/seat/identity invalidates all asynchronous completions, drafts and effects before I/O.
 Reads use bounded backoff; a 429 may extend the wait by an authorization-local
 `Retry-After` hint capped at 60 seconds and aborted on stop. Only a successful
 stream read after cooldown renews the rate-limit retry budget. Failed or partial
@@ -191,17 +185,6 @@ attempts and omissions.
 native build and schema pins. Product launch requires a hosted browser proof for
 the same consumer and native identity. Evidence binds exact producer, source and
 schema, not moving HEAD; later hosts, producers or consumers need fresh proof.
-Read the records below before reusing acceptance.
-
-### Active baselines
-
-| Baseline | Exact proof root |
-| --- | --- |
-| Observation 21 native producer `2305e2f8` | [Engine evidence](game-engine-evidence.md#combined-client-native-producer-observation-21) |
-| Native21 hosted qualification | [Retained record](../packages/game/fixtures/native21-hosted-qualification.json) |
-| Metadata-delivery SDK bridge (SDK 69 extends 66; observation 21 builds and schema unchanged) | `~/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115/` |
-| Application boundary extraction `de785a97` (relocation bridge and Native21 bootstrap/proxy/retry/lease witness) | `~/.local/share/mtg-ecosystem/engine-evidence/game-application-boundary-20261116/` |
-| Core action discovery, native source `d1d039539d63aa17cd411c654e22086ccf3c9322` | `generated/core-queries/attempt02/`; [immutable record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-core-queries.md#executed-checks-and-retained-evidence) owns commands, hashes and failures; its schema is not SDK input |
 
 ### Hosted completion
 
@@ -213,12 +196,19 @@ release identity is approved. Evidence:
 `product-shared-budget-completion.potzlXV6/completion-evidence.json`
 SHA-256 `ec06be154b07eef380499fba4319a06fe179694d233436657ae4549d2438f814`.
 
-### Historical records
+### Retained proof roots
 
-Earlier producer-context, opening/recovery, observation 16 lifecycle, shared
-display, live-discovery, frontend and hosted-prefix records keep their identities,
-failures and proof roots in the
-[immutable client evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/13704bf5781362a4fcf51848dc8a2f3e398fd87b/docs/game-client-evidence.md).
-The [immutable transport/delivery reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/docs)
-and [package reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client)
-keep earlier prerequisites. Raw evidence stays preserved.
+Earlier proofs keep their identities, failures and raw evidence:
+
+| Proof | Exact root |
+| --- | --- |
+| Observation 21 native producer `2305e2f8` | [Engine evidence](game-engine-evidence.md#combined-client-native-producer-observation-21) |
+| Native21 hosted qualification | [Retained record](../packages/game/fixtures/native21-hosted-qualification.json) |
+| Metadata-delivery SDK bridge (SDK 69 extends 66; observation 21 builds and schema unchanged) | `~/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115/` |
+| Application boundary extraction `de785a97` (relocation bridge and Native21 bootstrap/proxy/retry/lease witness) | `~/.local/share/mtg-ecosystem/engine-evidence/game-application-boundary-20261116/` |
+| Core action discovery, native source `d1d039539d63aa17cd411c654e22086ccf3c9322` | `generated/core-queries/attempt02/`; [immutable record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-core-queries.md#executed-checks-and-retained-evidence) owns commands, hashes and failures; its schema is not SDK input |
+
+Older records live in the
+[immutable client evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/13704bf5781362a4fcf51848dc8a2f3e398fd87b/docs/game-client-evidence.md),
+[transport/delivery reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/docs)
+and [package reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client).

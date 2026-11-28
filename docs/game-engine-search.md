@@ -19,11 +19,11 @@ Creature marked damage is zero for this reconstruction schema.
 Four, three and two living seats are supported with original seating and departed
 facts; roots may carry arbitrary public battlefields, completed casts, own
 mulligans, known bottoms, public mana (restricted buckets included) and physical
-Commander histories. Every other
-root rejects explicitly (`priority == active` alone does not prove an empty pass
-round) and is never replaced by another root or an authoritative full-state fork.
-Every future-relevant field must come from permitted facts, complete hypotheses or
-a documented schema invariant; missing history semantics reject.
+Commander histories. Every other root rejects explicitly (`priority == active`
+alone does not prove an empty pass round) and is never replaced by another root or
+an authoritative full-state fork. Every future-relevant field must come from
+permitted facts, complete hypotheses or a documented schema invariant; missing
+history semantics reject.
 
 ## Permitted capture and information constraints
 
@@ -108,25 +108,3 @@ Profile capability admission and exact [build/catalog identity](game-engine-cata
 fence search; new engine/compiler support does not admit it. No performance,
 playing-strength, arbitrary-root or resource-fit claim follows from this contract
 or historical [evidence](game-engine-evidence.md#search-hosting-and-performance).
-
-## Paired deck experiments
-
-`mtg-sim bench-pair` admits both decks at the HeadlessQualified tier. Supply
-`--bulk-artifact DIR --manifest-sha SHA --pod-decks A.json`, one or more
-`--swap SLOT:REMOVE:ADD` flags for the same zero-based slot, `--blocks N` and
-`--out NEW_DIR`. Each block uses the indexed `bench-pair-v1` seed, starter
-`index % 4`, and all four rotations; one worker runs all eight games, and output
-order is independent of thread count. The Python bench wrapper also writes
-`report.json` and `summary.md`.
-
-`pairs.jsonl` records the first unequal accepted input (zero-based, including a
-length mismatch) and compares the physical slots in the focal initial seven. The
-focal win indicator counts a terminal draw as zero. The primary estimate averages
-within-block win differences across fully observed four-rotation blocks;
-complete-case estimates use all jointly terminal pairs. Percentile intervals
-resample whole seed blocks 10,000 times from a run-identity-bound ChaCha seed; the
-exact two-sided sign test excludes tied blocks; undefined values are null. The censoring table indexes A rows and A′ columns, complete then
-censored; worst-case bounds assign each missing win indicator both extremes. A
-rules or policy failure invalidates the run. Confounding is flagged by a censoring
-rate above 2%, a censoring-difference interval excluding zero, or bounds spanning
-zero alongside a complete-case interval excluding zero.

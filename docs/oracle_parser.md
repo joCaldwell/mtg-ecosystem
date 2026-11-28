@@ -1,12 +1,12 @@
 # Oracle text parser
 
 The hand-written TypeScript parser at `packages/oracle-parser` owns normalization,
-syntax AST and diagnostic reference analysis. Rust owns complete-source
+syntax AST and diagnostic reference analysis; Rust owns complete-source
 binding/lowering and executable Card IR ([system architecture](../README.md#system-architecture),
-[catalog admission](game-engine-catalogs.md)). Broad grammar expansion is paused;
-parsing and reference binding never certify engine execution. This guide owns
-parser semantics, data/archive contracts and ingestion; [the package manual](../packages/oracle-parser/AGENTS.md)
-owns local development constraints.
+[catalog admission](game-engine-catalogs.md)). Parsing and reference binding never
+certify engine execution. This guide owns parser semantics, data/archive contracts
+and ingestion; [the package manual](../packages/oracle-parser/AGENTS.md) owns local
+development constraints and commands.
 
 ## Pipeline and public API
 
@@ -20,9 +20,9 @@ Oracle text → normalize → ability blocks → lex → parse → typed AST
 `ParseCardResult` in [ast.ts](../packages/oracle-parser/src/ast.ts) (no separate
 JSON Schema). Successful cards have aggregate `abilities`; failures have only
 per-block `lines`, keeping successful blocks and diagnostics. `lines[].text` is
-normalized, not an original source span. `ok: true` means every block was consumed
-by supported productions; it is not semantic certification, and unknown syntax
-never becomes raw executable text.
+normalized, not an original source span. `ok: true` means supported productions
+consumed every block; it is not semantic certification, and unknown syntax never
+becomes raw executable text.
 
 `normalizeOracleTextTracked` returns the same physical lines, with their UTF-8
 byte ranges and a sparse edit map from decoded Oracle text to normalized lines
@@ -90,9 +90,8 @@ The lexer treats literal names as single tokens in recognized name slots.
   Spree `+` or weighted `{P}` lines; consume every option or fail the block. An
   instruction-only self-replacement paragraph joins its preceding spell block
   (CR 614.15).
-- Lexing never drops unknown characters. Parsers build typed nodes, never `any`
-  or lossy approximations; a `null` result restores cursor and elided-subject
-  context through `Cursor.attempt`.
+- Lexing never drops unknown characters; a `null` parser result restores cursor
+  and elided-subject context through `Cursor.attempt`.
 - Diagnostics come from the original classifier attempts; farthest-failure token
   locations are not original character offsets.
 
@@ -108,7 +107,7 @@ printings, not a complete set/printing index.
 Corpus calls pass each face's `typeLine` (so permanent text cannot pass as a
 one-shot spell), layout and complete `cardNames` catalog. Binding requires
 `includeSourceProvenance: true`, which the validator and archive enable. Product,
-backend and generated SDK contracts stay separate from this AST.
+backend and SDK contracts stay separate from this AST.
 
 ### AST archive
 
@@ -143,21 +142,19 @@ Scryfall object and provenance), and one status:
 
 Schema 5 is the R6 same-corpus extension. Excluded rows retain exact schema-4
 bytes. In-scope rows append `printed` and the SHA-256 of its raw JSON subvalue.
-The header pins the R5 baseline, rules bytes, printed schema, vocabulary and
-generator, plus the name catalog and ordered evidence digest. The latter
-hashes source index, Oracle identity and evidence hash (or `excluded`) separated
-by tabs and terminated by LF, in source order.
+The header also pins the ordered printed digest; the R6 candidate command below
+lists every pin and digest format. Before classifying
+a card, Rust verifies the sidecar (edit replay to legacy normalized lines, UTF-8
+token spans, quote order, node locations, fact ownership, spelling, target scope
+and linked field values); integrity failures abort archive intake. The inert reader
+passes the legacy parse to lowering; opt-in families consume evidence through
+[Rust printed evidence](game-engine-catalogs.md#rust-printed-evidence).
 
-Rust verifies the sidecar before classifying a card. It replays typed edits
-from source Oracle text to legacy normalized lines, checks UTF-8 token spans
-and quote order, and verifies node locations, fact ownership, spelling, target
-scope and linked field values. These integrity failures abort archive intake.
-The inert reader passes the legacy parse to lowering. Family coverage and
-evidence consumption are separate obligations for migrated lowering.
-
-In-scope rows carry `resolution`/`resolutionSha256`, the compiler's authoritative
-contract ([resolution.ts](../packages/oracle-parser/src/semantic/resolution.ts)),
-per parsed face and block with block-relative paths:
+In-scope rows carry `resolution`/`resolutionSha256`
+([resolution.ts](../packages/oracle-parser/src/semantic/resolution.ts)) per parsed
+face and block, with block-relative paths. It is the compiler's contract for
+references not yet migrated to the Rust [antecedent rule](game-engine-catalogs.md#verb-signatures),
+retiring as families migrate ([rework plan](game-engine-rework.md)):
 
 - `refs`: each reference resolved to the closed `Ref` vocabulary shared with
   Kernel IR (including event players and linked results), or `unresolved` with
@@ -171,8 +168,7 @@ per parsed face and block with block-relative paths:
 - `residuals`: why a block or card is incomplete; empty means complete.
 
 Rows also keep the diagnostic `binding` graph the resolution derives from (the
-compiler does not read it) and `bindingSummary` counts (see
-[binding invariants](#semantic-and-binding-invariants)). Neither a parsed row, a
+compiler does not read it) and `bindingSummary` counts. Neither a parsed row, a
 bound graph nor a complete resolution establishes executable support.
 
 The compiler decodes these shapes through `mtg-oracle-ast`, generated from
@@ -253,7 +249,7 @@ registration follow the [catalog contract](game-engine-catalogs.md#catalog-sourc
 
 ### Executable output boundary
 
-Rust owns Card IR schema 1 and its validation. Archive schemas are independent.
+Rust owns Card IR schema 1 and its validation; archive schemas are independent.
 `mtg-sim catalog build-ir ARCHIVE --out DIR` publishes whole-archive bulk IR
 ([bulk admission](game-engine-catalogs.md#bulk-headless-admission)); per-set output
 would need complete set membership. Generated `packages/card-data/sets/` is never
@@ -263,8 +259,7 @@ hand-edited or committed; engine catalogs remain small reviewed source fixtures.
 
 The AST is experimental and changes without compatibility adapters;
 [ast.ts](../packages/oracle-parser/src/ast.ts) owns the representation and
-structural tests pin each distinction. Unsupported wording fails rather than
-inventing scope.
+structural tests pin each distinction.
 
 The AST keeps symbolic references (`it`, `that-player`, `x`, keyword names).
 [bindings.ts](../packages/oracle-parser/src/semantic/bindings.ts) performs
@@ -276,18 +271,14 @@ maps each keyword to its CR 702 rule; [step-vocabulary.ts](../packages/oracle-pa
 is the one list of structural steps. Frozen archives keep the event names they
 were bound with.
 
-Results have three levels:
-
-- `referencesBound`: every reference resolves with no diagnostics.
-- `engineFeatures`: constructs needing a rules-engine capability rather than a
-  binding answer (`event-history`, `damage-prevention`, `characteristic-layers`);
-  their references still bind normally.
-- `fullyBound`: references bound and no engine feature needed.
-
-None of these levels is semantic certification or execution support. The
-`semantic-binding`, `binding-scope-rules`, `nested-instruction-scopes` and
-`keyword-scopes` tests under `packages/oracle-parser/test/` own the cases. Wrong
-binding is worse than an unresolved reference.
+Results have three levels: `referencesBound` (every reference resolves with no
+diagnostics), `engineFeatures` (constructs needing a rules-engine capability rather
+than a binding answer: `event-history`, `damage-prevention`,
+`characteristic-layers`; their references still bind) and `fullyBound` (references
+bound, no engine feature). None is semantic certification or execution support, and they stop
+gating as families migrate to Rust resolution. The `semantic-binding`,
+`binding-scope-rules`, `nested-instruction-scopes` and `keyword-scopes` tests own
+the cases. Wrong binding is worse than an unresolved reference.
 
 ## Ingestion
 
@@ -325,16 +316,9 @@ smaller-denominator fallback.
 
 ## Development and verification
 
-Run commands from the repository root through `sh scripts/engine-env.sh` (pinned
-[.node-version](../.node-version)); bootstrap only per the
-[package manual](../packages/oracle-parser/AGENTS.md#focused-workflow). The gate
-(TypeScript plus structural/negative Node tests, no network or bulk cache):
-
-```sh
-sh scripts/engine-env.sh npm --prefix packages/oracle-parser run check --workspaces=false
-```
-
-Corpus coverage is a separate check, run only when relevant:
+The [package manual](../packages/oracle-parser/AGENTS.md#focused-workflow) owns
+setup and the gate. Corpus coverage is a separate root check, run only when
+relevant:
 
 ```sh
 sh scripts/engine-env.sh npm run validate
@@ -345,15 +329,14 @@ sh scripts/engine-env.sh npm run archive-parser
 Validation never refreshes inputs. Reports bind exact corpus, evidence, scope,
 Git revision and parser source hash (including dirty changes). Compare only
 matching, unchanged corpus/scope and review changed ASTs; reduced coverage may
-correct false successes. Downloads, reports and snapshots stay ignored and
-preserved. Before reusing a report or archive, compare `parser.sourceSha256` to
-`sourceIdentity()` in `scripts/validate-parser.ts`, never a filename.
+correct false successes. Before reusing a report or archive, compare
+`parser.sourceSha256` to `sourceIdentity()` in `scripts/validate-parser.ts`, never
+a filename.
 
 ## Historical checkpoint
 
 The 2026-10-16 checkpoint's 92.27% acceptance is historical, not execution
-support; its pins are in
-[the immutable baseline](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/oracle_parser.md#source-qualified-checkpoint-and-remaining-work).
-Its audits remain under `.scryfall-cache/{checkpoint11-review.json,checkpoint11-grammar-gain-audit-coverage.json,archive-checkpoint11-independent-audit.json}`;
-reused archives identify their checkpoint by manifest hashes, not path. Rust
-complete-source lowering and admission establish execution, not a parser score.
+support. Its pins are in
+[the immutable baseline](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/oracle_parser.md#source-qualified-checkpoint-and-remaining-work)
+and its audits remain under `.scryfall-cache/{checkpoint11-review.json,checkpoint11-grammar-gain-audit-coverage.json,archive-checkpoint11-independent-audit.json}`;
+reused archives identify their checkpoint by manifest hashes, not path.

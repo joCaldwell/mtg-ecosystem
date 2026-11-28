@@ -2,9 +2,8 @@
 
 Read root guidance, [client contracts](../../docs/game-client.md) and [setup](README.md).
 This application owns `web/` (decision/session UI and preview), `server/`
-(launch/recovery, native/bot lifetime and human-seat proxy) and `shared/` contracts;
-game-ui owns display, Rust owns gameplay. Opening choices are qualified; later
-requests and full games keep explicit gates.
+(launch/recovery, native/bot lifetime and human-seat proxy) and `shared/`
+contracts; game-ui owns display, Rust owns gameplay.
 
 Server code consumes public deck-builder `./application` ports (existing Actor,
 SQL gate/transaction, account checks, owned deck capture); never import private
@@ -32,11 +31,10 @@ in deck-builder. Browser code cannot import server modules.
 
 ## Constraints
 
-Use the README's pinned isolated installs (`--workspaces=false`); no package command
-may build Cargo, native schemas or SDK artifacts, and there is no default full
-native matrix. Use one explicitly qualified SDK throughout checks. Session work must
-keep the [authorization](../../docs/game-client.md#authorization-reads-and-ownership)
-and [command journal](../../docs/game-client.md#durable-command-journal) contracts
-intact: memory-only bearer, Web Lock before I/O, effects fenced by generation,
-exact bytes journaled before send, and no local event settling ambiguity. Preserve
-keyboard focus, reduced motion, text fallbacks and remote-update focus ownership.
+Use the README's pinned isolated installs; no package command may build Cargo,
+native schemas or SDK artifacts, and there is no default full native matrix. Use
+one explicitly qualified SDK throughout checks. Session work keeps the
+[authorization](../../docs/game-client.md#authorization-reads-and-ownership) and
+[command journal](../../docs/game-client.md#durable-command-journal) contracts
+intact. Preserve keyboard focus, reduced motion, text fallbacks and remote-update
+focus ownership.
