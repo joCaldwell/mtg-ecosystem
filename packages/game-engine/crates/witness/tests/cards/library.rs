@@ -219,6 +219,24 @@ fn objects(g: &Game, ids: &[u32]) -> Vec<ObjectId> {
     ids.iter().map(|id| Driver::object(g, *id)).collect()
 }
 
+/// Use the normal encoder so restore reaches choice validation with a valid hash.
+fn reject_forged_search_found(g: &Game, ids: &[u32]) {
+    let mut forged = g.fork();
+    let Frame::ResolutionChoice {
+        choice: ResolutionChoice::Search { found, .. },
+        ..
+    } = &mut forged.state.rules.frame
+    else {
+        panic!("expected a suspended search");
+    };
+    *found = objects(g, ids);
+    let snapshot = forged.snapshot().unwrap();
+    let Err(error) = Game::restore(g.prepared.as_ref().clone(), &snapshot) else {
+        panic!("restored a forged partial search");
+    };
+    assert_eq!(error, "snapshot resolution choice continuation invariant");
+}
+
 /// Rampant Growth: "Search your library for a basic land card, put that card
 /// onto the battlefield tapped, then shuffle." Only basic lands are offered;
 /// finding none is allowed and the library is still shuffled (CR 701.23b).
@@ -338,6 +356,7 @@ fn demonic_tutor_must_find_one_card_and_keeps_it_hidden() {
     };
     assert_eq!((slots[0].min, slots[0].max), (1, 1));
     private_to(&mut g, 0, 3);
+    reject_forged_search_found(&g, &[5]);
     let bolt = Driver::object(&g, 5);
     answer(&mut g, 0, Reason::SearchLibrary, &[bolt]);
     settle(&mut g);

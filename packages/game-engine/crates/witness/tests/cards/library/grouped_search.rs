@@ -199,6 +199,7 @@ fn grouped_search_allocates_distinct_cards_to_overlapping_qualities() {
                     .library_card("Yargle and Multani", 0)
                     .library_card("Murder", 0)
                     .library_card("Storm Crow", 0)
+                    .library_card("Murder", 0)
                     .library_card("Forest", 0)
                     .library_card("Forest", 1)
                     .prepare(),
@@ -206,8 +207,9 @@ fn grouped_search_allocates_distinct_cards_to_overlapping_qualities() {
             );
             Driver::cast(&mut game, CardId(0));
             Driver::pay(&mut game, &[1, 2, 3, 4, 5]);
-            search(&mut game, quantum, &[6, 7, 8], Some(6));
-            search(&mut game, quantum, &[7, 8], Some(7));
+            search(&mut game, quantum, &[6, 7, 8, 9], Some(7));
+            // Only the black slot matches Murder, and it is already filled.
+            search(&mut game, quantum, &[6, 8], Some(6));
             search(&mut game, quantum, &[8], Some(8));
             finish(&mut game, quantum);
             for id in [6, 7, 8] {
@@ -216,7 +218,12 @@ fn grouped_search_allocates_distinct_cards_to_overlapping_qualities() {
                     Some(Zone::Graveyard { owner: PlayerId(0) })
                 );
             }
-            assert_eq!(library(&game, 0), [CardId(9)]);
+            assert_eq!(
+                library(&game, 0)
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                [CardId(9), CardId(10)].into_iter().collect()
+            );
         }
     }
 }
@@ -260,6 +267,13 @@ fn grouped_search_filters_duplicate_names_and_allows_stopping() {
                 Driver::cast(&mut game, CardId(0));
                 Driver::pay(&mut game, &[1, 2, 3, 4, 5]);
                 search(&mut game, quantum, &[6, 7, 8], Some(7));
+                if take_both {
+                    // A full Shared Summons group would have already moved.
+                    reject_forged_search_found(&game, &[7, 8]);
+                } else {
+                    // Two Pacifisms are below the Three Dreams maximum.
+                    reject_forged_search_found(&game, &[6, 7]);
+                }
                 search(&mut game, quantum, &[8], take_both.then_some(8));
                 finish(&mut game, quantum);
                 assert_eq!(
