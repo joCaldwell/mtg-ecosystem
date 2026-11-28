@@ -12,21 +12,21 @@ or compiler test uses. `accepted-archives.json` pins the whole file, header,
 parser and corpus, and each `provenance.json` row pins its exact card line.
 R4 (same corpus, older parser) stays registered without record pins so its
 bulk IR can be rebuilt for comparison. Exact registered headers choose the
-reader. R4/R5 use schema 4 and check the header's parser revision. R6 uses
-schema 5 and records only parser source identity in the header. Bulk v2 takes
-the R6 parser revision (the reviewed producer commit) from the external
+reader: R4/R5 use schema 4 and check the header's parser revision; R6 uses
+schema 5, records only parser source identity in the header, and takes its
+parser revision (the reviewed producer commit) for bulk v2 from the external
 registry. A pending registration cannot authorize intake or provenance. A
-`candidate` registration is measured and authorizes intake and comparison but
-no record pins, so no tracked fixture or default consumer can select it. It
-fails closed only through those absent pins and default paths that name R5; a
-consumer explicitly pointed at a candidate file can load it. Oracle parser tests own their pre-R4 records under
-`packages/oracle-parser/test/fixtures/ramos/`.
+`candidate` registration authorizes intake and comparison but no record pins,
+so no tracked fixture or default consumer can select it; a consumer explicitly
+pointed at a candidate file can load it. Oracle parser tests own their pre-R4
+records under `packages/oracle-parser/test/fixtures/ramos/`.
 
-Schema-5 R6 carries printed evidence and retains the R5 row bytes
-projected by the [D0 archive check](oracle_parser.md#ast-archive). The writer
-reports a draft registry entry outside `accepted-archives.json`. Promotion
-requires the Rust evidence and parity checks, measured bulk catalog and index
-within their caps, and re-extraction of the registered fixtures.
+The promoted R6 cut carries printed evidence, retains the R5 row bytes projected
+by the [D0 archive check](oracle_parser.md#ast-archive), and has its origin under
+`phase1-r6/`. Each R6 fixture keeps the same archive line and adds only
+`printed` and `printedSha256` to the R5 row; both archives verify for all
+R5-origin fixture identities, and the R5 origin and fixture manifests supply the
+default controls.
 
 From repository root (`engine:dev` builds `mtg-sim` under the target lock):
 
@@ -46,7 +46,7 @@ the smoke, scenario and Foundations startup fixtures; phase1-r5 and witness-r5
 exercise individual compiler and rules paths. A failed build prints its typed
 `CatalogError` as JSON on stderr.
 
-`catalogs/*.json` are manifests (expected IR lives outside that directory) with
+`catalogs/*.json` manifests (expected IR lives outside that directory) have
 fields `schema_version: 1`, `provenance`, `records`, `expected_ir`,
 `expected_digest` and `output_order`: `canonical` (sorted compact JSON),
 `sorted` (sorted pretty) or `struct` (typed field-order pretty). Manifests define
@@ -62,32 +62,23 @@ attacker, recursive damage-source class/type/Boolean, attacker-control
 relations) reject explicit null; omission and valid nonempty filters keep their
 meanings.
 
-`extract` requires each exact case-sensitive name/Oracle selector to resolve
-once. It hashes the whole archive before writing, preserves raw lines and
-terminators, uses Oracle-ID filenames, extends record pins and appends
-line/hash provenance; conflicting selections fail before writes. Unparsed
-records keep null AST hashes and cannot compile; excluded envelopes stay
-intact. A fresh destination needs provenance metadata with `records: []` and
-accepted-archive metadata beside it. Archive identity is per record; top-level
-`archive_manifest_sha256` rejects.
-
-`verify` compares every row for that archive with its actual line and exact
-fixture bytes; missing/duplicate/out-of-range lines, changed hashes or identity
-mismatches reject, and other origins are reported separately. Build inputs embed
-manifests, provenance, accepted headers/pins and records, excluding expected IR,
-policy copies and evidence. Missing scenario digests fail admission without
-preventing diagnostic CLI builds.
-
-The promoted R6 cut has an origin under `phase1-r6/`. Both archives verify for
-all R5-origin fixture identities. Each R6 fixture keeps the same archive
-line and adds only `printed` and `printedSha256` to the R5 row. The R5 origin and
-fixture manifests supply the default controls.
+`extract` resolves each exact case-sensitive name/Oracle selector once, hashes
+the whole archive before writing, preserves raw lines and terminators, uses Oracle-ID filenames,
+extends record pins and appends line/hash provenance; conflicting selections fail
+before writes, and unparsed records keep null AST hashes and cannot compile, and excluded envelopes stay intact. A
+fresh destination needs provenance metadata with `records: []` and
+accepted-archive metadata beside it; archive identity is per record, and a top-level `archive_manifest_sha256` rejects. `verify`
+compares every row for that archive with its actual line and exact fixture
+bytes and rejects missing, duplicate or out-of-range lines, changed hashes and
+identity mismatches, reporting other origins separately. Build inputs embed manifests, provenance, accepted
+headers/pins and records, excluding expected IR, policy copies and evidence.
+Missing scenario digests fail admission without preventing diagnostic CLI builds.
 
 ### Promote or re-pin R6
 
 After reviewing the candidate's D0 receipt and producer commit, build
 `mtg-sim` from the current checkout and run the promotion script with a new
-scratch directory:
+scratch directory each time:
 
 ```sh
 sh scripts/engine-env.sh npm run engine:dev -- build -p mtg-sim
@@ -96,93 +87,70 @@ sh scripts/promote-archive-cut.sh /path/to/r6-candidate.jsonl /path/to/d0.json \
   --producer-revision REVIEWED_COMMIT --out generated/r6-promotion
 ```
 
-D0 records the producer's source digest. Supply the reviewed 40-digit commit
-separately. The script reruns D0 and compares the receipt against the verified
-report before staging the candidate registration and exact header with
-empty R6 record pins and only the earlier fixture provenance. It runs
-`catalog extract` for every R5 identity and `catalog verify` against both full
-archives. The script checks matching archive line numbers and the exact R5
-row plus the two evidence fields before installing the R6 fixtures, registry,
-provenance, frozen inputs and registry test header reference. The scratch
-output retains the verified fixtures. Use a new scratch directory each time.
-R6 provenance follows Oracle ID order after the existing R5 rows, so first
-promotion and re-promotion with the same inputs reproduce the same tracked
-bytes. The candidate basename becomes the frozen compile cache name.
-
-The script uses `--promotion` on the offline extraction and verification
-commands to verify the proposed R6 registration from scratch. Earlier origins
-must match the binary's embedded pins. Normal extraction, verification and
-compile use the embedded registry. For a scratch check of the currently
-registered cut, use `scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim
-SIM --archives R5 R6`.
+D0 records only the producer's source digest, so supply the reviewed 40-digit
+commit. The script reruns D0 against the verified report, re-extracts every R5
+identity with `--promotion` (earlier origins must match the binary's embedded
+pins), verifies against both full archives, and installs the R6 fixtures,
+registry, provenance, frozen inputs and registry test header reference only if
+every line number, exact R5 row and the two evidence fields match. R6
+provenance follows Oracle ID order after the R5 rows, so re-promotion with the
+same inputs reproduces the same tracked bytes; the candidate basename becomes
+the frozen compile cache name. For a scratch check of the registered cut, use
+`scripts/compare-archive-cut.py fixtures FIXTURES OUT --sim SIM --archives R5 R6`.
 
 `scripts/compare-archive-cut.py d1 BEFORE AFTER` compares bulk payload bytes,
 coverage, blockers, four tier decisions from the compiler's
 `compare-archive-tiers` example, and native admission witnesses.
-`d2 BEFORE AFTER --archives R5 R6` also verifies the exact legacy row prefixes.
-D2 substitutes only the two definition archive/parser provenance digests
+`d2 BEFORE AFTER --archives R5 R6` also verifies the exact legacy row prefixes,
+substituting only the two definition archive/parser provenance digests
 (including back faces), the two independently verified index row digests on
 changed rows, and the manifest's archive/parser identities, catalog digest and
-payload hashes. The same producer, payload lengths and all decisions must agree.
+payload hashes; producer, payload lengths and all decisions must agree.
 
 ### Rust printed evidence
 
-The intake verifier applies P1–P10 to each applicable R6 row before its card is
-assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
-wire format and evidence bases. P6 rebuilds quote regions from the original
-text through verified normalization, lexing and punctuation order. A quoted
-grant's AST body enters the region bounded by its wrapper's matching marks.
-Every matched pair in a successfully read block needs an owner. An ancestor's
-span may include an owned quote together with both marks. Primary spans,
-folds, hull spans and clause runs each preserve that boundary.
-The exact `the "legend rule" doesn't apply` exemption and
-`all "bands with other" abilities` removal can own their term quotes. The
-verifier requires the matching located AST production and the complete pair
-in each run set that covers it. Terms stay in the enclosing ability's scope.
-P7 requires a fact and its owner to share a region. A lexical fact wholly
-inside a verified term keeps its innermost owner in that ability. P9 requires
-the target token, its fact owner and the linked selection node to share a
-region. A family that opts in receives a verified `CardEvidence` from intake.
-Query its face and block before lowering and pass the missing obligation
-when an R5 input requires R6. The result is a per-card
-`evidence:requires-r6` with the requested face, block and obligation.
+Intake accepts a registered R6 cut only when its printed schema, vocabulary and
+generator pins name the compiled decoder; the accepted generators are listed
+explicitly (the current one and R6 v4, whose decoder a compiler test proves
+identical except its generator line). The intake verifier (`compiler/src/ingest/r6.rs`,
+`ingest/printed/evidence.rs`) applies P1–P10 to each applicable R6 row before
+its card is assessed; the [parser contract](oracle_parser.md#ast-archive) owns
+the printed wire format and evidence bases. P6 rebuilds quote regions from the
+original text through verified normalization, lexing and punctuation order.
+Every matched quote pair in a successfully read block needs an owner: a quoted
+grant's AST body, or the exact `the "legend rule" doesn't apply` and `all "bands with other" abilities`
+terms when their located production and complete pair
+are in each covering run set. An ancestor's span may include an owned quote with
+both marks; terms stay in the enclosing ability's scope. P7 requires a fact and
+its owner, and P9 the target token, its fact owner and the linked selection
+node, to share a region.
 
-`BlockEvidence` locates AST object nodes and individual facts in original UTF-8
-face bytes. A recorded node cites its runs and folds. An alias names the same
-occurrence and reports the resolved owner. An implicit node supplies a closed
-reason and uses the governing production as its diagnostic anchor. A hull
-locates a container. Facts on its verified tokens can be cited individually.
-An unlocated object, an alias without a usable target or a fact assigned to
-the root for uncovered tokens yields a located `evidence:missing`.
-
-The opt-in check derives its obligation inventory from the verified block AST.
-P11 requires the resolver to discharge each field with a verified exact link,
-a production-specific check of the printed phrase and field value, or a closed
-default at its governing node. P12 requires an explicit checked meaning or
-structural role for every printed fact and token. Structural roles require a
-verified punctuation fact within the recorded production's quote region and
-at its boundary. A sentence period may touch that region's closing mark.
-The current roles cover period-terminated sentences, trigger and for-each clause commas,
-activation cost list commas, and the activation cost/effect colon. These use
-the parser's [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
-and its sentence, clause and activation productions. Operators, including
-signs and the power/toughness slash, require a checked field meaning and a
-fact bound to that meaning. Fact and token lookups leave coverage unchanged.
-This catches an omitted qualifier with either a null field link or an absent
-fact. Several checked fields may cite the same occurrence.
-An undischarged field or unconsumed occurrence rejects the card with an original
-byte range.
+A family that opts in receives a verified `CardEvidence`, queries its face and
+block before lowering, and reports a per-card `evidence:requires-r6` (face,
+block, obligation) when an R5 input lacks the evidence. `BlockEvidence` locates
+AST object nodes and facts in original UTF-8 face bytes through recorded runs
+and folds, aliases, implicit nodes with closed reasons, or hulls; an unlocated
+object, an unusable alias or a root-assigned fact for uncovered tokens yields a
+located `evidence:missing`. P11 requires the resolver to discharge each field
+of the block AST with a verified exact link, a production-specific check of the
+printed phrase and value, or a closed default at its governing node. P12
+requires a checked meaning or structural role for every printed fact and token;
+structural roles are verified [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
+at a production boundary (sentence periods, trigger and for-each clause commas,
+activation cost list commas, the cost/effect colon), and operators such as signs
+and the power/toughness slash need a checked field meaning with a bound fact.
+An undischarged field or unconsumed occurrence, such as an omitted qualifier,
+rejects the card with an original byte range.
 
 Run the frozen witness and mutation harness against the pinned candidate with
-`MTG_R6_VERIFIER_ROWS` set to its path.
+`MTG_R6_VERIFIER_ROWS` set to its path. Verifier-only mutations rehash their
+payloads over unchanged Oracle text; detached source probes re-read changed text
+through the pinned parser and verify the new AST and evidence or require a
+located rejection.
 
 ```sh
 sh scripts/engine-env.sh npm run engine:dev -- test -p mtg-compiler --lib frozen_family_evidence -- --ignored --nocapture
 ```
-
-The verifier-only mutations rehash their local payloads over unchanged Oracle
-text. The detached source probes re-read changed text through the pinned
-parser and verify the new AST and evidence or require a located rejection.
 
 ## IR and build identity
 
@@ -193,30 +161,27 @@ per-feature schema gate or duplicate historical expected output. Archive,
 snapshot, bundle, public and query formats have separate identities;
 [evidence](game-engine-evidence.md) retains historical versions.
 
-The engine build identity hashes production engine Rust sources and Cargo
-manifests (`mtg_contracts::engine_build_input`), root Cargo manifest/lock,
-toolchain and compiler/target/settings. Test-only sources (`tests/`, `examples/`,
-`benches/`, `tests.rs`, `*_tests.rs`, `*_tests/`, the `testkit` module and the
-dev-only `crates/witness` package), fixtures, generated output and server source
-are excluded; catalog/pod identity and `SERVER_BUILD_ID` bind those separately.
-Data-only catalog additions do not invalidate unchanged-catalog snapshots.
+The engine build identity (`mtg_contracts::engine_build_input`) hashes
+production engine Rust sources and Cargo manifests, the root Cargo
+manifest/lock, toolchain and compiler/target/settings. Test-only sources
+(`tests/`, `examples/`, `benches/`, `tests.rs`, `*_tests.rs`, `*_tests/`, the
+`testkit` module and the dev-only `crates/witness` package), fixtures,
+generated output and server source are excluded; catalog/pod identity and
+`SERVER_BUILD_ID` bind those separately. Data-only catalog additions do not
+invalidate unchanged-catalog snapshots.
 
 `mtg-sim` and `mtg-server` compute the identity in `build.rs` through
-`crates/build_identity.rs`, watching each identity file individually; `main`
-calls `mtg_core::install_build_identity` before any engine use. Core never reads
-build-time environment: snapshots, saved work and search artifacts stamp and admit
-`mtg_core::build_id()`. A process that installs nothing (tests, examples) uses
-`BuildIdentity::TEST`, which never matches a native artifact. Compiler,
-simulator, host or test-only edits never rebuild core. Core `build.rs`
-only embeds catalog/profile data; typed profile validation runs in
-`match_profile_validation_tests`.
-
-Compiler watches each catalog/provenance/archive/record input (including absent
-repairable ones) plus the catalog directory; core watches the catalog/profile
-directories and each selected data file, including ban policies. Watches stay
-narrow so README or test edits do not rebuild. A new production module edits a
-watched `mod` declaration; a new `build.rs` without a manifest edit is not detected
-([Cargo rerun-if-changed](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed)).
+`crates/build_identity.rs`; `main` calls `mtg_core::install_build_identity`
+before any engine use. Core never reads build-time environment: snapshots, saved
+work and search artifacts stamp and admit `mtg_core::build_id()`, and a process
+that installs nothing uses `BuildIdentity::TEST`, which never matches a native
+artifact. Core `build.rs` only embeds catalog/profile data (typed validation runs
+in `match_profile_validation_tests`), so compiler, simulator, host or test-only
+edits never rebuild core. Build scripts watch each identity, catalog,
+provenance, archive, record, profile and ban-policy input individually
+(including absent repairable ones), so README or test edits do not rebuild; a
+new production module edits a watched `mod` declaration, and a new `build.rs`
+without a manifest edit is not detected ([Cargo rerun-if-changed](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed)).
 
 `crates/core/src/formats.rs` owns the core wire/persistence versions
 (`SNAPSHOT_VERSION`, `OBSERVATION_VERSION`, `WORK_VERSION`, search envelopes).
@@ -225,13 +190,12 @@ fingerprints, with samples that include resolving and nested Kernel-IR choices.
 Tests import the constants; deliberate historical forgeries use literals.
 
 `python3 scripts/engine-structure-check.py` verifies declared direct dependency
-boundaries (target/workspace/alias tables and dev-dependencies; core has no
-compiler edge), that test-named modules are `#[cfg(test)]` and `testkit` modules
-`#[cfg(feature = "testkit")]` with only test crates enabling it or depending on
-mtg-witness, and that the Git index holds no known generated paths or
-ELF/Wasm/SQLite output. It never alters the index; renamed JSON and transitive
-features still need review. Guard tests: `python3 scripts/test-engine-structure.py`
-and `python3 scripts/test-engine-cache.py`.
+boundaries (core has no compiler edge), `#[cfg(test)]` test modules and
+`#[cfg(feature = "testkit")]` testkit modules enabled only by test crates, and
+that the Git index holds no known generated paths or ELF/Wasm/SQLite output; it
+never alters the index, and renamed JSON and transitive features still need
+review. Guard tests: `python3 scripts/test-engine-structure.py` and
+`python3 scripts/test-engine-cache.py`.
 
 ## Kernel IR
 
@@ -254,35 +218,30 @@ program and derives required capabilities from the node and its operands; the
 JSON Schema describes wire structure only. The resolving frame resumes at an
 audited control node, with bindings and progress tied to its address in the
 admitted program. [Core](game-engine-mechanics.md) and [board](game-engine-board-mechanics.md)
-mechanics describe each family's behavior.
-
-Control semantics:
+mechanics describe each family's behavior, including counted target groups and
+sacrifice-for-return.
 
 - `Seq` follows written order. `If` supports `Compare`, `Exists`, `CostPaid`,
-  `Not` and `All`. `ForEach` binds a player or a singleton object.
+  `Not` and `All`; `Satisfies` can test the printed creature type of a
+  bound graveyard card after exile (CR 608.2b, 608.2h). `ForEach` binds a
+  player or a singleton object.
 - `Optional`, `UnlessPays` and `IfPays` take a singleton player expression; both
   payment nodes support life and generic mana. With no live chooser the optional
   effect is skipped; with no live payer only `UnlessPays` performs its node
   (CR 118.12).
 - `Choose` binds a pool from a matching public set when both bounds force zero
-  or the set's size. `ChooseObject` offers one mandatory public object choice from
-  a current controller-relative battlefield set; the saved frame derives
+  or the set's size. `ChooseObject` offers one mandatory public object choice
+  from a current controller-relative battlefield set; the saved frame derives
   candidates from current state and consumes an answer only against a matching
-  offer (CR 608.2d, 800.4a). `TapTargets` and `RemoveTargets` consume one
-  counted battlefield target group and tap/untap, destroy, exile or bounce its
-  legal surviving members in one simultaneous event (CR 115.3, 608.2b, 701.26).
-- `SacrificeForTappedReturn` binds the declared graveyard group to a mandatory
-  creature sacrifice and returns its legal survivors together if it succeeds.
-  `Satisfies` can test the printed creature type of a bound graveyard card
-  after exile (CR 608.2b, 608.2h).
-- `Delayed` and `Reflexive` carry separately checked single-instruction programs;
-  the parent can register a one-shot [resolution-created trigger](game-engine-board-mechanics.md#delayed-and-reflexive-triggers)
+  offer (CR 608.2d, 800.4a).
+- `Delayed` and `Reflexive` carry separately checked single-instruction
+  programs; the parent can register a one-shot [resolution-created trigger](game-engine-board-mechanics.md#delayed-and-reflexive-triggers)
   at its end.
 
 Controls read fixed amounts, announced X and audited set counts; verbs also read
-[resolution-time counts](game-engine-board-mechanics.md#resolution-time-counts). Life
-changes, payments and choice bounds need nonnegative amounts. Object sets are
-matching battlefield permanents or graveyard cards under audited predicates,
+[resolution-time counts](game-engine-board-mechanics.md#resolution-time-counts).
+Life changes, payments and choice bounds need nonnegative amounts. Object sets
+are matching battlefield permanents or graveyard cards under audited predicates,
 source or announced identities, a bound singleton or a bound pool. Tapped,
 combat and controller filters require the battlefield (CR 110.5d, 506.3–4,
 109.4), including in predicate alternatives; graveyard sets exclude tokens
@@ -295,68 +254,58 @@ stay outside control cells. Branches gated by an optional-cost condition
 supply no targets until cost-dependent target declarations exist (CR 601.2c).
 
 Every branch and leaf must pass the checker. Draw, life gain or loss, damage,
-counters, sacrifice, discard, mill and zone changes use the signature
-evaluator in the resolving task, including under controls. Other
-ordinary leaves use the flat executor without task bindings, reading at most
-one announced target. Token creation and temporary effects need persistent leaf
-provenance, and set damage retains facts tied to the top-level cursor. Optional
-target destruction keeps its standalone route. Counter targets one announced stack entry and can read its
-spell controller for a fixed generic payment. Regenerate records one source or
-announced permanent. Control nodes derive capabilities from their leaves;
-continuation-based nodes also require `KernelControlV1`, outside the reviewed
-hosting and search sets. A procedure without an audited node and execution path
-rejects during lowering; a new mechanic adds a typed operand, capability and
-tested rules operation only where the algebra cannot express it.
+counters, sacrifice, discard, mill and zone changes use the signature evaluator
+in the resolving task, including under controls. Other ordinary leaves use the
+flat executor without task bindings, reading at most one announced target.
+Token creation and temporary effects need persistent leaf provenance, and set
+damage retains facts tied to the top-level cursor. Optional target destruction
+keeps its standalone route. Counter targets one announced stack entry and can
+read its spell controller for a fixed generic payment. Regenerate records one
+source or announced permanent. Control nodes derive capabilities from their
+leaves; continuation-based nodes also require `KernelControlV1`, outside the
+reviewed hosting and search sets. A procedure without an audited node and
+execution path rejects during lowering; a new mechanic adds a typed operand,
+capability and tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
 Draw, life, damage, permanent counter placement, sacrifice, discard, mill,
-token creation (`CreateTokens`) and zone changes (`Move`) use `kir::signatures`. The resolving spell shuffling
-itself (CR 608.2n) and the resolution object choice stay outside it. `kir::Verb` remains the action representation on the
-wire. Damage prevention and commit, counter placement and graveyard moves
-retain their transaction authorities.
+token creation (`CreateTokens`) and zone changes (`Move`) use `kir::signatures`.
+The resolving spell shuffling itself (CR 608.2n) and the resolution object
+choice stay outside it. `kir::Verb` remains the wire representation. Damage
+prevention and commit, counter placement and graveyard moves retain their
+transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
-row names a verb and reference pair. Scope is the checker's `Env`
-(context, announced targets, triggering event, X and the checked cost); lexical bindings live in checker
-scope, not `Env`. Sorts must match. One verb-independent classifier maps a
+row names a verb and reference pair. Scope is the checker's `Env` (context,
+announced targets, triggering event, X and the checked cost); lexical bindings
+live in checker scope. Sorts must match. One verb-independent classifier maps a
 resolved reference and its typed AST site to a class. Required capabilities are
 the union over the verb, its operand classes, distribution and projections.
+Each slot (`kir::signatures`) declares its field and role, sort and
+cardinality, quantity policy and zero rule, zone, read time and object use (live
+incarnation, event snapshot or current-or-last-known), absence behavior (skip
+the member, skip the verb or reject, CR 608.2b), accepted operand classes and
+added capabilities. Last-known information answers a read and never authorizes
+acting on a new incarnation (CR 400.7, 608.2h).
 
-Each slot declares:
-
-- `field`, `role`: the verb field and its semantic role (subject, recipient, amount, source).
-- `sort`, `cardinality`: player, object, set or quantity; singleton, bounded or unbounded.
-- `quantity_policy`: nonnegative, positive or signed, and the verb's zero rule.
-- `zone`: where an object operand must be when read or acted on.
-- Read time and object use: announcement, resolution start, step start, event
-  before or after; act on the live incarnation, read the event snapshot, or read
-  current-or-last-known.
-- `absence_behavior`: skip the member, skip the verb, or reject (CR 608.2b).
-- `accepted_constructors`: the operand classes the slot accepts.
-- `capability_requirements`: capabilities the slot adds when used.
-
-Last-known information answers a read and never authorizes acting on a new
-incarnation (CR 400.7, 608.2h).
-
-Battlefield sets and permanent targets share counter-balance predicates.
-They read a specified counter kind or the total of all kinds on the current
-incarnation (CR 122.1). Announced targets recheck the predicate at resolution
-(CR 601.2c, 608.2b). Observation 114 includes counter predicates in public
-target specifications. Battlefield movement and destruction sets can compare
-mana value against announced X (CR 107.3, 202.3). A quantity may read the
-greatest current stat in a battlefield set or count a resolved player's
-public graveyard cards or hand size (CR 402.3, 404.1, 608.2h). The checker
-rejects characteristic filters on hand counts (CR 400.2). An illegal target
-cannot supply a player identity for a zone count or relative filter
-(CR 608.2b).
+Battlefield sets and permanent targets share counter-balance predicates over a
+specified counter kind or the total of all kinds on the current incarnation
+(CR 122.1); announced targets recheck them at resolution (CR 601.2c, 608.2b),
+and Observation 114 includes them in public target specifications. Battlefield
+movement and destruction sets can compare mana value against announced X (CR
+107.3, 202.3). A quantity may read the greatest current stat in a battlefield
+set or count a resolved player's public graveyard cards or hand size (CR 402.3,
+404.1, 608.2h); characteristic filters on hand counts reject (CR 400.2). An
+illegal target cannot supply a player identity for a zone count or relative
+filter (CR 608.2b).
 
 A triggered invocation stores an `EventBinding` for the event's player, object
 and quantity when supplied. Death reads the common prior battlefield. An
 entrant or attacker whose power is read at resolution uses the exact live
-incarnation or its departure facts. A later incarnation cannot receive an
+incarnation or its departure facts; a later incarnation cannot receive an
 action for the original one. A cast spell's mana value is its stack value with
-the announced X that the cast witness recorded, which stays its last known value
+the announced X the cast witness recorded, which stays its last known value
 after the spell leaves (CR 202.3e).
 
 **Pronoun antecedents** (`rules/verbs/antecedent.rs`, CR 608.2c). An
@@ -366,38 +315,37 @@ deals damage equal to its power"). Otherwise the antecedent is the one announced
 target whose domain the noun admits: a battlefield permanent of the noun's type,
 a card outside the battlefield for `that card`, or a stack spell for `that spell`.
 An earlier step's "this creature" (or the card's name) is a candidate for a bare
-`it` (CR 201.5, 700.7) that ties with a target and outranks the event object. Failing
-those, it is the trigger's event object when its pattern's types admit the noun
-and it is not the source; a source the trigger condition names besides that
-object ("a spell that targets this creature", "this creature becomes blocked by
-a creature") ties with it. `That <noun>` never means the source. `It` in a
-trigger on the source itself means that event object. Two admissible targets, a
-tie, a player-or-object target, or an untargeted object an earlier printed step
-named (chosen, created, revealed or set) reject as
-`operand:object:ambiguous_antecedent`. No candidate rejects as
-`unbound_antecedent`. A step that acts on the pronoun as a permanent never binds
-a cast spell (CR 110.1), and rejects when it names a card or spell target or any
+`it` (CR 201.5, 700.7) that ties with a target and outranks the event object.
+Failing those, it is the trigger's event object when its pattern's types admit
+the noun and it is not the source; a source the trigger condition names besides
+that object ("a spell that targets this creature", "this creature becomes
+blocked by a creature") ties with it. `That <noun>` never means the source. `It`
+in a trigger on the source itself means that event object. Two admissible
+targets, a tie, a player-or-object target, or an untargeted object an earlier
+printed step named (chosen, created, revealed or set) reject as
+`operand:object:ambiguous_antecedent`; no candidate rejects as
+`unbound_antecedent`. A step acting on the pronoun as a permanent never binds a
+cast spell (CR 110.1), and rejects when it names a card or spell target or any
 object an earlier instruction moved, destroyed, sacrificed or countered
 (CR 400.7). In a selection of several chosen modes, each mode sees only its own
-targets and instructions (CR 700.2). The frozen R5 resolution is not consulted
-for this choice.
-`scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
+targets and instructions (CR 700.2). The frozen R5 resolution is not consulted;
+`scripts/rework-reference-diff.py` compares against it at sweep time.
 
 **Actual card results.** An unqualified “discarded”, “milled”, “exiled” or
 “returned this way” in a count or condition names the unique earlier direct
 producer of that event (a move to exile, or to a hand or the battlefield) in
-the same resolving block and chosen mode (CR 608.2c,h, 700.2). The
-checked sequence reads its actual object set and count. Type, subtype and other
-card predicates read the exact public successor or its known characteristics
-when it has left (CR 400.7, 701.9c, 701.17c). An object moved from a public zone
-into a hand or library keeps its last-known public characteristics (CR 608.2h);
-a card hidden in its origin and destination supplies none. A missing or competing producer rejects at the linked operand.
+the same resolving block and chosen mode (CR 608.2c,h, 700.2), and reads its
+actual object set and count. Card predicates read the exact public successor or
+its known characteristics when it has left (CR 400.7, 701.9c, 701.17c). An
+object moved from a public zone into a hand or library keeps its last-known
+public characteristics (CR 608.2h); a card hidden in both origin and destination
+supplies none. A missing or competing producer rejects at the linked operand.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
-accepting a player set does not license a simultaneous or divided write. One
-member or members in turn: `Single`, `EachSequential`. One event for every
-member: `EachSimultaneous`, or `CollectThenSimultaneous` after APNAP choice
-collection (CR 101.4). Divided: `DividedAtAnnouncement`, rejected in Stage 1.
+accepting a player set does not license a simultaneous or divided write.
+`Single` and `EachSequential` act on one member or members in turn;
+`EachSimultaneous`, or `CollectThenSimultaneous` after APNAP choice collection
+(CR 101.4), make one event for every member; `DividedAtAnnouncement` rejects.
 
 **Projections.** A step binds only a declared projection of a dominating
 performed step; each `(verb, StepRole)` has exactly one: the actual result after
@@ -417,21 +365,21 @@ A second projection of one verb ("life lost this way" from damage, "died this
 way") rejects until a `StepRole` is added additively. `Ref::StepResult { step, role }`
 keeps its wire form; the checker resolves it to one producer among earlier
 siblings of its `Seq`, rejects ambiguity, and requires that step to hold exactly
-one `Do` leaf, directly or under `Optional`, `If` or `IfPays`. Nested-body reads
+one `Do` leaf, directly or under `Optional`, `If` or `IfPays`; nested-body reads
 wait for Stage 2. **Absent is not zero.** A producer that did not run yields
 `Resolved::Absent` with its reason (illegal target, not chosen, departed player,
 no event member or not performed); one that ran and affected nothing yields an
 empty result.
 
 A `CostResult` for an activated ability is scoped to a mandatory cost that
-sacrifices one selected permanent. It exposes the paid object's last-known
+sacrifices one selected permanent and exposes the paid object's last-known
 facts, the payer and the number paid. A sacrifice action exposes the actual
 number, objects and players through the ordinary step collector.
 
 **Tier preservation.** The 17 previously qualified higher-tier shapes in
-`kir::tiers` keep their legacy cells and tiers, as labels the evaluator
-performs (a creature target to its owner's hand or library top among them);
-every other evaluator-admitted node is `Cell::Evaluated(verb)` at `Executes`.
+`kir::tiers` keep their legacy cells and tiers as labels the evaluator performs
+(a creature target to its owner's hand or library top among them); every other
+evaluator-admitted node is `Cell::Evaluated(verb)` at `Executes`.
 
 **Zone changes** read their members once as the step is performed: the
 source's or an announced object's same incarnation in its zone, or the
@@ -440,32 +388,29 @@ exile (CR 400.3), or enters under the mover's control (CR 110.2a). A commander
 bound for a hand or library waits for its owner's command-zone choice in APNAP
 order (CR 903.9b); a card entering asks the shared card-entry questions (Aura
 host, entry payment, reveal; CR 303.4f, 614.12). Then the members move in one
-event, through the canonical actuals, and a library shuffle follows in the same
+event through the canonical actuals, and a library shuffle follows in the same
 transaction (CR 701.24c).
 
 ### Resolving frame
 
-The `Task` chain keeps lexical paths and scoped bindings in `Frame::Kernel`.
+The `Task` chain keeps lexical paths and scoped bindings in `Frame::Kernel`;
 `Task.resume` links to the next scheduled task or to the collector at
-`frames[1]`.
+`frames[1]`. `ForEach` runs every iteration at `task.child(0)`, so a dynamic
+step is `StepInstance { stack, instruction, path, iterations }`, adding the
+iteration ordinals `ForEach` pushes. Results at the root are keyed by
+`(path, iterations)`: event ids, objects (prior, successor, controller before),
+players and an optional amount; a missing entry means not performed, an empty
+one ran and changed nothing. An ask (optional, pay life, object payment, pick)
+stores chooser, selections and bounds; candidates are re-derived at offer and
+answer when reproducible from state, else the bounded frozen domain is kept, and
+only the pending `decision_id` is answerable. `StepProgress::Sequence` saves a
+draw's players, read-once count, cursor and completed prefix.
+`Reason::MyriadDefender` stays until Stage 3; a migrated task never installs a
+rewritten leaf program.
 
-- **Step identity.** `ForEach` runs every iteration at `task.child(0)`, so a path
-  alone aliases iterations. A dynamic step is
-  `StepInstance { stack, instruction, path, iterations }`, adding the iteration
-  ordinals `ForEach` pushes.
-- **Results at the root** are keyed by `(path, iterations)`: event ids,
-  objects (prior, successor, controller before), players and an optional amount.
-  A missing entry means not performed; an empty one, ran and changed nothing.
-- **Asks and progress.** An ask (optional, pay life, object payment, pick)
-  stores chooser, selections and bounds. Candidates are re-derived at offer and
-  answer when reproducible from state, else the bounded frozen domain is kept;
-  only the pending `decision_id` is answerable. `StepProgress::Sequence` saves
-  a draw's players, read-once count, cursor and completed prefix. Part 2 will
-  replace `Frame::ForcedSacrifice` with APNAP collection, and E2 adds proposals. `MyriadDefender` stays until
-  Stage 3; a migrated task never installs a rewritten leaf program.
-
-`validate_kernel_task` checks the saved steps and projections. Recovery uses `assert_recoverable`
-at quanta `1` and `u64::MAX` under Off, Compact, Stream and Detailed:
+`validate_kernel_task` checks the saved steps and projections. Recovery uses
+`assert_recoverable` at quanta `1` and `u64::MAX` under Off, Compact, Stream and
+Detailed:
 
 1. One evaluator step is one rule unit: it evaluates, then commits at most one
    batch or installs one ask. A larger budget takes no fast path.
@@ -504,21 +449,36 @@ result names the nearest earlier producer of its role (a search's selection or
 objects, a look's objects) or, for `rest` only, the remainder of its own member
 of a simultaneous step after an earlier sibling took from the pool. A printed
 target's block-relative slot must be the one announced for its selection.
-Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
-target bind through the [antecedent rule](#verb-signatures). Counters on each of
+Evaluated-verb pronouns, `its controller` and follow-up steps acting on a target
+bind through the [antecedent rule](#verb-signatures). Counters on each of
 several targets lower to one `PutCounters` over `SetExpr::Targets`, a single
 simultaneous placement on the counted occurrence's legal members (CR 608.2f,
-603.2c); per-member leaves would split it into several events.
+603.2c).
+
+A linked entry value must resolve to the matching printed producer on the same
+face (CR 607.2d). The checker requires one compatible entry choice before
+admitting a linked static scope or mana production. Produced mana binds its
+spend permission to the chosen creature type and carries any spend rider as a
+separate term. Choice and cost definitions here qualify at `Executes`.
 
 `resolution::class_of` classifies the migrated operand references from the
-generated AST positions. Other references still use `resolution::reference_row`.
-Rejected sites report `ref:<role>:<block kind>`. Steps dispatch on the AST `effect` tag to
-`compiler/src/rules/verbs/`; operands lower from the generated AST types in
-`operands.rs`, and a shape with no IR form rejects under `verb:<effect>:<detail>`
-or `operand:<kind>:<shape>`. Composition also rejects "may", "up to" and
-"if"/"unless" mismatched against `optional`, `upTo` and a condition, a printed
-number absent from the AST, a cost term, an unprinted ability word, and an
-evergreen keyword in only one of the keyword list and the AST.
+generated AST positions; other references still use `resolution::reference_row`.
+Rejected sites report `ref:<role>:<block kind>`. Steps dispatch on the AST
+`effect` tag to `compiler/src/rules/verbs/`; operands lower from the generated
+AST types in `operands.rs`, and a shape with no IR form rejects under
+`verb:<effect>:<detail>` or `operand:<kind>:<shape>`. Composition also rejects
+"may", "up to" and "if"/"unless" mismatched against `optional`, `upTo` and a
+condition, a printed number absent from the AST, a cost term, an unprinted
+ability word, and an evergreen keyword in only one of the keyword list and AST.
+
+**Decoder boundary.** A migrated lowerer (the evaluated actions, exile,
+return-to-hand and move-zone) reads only the generated `mtg-oracle-ast` types
+(`scripts/generate-rust-ast.ts`) and decodes the whole containing block, keeping
+omitted, null, unknown and malformed fields distinct. Rust accounts for every
+operative field, qualifier and printed action on every required face before
+accepting a card; an unprovable reading gets a located read, resolve,
+elaborate, check or admission rejection. R6 printed-evidence spans are the
+Stage 2 obligation.
 
 Hand-built test rows carry no resolution: `tests::synthetic_compile` lowers
 them through the block tables only (`cfg(test)`), and `tests::composed_near_miss`
@@ -531,15 +491,6 @@ them as `blockers.tsv` for the [deck scoreboard](game-engine-development.md#meas
 `--example inspect ARCHIVE NAME` prints one compile result. New lowerers start IR
 structs from `PermanentFilter::any()`, `TargetSpec::new` and
 `SpellProgram::instructions` (`contracts/src/builders.rs`).
-
-**Decoder boundary (Stage 1, unchanged R5).** A migrated lowerer (the evaluated
-actions, exile, return-to-hand and move-zone) reads only the
-generated `mtg-oracle-ast` types (`scripts/generate-rust-ast.ts`) and decodes
-the whole containing block, keeping omitted, null, unknown and malformed fields
-distinct. Rust accounts for every operative field, qualifier and printed action
-on every required face before accepting a card. An unprovable
-reading gets a located read, resolve, elaborate, check or admission rejection.
-R6 printed-evidence spans are the Stage 2 obligation.
 
 Adding a primitive touches the row that owns it, not every card:
 
@@ -586,7 +537,6 @@ under [the permitted decision-context contract](game-client.md#core-action-disco
 Removing it reproduces the prior mechanical IR without changing requirements or
 reviewed Hosting/Search sets, though catalog/build identities change. Active
 outputs are regenerated through the compiler, never hand-edited.
-
 `Definition::requirements` is exhaustive over enum variants, not new struct
 fields, so an IR field addition needs a review of capability derivation and
 hosted/search sets before a catalog is admitted. Profiles never bypass shared
@@ -621,52 +571,49 @@ physical quantities.
 ### Frozen-input compile
 
 `sh scripts/compile-oracle.sh --inputs FROZEN_MANIFEST --out NEW_DIR` is the root
-compile. `identity --inputs FROZEN_MANIFEST` verifies the cached inputs. Only the
+compile; `identity --inputs FROZEN_MANIFEST` verifies the cached inputs. Only the
 manifest's pinned content affects output bytes. `MTG_COMPILE_CACHE` names the
 reader cache (default this checkout's `generated/`) and `MTG_COMPILE_SIM` a
-prebuilt `mtg-sim` (default a locked release build); neither enters identity. Exit
-1 names an `input`, `registration`, `reader`, `compiler` or `destination` failure;
-exit 2 is usage.
+prebuilt `mtg-sim` (default a locked release build); neither enters identity.
+Exit 1 names an `input`, `registration`, `reader`, `compiler` or `destination`
+failure; exit 2 is usage.
 
 The strict input manifest
 ([R5](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r5.json),
 [R6](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r6.json))
 pins Oracle and paper-evidence bytes, canonical records, scope, rules, reader,
 archive length/full-file/header hashes and IR/bulk versions. Every pin is mandatory
-except `compiler.buildId`, which must equal the binary when present. Unknown keys
+except `compiler.buildId`, which must equal the binary when present; unknown keys
 reject as unpinned inputs. Source paths resolve relative to the manifest and must
 be regular files or hard links. Input schema 1 uses the retained schema-4 archive.
 Input schema 2 requires a promoted schema-5 archive, its exact registered header
 file, the printed schema, vocabulary, generator and record digests, and the
-pre-scope name catalog digest and count. The R6 header also binds the R5 control
-archive hashes for fresh generation.
+pre-scope name catalog digest and count; the R6 header also binds the R5 control
+archive hashes for fresh generation. For R6, `--reader auto` (the default)
+generates only when the cache entry (named by the archive basename) is absent;
+a present entry must match its pins. `--reader cached` requires that entry, and
+`--reader fresh` generates from the manifest's exact Oracle, paper evidence,
+rules and R5 archive paths with the pinned TypeScript producer in a private
+temporary directory. Both paths use the same Rust intake and full-file
+verification. Fresh generation passes the pinned reader source and printed
+generator digests to the writer, which exits before parsing when the checkout
+differs, failing the compile as a `reader` error; after any grammar change the
+registered cut is readable in cached mode only, like R5, until a new cut is
+registered.
 
-For R6, `--reader auto` (the default) generates only when the cache entry is
-absent. A present cache entry must match its pins. `--reader cached` requires
-that entry, and `--reader fresh` uses the exact Oracle, paper evidence, rules
-and R5 archive paths in the manifest. The pinned TypeScript producer generates
-at a fixed path in a private temporary directory. The manifest's archive
-basename selects the cache entry. Both paths use the same Rust intake and
-full-file verification.
-
-One stage writes the three bulk format-2 files byte-identical to `build-ir` from the
-same binary, `outcomes.jsonl` and `compile-manifest.json`. Each outcome row joins
-its index row by `oracle_id`, `source_index` and `archive_line` and adds `phase`
-(`scope`, `read`, `lower`, `validate`) and `location` (an archive JSON pointer for
-read failures, the compiler path for lowering). The compile manifest binds the
-path-free logical inputs and their digest, producer, versions, counts and the four
-other files' proofs. Each run writes and syncs the five files in a uniquely
-named private sibling stage, verifies the proofs, and publishes via one
-atomic no-replace rename followed by a parent directory sync. An occupied
-destination succeeds only if it holds exactly those five regular files with
-identical bytes. Errors after staging and identical retries report the retained
-stage's path. Each retry creates a new stage. The `.bulk-stage-` prefix is
-reserved for staging. Use
-[`catalog stages`](game-engine-storage.md#abandoned-bundle-stages) to inspect or
-explicitly remove abandoned stages. Explicit removal unlinks files through an
-identity-verified directory handle, then removes the empty stage by name because
-POSIX has no handle-bound `rmdir`. A concurrent swap at that final step can
-remove only an empty replacement directory and leaves any replacement files intact.
+One stage writes the three bulk format-2 files byte-identical to `build-ir` from
+the same binary, `outcomes.jsonl` and `compile-manifest.json`. Each outcome row
+joins its index row by `oracle_id`, `source_index` and `archive_line` and adds
+`phase` (`scope`, `read`, `lower`, `validate`) and `location` (an archive JSON
+pointer for read failures, the compiler path for lowering). The compile manifest
+binds the path-free logical inputs and their digest, producer, versions, counts
+and the other four files' proofs. Each run writes and syncs the five files in a
+uniquely named private `.bulk-stage-` sibling, verifies the proofs, and
+publishes by one atomic no-replace rename and a parent directory sync. An
+occupied destination succeeds only if it holds exactly those five regular files
+with identical bytes. Errors after staging and identical retries report the
+retained stage's path; [storage](game-engine-storage.md#abandoned-bundle-stages)
+owns inspecting and removing abandoned stages.
 
 ## Single matches and policy inputs
 

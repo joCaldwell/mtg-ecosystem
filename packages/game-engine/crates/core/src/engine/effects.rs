@@ -386,6 +386,10 @@ impl RulesTxn {
             Atom::NotLegendary => !characteristics.legendary,
             Atom::Color { color } => characteristics.colors.contains(color),
             Atom::NotColor { color } => !characteristics.colors.contains(color),
+            Atom::SourceChosenColor {} => matches!(source.entry_selection,
+                Some(EntrySelection::Color { color }) if characteristics.colors.contains(&color)),
+            Atom::SourceChosenCreatureType {} => matches!(source.entry_selection,
+                Some(EntrySelection::CreatureType { kind }) if characteristics.has_subtype(kind.name())),
             Atom::ControlledBy { player } => {
                 self.static_player(player, source.controller, controller)
             }
@@ -542,7 +546,7 @@ impl RulesTxn {
     }
 
     /// A failed layer read is an error, never a smaller count.
-    fn static_count(&self, source: &Object, set: &SetExpr) -> Result<usize, String> {
+    pub(super) fn static_count(&self, source: &Object, set: &SetExpr) -> Result<usize, String> {
         Ok(match set {
             SetExpr::One {
                 object: Ref::Source,
@@ -991,6 +995,7 @@ impl RulesTxn {
             .get(&proposed.card)
             .ok_or("missing spell object")?;
         let object = Object {
+            entry_selection: None,
             id: proposed,
             controller: caster,
             ..object.clone()
@@ -1033,6 +1038,7 @@ impl RulesTxn {
         caster: PlayerId,
     ) -> Result<bool, String> {
         let object = Object {
+            entry_selection: None,
             id: ObjectId { face, ..object.id },
             face_down,
             ..object.clone()

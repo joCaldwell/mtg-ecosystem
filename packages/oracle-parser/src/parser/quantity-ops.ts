@@ -207,6 +207,7 @@ function parseMoveCounters(c: Cursor): Effect[] | null {
   return c.attempt((c): Effect[] | null => {
     if (c.word("move") === null) return null;
     let count: Amount | "all" | null;
+    const countAt = c.pos;
     if (c.word("all") !== null) count = "all";
     else if (c.words("any", "number", "of")) count = { amount: "chosen", minimum: 0 };
     else if (c.words("one", "or", "more")) count = { amount: "chosen", minimum: 1 };
@@ -232,7 +233,14 @@ function parseMoveCounters(c: Cursor): Effect[] | null {
     }
     // "from each/all": only a complete sweep has an unambiguous per-source meaning.
     if ((from.ref === "each" || from.ref === "all") && count !== "all") return null;
-    if (to.ref === "each" || to.ref === "all") return null;
+    // A bare plural recipient ("onto other creatures", no printed "each")
+    // receives a division of a chosen number of counters from one source.
+    const split = to.ref === "each" && !second && from.ref !== "each" && from.ref !== "all"
+      && count !== "all" && count.amount === "chosen" && count.minimum === 0 && Object.keys(count).length === 2
+      && c.tokens[secondAt]?.kind === "word" && !["each", "all"].includes((c.tokens[secondAt] as { value: string }).value);
+    if (!split && (to.ref === "each" || to.ref === "all")) return null;
+    if (split && count !== "all") return [{ effect: "move-counters", counter: spec ?? "any", count: c.mark(count, countAt, countAt + 3), from, to,
+      split: "chosen-recipients" }];
     return [{ effect: "move-counters", counter: spec ?? "any", count, from, to }];
   });
 }

@@ -20,7 +20,7 @@ struct Terms {
     sacrifice_other: Option<SacrificeOther>,
     chosen: Option<ChosenObjectCost>,
     life: Option<Quantity>,
-    counters: Option<Quantity>,
+    counters: Option<RemoveCounterCost>,
 }
 
 fn duplicate() -> Failure {
@@ -163,7 +163,8 @@ pub(super) fn sacrifice_quality(filter: &serde_json::Value) -> Result<SacrificeF
                     }
                     result.colors.push(color);
                 }
-                if result.colors.is_empty() {
+                // No printed sacrifice cost conjoins colors.
+                if result.colors.len() != 1 {
                     return Err(unsupported_filter());
                 }
             }
@@ -226,26 +227,10 @@ fn term(card: &Card<'_>, terms: &mut Terms, cost: &SourceCost) -> Result<(), Fai
                 return Err(duplicate());
             }
         }
-        // CR 122.1, 602.1a: "Remove N +1/+1 counters from this [permanent]".
-        SourceCost::RemoveCounters {
-            counter,
-            count,
-            from,
-        } => {
-            let this = from.as_object().is_some_and(|o| o.len() == 2)
-                && from["ref"] == "this"
-                && from["noun"].as_str().is_some_and(|noun| card.is_self(noun));
-            if !this || counter.r#type != "+1/+1" || count.amount != "fixed" || count.value == 0 {
-                return Err(unsupported(
-                    "compose.cost",
-                    "counter costs outside the block tables",
-                ));
-            }
-            if terms
-                .counters
-                .replace(Quantity::from(i64::from(count.value)))
-                .is_some()
-            {
+        SourceCost::RemoveCounters { .. } => {
+            let counters =
+                crate::rules::lower_remove_counter_cost(cost, &|noun| card.is_self(noun))?;
+            if terms.counters.replace(counters).is_some() {
                 return Err(duplicate());
             }
         }
@@ -405,7 +390,7 @@ pub(super) fn announced(
             }
             (tap, mana, sacrifice, pay_life, counters) => ActivationCost::Composite {
                 costs: PermanentActivationCosts {
-                    remove_source_plus_one_counters: counters,
+                    remove_source_counters: counters,
                     tap,
                     mana,
                     sacrifice,
@@ -447,7 +432,7 @@ pub(super) fn announced(
         }
         (tap, mana, sacrifice, None) => ActivationCost::Composite {
             costs: PermanentActivationCosts {
-                remove_source_plus_one_counters: None,
+                remove_source_counters: None,
                 tap,
                 mana,
                 sacrifice,

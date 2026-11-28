@@ -60,8 +60,45 @@ function lookedLibraryBefore(c: Cursor, verbAt: number): ZoneRef | null {
   return null;
 }
 
+/** The one library an earlier sentence of this ability looked at the top
+ * cards of ("Look at the top six cards of your library. … Put the rest on
+ * the bottom …"). Several looks leave the library unstated. */
+function lookedLibraryEarlier(c: Cursor, verbAt: number): ZoneRef | null {
+  const sentence = isPunctAt(c, verbAt - 1, ".") || verbAt === 0;
+  if (!sentence) return null;
+  let found: ZoneRef | null = null;
+  for (let start = 1; start < verbAt; start++) {
+    if (!isWordAt(c, start, "at") || !isWordAt(c, start - 1, "look", "looks")) continue;
+    if (found) return null;
+    const look = new Cursor(c.tokens.slice(start + 1, verbAt));
+    if (!look.words("the", "top")) return null;
+    const count = parseAmount(look);
+    if (!count || look.word("cards") === null || look.word("of") === null) return null;
+    const library = parseZoneRef(look);
+    if (!library || library.zone !== "library" || !library.owner || library.position || !look.isPunct(".")) return null;
+    found = library;
+  }
+  return found;
+}
+
 /** Called after the put verb (at verbAt) and its actor have been consumed. */
 export function parseContextualLibraryPlacement(c: Cursor, who: PlayerRef, verbAt: number): ZoneMove[] | null {
+  // "Put the rest on the bottom in a random order": the cards not taken
+  // from the looked-at cards stay in that library (CR 401.4, 701.20e).
+  const rest = c.attempt((c): ZoneMove[] | null => {
+    const start = c.pos;
+    if (!c.words("the", "rest")) return null;
+    const what: ObjectRef = c.mark({ ref: "rest" }, start);
+    const placedAt = c.pos;
+    if (!c.words("on", "the", "bottom") || c.isWord("of")) return null;
+    const placed = c.pos;
+    const order = parseOrder(c);
+    const library = order ? lookedLibraryEarlier(c, verbAt) : null;
+    if (!library || !order) return null;
+    const to: ZoneRef = { ...library, position: "bottom" };
+    return [{ effect: "move-zone", what, to: c.mark(to, placedAt, placed), order }];
+  });
+  if (rest) return rest;
   return c.attempt((c): ZoneMove[] | null => {
     const what = parsePlacedCards(c);
     if (!what) return null;

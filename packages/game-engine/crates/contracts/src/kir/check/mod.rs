@@ -532,6 +532,9 @@ impl Walk<'_, '_> {
                 // CR 201.5: identity with a reference is an event pattern's
                 // comparison; a resolving set never names one object this way.
                 Atom::Is { .. } => return unaudited("identity atom outside an event pattern"),
+                Atom::SourceChosenColor {} | Atom::SourceChosenCreatureType {} => {
+                    return unaudited("linked static choice in resolving set");
+                }
                 Atom::AnyOf { alternatives } => {
                     if alternatives.is_empty() {
                         return kind("empty predicate alternatives");
@@ -1874,7 +1877,8 @@ impl Walk<'_, '_> {
                         .iter()
                         .try_for_each(|alternative| Self::audit_set_filter(zone, alternative, read_x))?;
                 }
-                Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } | Atom::Is { .. } => {
+                Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } | Atom::Is { .. }
+                | Atom::SourceChosenColor {} | Atom::SourceChosenCreatureType {} => {
                     return unaudited("set filter atom");
                 }
             }

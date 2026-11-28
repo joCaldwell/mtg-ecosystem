@@ -14,8 +14,11 @@ not implicitly hosted; search is a separate native consumer. Public attachments,
 grants and counters/tokens are permitted projections; hands, libraries and search
 choices stay viewer-private. SDK completion policies use only their seat
 observation and public manifest/catalog and are neither browser controls nor
-strategic proof. Resource/time failures never authorize weaker
-[limits](#hosting-limits-and-clocks) or broader admission.
+strategic proof.
+
+Capacity, clock, storage, query and publication limits pause hosting coherently.
+They never become a loss, concession, draw or other Magic outcome, and never
+authorize weaker [limits](#hosting-limits-and-clocks) or broader admission.
 
 ## Read-only product admission
 
@@ -52,14 +55,14 @@ registration.
 
 EOF or stop cancels startup or pauses permitted running execution, shuts the host
 and joins the worker owner. Only a lifecycle-issued operator pause authorizes
-automatic lifetime recovery; clock/resource faults never become rules results or
-receive refilled limits. `lifecycle-stop ROOT` advances the durable generation
-before waiting for the exclusive owner lease, so stale ensure generations fail even
-after caller uncertainty; `lifecycle-join ROOT` waits after an already-written
-fence; EOF shutdown does not advance the generation. A later explicit recovery may
-own the new generation of the same immutable match. Registry, bindings, single-seat
-files, operator capabilities and journals stay host-private (0700/0600) and are
-never served as assets. A persisted human decision token anchors a stable wait
+automatic lifetime recovery; clock/resource faults never receive refilled limits.
+`lifecycle-stop ROOT` advances the durable generation before waiting for the
+exclusive owner lease, so stale ensure generations fail even after caller
+uncertainty; `lifecycle-join ROOT` waits after an already-written fence; EOF
+shutdown does not advance the generation. A later explicit recovery may own the new
+generation of the same immutable match. Registry, bindings, single-seat files,
+operator capabilities and journals stay host-private (0700/0600) and are never
+served as assets. A persisted human decision token anchors a stable wait
 timestamp; status exports only that timestamp and the native typed outcome.
 
 `lifecycle-profile PROFILE` reports exact executable pins and the reviewed public
@@ -82,8 +85,7 @@ exports Draft7 schemas from Rust for SDK declarations and standalone validators.
 
 Transport counters are canonical bounded u64 decimal strings; core quantities are
 exact signed decimal strings; numeric core fields fit JavaScript's exact integer
-range. Schema and publication checks both enforce these bounds. Unsupported
-capacity pauses hosting without inventing a loss, concession or draw.
+range. Schema and publication checks both enforce these bounds.
 
 Commands are at most 65,536 bytes. Strict raw JSON validation rejects duplicate
 keys, invalid Unicode/scalars, excessive nesting, aliases and imprecise numeric
@@ -151,14 +153,20 @@ execution dispositions must all agree; global tail checks reject orphan records,
 commands, execution rows and outbox entries. Generic replay to a next decision
 never replaces exact-operation recovery.
 
-Parallel after-State hashing (owning thread keeps SQLite, decoding and rule
-execution) still proves every record's full hash; no Worker or Ready escapes before
-all hashes, joins and ledger proofs pass, and any thread failure or mismatch fails
-closed. Remembered views memoize canonical JSON bytes (never serialized, never
-affecting equality, invalidated before mutation), but every history byte still
-enters each State SHA. Memory measurements must include memos, simultaneous forks,
-digest skeletons and host buffers. Full snapshots materialize JSON; there is no
-streaming-checkpoint claim.
+Parallel after-State hashing still proves every record's full hash; no Worker or
+Ready escapes before all hashes, joins and ledger proofs pass, and any thread
+failure or mismatch fails closed. Remembered views memoize canonical JSON bytes
+(unserialized, invalidated before mutation, never affecting equality); every
+history byte still enters each State SHA. Memory measurements must include memos,
+simultaneous forks, digest skeletons and host buffers. Full snapshots materialize
+JSON; there is no streaming-checkpoint claim.
+
+Preserve the original executable, schemas, catalog, accepted input journal and both
+build IDs for exact recovery; replacement code cannot silently open old durable
+state. Export only permitted projections and sanitized reports; keep failed
+attempts and original wrapper exit statuses. No older test count is current-HEAD
+acceptance ([evidence](game-engine-evidence.md),
+[client qualification](game-client.md#reproducibility-and-current-acceptance)).
 
 ## Hosting limits and clocks
 
@@ -183,26 +191,14 @@ catalog or Game.
 | Initial per-seat idle clock | 30 minutes |
 
 Queue admission, exact cancellation and connection/poll capacity are bounded
-independently. Clock checks run even during continuous polling; the one-second
-interval starts after automatic worker work, so a slow Tick cannot starve queued
-requests. Finished/faulted actors await notification rather than spinning. Cleanup
-after cancellation, timeout, correlation failure and shutdown kills/reaps the exact
-worker resource group, and a replacement starts only after it is verified empty.
-Matches have independent queues and processes.
+independently, and matches have independent queues and processes. Clock checks run
+even during continuous polling; the one-second interval starts after automatic
+worker work, so a slow Tick cannot starve queued requests. Finished/faulted actors
+await notification rather than spinning. Cleanup after cancellation, timeout,
+correlation failure and shutdown kills/reaps the exact worker resource group, and a
+replacement starts only after it is verified empty.
 
 Clocks debit monotonic elapsed time only while idle with an offered ready request;
 validation, execution, querying and commit are excluded, and readiness anchors
 after durable commit. Recorded elapsed inputs replay exactly; unrecorded
-crash/downtime freezes. Expiry, like storage/query/publication limits, is a
-coherent host resource pause and never a Magic outcome.
-
-## Source-qualified verification and recovery
-
-Proofs bind their exact source; no older test count is current-HEAD acceptance
-([evidence](game-engine-evidence.md),
-[client qualification](game-client.md#reproducibility-and-current-acceptance),
-[SDK commands](../packages/game-server/sdk/README.md)). Preserve the original
-executable, schemas, catalog, accepted input journal and both build IDs for exact
-recovery; replacement code cannot silently open old durable state. Export only
-permitted projections and sanitized reports; keep failed attempts and original
-wrapper exit statuses.
+crash/downtime freezes. Expiry is a resource pause, not a Magic outcome.

@@ -78,6 +78,10 @@ export function foldEntrySentence(c: Cursor, previous: Sentence): boolean {
       && !(details.tapped && step.tapped) && !(entry?.attacking && step.entry?.attacking)) {
     if (details.tapped) step.tapped = true;
     if (entry?.attacking) step.entry = { ...step.entry, attacking: entry.attacking };
+  } else if (step.effect === "keyword-action" && step.action === "populate" && !step.times && !step.token
+      && subject.noun === "token" && subject.number === "singular" && !(entry?.attacking && "defender" in entry.attacking)) {
+    // CR 701.36a: populate creates one token, the one "the token" names.
+    step.token = { ...(details.tapped ? { tapped: true as const } : {}), ...(entry?.attacking ? { attacking: true as const } : {}) };
   } else if (step.effect === "create-token" && step.count.amount === "fixed"
       && (step.count.value === 1) === (subject.number === "singular")
       // Created tokens record entering attacking without a named defender.
@@ -88,6 +92,7 @@ export function foldEntrySentence(c: Cursor, previous: Sentence): boolean {
   } else { c.pos = start; return false; }
   c.punct(".");
   if (step.effect === "create-token") c.fold(step.token, start);
+  if (step.effect === "keyword-action" && step.token) c.mark(step.token, start);
   c.fold(step, start);
   return true;
 }

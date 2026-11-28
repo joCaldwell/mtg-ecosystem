@@ -539,7 +539,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::TemporaryCombatProhibitionV1
         | C::ResolvedControlV1
         | C::ResolvedCharacteristicsV1
-        | C::EntryPlusOneCountersV1
+        | C::EntryChoiceV1
+        | C::EntryCountersV1
         | C::ConditionalEntryTappedV1
         | C::EntryLifePaymentV1
         | C::EntryRevealV1
@@ -746,6 +747,18 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             });
         }
     }
+    // CR 602.2b, 605.3a: both stack and mana abilities use the same
+    // source-cost preflight and journaled counter payment.
+    if d.mana_abilities
+        .iter()
+        .any(|a| a.costs.remove_source_counters.is_some())
+        || d.activated.iter().any(|a| {
+            matches!(&a.cost,
+            ActivationCost::Composite { costs } if costs.remove_source_counters.is_some())
+        })
+    {
+        cells.insert(Cell::ActivationRemoveCounters);
+    }
     for a in &d.activated {
         if a.x_mana_cost {
             cells.insert(Cell::XManaCost);
@@ -771,9 +784,6 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             ActivationCost::Composite { costs } => {
                 if costs.pay_life.is_some() {
                     cells.insert(Cell::ActivationPayLife);
-                }
-                if costs.remove_source_plus_one_counters.is_some() {
-                    cells.insert(Cell::ActivationRemoveCounters);
                 }
             }
             ActivationCost::SacrificePermanent {

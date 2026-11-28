@@ -123,8 +123,23 @@ describe("linked keyword decisions and ability history", () => {
       ],
     }]);
     // Xathrid Demon restates the action; that is not the bare CR 118.12 clause.
-    assert.equal(parseOracleText("At the beginning of your upkeep, sacrifice a creature. If you can't sacrifice a creature, you lose 2 life.",
-      "W1 fixture", { typeLine: "Creature — Demon" }).ok, false);
+    assert.deepEqual(abilities("At the beginning of your upkeep, sacrifice a creature. If you can't sacrifice a creature, you lose 2 life.",
+      "Creature — Demon")[0], {
+      kind: "triggered", trigger: { trigger: "phase", phase: "upkeep", whose: "your" },
+      effects: [
+        { steps: [{ effect: "sacrifice", who: you, what: { ref: "filter", filter: { types: ["creature"] }, count: fixed(1) } }] },
+        { steps: [{ effect: "lose-life", who: you, amount: fixed(2) }],
+          condition: { condition: "restated-action-unable", who: you,
+            action: { action: "sacrifice", what: { ref: "filter", filter: { types: ["creature"] }, count: fixed(1) } } },
+          conditionKind: "if" },
+      ],
+    });
+    // Only a resolving instruction can restate an earlier one, and only a
+    // sacrifice is read as a restatement.
+    for (const text of [
+      "As long as you can't sacrifice a creature, this creature gets +1/+1.",
+      "At the beginning of your upkeep, draw a card. If you can't draw a card, you lose 2 life.",
+    ]) assert.equal(parseOracleText(text, "W1 fixture", { typeLine: "Creature — Demon" }).ok, false, text);
   });
 });
 

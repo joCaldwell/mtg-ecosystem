@@ -605,6 +605,7 @@ fn query_matches_expected_board_sets_on_derived_and_permitted_facts() {
     );
     // A hidden object's unpublished characteristics are unknown, never guessed.
     let hidden = VisibleObject {
+        entry_selection: None,
         faces: None,
         characteristics: None,
         ..view

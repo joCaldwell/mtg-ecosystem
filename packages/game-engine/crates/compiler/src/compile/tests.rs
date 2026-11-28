@@ -120,6 +120,33 @@ fn r6_requires_its_versioned_pins_and_the_promoted_registration() {
 }
 
 #[test]
+fn r6_fresh_writer_fails_closed_on_a_different_reader() {
+    let dir = scratch("fresh-reader");
+    let mut inputs = read(&strict_read(R6).unwrap()).unwrap();
+    inputs.rules.sha256 = sha256(b"rules");
+    let r6 = inputs.r6.as_mut().unwrap();
+    r6.rules_path = "rules".into();
+    r6.legacy_archive = "legacy".into();
+    fs::write(dir.join("rules"), b"rules").unwrap();
+    fs::write(dir.join("legacy"), b"legacy").unwrap();
+    fs::create_dir(dir.join("scripts")).unwrap();
+    // The stand-in writer exits 3 unless it is handed the pinned reader.
+    fs::write(
+        dir.join("scripts/engine-env.sh"),
+        r#"case "$*" in *"--expect-source 9fa9dd672858102bf79c3a8ddbd78d9fd672f80ac253d1d2fb60b0e6e7043f5a --expect-generator 436b1b172a982c79711de3e6479451431e5645a9ee897fbe45af0f216f2dfa9e"*) exit 3 ;; esac
+exit 1
+"#,
+    )
+    .unwrap();
+    let Err(CompileError::Reader(reason)) = generate_archive(&inputs, &dir, &dir) else {
+        panic!("a different reader must fail as a reader error");
+    };
+    assert!(reason.contains("readable in cached mode only"), "{reason}");
+    assert!(reason.contains(&inputs.reader.source_sha256), "{reason}");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn r6_fresh_writer_ignores_the_reserved_r5_cache_basename() {
     let dir = scratch("fresh-basename");
     let mut manifest: Value = strict_read(R6).unwrap();

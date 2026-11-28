@@ -57,6 +57,8 @@ pub struct Card {
 #[serde(deny_unknown_fields)]
 pub struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_selection: Option<EntrySelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hideaway: Option<Box<HideawayLink>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phased_out: Option<PhaseReturn>,
@@ -352,6 +354,7 @@ mod tests {
 
     fn permanent(loyalty: i64, plus_one: i64) -> Object {
         Object {
+            entry_selection: None,
             hideaway: None,
             phased_out: None,
             attached_to: None,
@@ -478,6 +481,7 @@ mod tests {
         o.default_controller = PlayerId(3);
         o.id = id(0, 4);
         let before = ObjectBefore {
+            entry_selection: None,
             transforms: o.transforms,
             face_down: o.face_down,
             keyword_timestamp: o.keyword_timestamp,

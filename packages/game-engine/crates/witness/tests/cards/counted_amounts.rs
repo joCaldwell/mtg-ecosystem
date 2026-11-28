@@ -9,8 +9,8 @@
 //! state validity, a snapshot round trip and journal replay.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{
-    Amount, Atom, Cell, Change, EvaluatedVerb, Pred, Scope, SetExpr, StaticEffect, ZoneExpr,
-    definition_cells,
+    Amount, Atom, Cell, Change, CounterKind, EvaluatedVerb, Pred, Scope, SetExpr, StaticEffect,
+    ZoneExpr, definition_cells,
 };
 use mtg_core::testkit::*;
 
@@ -385,6 +385,65 @@ fn halves_round_as_printed() {
     assert_eq!(g.state.rules.players[0].life, q(3));
 }
 
+/// CR 107.1a, 111.1, 701.21a: with three Zombies at upkeep, Endless Ranks
+/// of the Dead creates half of three rounded down, one Zombie token. Glimmer
+/// Bairn's "Sacrifice a token" then offers only that token, not the
+/// nontoken creatures, and pumps itself.
+#[test]
+fn endless_ranks_rounds_down_and_glimmer_bairn_sacrifices_a_token() {
+    let mut g = game(
+        board(&[ENDLESS_RANKS, DEATH_BARON, DIREGRAF_COLOSSUS, GLIMMER_BAIRN])
+            .step(TurnStep::Untap)
+            .permanent_or_hand("Endless Ranks of the Dead", 0, 0, false)
+            .permanent_or_hand("Death Baron", 0, 0, false)
+            .permanent_or_hand("Death Baron", 0, 0, false)
+            .permanent_or_hand("Diregraf Colossus", 0, 0, false)
+            .permanent_or_hand("Glimmer Bairn", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false),
+    );
+    for _ in 0..64 {
+        let d = Driver::request(&mut g, u64::MAX);
+        if g.state.rules.turn.step == TurnStep::PrecombatMain
+            && g.state.rules.stack.is_empty()
+            && d.reason == Reason::Priority
+        {
+            break;
+        }
+        match d.reason {
+            Reason::Priority => Driver::pass(&mut g),
+            Reason::OrderTriggers => {
+                let order = (0..u32::try_from(d.candidates.len()).unwrap()).collect();
+                g.respond(d.player, d.id, Answer::Order { order }).unwrap();
+            }
+            ref other => panic!("unexpected decision {other:?}"),
+        }
+    }
+    assert_eq!(g.state.rules.turn.step, TurnStep::PrecombatMain);
+    checked(&g);
+    let zombies = tokens(&g, P0, "Zombie Token");
+    assert_eq!(zombies.len(), 1);
+    let bairn = Driver::object(&g, 4);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: bairn,
+            ability: 0,
+        },
+    );
+    let d = Driver::request(&mut g, u64::MAX);
+    assert_eq!(d.reason, Reason::SacrificeCost, "{d:?}");
+    assert_eq!(
+        d.candidates,
+        vec![Candidate::Object {
+            object: zombies[0].id
+        }]
+    );
+    Driver::pick_object(&mut g, zombies[0].id);
+    resolve(&mut g);
+    assert!(tokens(&g, P0, "Zombie Token").is_empty());
+    assert_eq!(pt(&g, 4), (q(3), q(4)));
+}
+
 /// CR 105.2, 701.21a: Ayara's "Sacrifice another black creature" offers
 /// only the other black creatures its controller controls. Glimmer Bairn's
 /// "Sacrifice a token" requires a token. "An artifact creature" is a
@@ -432,8 +491,9 @@ fn entry_counters_count_as_the_permanent_enters() {
     let gargoyle = lowered(GATEKEEPER_GARGOYLE);
     assert!(gargoyle.static_abilities.iter().any(|a| matches!(
         &a.effect,
-        StaticEffect::EntersWithPlusOneCounters {
-            for_each: Some(SetExpr::Matching {
+        StaticEffect::EntersWithCounters {
+            kind: CounterKind::PlusOnePlusOne,
+            per: Some(SetExpr::Matching {
                 zone: ZoneExpr::Battlefield,
                 ..
             }),
@@ -458,4 +518,40 @@ fn entry_counters_count_as_the_permanent_enters() {
     assert_eq!(g.zone(colossus), Some(Zone::Battlefield));
     assert_eq!(g.current(colossus).unwrap().plus_one_counters, q(2));
     assert_eq!(pt(&g, 0), (q(4), q(4)));
+}
+
+/// CR 400.7, 613.8: a graveyard count cannot use "other" (the entering
+/// card there is not the entrant), and the structural count admits no
+/// color filter. Each mutation of Diregraf Colossus's count is invalid IR.
+#[test]
+fn entry_counter_counts_reject_graveyard_other_and_color() {
+    let colossus = lowered(DIREGRAF_COLOSSUS);
+    for atom in [
+        Atom::IsNot {
+            object: mtg_contracts::kir::Ref::Source,
+        },
+        Atom::Color {
+            color: mtg_contracts::Color::B,
+        },
+    ] {
+        let mut d = colossus.clone();
+        let filter = d
+            .static_abilities
+            .iter_mut()
+            .find_map(|a| match &mut a.effect {
+                StaticEffect::EntersWithCounters {
+                    per:
+                        Some(SetExpr::Matching {
+                            zone: ZoneExpr::Graveyard { .. },
+                            filter,
+                        }),
+                    ..
+                } => Some(filter),
+                _ => None,
+            })
+            .expect("Diregraf Colossus counts its controller's graveyard");
+        filter.0.push(atom);
+        let error = d.validate().unwrap_err();
+        assert!(error.contains("entry-counters"), "{error}");
+    }
 }

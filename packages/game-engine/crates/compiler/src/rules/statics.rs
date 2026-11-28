@@ -320,10 +320,11 @@ fn lower(
                     }
                     StaticEffect::EntersTapped => return Err(gap("enters-tapped:conditional")),
                     StaticEffect::PayLifeOrEnterTapped { .. }
-                    | StaticEffect::RevealOrEnterTapped { .. } => {
+                    | StaticEffect::RevealOrEnterTapped { .. }
+                    | StaticEffect::ChooseOnEntry { .. } => {
                         return Err(gap("entry-choice:conditional"));
                     }
-                    StaticEffect::EntersWithPlusOneCounters { .. } => {
+                    StaticEffect::EntersWithCounters { .. } => {
                         return Err(gap("enters-with-counters:conditional"));
                     }
                     // CR 604.3a(5): a conditional value is not a CDA.
@@ -427,7 +428,43 @@ fn lower(
             _ => damage_replacement(&x.replacement)?,
         },
         S::SpellAdditionalCost(_) => return Err(gap("spell-additional-cost")),
-        S::AsEnters(_) => return Err(gap("entry-choice:as-enters")),
+        S::AsEnters(x) => {
+            use serde_json::json;
+            let ast::StaticEffectAsEnters {
+                what,
+                effects: _,
+                enters_with: None,
+            } = &**x
+            else {
+                return Err(gap("entry-choice:with-counters"));
+            };
+            if !entry_source(what) {
+                return Err(gap("entry-choice:source"));
+            }
+            let choose = |category| {
+                json!([{"steps":[{
+                    "effect":"choose-value","who":{"player":"you"},"category":category
+                }]}])
+            };
+            let player = |kind| {
+                json!([{"steps":[{
+                    "effect":"choose-object","who":{"player":"you"},"what":{"player":kind}
+                }]}])
+            };
+            let effects = &raw["effects"];
+            let choice = if *effects == choose("creature-type") {
+                kir::EntryChoiceSpec::CreatureType
+            } else if *effects == choose("color") {
+                kir::EntryChoiceSpec::Color
+            } else if *effects == player("a-player") {
+                kir::EntryChoiceSpec::Player { opponent: false }
+            } else if *effects == player("an-opponent") {
+                kir::EntryChoiceSpec::Player { opponent: true }
+            } else {
+                return Err(gap("entry-choice:as-enters"));
+            };
+            ability(Battlefield, StaticEffect::ChooseOnEntry { choice })
+        }
         S::AsTurnedFaceUp(_) => return Err(gap("as-turned-face-up")),
         S::AsTransforms(_) => return Err(gap("as-transforms")),
         S::EntryChoice(x) => {
@@ -515,11 +552,7 @@ fn lower(
         S::EntersWithAbilities(_) => return Err(gap("enters-with-abilities")),
         S::UntapStepSuppression(_) => return Err(gap("untap-step-suppression")),
         S::EntersWithCounters(x) => {
-            let source = matches!(&*x.what, ast::ObjectRef::SelfObject(_))
-                || matches!(&*x.what, ast::ObjectRef::This(x) if matches!(x.noun.as_str(),
-                    "permanent" | "creature" | "artifact" | "enchantment" | "aura" | "land"));
-            if !source
-                || x.counter.r#type != "+1/+1"
+            if !entry_source(&x.what)
                 || x.additional.is_some()
                 || x.condition.is_some()
                 || x.condition_kind.is_some()
@@ -531,25 +564,47 @@ fn lower(
             if count == Quantity::zero() {
                 return Err(gap("enters-with-counters:zero"));
             }
-            // CR 614.12: "a +1/+1 counter on it for each [filter]".
-            let for_each = match x.multiplier.as_deref() {
+            let per = match x.multiplier.as_deref() {
                 None => None,
-                Some(ast::Amount::Count(n)) => Some(cda_set(&n.of).map_err(|e| {
-                    gap(&format!(
-                        "enters-with-counters:multiplier:{}",
-                        e.reason.strip_prefix("static:cda-pt:").unwrap_or(&e.reason)
-                    ))
-                })?),
-                Some(other) => {
-                    return Err(gap(&format!(
-                        "enters-with-counters:multiplier:{}",
-                        variant(other)
-                    )));
+                Some(ast::Amount::Count(amount)) => {
+                    let mut terms = (*amount.of).clone();
+                    if let Some(exclusion) = terms.other_than.take() {
+                        if !matches!(*exclusion, ast::ObjectFilterOtherThan::ObjectRef(ref source)
+                            if entry_source(source))
+                        {
+                            return Err(gap("enters-with-counters:count-exclusion"));
+                        }
+                        terms.other = Some(true);
+                    }
+                    let set = counted_set(&terms, None)?;
+                    // CR 400.7: a card entering from the counted graveyard is
+                    // not the entrant, so "other" there cannot exclude it.
+                    if terms.other == Some(true)
+                        && matches!(
+                            set,
+                            kir::SetExpr::Matching {
+                                zone: kir::ZoneExpr::Graveyards | kir::ZoneExpr::Graveyard { .. },
+                                ..
+                            }
+                        )
+                    {
+                        return Err(gap("enters-with-counters:graveyard-other"));
+                    }
+                    Some(set)
                 }
+                Some(ast::Amount::KickerCount(_)) => {
+                    return Err(gap("enters-with-counters:kicker-count"));
+                }
+                Some(_) => return Err(gap("enters-with-counters:multiplier")),
             };
             ability(
                 Battlefield,
-                StaticEffect::EntersWithPlusOneCounters { count, for_each },
+                StaticEffect::EntersWithCounters {
+                    kind: object_counter_kind(&x.counter.r#type)
+                        .map_err(|_| gap("enters-with-counters:kind"))?,
+                    count,
+                    per,
+                },
             )
         }
         S::EntersWithCounterChoice(_) => return Err(gap("enters-with-counter-choice")),
@@ -558,6 +613,12 @@ fn lower(
         S::CrewContribution(_) => return Err(gap("crew-contribution")),
     };
     Ok(vec![one])
+}
+
+fn entry_source(what: &ast::ObjectRef) -> bool {
+    matches!(what, ast::ObjectRef::SelfObject(_))
+        || matches!(what, ast::ObjectRef::This(x) if matches!(x.noun.as_str(),
+            "permanent" | "creature" | "artifact" | "enchantment" | "aura" | "land" | "planeswalker"))
 }
 
 /// The raw JSON items beside a typed array, in order; a missing array
