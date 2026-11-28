@@ -623,7 +623,7 @@ impl Walk<'_, '_> {
                 .expect(object, &[RefKind::Object], "blocked object")
                 .map(drop),
             Amount::OpponentsAttacked {} => Ok(()),
-            Amount::Times { of, .. } => self.amount(of),
+            Amount::Times { of, .. } | Amount::Half { of, .. } => self.amount(of),
             Amount::Sum { terms } => terms.iter().try_for_each(|term| self.amount(term)),
             Amount::Difference {
                 minuend,

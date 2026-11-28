@@ -643,6 +643,7 @@ fn cda_amount(amount: &Amount) -> bool {
         | Amount::BlockersOf { .. }
         | Amount::OpponentsAttacked {}
         | Amount::Difference { .. }
+        | Amount::Half { .. }
         | Amount::OtherCastsManaValue { .. } => false,
     }
 }

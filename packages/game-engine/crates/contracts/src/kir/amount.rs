@@ -74,6 +74,12 @@ pub enum Amount {
         minuend: Box<Amount>,
         subtrahend: Box<Amount>,
     },
+    /// CR 107.1a: half of a number, rounded down or up as printed.
+    Half {
+        of: Box<Amount>,
+        #[serde(default, skip_serializing_if = "super::is_false")]
+        round_up: bool,
+    },
     /// CR 205.2a, 205.3i, 105.1: how many different card types, basic land
     /// types or colors the objects of a set have among them. Read only by a
     /// characteristic-defining ability (`kir::statics`).
