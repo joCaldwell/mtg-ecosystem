@@ -16,16 +16,18 @@
 //!
 //! *Linked count* (`linked-count`): two unconditioned one-step sentences.
 //! The first is a discard above; the second is a draw, mill, gain-life or
-//! lose-life above with a fixed N of at least one and "for each [type] card
-//! discarded this way", read from the first step's actual result
+//! lose-life above for you, with a fixed N of at least one and "for each
+//! [type] card discarded this way", read from the first step's actual result
 //! (CR 608.2c, 608.2h, 701.9c). One kernel sequence lowers both steps, and
 //! the second counts the cards the first moved, from their last public
 //! characteristics; a type is one card type.
 //!
 //! The recipient is the controller ("you", or an imperative with no
-//! subject), each player, each opponent, each other player (CR 102.2–102.3:
-//! in a game without teams, each other player is an opponent; APNAP per
-//! 101.4), or one announced target player or opponent (CR 115.1a, 601.2c).
+//! subject), each player, each opponent, each other player (CR 102.2,
+//! 806.1, 903.2: Commander is two-player or Free-for-All, where every other
+//! player is an opponent; a team game (CR 102.3) would need a different
+//! lowering; APNAP per 101.4), or one announced target player or opponent
+//! (CR 115.1a, 601.2c).
 //! N is a fixed count or the spell's announced X (CR 107.3a, 601.2b), which
 //! needs an X in the mana cost. A discard count is at least one; the
 //! recipient chooses the cards, or they are chosen at random, at resolution
@@ -575,6 +577,13 @@ pub(super) fn linked_count(abilities: &[ast::Ability]) -> Option<SourceAction> {
         return None;
     };
     if !matches!(consumer.count, Count::Fixed(n) if n >= 1) {
+        return None;
+    }
+    // Only "you" is witnessed as the counted step's recipient. With "each
+    // player draws a card for each card discarded this way", every player
+    // would receive the whole total; leave such a card unclaimed until a
+    // non-controller recipient is witnessed.
+    if !matches!(consumer.subject, Subject::You) {
         return None;
     }
     let relation = json!({"relation": "event-result", "event": "discard", "scope": "this-way"});
@@ -1139,8 +1148,10 @@ impl CheckedAction {
                 Subject::You => (PlayerExpr::you(Context::Spell), Selection::SpellController),
                 Subject::EachPlayer => (PlayerExpr::EachPlayer, Selection::EachPlayer),
                 Subject::EachOpponent => (PlayerExpr::EachOpponent, Selection::EachOpponent),
-                // CR 102.2-102.3: the supported free-for-all game has no
-                // teams, so each player other than you is an opponent.
+                // CR 102.2, 806.1, 903.2: Commander is two-player or
+                // Free-for-All, so each player other than you is an opponent.
+                // Team games (CR 102.3) break this; change this lowering if
+                // team formats are ever supported.
                 Subject::EachOtherPlayer => {
                     selections.push(SourceSelection {
                         path: format!("{}/base", paths.who),

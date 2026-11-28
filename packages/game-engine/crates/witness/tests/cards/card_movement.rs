@@ -1,5 +1,5 @@
 //! Frozen R5 card movement, discard and private library procedures.
-//! CR 101.4, 102.3, 400.2, 400.7, 601.2c, 608.2b-d, 701.9, 701.20, 701.23, 701.24b:
+//! CR 101.4, 102.2, 400.2, 400.7, 601.2c, 608.2b-d, 701.9, 701.20, 701.23, 701.24b, 806.1, 903.2:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{Cell, EvaluatedVerb, definition_cells};
 use mtg_core::testkit::*;
@@ -728,7 +728,7 @@ fn hand_size(g: &Game, seat: u8) -> usize {
         .count()
 }
 
-/// CR 102.3, 608.2c, 701.9c: each other player discards, and the caster
+/// CR 806.1, 903.2, 608.2c, 701.9c: each other player discards, and the caster
 /// draws one card for each card actually discarded; an empty hand adds none.
 #[test]
 fn syphon_mind_draws_for_each_card_the_other_players_discarded() {

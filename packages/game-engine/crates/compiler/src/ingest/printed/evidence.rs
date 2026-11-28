@@ -608,9 +608,10 @@ impl<'a> Coverage<'_, 'a> {
     /// Check a field of an unlocated object the parser synthesized inside its
     /// recorded parent production ("each other player" yields a filtered
     /// player whose `each-player` base has no span of its own). The run must
-    /// lie in the parent's own runs, and the family verifies the whole printed
-    /// phrase against the synthesized value. A recorded, aliased or implicit
-    /// owner uses [`Self::meaning`] instead.
+    /// be exactly the parent's single recorded span, with no folds, and the
+    /// family verifies that whole printed phrase against the synthesized
+    /// value. A recorded, aliased or implicit owner uses [`Self::meaning`]
+    /// instead.
     pub(crate) fn synthesized(
         &mut self,
         field: &str,
@@ -625,8 +626,12 @@ impl<'a> Coverage<'_, 'a> {
             return Err(self.missing(field));
         };
         let (parent, _) = owner.rsplit_once('/').ok_or_else(|| self.missing(field))?;
-        let proof = self.block.node(parent)?;
-        if proof.basis != Basis::Recorded || start >= end || !contains(proof.value, run) {
+        let Some(PrintedNode::Recorded(node)) = self.block.nodes.get(parent) else {
+            return Err(self.missing(field));
+        };
+        let whole = matches!(node.span.as_slice(), [only] if only.0 == run)
+            && node.folds.as_deref().is_none_or(<[_]>::is_empty);
+        if start >= end || !whole {
             return Err(self.missing(field));
         }
         let text = self.block.text(run);
@@ -643,8 +648,9 @@ impl<'a> Coverage<'_, 'a> {
 
     /// Claim the printed words that introduce a composite child of a recorded
     /// production, such as "for each" before a for-each filter. The words lie
-    /// in the parent's own runs and outside the child's; the child's fields
-    /// are discharged separately. Facts on the words bind to `child`.
+    /// in the parent's own runs, outside the child's, and end exactly where
+    /// the child's first recorded run begins on the same line; the child's
+    /// fields are discharged separately. Facts on the words bind to `child`.
     pub(crate) fn introducer(
         &mut self,
         child: &str,
@@ -656,13 +662,19 @@ impl<'a> Coverage<'_, 'a> {
             return Err(self.missing(child));
         }
         let proof = self.block.node(parent)?;
+        let Some(PrintedNode::Recorded(node)) = self.block.nodes.get(child) else {
+            return Err(self.missing(child));
+        };
+        let adjacent = node.span.first().is_some_and(|first| {
+            let [l, s, _] = first.0;
+            l == line && s == end
+        });
         let inside_child =
-            self.block.nodes.get(child).is_some_and(|node| {
-                (start..end).any(|index| contains(node, [line, index, index + 1]))
-            });
+            (start..end).any(|index| contains(self.block.nodes[child], [line, index, index + 1]));
         if proof.basis != Basis::Recorded
             || start >= end
             || !contains(proof.value, run)
+            || !adjacent
             || inside_child
         {
             return Err(self.missing(child));

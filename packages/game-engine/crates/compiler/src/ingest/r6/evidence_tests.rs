@@ -227,6 +227,51 @@ fn linked_count_needs_its_recipient_and_result_citations_with_the_binder_erased(
     rejects(&mut row, "/effects/1/steps/0/forEach");
 }
 
+#[test]
+fn synthesized_and_introducer_claim_only_their_exact_runs() {
+    // "Each other player discards a card. You draw a card for each card
+    // discarded this way." `/who` records [0, 0, 3]; `/forEach` records
+    // [0, 13, 17] inside its step's fold [0, 11, 17].
+    let raw = include_str!(
+        "../../../../../tests/fixtures/phase1-r6/abc37d6c-6300-47b5-a679-9db5b83eb54f.json"
+    );
+    let evidence = verified(raw).unwrap();
+    let base = "/effects/0/steps/0/who/base/player";
+    let each = "/effects/1/steps/0/forEach";
+    let mut outcomes = Vec::new();
+    let _ = evidence
+        .block(0, 0, base)
+        .unwrap()
+        .check_family(|coverage| {
+            // A sub-run of the parent's span is not the synthesized phrase.
+            outcomes.push((
+                "synthesized sub-run",
+                false,
+                coverage.synthesized(base, [0, 0, 2], |_, _| true),
+            ));
+            outcomes.push((
+                "synthesized whole span",
+                true,
+                coverage.synthesized(base, [0, 0, 3], |_, _| true),
+            ));
+            // Words of the parent that do not end where the child begins.
+            outcomes.push((
+                "introducer gap",
+                false,
+                coverage.introducer(each, [0, 10, 12], |_| true),
+            ));
+            outcomes.push((
+                "introducer adjacent",
+                true,
+                coverage.introducer(each, [0, 11, 13], |_| true),
+            ));
+            Ok(())
+        });
+    for (label, accepted, outcome) in outcomes {
+        assert_eq!(outcome.is_ok(), accepted, "{label}: {outcome:?}");
+    }
+}
+
 fn expect_check(label: &str, row: &mut Value, expected: &str) {
     let raw = rehash(row);
     let failure = verified(&raw).err().expect("mutation passed the verifier");

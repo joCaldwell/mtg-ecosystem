@@ -59,10 +59,11 @@ pub(crate) enum Selection {
     SpellController,
     /// CR 608.2h: evaluated in APNAP order at resolution.
     EachPlayer,
-    /// CR 102.2-102.3: each opponent of the controller, evaluated in APNAP
-    /// order at resolution; in a game without teams, every other player.
+    /// CR 102.2, 806.1, 903.2: each opponent of the controller, evaluated
+    /// in APNAP order at resolution; in two-player and Free-for-All
+    /// Commander, every other player.
     EachOpponent,
-    /// CR 102.2-102.3: each player but the controller, which the binder
+    /// CR 102.2, 806.1, 903.2: each player but the controller, which the binder
     /// leaves unresolved; its `each-player` base is traced on its own.
     EachOtherPlayer,
     /// CR 601.2c.

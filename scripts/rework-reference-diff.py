@@ -21,7 +21,9 @@ calls the source (CR 201.5, 603.10a).
 
 Explained decision: the binder leaves "each other player" (a filtered
 each-player with `other`) unresolved as `unsupported-scope`. Rust decides it
-as each player but the controller (CR 102.2-102.3); the occurrence must still
+as each player but the controller, every one an opponent in two-player and
+Free-for-All Commander (CR 102.2, 806.1, 903.2; not team games, CR 102.3);
+the occurrence must still
 be exactly that unresolved reference and projection, and its each-player base
 must match the binder's bound selection. A linked result ("discarded this
 way") matches the binder's event-link node for the producing step (CR 608.2c).
@@ -214,7 +216,7 @@ def source_sites(choice):
             case 'each-other-player':
                 node = None
                 projected = None
-                rule = '102.3'
+                rule = '903.2'
             case 'linked-result':
                 node = {'node': 'event-link', 'action': 'discard', 'step': selection['step']}
                 projected = None
@@ -281,7 +283,7 @@ def compare_source_choices(archive, trace):
                              and bound[0]['expression'] == {'player': 'filtered', 'base': {'player': 'each-player'},
                                                             'filter': {'other': True}}
                              and legacy == [{'path': path, 'unresolved': 'unsupported-scope'}])
-                    explanation = 'binder unresolved; Rust decides each player but you (CR 102.2-102.3)'
+                    explanation = 'binder unresolved; Rust decides each player but you (CR 102.2, 806.1, 903.2)'
                 elif kinds.get(path) == 'linked-result':
                     link = links.get(path)
                     target = link

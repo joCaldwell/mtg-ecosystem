@@ -681,6 +681,17 @@ fn linked_count_leaves_other_results_and_recipients_to_the_existing_authority() 
             discard(&other),
             json!({ "effect": "draw", "who": { "player": "you" }, "amount": { "amount": "fixed", "value": 1 } }),
         ),
+        // A counted step for anyone but you.
+        (
+            discard(&other),
+            json!({ "effect": "draw", "who": { "player": "each-player" },
+                "amount": { "amount": "fixed", "value": 1 }, "forEach": card }),
+        ),
+        (
+            discard(&other),
+            json!({ "effect": "draw", "who": { "player": "each-opponent" },
+                "amount": { "amount": "fixed", "value": 1 }, "forEach": card }),
+        ),
         // Another player filter, or a random player.
         (
             discard(
