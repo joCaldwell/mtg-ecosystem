@@ -215,11 +215,21 @@ fn amounts_players_destinations_and_durations_are_typed() {
         "operand:player:each_player"
     );
     assert_eq!(
-        lower_destination(&json!({"zone":"library","owner":"its-owner","position":"top"})).unwrap(),
+        lower_zone_destination(
+            &typed(
+                &json!({"zone":"library","owner":"its-owner","position":"top"}),
+                "destination"
+            )
+            .unwrap()
+        )
+        .unwrap(),
         kir::Destination::OwnerLibraryTop
     );
     assert_eq!(
-        code(lower_destination(&json!({"zone":"battlefield"})).unwrap_err()),
+        code(
+            lower_zone_destination(&typed(&json!({"zone":"battlefield"}), "destination").unwrap())
+                .unwrap_err()
+        ),
         "operand:destination:battlefield"
     );
     let duration =

@@ -162,9 +162,6 @@ impl RulesTxn {
                     Verb::Destroy {
                         what: SetExpr::One { .. },
                         ..
-                    } | Verb::Move {
-                        what: SetExpr::One { .. },
-                        to: Destination::Exile
                     } | Verb::Tap {
                         what: SetExpr::One { .. }
                     } | Verb::Untap {
@@ -182,20 +179,6 @@ impl RulesTxn {
             } else {
                 self.execute_removal_instruction(frame, instruction)
             };
-        }
-        // CR 404.1: exile one player's graveyard.
-        if matches!(
-            node,
-            Node::Do(Verb::Move {
-                what: SetExpr::Matching {
-                    zone: ZoneExpr::Graveyard { .. },
-                    ..
-                },
-                ..
-            })
-        ) {
-            return self
-                .execute_wipes_instruction(frame, Instruction::Kernel { node, source_block });
         }
         // CR 111.1: tokens keep the token executor, whose proposed events and
         // recipe authentication recovery re-derives.
@@ -314,20 +297,14 @@ impl RulesTxn {
             Verb::Destroy {
                 what: SetExpr::Matching { zone, filter },
                 ..
-            } => self.kernel_set_move(frame, &zone, &filter, None, source_block),
+            } => self.kernel_destroy_set(frame, &zone, &filter, source_block),
+            // CR 608.2n: the resolving spell shuffles itself as it leaves.
             Verb::Move {
-                what: SetExpr::One { object },
-                to:
-                    to @ (Destination::OwnerHand
-                    | Destination::OwnerLibraryTop
-                    | Destination::OwnerLibraryBottom
-                    | Destination::OwnerLibraryShuffled
-                    | Destination::Battlefield { .. }),
-            } => self.kernel_single_move(frame, object, to, source_block),
-            Verb::Move {
-                what: SetExpr::Matching { zone, filter },
-                to,
-            } => self.kernel_set_move(frame, &zone, &filter, Some(&to), source_block),
+                what: SetExpr::One {
+                    object: Ref::Source,
+                },
+                to: Destination::OwnerLibraryShuffled,
+            } => self.shuffle_resolving_spell(frame, source_block),
             _ => Err("kernel verb has no audited executor".into()),
         }
     }

@@ -4,7 +4,6 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::ObjectSet;
-use mtg_contracts::kir::{Destination, SetExpr};
 
 /// What a board-wide movement does with each member (CR 701.8, 400.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,8 +268,7 @@ impl RulesTxn {
         block: u32,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        if !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.get(frame.cursor as usize),Some(kernel!(Move {what: SetExpr::Matching {..}, to: Destination::OwnerHand} @ source_block)
-                | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::OwnerHand, .. }, source_block }) if *source_block==block)
+        if !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.get(frame.cursor as usize),Some(Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::OwnerHand, .. }, source_block }) if *source_block==block)
             || objects.len() > self.event_group_limit()
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || remaining.iter().any(|o| !objects.contains(o))
@@ -344,36 +342,6 @@ impl RulesTxn {
         i: Instruction,
     ) -> Result<(), String> {
         match i {
-            kernel!(Move { what: mtg_contracts::kir::SetExpr::Matching { zone: mtg_contracts::kir::ZoneExpr::Graveyard { of: target_player!(target_slot) }, .. }, to: mtg_contracts::kir::Destination::Exile } @ source_block) =>
-            {
-                // CR 400.7, 603.3d, 608.2b/h: the player was targeted at placement.
-                // Determine the cards from that player's graveyard at resolution.
-                let slot = target_slot as usize;
-                let player = *self
-                    .bound_player_target(self.entry(frame.stack_id)?, slot)
-                    .ok_or("missing graveyard player target")?;
-                if frame.legal_targets.get(slot) != Some(&true) || !self.is_live(player) {
-                    return self.finish_instruction(
-                        frame,
-                        InstructionOutcome::PlayerActionSkipped { player },
-                    );
-                }
-                let occurrences = self
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| {
-                        o.zone == (Zone::Graveyard { owner: player })
-                            && !self.state.rules.tokens.contains_key(&o.id.card)
-                    })
-                    .map(|o| ProposedEvent::Move {
-                        object: o.id,
-                        destination: Zone::Exile,
-                    })
-                    .collect();
-                self.commit_set_moves(frame, occurrences, SetMove::Exile, source_block)
-            }
             i if mtg_contracts::ObjectSet::pumped(&i).is_some() => {
                 let (what, power, toughness, source_block) =
                     i.pumped().ok_or("pump set instruction invariant")?;

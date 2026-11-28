@@ -79,7 +79,7 @@ policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
 
 The promoted R6 cut has an origin under `phase1-r6/`. Both archives verify for
-all 751 R5-origin fixture identities. Each R6 fixture keeps the same archive
+all 753 R5-origin fixture identities. Each R6 fixture keeps the same archive
 line and adds only `printed` and `printedSha256` to the R5 row. The R5 origin and
 fixture manifests supply the default controls.
 
@@ -294,8 +294,9 @@ can read each player or each opponent. Object stats and cast-history amounts
 stay outside control cells. Branches gated by an optional-cost condition
 supply no targets until cost-dependent target declarations exist (CR 601.2c).
 
-Every branch and leaf must pass the checker. Draw and life gain or loss use the
-signature evaluator in the resolving task, including under controls. Other
+Every branch and leaf must pass the checker. Draw, life gain or loss, damage,
+counters, sacrifice, discard, mill and zone changes use the signature
+evaluator in the resolving task, including under controls. Other
 ordinary leaves use the flat executor without task bindings, reading at most
 one announced target. Token creation and temporary effects need persistent leaf
 provenance, and set damage retains facts tied to the top-level cursor. Optional
@@ -309,8 +310,9 @@ tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Draw, life, damage, permanent counter placement, sacrifice, discard and mill
-use `kir::signatures`. `kir::Verb` remains the action representation on the
+Draw, life, damage, permanent counter placement, sacrifice, discard, mill and
+zone changes (`Move`) use `kir::signatures`. The resolving spell shuffling
+itself (CR 608.2n) and the resolution object choice stay outside it. `kir::Verb` remains the action representation on the
 wire. Damage prevention and commit, counter placement and graveyard moves
 retain their transaction authorities.
 
@@ -369,13 +371,15 @@ targets and instructions (CR 700.2). The frozen R5 resolution is not consulted
 for this choice.
 `scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
 
-**Actual card results.** An unqualified “discarded this way” or “milled this
-way” in a count or condition names the unique earlier direct producer of that
-event in the same resolving block and chosen mode (CR 608.2c,h, 700.2). The
+**Actual card results.** An unqualified “discarded”, “milled”, “exiled” or
+“returned this way” in a count or condition names the unique earlier direct
+producer of that event (a move to exile, or to a hand or the battlefield) in
+the same resolving block and chosen mode (CR 608.2c,h, 700.2). The
 checked sequence reads its actual object set and count. Type, subtype and other
 card predicates read the exact public successor or its known characteristics
-when it has left (CR 400.7, 701.9c, 701.17c). An unrevealed hidden destination supplies no
-characteristics. A missing or competing producer rejects at the linked operand.
+when it has left (CR 400.7, 701.9c, 701.17c). An object moved from a public zone
+into a hand or library keeps its last-known public characteristics (CR 608.2h);
+a card hidden in its origin and destination supplies none. A missing or competing producer rejects at the linked operand.
 
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write. One
@@ -394,6 +398,7 @@ replacement.
 | `Damage` | > 0 | `EachSimultaneous` through the damage transaction | damage dealt, never life lost or prevented | permanents dealt damage | players dealt damage |
 | `PutCounters` | > 0 | `EachSimultaneous` | counters actually put | recipients | none |
 | `Sacrifice` | > 0, as many as possible (CR 609.3) | `CollectThenSimultaneous` (CR 701.21a) | number sacrificed | permanents sacrificed, whatever the destination | sacrificing players |
+| `Move` | none | `EachSimultaneous` (CR 608.2c) | objects that reached the destination | their prior and successor incarnations; public facts unless the destination is hidden | none |
 
 A second projection of one verb ("life lost this way" from damage, "died this
 way") rejects until a `StepRole` is added additively. `Ref::StepResult { step, role }`
@@ -411,8 +416,19 @@ facts, the payer and the number paid. A sacrifice action exposes the actual
 number, objects and players through the ordinary step collector.
 
 **Tier preservation.** The 17 previously qualified higher-tier shapes in
-`kir::tiers` keep their legacy cells and tiers; every other evaluator-admitted
-node is `Cell::Evaluated(verb)` at `Executes`.
+`kir::tiers` keep their legacy cells and tiers, as labels the evaluator
+performs (a creature target to its owner's hand or library top among them);
+every other evaluator-admitted node is `Cell::Evaluated(verb)` at `Executes`.
+
+**Zone changes** read their members once as the step is performed: the
+source's or an announced object's same incarnation in its zone, or the
+matching set (CR 400.7, 608.2b,h). Each goes to its owner's hand, library or
+exile (CR 400.3), or enters under the mover's control (CR 110.2a). A commander
+bound for a hand or library waits for its owner's command-zone choice in APNAP
+order (CR 903.9b); a card entering asks the shared card-entry questions (Aura
+host, entry payment, reveal; CR 303.4f, 614.12). Then the members move in one
+event, through the canonical actuals, and a library shuffle follows in the same
+transaction (CR 701.24c).
 
 ### Resolving frame
 
@@ -503,7 +519,8 @@ them as `blockers.tsv` for the [deck scoreboard](game-engine-development.md#meas
 structs from `PermanentFilter::any()`, `TargetSpec::new` and
 `SpellProgram::instructions` (`contracts/src/builders.rs`).
 
-**Decoder boundary (Stage 1, unchanged R5).** A migrated lowerer reads only the
+**Decoder boundary (Stage 1, unchanged R5).** A migrated lowerer (the evaluated
+actions, exile, return-to-hand and move-zone) reads only the
 generated `mtg-oracle-ast` types (`scripts/generate-rust-ast.ts`) and decodes
 the whole containing block, keeping omitted, null, unknown and malformed fields
 distinct. Rust accounts for every operative field, qualifier and printed action

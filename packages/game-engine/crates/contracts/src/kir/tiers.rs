@@ -119,27 +119,13 @@ pub enum Cell {
     OptionalTargetDestroy,
     DestroyAllCreatures,
     DestroySet,
-    // CR 400.3, 400.7: zone moves.
-    MoveTargetExile,
-    MovePermanentOwnerHand,
+    // CR 400.3, 400.7: zone moves. The evaluator performs every move; these
+    // label the two shapes reviewed above `Executes`.
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
-    MoveTargetOwnerLibraryPosition,
     ShuffleResolvingSpell,
-    ShuffleTargetOwnerLibrary,
-    MoveSourceOwnerZone,
     ChooseObjectOwnerHand,
-    MoveOwnGraveyardTargetToHand,
-    ExileGraveyardTarget,
     GraveyardTargetWasCreature,
-    MoveGraveyardTargetToOwnerHand,
-    MoveGraveyardTargetToOwnerLibraryTop,
-    MoveOwnGraveyardCreatureToBattlefield,
-    MoveGraveyardCreatureToBattlefield,
-    MoveOwnGraveyardCardToBattlefield,
-    ExileTargetGraveyard,
-    ExileGraveyards,
-    MoveSet,
     // CR 301.5 and 303.4: the attachment shell and its host.
     Attachment,
     CounterStackTarget,
@@ -351,21 +337,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DestroyTargetPermanent
         | C::OptionalTargetDestroy
         | C::DestroySet
-        | C::MoveTargetExile
-        | C::MovePermanentOwnerHand
-        | C::MoveSourceOwnerZone
         | C::ChooseObjectOwnerHand
         | C::GraveyardTargetWasCreature
-        | C::ExileGraveyardTarget
-        | C::MoveGraveyardTargetToOwnerLibraryTop
-        | C::MoveGraveyardTargetToOwnerHand
-        | C::MoveOwnGraveyardTargetToHand
-        | C::MoveOwnGraveyardCardToBattlefield
-        | C::MoveGraveyardCreatureToBattlefield
-        | C::MoveOwnGraveyardCreatureToBattlefield
-        | C::ExileTargetGraveyard
-        | C::ExileGraveyards
-        | C::MoveSet
         | C::Attachment
         | C::CounterStackTarget
         | C::RegenerateSource
@@ -408,9 +381,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ChooseHandCards
         | C::ChooseGraveyardCards
         | C::RandomGraveyardCards
-        | C::MoveTargetOwnerLibraryPosition
         | C::ShuffleResolvingSpell
-        | C::ShuffleTargetOwnerLibrary
         | C::SearchTargetController
         | C::ShuffleController
         | C::ShuffleTargetController

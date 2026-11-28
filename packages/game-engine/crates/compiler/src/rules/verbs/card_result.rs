@@ -1,21 +1,65 @@
-//! CR 608.2c/h, 701.9c, 701.17c: a printed "discarded/milled this way"
-//! selects the actual card result of a unique earlier local action.
+//! CR 608.2c/h, 701.9c, 701.17c: a printed "discarded/milled/exiled/
+//! returned this way" selects the actual card result of a unique earlier
+//! local action.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+
+/// The action whose result a printed "this way" names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResultFamily {
+    Discard,
+    Mill,
+    /// CR 406.2: a move to exile.
+    Exile,
+    /// CR 400.3: a move to a hand or onto the battlefield.
+    Return,
+}
+
+impl ResultFamily {
+    fn produces(self, verb: &Verb) -> bool {
+        match (self, verb) {
+            (Self::Discard, Verb::Discard { .. }) | (Self::Mill, Verb::Mill { .. }) => true,
+            (
+                Self::Exile,
+                Verb::Move {
+                    to: Destination::Exile,
+                    ..
+                },
+            ) => verb.is_evaluated(),
+            (
+                Self::Return,
+                Verb::Move {
+                    to: Destination::OwnerHand | Destination::Battlefield { .. },
+                    ..
+                },
+            ) => verb.is_evaluated(),
+            _ => false,
+        }
+    }
+}
 
 /// Read the printed relation, leaving the same card predicate shared by
 /// library and other public result reads. A different relation is handled
 /// by its own operand lowerer.
 pub(crate) fn card_result(
     filter: &ast::ObjectFilter,
-) -> Result<Option<(kir::EvaluatedVerb, Pred)>, Failure> {
+) -> Result<Option<(ResultFamily, Pred)>, Failure> {
     use ast::ObjectRelationEventResultEvent as Event;
     let Some(ast::ObjectRelation::EventResult(relation)) = filter.relation.as_deref() else {
         return Ok(None);
     };
     let family = match relation.event {
-        Event::Discard => kir::EvaluatedVerb::Discard,
-        Event::Mill => kir::EvaluatedVerb::Mill,
+        Event::Discard => ResultFamily::Discard,
+        Event::Mill => ResultFamily::Mill,
+        // Another exile or return relation ("the exiled card", "cards
+        // exiled with") belongs to its own lowerer.
+        Event::Exile | Event::Return
+            if relation.scope != ast::ObjectRelationEventResultScope::ThisWay =>
+        {
+            return Ok(None);
+        }
+        Event::Exile => ResultFamily::Exile,
+        Event::Return => ResultFamily::Return,
         _ => return Ok(None),
     };
     if relation.scope != ast::ObjectRelationEventResultScope::ThisWay
@@ -34,12 +78,9 @@ pub(crate) fn card_result(
 /// the phrase links to.
 pub(crate) fn producer<'a>(
     nodes: impl IntoIterator<Item = &'a kir::Node>,
-    family: kir::EvaluatedVerb,
+    family: ResultFamily,
 ) -> Result<usize, Failure> {
-    let is_family = |verb: &Verb| {
-        verb.evaluated()
-            .is_some_and(|(signature, _)| signature.verb == family)
-    };
+    let is_family = |verb: &Verb| family.produces(verb);
     let mut producer = None;
     for (index, node) in nodes.into_iter().enumerate() {
         let mut count = 0;

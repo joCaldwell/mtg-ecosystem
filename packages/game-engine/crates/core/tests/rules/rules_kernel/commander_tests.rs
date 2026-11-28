@@ -475,7 +475,7 @@ fn commander_metadata_and_continuations_cannot_be_forged() {
     cast_commander(&mut g, &[1]);
     resolve(&mut g);
     bounce(&mut g);
-    for mutation in 0..4 {
+    for mutation in 0..2 {
         let mut snapshot: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
         match mutation {
             0 => snapshot
@@ -496,25 +496,30 @@ fn commander_metadata_and_continuations_cannot_be_forged() {
                     .insert(g.object_id(CardId(0)).unwrap());
                 None
             }
-            2 => {
-                if let Frame::CommanderReturn { destination, .. } = &mut snapshot.state.rules.frame
-                {
-                    *destination = Zone::Exile;
-                }
-                None
-            }
-            _ => {
-                if let Frame::CommanderReturn { continuation, .. } = &mut snapshot.state.rules.frame
-                    && let CommanderContinuation::SpellMove { frame, .. } = continuation
-                {
-                    frame.cursor = 1;
-                }
-                None
-            }
+            _ => None,
         };
         snapshot.state_sha256 = digest(&snapshot.state).unwrap();
         assert!(
             Game::restore(g.prepared.as_ref().clone(), &canonical(&snapshot).unwrap()).is_err()
+        );
+    }
+    // CR 903.9b: the suspended move names the commander's owner as its
+    // chooser and its own instruction; neither can be forged.
+    for mutation in 0..2 {
+        let mut snapshot: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+        let progress = &mut snapshot["state"]["frame"]["task"]["stage"];
+        assert_eq!(progress["progress"], "moves");
+        match mutation {
+            0 => progress["remaining"][0][0] = 2.into(),
+            _ => snapshot["state"]["frames"][0]["frame"]["cursor"] = 1.into(),
+        }
+        snapshot["state_sha256"] = digest(&snapshot["state"]).unwrap().into();
+        assert!(
+            Game::restore(
+                g.prepared.as_ref().clone(),
+                &serde_json::to_string(&snapshot).unwrap()
+            )
+            .is_err()
         );
     }
 }
