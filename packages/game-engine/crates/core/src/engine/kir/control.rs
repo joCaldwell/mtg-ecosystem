@@ -2,7 +2,7 @@
 //! and iterations save their remaining work on the same stack as rule frames.
 //! No snapshot supplies an executable node.
 use super::*;
-use mtg_contracts::kir::{Cmp, Cond, Domain, Payment};
+use mtg_contracts::kir::{Cmp, Cond, Domain, Payment, Resolved};
 mod evaluated;
 use evaluated::{StepProgress, StepResults};
 
@@ -236,7 +236,14 @@ impl RulesTxn {
         let entry = self.entry(frame.stack_id)?;
         Ok(match set {
             SetExpr::Matching { zone, filter } => self.kernel_set(frame, zone, filter)?.0,
-            SetExpr::Result { step, filter } => self.result_cards(task, *step, filter)?,
+            SetExpr::Result {
+                step,
+                filter,
+                destination,
+            } => match self.result_cards(task, *step, filter, destination.as_ref())? {
+                Resolved::Present(objects) => objects,
+                Resolved::Absent(_) => vec![],
+            },
             SetExpr::One {
                 object: Ref::Source,
             } => vec![entry.source],

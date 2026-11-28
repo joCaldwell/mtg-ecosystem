@@ -18,6 +18,13 @@ pub struct TargetFacts {
     mana_value: Quantity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     toughness: Option<Quantity>,
+    /// CR 122.1, 608.2h: the exact target incarnation's counters.
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    loyalty_counters: Quantity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    counters: Vec<state::CounterStack>,
 }
 impl TargetFacts {
     pub(in crate::engine) fn controller(&self) -> PlayerId {
@@ -34,6 +41,20 @@ impl TargetFacts {
 
     pub(in crate::engine) fn power(&self) -> Option<&Quantity> {
         self.power.as_ref()
+    }
+
+    pub(in crate::engine) fn counter_balance(
+        &self,
+        kind: Option<&mtg_contracts::kir::CounterKind>,
+    ) -> Quantity {
+        crate::query::counter_balance(
+            kind,
+            &self.plus_one_counters,
+            &self.loyalty_counters,
+            self.counters
+                .iter()
+                .map(|stack| (&stack.kind, &stack.count)),
+        )
     }
 }
 impl RulesTxn {
@@ -283,17 +304,24 @@ impl RulesTxn {
                         },
                         mana_value: self.stack_mana_value(e)?,
                         toughness: None,
+                        plus_one_counters: Quantity::zero(),
+                        loyalty_counters: Quantity::zero(),
+                        counters: vec![],
                     }))
                 } else {
                     let object = *self
                         .bound_object_target(entry, slot)
                         .ok_or("missing LKI permanent target")?;
                     let c = self.characteristics(object)?;
+                    let current = self.current(object)?;
                     Ok(Some(TargetFacts {
-                        controller: self.current(object)?.controller,
+                        controller: current.controller,
                         mana_value: c.printed_mana_value(),
                         power: c.power,
                         toughness: c.toughness,
+                        plus_one_counters: current.plus_one_counters.clone(),
+                        loyalty_counters: current.loyalty_counters.clone(),
+                        counters: current.counters.clone(),
                     }))
                 }
             })
@@ -310,9 +338,14 @@ impl RulesTxn {
                         let legal = frame.legal_targets.get(slot) == Some(&true)
                             && Self::tracks_target_slot(program.targets[slot].domain);
                         fact.is_some() != legal
-                            || fact
-                                .as_ref()
-                                .is_some_and(|f| f.controller.0 >= 4 || f.mana_value.is_negative())
+                            || fact.as_ref().is_some_and(|f| {
+                                f.controller.0 >= 4
+                                    || f.mana_value.is_negative()
+                                    || f.plus_one_counters.is_negative()
+                                    || f.loyalty_counters.is_negative()
+                                    || !tokens::counter_kinds_admitted(&f.counters)
+                                    || !tokens::counter_stacks_valid(&f.counters)
+                            })
                     })))
         {
             return Err("snapshot removal target facts invariant".into());

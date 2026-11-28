@@ -840,6 +840,17 @@ fn board_wide_cells_audit_the_zone_destination_and_every_filter_atom() {
         check(&moved(SetExpr::battlefield(creatures.clone()), to), &env).unwrap();
     }
     check(&moved(SetExpr::graveyards(), Destination::Exile), &env).unwrap();
+    check(
+        &moved(
+            SetExpr::Matching {
+                zone: ZoneExpr::Graveyards,
+                filter: creatures.clone(),
+            },
+            Destination::Exile,
+        ),
+        &env,
+    )
+    .unwrap();
     // CR 701.19c: the prohibition is audited for the nonland wave only.
     check(&destroy(Pred::nonland_permanents(), true), &env).unwrap();
     for node in [
@@ -852,7 +863,7 @@ fn board_wide_cells_audit_the_zone_destination_and_every_filter_atom() {
         moved(
             SetExpr::Matching {
                 zone: ZoneExpr::Graveyards,
-                filter: creatures.clone(),
+                filter: Pred(vec![Atom::Tapped]),
             },
             Destination::Exile,
         ),

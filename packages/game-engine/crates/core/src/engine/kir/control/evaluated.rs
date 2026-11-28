@@ -25,6 +25,8 @@ pub(super) struct ResultObject {
     successor: Option<ObjectId>,
     controller_before: PlayerId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    destination: Option<Zone>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     public_card: Option<Box<ObjectBefore>>,
 }
 
@@ -504,6 +506,17 @@ impl RulesTxn {
             }
             Amount::Count {
                 set:
+                    SetExpr::Result {
+                        step,
+                        filter,
+                        destination,
+                    },
+            } => match self.result_cards(task, *step, filter, destination.as_ref())? {
+                Resolved::Present(objects) => Quantity::from(objects.len() as i64),
+                Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
+            },
+            Amount::Count {
+                set:
                     set @ SetExpr::Pool {
                         pool: Ref::StepResult { .. },
                     },
@@ -556,11 +569,21 @@ impl RulesTxn {
                 Resolved::Present(objects) => self.greatest_stat(objects, *stat)?,
                 Resolved::Absent(reason) => return Ok(Resolved::Absent(reason)),
             },
+            Amount::CountersOn {
+                object: Ref::Target { slot },
+                counter,
+            } => {
+                if frame.legal_targets.get(*slot as usize) != Some(&true) {
+                    return Ok(Resolved::Absent(AbsentReason::IllegalTarget));
+                }
+                self.kernel_target_facts(frame, *slot)?
+                    .counter_balance(counter.as_ref())
+            }
             Amount::CountersOn { object, counter } => {
                 let Some(facts) = self.measured_object(task, object)? else {
                     return Ok(Resolved::Absent(AbsentReason::NoEventMember));
                 };
-                facts.counter_balance(Some(counter))
+                facts.counter_balance(counter.as_ref())
             }
             // CR 107.1b: arithmetic stays signed until the verb reads it.
             Amount::Sum { terms } => {
@@ -1007,6 +1030,7 @@ impl RulesTxn {
                     prior: movement.previous,
                     successor: Some(movement.successor),
                     controller_before: controller_before.ok_or("missing draw prior controller")?,
+                    destination: Some(movement.destination),
                     public_card: None,
                 });
                 if !result.players.contains(&player) {
@@ -1343,6 +1367,7 @@ impl RulesTxn {
                 .any(|p| !rules.original_seating.contains(p))
             || result.objects.iter().any(|object| {
                 !rules.original_seating.contains(&object.controller_before)
+                    || object.destination.is_some() != moved
                     || match (moved, object.successor) {
                         (true, Some(next)) => {
                             next.card != object.prior.card

@@ -198,14 +198,33 @@ fn modal_triggers_lower_each_selection_beside_their_event() {
 }
 
 /// CR 602.2b: a modal activation lowers each mode as a complete activation
-/// of the same cost; Goblin Cratermaker reaches its second mode's colorless
-/// filter, which is outside the operand tables, instead of an unlowered
-/// modal step.
+/// of the same cost. Goblin Cratermaker's second mode must keep both the
+/// nonland restriction and its five-color exclusion (CR 105.2c).
 #[test]
 fn modal_activations_lower_each_mode_through_the_activation_lowerer() {
+    let definition = lowered(GOBLIN_CRATERMAKER);
+    let [ability] = definition.activated.as_slice() else {
+        panic!("one activated ability");
+    };
+    let modes = &ability.modal.as_ref().unwrap().selections;
+    assert_eq!(modes.keys().copied().collect::<Vec<_>>(), [1, 2]);
+    let [damage] = modes[&1].instructions.as_slice() else {
+        panic!("one damage instruction");
+    };
+    assert!(matches!(damage.verb(), Some(Verb::Damage { .. })));
+    let [destroy] = modes[&2].instructions.as_slice() else {
+        panic!("one destruction instruction");
+    };
+    assert!(matches!(destroy.verb(), Some(Verb::Destroy { .. })));
+    let [target] = modes[&2].targets.as_slice() else {
+        panic!("one destruction target");
+    };
+    let filter = target.filter.as_ref().unwrap();
+    assert_eq!(filter.non_types, [CardKind::Land]);
     assert_eq!(
-        reason(GOBLIN_CRATERMAKER),
-        "operand:target_filter:colorless"
+        filter.predicate.as_ref().unwrap().0,
+        [Color::W, Color::U, Color::B, Color::R, Color::G]
+            .map(|color| kir::Atom::NotColor { color })
     );
 }
 

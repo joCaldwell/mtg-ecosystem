@@ -1,12 +1,18 @@
 //! CR 608.2c/h, 701.9c, 701.17c: a printed "discarded/milled/exiled/
 //! returned this way" selects the actual card result of a unique earlier
 //! local action.
+//! "Drawn this way" reads only the number drawn (CR 121.2, 400.2).
+//! "Put into [a player's] graveyard this way" can read the public results of
+//! a single mill addressed to that player, constrained to that destination.
+//! Competing producers, different players, other destinations and
+//! characteristic tests on draws reject.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
 /// The action whose result a printed "this way" names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResultFamily {
+    Draw,
     Discard,
     Mill,
     /// CR 406.2: a move to exile.
@@ -18,6 +24,7 @@ pub(crate) enum ResultFamily {
 impl ResultFamily {
     fn produces(self, verb: &Verb) -> bool {
         match (self, verb) {
+            (Self::Draw, Verb::Draw { .. }) => true,
             (Self::Discard, Verb::Discard { .. }) | (Self::Mill, Verb::Mill { .. }) => true,
             (
                 Self::Exile,
@@ -100,9 +107,85 @@ pub(super) fn linked_count(
     cx: &mut StepCx<'_>,
     filter: &ast::ObjectFilter,
 ) -> Result<Option<Amount>, Failure> {
+    use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+    use ast::{ObjectRelationEventResultEvent as Event, ObjectRelationEventResultScope::ThisWay};
+
+    if let Some(ast::ObjectRelation::EventResult(relation)) = filter.relation.as_deref()
+        && relation.event == Event::Draw
+    {
+        let mut filter = filter.clone();
+        filter.relation = None;
+        if relation.scope != ThisWay
+            || relation.who.is_some()
+            || relation.period.is_some()
+            || !crate::operands::lower_card_filter(&filter)?.is_empty()
+        {
+            return Err(operand("result", "qualified_draw_count"));
+        }
+        link(cx, ResultFamily::Draw)?;
+        return Ok(Some(Amount::Var {
+            of: Ref::StepResult {
+                step: 0,
+                role: kir::StepRole::Amount,
+            },
+        }));
+    }
+
+    if let Some(ast::ObjectRelation::ZoneChange(relation)) = filter.relation.as_deref()
+        && relation.scope.is_some()
+    {
+        let ast::ZoneRef {
+            zone: ast::Zone::Graveyard,
+            owner: Some(owner),
+            depth: None,
+            position: None,
+        } = &*relation.to
+        else {
+            return Err(operand("result", "destination"));
+        };
+        if relation.period.is_some() || relation.who.is_some() || relation.from.is_some() {
+            return Err(operand("result", "qualified_zone_change"));
+        }
+        let index = link(cx, ResultFamily::Mill)?;
+        let Some(Verb::Mill { player, .. }) = cx.program.instructions[index].verb() else {
+            unreachable!("checked mill producer");
+        };
+        let owner_matches = match &**owner {
+            Owner::Your => player.is_you(),
+            Owner::Their | Owner::ThatPlayer => {
+                index + 1 == cx.program.instructions.len()
+                    && antecedent::player_target(cx).as_ref() == Some(player)
+            }
+            _ => false,
+        };
+        if !owner_matches {
+            return Err(operand("result", "unbound_destination_owner"));
+        }
+        let mut filter = filter.clone();
+        filter.relation = None;
+        return Ok(Some(Amount::Count {
+            set: SetExpr::Result {
+                step: 0,
+                filter: crate::operands::lower_card_filter(&filter)?,
+                destination: Some(kir::ZoneExpr::Graveyard { of: player.clone() }),
+            },
+        }));
+    }
+
     let Some((family, filter)) = card_result(filter)? else {
         return Ok(None);
     };
+    link(cx, family)?;
+    Ok(Some(Amount::Count {
+        set: SetExpr::Result {
+            step: 0,
+            filter,
+            destination: None,
+        },
+    }))
+}
+
+fn link(cx: &mut StepCx<'_>, family: ResultFamily) -> Result<usize, Failure> {
     // CR 700.2: a chosen mode reads only its own instructions, never an
     // earlier chosen mode's in the shared program.
     let instructions = &cx.program.instructions;
@@ -122,9 +205,7 @@ pub(super) fn linked_count(
         return Err(operand("result", "multiple_projections"));
     }
     cx.result_from = Some(index);
-    Ok(Some(Amount::Count {
-        set: SetExpr::Result { step: 0, filter },
-    }))
+    Ok(index)
 }
 
 pub(super) fn join_instructions(program: &mut SpellProgram, from: usize, instruction: Instruction) {

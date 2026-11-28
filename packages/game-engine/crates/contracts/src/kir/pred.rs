@@ -167,7 +167,13 @@ pub enum SetExpr {
     Targets { slots: Vec<u32> },
     /// Characteristic reads of the actual publicly moved cards (CR 608.2h).
     /// Only count and existence readers accept this set.
-    Result { step: u32, filter: Pred },
+    Result {
+        step: u32,
+        filter: Pred,
+        /// The destination recorded by the action, even if the object later left it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        destination: Option<ZoneExpr>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

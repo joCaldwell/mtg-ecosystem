@@ -87,8 +87,12 @@ fn exile_object(cx: &mut StepCx<'_>, what: &ast::ObjectRef) -> Result<Instructio
         }));
     }
     if is_set(what) {
+        let what = match graveyard_set(cx, what)? {
+            Some(set) => set,
+            None => lower_board_set(what, cx.context)?,
+        };
         return Ok(cx.act(Verb::Move {
-            what: lower_board_set(what, cx.context)?,
+            what,
             to: Destination::Exile,
         }));
     }

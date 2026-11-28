@@ -57,6 +57,16 @@ pub(super) fn lower(
             controller: PlayerExpr::you(cx.context),
             tapped: *tapped == Some(true),
         };
+        if let Some(set) = graveyard_set(cx, &what)? {
+            if !matches!(&set, SetExpr::Matching { zone: kir::ZoneExpr::Graveyard { of }, .. } if of.is_you())
+            {
+                return Err(operand("set", "graveyard_entry_owner"));
+            }
+            return Ok(cx.act(Verb::Move {
+                what: set,
+                to: entry,
+            }));
+        }
         if let Some(choice) = chosen(cx, &what, entry)? {
             return Ok(choice);
         }
