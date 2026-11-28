@@ -1,9 +1,8 @@
 # Multiverse application
 
-The account-backed product combines Home, the deck library/editor and Play setup.
-Read [AGENTS](AGENTS.md), [architecture](web/ARCHITECTURE.md) and
-[design](web/DESIGN.md). Backend identity/data stay in deck-builder behind its
-public host/contracts exports. [Launch gates](web/ARCHITECTURE.md#game-launch) cover real play.
+The account-backed product combines Home, the deck library/editor and Play setup;
+[AGENTS](AGENTS.md) holds its constraints. Backend identity/data stay in
+deck-builder behind its public host/contracts exports.
 
 ## Local setup
 
@@ -33,7 +32,7 @@ configuration reports unavailable. The adapter calls `mtg-server admit-client`
 shell, application credentials or arbitrary native commands; native rejection
 stays distinct from process failure and stale deck revision.
 
-The lifecycle bridge additionally needs `MULTIVERSE_NATIVE_LIFECYCLE_DIRECTORY`
+The lifecycle bridge also needs `MULTIVERSE_NATIVE_LIFECYCLE_DIRECTORY`
 (absolute private 0700 directory) and `MULTIVERSE_NATIVE_HUMAN_ORIGIN` (exact numeric
 loopback HTTP product origin); `mtg-server lifecycle-profile commander-foundations-v1`
 reports pins. Retain the executable and directory. The bridge runs at most two
@@ -41,7 +40,7 @@ concurrent games, each with one offline registry/server and three seat consumers
 ([lifecycle](../../docs/game-engine-server.md#product-native-lifecycle)). Start game
 requires the approved foundations release and native deck admission. Shared
 registries, remote HTTPS bootstrap, automated attachments and whole-profile play
-are outside this qualification. No product command builds Rust or generates SDK artifacts.
+are outside this qualification.
 
 ## Verification
 

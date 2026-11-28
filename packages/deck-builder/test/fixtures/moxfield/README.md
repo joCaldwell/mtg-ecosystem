@@ -2,9 +2,9 @@
 
 Real text exports of six public Commander decks, retrieved 2026-10-25 from each
 Moxfield deck page's Export dialog ("Copy Plain Text"; Najeela also "Copy for
-Moxfield"). They pin the format `src/deck/interop.ts` documents and are saved byte
-for byte (LF, no trailing newline). `test/interop-moxfield.test.ts` uses the Kinnan
-plain and Najeela printing exports; browser-checks seeds the plain-text files.
+Moxfield") and saved byte for byte (LF, no trailing newline). They pin the format
+`src/deck/interop.ts` documents; `test/interop-moxfield.test.ts` uses the Kinnan
+plain and Najeela printing exports, and browser-checks seeds the plain-text files.
 
 | Files | Deck | What it exercises |
 | --- | --- | --- |
