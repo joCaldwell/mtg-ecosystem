@@ -175,7 +175,11 @@ function multiplier(c: Cursor, subject: ObjectRef): Amount | null {
     const counterCount = aggregate || kicks ? null : c.attempt((c): Amount | null => {
       if (c.word("each") === null || c.isWord("different", "kind", "type", "color")) return null;
       const counter = c.isWord("counter", "counters") ? "any" : parseCounterSpec(c);
-      if (!counter || c.word("counter", "counters") === null || c.word("on", "among") === null) return null;
+      if (!counter || c.word("counter", "counters") === null) return null;
+      // "for each counter removed this way": the counters an instruction of
+      // the same replacement removed (CR 614.12, 608.2c).
+      if (c.words("removed", "this", "way")) return { amount: "event-quantity", event: "counter-removal", counter, scope: "this-way" };
+      if (c.word("on", "among") === null) return null;
       const on = parseObjectRef(c);
       return on ? { amount: "counter-count", counter, on } : null;
     });

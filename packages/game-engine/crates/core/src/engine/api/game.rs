@@ -113,6 +113,7 @@ impl RulesTxn {
                 (
                     c.id,
                     Object {
+                        entry_selection: None,
                         hideaway: None,
                         phased_out: None,
                         attached_to: None,

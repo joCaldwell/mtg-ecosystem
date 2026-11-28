@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { prepareArchive } from "../../../scripts/archive-parser.ts";
+import { addResolutionSummary, emptyResolutionSummary, prepareArchive } from "../../../scripts/archive-parser.ts";
 import { serializeR6Row, verifyR6Archive } from "../../../scripts/archive-r6.ts";
 import { sha256 } from "../../../scripts/validate-parser.ts";
 import { paperEvidenceFixture } from "./paper-evidence-fixture.ts";
@@ -165,5 +165,46 @@ test("D0 checks legacy hash preimages even when the prefixes agree", async t => 
     await writeFile(newFile, newBytes);
     await assert.rejects(verifyR6Archive(oldFile, newFile, brokenPin),
       { message: `D0 line 2: ${section} hash mismatch (SHA-256 preimage)` });
+  }
+});
+
+test("a grammar cut lists each reparsed legacy row and recounts its header", async t => {
+  const file = join(await temporary(t), "candidate.jsonl");
+  const printedSuffix = candidate[1].slice(printedStart);
+  const legacy = JSON.parse(candidate[1].slice(0, printedStart) + "}");
+  legacy.resolution.residuals = ["grammar:fixture"];
+  legacy.resolution.complete = false;
+  legacy.resolutionSha256 = sha256(JSON.stringify(legacy.resolution));
+  const changedRow = JSON.stringify(legacy).slice(0, -1) + printedSuffix;
+  const rows = [changedRow, ...candidate.slice(2)];
+  const header = JSON.parse(candidate[0]);
+  const resolutionSummary = emptyResolutionSummary();
+  for (const line of rows) {
+    const row = JSON.parse(line);
+    if (row.status !== "excluded") addResolutionSummary(resolutionSummary, row.resolution);
+  }
+  const recounted = { ...header, resolutionSummary };
+  await writeFile(file, jsonl([JSON.stringify(recounted), ...rows]));
+  const result = await verifyR6Archive(fixture("baseline"), file, pin, { legacyChanges: "listed" });
+  assert.deepEqual(result.changedLegacyRows, [{ sourceIndex: 0, oracleIdentity: legacy.oracleIdentity, name: "Élan",
+    before: "parsed", after: "parsed" }]);
+  // The inert transition still rejects the same row and its recount.
+  await assert.rejects(verifyR6Archive(fixture("baseline"), file, pin), /D0 line 1: R6 header fields/);
+  await writeFile(file, jsonl([candidate[0], ...rows]));
+  await assert.rejects(verifyR6Archive(fixture("baseline"), file, pin), /D0 line 2: legacy row prefix differs/);
+  // The unchanged golden candidate lists nothing.
+  assert.deepEqual((await verifyR6Archive(fixture("baseline"), fixture("candidate"), pin, { legacyChanges: "listed" })).changedLegacyRows, []);
+  const negatives: [string, string, RegExp][] = [
+    ["R5 counts kept", jsonl([candidate[0], ...rows]), /D0 line 1: grammar-cut header differs/],
+    ["stale resolution hash", jsonl([JSON.stringify(recounted), changedRow.replace(legacy.resolutionSha256, "0".repeat(64)), ...rows.slice(1)]),
+      /D0 line 2: resolution hash mismatch/],
+    ["changed source", jsonl([JSON.stringify(recounted), changedRow.replace("Élan", "Elan"), ...rows.slice(1)]),
+      /D0 line 2: (changed legacy row has a different source than R5|source hash mismatch)/],
+    ["changed exclusion", jsonl([JSON.stringify(recounted), rows[0], rows[1].replace("layout:token", "new-reason"), rows[2]]),
+      /D0 line 3: excluded row differs/],
+  ];
+  for (const [description, data, error] of negatives) {
+    await writeFile(file, data);
+    await assert.rejects(verifyR6Archive(fixture("baseline"), file, pin, { legacyChanges: "listed" }), error, description);
   }
 });

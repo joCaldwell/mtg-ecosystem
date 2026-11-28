@@ -54,6 +54,7 @@ impl RulesTxn {
     pub(crate) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
+            entry_selection: o.entry_selection,
             transforms: o.transforms,
             face_down: o.face_down,
             battlefield_entry_turn: o.battlefield_entry_turn,

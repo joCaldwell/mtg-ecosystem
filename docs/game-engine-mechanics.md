@@ -274,10 +274,10 @@ through source-owner departure.
 
 ### Mana abilities
 
-A mana ability (CR 605.1a) is a tap cost, optionally with a mana cost paid
-through a nested activation or a life payment (CR 119.4), and one production:
-fixed symbols, any color, commander color, N mana of one color chosen from a
-printed list, one of the printed fixed bundles, up to five mana in any
+An admitted mana ability (CR 605.1a) pays its source tap and any supported
+source counter removal, life or nested mana cost, then performs one production:
+fixed symbols, any color, commander color, a color linked to an entry choice,
+N mana of one color chosen from a printed list, one of the printed fixed bundles, up to five mana in any
 combination of colors, or one mana of a type the controller's or opponents'
 lands could produce. A printed one-type bundle may multiply by an audited
 battlefield or public graveyard count read after the activation costs
@@ -328,8 +328,12 @@ and battlefield artifact abilities, colorless Eldrazi spells and battlefield
 colorless Eldrazi abilities, and activated abilities generally. Mana with an
 uncounterable rider protects the paid spell only when that allocation spends
 it. The legendary row restricts the payment itself; the instant-or-sorcery row
-can pay other costs without protecting them. Mana empties at step and phase
-boundaries (CR 106.4, 500.4).
+can pay other costs without protecting them. Linked creature-type permissions
+capture the public choice when mana is produced, then test the purchased spell
+or creature ability source at payment, even in a zone such as the hand; mana
+carrying the uncounterable rider applies it when actually spent on the eligible
+spell (CR 106.6, 607.2d). Mana empties at step and phase boundaries (CR 106.4,
+500.4).
 
 ## Casting, costs, targets and stack
 
@@ -448,7 +452,10 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   sacrifice (CR 601.2b, 701.21a). Other additional costs reject as
   `kind:additional-cost:<term>`; ward rejects.
 - **Activation costs** combine tap, mana, source sacrifice, life and removing
-  +1/+1 counters from the source; unpayable abilities are not offered (CR
+  fixed admitted counters from the source. The exact removal belongs to the
+  same atomic cost batch as the tap, with the previous counter balance and
+  timestamp kept by the ordinary mana reversal receipt. Unpayable abilities
+  are not offered (CR
   119.4), and one without mana skips the mana window. A chosen sacrifice can
   take several permanents, any permanent or "another", optionally also tapping
   the source (CR 701.21a).

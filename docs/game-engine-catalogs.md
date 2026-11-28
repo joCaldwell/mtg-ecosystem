@@ -109,17 +109,21 @@ payload hashes; producer, payload lengths and all decisions must agree.
 
 ### Rust printed evidence
 
-The intake verifier (`compiler/src/ingest/r6.rs`, `ingest/printed/evidence.rs`)
-applies P1–P10 to each applicable R6 row before its card is assessed; the
-[parser contract](oracle_parser.md#ast-archive) owns the printed wire format and
-evidence bases. P6 rebuilds quote regions from the original text through
-verified normalization, lexing and punctuation order. Every matched quote pair
-in a successfully read block needs an owner: a quoted grant's AST body, or the
-exact `the "legend rule" doesn't apply` and `all "bands with other" abilities`
-terms when their located production and complete pair are in each covering run
-set. An ancestor's span may include an owned quote with both marks; terms stay
-in the enclosing ability's scope. P7 requires a fact and its owner, and P9 the
-target token, its fact owner and the linked selection node, to share a region.
+Intake accepts a registered R6 cut only when its printed schema, vocabulary and
+generator pins name the compiled decoder; the accepted generators are listed
+explicitly (the current one and R6 v4, whose decoder a compiler test proves
+identical except its generator line). The intake verifier (`compiler/src/ingest/r6.rs`,
+`ingest/printed/evidence.rs`) applies P1–P10 to each applicable R6 row before
+its card is assessed; the [parser contract](oracle_parser.md#ast-archive) owns
+the printed wire format and evidence bases. P6 rebuilds quote regions from the
+original text through verified normalization, lexing and punctuation order.
+Every matched quote pair in a successfully read block needs an owner: a quoted
+grant's AST body, or the exact `the "legend rule" doesn't apply` and `all "bands
+with other" abilities` terms when their located production and complete pair
+are in each covering run set. An ancestor's span may include an owned quote with
+both marks; terms stay in the enclosing ability's scope. P7 requires a fact and
+its owner, and P9 the target token, its fact owner and the linked selection
+node, to share a region.
 
 A family that opts in receives a verified `CardEvidence`, queries its face and
 block before lowering, and reports a per-card `evidence:requires-r6` (face,
@@ -447,6 +451,12 @@ several targets lower to one `PutCounters` over `SetExpr::Targets`, a single
 simultaneous placement on the counted occurrence's legal members (CR 608.2f,
 603.2c).
 
+A linked entry value must resolve to the matching printed producer on the same
+face (CR 607.2d). The checker requires one compatible entry choice before
+admitting a linked static scope or mana production. Produced mana binds its
+spend permission to the chosen creature type and carries any spend rider as a
+separate term. Choice and cost definitions here qualify at `Executes`.
+
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions; other references still use `resolution::reference_row`.
 Rejected sites report `ref:<role>:<block kind>`. Steps dispatch on the AST
@@ -581,7 +591,11 @@ a present entry must match its pins. `--reader cached` requires that entry, and
 `--reader fresh` generates from the manifest's exact Oracle, paper evidence,
 rules and R5 archive paths with the pinned TypeScript producer in a private
 temporary directory. Both paths use the same Rust intake and full-file
-verification.
+verification. Fresh generation passes the pinned reader source and printed
+generator digests to the writer, which exits before parsing when the checkout
+differs, failing the compile as a `reader` error; after any grammar change the
+registered cut is readable in cached mode only, like R5, until a new cut is
+registered.
 
 One stage writes the three bulk format-2 files byte-identical to `build-ir` from
 the same binary, `outcomes.jsonl` and `compile-manifest.json`. Each outcome row

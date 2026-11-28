@@ -123,6 +123,29 @@ function creatureType(c: Cursor): string | null {
   });
 }
 
+/** Words that already name a game value, direction or mode count. */
+const NON_OPTION_WORDS = new Set(["left", "right", "self", "others", "one", "both", "more", "land", "nonland", "odd", "even",
+  "friend", "foe", "heads", "tails", "white", "blue", "black", "red", "green", "colorless", "artifact", "creature",
+  "enchantment", "instant", "sorcery", "planeswalker", "battle", "kindred", "player", "opponent", "card", "permanent", "spell"]);
+
+/** "chooses war or peace.": exactly two bare option words ending the
+ * instruction. Their only meaning is which one each chooser picked. */
+export function parseNamedOptions(c: Cursor): [string, string] | null {
+  return c.attempt((c): [string, string] | null => {
+    const word = (c: Cursor) => {
+      const token = c.peek();
+      // Printed in lower case: a capitalized word names a subtype or a card.
+      if (token?.kind !== "word" || token.possessive || NON_OPTION_WORDS.has(token.value) || !/^[a-z]+$/.test(token.raw)) return null;
+      c.pos++;
+      return token.value;
+    };
+    const first = word(c);
+    if (!first || c.word("or") === null) return null;
+    const second = word(c);
+    return second && second !== first && c.isPunct(".") ? [first, second] : null;
+  });
+}
+
 /** Called immediately after the choose/chooses verb, before object selection.
  * An article declares an unrestricted value category; bare exact OR lists
  * declare literal options. "Choose a Forest" remains an object selection. */

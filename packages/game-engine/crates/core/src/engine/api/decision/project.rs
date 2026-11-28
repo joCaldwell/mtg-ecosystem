@@ -161,6 +161,7 @@ impl RulesTxn {
                     damage: pair.damage,
                 }
             }
+            Candidate::CreatureType { kind } => Candidate::CreatureType { kind },
             Candidate::Color { color } => Candidate::Color { color },
             Candidate::ManaBundle { symbols } => Candidate::ManaBundle { symbols },
             Candidate::ManaAbility { ability } => Candidate::ManaAbility { ability },

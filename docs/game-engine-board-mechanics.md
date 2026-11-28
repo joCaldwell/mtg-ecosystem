@@ -172,10 +172,10 @@ reveals, random bottom ordering and other destinations are unsupported.
 
 ## Battlefield entry replacements
 
-A permanent's own entry replacement sets the tapped state or adds fixed +1/+1
-counters before entry triggers and SBAs, on every move onto the battlefield (CR
-122.6, 614.1c, 614.12). Conditional tapped entry can count permanents the
-incoming controller controls (current structural characteristics, excluding the
+A permanent's own entry replacement sets the tapped state, chooses a linked
+value or places counters before entry triggers and SBAs, on every move onto the
+battlefield (CR 122.6, 614.1c, 614.12). Conditional tapped entry can count
+permanents the incoming controller controls (current structural characteristics, excluding the
 entrant) or that player's live opponents; simultaneous entry uses the common
 prior battlefield and ordered entry sees earlier moves. The private
 `ProspectiveEntry` query applies the ordinary layers to one entrant's incoming
@@ -183,6 +183,14 @@ controller, face, status and applied modifications, including the entrant's own
 statics on itself, and uses prior occupancy for counts such as devotion. Cards
 and unallocated tokens share it; it consumes no handles, history or timestamps
 (CR 614.12, 700.5).
+
+The entering controller chooses from the five colors or pinned CR 205.3m creature
+types. A choice suspends the unwritten entry in the replacement continuation.
+Only the incoming controller sees the request and the visible subject, and the
+committed choice is public on that battlefield incarnation (CR 607.2d, 614.12).
+A zone change starts a new choice. Linked continuous scopes can match the
+chosen color or creature type, and a mana ability can produce the chosen color
+or bind its spend permission to the chosen creature type.
 
 Life-payment entry offers run through `begin_battlefield_entry`; a search asks
 each payable entrant in order, counting life already committed, then commits one
@@ -218,7 +226,11 @@ controller against the battlefield before any simultaneous entrant (CR 614.12),
 so a co-entering doubler never applies and an entrant's own quantity statics do
 not see its own entry. Its "enters with" counters, intrinsic loyalty and
 ordinary Saga lore are contained counter members produced by a replacement
-(CR 122.6, 306.5b, 714.3a), as is the megamorph counter (CR 614.1e); the
+(CR 122.6, 306.5b, 714.3a), as is the megamorph counter (CR 614.1e). Printed
+placement uses one positive quantity per counter kind, optionally multiplied by
+a checked count of battlefield permanents or graveyard cards read from prior
+occupancy for the incoming controller; kicker-count and mana-spent multipliers
+need cast facts and reject until supported. For a quantity-order question, the
 entering card is the order subject unless it comes from a hidden zone or is a
 token. Precombat-main lore stays a turn-based action (CR 714.3c) and is not
 doubled. A loyalty cost under Doubling Season stays at its paid amount, while a

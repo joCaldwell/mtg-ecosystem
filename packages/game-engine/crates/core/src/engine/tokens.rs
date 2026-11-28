@@ -43,6 +43,10 @@ pub enum RuleFault {
         capacity: usize,
         requested: usize,
     },
+    RestrictedManaBucketCapacityExceeded {
+        capacity: usize,
+        requested: usize,
+    },
     StackCapacityExceeded {
         capacity: usize,
         requested: usize,
@@ -194,6 +198,9 @@ impl RulesTxn {
             RuleFault::TokenCapacityExceeded { .. } => "token capacity exceeded",
             RuleFault::DamageCapacityExceeded { .. } => "damage capacity exceeded",
             RuleFault::StackCapacityExceeded { .. } => "stack capacity exceeded",
+            RuleFault::RestrictedManaBucketCapacityExceeded { .. } => {
+                "restricted mana bucket capacity exceeded"
+            }
             RuleFault::EventGroupCapacityExceeded { .. } => "event group capacity exceeded",
         };
         self.rules_mut().typed_fault = Some(fault);
