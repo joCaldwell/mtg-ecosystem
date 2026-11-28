@@ -829,7 +829,7 @@ impl RulesTxn {
             };
             result.events.push(receipt.id.clone());
             let facts = if matches!(receipt.actual, EventOutcome::CardDiscarded { .. }) {
-                self.public_move_characteristics(movement)?
+                self.public_move_characteristics(movement, batch)?
             } else {
                 None
             };

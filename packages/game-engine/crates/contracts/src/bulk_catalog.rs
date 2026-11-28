@@ -34,23 +34,27 @@ pub fn is_oracle_id(id: &str) -> bool {
 
 /// Match the ordering and encoding of canonical(&Catalog) with only one
 /// definition's intermediate JSON Value alive at a time.
-pub fn write_catalog_canonical(catalog: &Catalog, mut output: impl Write) -> Result<(), String> {
-    let write =
-        |output: &mut dyn Write, bytes: &[u8]| output.write_all(bytes).map_err(|e| e.to_string());
+pub fn write_catalog_canonical(
+    catalog: &Catalog,
+    mut output: impl Write,
+) -> serde_json::Result<()> {
+    let write = |output: &mut dyn Write, bytes: &[u8]| {
+        output.write_all(bytes).map_err(serde_json::Error::io)
+    };
     write(&mut output, br#"{"definitions":["#)?;
     for (index, definition) in catalog.definitions.iter().enumerate() {
         if index > 0 {
             write(&mut output, b",")?;
         }
-        let value = serde_json::to_value(definition).map_err(|e| e.to_string())?;
-        serde_json::to_writer(&mut output, &value).map_err(|e| e.to_string())?;
+        let value = serde_json::to_value(definition)?;
+        serde_json::to_writer(&mut output, &value)?;
     }
     write(&mut output, br#"],"rules_edition":"#)?;
-    serde_json::to_writer(&mut output, &catalog.rules_edition).map_err(|e| e.to_string())?;
+    serde_json::to_writer(&mut output, &catalog.rules_edition)?;
     write(&mut output, br#","rules_sha256":"#)?;
-    serde_json::to_writer(&mut output, &catalog.rules_sha256).map_err(|e| e.to_string())?;
+    serde_json::to_writer(&mut output, &catalog.rules_sha256)?;
     write(&mut output, br#","schema_version":"#)?;
-    serde_json::to_writer(&mut output, &catalog.schema_version).map_err(|e| e.to_string())?;
+    serde_json::to_writer(&mut output, &catalog.schema_version)?;
     write(&mut output, b"}")
 }
 
@@ -64,7 +68,7 @@ impl ValidatedCatalog {
     pub fn new(catalog: Catalog) -> Result<Self, String> {
         catalog.validate()?;
         let mut hash = Sha256Sink::new();
-        write_catalog_canonical(&catalog, &mut hash)?;
+        write_catalog_canonical(&catalog, &mut hash).map_err(|e| e.to_string())?;
         Ok(Self {
             catalog: Arc::new(catalog),
             digest: hash.finalize_hex(),

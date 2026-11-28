@@ -48,6 +48,7 @@ impl Walk<'_, '_> {
                 token,
                 ..
             } => self.audit_evaluated_tokens(controller, count, token),
+            Evaluated::Move { what, to } => self.audit_move(what, to),
         }
     }
 

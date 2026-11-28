@@ -15,7 +15,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::super::*;
 use crate::engine::battlefield_entry::EntryChoice;
-use mtg_contracts::kir::{self, Destination, Node, PlayerExpr, SearchSpec, SelectionZone};
+use mtg_contracts::kir::{Destination, Node, PlayerExpr, SearchSpec, SelectionZone};
 
 /// The bounds of a search: the cards that may be found, in object order, and
 /// how many must and may be found (CR 701.23b, d).
@@ -62,7 +62,7 @@ pub(in crate::engine) enum EntryQuestion {
 }
 
 /// CR 701.20a, 614.12: each asked entrant's reveal, `None` when declined.
-type EntryReveals = Vec<(ObjectId, Option<ObjectId>)>;
+pub(in crate::engine) type EntryReveals = Vec<(ObjectId, Option<ObjectId>)>;
 
 impl RulesTxn {
     /// The admitted library verb at this frame's cursor.
@@ -549,10 +549,6 @@ impl RulesTxn {
     ) -> Result<Option<EntryQuestion>, String> {
         let entrants = match self.library_verb(frame)?.0 {
             Verb::Search { search, .. } => Self::entry_cards(&search.to, found),
-            Verb::Move {
-                to: Destination::Battlefield { .. },
-                ..
-            } => found,
             _ => return Err("entry choice lost its instruction".into()),
         };
         self.next_entry_question(player, entrants, hosts, paid, revealed)
@@ -612,7 +608,7 @@ impl RulesTxn {
 
     /// CR 303.4f-g, 304.4, 307.4: the found cards that enter, each Aura on
     /// its chosen host; the others stay in the library.
-    fn search_entrants(
+    pub(in crate::engine) fn search_entrants(
         &self,
         found: &[ObjectId],
         hosts: &[(ObjectId, ObjectId)],
@@ -646,7 +642,7 @@ impl RulesTxn {
     /// with an entry reveal, whether or not a hand card matches (CR
     /// 701.20a). `hosts`, `paid` and `revealed` must be exactly the answers
     /// given so far, in that order.
-    fn next_entry_question(
+    pub(in crate::engine) fn next_entry_question(
         &self,
         player: PlayerId,
         found: &[ObjectId],
@@ -904,16 +900,8 @@ impl RulesTxn {
         revealed: &[(ObjectId, Option<ObjectId>)],
         source_block: u32,
     ) -> Result<(), String> {
-        let (destination, to, reveal) = match self.library_verb(&frame)?.0 {
-            Verb::Move {
-                to: to @ Destination::Battlefield { tapped, .. },
-                ..
-            } => (to, (!tapped).then_some(Zone::Battlefield), false),
-            _ => {
-                let (search, to) = self.search_destination(&frame)?;
-                (search.to, to, search.reveal)
-            }
-        };
+        let (search, to) = self.search_destination(&frame)?;
+        let (destination, reveal) = (search.to, search.reveal);
         let battlefield = matches!(
             destination,
             Destination::Battlefield { .. } | Destination::OneTappedRestOwnerHand
@@ -946,84 +934,32 @@ impl RulesTxn {
                 Zone::Hand { owner: player }
             }
         };
-        let mut occurrences: Vec<_> = entering
+        let extra = split_hand
             .iter()
-            .map(|(object, host)| {
-                let command = choices.iter().any(|(o, yes)| o == object && *yes);
-                match (to, host) {
-                    _ if command => ProposedEvent::Move {
-                        object: *object,
-                        destination: Zone::Command { owner: player },
-                    },
-                    (_, Some(target)) => ProposedEvent::EnterAttached {
-                        object: *object,
-                        target: *target,
-                    },
-                    (Some(destination), None) => ProposedEvent::Move {
-                        object: *object,
-                        destination,
-                    },
-                    (None, None) => ProposedEvent::EnterTapped { object: *object },
-                }
+            .map(|object| ProposedEvent::Move {
+                object: *object,
+                destination: hand_destination(*object),
             })
             .collect();
-        occurrences.extend(split_hand.iter().map(|object| ProposedEvent::Move {
-            object: *object,
-            destination: hand_destination(*object),
-        }));
-        let entries = EventGroup::Simultaneous { occurrences };
-        // CR 614.1c, 614.12: entrants with an entry life cost enter paid or
-        // tapped as chosen; the payments precede the one simultaneous entry.
-        let mut overrides = vec![];
-        let mut payments = vec![];
-        if battlefield {
-            let mut shown = vec![];
-            for (object, host) in &entering {
-                let choice = self.entry_choice(*object)?;
-                let accepted = match &choice {
-                    Some(EntryChoice::Life(amount)) => {
-                        let pays = paid.iter().any(|(o, yes)| o == object && *yes);
-                        if pays {
-                            payments.push(EventGroup::Occurrence {
-                                proposed: ProposedEvent::LoseLife {
-                                    player,
-                                    amount: amount.clone(),
-                                },
-                            });
-                        }
-                        pays
-                    }
-                    Some(EntryChoice::Reveal(_)) => {
-                        let card = revealed
-                            .iter()
-                            .find(|(o, _)| o == object)
-                            .and_then(|(_, card)| *card);
-                        shown.extend(card);
-                        card.is_some()
-                    }
-                    None => false,
-                };
-                if tapped && (choice.is_some() || host.is_some()) {
-                    overrides.push((*object, events::EntryOverride::ForceTapped));
-                } else if choice.is_some() {
-                    overrides.push((*object, events::EntryOverride::Choice { accepted }));
-                }
-            }
-            // CR 701.20a: the revealed cards stay in the searcher's hand,
-            // publicly known there by identity.
-            if !shown.is_empty() {
-                self.remember_revealed_hand_cards(player, &shown)?;
-            }
-        }
-        let batch = if overrides.is_empty() {
-            self.commit_batch(cause, entries)?
-        } else {
-            payments.push(entries);
-            self.commit_entry_batch(
-                cause,
-                EventGroup::Ordered { children: payments },
-                &overrides,
+        let batch = if battlefield {
+            self.commit_entry_group(
+                cause, player, &entering, tapped, None, paid, revealed, extra,
             )?
+        } else {
+            let to = to.ok_or("missing search destination")?;
+            let mut occurrences: Vec<_> = entering
+                .iter()
+                .map(|(object, _)| ProposedEvent::Move {
+                    object: *object,
+                    destination: if choices.iter().any(|(o, yes)| o == object && *yes) {
+                        Zone::Command { owner: player }
+                    } else {
+                        to
+                    },
+                })
+                .collect();
+            occurrences.extend(extra);
+            self.commit_batch(cause, EventGroup::Simultaneous { occurrences })?
         };
         let movements = batch
             .occurrences
@@ -1054,6 +990,170 @@ impl RulesTxn {
                 destroyed_creatures: 0,
             },
         )
+    }
+
+    /// CR 110.2a, 303.4f, 614.1c, 614.12, 701.20a: `entering` enters the
+    /// battlefield together, each Aura attached to its chosen host, under
+    /// `player`'s control or the `foreign` controller's for cards `player`
+    /// does not own. Chosen entry life payments precede the one simultaneous
+    /// entry, and the revealed hand cards stay publicly known. `extra`
+    /// occurrences join the same event.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::engine) fn commit_entry_group(
+        &mut self,
+        cause: BatchCause,
+        player: PlayerId,
+        entering: &[(ObjectId, Option<ObjectId>)],
+        tapped: bool,
+        foreign: Option<PlayerId>,
+        paid: &[(ObjectId, bool)],
+        revealed: &[(ObjectId, Option<ObjectId>)],
+        extra: Vec<ProposedEvent>,
+    ) -> Result<CommittedBatch, String> {
+        let mut occurrences: Vec<_> = entering
+            .iter()
+            .map(|(object, host)| match host {
+                Some(target) => ProposedEvent::EnterAttached {
+                    object: *object,
+                    target: *target,
+                },
+                None if tapped => ProposedEvent::EnterTapped { object: *object },
+                None => ProposedEvent::Move {
+                    object: *object,
+                    destination: Zone::Battlefield,
+                },
+            })
+            .collect();
+        occurrences.extend(extra);
+        let entries = EventGroup::Simultaneous { occurrences };
+        let mut overrides = vec![];
+        let mut payments = vec![];
+        let mut shown = vec![];
+        for (object, host) in entering {
+            // CR 110.2a: a card enters under its owner's control unless the
+            // effect puts it onto the battlefield under another player's.
+            if let Some(controller) = foreign
+                && self.state.rules.cards[&object.card].owner != controller
+            {
+                if host.is_some() {
+                    return Err("foreign entry cannot attach".into());
+                }
+                overrides.push((
+                    *object,
+                    events::EntryOverride::CreatureController {
+                        player: controller,
+                        tapped,
+                    },
+                ));
+                continue;
+            }
+            let choice = self.entry_choice(*object)?;
+            let accepted = match &choice {
+                Some(EntryChoice::Life(amount)) => {
+                    let pays = paid.iter().any(|(o, yes)| o == object && *yes);
+                    if pays {
+                        payments.push(EventGroup::Occurrence {
+                            proposed: ProposedEvent::LoseLife {
+                                player,
+                                amount: amount.clone(),
+                            },
+                        });
+                    }
+                    pays
+                }
+                Some(EntryChoice::Reveal(_)) => {
+                    let card = revealed
+                        .iter()
+                        .find(|(o, _)| o == object)
+                        .and_then(|(_, card)| *card);
+                    shown.extend(card);
+                    card.is_some()
+                }
+                None => false,
+            };
+            if tapped && (choice.is_some() || host.is_some()) {
+                overrides.push((*object, events::EntryOverride::ForceTapped));
+            } else if choice.is_some() {
+                overrides.push((*object, events::EntryOverride::Choice { accepted }));
+            }
+        }
+        // CR 701.20a: the revealed cards stay in the player's hand,
+        // publicly known there by identity.
+        if !shown.is_empty() {
+            self.remember_revealed_hand_cards(player, &shown)?;
+        }
+        if overrides.is_empty() {
+            self.commit_batch(cause, entries)
+        } else {
+            payments.push(entries);
+            self.commit_entry_batch(
+                cause,
+                EventGroup::Ordered { children: payments },
+                &overrides,
+            )
+        }
+    }
+
+    /// The decision that asks one card-entry question.
+    pub(in crate::engine) fn entry_question_decision(
+        &self,
+        player: PlayerId,
+        question: EntryQuestion,
+    ) -> Decision<Rules> {
+        match question {
+            EntryQuestion::Attach { aura, hosts } => {
+                let mut candidates = vec![Candidate::Object { object: aura }];
+                candidates.extend(
+                    hosts
+                        .iter()
+                        .map(|object| Candidate::Object { object: *object }),
+                );
+                self.decision(
+                    player,
+                    Reason::EntryAttachment,
+                    candidates,
+                    Shape::Pick {
+                        slots: vec![Slot {
+                            role: SlotRole::Choice,
+                            subject: Some(0),
+                            allowed: (1..=hosts.len() as u32).collect(),
+                            min: 1,
+                            max: 1,
+                            repeat: false,
+                        }],
+                        rules: vec![],
+                    },
+                )
+            }
+            EntryQuestion::Pay { entrant } => self.entry_payment_decision(player, entrant),
+            EntryQuestion::Reveal { entrant, cards } => {
+                self.entry_reveal_decision(player, entrant, &cards)
+            }
+        }
+    }
+
+    /// Record the answer to one card-entry question.
+    pub(in crate::engine) fn answer_entry_question(
+        question: EntryQuestion,
+        input: &PendingInput,
+        hosts: &mut Vec<(ObjectId, ObjectId)>,
+        paid: &mut Vec<(ObjectId, bool)>,
+        revealed: &mut EntryReveals,
+    ) -> Result<(), String> {
+        match question {
+            EntryQuestion::Attach { aura, hosts: legal } => {
+                let host = input.object()?;
+                if !legal.contains(&host) {
+                    return Err("entry host is not a legal host".into());
+                }
+                hosts.push((aura, host));
+            }
+            EntryQuestion::Pay { entrant } => paid.push((entrant, input.flag(Flag::Accept)?)),
+            EntryQuestion::Reveal { entrant, cards } => {
+                revealed.push((entrant, Self::entry_reveal_answer(input, &cards)?));
+            }
+        }
+        Ok(())
     }
 
     /// The suspended search continuation is this instruction's own: the
@@ -1143,32 +1243,7 @@ impl RulesTxn {
             // and the step commits the entry without a decision.
             } if self.is_live(*player) => self
                 .card_entry_question(frame, *player, found, hosts, paid, revealed)?
-                .map(|question| match question {
-                    EntryQuestion::Attach { aura, hosts } => {
-                        let mut candidates = vec![Candidate::Object { object: aura }];
-                        candidates.extend(objects(&hosts));
-                        self.decision(
-                            *player,
-                            Reason::EntryAttachment,
-                            candidates,
-                            Shape::Pick {
-                                slots: vec![Slot {
-                                    role: SlotRole::Choice,
-                                    subject: Some(0),
-                                    allowed: (1..=hosts.len() as u32).collect(),
-                                    min: 1,
-                                    max: 1,
-                                    repeat: false,
-                                }],
-                                rules: vec![],
-                            },
-                        )
-                    }
-                    EntryQuestion::Pay { entrant } => self.entry_payment_decision(*player, entrant),
-                    EntryQuestion::Reveal { entrant, cards } => {
-                        self.entry_reveal_decision(*player, entrant, &cards)
-                    }
-                }),
+                .map(|question| self.entry_question_decision(*player, question)),
             ResolutionChoice::ReorderLibraryTop { player, looked, .. } if self.is_live(*player) => {
                 Some(self.order(*player, Reason::OrderLibraryTop, objects(looked), looked.len() as u32))
             }
@@ -1315,22 +1390,10 @@ impl RulesTxn {
             ..
         } = choice
         {
-            match self
+            let question = self
                 .card_entry_question(&frame, player, &found, &hosts, &paid, &revealed)?
-                .ok_or("search entry answer without a question")?
-            {
-                EntryQuestion::Attach { aura, hosts: legal } => {
-                    let host = input.object()?;
-                    if !legal.contains(&host) {
-                        return Err("search entry host is not a legal host".into());
-                    }
-                    hosts.push((aura, host));
-                }
-                EntryQuestion::Pay { entrant } => paid.push((entrant, input.flag(Flag::Accept)?)),
-                EntryQuestion::Reveal { entrant, cards } => {
-                    revealed.push((entrant, Self::entry_reveal_answer(&input, &cards)?));
-                }
-            }
+                .ok_or("search entry answer without a question")?;
+            Self::answer_entry_question(question, &input, &mut hosts, &mut paid, &mut revealed)?;
             return self.continue_card_entry(
                 frame,
                 player,
@@ -1808,52 +1871,6 @@ impl RulesTxn {
             } => (*player, *source_block),
             _ => return Ok(false),
         };
-        // CR 601.2c, 608.2b, 303.4f: an entry choice from a graveyard
-        // move belongs solely to the legal, announced incarnation at this
-        // cursor. The same question/answer and atomic entry code handles
-        // both a found card and a targeted one.
-        if let (
-            ResolutionChoice::SearchEntry {
-                found,
-                command_choices,
-                hosts,
-                paid,
-                revealed,
-                ..
-            },
-            Verb::Move {
-                what:
-                    kir::SetExpr::One {
-                        object: kir::Ref::Target { slot },
-                    },
-                to: Destination::Battlefield { .. },
-            },
-        ) = (choice, &verb)
-        {
-            let entry = self.entry(frame.stack_id)?;
-            let slot = *slot as usize;
-            let [target] = found.as_slice() else {
-                return Ok(false);
-            };
-            return Ok(source_block == block
-                && entry.controller == player
-                && command_choices.is_empty()
-                && frame.legal_targets.get(slot) == Some(&true)
-                && self
-                    .program_for(entry)?
-                    .targets
-                    .get(slot)
-                    .is_some_and(|spec| spec.domain == TargetDomain::OwnGraveyardCard)
-                && self.bound_object_target(entry, slot) == Some(target)
-                && self.valid_entry_answers(player, 1, found, hosts, paid, revealed)?
-                && (!self.is_live(player)
-                    || (self
-                        .current(*target)
-                        .is_ok_and(|o| self.player_graveyard_card(o, player))
-                        && self
-                            .next_entry_question(player, found, hosts, paid, revealed)?
-                            .is_some())));
-        }
         let expected = match &verb {
             Verb::Search { player, .. }
             | Verb::ReorderLibraryTop { player, .. }

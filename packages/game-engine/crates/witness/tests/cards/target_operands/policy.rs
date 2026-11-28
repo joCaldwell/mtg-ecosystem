@@ -90,7 +90,7 @@ fn the_policy_announces_the_mana_value_its_graveyard_target_needs() {
     for (lands, x, offset) in [(3, 2, 1), (7, 6, 2)] {
         let mut b = board(&[(
             STIR_THE_GRAVE,
-            &[Cell::MoveOwnGraveyardCreatureToBattlefield],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
             Tiers::EXECUTES,
         )])
         .permanent_or_hand("Stir the Grave", 0, 0, true);

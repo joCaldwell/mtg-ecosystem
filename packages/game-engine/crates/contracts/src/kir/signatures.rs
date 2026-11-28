@@ -13,6 +13,8 @@ pub enum EvaluatedVerb {
     Discard,
     Mill,
     CreateTokens,
+    /// CR 400.3, 400.7: a zone change.
+    Move,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -331,6 +333,36 @@ const SACRIFICE_SLOTS: &[OperandSlot] = &[
     },
 ];
 
+/// CR 400.3, 400.7, 608.2b-c: the objects that change zones and, for
+/// battlefield entry, the player under whose control they enter (CR 110.2a).
+/// Each object goes to its owner's zone; a new incarnation is never moved.
+const MOVE_SLOTS: &[OperandSlot] = &[
+    OperandSlot {
+        field: "what",
+        role: SlotRole::Subject,
+        sort: Sort::Set,
+        accepts: &[
+            OperandClass::Source,
+            OperandClass::Target,
+            OperandClass::Measure,
+        ],
+        quantity: None,
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ActOnLiveIncarnation,
+        absent: Absent::SkipMember,
+    },
+    OperandSlot {
+        field: "controller",
+        role: SlotRole::Recipient,
+        sort: Sort::Player,
+        accepts: &[OperandClass::Controller],
+        quantity: None,
+        read: ReadTime::StepStart,
+        use_: ObjectUse::ReadCurrentOrLastKnown,
+        absent: Absent::SkipVerb,
+    },
+];
+
 const DRAW: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::Draw,
     slots: PLAYER_AMOUNT,
@@ -374,6 +406,15 @@ const DISCARD: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::Discard,
     distribution: Distribution::CollectThenSimultaneous,
     ..MILL
+};
+/// CR 400.7, 608.2c: the moved objects and their number. Characteristics of
+/// a moved card are its public successor's or its last-known ones.
+const MOVE: VerbSignature = VerbSignature {
+    verb: EvaluatedVerb::Move,
+    slots: MOVE_SLOTS,
+    distribution: Distribution::EachSimultaneous,
+    object_result_read: ObjectUse::ReadCurrentOrLastKnown,
+    projections: &[StepRole::Amount, StepRole::Objects],
 };
 const SACRIFICE: VerbSignature = VerbSignature {
     verb: EvaluatedVerb::Sacrifice,
@@ -442,6 +483,10 @@ pub enum Evaluated<'a> {
         token: &'a TokenSpec,
         tapped: bool,
     },
+    Move {
+        what: &'a SetExpr,
+        to: &'a Destination,
+    },
 }
 
 impl<'a> Evaluated<'a> {
@@ -454,6 +499,7 @@ impl<'a> Evaluated<'a> {
             | Self::Sacrifice { count: amount, .. }
             | Self::Tokens { count: amount, .. } => Some(amount),
             Self::Discard { amount, .. } => amount,
+            Self::Move { .. } => None,
         }
     }
 
@@ -507,6 +553,13 @@ impl<'a> Evaluated<'a> {
                 (slot(0), OperandClass::player(controller)),
                 (slot(1), OperandClass::amount(count)),
             ],
+            Self::Move { what, to } => {
+                let mut out = vec![(slot(0), OperandClass::set(what))];
+                if let Destination::Battlefield { controller, .. } = to {
+                    out.push((slot(1), OperandClass::player(controller)));
+                }
+                out
+            }
             Self::Sacrifice { player, count, .. } => vec![
                 (slot(0), OperandClass::player(player)),
                 (slot(1), OperandClass::amount(count)),
@@ -529,6 +582,15 @@ impl Verb {
             Self::Mill { player, amount } => {
                 Some((&MILL, Evaluated::PlayerAmount { player, amount }))
             }
+            // CR 608.2n: a resolving spell shuffling itself is its own
+            // departure from the stack, part of its resolution.
+            Self::Move {
+                what: SetExpr::One {
+                    object: Ref::Source,
+                },
+                to: Destination::OwnerLibraryShuffled,
+            } => None,
+            Self::Move { what, to } => Some((&MOVE, Evaluated::Move { what, to })),
             Self::Discard {
                 player,
                 amount,

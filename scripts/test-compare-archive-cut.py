@@ -1,8 +1,11 @@
 import importlib.util
+from copy import deepcopy
 import json
 from pathlib import Path
+from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 
 spec = importlib.util.spec_from_file_location('compare_archive_cut', Path(__file__).with_name('compare-archive-cut.py'))
@@ -81,6 +84,104 @@ class CompareArchiveCut(unittest.TestCase):
                     new = self.bundle(after, r6=True, **{field: True})
                     with self.assertRaisesRegex(ValueError, expected):
                         cut.compare('d2', r5, after, [old, new])
+
+    def test_promotion_checks_the_entire_d0_receipt(self):
+        with TemporaryDirectory() as path:
+            root = Path(path)
+            candidate, r5 = root / 'r6.jsonl', root / 'r5.jsonl'
+            header = {'schemaVersion': 5}
+            raw = cut.json_bytes(header)
+            candidate.write_bytes(raw + b'\n')
+            revision = '1' * 40
+            report = {
+                'status': 'candidate',
+                'd0': {'status': 'passed', 'elapsedMs': 5},
+                'registryEntry': {'parser_revision': '', 'manifest_sha256': cut.sha(raw)},
+                'sizes': {'bytes': 42, 'rows': 2, 'lines': 3, 'largestLine': {'line': 3, 'bytes': 25}},
+                'printedSummary': {'records': 2},
+                'legacy': {'fileSha256': 'a' * 64},
+                'rulesSha256': 'b' * 64,
+            }
+            with patch.object(cut, 'verify_promotion_d0', return_value=report) as verify:
+                receipt = deepcopy(report)
+                receipt['d0']['elapsedMs'] = 9
+                entry, _, actual_header = cut.promotion_inputs(root, r5, candidate, receipt, revision)
+                verify.assert_called_once_with(root, r5, candidate)
+                self.assertEqual(entry['parser_revision'], revision)
+                self.assertEqual(actual_header, header)
+                changes = [
+                    ('sizes', {'bytes': 1, 'rows': 1}),
+                    ('sizes', {'lines': 1}),
+                    ('sizes', {'largestLine': {'line': 1, 'bytes': 25}}),
+                    ('printedSummary', {}),
+                    ('registryEntry', {'manifest_sha256': '0' * 64}),
+                    ('legacy', {'fileSha256': '0' * 64}),
+                    ('d0', {'unexpected': True}),
+                ]
+                for field, values in changes:
+                    with self.subTest(field=field, values=values):
+                        bad = deepcopy(receipt)
+                        if field == 'printedSummary':
+                            bad[field] = values
+                        else:
+                            bad[field].update(values)
+                        with self.assertRaisesRegex(ValueError, f'D0 receipt {field} differs'):
+                            cut.promotion_inputs(root, r5, candidate, bad, revision)
+
+    def test_fixture_order_is_independent_of_previous_r6_provenance(self):
+        with TemporaryDirectory() as path:
+            root = Path(path)
+            source = root / 'source'
+            source.mkdir()
+            r5 = {'cut': 'r5', 'manifest_file': 'r5.json', 'record_sha256': []}
+            r6 = {'cut': 'r6', 'manifest_file': 'r6.json', 'record_sha256': []}
+            rows = []
+            for line, oid in enumerate(('b', 'a'), 2):
+                raw = cut.json_bytes({'status': 'excluded', 'oracleIdentity': oid})
+                pin = cut.sha(raw)
+                r5['record_sha256'].append(pin)
+                rows.append({'oracle_id': oid, 'archive': r5['manifest_file'], 'file': f'{oid}.json',
+                             'archive_line': line, 'record_sha256': pin, 'source_sha256': pin, 'ast_sha256': None})
+                (source / f'{oid}.json').write_bytes(raw + b'\n')
+            header = b'{}\n'
+            (source / r5['manifest_file']).write_bytes(header)
+            (source / r6['manifest_file']).write_bytes(header)
+
+            def sim(args, **_):
+                command, *operands = args[2:]
+                if command == 'verify':
+                    return CompletedProcess(args, 0, stdout=b'{"verified_records":2}', stderr=b'')
+                _, provenance_path, *_ = operands
+                provenance_path = Path(provenance_path)
+                out = provenance_path.parent
+                registry_path = out / 'accepted-archives.json'
+                registry = json.loads(registry_path.read_bytes())
+                provenance = json.loads(provenance_path.read_bytes())
+                (out / 'phase1-r6').mkdir()
+                extracted = []
+                for row in sorted(rows, key=lambda record: record['oracle_id']):
+                    file = f'phase1-r6/{row["file"]}'
+                    (out / file).write_bytes((out / row['file']).read_bytes())
+                    extracted.append({**row, 'archive': r6['manifest_file'], 'file': file})
+                provenance['records'].extend(extracted)
+                registry[1]['record_sha256'] = sorted(row['record_sha256'] for row in extracted)
+                cut.pretty(provenance_path, provenance)
+                cut.pretty(registry_path, registry)
+                return CompletedProcess(args, 0, stdout=cut.json_bytes({'extracted': extracted}), stderr=b'')
+
+            with patch.object(cut.subprocess, 'run', side_effect=sim):
+                empty, promoted = root / 'empty', root / 'promoted'
+                cut.pretty(source / 'accepted-archives.json', [r5, r6])
+                cut.pretty(source / 'provenance.json', {'records': rows})
+                cut.fixtures(root / 'sim', source, empty, ('r5', 'r6'))
+                previous = [{**row, 'archive': r6['manifest_file']} for row in rows]
+                cut.pretty(source / 'accepted-archives.json', [r5, {**r6, 'record_sha256': r5['record_sha256']}])
+                cut.pretty(source / 'provenance.json', {'records': rows + previous})
+                cut.fixtures(root / 'sim', source, promoted, ('r5', 'r6'))
+            self.assertEqual((empty / 'provenance.json').read_bytes(), (promoted / 'provenance.json').read_bytes())
+            output = json.loads((promoted / 'provenance.json').read_bytes())['records']
+            self.assertEqual(output[:2], rows)
+            self.assertEqual([row['oracle_id'] for row in output[2:]], ['a', 'b'])
 
 
 if __name__ == '__main__':

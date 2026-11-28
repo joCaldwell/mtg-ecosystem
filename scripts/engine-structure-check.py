@@ -14,7 +14,7 @@ CRATES = 'packages/game-engine/crates'
 ALLOWED = {
     'mtg-contracts': {'serde', 'serde_json', 'schemars', 'num-bigint', 'num-traits', 'sha2'},
     'mtg-oracle-ast': {'serde', 'serde_json'},
-    'mtg-compiler': {'mtg-contracts', 'mtg-oracle-ast', 'serde', 'serde_json', 'sha2', 'regex', 'serde_path_to_error'},
+    'mtg-compiler': {'mtg-contracts', 'mtg-oracle-ast', 'serde', 'serde_json', 'sha2', 'regex', 'rustix', 'serde_path_to_error'},
     'mtg-view': {'mtg-contracts', 'serde', 'schemars'},
     'mtg-observe': {'mtg-view', 'mtg-contracts', 'serde_json', 'sha2'},
     'mtg-core': {'mtg-view', 'mtg-contracts', 'serde', 'serde_json', 'schemars', 'rand_chacha', 'rand_core'},
