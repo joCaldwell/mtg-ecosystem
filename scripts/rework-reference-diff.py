@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 1 transition differential for pronoun antecedents and lowered IR.
+"""Transition differential for reference selections and lowered IR.
 
 Run via sh scripts/engine-env.sh python3 -B scripts/rework-reference-diff.py --help.
 
@@ -9,6 +9,11 @@ rule chose (`mtg-sim catalog reference-trace`) with the frozen TypeScript
 resolution in the archive, over every lowered definition, and exits 1 on
 any unexplained disagreement. It also compares each baseline definition's
 Kernel IR with the candidate's and lists every change for review.
+
+For D3 source-authority choices, join each traced selection (family, block
+and its block-relative path, kind and slot/selection/domain or cardinality)
+to every original binder reference and projection in the claimed block. A
+missing, additional, or different occurrence stops the sweep.
 
 Explained equivalence: an event object that is the source itself ("when
 this creature enters, it ...") reads the same incarnation the resolution
@@ -177,6 +182,108 @@ def compare_references(archive, trace, unchanged):
             'disagreements': disagreements}
 
 
+def source_sites(choice):
+    """Each traced selection with the binder node and projection it must match."""
+    for selection in choice['selections']:
+        kind = selection['kind']
+        match kind:
+            case 'spell-controller':
+                node = {'node': 'runtime-player', 'role': 'spell-controller'}
+                projected = {'ref': 'controller', 'role': 'spell-controller'}
+                rule = '109.5'
+            case 'each-player' | 'each-opponent':
+                node = {'node': 'selection', 'selection': 'evaluate-reference',
+                        'timing': 'resolution', 'cardinality': 'many',
+                        'expression': {'player': kind}}
+                projected = None
+                rule = '608.2h'
+            case 'target':
+                noun = {'any_player': 'target-player', 'opponent_player': 'target-opponent'}[selection['domain']]
+                node = {'node': 'selection', 'selection': 'target',
+                        'timing': 'stack-announcement', 'cardinality': 'one',
+                        'expression': {'player': noun, 'selectionId': selection['selection_id']}}
+                projected = {'ref': 'target', 'slot': selection['slot']}
+                rule = '601.2c'
+            case 'announced-x':
+                node = {'node': 'announced-number', 'announcement': 'cast'}
+                projected = {'ref': 'announced-x'}
+                rule = '107.3a'
+            case 'resolution-cards':
+                # The binder records no random flag; the occurrence is the
+                # recipient's resolution-time selection either way.
+                node = {'node': 'selection', 'selection': 'evaluate-reference',
+                        'timing': 'resolution', 'cardinality': selection['cardinality']}
+                projected = None
+                rule = '701.9b'
+            case _:
+                raise ValueError(f'unknown source authority selection {selection}')
+        yield selection['path'], node, projected, rule
+
+
+def compare_source_choices(archive, trace):
+    """Join every traced selection to the original binder graph and its
+    projection over the whole claimed block: a missing, additional or
+    different occurrence is a divergence."""
+    with trace.open() as stream:
+        choices = {row['oracle_id']: row['source_choices']
+                   for line in stream if (row := json.loads(line)).get('source_choices')}
+    records = read_archive(archive, choices.keys()) if choices else {}
+    table = []
+    families = Counter()
+    for identity, sites in sorted(choices.items()):
+        record = records[identity]
+        binding = record['binding']
+        nodes = {node['id']: node for node in binding['nodes']}
+        for site in sites:
+            face, block = site['face'], site['block']
+            families[site['family']] += 1
+            prefix = f'/faces/{face}/abilities/{block}'
+            scope = f'card:{identity}{prefix}#ability'
+            projection = record['resolution']['faces'][face]['blocks'][block]['refs']
+            chosen = {path: (node, projected, rule)
+                      for path, node, projected, rule in source_sites(site)}
+            historical = defaultdict(list)
+            projected = defaultdict(list)
+            for ref in binding['references']:
+                if ref['path'] == prefix or ref['path'].startswith(prefix + '/'):
+                    historical[ref['path'][len(prefix):]].append(ref)
+            for ref in projection:
+                projected[ref['path']].append(ref)
+            for path in sorted(chosen.keys() | historical.keys() | projected.keys()):
+                node, projection_ref, rule = chosen.get(path, (None, None, None))
+                bound = historical[path]
+                target = nodes.get(bound[0].get('target')) if len(bound) == 1 else None
+                legacy = projected[path]
+                want_projection = ({'path': path, 'ref': projection_ref} if projection_ref
+                                   else {'path': path, 'evaluated': 'selection'})
+                agree = (node is not None and target is not None and bound[0]['binding'] == 'bound'
+                         and target.get('scope') == scope
+                         and all(target.get(key) == value for key, value in node.items())
+                         and legacy == [want_projection])
+                table.append({
+                    'oracle_id': identity,
+                    'name': record['source']['name'],
+                    'family': site['family'],
+                    'oracle_text': record['faces'][face]['result']['lines'][block]['text'],
+                    'path': prefix + path,
+                    'rule': rule,
+                    'rust': node,
+                    'historical': bound,
+                    'historical_node': target,
+                    'projection': legacy,
+                    'agrees': agree,
+                })
+    by_family = {}
+    for family in sorted(families):
+        rows = [row for row in table if row['family'] == family]
+        by_family[family] = {'identities': len({row['oracle_id'] for row in rows}), 'sites': len(rows),
+                             'divergences': sum(not row['agrees'] for row in rows)}
+    return {'identities': len(choices), 'sites': len(table),
+            'historical_bound': sum(ref['binding'] == 'bound' for row in table for ref in row['historical']),
+            'divergences': sum(not row['agrees'] for row in table), 'families': by_family,
+            'occurrences': table}
+
+
 def diff_paths(a, b, path='', out=None, limit=12):
     out = [] if out is None else out
     if len(out) >= limit:
@@ -231,6 +338,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     kir = compare_kir(args.baseline_catalog, args.candidate_catalog)
     references = compare_references(args.archive, args.trace, kir.pop('unchanged_ids'))
+    source = compare_source_choices(args.archive, args.trace)
     reviewed = json.loads(args.explained.read_text()) if args.explained else []
     explained = {(e['oracle_id'], e['block'], e['word']): e['reason']
                  for e in reviewed if 'block' in e}
@@ -244,11 +352,15 @@ def main(argv=None):
     references['unexplained'] = len(unexplained)
     (args.out / 'reference-parity.json').write_text(json.dumps(references, indent=2) + '\n')
     (args.out / 'kir-parity.json').write_text(json.dumps(kir, indent=2) + '\n')
+    if source['sites']:
+        (args.out / 'source-resolution-parity.json').write_text(json.dumps(source, indent=2) + '\n')
     summary = {k: v for k, v in references.items() if k != 'disagreements'}
     summary['kir'] = {k: (len(v) if isinstance(v, list) else v)
                       for k, v in kir.items() if k != 'changed_definitions'}
+    summary['source_resolution'] = {k: v for k, v in source.items() if k != 'occurrences'}
     print(json.dumps(summary))
-    return 1 if unexplained or any(not row['explanation'] for row in kir['lost']) else 0
+    return 1 if unexplained or source['divergences'] or any(
+        not row['explanation'] for row in kir['lost']) else 0
 
 
 if __name__ == '__main__':

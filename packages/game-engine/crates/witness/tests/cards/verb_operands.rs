@@ -78,7 +78,7 @@ fn advance_until(game: &mut Game, stop: impl Fn(&Frame) -> bool) {
 fn verb_operands_beast_within_creates_for_the_last_controller() {
     let prepared = board(&[(
         record!("7735eeba-693b-47e2-bd51-414379cf1016"),
-        Cell::TokensForTargetController,
+        Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::CreateTokens),
     )])
     .permanent_or_hand("Beast Within", 0, 0, true)
     .permanent_or_hand("Grizzly Bears", 1, 2, false)

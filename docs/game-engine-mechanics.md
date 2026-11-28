@@ -458,7 +458,9 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   are not offered (CR
   119.4), and one without mana skips the mana window. A chosen sacrifice can
   take several permanents, any permanent or "another", optionally also tapping
-  the source (CR 701.21a).
+  the source (CR 701.21a). Its quality is one card type or a union of types, a
+  subtype alone or with its one type, one color (CR 105.2) and token or
+  nontoken status (CR 111.1); conjoined types ("an artifact creature") reject.
 - **Graveyard source**: "[Mana], Exile this card from your graveyard" works only
   in its owner's graveyard and for that owner; the card stays the source through
   announcement and is exiled after mana (CR 113.6j, 602.2a–b, 701.13a).

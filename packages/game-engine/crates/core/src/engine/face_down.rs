@@ -59,6 +59,7 @@ static FACE_DOWN: LazyLock<Definition> = LazyLock::new(|| Definition {
         source_sha256: String::new(),
         ast_sha256: String::new(),
         binding_sha256: String::new(),
+        printed_sha256: None,
         archive_manifest_sha256: String::new(),
         parser_sha256: String::new(),
         source_json: String::new(),

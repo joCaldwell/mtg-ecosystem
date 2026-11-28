@@ -20,7 +20,7 @@ use std::{
 static STATION_CITATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^It['’]s an? (?:artifact )?creature at (\d+)\+\.$").unwrap());
 
-fn word_number(word: &str) -> Option<u32> {
+pub(crate) fn word_number(word: &str) -> Option<u32> {
     // The current number spellings in oracle-parser/src/vocab.ts. The
     // generated vocabulary exports the closed fact classes.
     const UNITS: [&str; 20] = [

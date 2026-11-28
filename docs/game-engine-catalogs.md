@@ -142,6 +142,19 @@ and the power/toughness slash need a checked field meaning with a bound fact.
 An undischarged field or unconsumed occurrence, such as an omitted qualifier,
 rejects the card with an original byte range.
 
+Whole-card source authorities register in order in
+[`compose/source_authority.rs`](../packages/game-engine/crates/compiler/src/compose/source_authority.rs);
+composition asks the registry before reading any legacy resolution, and two
+families claiming one card is a registration fault. Each family's module
+rustdoc owns its supported and rejected shapes (currently
+[player actions](../packages/game-engine/crates/compiler/src/compose/source_action.rs)).
+R6 derives every covered run from the recorded node and fact citations and
+records the consumed `printed_sha256` in definition provenance; the exact R5
+sentence remains only as the R5 proof. The trace lists each selection by
+family, block-relative path and kind, and the occurrence differential
+(`scripts/rework-reference-diff.py`) joins it to every frozen binder reference
+and projection in the claimed block.
+
 Run the frozen witness and mutation harness against the pinned candidate with
 `MTG_R6_VERIFIER_ROWS` set to its path. Verifier-only mutations rehash their
 payloads over unchanged Oracle text; detached source probes re-read changed text
@@ -269,11 +282,12 @@ capability and tested rules operation only where the algebra cannot express it.
 
 ### Verb signatures
 
-Draw, life, damage, permanent counter placement, sacrifice, discard, mill and
-zone changes (`Move`) use `kir::signatures`. The resolving spell shuffling
-itself (CR 608.2n) and the resolution object choice stay outside it.
-`kir::Verb` remains the wire representation. Damage prevention and commit,
-counter placement and graveyard moves retain their transaction authorities.
+Draw, life, damage, permanent counter placement, sacrifice, discard, mill,
+token creation (`CreateTokens`) and zone changes (`Move`) use `kir::signatures`.
+The resolving spell shuffling itself (CR 608.2n) and the resolution object
+choice stay outside it. `kir::Verb` remains the wire representation. Damage
+prevention and commit, counter placement and graveyard moves retain their
+transaction authorities.
 
 A slot admits an operand whose class it accepts and that resolves in scope; no
 row names a verb and reference pair. Scope is the checker's `Env` (context,
@@ -338,6 +352,7 @@ replacement.
 | `Damage` | > 0 | `EachSimultaneous` through the damage transaction | damage dealt, never life lost or prevented | permanents dealt damage | players dealt damage |
 | `PutCounters` | > 0 | `EachSimultaneous` | counters actually put | recipients | none |
 | `Sacrifice` | > 0, as many as possible (CR 609.3) | `CollectThenSimultaneous` (CR 701.21a) | number sacrificed | permanents sacrificed, whatever the destination | sacrificing players |
+| `CreateTokens` | ≥ 0; zero creates nothing (CR 111.1) | `Single`, one creation event | none | none | none |
 | `Move` | none | `EachSimultaneous` (CR 608.2c) | objects that reached the destination | their prior and successor incarnations; public facts unless the destination is hidden | none |
 
 A second projection of one verb ("life lost this way" from damage, "died this

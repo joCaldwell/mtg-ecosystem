@@ -145,7 +145,7 @@ fn intake(
         }
         hash.update(&bytes);
         let raw = line_text(&bytes)?;
-        evidence.record(raw, read, archive_line)?;
+        let card_evidence = evidence.record(raw, read, archive_line)?;
         let row: Value =
             strict_read(raw).map_err(|e| format!("archive line {archive_line}: {e}"))?;
         let source = &row["source"];
@@ -174,35 +174,36 @@ fn intake(
             return Err(format!("source hash drift on archive line {archive_line}"));
         }
         let facts = BulkCardFacts::from_source(source)?;
-        let (status, reason_code, phase, location) = match assess_record(archive, raw, &row) {
-            RecordAssessment::Definition(definition) => {
-                definitions.push(definition);
-                (
-                    BulkStatus::LoweredValidated,
-                    None,
-                    OutcomePhase::Validate,
-                    None,
-                )
-            }
-            RecordAssessment::Gap {
-                status,
-                reason,
-                phase,
-                location,
-            } => {
-                if reason.is_empty()
-                    || reason.len() > REASON_MAX_BYTES
-                    || location
-                        .as_ref()
-                        .is_some_and(|l| l.is_empty() || l.len() > REASON_MAX_BYTES)
-                {
-                    return Err(format!(
-                        "coverage reason size on archive line {archive_line}"
-                    ));
+        let (status, reason_code, phase, location) =
+            match assess_record(archive, raw, &row, card_evidence.as_ref()) {
+                RecordAssessment::Definition(definition) => {
+                    definitions.push(definition);
+                    (
+                        BulkStatus::LoweredValidated,
+                        None,
+                        OutcomePhase::Validate,
+                        None,
+                    )
                 }
-                (status, Some(reason), phase, location)
-            }
-        };
+                RecordAssessment::Gap {
+                    status,
+                    reason,
+                    phase,
+                    location,
+                } => {
+                    if reason.is_empty()
+                        || reason.len() > REASON_MAX_BYTES
+                        || location
+                            .as_ref()
+                            .is_some_and(|l| l.is_empty() || l.len() > REASON_MAX_BYTES)
+                    {
+                        return Err(format!(
+                            "coverage reason size on archive line {archive_line}"
+                        ));
+                    }
+                    (status, Some(reason), phase, location)
+                }
+            };
         outcomes.push(OutcomeRow {
             oracle_id: id.into(),
             source_index: source_bytes.source_index,

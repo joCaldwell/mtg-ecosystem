@@ -476,6 +476,18 @@ fn pilot_amount_relative(
         ast::Amount::LifeTotal(total) => Ok(Amount::LifeOf {
             player: pilot_player(cx, &total.of)?,
         }),
+        // CR 107.1a: half of a number, rounded as printed.
+        ast::Amount::Half(half) => {
+            let round_up = match half.round {
+                ast::AmountHalfRound::Up => true,
+                ast::AmountHalfRound::Down => false,
+                ast::AmountHalfRound::Exact => return Err(operand("amount", "half:exact")),
+            };
+            Ok(Amount::Half {
+                of: Box::new(pilot_amount_relative(cx, &half.of, subject)?),
+                round_up,
+            })
+        }
         _ => Err(operand("amount", variant(amount))),
     }
 }
@@ -499,7 +511,7 @@ fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Am
         Ok(amount) => return Ok(amount),
         Err(failure) => failure,
     };
-    if !sentence.steps.iter().all(|step| step.effect().is_some()) {
+    if !sentence.steps.iter().all(Step::is_evaluated) {
         return Err(original);
     }
     let [binding] = sentence.bindings.as_slice() else {
@@ -552,36 +564,6 @@ fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Am
         return Ok(Some(value));
     }
     let target_count = cx.program.targets.len();
-    // CR 608.2c: "that creature" in a trailing quantity cannot mean a
-    // card just drawn into the hand. Keep all competing mentions when
-    // the consuming steps name anything beyond "you" and the quantity.
-    if matches!(
-        &*binding.value,
-        ast::Amount::CounterCount(count)
-            if matches!(&*count.on, ast::AmountCounterCountOn::ObjectRef(object)
-                if matches!(&**object, ast::ObjectRef::That(that)
-                    if that.filter.cls != Some(ast::ObjectFilterCls::Card)))
-    ) && sentence.steps.iter().all(|step| match step.effect() {
-        Some(ast::Effect::Draw(draw)) => {
-            matches!(&*draw.who, ast::PlayerRef::You(_))
-                && matches!(&*draw.amount, ast::Amount::X(_))
-                && draw.for_each.is_none()
-                && draw.for_each_beyond.is_none()
-                && draw.for_each_vote.is_none()
-                && draw.decided_by.is_none()
-        }
-        Some(ast::Effect::Variant99(life)) => {
-            matches!(&*life.who, ast::PlayerRef::You(_))
-                && matches!(&*life.amount, ast::Amount::X(_))
-                && life.for_each.is_none()
-                && life.for_each_beyond.is_none()
-                && life.for_each_vote.is_none()
-                && life.decided_by.is_none()
-        }
-        _ => false,
-    }) {
-        cx.pending.other = false;
-    }
     let Ok(amount) = pilot_amount(cx, &binding.value) else {
         return Err(original);
     };
@@ -638,10 +620,25 @@ pub(crate) fn append_spell_effects(
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         // CR 608.2c: "where X is its power" follows the sentence's steps.
+        // X is read by its first reading step, so untargeted objects that
+        // step or a later one introduces (the tokens it creates) do not
+        // exist yet and cannot be what X describes. Its targets and the
+        // source already exist.
+        let first_reader = sentence
+            .reads_x
+            .iter()
+            .position(|reads| *reads)
+            .unwrap_or(sentence.introduces.len());
         let pending = sentence
             .introduces
             .iter()
             .fold(Introduced::default(), |all, step| all.join(*step));
+        let before_x = Introduced {
+            other: sentence.introduces[..first_reader]
+                .iter()
+                .any(|step| step.other),
+            ..pending
+        };
         let bound = pilot_x_binding(
             &mut StepCx {
                 program,
@@ -653,7 +650,7 @@ pub(crate) fn append_spell_effects(
                 source_named: scope.source_named,
                 floor: scope.floor,
                 prior,
-                pending,
+                pending: before_x,
                 subject: None,
                 source_block,
                 x: None,
@@ -896,4 +893,56 @@ pub(crate) fn uncounted(cx: &StepCx<'_>) -> Result<(), Failure> {
         return Err(unsupported("bindings", "unconsumed count binding"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn half_preserves_the_player_of_a_relative_creature_count() {
+        let amount = serde_json::from_value(serde_json::json!({
+            "amount": "half",
+            "round": "up",
+            "of": {
+                "amount": "count",
+                "of": {"types": ["creature"], "controlledBy": {"player": "they"}}
+            }
+        }))
+        .unwrap();
+        let mut program = SpellProgram::instructions(SpellTiming::Instant);
+        let mut slots = BTreeMap::new();
+        let mut cx = StepCx {
+            program: &mut program,
+            slots: &mut slots,
+            player_binding: PlayerBinding::Unbound,
+            event_is_source: false,
+            event_types: 0,
+            source_named: false,
+            floor: Floor::default(),
+            prior: Introduced::default(),
+            pending: Introduced::default(),
+            subject: None,
+            context: Context::Spell,
+            source_block: 0,
+            x: None,
+            x_consumed: false,
+            result_from: None,
+        };
+        let player = PlayerExpr::target(0);
+        assert_eq!(
+            pilot_amount_relative(&mut cx, &amount, Some(&player)).unwrap(),
+            Amount::Half {
+                of: Box::new(Amount::Count {
+                    set: SetExpr::battlefield(Pred(vec![
+                        Atom::Type {
+                            kind: CardKind::Creature
+                        },
+                        Atom::ControlledBy { player },
+                    ])),
+                }),
+                round_up: true,
+            }
+        );
+    }
 }
