@@ -2,23 +2,22 @@
 
 Disposable source-backed browser fixtures verify focus, layout, stored data and
 accessibility. This nested dev package is outside the root workspace, package
-`check` gates and Docker context. It builds `packages/multiverse` and uses backend
-capabilities; it never tests against production users or a live owner database.
+`check` gates and Docker context. It builds `packages/multiverse`, uses backend
+capabilities and never tests against production users or a live owner database.
 
 ## Setup and fixtures
 
-From repository root, use the pinned Node launcher:
+From repository root, with the pinned Node launcher:
 
 ```sh
 sh scripts/engine-env.sh npm --prefix packages/deck-builder/browser-checks ci --workspaces=false --ignore-scripts
 ```
 
 The lock pins `playwright-core` and `axe-core` and downloads no browsers; use
-matching installed Playwright browsers (`~/.cache/ms-playwright`). Axe is injected
-by automation, never a reason to relax CSP.
-
-Run the rest from this directory under pinned Node. `CHECKS_ROOT` overrides the
-fixture root `~/.cache/deck-builder-browser-checks`.
+matching installed Playwright browsers (`~/.cache/ms-playwright`). Automation
+injects Axe, which is never a reason to relax CSP. Run the rest from this directory
+under pinned Node; `CHECKS_ROOT` overrides the fixture root
+`~/.cache/deck-builder-browser-checks`.
 
 ```sh
 node seed.ts --source /absolute/disposable/card-source.db --images /absolute/frozen/oracle-cards.json
@@ -28,7 +27,7 @@ node serve.ts --port 8830
 `seed.ts` takes an online read-only backup of the explicit `--source`, migrates only
 its copy and keeps global card/name/price facts, never source users; the optional
 Oracle corpus fills missing image URLs/artists. Output is `CHECKS_ROOT/seed/seed.db`
-plus `seed.json` with actual fixture IDs. Personal records are created through
+plus `seed.json` with actual fixture IDs. Personal records come from
 capability/UI/MCP adapters: Rowan (user 1, admin) owns Paper, public, Theorycrafted
 and Archived decks with proposals, memories and tokens; Sam (user 2) is empty;
 Jordan (user 3) has the sample. Clock, randomness, locale, timezone and colour
