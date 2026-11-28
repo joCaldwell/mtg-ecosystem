@@ -314,6 +314,26 @@ const R6: &str = include_str!(
 );
 
 #[test]
+fn source_action_leaves_draw_with_controller_filter_to_legacy() {
+    let mut ability = json!({
+        "kind": "spell",
+        "effects": [{ "steps": [{
+            "effect": "draw",
+            "who": { "player": "you" },
+            "amount": { "amount": "fixed", "value": 1 }
+        }] }]
+    });
+    let parse = |ability| serde_json::from_value::<[ast::Ability; 1]>(json!([ability])).unwrap();
+    assert!(source_action::SourceAction::select(&parse(ability.clone())).is_some());
+
+    ability["effects"][0]["steps"][0]["forEach"] = json!({
+        "types": ["creature"],
+        "controllerMatches": { "choseOption": { "option": "war" } }
+    });
+    assert!(source_action::SourceAction::select(&parse(ability)).is_none());
+}
+
+#[test]
 fn source_action_uses_frozen_text_on_both_cuts_without_the_resolution_gate() {
     for (r5, r6) in [
         (
