@@ -127,8 +127,11 @@ payload hashes. The same producer, payload lengths and all decisions must agree.
 
 ### Rust printed evidence
 
-The intake verifier applies P1–P10 to each applicable R6 row before its card is
-assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
+Intake accepts a registered R6 cut only when its printed schema, vocabulary and
+generator pins name the compiled decoder. The accepted generators are listed
+explicitly: the current one and the R6 v4 one, whose decoder a compiler test
+proves identical except its generator line. The intake verifier applies P1–P10
+to each applicable R6 row before its card is assessed. The [parser contract](oracle_parser.md#ast-archive) owns the printed
 wire format and evidence bases. P6 rebuilds quote regions from the original
 text through verified normalization, lexing and punctuation order. A quoted
 grant's AST body enters the region bounded by its wrapper's matching marks.
@@ -520,6 +523,12 @@ several targets lower to one `PutCounters` over `SetExpr::Targets`, a single
 simultaneous placement on the counted occurrence's legal members (CR 608.2f,
 603.2c); per-member leaves would split it into several events.
 
+A linked entry value must resolve to the matching printed producer on the same
+face (CR 607.2d). The checker requires one compatible entry choice before
+admitting a linked static scope or mana production. Produced mana binds its
+spend permission to the chosen creature type and carries any spend rider as a
+separate term. Choice and cost definitions here qualify at `Executes`.
+
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.
 Rejected sites report `ref:<role>:<block kind>`. Steps dispatch on the AST `effect` tag to
@@ -657,7 +666,11 @@ that entry, and `--reader fresh` uses the exact Oracle, paper evidence, rules
 and R5 archive paths in the manifest. The pinned TypeScript producer generates
 at a fixed path in a private temporary directory. The manifest's archive
 basename selects the cache entry. Both paths use the same Rust intake and
-full-file verification.
+full-file verification. Fresh generation passes the pinned reader source and
+printed generator digests to the writer, which exits before parsing when the
+checkout differs; the compile then fails as a `reader` error. After any grammar
+change the registered cut is therefore readable in cached mode only, like R5,
+until a new cut is registered.
 
 One stage writes the three bulk format-2 files byte-identical to `build-ir` from the
 same binary, `outcomes.jsonl` and `compile-manifest.json`. Each outcome row joins

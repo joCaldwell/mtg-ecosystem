@@ -2,15 +2,22 @@
 // the damage event of the instruction it follows (CR 120.4a), rather than
 // being a later damage instruction or a standing replacement.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Sentence } from "../ast.ts";
+import type { Condition, Sentence } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
-import { parsePlayerRef } from "./refs.ts";
+import { parseCondition, parsePlayerRef } from "./refs.ts";
 
 /** Only a sentence that is one unconditional damage instruction to one
  * permanent has an unambiguous "excess damage". */
 export function foldExcessDamageSentence(c: Cursor, previous: Sentence): boolean {
   return c.attempt(c => {
     const start = c.pos;
+    // "If the creature you control has trample, excess damage …": the
+    // condition belongs to the excess redirection only.
+    const excessCondition = c.attempt((c): Condition | null => {
+      if (c.word("if") === null) return null;
+      const condition = parseCondition(c);
+      return condition?.condition === "has-keyword" && c.punct(",") ? condition : null;
+    });
     if (!c.words("excess", "damage", "is", "dealt", "to")) return null;
     const to = parsePlayerRef(c);
     if (!to || c.word("instead") === null || (!c.punct(".") && !c.done())) return null;
@@ -22,6 +29,7 @@ export function foldExcessDamageSentence(c: Cursor, previous: Sentence): boolean
       : ["it", "self", "this", "enchanted", "equipped"].includes(recipient.ref) || (recipient.ref === "that" && !recipient.plural);
     if (!single) return c.fail("one damage instruction to one permanent");
     only.excessTo = to;
+    if (excessCondition) only.excessCondition = excessCondition;
     c.fold(only, start);
     return true;
   }) === true;

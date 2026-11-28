@@ -1360,7 +1360,7 @@ export function effect(this: Analyzer, effect: Effect, path: string, context: Co
     // falls through
     case "skip-time": case "set-day-night":
     case "exchange-life-totals":
-    case "exchange-values": case "exchange-zones": case "choose-random": case "choose-friend-or-foe":
+    case "exchange-values": case "exchange-zones": case "choose-random": case "choose-friend-or-foe": case "choose-option":
     case "scan-library": case "grant-look-permission": case "self-replacement": case "look-top-may-reveal-for-mana":
       this.diagnostic("unsupported-scope", path, "This instruction's event/result associations are not yet established.", ["608.2c"]);
       if (effect.effect === "scan-library") context.uncertainScanOrigin = true;

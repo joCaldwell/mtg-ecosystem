@@ -850,9 +850,11 @@ fn a_target_group_asks_per_member_and_commits_once() {
             panic!()
         };
         // The recorded first answer names an instance it was never offered.
-        order.answers[0].chosen = ReplacementKey {
-            source: bears[0],
-            ability: 0,
+        order.answers[0].chosen = replacement::ReplacementAnswer::Order {
+            key: ReplacementKey {
+                source: bears[0],
+                ability: 0,
+            },
         };
     }
     let answer = second
@@ -1086,5 +1088,354 @@ fn a_pending_order_is_private_to_its_chooser() {
         assert_eq!(theirs.view.objects.len(), observe(seat).view.objects.len());
     }
     checked(&g);
+    assert_recoverable((&g).into());
+}
+
+const TENDO_ICE_BRIDGE: &str = record!("9e006a4b-8dde-4416-8cb4-8401562d0fd5");
+const VIVID_GROVE: &str = record!("b7a68899-c0d3-49e0-854b-19268ae9b89d");
+const VIVID_MEADOW: &str = record!("dee99df5-628f-4a4e-a203-4dfddc927373");
+const UNCLAIMED_TERRITORY: &str = record!("584b15f2-6ae9-413a-8b8d-9244dbea4878");
+const SECLUDED_COURTYARD: &str = record!("79ba18fd-f184-43c1-86df-56ee18ce806c");
+const CAVERN_OF_SOULS: &str = record!("89ca686a-7c72-4d8f-9290-e89635624a83");
+const HALL_OF_TRIUMPH: &str = record!("716632dd-2947-4641-a1db-50e0a2b0b4e8");
+const OBELISK_OF_URD: &str = record!("e2ef3a24-9e78-47fc-9192-049aa0ddb7a0");
+const SHIMMERDRIFT_VALE: &str = record!("2ac34f3e-822d-4fde-99ca-a31c4d9503fd");
+const QUIRION_ELVES: &str = record!("e2975a88-5a5a-462a-90b9-d8c00150b6d3");
+const SOL_GRAIL: &str = record!("0396ef40-3774-4684-9971-160aaccf6ac6");
+const SQUAD_CAPTAIN: &str = record!("865812c2-1838-4015-bf0d-990af76f7000");
+const GATEKEEPER_GARGOYLE: &str = record!("a175de44-3a7e-4165-8f9a-8173c0df13d6");
+
+fn play_land(g: &mut Game, id: u32) {
+    let object = Driver::object(g, id);
+    Driver::action(g, Action::PlayLand { object });
+}
+
+fn answer_candidate(g: &mut Game, decision: &Decision<Rules>, candidate: Candidate<Rules>) {
+    let answer = decision.pick_one(&candidate).unwrap();
+    g.respond(decision.player, decision.id, answer).unwrap();
+}
+
+#[test]
+fn named_entry_counters_and_exact_cost_rollback() {
+    let charge = kir::CounterKind::Named {
+        name: "charge".into(),
+    };
+    for (raw, name) in [(VIVID_GROVE, "Vivid Grove"), (VIVID_MEADOW, "Vivid Meadow")] {
+        let mut g = Game::new(
+            board(&[raw, DOUBLING_SEASON], 2)
+                .permanent_or_hand(name, 0, 0, true)
+                .permanent_or_hand("Doubling Season", 0, 0, false)
+                .libraries("Island", 6)
+                .prepare(),
+        );
+        play_land(&mut g, 0);
+        Driver::request(&mut g, 1);
+        let land = g.current(Driver::object(&g, 0)).unwrap();
+        assert!(land.tapped);
+        assert_eq!(land.counter_count(&charge), Quantity::from(4));
+        assert_recoverable((&g).into());
+    }
+
+    let mut g = Game::new(
+        board(&[TENDO_ICE_BRIDGE, DOUBLING_SEASON], 2)
+            .permanent_or_hand("Tendo Ice Bridge", 0, 0, true)
+            .permanent_or_hand("Colossal Dreadmaw", 0, 0, true)
+            .permanent_or_hand("Doubling Season", 0, 0, false)
+            .libraries("Island", 6)
+            .prepare(),
+    );
+    play_land(&mut g, 0);
+    Driver::request(&mut g, 1);
+    let land = Driver::object(&g, 0);
+    let before = g.current(land).unwrap().clone();
+    assert_eq!(before.counter_count(&charge), Quantity::from(2));
+    Driver::cast(&mut g, CardId(1));
+    let request = Driver::request(&mut g, 1);
+    let source = request
+        .index(&Candidate::Action {
+            action: Action::ActivateMana { object: land },
+        })
+        .unwrap();
+    g.respond(
+        request.player,
+        request.id,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source },
+        },
+    )
+    .unwrap();
+    let request = Driver::request(&mut g, 1);
+    answer_candidate(
+        &mut g,
+        &request,
+        Candidate::ManaAbility {
+            ability: ManaAbilityIdentity::Printed { index: 1 },
+        },
+    );
+    let request = Driver::request(&mut g, 1);
+    answer_candidate(&mut g, &request, Candidate::Color { color: Color::G });
+    Driver::request(&mut g, 1);
+    assert_eq!(
+        g.current(land).unwrap().counter_count(&charge),
+        Quantity::from(1)
+    );
+    assert!(g.current(land).unwrap().tapped);
+    assert_recoverable((&g).into());
+    Driver::answer(
+        &mut g,
+        1,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    Driver::request(&mut g, 1);
+    assert_eq!(*g.current(land).unwrap(), before);
+    assert_recoverable((&g).into());
+}
+
+#[test]
+fn chosen_creature_type_mana_can_only_pay_the_linked_purchase() {
+    let elf = kir::CreatureType::from_name("Elf").unwrap();
+    for (raw, land, spell, protects) in [
+        (
+            UNCLAIMED_TERRITORY,
+            "Unclaimed Territory",
+            "Llanowar Elves",
+            false,
+        ),
+        (
+            SECLUDED_COURTYARD,
+            "Secluded Courtyard",
+            "Grizzly Bears",
+            false,
+        ),
+        (CAVERN_OF_SOULS, "Cavern of Souls", "Llanowar Elves", true),
+    ] {
+        let mut g = Game::new(
+            board(&[raw], 4)
+                .permanent_or_hand(land, 0, 0, true)
+                .permanent_or_hand(spell, 0, 0, true)
+                .libraries("Island", 6)
+                .prepare(),
+        );
+        play_land(&mut g, 0);
+        let request = Driver::request(&mut g, 1);
+        assert_eq!(request.player, PlayerId(0));
+        assert!(matches!(request.reason, Reason::ReplacementOrder { .. }));
+        assert!(matches!(
+            g.current(Driver::object(&g, 0)).unwrap().zone,
+            Zone::Hand { .. }
+        ));
+        checked(&g);
+        for seat in 1..4 {
+            let QueryResult::Complete(QueryValue::Observation(observed)) =
+                g.observe(PlayerId(seat), Budget::unlimited())
+            else {
+                panic!("missing observation");
+            };
+            assert!(observed.decision.is_none());
+            assert!(
+                observed
+                    .view
+                    .objects
+                    .iter()
+                    .all(|o| o.oracle_id != lowered(raw).oracle_id)
+            );
+        }
+        assert_recoverable((&g).into());
+        answer_candidate(&mut g, &request, Candidate::CreatureType { kind: elf });
+        Driver::request(&mut g, 1);
+        let land = Driver::object(&g, 0);
+        assert_eq!(
+            g.current(land).unwrap().entry_selection,
+            Some(EntrySelection::CreatureType { kind: elf })
+        );
+        Driver::cast(&mut g, CardId(1));
+        let request = Driver::request(&mut g, 1);
+        let source = request
+            .index(&Candidate::Action {
+                action: Action::ActivateMana { object: land },
+            })
+            .unwrap();
+        g.respond(
+            request.player,
+            request.id,
+            Answer::Pay {
+                pay: PayAnswer::Activate { source },
+            },
+        )
+        .unwrap();
+        let request = Driver::request(&mut g, 1);
+        answer_candidate(
+            &mut g,
+            &request,
+            Candidate::ManaAbility {
+                ability: ManaAbilityIdentity::Printed { index: 1 },
+            },
+        );
+        let request = Driver::request(&mut g, 1);
+        answer_candidate(&mut g, &request, Candidate::Color { color: Color::G });
+        let request = Driver::request(&mut g, 1);
+        let Shape::Pay { pool, .. } = &request.shape else {
+            panic!("{request:?}");
+        };
+        assert_eq!(
+            pool.restricted.len(),
+            usize::from(spell == "Llanowar Elves")
+        );
+        let held = &g.state.rules.players[0].restricted_mana;
+        assert_eq!(held.len(), 1);
+        assert_recoverable((&g).into());
+        let restricted = held.clone();
+        Driver::answer(
+            &mut g,
+            1,
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true,
+                },
+            },
+        );
+        if spell == "Llanowar Elves" {
+            Driver::answer(
+                &mut g,
+                1,
+                Answer::Pay {
+                    pay: PayAnswer::SpendRestricted {
+                        unrestricted: Default::default(),
+                        restricted,
+                    },
+                },
+            );
+            Driver::request(&mut g, 1);
+            assert!(g.state.rules.players[0].restricted_mana.is_empty());
+            assert_eq!(
+                g.state.rules.stack.last().unwrap().mana_uncounterable,
+                protects
+            );
+        } else {
+            Driver::request(&mut g, 1);
+            assert!(g.state.rules.stack.is_empty());
+            assert!(g.state.rules.players[0].restricted_mana.is_empty());
+        }
+        checked(&g);
+        assert_recoverable((&g).into());
+    }
+}
+
+#[test]
+fn public_value_links_and_board_counts_compile_whole_cards() {
+    for raw in [
+        HALL_OF_TRIUMPH,
+        OBELISK_OF_URD,
+        QUIRION_ELVES,
+        SOL_GRAIL,
+        SQUAD_CAPTAIN,
+        GATEKEEPER_GARGOYLE,
+    ] {
+        let d = lowered(raw);
+        assert!(
+            kir::definition_tiers(&d)
+                .unwrap()
+                .admits(kir::ExecutionTier::Executes)
+        );
+    }
+    let mut g = Game::new(
+        board(&[HALL_OF_TRIUMPH], 2)
+            .permanent_or_hand("Hall of Triumph", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .libraries("Island", 6)
+            .prepare(),
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[3, 4, 5]);
+    let request = until_choice(&mut g);
+    assert_eq!(request.player, PlayerId(0));
+    answer_candidate(&mut g, &request, Candidate::Color { color: Color::G });
+    until_choice(&mut g);
+    assert_eq!(
+        g.characteristics(Driver::object(&g, 1)).unwrap().power,
+        Some(3.into())
+    );
+    assert_eq!(
+        g.characteristics(Driver::object(&g, 2)).unwrap().power,
+        Some(2.into())
+    );
+    assert_recoverable((&g).into());
+
+    let mut g = Game::new(
+        board(&[SOL_GRAIL], 2)
+            .permanent_or_hand("Sol Grail", 0, 0, true)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .permanent_or_hand("Plains", 0, 0, false)
+            .libraries("Island", 6)
+            .prepare(),
+    );
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3]);
+    let request = until_choice(&mut g);
+    answer_candidate(&mut g, &request, Candidate::Color { color: Color::U });
+    until_choice(&mut g);
+    let grail = Driver::object(&g, 0);
+    Driver::action(&mut g, Action::ActivateMana { object: grail });
+    let request = Driver::request(&mut g, 1);
+    assert_eq!(request.reason, Reason::Priority);
+    assert_eq!(
+        g.state.rules.players[0].mana.get(&Color::U),
+        Some(&1.into())
+    );
+    assert_recoverable((&g).into());
+}
+
+#[test]
+fn entry_and_cost_neighbours_reject_at_a_located_boundary() {
+    for raw in [
+        record!("0a79237e-0811-4a8a-bd4d-db3ca91bff22"),
+        record!("499dceab-1890-49c8-b35d-b059a1dc950f"),
+        record!("0c828f10-4775-492f-9224-1e2814ad2cad"),
+        SHIMMERDRIFT_VALE,
+    ] {
+        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, raw);
+        assert!(
+            matches!(result, mtg_compiler::CompileResult::Unsupported { ref path, .. } if !path.is_empty()),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn counted_entry_uses_the_incoming_controllers_prior_board() {
+    let mut b = board(&[SQUAD_CAPTAIN, GATEKEEPER_GARGOYLE], 2)
+        .permanent_or_hand("Squad Captain", 0, 0, true)
+        .permanent_or_hand("Gatekeeper Gargoyle", 0, 0, true)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false);
+    for _ in 0..11 {
+        b = b.permanent_or_hand("Plains", 0, 0, false);
+    }
+    let mut g = Game::new(b.libraries("Island", 6).prepare());
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[4, 5, 6, 7, 8]);
+    until_choice(&mut g);
+    assert_eq!(plus(&g, 0), Quantity::from(1));
+    assert_recoverable((&g).into());
+
+    Driver::cast(&mut g, CardId(1));
+    Driver::pay(&mut g, &[9, 10, 11, 12, 13, 14]);
+    until_choice(&mut g);
+    // The frozen Gargoyle is 3/3 before counters. Zero matching Gates
+    // produces no placement and leaves the living creature without counters.
+    assert_eq!(plus(&g, 1), Quantity::zero());
+    assert_eq!(
+        g.current(Driver::object(&g, 1)).unwrap().zone,
+        Zone::Battlefield
+    );
     assert_recoverable((&g).into());
 }

@@ -1,6 +1,7 @@
 //! Restricted mana remains restricted until spent or lost (CR 106.6).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+use crate::kir::CreatureType;
 use std::collections::BTreeMap;
 
 #[derive(
@@ -13,12 +14,22 @@ pub enum ManaSpendRestriction {
     ArtifactAbility,
     ColorlessSpell,
     ColorlessEldraziSpellOrAbility,
-    SpellType { kind: CardKind },
+    SpellType {
+        kind: CardKind,
+    },
     LegendarySpellUncounterable,
     InstantOrSorceryUncounterable,
     ColorlessSpellOrActivatedAbility,
     CreatureSpellOrBattlefieldCreatureAbility,
-    SpellSubtypes { any_of: [ManaSpellSubtype; 3] },
+    SpellSubtypes {
+        any_of: [ManaSpellSubtype; 3],
+    },
+    CreatureType {
+        selection: CreatureTypeSpend,
+        ability_sources: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        on_spend: Option<ManaSpendRider>,
+    },
 }
 
 #[derive(
@@ -29,6 +40,25 @@ pub enum ManaSpellSubtype {
     Dwarf,
     Equipment,
     Saga,
+}
+
+/// The checked link in printed abilities and the bound value in produced mana.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum CreatureTypeSpend {
+    SourceChoice,
+    Unchosen,
+    Chosen(CreatureType),
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ManaSpendRider {
+    UncounterableSpell,
 }
 
 impl ManaSpellSubtype {
@@ -64,11 +94,20 @@ pub struct ManaSpellTraits {
     types: u8,
     eldrazi: bool,
     legendary: bool,
+    creature_types: [u64; 6],
+    all_creature_types: bool,
 }
 
 impl ManaSpellTraits {
     fn has_type(self, kind: CardKind) -> bool {
         self.types & (1 << kind as u8) != 0
+    }
+
+    fn has_creature_type(self, kind: CreatureType) -> bool {
+        let index = usize::from(kind.index());
+        self.creature
+            && (self.all_creature_types
+                || self.creature_types[index / 64] & (1 << (index % 64)) != 0)
     }
 
     pub fn from_characteristics(c: &Characteristics) -> Self {
@@ -78,7 +117,16 @@ impl ManaSpellTraits {
                 subtypes |= 1 << subtype.index();
             }
         }
+        let mut creature_types = [0; 6];
+        for subtype in &c.subtypes {
+            if let Some(kind) = CreatureType::from_name(subtype) {
+                let index = usize::from(kind.index());
+                creature_types[index / 64] |= 1 << (index % 64);
+            }
+        }
         Self {
+            creature_types,
+            all_creature_types: c.all_creature_types,
             colorless: c.colors.is_empty(),
             creature: c.has_type(CardKind::Creature),
             subtypes,
@@ -115,6 +163,40 @@ impl ManaSpendRestriction {
         }
     }
 
+    pub fn valid_production(self) -> bool {
+        self.is_canonical()
+            && (!matches!(self, Self::CreatureType { .. }) || self.reads_creature_type_choice())
+    }
+
+    pub fn valid_bucket(self) -> bool {
+        self.is_canonical() && !self.reads_creature_type_choice()
+    }
+
+    pub fn reads_creature_type_choice(self) -> bool {
+        matches!(
+            self,
+            Self::CreatureType {
+                selection: CreatureTypeSpend::SourceChoice,
+                ..
+            }
+        )
+    }
+
+    pub fn bind_creature_type(self, kind: Option<CreatureType>) -> Self {
+        match self {
+            Self::CreatureType {
+                selection: CreatureTypeSpend::SourceChoice,
+                ability_sources,
+                on_spend,
+            } => Self::CreatureType {
+                selection: kind.map_or(CreatureTypeSpend::Unchosen, CreatureTypeSpend::Chosen),
+                ability_sources,
+                on_spend,
+            },
+            _ => self,
+        }
+    }
+
     // CR 109.2b and 106.6: this tests the spell on the stack, using subtype
     // membership. An Equipment subtype differs from the artifact card type.
     pub fn permits_spell(self, spell: ManaSpellTraits) -> bool {
@@ -128,6 +210,9 @@ impl ManaSpendRestriction {
             Self::InstantOrSorceryUncounterable => true,
             Self::ColorlessSpellOrActivatedAbility => spell.colorless,
             Self::CreatureSpellOrBattlefieldCreatureAbility => spell.creature,
+            Self::CreatureType { selection, .. } => {
+                matches!(selection, CreatureTypeSpend::Chosen(kind) if spell.has_creature_type(kind))
+            }
             Self::SpellSubtypes { any_of } => any_of
                 .into_iter()
                 .any(|subtype| spell.subtypes & (1 << subtype.index()) != 0),
@@ -137,6 +222,10 @@ impl ManaSpendRestriction {
     pub fn prevents_countering(self, spell: ManaSpellTraits) -> bool {
         match self {
             Self::LegendarySpellUncounterable => spell.legendary,
+            Self::CreatureType {
+                on_spend: Some(ManaSpendRider::UncounterableSpell),
+                ..
+            } => self.permits_spell(spell),
             Self::InstantOrSorceryUncounterable => {
                 spell.has_type(CardKind::Instant) || spell.has_type(CardKind::Sorcery)
             }
@@ -152,6 +241,13 @@ impl ManaSpendRestriction {
             Self::ColorlessEldraziSpellOrAbility => {
                 battlefield && source.colorless && source.eldrazi
             }
+            // CR 106.6, 113.7: a creature source may be a creature card
+            // outside the battlefield, such as one using cycling.
+            Self::CreatureType {
+                selection: CreatureTypeSpend::Chosen(kind),
+                ability_sources: true,
+                ..
+            } => source.has_creature_type(kind),
             _ => self.permits_activation(battlefield && source.creature),
         }
     }

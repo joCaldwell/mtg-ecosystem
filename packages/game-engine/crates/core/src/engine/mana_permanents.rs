@@ -281,7 +281,10 @@ impl RulesTxn {
         let mut out = vec![];
         for (index, a) in self.printed_mana_abilities(object)?.iter().enumerate() {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
-            out.push((ManaSlot::Printed(index), a.clone()));
+            out.push((
+                ManaSlot::Printed(index),
+                self.bind_mana_production(object, a.clone())?,
+            ));
         }
         for (index, (_, a)) in self.granted_mana_abilities(object)?.into_iter().enumerate() {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
@@ -290,7 +293,7 @@ impl RulesTxn {
         Ok(out)
     }
     fn mana_ability_at(&self, source: ObjectId, slot: ManaSlot) -> Result<ManaAbility, String> {
-        match slot {
+        let ability = match slot {
             ManaSlot::Printed(index) => self
                 .printed_mana_abilities(source)?
                 .get(index as usize)
@@ -300,8 +303,25 @@ impl RulesTxn {
                 .get(index as usize)
                 .map(|(_, a)| (*a).clone()),
         }
-        .ok_or_else(|| "missing mana ability".into())
+        .ok_or("missing mana ability")?;
+        self.bind_mana_production(source, ability)
     }
+
+    fn bind_mana_production(
+        &self,
+        source: ObjectId,
+        mut ability: ManaAbility,
+    ) -> Result<ManaAbility, String> {
+        if matches!(ability.production, ManaProduction::SourceChosenColor) {
+            let chosen = self
+                .current(source)?
+                .entry_selection
+                .and_then(EntrySelection::color);
+            ability.production = ability.production.bind_color(chosen);
+        }
+        Ok(ability)
+    }
+
     /// The activation is still the source's current ability at its slot;
     /// admitted grants cannot change while their activation is open.
     fn activation_matches(&self, a: &ManaActivation) -> Result<bool, String> {
@@ -460,6 +480,7 @@ impl RulesTxn {
     ) -> Result<Vec<Color>, String> {
         Ok(match production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
+            ManaProduction::SourceChosenColor => return Err("unbound mana production".into()),
             ManaProduction::Counted {
                 color,
                 filter,
@@ -760,9 +781,9 @@ impl RulesTxn {
                 .as_ref()
                 .is_some_and(|life| !self.state.rules.players[player.0 as usize].can_pay_life(life))
             || a.costs
-                .remove_source_plus_one_counters
+                .remove_source_counters
                 .as_ref()
-                .is_some_and(|n| o.plus_one_counters < *n)
+                .is_some_and(|cost| o.counter_count(&cost.kind) < cost.amount)
             || (a.restriction.is_some()
                 && index.is_none_or(|index| self.mana_ability_index_used(source, index)))
             || a.condition
@@ -1175,9 +1196,9 @@ impl RulesTxn {
                 && o.controller == player
                 && !(costs.tap && o.tapped)
                 && costs
-                    .remove_source_plus_one_counters
+                    .remove_source_counters
                     .as_ref()
-                    .is_none_or(|n| o.plus_one_counters >= *n)
+                    .is_none_or(|cost| o.counter_count(&cost.kind) >= cost.amount)
                 && costs.pay_life.as_ref().is_none_or(|life| {
                     self.state.rules.players[player.0 as usize].can_pay_life(life)
                 })
@@ -1196,14 +1217,14 @@ impl RulesTxn {
         let mut children = vec![];
         // CR 118.3/605.3b: counter removal pays the cost before the other
         // terms; the enclosing staged rule step owns rollback.
-        if let Some(amount) = &costs.remove_source_plus_one_counters {
+        if let Some(cost) = &costs.remove_source_counters {
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::PayCounterCost {
                     object: source,
                     cost: CounterCost::Remove {
                         counters: CounterAmount {
-                            counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
-                            amount: amount.clone(),
+                            counter: cost.kind.clone(),
+                            amount: cost.amount.clone(),
                         },
                     },
                 },
@@ -1231,7 +1252,7 @@ impl RulesTxn {
                 },
             });
         }
-        if costs.remove_source_plus_one_counters.is_some() {
+        if costs.remove_source_counters.is_some() {
             self.commit_counter_cost_batch(cause, EventGroup::Ordered { children })?;
         } else if !children.is_empty() {
             self.commit_batch(cause, EventGroup::Ordered { children })?;
@@ -1310,7 +1331,13 @@ impl RulesTxn {
         let source = self.object_id(a.source.card).unwrap_or(a.source);
         let mut children = vec![];
         for (color, amount) in units {
-            let restriction = a.ability.spend_restriction;
+            let restriction = a.ability.spend_restriction.map(|rule| {
+                let kind = match receipt.source.entry_selection {
+                    Some(EntrySelection::CreatureType { kind }) => Some(kind),
+                    _ => None,
+                };
+                rule.bind_creature_type(kind)
+            });
             if let Some(restriction) = restriction {
                 restricted_mana::credit(
                     &mut receipt.produced_restricted,

@@ -759,9 +759,24 @@ fn generate_archive(
         .arg(legacy)
         .arg("--output")
         .arg(scratch.path())
+        .arg("--expect-source")
+        .arg(&inputs.reader.source_sha256)
+        .arg("--expect-generator")
+        .arg(&r6.printed.generator_sha256)
         .stdout(Stdio::null())
         .status()
         .map_err(reader)?;
+    // The writer exits 3 before parsing when this checkout's parser source or
+    // printed generator is not the pinned reader: after a grammar change the
+    // registered cut is readable from its retained cache only.
+    if status.code() == Some(3) {
+        return Err(CompileError::Reader(format!(
+            "fresh R6 regeneration needs the registered reader (source {}, printed generator {}); \
+             this checkout's reader differs, so the registered cut is readable in cached mode \
+             only until a new cut is registered",
+            inputs.reader.source_sha256, r6.printed.generator_sha256
+        )));
+    }
     if !status.success() {
         return Err(CompileError::Reader(format!(
             "fresh R6 writer failed with {status}"

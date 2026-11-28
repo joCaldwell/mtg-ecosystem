@@ -352,7 +352,7 @@ impl RulesTxn {
         // CR 119.4, 122.1, 602.2b: life can be paid only from a life total at
         // least that large, and only counters the source has can be removed.
         if let ActivationCost::Composite { costs } = &ability.cost
-            && (costs.pay_life.is_some() || costs.remove_source_plus_one_counters.is_some())
+            && (costs.pay_life.is_some() || costs.remove_source_counters.is_some())
             && !self.permanent_source_costs_payable(object, player, costs)
         {
             return Err("unpayable life or counter activation cost".into());

@@ -173,6 +173,20 @@ function parseUnable(c: Cursor, g: ConditionGrammar): Condition | null {
   });
 }
 
+/** "If you can't sacrifice a creature,": the restated sacrifice names an
+ * earlier instruction of the same resolution (CR 118.12). */
+function parseRestatedUnable(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt((c): Condition | null => {
+    const who = g.parsePlayerRef(c);
+    if (!who || c.word("can't") === null) return null;
+    const actionAt = c.pos;
+    if (c.word("sacrifice") === null) return null;
+    const what = g.parseObjectRef(c);
+    if (!what || !c.isPunct(",")) return null;
+    return { condition: "restated-action-unable", who, action: c.mark({ action: "sacrifice" as const, what }, actionAt) };
+  });
+}
+
 /** CR 607.2a: cards "exiled with [this object]" are the cards in exile that
  * its linked ability put there, so "a card is exiled with it", "there are
  * cards exiled with it" and "three or more cards have been exiled with this
@@ -203,6 +217,7 @@ function parseLinkedExileCount(c: Cursor, g: ConditionGrammar): Condition | null
 
 export function parseLinkedCondition(c: Cursor, g: ConditionGrammar): Condition | null {
   return parseKeywordChoice(c, g) ?? parseAlternativeCostPaid(c) ?? parseResolutionOrdinal(c)
-    ?? parseActivationCount(c, g) ?? parseUnable(c, g) ?? parsePrecedingActionOutcome(c, g.parsePlayerRef) ?? parseAnyPlayerOutcome(c)
+    ?? parseActivationCount(c, g) ?? parseUnable(c, g) ?? (g.outcomes ? parseRestatedUnable(c, g) : null)
+    ?? parsePrecedingActionOutcome(c, g.parsePlayerRef) ?? parseAnyPlayerOutcome(c)
     ?? parseLinkedExileCount(c, g);
 }

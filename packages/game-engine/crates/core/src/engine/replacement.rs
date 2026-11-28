@@ -20,7 +20,7 @@
 use super::*;
 use mtg_contracts::QuantityModification;
 use mtg_contracts::kir::{
-    CounterKind, CounterRecipients, QuantityEvent, ReplacementOrigin, StaticRule,
+    CounterKind, CounterRecipients, EntryChoiceSpec, QuantityEvent, ReplacementOrigin, StaticRule,
 };
 
 /// The member a quantity replacement may modify.
@@ -49,18 +49,36 @@ pub struct OrderRequest {
     pub holder: ObjectId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shown: Option<ObjectId>,
-    pub counter: CounterKind,
-    pub amount: Quantity,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub applied: Vec<ReplacementKey>,
-    pub offered: Vec<ReplacementKey>,
+    pub choice: ReplacementChoice,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ReplacementChoice {
+    Order {
+        counter: CounterKind,
+        amount: Quantity,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        applied: Vec<ReplacementKey>,
+        offered: Vec<ReplacementKey>,
+    },
+    Entry {
+        spec: EntryChoiceSpec,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "answer", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ReplacementAnswer {
+    Order { key: ReplacementKey },
+    Entry { selection: EntrySelection },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrderAnswer {
     pub request: OrderRequest,
-    pub chosen: ReplacementKey,
+    pub chosen: ReplacementAnswer,
 }
 
 /// The suspended choice and the step it replays. `deferred` is the
@@ -239,12 +257,17 @@ impl RulesTxn {
                         chooser: controller,
                         holder,
                         shown,
-                        counter: counter.clone(),
-                        amount: amount.clone(),
-                        applied: applied.clone(),
-                        offered,
+                        choice: ReplacementChoice::Order {
+                            counter: counter.clone(),
+                            amount: amount.clone(),
+                            applied: applied.clone(),
+                            offered,
+                        },
                     };
-                    let key = self.replacement_answer(&request)?;
+                    let ReplacementAnswer::Order { key } = self.replacement_answer(&request)?
+                    else {
+                        return Err("expected a replacement order answer".into());
+                    };
                     eligible
                         .iter()
                         .find(|r| r.key == key)
@@ -271,15 +294,15 @@ impl RulesTxn {
 
     /// The recorded answer to `request`, or the error that suspends the
     /// rule step for it.
-    fn replacement_answer(&self, request: &OrderRequest) -> Result<ReplacementKey, String> {
+    fn replacement_answer(&self, request: &OrderRequest) -> Result<ReplacementAnswer, String> {
         if let Some(answer) = self
             .replacement_answers
             .iter()
             .find(|answer| answer.request == *request)
         {
-            return Ok(answer.chosen);
+            return Ok(answer.chosen.clone());
         }
-        if !self.is_live(request.chooser) || self.distinct_sources(request).is_err() {
+        if !self.is_live(request.chooser) || self.replacement_candidates(request)?.is_empty() {
             return Err("unanswerable replacement order".into());
         }
         Err(format!(
@@ -288,9 +311,58 @@ impl RulesTxn {
         ))
     }
 
+    pub(super) fn entry_value(
+        &self,
+        holder: ObjectId,
+        chooser: PlayerId,
+        shown: Option<ObjectId>,
+        spec: EntryChoiceSpec,
+    ) -> Result<EntrySelection, String> {
+        let request = OrderRequest {
+            chooser,
+            holder,
+            shown,
+            choice: ReplacementChoice::Entry { spec },
+        };
+        let ReplacementAnswer::Entry { selection } = self.replacement_answer(&request)? else {
+            return Err("expected a replacement entry answer".into());
+        };
+        Ok(selection)
+    }
+
+    fn replacement_candidates(
+        &self,
+        request: &OrderRequest,
+    ) -> Result<Vec<Candidate<Rules>>, String> {
+        Ok(match &request.choice {
+            ReplacementChoice::Order { offered, .. } => Self::distinct_sources(offered)?
+                .into_iter()
+                .map(|object| Candidate::Object { object })
+                .collect(),
+            ReplacementChoice::Entry {
+                spec: EntryChoiceSpec::Color,
+            } => [Color::W, Color::U, Color::B, Color::R, Color::G]
+                .into_iter()
+                .map(|color| Candidate::Color { color })
+                .collect(),
+            ReplacementChoice::Entry {
+                spec: EntryChoiceSpec::CreatureType,
+            } => mtg_contracts::kir::CreatureType::all()
+                .map(|kind| Candidate::CreatureType { kind })
+                .collect(),
+            ReplacementChoice::Entry {
+                spec: EntryChoiceSpec::Player { opponent },
+            } => self
+                .apnap_seats()
+                .filter(|&p| self.is_live(p) && (!opponent || request.chooser != p))
+                .map(|player| Candidate::Player { player })
+                .collect(),
+        })
+    }
+
     /// The offered instances' permanents, which name them uniquely.
-    fn distinct_sources(&self, request: &OrderRequest) -> Result<Vec<ObjectId>, String> {
-        let sources: Vec<ObjectId> = request.offered.iter().map(|k| k.source).collect();
+    fn distinct_sources(offered: &[ReplacementKey]) -> Result<Vec<ObjectId>, String> {
+        let sources: Vec<ObjectId> = offered.iter().map(|k| k.source).collect();
         if sources.len() < 2 || sources.iter().collect::<BTreeSet<_>>().len() != sources.len() {
             return Err("replacement order candidates are not distinct permanents".into());
         }
@@ -314,11 +386,7 @@ impl RulesTxn {
         let Some(request) = &order.request else {
             return Ok(None);
         };
-        let mut candidates: Vec<Candidate<Rules>> = self
-            .distinct_sources(request)?
-            .into_iter()
-            .map(|object| Candidate::Object { object })
-            .collect();
+        let mut candidates = self.replacement_candidates(request)?;
         let allowed = (0..candidates.len() as u32).collect();
         let subject = request.shown.map(|object| {
             candidates.push(Candidate::Object { object });
@@ -348,14 +416,40 @@ impl RulesTxn {
         if input.player != request.chooser {
             return Err("wrong replacement order chooser".into());
         }
-        let Candidate::Object { object } = input.one()? else {
-            return Err("invalid replacement order answer".into());
+        let chosen = match (&request.choice, input.one()?) {
+            (ReplacementChoice::Order { offered, .. }, Candidate::Object { object }) => {
+                let key = *offered
+                    .iter()
+                    .find(|key| key.source == *object)
+                    .ok_or("replacement answer outside its offer")?;
+                ReplacementAnswer::Order { key }
+            }
+            (
+                ReplacementChoice::Entry {
+                    spec: EntryChoiceSpec::Color,
+                },
+                Candidate::Color { color },
+            ) => ReplacementAnswer::Entry {
+                selection: EntrySelection::Color { color: *color },
+            },
+            (
+                ReplacementChoice::Entry {
+                    spec: EntryChoiceSpec::CreatureType,
+                },
+                Candidate::CreatureType { kind },
+            ) => ReplacementAnswer::Entry {
+                selection: EntrySelection::CreatureType { kind: *kind },
+            },
+            (
+                ReplacementChoice::Entry {
+                    spec: EntryChoiceSpec::Player { opponent },
+                },
+                Candidate::Player { player },
+            ) if !opponent || *player != request.chooser => ReplacementAnswer::Entry {
+                selection: EntrySelection::Player { player: *player },
+            },
+            _ => return Err("invalid replacement answer".into()),
         };
-        let chosen = *request
-            .offered
-            .iter()
-            .find(|key| key.source == *object)
-            .ok_or("replacement order answer outside its offer")?;
         Ok(OrderAnswer {
             request: request.clone(),
             chosen,
@@ -426,13 +520,23 @@ impl RulesTxn {
         let live = |key: &ReplacementKey| rules.iter().any(|rule| rule.key == *key);
         order.answers.retain_mut(|answer| {
             let request = &mut answer.request;
-            request.offered.retain(live);
             self.is_live(request.chooser)
                 && request
                     .shown
                     .is_none_or(|object| self.current(object).is_ok())
-                && request.applied.iter().all(live)
-                && request.offered.contains(&answer.chosen)
+                && match (&mut request.choice, &answer.chosen) {
+                    (
+                        ReplacementChoice::Order {
+                            offered, applied, ..
+                        },
+                        ReplacementAnswer::Order { key },
+                    ) => {
+                        offered.retain(live);
+                        applied.iter().all(live) && offered.contains(key)
+                    }
+                    (ReplacementChoice::Entry { .. }, ReplacementAnswer::Entry { .. }) => true,
+                    _ => false,
+                }
         });
         self.rules_mut().frame = Frame::ReplacementOrder {
             order: Box::new(order),
@@ -518,30 +622,64 @@ impl RulesTxn {
         }
         if let Some(request) = &order.request {
             let rules = self.live_quantity_rules()?;
-            self.distinct_sources(request)?;
-            if !self.is_live(request.chooser)
-                || request.amount <= Quantity::zero()
-                || request
-                    .offered
-                    .iter()
-                    .chain(&request.applied)
-                    .any(|key| !rules.iter().any(|rule| rule.key == *key))
-                || request
-                    .offered
-                    .iter()
-                    .any(|key| request.applied.contains(key))
+            if !self.is_live(request.chooser) || self.replacement_candidates(request)?.is_empty() {
+                return Err("invalid replacement chooser or offer".into());
+            }
+            if let ReplacementChoice::Order {
+                amount,
+                offered,
+                applied,
+                ..
+            } = &request.choice
+                && (*amount <= Quantity::zero()
+                    || offered
+                        .iter()
+                        .chain(applied)
+                        .any(|key| !rules.iter().any(|rule| rule.key == *key))
+                    || offered.iter().any(|key| applied.contains(key)))
             {
                 return Err("invalid replacement order".into());
             }
         } else if self.state.rules.pending.is_some() {
             return Err("replacement replay has an unexpected answer".into());
         }
-        if order
-            .answers
-            .iter()
-            .any(|a| !a.request.offered.contains(&a.chosen))
-        {
-            return Err("invalid replacement order".into());
+        for answer in &order.answers {
+            let valid = match (&answer.request.choice, &answer.chosen) {
+                (ReplacementChoice::Order { offered, .. }, ReplacementAnswer::Order { key }) => {
+                    offered.contains(key)
+                }
+                (
+                    ReplacementChoice::Entry {
+                        spec: EntryChoiceSpec::Color,
+                    },
+                    ReplacementAnswer::Entry {
+                        selection: EntrySelection::Color { color },
+                    },
+                ) => *color != Color::C,
+                (
+                    ReplacementChoice::Entry {
+                        spec: EntryChoiceSpec::CreatureType,
+                    },
+                    ReplacementAnswer::Entry {
+                        selection: EntrySelection::CreatureType { .. },
+                    },
+                ) => true,
+                (
+                    ReplacementChoice::Entry {
+                        spec: EntryChoiceSpec::Player { opponent },
+                    },
+                    ReplacementAnswer::Entry {
+                        selection: EntrySelection::Player { player },
+                    },
+                ) => {
+                    self.state.rules.players.get(player.0 as usize).is_some()
+                        && (!opponent || *player != answer.request.chooser)
+                }
+                _ => false,
+            };
+            if !valid {
+                return Err("invalid recorded replacement answer".into());
+            }
         }
         if let Some(deferred) = &order.deferred {
             // Recomputed offers can discard answers, but their journal
