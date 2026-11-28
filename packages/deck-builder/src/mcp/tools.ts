@@ -678,7 +678,7 @@ export const TOOLS: ToolDef[] = [
       "Copy a deck — its list, slots, tags, maybe list, brief and deck memories — into a new Theorycrafted deck that " +
       "records where it came from. Use it when the owner wants to make big changes to a deck but keep the " +
       "original. The original is untouched; compare_decks shows how the two diverge. " +
-      "Another user's shared deck (its link or slug) forks too, without its memories, decisions or power records.",
+      "Another user's shared deck (its link or slug) forks too, without its tags, memories, decisions or power records.",
     input: { deck: sharedRef, name: z.string().describe("The new deck's name.") },
     run: ({ db, actor }, a) => {
       const source = deckOrShared(db, actor, a.deck);
@@ -688,7 +688,7 @@ export const TOOLS: ToolDef[] = [
 
         return done(
           `Forked ${from.parent_owner_handle}'s shared deck "${from.parent_name}" into your Theorycrafted deck ${id} "${a.name.trim()}". ` +
-            `It copied the list, slots, tags, brief and engines; it has none of the original's memories, decisions or power records. ` +
+            `It copied the list, slots, brief and engines; it has none of the original's tags, memories, decisions or power records. ` +
             `Edit its cards with edit_cards.\n${afterWrite(db, actor, id)}`,
         );
       }
