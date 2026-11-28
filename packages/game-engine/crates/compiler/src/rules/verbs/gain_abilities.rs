@@ -55,7 +55,11 @@ pub(super) fn lower(
     duration: &SourceDuration,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
-    until_end_of_turn(duration)?;
+    let until = match duration.duration.as_str() {
+        "end-of-turn" | "this-turn" => kir::Until::EndOfTurn,
+        "your-next-turn" => kir::Until::ControllerNextTurn,
+        other => return Err(operand("granted_ability_duration", other)),
+    };
     let grants: Vec<ast::GainedAbility> = typed(&abilities, "granted_ability")?;
     let keywords = grants.iter().map(keyword).collect::<Result<Vec<_>, _>>()?;
     if !mtg_contracts::supported_temporary_keywords(&keywords) {
@@ -79,13 +83,23 @@ pub(super) fn lower(
                     keywords,
                     ..Default::default()
                 },
-                until: kir::Until::EndOfTurn,
+                until,
             }));
         }
         SetExpr::target(slot)
     } else {
         SetExpr::target(bind_creature_target(cx.program, cx.slots, &what)?)
     };
+    if until != kir::Until::EndOfTurn {
+        return Ok(cx.act(Verb::SetCharacteristics {
+            what,
+            values: kir::CharacteristicSet {
+                keywords,
+                ..Default::default()
+            },
+            until,
+        }));
+    }
     Ok(cx.act(Verb::ModifyUntil {
         what,
         layer: kir::Layer::Ability,

@@ -130,8 +130,8 @@ impl RulesTxn {
                     // A conservative preflight can combine independent mana sources.
                     // Inputs, life and riders would require simulating their order.
                     if ability.spend_restriction.is_some()
-                        || !ability.costs.tap
-                        || ability.costs.tap_other.is_some()
+                        || !ability.taps_source()
+                        || ability.chosen_cost.is_some()
                         || ability.costs.mana.is_some()
                         // CR 107.4e: a hybrid input is a mana cost too.
                         || !ability.hybrid_mana.is_empty()
@@ -153,7 +153,7 @@ impl RulesTxn {
                             .extend(colors.iter().map(|&color| vec![(color, amount.clone())])),
                         // This solver uses independent static source bundles. A
                         // counted activation needs the board after earlier taps.
-                        ManaProduction::Counted { .. } | ManaProduction::Conditional { .. } => {}
+                        ManaProduction::Counted { .. } => {}
                         ManaProduction::ChooseDevotion {} => {
                             for color in self.mana_colors(player, &ability.production)? {
                                 let amount = self.devotion(player, &[color])?;

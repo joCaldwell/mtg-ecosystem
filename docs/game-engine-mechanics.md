@@ -295,13 +295,10 @@ source with several mana abilities first asks which to activate (CR 605.3a).
 Riders follow in order: damage to the controller or life gain (CR 605.3b). A
 nested payment rechecks outer costs.
 
-Printed conditional production and written tap costs use the
-[mana ability checker](../packages/game-engine/crates/contracts/src/kir/check/mana.rs).
-The engine reads the production condition after costs and retains the chosen
-branch through a pending color decision (CR 614.15, 605.3b, 608.2c).
-A written tap cost can choose a summoning-sick creature (CR 302.6), and
-reversal restores both taps on their exact incarnations (CR 733.1).
-The simulator reserves the chosen helper before planning further payments.
+Printed mana abilities may use the shared [chosen-object cost](../packages/game-engine/crates/contracts/src/kir/check/mana.rs).
+The written tap may choose a summoning-sick creature (CR 302.6). Reversal
+restores both taps on their exact incarnations (CR 733.1). The simulator
+reserves the chosen creature before planning further payments.
 
 Statics may grant quoted mana abilities in layer 6 (CR 113.10a, 613.1f). The
 recipient taps for its activator (CR 109.5, 302.6); printed then granted
@@ -404,6 +401,15 @@ Cost keywords with dedicated announcement or payment cells are `Executes`-only.
   permanents at CR 601.2f (CR 702.41), each instance using the stack-static
   cost lock. Parameters: artifact, creature, artifact creature, enchantment,
   token, supported subtypes, historic permanents and outlaws.
+- **Cost changes** "costs {N} less/more [for each ...] [if ...]" apply as the
+  total locks (CR 601.2f): spells' static changes and an activated ability's own
+  `cost_changes`, read from the source like its statics and locked on the
+  activation (CR 602.2b). Counts include counters of one named kind on the
+  source (a count of all kinds, in a cost change or static condition, rejects as
+  `all-kinds-counter-count`), the controller's unfiltered hand size and, for "{X} less, where X is", the greatest
+  or total power or toughness of public permanents (`Amount::Total`); generic
+  mana never goes below zero (CR 118.7d). Maximum-reduction, colored-only and
+  other qualifiers reject.
 - **Delve** exiles cards from the caster's graveyard for generic mana after
   the cost locks, committed with the remaining payment (CR 601.2h, 702.66).
 - **Convoke** taps the caster's untapped creatures after the mana ability

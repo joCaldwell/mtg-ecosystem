@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_compiler::CompileResult;
-use mtg_contracts::ChosenCostAction;
+use mtg_contracts::{Capability, ChosenCostAction, kir};
 
 const R5: &str = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r5.json");
 const SENTINEL: &str = include_str!(
@@ -16,11 +16,21 @@ const DRUM: &str = include_str!(
     "../../../../../tests/fixtures/phase1-r5/bdeb440d-a714-40e8-9038-f651e6ae45fb.json"
 );
 
-fn board(record: &str, name: &str) -> Board {
+fn board(record: &str, name: &str, in_hand: bool) -> Board {
     let result = mtg_witness::compile(R5, record);
     let CompileResult::Lowered { definition } = result else {
         panic!("{name} rejected: {result:?}");
     };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::ChosenObjectCostV1)
+    );
+    assert!(
+        kir::definition_cells(&definition)
+            .unwrap()
+            .contains(&kir::Cell::ChosenObjectCost)
+    );
     let mut catalog = FixtureCatalog::Witness.get().clone();
     catalog.definitions.push(*definition);
     catalog
@@ -28,7 +38,7 @@ fn board(record: &str, name: &str) -> Board {
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     Board::new(catalog, "chosen-mana-tap-witness")
         .step(TurnStep::PrecombatMain)
-        .permanent_or_hand(name, 0, 0, false)
+        .permanent_or_hand(name, 0, 0, in_hand)
 }
 
 fn begin(game: &mut Game, payment: bool) {
@@ -84,7 +94,7 @@ fn choose_and_produce(game: &mut Game, helper: u32) {
 fn chosen_mana_tap_accepts_a_summoning_sick_helper_and_can_reverse_both_costs() {
     for (record, name) in [(SENTINEL, "Jaspera Sentinel"), (DRUM, "Springleaf Drum")] {
         let mut game = Game::new(
-            board(record, name)
+            board(record, name, false)
                 .permanent_or_hand("Llanowar Elves", 0, 0, true)
                 .permanent_or_hand("Forest", 0, 0, false)
                 .permanent_or_hand("Llanowar Elves", 1, 1, false)
@@ -131,8 +141,36 @@ fn chosen_mana_tap_accepts_a_summoning_sick_helper_and_can_reverse_both_costs() 
 }
 
 #[test]
+fn chosen_mana_tap_requires_the_source_to_be_ready() {
+    let mut game = Game::new(
+        board(SENTINEL, "Jaspera Sentinel", true)
+            .permanent_or_hand("Llanowar Elves", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .libraries("Forest", 4)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[2]);
+    for _ in 0..game.live_players().len() {
+        Driver::pass(&mut game);
+    }
+    let decision = Driver::request(&mut game, u64::MAX);
+    assert!(!game.state.rules.objects[&CardId(0)].attack_ready);
+    assert!(!game.state.rules.objects[&CardId(1)].tapped);
+    let source = Driver::object(&game, 0);
+    assert!(
+        decision
+            .index(&Candidate::Action {
+                action: Action::ActivateMana { object: source },
+            })
+            .is_none()
+    );
+    assert_recoverable((&game).into());
+}
+
+#[test]
 fn chosen_mana_tap_keeps_an_independent_fixed_color_ability() {
-    let prepare = || board(SETTLEMENT, "Holdout Settlement");
+    let prepare = || board(SETTLEMENT, "Holdout Settlement", false);
     for helper in [false, true] {
         let board = prepare();
         let board = if helper {

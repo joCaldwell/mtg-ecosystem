@@ -142,6 +142,11 @@ pub enum Ref {
     /// the damage dealt or the life gained ("that much", "that many").
     #[serde(deserialize_with = "no_operands")]
     EventAmount,
+    /// CR 115.1, 603.2, 702.21a: the spell or ability whose announcement
+    /// made a permanent a target, named by its "becomes the target" event
+    /// ("that spell or ability"). A stack object, never a card.
+    #[serde(deserialize_with = "no_operands")]
+    EventStackObject,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -110,6 +110,7 @@ pub(super) fn lower_become(
     spec: &ast::BecomeSpec,
     duration: &ast::Duration,
 ) -> Result<Instruction, Failure> {
+    uncounted(cx)?;
     let ast::BecomeSpec {
         copy_of: None,
         copy_exceptions: None,
@@ -128,6 +129,7 @@ pub(super) fn lower_become(
             && types.iter().any(|t| t == "artifact")
             && types.iter().any(|t| t == "creature")
     });
+    let mut type_change = None;
     let animation = match (types.as_deref(), in_addition) {
         (None, None) if subtypes.is_none() => None,
         // CR 205.1b: "artifact creature" retains existing card types.
@@ -143,6 +145,14 @@ pub(super) fn lower_become(
                 creature_subtypes: subtypes.clone().unwrap_or_default(),
             })
         }
+        (Some([kind]), Some(ast::BecomeSpecInAddition::Types))
+            if kind == "artifact" && subtypes.is_none() =>
+        {
+            type_change = Some(kir::Change::AddTypes {
+                kinds: vec![CardKind::Artifact],
+            });
+            None
+        }
         _ => return Err(step("become", "type_operation")),
     };
     setter(
@@ -150,12 +160,13 @@ pub(super) fn lower_become(
         what,
         CharacteristicSet {
             animation,
+            type_change,
             colors: colors
                 .as_ref()
                 .map(|colors| colors.iter().map(color).collect()),
             base_power: power.as_deref().map(fixed_stat).transpose()?,
             base_toughness: toughness.as_deref().map(fixed_stat).transpose()?,
-            keywords: vec![],
+            ..Default::default()
         },
         duration,
     )
@@ -175,12 +186,20 @@ pub(super) fn modify(
     stated_as: Option<ast::EffectModifyCharacteristicsStatedAs>,
     duration: &ast::Duration,
 ) -> Result<Instruction, Failure> {
+    uncounted(cx)?;
     let mut values = CharacteristicSet::default();
     for modifier in modifiers {
         use ast::ResolvingCharacteristicModifier as M;
         match modifier {
-            M::Types(m) if values.animation.is_none() => {
-                values.animation = Some(animation(&m.change)?);
+            M::Types(m) if values.animation.is_none() && values.type_change.is_none() => {
+                let mut change = (*m.change).clone();
+                if grants_all_types(&change) {
+                    values.type_change = Some(kir::Change::AllCreatureTypes);
+                    change.subtypes = None;
+                }
+                if change.card_types.is_some() || values.type_change.is_none() {
+                    values.animation = Some(animation(&change)?);
+                }
             }
             M::Colors(m) if values.colors.is_none() => {
                 let ast::ResolvingCharacteristicModifierColors {
@@ -226,6 +245,70 @@ pub(super) fn modify(
     // CR 611.2e: admitted objects already exist on the battlefield. "Is"
     // or "has" tied to an entering step's result needs a different route.
     let _ = stated_as;
+    setter(cx, what, values, duration)
+}
+
+fn grants_all_types(change: &ast::TypeChange) -> bool {
+    matches!(
+        change,
+        ast::TypeChange { subtypes: Some(subtypes), chosen_subtype: None, supertypes: None, .. }
+            if matches!(subtypes.as_slice(), [ast::TypeChangeSubtypesItem {
+                family: ast::SubtypeFamily::Creature,
+                operation: ast::TypeChangeCardTypesOperation::Add,
+                types,
+            }] if matches!(&**types, ast::TypeChangeSubtypesItemTypes::All(all) if all.basic.is_none()))
+    )
+}
+
+pub(super) fn all_types_with_setter(
+    setter: &ast::EffectSetPt,
+    what: &ast::ObjectRef,
+    modifiers: &[ast::ResolvingCharacteristicModifier],
+    duration: &ast::Duration,
+) -> bool {
+    *setter.what == *what
+        && setter.duration.as_deref() == Some(duration)
+        && matches!(modifiers, [ast::ResolvingCharacteristicModifier::Types(types)]
+            if types.change.card_types.is_none() && grants_all_types(&types.change))
+}
+
+// CR 611.2c-d, 613.4b: read one fixed or shared resolution value and keep
+// the recipient set from this instant. A co-stated subtype grant is one effect.
+pub(super) fn set_pt(
+    cx: &mut StepCx<'_>,
+    action: &ast::EffectSetPt,
+    all_types: bool,
+) -> Result<Instruction, Failure> {
+    let ast::EffectSetPt {
+        optional: None,
+        decided_by: None,
+        starting_with: None,
+        for_each: None,
+        for_each_beyond: None,
+        for_each_vote: None,
+        what,
+        power,
+        toughness,
+        duration: Some(duration),
+    } = action
+    else {
+        return Err(step("set-pt", "qualified_base_stats"));
+    };
+    let mut values = CharacteristicSet::default();
+    match (&**power, &**toughness) {
+        (ast::Amount::X(_), ast::Amount::X(_)) => {
+            values.base_from = Some(pilot_amount(cx, power)?);
+        }
+        (ast::Amount::Fixed(_), ast::Amount::Fixed(_)) => {
+            uncounted(cx)?;
+            values.base_power = Some(fixed_stat(power)?);
+            values.base_toughness = Some(fixed_stat(toughness)?);
+        }
+        _ => return Err(step("set-pt", "base_stat_amount")),
+    }
+    if all_types {
+        values.type_change = Some(kir::Change::AllCreatureTypes);
+    }
     setter(cx, what, values, duration)
 }
 
@@ -283,14 +366,59 @@ fn setter(
     values: CharacteristicSet,
     duration: &ast::Duration,
 ) -> Result<Instruction, Failure> {
-    uncounted(cx)?;
-    if !matches!(duration, ast::Duration::EndOfTurn(_)) {
-        return Err(operand("characteristic_duration", variant(duration)));
-    }
+    let until = characteristic_duration(cx.context, duration)?;
     let what = objects(cx, what)?;
     Ok(cx.act(Verb::SetCharacteristics {
         what,
         values,
-        until: Until::EndOfTurn,
+        until,
+    }))
+}
+
+fn characteristic_duration(context: Context, duration: &ast::Duration) -> Result<Until, Failure> {
+    match duration {
+        ast::Duration::EndOfTurn(_) | ast::Duration::ThisTurn(_) => Ok(Until::EndOfTurn),
+        ast::Duration::YourNextTurn(_) => Ok(Until::ControllerNextTurn),
+        ast::Duration::AsLongAs(d)
+            if context != Context::Spell
+                && matches!(&*d.condition, ast::Condition::Remains(remains)
+                if is_this_permanent(&remains.what)
+                    && matches!(&*remains.zone, ast::ZoneRef {
+                        zone: ast::Zone::Battlefield, owner: None, depth: None, position: None,
+                    })) =>
+        {
+            Ok(Until::SourceLeaves)
+        }
+        other => Err(operand("characteristic_duration", variant(other))),
+    }
+}
+
+// CR 305.2, 514.2, 613.11: this changes the rules for the controller this
+// turn. Playing the resulting lands remains a normal main-phase action.
+pub(super) fn land_plays(
+    cx: &mut StepCx<'_>,
+    allowance: &serde_json::Value,
+    duration: &SourceDuration,
+) -> Result<Instruction, Failure> {
+    uncounted(cx)?;
+    if !matches!(duration.duration.as_str(), "this-turn" | "end-of-turn") {
+        return Err(operand("land_play_duration", &duration.duration));
+    }
+    let ast::LandPlayAllowance { who, additional } = typed(allowance, "land_play_allowance")?;
+    let ast::PlayerRef::You(_) = *who else {
+        return Err(operand("land_play_recipient", variant(&*who)));
+    };
+    let ast::LandPlayAllowanceAdditional::Amount(amount) = *additional else {
+        return Err(operand("land_play_allowance", "unlimited"));
+    };
+    let ast::Amount::Fixed(count) = *amount else {
+        return Err(operand("land_play_allowance", variant(&*amount)));
+    };
+    if count.value <= 0 {
+        return Err(operand("land_play_allowance", "nonpositive"));
+    }
+    Ok(cx.act(Verb::AdditionalLandPlays {
+        player: PlayerExpr::you(cx.context),
+        amount: Amount::fixed(count.value),
     }))
 }

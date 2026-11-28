@@ -132,6 +132,12 @@ impl Peeled {
 
 /// Peel every control construct off a block's printed sentences.
 pub(super) fn peel(effects: &[Value]) -> Result<Peeled, Failure> {
+    if super::revealed::candidate(effects) {
+        return Ok(Peeled {
+            sentences: effects.to_vec(),
+            wraps: vec![],
+        });
+    }
     let mut sentences = Vec::with_capacity(effects.len());
     let mut wraps = Vec::new();
     // The printed optional payment an "if you do/don't" sentence reads.
@@ -281,6 +287,12 @@ fn peel_step(
         }
         // CR 614.15: select the event before applying either alternative.
         Some("self-replacement") => {
+            if step["original"]["effect"] == "add-mana" {
+                return Err(unsupported(
+                    "compose.mana-replacement",
+                    "conditional production requires a checked mana evaluator",
+                ));
+            }
             let Some([replacement]) = step["instead"].as_array().map(Vec::as_slice) else {
                 return reject("self_replacement_shape");
             };
@@ -659,7 +671,12 @@ impl Site<'_> {
 fn decided(node: &Node) -> bool {
     use kir::Verb;
     match node {
-        Node::Seq(nodes) => nodes.iter().all(decided),
+        Node::Seq(nodes) => nodes.iter().enumerate().all(|(index, node)| {
+            decided(node)
+                || matches!(node, Node::Do(Verb::Move {
+                what: SetExpr::LiveResult { step, .. }, ..
+            }) if (*step as usize) < index && nodes.get(*step as usize).is_some_and(decided))
+        }),
         Node::Do(Verb::CreateTokens {
             controller, count, ..
         }) => controller.is_you() && count.as_fixed().is_some(),

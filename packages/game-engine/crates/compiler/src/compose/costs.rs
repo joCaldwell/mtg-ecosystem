@@ -391,7 +391,6 @@ pub(super) fn announced(
             (tap, mana, sacrifice, pay_life, counters) => ActivationCost::Composite {
                 costs: PermanentActivationCosts {
                     remove_source_counters: counters,
-                    tap_other: None,
                     tap,
                     mana,
                     sacrifice,
@@ -434,7 +433,6 @@ pub(super) fn announced(
         (tap, mana, sacrifice, None) => ActivationCost::Composite {
             costs: PermanentActivationCosts {
                 remove_source_counters: None,
-                tap_other: None,
                 tap,
                 mana,
                 sacrifice,

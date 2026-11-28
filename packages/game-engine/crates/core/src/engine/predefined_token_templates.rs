@@ -48,7 +48,6 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     let mana_token = matches!(kind, PredefinedToken::Treasure | PredefinedToken::Gold);
     let costs = PermanentActivationCosts {
         remove_source_counters: None,
-        tap_other: None,
         tap: matches!(kind, PredefinedToken::Treasure | PredefinedToken::Food),
         mana: (!mana_token).then(|| ManaCost {
             generic: 2.into(),
@@ -59,6 +58,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     };
     if mana_token {
         d.mana_abilities.push(ManaAbility {
+            chosen_cost: None,
             costs,
             hybrid_mana: vec![],
             production: ManaProduction::AnyColor,
@@ -90,6 +90,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost: ActivationCost::Composite { costs },

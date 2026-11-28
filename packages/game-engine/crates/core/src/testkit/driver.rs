@@ -83,6 +83,7 @@ impl Driver {
                 )],
             },
             modal: None,
+            cost_changes: vec![],
         });
         definition.source_labels = None;
         definition.capabilities = definition.requirements();

@@ -345,7 +345,7 @@ fn usable_printed(
 ) -> bool {
     !ability.costs.sacrifice
         && ability.costs.pay_life.as_ref().is_none_or(|n| life >= n)
-        && (!ability.costs.tap || available_tap(object))
+        && (!ability.taps_source() || available_tap(object))
         && ability
             .costs
             .remove_source_counters
@@ -460,37 +460,14 @@ pub(super) fn devotion(view: &PermittedView, player: PlayerId, color: Color) -> 
     Quantity::from(i64::try_from(symbols).expect("bounded visible devotion"))
 }
 
-pub(super) fn mana_output<'a>(
-    view: &PermittedView,
-    controller: PlayerId,
-    production: &'a ManaProduction,
-) -> &'a ManaProduction {
-    production.select(|filter| {
-        let count = view
-            .objects
-            .iter()
-            .filter(|object| {
-                mtg_core::query::matches_battlefield_pred(
-                    &mtg_core::query::in_view(view, object),
-                    controller,
-                    filter,
-                )
-                .is_yes()
-            })
-            .count();
-        Quantity::from(i64::try_from(count).expect("bounded visible battlefield count"))
-    })
-}
-
 fn production_colors(
     catalog: &Catalog,
     view: &PermittedView,
     mana: &ManaProduction,
     controller: PlayerId,
 ) -> Vec<Color> {
-    match mana_output(view, controller, mana) {
+    match mana {
         ManaProduction::Fixed { symbols } => symbols.clone(),
-        ManaProduction::Conditional { .. } => vec![],
         ManaProduction::SourceChosenColor => vec![],
         ManaProduction::Counted { color, .. } => vec![*color],
         ManaProduction::Bundles { options } => options.iter().flatten().copied().collect(),
@@ -709,7 +686,7 @@ pub(super) fn plan_with_reservations(
             {
                 continue;
             }
-            let productions = match mana_output(view, view.viewer, &ability.production) {
+            let productions = match &ability.production {
                 ManaProduction::Bundles { options } => options
                     .iter()
                     .cloned()
@@ -737,8 +714,8 @@ pub(super) fn plan_with_reservations(
                             _ => 1.into(),
                         },
                         land,
-                        taps: ability.costs.tap,
-                        tap_other: ability.costs.tap_other.clone(),
+                        taps: ability.taps_source(),
+                        tap_other: ability.chosen_cost.as_ref().map(|cost| cost.filter.clone()),
                         production: production.clone(),
                         choose_bundle,
                         colors: colors.clone(),
@@ -922,11 +899,11 @@ mod tests {
         let mut v = view();
         let mut forest = land(&c, "Forest", 3);
         forest.granted_mana = vec![ManaAbility {
+            chosen_cost: None,
             restriction: None,
             condition: None,
             costs: mtg_contracts::PermanentActivationCosts {
                 remove_source_counters: None,
-                tap_other: None,
                 tap: true,
                 mana: None,
                 sacrifice: false,

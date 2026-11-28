@@ -285,6 +285,7 @@ impl ActivatedAbility {
             cost: ActivationCost::Mana { cost },
             program,
             modal: None,
+            cost_changes: vec![],
         }
     }
 
@@ -315,6 +316,7 @@ impl ActivatedAbility {
             cost: ActivationCost::ExileSource { mana: cost },
             program,
             modal: None,
+            cost_changes: vec![],
         }
     }
 
@@ -461,7 +463,8 @@ impl TriggeredAbility {
                 | kir::Node::IfPays { node, .. } => names(node),
                 kir::Node::ForEach { body, .. }
                 | kir::Node::Choose { body, .. }
-                | kir::Node::ChooseCreatureType { body, .. } => names(body),
+                | kir::Node::ChooseCreatureType { body, .. }
+                | kir::Node::RevealTop { body, .. } => names(body),
                 kir::Node::Delayed { program, .. } | kir::Node::Reflexive { program, .. } => {
                     program.instructions.iter().any(|i| match i {
                         Instruction::Kernel { node, .. } => names(node),

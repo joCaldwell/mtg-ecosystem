@@ -5,7 +5,6 @@ mod attach;
 mod combat;
 mod continuous;
 mod fight;
-mod grant_keywords;
 mod keyword_actions;
 mod library;
 mod set_move;

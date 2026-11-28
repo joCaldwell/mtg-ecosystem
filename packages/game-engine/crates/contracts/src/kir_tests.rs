@@ -569,8 +569,8 @@ fn permanent_source_modifications_require_an_executable_context() {
     assert!(check(&grant(KeywordAbility::Flying), &triggered).is_err());
     assert!(check(&grant(KeywordAbility::Flying), &spell(&[])).is_err());
     assert!(check(&grant(KeywordAbility::Menace), &activated).is_ok());
+    assert!(check(&grant(KeywordAbility::Shroud), &activated).is_ok());
     for keyword in [
-        KeywordAbility::Shroud,
         KeywordAbility::Defender,
         KeywordAbility::ProtectionFromEachColor,
     ] {
@@ -1794,4 +1794,78 @@ fn activation_conditions_admit_only_exact_comparisons() {
     };
     assert!(ActivationCondition::of(&life(7)).is_ok());
     assert!(ActivationCondition::of(&life(beyond)).is_err());
+}
+
+/// CR 122.1, 601.2f: a cost change or static condition counting counters of
+/// all kinds on its source is rejected with its own reason; one named kind
+/// (other than loyalty) is still read.
+#[test]
+fn counts_of_all_counter_kinds_are_rejected_in_cost_changes_and_static_conditions() {
+    let counters = |counter| Amount::CountersOn {
+        object: Ref::Source,
+        counter,
+    };
+    let change = |multiplier, condition| crate::ActivationCostChange {
+        change: SpellCostChange::Reduce {
+            mana: crate::ManaCost {
+                generic: 1.into(),
+                colored: vec![],
+            },
+        },
+        multiplier,
+        condition,
+    };
+    let at_least_one = |counter| Cond::Compare {
+        left: counters(counter),
+        cmp: Cmp::AtLeast,
+        right: Amount::Fixed { value: 1.into() },
+    };
+
+    let charge_kind = || {
+        Some(CounterKind::Named {
+            name: "charge".into(),
+        })
+    };
+    let charge = charge_kind();
+    assert!(activation_cost_change_supported(&change(
+        Some(counters(charge.clone())),
+        None
+    )));
+    assert!(activation_cost_change_supported(&change(
+        None,
+        Some(at_least_one(charge.clone()))
+    )));
+    assert!(!counts_all_counter_kinds(
+        Some(&counters(charge.clone())),
+        Some(&at_least_one(charge))
+    ));
+    assert!(!activation_cost_change_supported(&change(
+        Some(counters(Some(CounterKind::Loyalty))),
+        None
+    )));
+
+    for (multiplier, condition) in [
+        (Some(counters(None)), None),
+        (None, Some(at_least_one(None))),
+        (
+            None,
+            Some(Cond::Not {
+                condition: Box::new(at_least_one(None)),
+            }),
+        ),
+        (
+            None,
+            Some(Cond::All {
+                conditions: vec![at_least_one(charge_kind()), at_least_one(None)],
+            }),
+        ),
+    ] {
+        assert!(counts_all_counter_kinds(
+            multiplier.as_ref(),
+            condition.as_ref()
+        ));
+        assert!(!activation_cost_change_supported(&change(
+            multiplier, condition
+        )));
+    }
 }

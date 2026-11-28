@@ -152,7 +152,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         | kir::Node::IfPays { node, .. } => cost_conditions(node, out),
         kir::Node::ForEach { body, .. }
         | kir::Node::Choose { body, .. }
-        | kir::Node::ChooseCreatureType { body, .. } => cost_conditions(body, out),
+        | kir::Node::ChooseCreatureType { body, .. }
+        | kir::Node::RevealTop { body, .. } => cost_conditions(body, out),
         kir::Node::Delayed { .. } | kir::Node::Reflexive { .. } => Ok(()),
     }
 }
@@ -463,7 +464,13 @@ fn validate_target_bindings(
         let sacrifice_return = !p.optional_target
             && matches!(targeted.as_slice(),
             [kir::Node::SacrificeForTappedReturn { count: c }] if *c as usize == count);
-        if !(batch || leaves || placement || sacrifice_return) {
+        let linked_batch = battlefield
+            && matches!(targeted.as_slice(), [kir::Node::Seq(nodes)] if matches!(
+                nodes.first().and_then(kir::Node::verb),
+                Some(kir::Verb::Move { what: kir::SetExpr::Targets { slots }, to: kir::Destination::Exile })
+                    if slots.iter().copied().eq(0..count as u32)
+            ));
+        if !(batch || leaves || placement || sacrifice_return || linked_batch) {
             return cell("target", "group_requires_batch_or_order_free_leaves");
         }
     } else if p.targets.len() > 1 && p.optional_target {
@@ -772,11 +779,10 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
         // CR 118.3, 119.4, 122.1: life and +1/+1 counter removal from the
         // source are paid with the other source terms after any mana.
         ActivationCost::Composite { costs } => {
-            costs.tap_other.is_none()
-                && costs
-                    .remove_source_counters
-                    .as_ref()
-                    .is_none_or(RemoveCounterCost::valid)
+            costs
+                .remove_source_counters
+                .as_ref()
+                .is_none_or(RemoveCounterCost::valid)
                 && costs
                     .pay_life
                     .as_ref()
@@ -837,6 +843,22 @@ fn activation_mana(cost: &ActivationCost) -> Option<&ManaCost> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 601.2f, 602.2b: an ability's own cost change applies to the mana
+    // its mana window pays.
+    if a.cost_changes.iter().any(|change| {
+        kir::counts_all_counter_kinds(change.multiplier.as_ref(), change.condition.as_ref())
+    }) {
+        return cell("activated", "all_kinds_counter_count");
+    }
+    if !a.cost_changes.is_empty()
+        && (activation_mana(&a.cost).is_none()
+            || !a
+                .cost_changes
+                .iter()
+                .all(kir::activation_cost_change_supported))
+    {
+        return cell("activated", "cost_change");
+    }
     // CR 107.3a, 107.4e-f, 602.2b: a battlefield ability's X and hybrid or
     // Phyrexian symbols are announced before its targets and paid in its
     // mana window; a modal ability or another zone has no announcement.
@@ -1142,7 +1164,7 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
     };
     match production {
         ManaProduction::Fixed { symbols } => !symbols.is_empty(),
-        ManaProduction::Counted { .. } | ManaProduction::Conditional { .. } => true,
+        ManaProduction::Counted { .. } => true,
         ManaProduction::Bundles { options } => {
             (2..=128).contains(&options.len())
                 && options.iter().enumerate().all(|(i, bundle)| {
@@ -1166,7 +1188,7 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
     if !matches!(
         d.characteristics.kind,
         CardKind::Creature | CardKind::Artifact | CardKind::Land
-    ) || !a.costs.tap
+    ) || !a.taps_source()
         || a.costs.sacrifice
         || a.costs
             .mana
@@ -1972,6 +1994,7 @@ mod tests {
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost,
@@ -2048,7 +2071,6 @@ mod tests {
                     ActivationCost::Composite {
                         costs: PermanentActivationCosts {
                             remove_source_counters: None,
-                            tap_other: None,
                             tap: true,
                             mana: Some(ManaCost {
                                 generic: 1.into(),
@@ -2095,11 +2117,11 @@ mod tests {
             |production: ManaProduction, riders: Vec<kir::Node>, pay_life: Option<Quantity>| {
                 let mut d = with(|d| {
                     d.mana_abilities.push(ManaAbility {
+                        chosen_cost: None,
                         restriction: None,
                         condition: None,
                         costs: PermanentActivationCosts {
                             remove_source_counters: None,
-                            tap_other: None,
                             tap: true,
                             mana: None,
                             sacrifice: false,
@@ -2341,11 +2363,11 @@ mod tests {
     fn mana_ability_hybrid_admits_only_two_color_pairs() {
         use HybridPayment::{Mana, PayTwoGeneric, PayTwoLife};
         let ability = |colors| ManaAbility {
+            chosen_cost: None,
             restriction: None,
             condition: None,
             costs: PermanentActivationCosts {
                 remove_source_counters: None,
-                tap_other: None,
                 tap: true,
                 mana: None,
                 sacrifice: false,
@@ -2400,7 +2422,6 @@ mod tests {
             ActivationCost::Composite {
                 costs: PermanentActivationCosts {
                     remove_source_counters: None,
-                    tap_other: None,
                     tap: false,
                     mana: Some(ManaCost {
                         generic: Quantity::zero(),

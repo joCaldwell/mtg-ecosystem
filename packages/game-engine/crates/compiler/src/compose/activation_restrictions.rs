@@ -188,7 +188,7 @@ fn term_phrases(
 }
 
 /// One printed condition: its kernel form and every printed phrase of it.
-pub(super) fn condition(
+fn condition(
     path: &str,
     value: &Value,
     player: &PlayerAt<'_>,
@@ -771,7 +771,7 @@ fn predicate(filter: &Value) -> Result<kir::Pred, Failure> {
     lower_filter(&typed, kir::Context::Activated)
 }
 
-pub(super) fn number(n: &Quantity) -> Result<&'static str, Failure> {
+fn number(n: &Quantity) -> Result<&'static str, Failure> {
     const WORDS: [&str; 13] = [
         "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
         "eleven", "twelve",

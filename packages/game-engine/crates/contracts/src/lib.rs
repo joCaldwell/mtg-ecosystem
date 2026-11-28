@@ -1332,16 +1332,12 @@ pub enum ActivationCost {
     },
 }
 /// Finite permanent costs; costs are committed only after complete payment.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermanentActivationCosts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove_source_counters: Option<RemoveCounterCost>,
     pub tap: bool,
-    /// CR 118.3, 302.6: choose and tap another eligible permanent, by a
-    /// written tap cost rather than that permanent's own tap symbol.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tap_other: Option<ChosenCostFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana: Option<ManaCost>,
     pub sacrifice: bool,
@@ -1369,14 +1365,6 @@ impl RemoveCounterCost {
 pub enum ManaProduction {
     Fixed {
         symbols: Vec<Color>,
-    },
-    /// CR 614.15, 605.3b: read the public condition after costs, then
-    /// produce exactly one of two complete outputs.
-    Conditional {
-        filter: kir::Pred,
-        minimum: Quantity,
-        base: Box<ManaProduction>,
-        instead: Box<ManaProduction>,
     },
     /// CR 605.3b, 608.2h: multiply the symbol by a public count after costs.
     Counted {
@@ -1411,24 +1399,6 @@ pub enum ManaProduction {
     },
 }
 impl ManaProduction {
-    pub fn select(&self, count: impl FnOnce(&kir::Pred) -> Quantity) -> &Self {
-        match self {
-            Self::Conditional {
-                filter,
-                minimum,
-                base,
-                instead,
-            } => {
-                if count(filter) >= *minimum {
-                    instead
-                } else {
-                    base
-                }
-            }
-            production => production,
-        }
-    }
-
     pub fn bind_color(&self, chosen: Option<Color>) -> Self {
         match self {
             Self::SourceChosenColor => Self::Fixed {
@@ -1456,6 +1426,10 @@ pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<kir::Cond>,
     pub costs: PermanentActivationCosts,
+    /// CR 118.3, 302.6, 605.3a: a chosen-object cost can pay both the
+    /// source's tap symbol and one additional written tap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_cost: Option<ChosenObjectCost>,
     /// CR 107.4e, 602.2b, 605.3a: two-color hybrid symbols of the mana
     /// cost, in printed order, each announced as one of its colors before
     /// the nested payment.
@@ -1471,6 +1445,15 @@ pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub riders: Vec<kir::Node>,
     pub source_block: u32,
+}
+impl ManaAbility {
+    pub fn taps_source(&self) -> bool {
+        self.costs.tap
+            || self
+                .chosen_cost
+                .as_ref()
+                .is_some_and(|cost| cost.tap_source)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1531,6 +1514,25 @@ pub struct ActivatedAbility {
     /// activated; `program` then carries timing only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modal: Option<ModalSpell>,
+    /// CR 601.2f, 602.2b: "This ability costs [mana] more/less to activate",
+    /// in printed order, locked into the total as the activation begins.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cost_changes: Vec<ActivationCostChange>,
+}
+/// CR 601.2f, 602.2b (2026-09-25): one printed change to an ability's own
+/// activation cost. `multiplier` ("for each ...") and `condition` ("if ...")
+/// are read from the source as a static ability reads them, once, as the
+/// total cost is determined; increases apply before reductions, and generic
+/// mana is never reduced below zero (CR 118.7d).
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivationCostChange {
+    pub change: kir::SpellCostChange,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiplier: Option<kir::Amount>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<kir::Cond>,
 }
 impl ActivationRestriction {
     /// CR 602.5b: how many times each turn one object may activate the
@@ -2140,6 +2142,9 @@ impl Definition {
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
         }
+        if self.mana_abilities.iter().any(|a| a.chosen_cost.is_some()) {
+            set.insert(Capability::ChosenObjectCostV1);
+        }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
             if activated_artifact_draw_ability(ability) {
@@ -2366,24 +2371,34 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     }
     Ok(())
 }
+/// The reviewed layer-6 counter vocabulary (CR 122.1b, 613.1f).
+pub(crate) fn supported_keyword_counter(keyword: KeywordAbility) -> bool {
+    matches!(
+        keyword,
+        KeywordAbility::Flying
+            | KeywordAbility::DoubleStrike
+            | KeywordAbility::Vigilance
+            | KeywordAbility::Reach
+            | KeywordAbility::Deathtouch
+            | KeywordAbility::Indestructible
+            | KeywordAbility::Lifelink
+            | KeywordAbility::Hexproof
+            | KeywordAbility::Haste
+            | KeywordAbility::Menace
+            | KeywordAbility::Trample
+            | KeywordAbility::FirstStrike
+    )
+}
+
 pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
     !keywords.is_empty()
         && keywords.iter().enumerate().all(|(index, keyword)| {
-            matches!(
-                keyword,
-                KeywordAbility::Flying
-                    | KeywordAbility::DoubleStrike
-                    | KeywordAbility::Vigilance
-                    | KeywordAbility::Reach
-                    | KeywordAbility::Deathtouch
-                    | KeywordAbility::Indestructible
-                    | KeywordAbility::Lifelink
-                    | KeywordAbility::Hexproof
-                    | KeywordAbility::Haste
-                    | KeywordAbility::Menace
-                    | KeywordAbility::Trample
-                    | KeywordAbility::FirstStrike
-            ) && !keywords[..index].contains(keyword)
+            (supported_keyword_counter(*keyword)
+                || matches!(
+                    keyword,
+                    KeywordAbility::Shroud | KeywordAbility::Fear | KeywordAbility::Intimidate
+                ))
+                && !keywords[..index].contains(keyword)
         })
 }
 /// Borrowed parameters of one complete ordinary targeted temporary keyword program.

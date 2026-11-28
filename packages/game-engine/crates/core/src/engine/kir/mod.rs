@@ -194,33 +194,10 @@ impl RulesTxn {
         if let Node::Do(
             verb @ (Verb::GainControl { .. }
             | Verb::SetCharacteristics { .. }
-            | Verb::ModifyUntil {
-                change: mtg_contracts::kir::Change::PowerToughnessX { .. },
-                ..
-            }),
+            | Verb::ModifyUntil { .. }),
         ) = &node
         {
             return self.kernel_continuous(frame, verb, source_block);
-        }
-        // CR 611.2c, 613.4c, 613.1f: an end-of-turn change keeps the set,
-        // source and target effect executors, whose captured members and
-        // effect origins recovery re-derives.
-        if let Node::Do(Verb::ModifyUntil {
-            what,
-            change: mtg_contracts::kir::Change::AddKeywords { keywords },
-            ..
-        }) = &node
-        {
-            return self.kernel_grant_keywords(frame, what, keywords, source_block);
-        }
-        if matches!(node, Node::Do(Verb::ModifyUntil { .. })) {
-            let instruction = Instruction::Kernel { node, source_block };
-            let set = matches!(instruction.pumped(), Some((SetExpr::Matching { .. }, ..)));
-            return if set {
-                self.execute_wipes_instruction(frame, instruction)
-            } else {
-                self.execute_effect_instruction(frame, instruction)
-            };
         }
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());
@@ -454,6 +431,11 @@ impl RulesTxn {
                 }
             }
             PlayerExpr::EachOpponent => Players::EachOpponent,
+            // CR 702.21a: the controller of the spell or ability that
+            // targeted this trigger's permanent.
+            PlayerExpr::ControllerOf {
+                object: Ref::EventStackObject,
+            } => Players::One(self.event_stack_controller(frame.stack_id)?),
             PlayerExpr::ControllerOf {
                 object: Ref::Target { slot },
             } => {
@@ -674,6 +656,33 @@ impl RulesTxn {
                 .cloned()
                 .map(|power| power.max(Quantity::zero()))
                 .ok_or_else(|| "measured target has no power".into()),
+            Amount::StatOf {
+                object: Ref::Target { slot },
+                stat: mtg_contracts::kir::Stat::Toughness,
+            } => Ok(self
+                .kernel_target_facts(frame, *slot)?
+                .toughness()
+                .cloned()
+                .unwrap_or_default()
+                .max(Quantity::zero())),
+            Amount::StatOf {
+                object: Ref::Source,
+                stat,
+            } => {
+                let facts = self.source_facts(self.entry(frame.stack_id)?)?;
+                let value = match stat {
+                    mtg_contracts::kir::Stat::ManaValue => {
+                        facts.characteristics.printed_mana_value()
+                    }
+                    mtg_contracts::kir::Stat::Power => {
+                        facts.characteristics.power.unwrap_or_default()
+                    }
+                    mtg_contracts::kir::Stat::Toughness => {
+                        facts.characteristics.toughness.unwrap_or_default()
+                    }
+                };
+                Ok(value.max(Quantity::zero()))
+            }
             _ => Err("kernel amount has no audited evaluation".into()),
         }
     }

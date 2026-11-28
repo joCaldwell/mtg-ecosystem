@@ -35,6 +35,33 @@ impl Walk<'_, '_> {
                 },
                 to,
             ) => self.audit_target_move(*slot, to),
+            (SetExpr::Targets { slots }, Destination::Exile) => {
+                for &slot in slots {
+                    self.audit_target_move(slot, to)?;
+                }
+                Ok(MOVED)
+            }
+            (
+                SetExpr::LiveResult { .. } | SetExpr::Revealed { .. },
+                Destination::Exile | Destination::OwnerHand | Destination::OwnerGraveyard,
+            ) => Ok(MOVED),
+            (
+                SetExpr::LiveResult {
+                    zone: ResultZone::Exile,
+                    ..
+                }
+                | SetExpr::Revealed { .. },
+                Destination::Battlefield { controller, .. },
+            ) if controller.is_you()
+                || matches!(
+                    controller,
+                    PlayerExpr::OwnerOf {
+                        object: Ref::Target { .. }
+                    }
+                ) =>
+            {
+                Ok(MOVED)
+            }
             // CR 404.1, 400.3: a matching card set in a denoted public
             // graveyard goes to exile or the cards' owners' hands.
             (
@@ -117,7 +144,10 @@ impl Walk<'_, '_> {
             {
                 Ok(MOVED)
             }
-            (Destination::Exile, TargetDomain::BattlefieldPermanent) => Ok(MOVED),
+            (
+                Destination::Exile,
+                TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
+            ) => Ok(MOVED),
             // The reviewed higher-tier shapes keep their tier labels.
             (
                 Destination::OwnerHand,
@@ -168,6 +198,10 @@ pub(super) fn capabilities(what: &SetExpr, to: &Destination, out: &mut BTreeSet<
                 _ => Capability::PermanentRemovalV1,
             });
         }
-        SetExpr::Pool { .. } | SetExpr::Targets { .. } | SetExpr::Result { .. } => {}
+        SetExpr::Pool { .. }
+        | SetExpr::Targets { .. }
+        | SetExpr::Result { .. }
+        | SetExpr::LiveResult { .. }
+        | SetExpr::Revealed { .. } => {}
     }
 }

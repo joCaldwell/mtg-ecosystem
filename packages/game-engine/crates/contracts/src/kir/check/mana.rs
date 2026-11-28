@@ -5,11 +5,9 @@
 //! [`ManaAbility`](crate::ManaAbility) fields; the rest of its printed effect
 //! is a list of rider nodes, each admitted here under its own cell and
 //! performed by the mana activation executor after the mana is added.
-//! Conditional production reads one controlled-creature count, optionally
-//! filtered by a fixed minimum power. Both branches produce a fixed bundle,
-//! or both offer the same five colors for a single-color output.
-//! An any-color ability can also pay its tap symbol plus one separate untapped
-//! creature its activator controls, as a written tap cost (CR 302.6, 605.3a).
+//! A printed any-color ability may use the shared chosen-object cost for
+//! its tap symbol and a written tap of one untapped creature its activator
+//! controls (CR 302.6, 605.3a).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::{Definition, ManaAbility, ManaProduction};
@@ -47,10 +45,15 @@ pub fn mana_rider(node: &Node) -> Result<Cell, KirError> {
 /// fixed, any-color and commander-color surface (`PermanentManaV1`).
 pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Cell>, KirError> {
     let mut cells = BTreeSet::new();
-    if let Some(filter) = &a.costs.tap_other {
-        if *filter != crate::ChosenCostFilter::Type(crate::CardKind::Creature)
+    if let Some(cost) = &a.chosen_cost
+        && (cost.action != crate::ChosenCostAction::Tap
+            || cost.filter != crate::ChosenCostFilter::Type(crate::CardKind::Creature)
+            || cost.count != 1
+            || cost.minimum_power.is_some()
+            || cost.mana.is_some()
+            || !cost.tap_source
             || a.production != ManaProduction::AnyColor
-            || !a.costs.tap
+            || a.costs.tap
             || a.costs.sacrifice
             || a.costs.mana.is_some()
             || a.costs.pay_life.is_some()
@@ -59,79 +62,15 @@ pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Ce
             || a.condition.is_some()
             || a.restriction.is_some()
             || a.spend_restriction.is_some()
-            || !a.riders.is_empty()
-        {
-            return unaudited("chosen mana tap cost");
-        }
-        cells.insert(Cell::ManaChosenTap);
+            || !a.riders.is_empty())
+    {
+        return unaudited("chosen mana tap cost");
     }
     match &a.production {
         ManaProduction::Fixed { .. }
         | ManaProduction::AnyColor
         | ManaProduction::CommanderColor
         | ManaProduction::SourceChosenColor => {}
-        ManaProduction::Conditional {
-            filter,
-            minimum,
-            base,
-            instead,
-        } => {
-            use crate::Color;
-            let controlled = match filter.0.as_slice() {
-                [
-                    Atom::Type {
-                        kind: crate::CardKind::Creature,
-                    },
-                    Atom::ControlledBy { player },
-                ] => *player == PlayerExpr::you(Context::Activated),
-                [
-                    Atom::Type {
-                        kind: crate::CardKind::Creature,
-                    },
-                    Atom::Power {
-                        cmp: Cmp::AtLeast,
-                        value,
-                    },
-                    Atom::ControlledBy { player },
-                ] => {
-                    *player == PlayerExpr::you(Context::Activated)
-                        && value.as_fixed().is_some_and(|v| !v.is_negative())
-                }
-                _ => false,
-            };
-            let colors = [Color::W, Color::U, Color::B, Color::R, Color::G];
-            let branches = match (base.as_ref(), instead.as_ref()) {
-                (
-                    ManaProduction::Fixed { symbols: first },
-                    ManaProduction::Fixed { symbols: next },
-                ) => !first.is_empty() && !next.is_empty(),
-                (
-                    ManaProduction::AnyColor,
-                    ManaProduction::Choose {
-                        colors: next,
-                        amount,
-                    },
-                ) => next == &colors && *amount > Quantity::zero(),
-                _ => false,
-            };
-            if !controlled
-                || *minimum <= Quantity::zero()
-                || !branches
-                || !a.costs.tap
-                || a.costs.sacrifice
-                || a.costs.mana.is_some()
-                || a.costs.pay_life.is_some()
-                || a.costs.remove_source_counters.is_some()
-                || !a.hybrid_mana.is_empty()
-                || a.condition.is_some()
-                || a.restriction.is_some()
-                || a.spend_restriction.is_some()
-                || !a.riders.is_empty()
-            {
-                return unaudited("conditional mana production");
-            }
-            cells.insert(Cell::ManaConditional);
-        }
         ManaProduction::Counted {
             zone,
             filter,
