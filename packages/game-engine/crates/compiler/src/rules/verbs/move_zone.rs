@@ -4,33 +4,63 @@ use super::*;
 /// Move the announced card or the source to the printed destination.
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
-    what: &serde_json::Value,
-    to: &serde_json::Value,
-    order: Option<&str>,
-    tapped: Option<bool>,
-    who: Option<&serde_json::Value>,
-    controller: Option<&str>,
+    movement: &ast::EffectMoveZone,
 ) -> Result<Instruction, Failure> {
+    let ast::EffectMoveZone {
+        optional,
+        decided_by,
+        starting_with,
+        for_each,
+        for_each_beyond,
+        for_each_vote,
+        duration,
+        what,
+        to,
+        from,
+        tapped,
+        controller,
+        order,
+        who,
+        entry,
+    } = movement;
+    if starting_with.is_some()
+        || for_each.is_some()
+        || for_each_beyond.is_some()
+        || for_each_vote.is_some()
+        || duration.is_some()
+    {
+        return Err(step("move-zone", "qualified"));
+    }
+    if optional.is_some() || decided_by.is_some() {
+        return Err(step("move-zone", "optional"));
+    }
+    if from.is_some() {
+        return Err(step("move-zone", "from"));
+    }
+    if entry.is_some() {
+        return Err(step("move-zone", "entry_modifier"));
+    }
     uncounted(cx)?;
+    let what = what.as_ref().clone();
     // CR 110.2a and 614.1c: a permanent card from your graveyard enters
     // under your control, tapped when the move specifies it.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    if *to == serde_json::json!({"zone": "battlefield"}) {
+    if ast_is(to.as_ref(), serde_json::json!({"zone": "battlefield"})) {
         if order.is_some()
             || who.is_some()
-            || tapped == Some(false)
-            || !matches!(controller, None | Some("you"))
+            || *tapped == Some(false)
+            || *controller == Some(ast::EffectMoveZoneController::Owner)
         {
             return Err(step("move-zone", "battlefield_entry_modifier"));
         }
         let entry = Destination::Battlefield {
             controller: PlayerExpr::you(cx.context),
-            tapped: tapped == Some(true),
+            tapped: *tapped == Some(true),
         };
-        if let Some(choice) = chosen(cx, &object(what)?, entry)? {
+        if let Some(choice) = chosen(cx, &what, entry)? {
             return Ok(choice);
         }
-        let slot = bind_graveyard_target(cx.program, cx.slots, &object(what)?, false)?;
+        let slot = bind_graveyard_target(cx.program, cx.slots, &what, false)?;
         if controller.is_none()
             && matches!(
                 cx.program.targets[slot as usize].domain,
@@ -43,7 +73,7 @@ pub(super) fn lower(
             slot,
             Destination::Battlefield {
                 controller: PlayerExpr::you(cx.context),
-                tapped: tapped == Some(true),
+                tapped: *tapped == Some(true),
             },
             cx.source_block,
         ));
@@ -54,25 +84,48 @@ pub(super) fn lower(
     if who.is_some() || controller.is_some() {
         return Err(step("move-zone", "mover"));
     }
-    let what = object(what)?;
     if matches!(&what, ast::ObjectRef::Target(t) if t.filter.zone.as_deref().is_some_and(|zone| zone.zone == ast::Zone::Graveyard))
     {
         // CR 400.3, 401.4: "your library" denotes the owner’s library
-        // only when the target is restricted to your graveyard.
-        let own_library =
-            *to == serde_json::json!({"zone": "library", "owner": "your", "position": "top"});
-        let destination = if own_library {
-            Destination::OwnerLibraryTop
-        } else {
-            lower_destination(to)?
+        // only when the target is restricted to your graveyard, and "their
+        // library" only when it is restricted to an opponent's.
+        use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+        let ast::ObjectRef::Target(target) = &what else {
+            unreachable!("graveyard target");
         };
-        if destination != Destination::OwnerLibraryTop {
+        let graveyard_owner = target
+            .filter
+            .zone
+            .as_deref()
+            .and_then(|zone| zone.owner.as_deref());
+        let library = |owner: &str, position: &str| {
+            ast_is(
+                to.as_ref(),
+                serde_json::json!({"zone": "library", "owner": owner, "position": position}),
+            )
+        };
+        let own_library = library("your", "top") || library("your", "bottom");
+        let their_library = matches!(graveyard_owner, Some(Owner::AnOpponent))
+            && (library("their", "top") || library("their", "bottom"));
+        let destination = if own_library || their_library {
+            if library("your", "top") || library("their", "top") {
+                Destination::OwnerLibraryTop
+            } else {
+                Destination::OwnerLibraryBottom
+            }
+        } else {
+            lower_zone_destination(to)?
+        };
+        if !matches!(
+            destination,
+            Destination::OwnerLibraryTop | Destination::OwnerLibraryBottom
+        ) {
             return Err(step("move-zone", "graveyard_target_destination"));
         }
         let slot = bind_graveyard_target(cx.program, cx.slots, &what, own_library)?;
         return Ok(Instruction::move_target(slot, destination, cx.source_block));
     }
-    let to = lower_destination(to)?;
+    let to = lower_zone_destination(to)?;
     // CR 400.7: "this <permanent>" names the source's battlefield incarnation.
     if is_this_permanent(&what) && cx.context != Context::Spell {
         return Ok(cx.act(Verb::Move {
@@ -210,21 +263,17 @@ mod tests {
                 x_consumed: false,
                 result_from: None,
             };
-            let target = json!({
-                "ref": "target",
-                "filter": {"cls": "card", "types": ["creature"], "zone": {"zone": "graveyard", "owner": owner}},
-                "count": {"amount": "fixed", "value": 1},
-                "selectionId": "graveyard-card"
-            });
-            let result = lower(
-                &mut cx,
-                &target,
-                &json!({"zone": "battlefield"}),
-                None,
-                None,
-                None,
-                None,
-            );
+            let movement: ast::EffectMoveZone = serde_json::from_value(json!({
+                "what": {
+                    "ref": "target",
+                    "filter": {"cls": "card", "types": ["creature"], "zone": {"zone": "graveyard", "owner": owner}},
+                    "count": {"amount": "fixed", "value": 1},
+                    "selectionId": "graveyard-card"
+                },
+                "to": {"zone": "battlefield"}
+            }))
+            .unwrap();
+            let result = lower(&mut cx, &movement);
             if owner == "your" {
                 assert!(result.is_ok(), "{result:?}");
             } else {

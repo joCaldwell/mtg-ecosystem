@@ -24,21 +24,38 @@ impl StepResult {
     }
 }
 
+fn hidden_zone(zone: Zone) -> bool {
+    matches!(zone, Zone::Hand { .. } | Zone::Library { .. })
+}
+
 impl RulesTxn {
-    /// CR 701.9c, 701.17c: no characteristic is read for an unrevealed move
-    /// into a hidden zone. A public destination supplies the incarnation a
-    /// later "this way" reader can find, and its known characteristics.
+    /// CR 400.7, 608.2h, 701.9c, 701.17c: the characteristics a later
+    /// "this way" reader may test. A public destination supplies the
+    /// successor and its known characteristics. An object that left a public
+    /// zone for a hidden one keeps its last-known public characteristics
+    /// from the event's pre-event facts; a card that was hidden in its origin
+    /// and stays hidden has none, so no filter reads it.
     pub(super) fn public_move_characteristics(
         &self,
         movement: &MoveOutcome,
+        batch: Option<&CommittedBatch>,
     ) -> Result<Option<Box<ObjectBefore>>, String> {
-        if matches!(
-            movement.destination,
-            Zone::Hand { .. } | Zone::Library { .. }
-        ) {
+        if !hidden_zone(movement.destination) {
+            return Ok(Some(Box::new(self.object_before(movement.successor)?)));
+        }
+        if hidden_zone(movement.from) {
             return Ok(None);
         }
-        Ok(Some(Box::new(self.object_before(movement.successor)?)))
+        // CR 406.3a: a face-down exile card has no recorded facts.
+        Ok(batch
+            .and_then(|batch| {
+                batch
+                    .before
+                    .objects
+                    .iter()
+                    .find(|fact| fact.object == movement.previous)
+            })
+            .map(|fact| Box::new(fact.clone())))
     }
 
     pub(in crate::engine::kir::control) fn result_cards(
@@ -56,9 +73,12 @@ impl RulesTxn {
                 matching.push(member.prior);
             } else if let Some(facts) = &member.public_card {
                 let object = member.successor.ok_or("missing result card successor")?;
+                // A successor now in a hidden zone is read only through
+                // its recorded last-known public facts.
                 let current = self
                     .current(object)
                     .ok()
+                    .filter(|current| !hidden_zone(current.zone))
                     .map(|_| self.object_before(object))
                     .transpose()?;
                 if self.damage_fact_matches(
@@ -272,22 +292,80 @@ impl RulesTxn {
             ..StepResult::default()
         };
         let mut outcomes = Vec::new();
-        for receipt in batch.occurrences {
+        for receipt in &batch.occurrences {
             let EventOutcome::Milled { player, movements } = &receipt.actual else {
                 return Err("unexpected mill receipt".into());
             };
-            result.events.push(receipt.id);
+            result.events.push(receipt.id.clone());
             for movement in movements {
                 result.record_move(
                     *player,
                     movement,
-                    self.public_move_characteristics(movement)?,
+                    self.public_move_characteristics(movement, Some(&batch))?,
                 );
             }
             outcomes.push(InstructionOutcome::Effect {
-                actual: Some(receipt.actual),
+                actual: Some(receipt.actual.clone()),
             });
         }
         self.complete_evaluated(task, Some(result), outcomes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::{Board, Driver, FixtureCatalog};
+
+    /// CR 400.7, 608.2h: a permanent that leaves the battlefield for a
+    /// library keeps its last-known public characteristics; a card whose
+    /// origin was a hidden hand has none for that move; a public
+    /// destination reads the successor.
+    #[test]
+    fn hidden_destination_keeps_public_origin_facts_only() {
+        let board = Board::new(FixtureCatalog::Witness.get().clone(), "move-facts")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, true)
+            .libraries("Forest", 2);
+        let mut game = Game::new(board.prepare());
+        let library = Zone::Library { owner: PlayerId(0) };
+        let graveyard = Zone::Graveyard { owner: PlayerId(0) };
+        for (card, destination, expected) in [
+            (0, library, Some(Zone::Battlefield)),
+            (1, library, None),
+            (2, graveyard, Some(graveyard)),
+        ] {
+            let object = Driver::object(&game, card);
+            let batch = game
+                .commit_batch(
+                    BatchCause::Fixture,
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Move {
+                            object,
+                            destination,
+                        },
+                    },
+                )
+                .unwrap();
+            let [receipt] = batch.occurrences.as_slice() else {
+                panic!("one move receipt");
+            };
+            let EventOutcome::Moved { movement } = &receipt.actual else {
+                panic!("unexpected receipt {receipt:?}");
+            };
+            let facts = game
+                .public_move_characteristics(movement, Some(&batch))
+                .unwrap();
+            assert_eq!(facts.as_ref().map(|f| f.zone), expected, "card {card}");
+            if let Some(facts) = facts {
+                assert_eq!(
+                    facts.characteristics.kind,
+                    CardKind::Creature,
+                    "card {card}"
+                );
+            }
+        }
     }
 }

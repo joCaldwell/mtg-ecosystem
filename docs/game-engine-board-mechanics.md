@@ -98,6 +98,10 @@ filtered by printed types, subtypes, colors and fixed characteristic
 comparisons, can return to hand or, if a creature card, to the battlefield under
 the controller's control, tapped when printed (CR 110.2a); a printed "may" asks
 at resolution. A commander bound for hand still offers the command zone.
+A graveyard card can also go to either end of its owner's library (CR 401.4).
+Every zone change is one [evaluated move](game-engine-catalogs.md#verb-signatures):
+a target that left or became illegal is skipped, a stolen permanent goes to its
+owner's zone, and "exiled/returned this way" reads the cards actually moved.
 
 **Sacrifice** is not destruction. Fling-like effects use paid LKI power. Forced
 sacrifices choose in APNAP order with earlier choices visible, then move

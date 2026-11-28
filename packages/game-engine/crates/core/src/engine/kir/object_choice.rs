@@ -57,7 +57,7 @@ impl RulesTxn {
         self.rules_mut().pending = None;
         match action {
             ObjectChoiceAction::ReturnToOwnerHand => {
-                self.kernel_move_present(frame, object, Destination::OwnerHand, source_block)
+                self.return_chosen_to_owner_hand(frame, object, source_block)
             }
         }
     }

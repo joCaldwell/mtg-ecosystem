@@ -89,7 +89,7 @@ fn graveyard_filter_checks_owner_zone_and_printed_mana_value() {
     let opposing = Zone::Graveyard { owner: PlayerId(1) };
     let prepared = board(&[(
         UNEARTH,
-        &[Cell::MoveOwnGraveyardCreatureToBattlefield],
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
         Tiers::EXECUTES,
     )])
     .permanent_or_hand("Unearth", 0, 0, true)

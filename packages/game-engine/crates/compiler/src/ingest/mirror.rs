@@ -630,9 +630,6 @@ pub(crate) enum Step {
         #[serde(default, deserialize_with = "present_json_operand")]
         riders: Option<serde_json::Value>,
     },
-    Exile {
-        what: serde_json::Value,
-    },
     Untap {
         what: serde_json::Value,
     },
@@ -743,25 +740,6 @@ pub(crate) enum Step {
     },
     #[serde(skip)]
     Evaluated(Box<ast::Effect>),
-    ReturnToHand {
-        what: serde_json::Value,
-        to: String,
-        #[serde(default, deserialize_with = "present_bool_field")]
-        optional: Option<bool>,
-    },
-    MoveZone {
-        what: serde_json::Value,
-        to: serde_json::Value,
-        #[serde(default, deserialize_with = "present_ast_field")]
-        order: Option<String>,
-        #[serde(default, deserialize_with = "present_bool_field")]
-        tapped: Option<bool>,
-        #[serde(default, deserialize_with = "present_ast_field")]
-        controller: Option<String>,
-        /// The player who puts the cards (CR 110.2).
-        #[serde(default, deserialize_with = "present_json_operand")]
-        who: Option<serde_json::Value>,
-    },
 }
 
 impl<'de> Deserialize<'de> for Step {
@@ -778,6 +756,10 @@ impl<'de> Deserialize<'de> for Step {
                     | "sacrifice"
                     | "discard"
                     | "mill"
+                    | "exile"
+                    | "exile-until"
+                    | "return-to-hand"
+                    | "move-zone"
             )
         ) {
             if raw
@@ -804,12 +786,66 @@ impl Step {
         }
     }
 
+    /// CR 400.3: a "put" step without the modifiers no lowering reads:
+    /// its object, destination, order, tapped entry, controller and mover.
+    pub(crate) fn plain_move(&self) -> Option<PlainMove<'_>> {
+        let ast::Effect::MoveZone(movement) = self.effect()? else {
+            return None;
+        };
+        let ast::EffectMoveZone {
+            optional: None,
+            decided_by: None,
+            starting_with: None,
+            for_each: None,
+            for_each_beyond: None,
+            for_each_vote: None,
+            duration: None,
+            what,
+            to,
+            from: None,
+            tapped,
+            controller,
+            order,
+            who,
+            entry: None,
+        } = movement.as_ref()
+        else {
+            return None;
+        };
+        Some(PlainMove {
+            what,
+            to,
+            order: *order,
+            tapped: *tapped,
+            controller: *controller,
+            who: who.as_deref(),
+        })
+    }
+
     pub(crate) fn effect(&self) -> Option<&ast::Effect> {
         match self {
             Self::Evaluated(effect) => Some(effect),
             _ => None,
         }
     }
+}
+
+/// The operands of a [`Step::plain_move`].
+pub(crate) struct PlainMove<'a> {
+    pub(crate) what: &'a ast::ObjectRef,
+    pub(crate) to: &'a ast::ZoneRef,
+    pub(crate) order: Option<ast::EffectMoveZoneOrder>,
+    pub(crate) tapped: Option<bool>,
+    pub(crate) controller: Option<ast::EffectMoveZoneController>,
+    pub(crate) who: Option<&'a ast::PlayerRef>,
+}
+
+/// Whether a decoded AST value is exactly the archived spelling `json`.
+pub(crate) fn ast_is<T: serde::de::DeserializeOwned + PartialEq>(
+    value: &T,
+    json: serde_json::Value,
+) -> bool {
+    serde_json::from_value::<T>(json).is_ok_and(|expected| expected == *value)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

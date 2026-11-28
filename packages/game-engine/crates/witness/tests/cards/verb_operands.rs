@@ -753,7 +753,7 @@ fn lane1_counter_filter_counts_and_selects_the_same_current_creatures() {
         ),
         (
             record!("06ef46c6-00ba-40e6-b866-d0095ab83749"),
-            Cell::MoveSet,
+            Cell::Evaluated(EvaluatedVerb::Move),
         ),
     ])
     .permanent_or_hand("Lifecrafter's Gift", 0, 0, true)
@@ -877,6 +877,7 @@ fn lane1_target_graveyard_owner_feeds_draw_and_life() {
 
 #[test]
 fn lane1_announced_mana_value_bound_drives_destroy_and_bounce() {
+    use mtg_contracts::kir::EvaluatedVerb;
     for (raw, cell, name, colored, lands, moved_zone) in [
         (
             record!("103d9ad0-d655-4bd5-a899-e9f8869e333d"),
@@ -888,7 +889,7 @@ fn lane1_announced_mana_value_bound_drives_destroy_and_bounce() {
         ),
         (
             record!("2b3fc609-7b19-441a-ab7e-58ccd70d955b"),
-            Cell::MoveSet,
+            Cell::Evaluated(EvaluatedVerb::Move),
             "Displacement Wave",
             ["Island", "Island"],
             vec![3, 4, 5],
@@ -933,7 +934,7 @@ fn lane1_counter_target_rechecks_after_annihilation() {
         ),
         (
             record!("38a2ded4-77c5-4d2b-b411-7dca8108aa02"),
-            Cell::MovePermanentOwnerHand,
+            Cell::Evaluated(EvaluatedVerb::Move),
         ),
         (
             record!("6556a15b-be4b-45ea-867d-3a8e26202b42"),

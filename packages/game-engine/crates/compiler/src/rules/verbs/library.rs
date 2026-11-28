@@ -45,25 +45,26 @@ pub(super) fn look(
 pub(super) fn reorder_top(cx: &mut StepCx<'_>, steps: &[Step]) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     let reject = || step("look-at", "unlowered");
-    let [
-        Step::LookAt { who, what },
-        Step::MoveZone {
-            what: moved,
-            to,
-            order: Some(order),
-            tapped: None,
-            controller: None,
-            who: None,
-        },
-        ..,
-    ] = steps
+    let [Step::LookAt { who, what }, movement, ..] = steps else {
+        return Err(reject());
+    };
+    let Some(PlainMove {
+        what: moved,
+        to,
+        order: Some(ast::EffectMoveZoneOrder::Any),
+        tapped: None,
+        controller: None,
+        who: None,
+    }) = movement.plain_move()
     else {
         return Err(reject());
     };
     if *who != json!({"player": "you"})
-        || *moved != json!({"ref": "them"})
-        || *to != json!({"zone": "library", "owner": "your", "position": "top"})
-        || order != "any"
+        || !ast_is(moved, json!({"ref": "them"}))
+        || !ast_is(
+            to,
+            json!({"zone": "library", "owner": "your", "position": "top"}),
+        )
     {
         return Err(reject());
     }
@@ -156,17 +157,18 @@ pub(super) fn search(
     let mut at = 1;
     let mut reveal = false;
     if let Some(Step::Reveal { who, what }) = steps.get(at) {
-        if serde_json::to_value(who).ok().as_ref() != Some(&who_value) || !pronoun(what) {
+        if serde_json::to_value(who).ok().as_ref() != Some(&who_value)
+            || !typed::<ast::ObjectRef>(what, "object").is_ok_and(|what| pronoun(&what))
+        {
             return Err(search_error("reveal"));
         }
         reveal = true;
         at += 1;
     }
-    if let [
-        shuffle @ Step::Shuffle { .. },
-        movement @ Step::MoveZone { .. },
-        ..,
-    ] = &steps[at..]
+    if let [shuffle @ Step::Shuffle { .. }, movement, ..] = &steps[at..]
+        && movement
+            .effect()
+            .is_some_and(|e| matches!(e, ast::Effect::MoveZone(_)))
     {
         if !you || maximum != 1 || !top_after_shuffle(movement, &who_value) {
             return Err(search_error("found_cards"));
@@ -233,18 +235,20 @@ pub(super) fn search(
         });
         return Ok((vec![search, cx.act(Verb::Shuffle { player })], at + 2));
     }
-    let Some(Step::MoveZone {
+    let Some(PlainMove {
         what,
         to,
         order,
         tapped,
         controller: None,
         who: mover,
-    }) = steps.get(at)
+    }) = steps.get(at).and_then(Step::plain_move)
     else {
         return Err(search_error("found_cards"));
     };
-    if order.is_some() || !pronoun(what) || mover.as_ref().is_some_and(|mover| *mover != who_value)
+    if order.is_some()
+        || !pronoun(what)
+        || mover.is_some_and(|mover| !ast_is(mover, who_value.clone()))
     {
         return Err(search_error("found_cards"));
     }
@@ -302,10 +306,10 @@ fn validate_search_shuffle(shuffle: &Step, player: &Value) -> Result<(), Failure
 
 /// CR 701.24b: the found singleton stays outside the shuffle.
 fn top_after_shuffle(movement: &Step, player: &Value) -> bool {
-    matches!(movement, Step::MoveZone { what, to, order: None, tapped: None, controller: None, who: None }
-        if (*what == json!({"ref": "it"})
-            || *what == json!({"ref": "that", "filter": {"cls": "card"}}))
-        && *to == json!({"zone": "library", "owner": player, "position": "top"}))
+    matches!(movement.plain_move(), Some(PlainMove { what, to, order: None, tapped: None, controller: None, who: None })
+        if (ast_is(what, json!({"ref": "it"}))
+            || ast_is(what, json!({"ref": "that", "filter": {"cls": "card"}})))
+        && ast_is(to, json!({"zone": "library", "owner": player, "position": "top"})))
 }
 
 /// CR 701.24a: "shuffle your library", outside a search run.
@@ -404,18 +408,22 @@ fn found(find: &Value) -> Result<(kir::Pred, i64, bool), Failure> {
 
 /// A pronoun naming the found cards; the archive binding proves it names
 /// this search's result (`resolution::step_producer`).
-fn pronoun(what: &Value) -> bool {
+fn pronoun(what: &ast::ObjectRef) -> bool {
     matches!(
-        typed::<ast::ObjectRef>(what, "object"),
-        Ok(ast::ObjectRef::It(_) | ast::ObjectRef::That(_) | ast::ObjectRef::Them(_))
+        what,
+        ast::ObjectRef::It(_) | ast::ObjectRef::That(_) | ast::ObjectRef::Them(_)
     )
 }
 
 /// CR 400.3, 110.2: the searcher's battlefield, or the hand or graveyard of
 /// the found cards' owner (the searcher: it is their library).
-fn destination(to: &Value, player: &PlayerExpr, tapped: bool) -> Result<kir::Destination, Failure> {
+fn destination(
+    to: &ast::ZoneRef,
+    player: &PlayerExpr,
+    tapped: bool,
+) -> Result<kir::Destination, Failure> {
     let owner = if player.is_you() { "your" } else { "their" };
-    if *to == json!({"zone": "battlefield"}) {
+    if ast_is(to, json!({"zone": "battlefield"})) {
         return Ok(kir::Destination::Battlefield {
             controller: player.clone(),
             tapped,
@@ -424,9 +432,9 @@ fn destination(to: &Value, player: &PlayerExpr, tapped: bool) -> Result<kir::Des
     if tapped {
         return Err(search_error("destination"));
     }
-    if *to == json!({"zone": "hand", "owner": owner}) {
+    if ast_is(to, json!({"zone": "hand", "owner": owner})) {
         Ok(kir::Destination::OwnerHand)
-    } else if *to == json!({"zone": "graveyard", "owner": owner}) {
+    } else if ast_is(to, json!({"zone": "graveyard", "owner": owner})) {
         Ok(kir::Destination::OwnerGraveyard)
     } else {
         Err(search_error("destination"))

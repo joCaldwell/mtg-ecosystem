@@ -17,7 +17,8 @@
 //! fills a held mana receipt's cost event identities and ledger delta; a
 //! seventh suspends a counted draw between attempts; an eighth suspends a
 //! proliferate on a replacement order, crosses a departure and commits
-//! its lineage.
+//! its lineage; a ninth suspends an evaluated move on a commander owner's
+//! choice.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -29,8 +30,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "3339d6f7e34df4b8a3f789a754639f76c924256ddb16442552180ac18c705178",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    147,
-    "003538ff1466013060005494faa6d7b9d566ec1bd01987007179299ca67d4657",
+    148,
+    "09b01944bfdca0034ec45c5bf6a2d6166ff5ff84cedbb3d57f5e9c6907f9a5f6",
 );
 const WORK_PIN: (u32, &str) = (
     70,
@@ -943,6 +944,41 @@ fn suspended_replacement_order() -> [Game; 3] {
     [pending, rebuilding, game]
 }
 
+/// CR 903.9b: a spell returning a commander to its owner's hand suspends
+/// the evaluated move on that owner's command-zone choice.
+fn suspended_commander_move() -> Game {
+    let mut game = Game::new(
+        Prepared::admit(
+            FixtureCatalog::Action.get().clone(),
+            ScenarioConfig::command_casting(),
+        )
+        .unwrap(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    for _ in 0..5 {
+        Driver::pass(&mut game);
+    }
+    Driver::cast(&mut game, CardId(7));
+    let commander = Driver::object(&game, 0);
+    let answer = game.next_test_decision().targets(vec![commander]);
+    Driver::answer(&mut game, u64::MAX, answer);
+    Driver::pay(&mut game, &[6]);
+    for _ in 0..4 {
+        Driver::pass(&mut game);
+    }
+    assert!(matches!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::CommanderReturn { .. }
+    ));
+    let snapshot: Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    assert_eq!(
+        snapshot["state"]["frame"]["task"]["stage"]["progress"],
+        "moves"
+    );
+    game
+}
+
 /// A stack target offer with two public regeneration shields. The first
 /// shield can be projected while the second still keeps work suspended.
 fn stack_target_and_shields() -> Game {
@@ -1241,6 +1277,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_delve(),
             suspended_convoke(),
             saga_chapter(),
+            suspended_commander_move(),
         ])
         .chain(suspended_replacement_order())
         .chain(mana_riders())

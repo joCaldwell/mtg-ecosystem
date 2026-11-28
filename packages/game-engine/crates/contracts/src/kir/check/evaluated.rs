@@ -42,6 +42,7 @@ impl Walk<'_, '_> {
                 filter,
                 greatest_power,
             } => self.audit_evaluated_sacrifice(&operands, player, count, filter, greatest_power),
+            Evaluated::Move { what, to } => self.audit_move(what, to),
         }
     }
 
