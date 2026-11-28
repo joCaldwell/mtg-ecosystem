@@ -457,9 +457,20 @@ enum BatchAuthority<'a> {
     BattlefieldEntry {
         entries: &'a [(ObjectId, EntryOverride)],
         land: Option<(ObjectId, PlayerId, CardFace)>,
+        resolving_spell: Option<(ObjectId, StackId)>,
     },
 }
 impl BatchAuthority<'_> {
+    fn resolving_spell(self, entrant: ObjectId) -> Option<StackId> {
+        match self {
+            Self::BattlefieldEntry {
+                resolving_spell: Some((source, stack)),
+                ..
+            } if source == entrant => Some(stack),
+            _ => None,
+        }
+    }
+
     fn entry_override(self, object: ObjectId) -> EntryOverride {
         match self {
             Self::BattlefieldEntry { entries, .. } => entries
@@ -470,6 +481,7 @@ impl BatchAuthority<'_> {
         }
     }
 }
+
 fn independent_footprints(
     footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
 ) -> bool {
@@ -1732,6 +1744,23 @@ impl RulesTxn {
             } => Some((*source, *player, *face)),
             _ => None,
         };
+        // CR 107.3m: the source of a completing permanent spell carries
+        // its announced X even when an entry replacement also chose modifiers.
+        let resolving_spell = match &cause {
+            BatchCause::SpellCompletion {
+                stack_id, source, ..
+            } if matches!(events.as_slice(),
+                    [ProposedEvent::Move { object, destination: Zone::Battlefield }
+                    | ProposedEvent::EnterAttached { object, .. }] if object == source) =>
+            {
+                let spell = self.entry(*stack_id)?;
+                if spell.source != *source || !spell.kind.is_spell() {
+                    return Err("permanent spell completion source mismatch".into());
+                }
+                Some((*source, *stack_id))
+            }
+            _ => None,
+        };
         let authority = if counter_cost {
             let (BatchCause::AbilityActivation { source, .. }
             | BatchCause::ManaActivation { source, .. }) = cause
@@ -1749,10 +1778,11 @@ impl RulesTxn {
                 return Err("counter cost must pay once from the activating source".into());
             }
             BatchAuthority::PayCounters
-        } else if !entry_override.is_empty() || land.is_some() {
+        } else if !entry_override.is_empty() || land.is_some() || resolving_spell.is_some() {
             BatchAuthority::BattlefieldEntry {
                 entries: entry_override,
                 land,
+                resolving_spell,
             }
         } else if cause == BatchCause::PrecombatMainLore {
             if self.main_phase_lore_group()?.as_ref() != Some(&group) {
@@ -2488,6 +2518,7 @@ impl RulesTxn {
                         tapped: entry.tapped,
                         accepted: entry.accepted,
                         attached_to: Some(*target),
+                        resolving_spell: authority.resolving_spell(*object),
                     },
                 )?
                 else {
@@ -3561,6 +3592,7 @@ impl RulesTxn {
                     battlefield_entry::EntryModifiers {
                         tapped: entry.tapped,
                         accepted: entry.accepted,
+                        resolving_spell: authority.resolving_spell(*object),
                         ..Default::default()
                     },
                 )?

@@ -246,7 +246,8 @@ impl Walk<'_, '_> {
                 | Atom::Is { .. }
                 | Atom::Counters { .. }
                 | Atom::SourceChosenColor {}
-                | Atom::SourceChosenCreatureType {} => {
+                | Atom::SourceChosenCreatureType {}
+                | Atom::ControllerTookSourceCombatDamage {} => {
                     return unaudited("library card filter atom");
                 }
             }

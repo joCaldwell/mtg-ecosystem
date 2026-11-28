@@ -115,6 +115,13 @@ pub struct TurnCastHistory {
     pub permanent_left: bool,
     #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
     pub hand_casts: u32,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
+    pub graveyard_casts: u32,
+    #[serde(default, skip_serializing_if = "TurnCastHistory::is_zero")]
+    pub graveyard_activations: u32,
+    /// Combat damage actually dealt to this seat, keyed by source incarnation.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub combat_damage_sources: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "TurnCastHistory::quantity_is_zero")]
     pub life_gained: Quantity,
     /// CR 603.6a: each entry counts by its controller and resulting types.
@@ -180,6 +187,8 @@ impl TurnCastHistory {
                 spells(&|c| c.has_type(CardKind::Instant) || c.has_type(CardKind::Sorcery))?
             }
             SpellsCastFromHand => quantity(row.hand_casts),
+            SpellsCastFromGraveyard => quantity(row.graveyard_casts),
+            AbilitiesActivatedFromGraveyard => quantity(row.graveyard_activations),
             CardsDrawn => quantity(row.draws),
             LifeGained => row.life_gained.clone(),
             TokensCreated => quantity(row.tokens_created),
@@ -1491,11 +1500,13 @@ impl RulesTxn {
             row.exile_cast |= cast.cast_from == Zone::Exile;
             row.mana_value.add(&mana_value);
             row.spells.push(cast.spell.clone());
-            if cast.cast_from == (Zone::Hand { owner: cast.caster }) {
-                row.hand_casts = row
-                    .hand_casts
-                    .checked_add(1)
-                    .ok_or("turn history count limit")?;
+            let zone_count = match cast.cast_from {
+                Zone::Hand { owner } if owner == cast.caster => Some(&mut row.hand_casts),
+                Zone::Graveyard { .. } => Some(&mut row.graveyard_casts),
+                _ => None,
+            };
+            if let Some(count) = zone_count {
+                *count = count.checked_add(1).ok_or("turn history count limit")?;
             }
         }
         // CR 121.2, 119.9: count the turn's draws and life-gain events.
@@ -2163,7 +2174,8 @@ impl RulesTxn {
     pub(super) fn validate_turn_history(&self) -> Result<(), String> {
         for (seat, row) in self.state.rules.cast_history.iter().enumerate() {
             if row.attacked && seat != self.state.rules.turn_owner.0 as usize
-                || row.hand_casts as usize > row.spells.len()
+                || u64::from(row.hand_casts) + u64::from(row.graveyard_casts)
+                    > row.spells.len() as u64
                 || row.creature_died && !row.permanent_left
                 || row.artifacts_entered.is_negative()
                 || row.creatures_entered.is_negative()

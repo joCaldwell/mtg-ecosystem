@@ -166,17 +166,30 @@ fn fixture_registry(
     }
     let dir = provenance.parent().ok_or("provenance has no parent")?;
     let proposed = parse_archive_registry(&read_file(&dir.join("accepted-archives.json"))?)?;
-    let mut r6 = proposed.iter().filter(|a| a.cut == ArchiveCut::R6);
-    if !r6.next().is_some_and(|a| !a.candidate && !a.pending)
-        || r6.next().is_some()
-        || !proposed
-            .iter()
-            .filter(|a| a.cut != ArchiveCut::R6)
-            .eq(embedded.iter().filter(|a| a.cut != ArchiveCut::R6))
+    // An additive grammar cut keeps every existing origin and introduces
+    // exactly one reviewed schema-5 registration, initially without row pins.
+    if let Some(new) = proposed.get(embedded.len())
+        && proposed.len() == embedded.len() + 1
+        && proposed.starts_with(embedded)
+        && new.cut == ArchiveCut::R6
+        && !new.pending
+        && !new.candidate
     {
-        return Err(
-            "promotion requires one measured R6 registration and unchanged earlier origins".into(),
-        );
+        return Ok(proposed.into());
+    }
+    if !embedded
+        .iter()
+        .position(|a| a.cut == ArchiveCut::R6)
+        .is_some_and(|at| {
+            proposed.len() == embedded.len()
+                && proposed[..at] == embedded[..at]
+                && proposed[at + 1..] == embedded[at + 1..]
+                && proposed[at].cut == ArchiveCut::R6
+                && !proposed[at].candidate
+                && !proposed[at].pending
+        })
+    {
+        return Err("promotion requires one measured R6 cut and unchanged other origins".into());
     }
     Ok(proposed.into())
 }
@@ -600,11 +613,21 @@ fn extract_verified(
             ));
         }
     }
+    let fixture_directory = if accepted.cut == ArchiveCut::R6 {
+        let first = registry.iter().find(|a| a.cut == ArchiveCut::R6);
+        if first == Some(accepted) {
+            "phase1-r6".to_string()
+        } else {
+            format!("phase1-r6/{}", accepted.manifest_sha256)
+        }
+    } else {
+        String::new()
+    };
     let mut outputs = vec![];
     let mut report = vec![];
     for (id, (line_number, name, raw)) in selected {
         let file = if accepted.cut == ArchiveCut::R6 {
-            format!("phase1-r6/{id}.json")
+            format!("{fixture_directory}/{id}.json")
         } else {
             format!("{id}.json")
         };
@@ -711,7 +734,7 @@ fn extract_verified(
     }
     // All selectors, identities, hashes and collisions are checked before writes.
     if accepted.cut == ArchiveCut::R6 {
-        fs::create_dir_all(dir.join("phase1-r6")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dir.join(fixture_directory)).map_err(|e| e.to_string())?;
     }
     for (path, bytes) in outputs {
         fs::write(path, bytes).map_err(|e| e.to_string())?;
