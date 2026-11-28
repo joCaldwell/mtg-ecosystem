@@ -34,6 +34,7 @@ const FAMILIES: &[(&str, Select)] = &[
     ("gain-life", source_action::gain_life),
     ("lose-life", source_action::lose_life),
     ("discard", source_action::discard),
+    ("linked-count", source_action::linked_count),
 ];
 
 pub(super) struct Claim {

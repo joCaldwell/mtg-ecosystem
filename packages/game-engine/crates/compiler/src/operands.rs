@@ -2297,7 +2297,7 @@ pub(crate) fn lower_for_each(
 }
 
 pub(crate) fn lower_each_filter(
-    filter: ast::ObjectFilter,
+    mut filter: ast::ObjectFilter,
     per_object: &ast::Amount,
     context: Context,
 ) -> Result<Amount, Failure> {
@@ -2305,11 +2305,34 @@ pub(crate) fn lower_each_filter(
         ast::Amount::Fixed(n) if n.value > 0 && u32::try_from(n.value).is_ok() => n.value,
         _ => return Err(operand("forEach", "per_object_amount")),
     };
-    let count = lower_count(
+    // CR 205.3a, 608.2h: a board object with either listed subtype
+    // contributes one member, even when it has both.
+    let any = filter.any_of.take();
+    let count = lower_count_with(
         &ast::AmountCount {
             of: Box::new(filter),
         },
         context,
+        None,
+        |filter| {
+            let mut pred = lower_filter(filter, context)?;
+            if let Some(alternatives) = any {
+                if alternatives.is_empty()
+                    || alternatives
+                        .iter()
+                        .any(|item| only_field(item) != Some("subtypes"))
+                {
+                    return Err(operand("filter", "any_of"));
+                }
+                pred.0.push(Atom::AnyOf {
+                    alternatives: alternatives
+                        .iter()
+                        .map(lower_card_filter)
+                        .collect::<Result<_, _>>()?,
+                });
+            }
+            Ok(pred)
+        },
     )?;
     Ok(if factor == 1 {
         count

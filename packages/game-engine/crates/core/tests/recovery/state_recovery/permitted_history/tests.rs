@@ -67,6 +67,7 @@ fn rich_fixture() -> PermittedView {
     }];
     v.stack = vec![VisibleStackEntry {
         mode_mask: None,
+        chosen_modes: None,
         hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,

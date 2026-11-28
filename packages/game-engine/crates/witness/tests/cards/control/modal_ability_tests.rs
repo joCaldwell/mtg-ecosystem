@@ -588,7 +588,7 @@ fn sawblade_slinger_removes_an_empty_selection() {
             }
         );
         assert!(
-            matches!(&d.candidates[0], Candidate::Modes { mask: 0, labels } if labels == &["No modes"])
+            matches!(&d.candidates[0], Candidate::Modes { mask: 0, labels, .. } if labels == &["No modes"])
         );
         choose(&mut g, &d, 0);
         let next = Driver::request(&mut g, u64::MAX);

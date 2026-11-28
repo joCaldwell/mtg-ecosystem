@@ -28,6 +28,7 @@ mod pump;
 mod regenerate;
 mod return_to_hand;
 mod sacrifice;
+mod simultaneous;
 mod tap;
 mod target_group;
 mod tokens;
@@ -62,6 +63,8 @@ pub(crate) struct StepCx<'a> {
     pub x: Option<kir::Amount>,
     /// The lowerer read [`Self::x`] for every X the step prints.
     pub x_consumed: bool,
+    chosen_creature_type: Option<u32>,
+    chosen_creature_type_read: bool,
     pub result_from: Option<usize>,
 }
 
@@ -146,6 +149,13 @@ fn pilot_player(cx: &mut StepCx<'_>, who: &ast::PlayerRef) -> Result<PlayerExpr,
             object: pilot_object(cx, &relation.of)?,
         }),
         ast::PlayerRef::EachPlayer(_) => Ok(PlayerExpr::EachPlayer),
+        ast::PlayerRef::Filtered(filtered)
+            if matches!(&*filtered.base, ast::PlayerRef::EachPlayer(_))
+                && filtered.random.is_none()
+                && filtered.filter.event_results.is_some() =>
+        {
+            card_result::players_who_drew(cx, &filtered.filter)
+        }
         // CR 102.2–3: in the supported free-for-all game, each other
         // player is an opponent. Reject every additional player qualifier.
         ast::PlayerRef::Filtered(filtered)
@@ -370,6 +380,18 @@ fn pilot_count(
     subject: Option<&PlayerExpr>,
 ) -> Result<Amount, Failure> {
     use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+    if let Some(chosen) = &count.of.chosen_type
+        && let Some(var) = cx.chosen_creature_type
+    {
+        if chosen.kind.is_some() || count.of.zone.is_some() {
+            return Err(operand("result", "qualified_chosen_creature_type"));
+        }
+        let mut filter = (*count.of).clone();
+        filter.chosen_type = None;
+        let set = SetExpr::battlefield(pilot_filter_relative(cx, &filter, subject)?);
+        cx.chosen_creature_type_read = true;
+        return Ok(Amount::CountChosenCreatureType { set, var });
+    }
     if let Some(amount) = card_result::linked_count(cx, &count.of)? {
         return Ok(amount);
     }
@@ -655,6 +677,8 @@ pub(crate) fn append_spell_effects(
                 source_block,
                 x: None,
                 x_consumed: false,
+                chosen_creature_type: None,
+                chosen_creature_type_read: false,
                 result_from: None,
             },
             sentence,
@@ -689,6 +713,8 @@ pub(crate) fn append_spell_effects(
                 source_block,
                 x: None,
                 x_consumed: false,
+                chosen_creature_type: None,
+                chosen_creature_type_read: false,
                 result_from: None,
             };
             // CR 701.23a, 701.24a: a search run spans its reveal, move and
@@ -740,6 +766,53 @@ pub(crate) fn append_spell_effects(
                     return Err(unsupported("bindings", "unconsumed count binding"));
                 }
                 program.instructions.push(instruction);
+                at += 2;
+                continue;
+            }
+            if let Step::ChooseValue { who, category } = s {
+                let following = if at + 1 == sentence.steps.len() {
+                    sentences.peek().copied().filter(|next| {
+                        next.condition.is_none()
+                            && next.condition_kind.is_none()
+                            && next.bindings.is_empty()
+                            && next.steps.len() == 1
+                    })
+                } else {
+                    None
+                };
+                let Some(next) = sentence
+                    .steps
+                    .get(at + 1)
+                    .or_else(|| following.map(|s| &s.steps[0]))
+                else {
+                    return Err(step("choose-value", "unlowered"));
+                };
+                if category != "creature-type"
+                    || who.player != "you"
+                    || who.selection_id.is_some()
+                    || who.of.is_some()
+                    || reads(at..at + 2)
+                {
+                    return Err(step("choose-value", "unlowered"));
+                }
+                let var = 0;
+                cx.chosen_creature_type = Some(var);
+                let Instruction::Kernel { node, .. } = lower_step(&mut cx, next)?;
+                if !cx.chosen_creature_type_read || cx.result_from.is_some() {
+                    return Err(step("choose-value", "unlowered"));
+                }
+                program.instructions.push(Instruction::Kernel {
+                    node: kir::Node::ChooseCreatureType {
+                        var,
+                        chooser: PlayerExpr::you(context),
+                        body: Box::new(node),
+                    },
+                    source_block,
+                });
+                if let Some(following) = following {
+                    prior = prior.join(following.introduces[0]);
+                    sentences.next();
+                }
                 at += 2;
                 continue;
             }
@@ -859,7 +932,7 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             duration,
         } => continuous::land_plays(cx, allowance, duration),
         Step::LookAt { .. } => Err(step("look-at", "unlowered")),
-        Step::Simultaneous { .. } => Err(step("simultaneous", "unlowered")),
+        Step::Simultaneous { steps } => simultaneous::lower(cx, steps),
         Step::ShuffleIntoLibrary {
             who,
             what,
@@ -951,6 +1024,8 @@ mod tests {
             x: None,
             x_consumed: false,
             result_from: None,
+            chosen_creature_type: None,
+            chosen_creature_type_read: false,
         };
         let player = PlayerExpr::target(0);
         assert_eq!(

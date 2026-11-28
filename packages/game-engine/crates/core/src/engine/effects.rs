@@ -1657,6 +1657,10 @@ impl RulesTxn {
     }
     // CR 800.4m: if the controller left, the effect ends at the boundary
     // where their seat would have taken a turn.
+    // Seat distance assumes turns pass only in seat order (`next_turn_state`
+    // via `next_live`). Extra turns (CR 500.7) would end every player's
+    // effect here; supporting them must first track, per controller, whether
+    // their next turn has begun.
     pub(super) fn expire_characteristics_at_turn_start(
         &mut self,
         previous: PlayerId,

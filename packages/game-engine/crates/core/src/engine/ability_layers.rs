@@ -154,7 +154,10 @@ fn apply_type_change(
                 }
             }
         }
-        Change::AllCreatureTypes => facts.all_creature_types = true,
+        // CR 205.3d: a noncreature recipient keeps no creature types.
+        Change::AllCreatureTypes if facts.has_type(CardKind::Creature) => {
+            facts.all_creature_types = true
+        }
         Change::SetCardTypes { kinds } => set_card_types(facts, kinds, printed),
         Change::RemoveCardTypes { kinds } => {
             let remaining: Vec<_> = std::iter::once(facts.kind)
@@ -196,9 +199,9 @@ fn members(application: &Application) -> Vec<ObjectId> {
 /// creature or a land can have that kind of subtype).
 fn change_takes_effect(change: &Change, facts: &Characteristics) -> bool {
     match change {
-        Change::SetCreatureSubtypes { .. } | Change::AddCreatureSubtypes { .. } => {
-            facts.has_type(CardKind::Creature)
-        }
+        Change::SetCreatureSubtypes { .. }
+        | Change::AddCreatureSubtypes { .. }
+        | Change::AllCreatureTypes => facts.has_type(CardKind::Creature),
         Change::SetLandSubtypes { .. } => facts.has_type(CardKind::Land),
         Change::RemoveCardTypes { kinds } => kinds.iter().any(|k| facts.has_type(*k)),
         _ => true,

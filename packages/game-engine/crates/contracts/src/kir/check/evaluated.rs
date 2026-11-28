@@ -80,6 +80,14 @@ impl Walk<'_, '_> {
             } => Ok(()),
             Amount::Count { set } if self.audit_control_set(set).is_ok() => Ok(()),
             Amount::Count { set } => self.audit_counted_set(set),
+            Amount::CountChosenCreatureType {
+                set:
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Battlefield,
+                        filter,
+                    },
+                ..
+            } => self.audited_relative_filter(filter),
             Amount::Greatest {
                 set:
                     SetExpr::Matching {

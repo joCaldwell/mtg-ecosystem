@@ -1178,8 +1178,9 @@ pub struct SpellProgram {
 
 /// CR 601.2b, 602.2b, 603.3c and 700.2a–d: one announcement or placement
 /// chooses distinct modes. Each admitted selection is an ordinary program in
-/// printed order with only its own target occurrences. Bit zero denotes the
-/// first printed mode. Spells, activated and triggered abilities share it.
+/// printed order with only its own target occurrences. Distinct selections
+/// use a bitmask. Repeating selections use one-based ordinals of sorted
+/// mode lists. Spells, activated and triggered abilities share the declaration.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1188,6 +1189,8 @@ pub struct ModalSpell {
     pub min: u32,
     pub max: u32,
     pub labels: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub repeat: bool,
     pub selections: BTreeMap<u8, SpellProgram>,
 }
 impl ModalSpell {
@@ -1200,6 +1203,33 @@ impl ModalSpell {
             0
         };
         (0..limit).filter(move |mask| (min..=max).contains(&mask.count_ones()))
+    }
+
+    pub fn choices(len: usize, min: u32, max: u32, repeat: bool) -> BTreeMap<u8, Vec<usize>> {
+        if !repeat {
+            return Self::masks(len, min, max)
+                .map(|mask| {
+                    (
+                        mask,
+                        (0..len).filter(|index| mask & (1 << index) != 0).collect(),
+                    )
+                })
+                .collect();
+        }
+        // The reviewed repeat declaration chooses exactly three modes.
+        // Five printed modes yield at most 35 different ordered lists.
+        if len > Self::MAX_MODES || (min, max) != (3, 3) {
+            return BTreeMap::new();
+        }
+        let mut choices = BTreeMap::new();
+        for first in 0..len {
+            for second in first..len {
+                for third in second..len {
+                    choices.insert(choices.len() as u8 + 1, vec![first, second, third]);
+                }
+            }
+        }
+        choices
     }
 }
 fn single_sacrifice() -> u32 {

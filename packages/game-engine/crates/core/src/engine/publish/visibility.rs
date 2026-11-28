@@ -1011,8 +1011,12 @@ impl RulesTxn {
                 }),
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let chosen_modes = self.announced_mode_indices(instance)?;
         Ok(VisibleStackEntry {
-            mode_mask: instance.mode_mask,
+            mode_mask: chosen_modes
+                .as_ref()
+                .map(|modes| modes.iter().fold(0, |mask, &index| mask | (1 << index))),
+            chosen_modes,
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),

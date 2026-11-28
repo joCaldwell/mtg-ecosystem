@@ -215,6 +215,29 @@ impl RulesTxn {
             return self.kernel_library(frame, verb, source_block);
         }
         match verb {
+            Verb::Destroy {
+                what: SetExpr::Targets { slots },
+                ..
+            } => {
+                let objects = self.legal_kernel_object_targets(&frame, &slots)?;
+                self.move_board_objects(
+                    frame,
+                    objects,
+                    wipes::SetMove::Destroy,
+                    source_block,
+                    false,
+                )
+            }
+            ref action @ (Verb::Tap {
+                what: SetExpr::Targets { ref slots },
+            }
+            | Verb::Untap {
+                what: SetExpr::Targets { ref slots },
+            }) => {
+                let tap = matches!(action, Verb::Tap { .. });
+                let objects = self.legal_kernel_object_targets(&frame, slots)?;
+                self.kernel_tap_objects(frame, objects, tap, source_block)
+            }
             Verb::GiveCounters {
                 player,
                 counter,
@@ -278,6 +301,29 @@ impl RulesTxn {
             } => self.shuffle_resolving_spell(frame, source_block),
             _ => Err("kernel verb has no audited executor".into()),
         }
+    }
+
+    /// CR 115.3, 608.2b: distinct occurrences may name the same permanent.
+    /// The instruction applies its single status change or destruction once.
+    pub(in crate::engine) fn legal_kernel_object_targets(
+        &self,
+        frame: &Resolving,
+        slots: &[u32],
+    ) -> Result<Vec<ObjectId>, String> {
+        let entry = self.entry(frame.stack_id)?;
+        let mut seen = std::collections::BTreeSet::new();
+        Ok(slots
+            .iter()
+            .filter_map(|&slot| {
+                let slot = slot as usize;
+                if frame.legal_targets.get(slot) != Some(&true) {
+                    return None;
+                }
+                self.bound_object_target(entry, slot)
+                    .copied()
+                    .filter(|object| seen.insert(*object))
+            })
+            .collect())
     }
 
     /// CR 608.2h, 109.5: the members of a board-wide or graveyard-wide set,
