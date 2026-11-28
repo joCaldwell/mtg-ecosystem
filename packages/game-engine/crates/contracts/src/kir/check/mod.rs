@@ -1709,6 +1709,7 @@ impl Walk<'_, '_> {
             | Verb::Sacrifice { .. }
             | Verb::Mill { .. }
             | Verb::Discard { .. } => self.audit_evaluated(verb),
+            Verb::Move { .. } if verb.is_evaluated() => self.audit_evaluated(verb),
             Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
             Verb::Fight { first, second } => self.audit_fight(first, second),
             Verb::Populate { player } => Self::audit_keyword_player(player, Cell::Populate),

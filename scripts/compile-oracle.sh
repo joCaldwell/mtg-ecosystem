@@ -1,11 +1,11 @@
 #!/bin/sh
 # Compile Card IR from one frozen input manifest (docs/game-engine-catalogs.md#frozen-input-compile).
 #
-#   sh scripts/compile-oracle.sh --inputs FROZEN_MANIFEST --out NEW_DIR
+#   sh scripts/compile-oracle.sh --inputs FROZEN_MANIFEST --out NEW_DIR [--reader auto|fresh|cached]
 #   sh scripts/compile-oracle.sh identity --inputs FROZEN_MANIFEST
 #
 # Only the manifest's pinned content affects output bytes. Environment only:
-#   MTG_COMPILE_CACHE  reader cache holding the pinned archive (default: this checkout's generated/)
+#   MTG_COMPILE_CACHE  reader cache (default: this checkout's generated/)
 #   MTG_COMPILE_SIM    prebuilt mtg-sim (default: a locked release build of this checkout)
 # Exit 0: complete verified bundle (or verified identity); 1: input, registration,
 # reader, compiler or destination failure, named on stderr; 2: usage.
@@ -27,6 +27,7 @@ if [ "${1:-}" = identity ]; then
 fi
 inputs=
 out=
+reader=
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help) usage; exit 0 ;;
@@ -37,6 +38,11 @@ while [ "$#" -gt 0 ]; do
             [ "$mode" = compile ] || bad 'identity takes no --out'
             [ "$#" -ge 2 ] && [ -z "$out" ] && [ -n "$2" ] || bad 'one nonempty --out is required'
             out=$2; shift 2 ;;
+        --reader)
+            [ "$mode" = compile ] || bad 'identity takes no --reader'
+            [ "$#" -ge 2 ] && [ -z "$reader" ] || bad 'one --reader is allowed'
+            case $2 in auto|fresh|cached) reader=$2 ;; *) bad '--reader must be auto, fresh or cached' ;; esac
+            shift 2 ;;
         *) bad "unknown argument $1" ;;
     esac
 done
@@ -53,6 +59,12 @@ inputs=$(absolute "$inputs")
 cache=$(absolute "${MTG_COMPILE_CACHE:-$root/generated}")
 set -- catalog "$mode" --inputs "$inputs" --cache "$cache"
 [ "$mode" = identity ] || set -- "$@" --out "$out"
+if [ "$mode" = compile ]; then
+    case ${reader:-auto} in
+        auto) set -- "$@" --reader-if-missing "$root" ;;
+        fresh) set -- "$@" --fresh-reader "$root" ;;
+    esac
+fi
 
 if [ -n "${MTG_COMPILE_SIM:-}" ]; then
     [ -f "$MTG_COMPILE_SIM" ] && [ -x "$MTG_COMPILE_SIM" ] || {

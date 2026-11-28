@@ -665,9 +665,14 @@ fn nested_hand_resolution_cost_source_and_cursor_forgery_fail_independent_restor
     for mutation in 0..5 {
         let mut snapshot: serde_json::Value =
             serde_json::from_str(&game.snapshot().unwrap()).unwrap();
-        // The frame names its invocation; the resolving stack entry is the
+        // The suspended move waits for the commander owner; the resolving
+        // frame names its invocation, and the resolving stack entry is the
         // single owner of the invocation's cost and source.
-        let stack_id = snapshot["state"]["frame"]["continuation"]["frame"]["stack_id"].clone();
+        assert_eq!(
+            snapshot["state"]["frame"]["task"]["stage"]["progress"],
+            "moves"
+        );
+        let stack_id = snapshot["state"]["frames"][0]["frame"]["stack_id"].clone();
         let owner = snapshot["state"]["stack"]
             .as_array_mut()
             .unwrap()
@@ -686,11 +691,10 @@ fn nested_hand_resolution_cost_source_and_cursor_forgery_fail_independent_restor
                 owner["source"]["incarnation"] = 999.into();
             }
             3 => {
-                snapshot["state"]["frame"]["continuation"]["frame"]["legal_targets"][0] =
-                    false.into();
+                snapshot["state"]["frames"][0]["frame"]["legal_targets"][0] = false.into();
             }
             _ => {
-                snapshot["state"]["frame"]["continuation"]["frame"]["cursor"] = 1.into();
+                snapshot["state"]["frames"][0]["frame"]["cursor"] = 1.into();
             }
         }
         snapshot["state_sha256"] = mtg_contracts::digest(&snapshot["state"]).unwrap().into();

@@ -42,6 +42,7 @@ test("native plans admit the cache under their lock; gate and tooling retain eve
     ["cache-tests", "python3", ["-B", "scripts/test-engine-cache.py"]],
     ["deck-harness-tests", "python3", ["-B", "scripts/test-engine-decks.py"]],
     ["rework-sweep-tests", "python3", ["-B", "scripts/test-rework-sweep.py"]],
+    ["archive-cut-tests", "python3", ["-B", "scripts/test-compare-archive-cut.py"]],
     ["stage-deck-tests", "python3", ["-B", "scripts/test-stage-deck.py"]],
     ["documentation-tests", "python3", ["-B", "scripts/test-check-docs.py"]],
   ];

@@ -53,10 +53,14 @@ pub struct AcceptedArchive {
     pub record_sha256: std::collections::BTreeSet<String>,
 }
 static ARCHIVES: LazyLock<Result<Vec<AcceptedArchive>, String>> = LazyLock::new(|| {
-    validate_registry(strict_read(include_str!(
+    parse_archive_registry(include_str!(
         "../../../tests/fixtures/accepted-archives.json"
-    ))?)
+    ))
 });
+
+pub fn parse_archive_registry(raw: &str) -> Result<Vec<AcceptedArchive>, String> {
+    validate_registry(strict_read(raw)?)
+}
 
 fn validate_registry(archives: Vec<AcceptedArchive>) -> Result<Vec<AcceptedArchive>, String> {
     let mut identities = std::collections::BTreeSet::new();
@@ -121,9 +125,16 @@ pub fn accepted_archives() -> Result<&'static [AcceptedArchive], String> {
     ARCHIVES.as_ref().map(Vec::as_slice).map_err(Clone::clone)
 }
 pub fn accepted_manifest(manifest: &str) -> Result<&'static AcceptedArchive, String> {
+    registered_manifest(manifest, accepted_archives()?)
+}
+
+pub fn registered_manifest<'a>(
+    manifest: &str,
+    registry: &'a [AcceptedArchive],
+) -> Result<&'a AcceptedArchive, String> {
     let m: serde_json::Value = strict_read(manifest)?;
     let hash = sha256(manifest.trim_end().as_bytes());
-    let a = accepted_archives()?
+    let a = registry
         .iter()
         .find(|a| !a.pending && a.manifest_sha256 == hash)
         .ok_or("unsupported archive version, source identity, or rules edition")?;
@@ -132,9 +143,7 @@ pub fn accepted_manifest(manifest: &str) -> Result<&'static AcceptedArchive, Str
     {
         return Err("R6 header bytes differ from the registered header".into());
     }
-    let r5 = accepted_archives()?
-        .iter()
-        .find(|a| a.cut == ArchiveCut::R5);
+    let r5 = registry.iter().find(|a| a.cut == ArchiveCut::R5);
     validate_header(&m, a, r5)?;
     Ok(a)
 }
@@ -220,15 +229,15 @@ mod tests {
     }
 
     #[test]
-    fn the_registered_r6_candidate_accepts_its_exact_header_but_no_record_pins() {
+    fn the_promoted_r6_accepts_its_exact_header_and_record_pins() {
         let r6 = accepted_archives()
             .unwrap()
             .iter()
             .find(|entry| entry.cut == ArchiveCut::R6)
             .unwrap();
-        assert!(r6.candidate && !r6.pending && r6.record_sha256.is_empty());
+        assert!(!r6.candidate && !r6.pending && !r6.record_sha256.is_empty());
         let header = include_str!(
-            "../../../tests/fixtures/archive-manifest-r6-candidate-8d421c9a7463061f2e5803d4d9a7df7860919b77ceb7fdd9732901ca298b4093.json"
+            "../../../tests/fixtures/archive-manifest-r6-candidate-6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37.json"
         );
         assert_eq!(accepted_manifest(header).unwrap(), r6);
         assert!(accepted_provenance(
@@ -251,11 +260,13 @@ mod tests {
             );
             validate_registry(registry)
         };
+        assert!(edit(&|a| a.candidate = true).is_err());
         assert!(
             edit(&|a| {
-                a.record_sha256.insert("a".repeat(64));
+                a.candidate = true;
+                a.record_sha256.clear();
             })
-            .is_err()
+            .is_ok()
         );
         assert!(edit(&|a| a.parser_revision.clear()).is_err());
         assert!(edit(&|a| a.parser_revision = "A".repeat(40)).is_err());

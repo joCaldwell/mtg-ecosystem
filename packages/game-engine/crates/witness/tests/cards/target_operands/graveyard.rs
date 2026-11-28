@@ -24,7 +24,12 @@ fn graveyard_target_order_uses_viewer_handles_in_both_hidden_worlds() {
         (["Unsummon", "Forest", "Giant Growth"], [2, 0]),
     ]
     .map(|(hand, spells)| {
-        let mut b = board(&[(CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES)]).seats(4);
+        let mut b = board(&[(
+            CREMATE,
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+            Tiers::EXECUTES,
+        )])
+        .seats(4);
         for name in hand {
             b = b.permanent_or_hand(name, 0, 0, true);
         }
@@ -87,7 +92,7 @@ fn sun_titan_rechecks_own_permanent_and_resumes_its_entry_choice() {
         let mut b = board(&[
             (
                 TITAN,
-                &[Cell::MoveOwnGraveyardCardToBattlefield],
+                &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
                 Tiers::EXECUTES,
             ),
             (PACIFISM, &[], Tiers::EXECUTES),
@@ -163,10 +168,17 @@ fn ooze_reads_the_exiled_incarnation_and_cremate_fizzles() {
         let prepared = board(&[
             (
                 OOZE,
-                &[Cell::ExileGraveyardTarget, Cell::GraveyardTargetWasCreature],
+                &[
+                    Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
+                    Cell::GraveyardTargetWasCreature,
+                ],
                 Tiers::EXECUTES,
             ),
-            (CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES),
+            (
+                CREMATE,
+                &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+                Tiers::EXECUTES,
+            ),
         ])
         .permanent_or_hand("Scavenging Ooze", 0, 0, false)
         .permanent_or_hand("Forest", 0, 0, false)
@@ -199,15 +211,19 @@ fn ooze_reads_the_exiled_incarnation_and_cremate_fizzles() {
 
 #[test]
 fn disposal_mummy_announces_only_opponents_graveyard_cards() {
-    let prepared = board(&[(MUMMY, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES)])
-        .permanent_or_hand("Disposal Mummy", 0, 0, true)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .permanent_or_hand("Plains", 0, 0, false)
-        .card("Forest", 0, 0, grave(0))
-        .card("Forest", 1, 1, grave(1))
-        .prepare();
+    let prepared = board(&[(
+        MUMMY,
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Disposal Mummy", 0, 0, true)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .permanent_or_hand("Plains", 0, 0, false)
+    .card("Forest", 0, 0, grave(0))
+    .card("Forest", 1, 1, grave(1))
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     Driver::cast(&mut g, CardId(0));
     Driver::pay(&mut g, &[1, 2, 3, 4]);
@@ -228,7 +244,11 @@ fn victimize_announces_both_cards_before_the_mandatory_sacrifice() {
                 &[Cell::SacrificeForTappedReturn],
                 Tiers::EXECUTES,
             ),
-            (CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES),
+            (
+                CREMATE,
+                &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+                Tiers::EXECUTES,
+            ),
         ])
         .permanent_or_hand("Victimize", 0, 0, true);
         for _ in 0..4 {
@@ -290,7 +310,7 @@ fn naya_charm_uses_the_selected_modes_target() {
         let prepared = board(&[(
             raw,
             &[
-                Cell::MoveGraveyardTargetToOwnerHand,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
                 Cell::TapTargetPlayersCreatures,
             ],
             Tiers::EXECUTES,
@@ -374,7 +394,7 @@ const ASHEN_POWDER: &str = record!("d906965a-0f33-4d75-8abe-66f2cf4817b8");
 fn ashen_powder_returns_an_opponents_creature_under_the_spell_controllers_control() {
     let mut b = board(&[(
         ASHEN_POWDER,
-        &[Cell::MoveGraveyardCreatureToBattlefield],
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
         Tiers::EXECUTES,
     )])
     .permanent_or_hand("Ashen Powder", 0, 0, true);
@@ -426,11 +446,15 @@ fn moving_a_graveyard_target_to_the_library_and_back_breaks_the_earlier_target()
     let prepared = board(&[
         (
             NOXIOUS_REVIVAL,
-            &[Cell::MoveGraveyardTargetToOwnerLibraryTop],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
             Tiers::EXECUTES,
         ),
         (DREAM_TWIST, &[], Tiers::EXECUTES),
-        (CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES),
+        (
+            CREMATE,
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+            Tiers::EXECUTES,
+        ),
     ])
     .permanent_or_hand("Cremate", 0, 0, true)
     .permanent_or_hand("Noxious Revival", 0, 0, true)
@@ -499,7 +523,7 @@ fn mortuary_mire_puts_its_announced_creature_on_top_only_if_accepted() {
     for flag in [Flag::Accept, Flag::Decline] {
         let prepared = board(&[(
             MORTUARY_MIRE,
-            &[Cell::MoveGraveyardTargetToOwnerLibraryTop],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
             Tiers::EXECUTES,
         )])
         .permanent_or_hand("Mortuary Mire", 0, 0, true)
@@ -542,7 +566,7 @@ fn reanimate_uses_the_selected_graveyard_cards_mana_value() {
     let prepared = board(&[(
         REANIMATE,
         &[
-            Cell::MoveGraveyardCreatureToBattlefield,
+            Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
             Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::LoseLife),
         ],
         Tiers::EXECUTES,
@@ -588,7 +612,11 @@ fn reanimate_handles_zero_mana_value_and_an_illegal_target() {
                 Tiers::EXECUTES,
             ),
             (ORNITHOPTER, &[], Tiers::HOSTING),
-            (CREMATE, &[Cell::ExileGraveyardTarget], Tiers::EXECUTES),
+            (
+                CREMATE,
+                &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+                Tiers::EXECUTES,
+            ),
         ])
         .permanent_or_hand("Reanimate", 0, 0, true)
         .permanent_or_hand("Swamp", 0, 0, false)
@@ -626,7 +654,7 @@ fn reanimate_handles_zero_mana_value_and_an_illegal_target() {
 fn reborn_hope_targets_a_multicolored_card_in_your_graveyard() {
     let prepared = board(&[(
         record!("683d8deb-2ab4-4c65-9a23-f4e733f06ba2"),
-        &[Cell::MoveOwnGraveyardTargetToHand],
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
         Tiers::EXECUTES,
     )])
     .permanent_or_hand("Reborn Hope", 0, 0, true)
@@ -653,7 +681,7 @@ fn reborn_hope_targets_a_multicolored_card_in_your_graveyard() {
 fn stir_the_grave_announces_x_before_filtering_creature_cards() {
     let prepared = board(&[(
         record!("296dcc57-5651-4cb1-b89c-fcdd3f5311bd"),
-        &[Cell::MoveOwnGraveyardCreatureToBattlefield],
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
         Tiers::EXECUTES,
     )])
     .permanent_or_hand("Stir the Grave", 0, 0, true)

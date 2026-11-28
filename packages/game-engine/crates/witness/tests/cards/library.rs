@@ -813,7 +813,7 @@ fn oblation_shuffles_for_the_owner_even_with_commander_replacement() {
         let prepared = board(&[(
             OBLATION,
             &[
-                Cell::ShuffleTargetOwnerLibrary,
+                Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move),
                 Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Draw),
             ],
         )])
@@ -902,7 +902,10 @@ fn oblation_shuffles_for_the_owner_even_with_commander_replacement() {
 fn oblation_draws_two_actual_cards_when_its_target_is_a_token() {
     for seed in [SEED, [8; 32], [9; 32]] {
         let prepared = board(&[
-            (OBLATION, &[Cell::ShuffleTargetOwnerLibrary]),
+            (
+                OBLATION,
+                &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+            ),
             (WHITE_SUNS_ZENITH, &[Cell::ShuffleResolvingSpell]),
         ])
         .seed(seed)
@@ -957,10 +960,13 @@ fn declared_permanent_shuffles_into_owners_library() {
     ] {
         for removed in [false, true] {
             let prepared = board(&[
-                (raw, &[Cell::ShuffleTargetOwnerLibrary]),
+                (
+                    raw,
+                    &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+                ),
                 (
                     NATURAL_OBSOLESCENCE,
-                    &[Cell::MoveTargetOwnerLibraryPosition],
+                    &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
                 ),
             ])
             .permanent_or_hand(name, 0, 0, true)
@@ -1001,7 +1007,7 @@ fn declared_permanent_shuffles_into_owners_library() {
 fn natural_obsolescence_puts_only_the_target_on_the_owners_bottom() {
     let prepared = board(&[(
         NATURAL_OBSOLESCENCE,
-        &[Cell::MoveTargetOwnerLibraryPosition],
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
     )])
     .permanent_or_hand("Natural Obsolescence", 0, 0, true)
     .permanent_or_hand("Forest", 0, 0, false)
@@ -2903,7 +2909,7 @@ fn run_aground_puts_either_permanent_type_on_its_owners_library() {
     for card in [3, 4] {
         let prepared = board(&[(
             record!("6ef9bf18-6b09-4398-a502-6867d999ab0c"),
-            &[Cell::MoveTargetOwnerLibraryPosition],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
         )])
         .permanent_or_hand("Run Aground", 0, 0, true)
         .permanent_or_hand("Island", 0, 0, false)

@@ -123,13 +123,16 @@ fn embedded_file(path: &Path) -> Result<String, String> {
         .map(|(_, raw)| (*raw).to_owned())
         .ok_or_else(|| format!("missing embedded data {}", path.display()))
 }
-fn origin_registry(raw: &str) -> Result<Vec<AcceptedArchive>, String> {
+fn origin_registry(
+    raw: &str,
+    registered: &[AcceptedArchive],
+) -> Result<Vec<AcceptedArchive>, String> {
     let origins: Vec<AcceptedArchive> = strict_read(raw)?;
     let mut seen = BTreeSet::new();
     for origin in &origins {
         let mut metadata = origin.clone();
         metadata.record_sha256.clear();
-        let matches = accepted_archives()?.iter().any(|accepted| {
+        let matches = registered.iter().any(|accepted| {
             let mut accepted = accepted.clone();
             accepted.record_sha256.clear();
             accepted == metadata
@@ -148,6 +151,34 @@ fn origin_registry(raw: &str) -> Result<Vec<AcceptedArchive>, String> {
         }
     }
     Ok(origins)
+}
+
+// The offline promotion path may replace only the R6 registration in a supplied
+// fixture sidecar. Compiler intake, catalog builds and the normal CLI continue
+// to trust only the embedded registry.
+fn fixture_registry(
+    provenance: &Path,
+    promotion: bool,
+) -> Result<std::borrow::Cow<'static, [AcceptedArchive]>, String> {
+    let embedded = accepted_archives()?;
+    if !promotion {
+        return Ok(embedded.into());
+    }
+    let dir = provenance.parent().ok_or("provenance has no parent")?;
+    let proposed = parse_archive_registry(&read_file(&dir.join("accepted-archives.json"))?)?;
+    let mut r6 = proposed.iter().filter(|a| a.cut == ArchiveCut::R6);
+    if !r6.next().is_some_and(|a| !a.candidate && !a.pending)
+        || r6.next().is_some()
+        || !proposed
+            .iter()
+            .filter(|a| a.cut != ArchiveCut::R6)
+            .eq(embedded.iter().filter(|a| a.cut != ArchiveCut::R6))
+    {
+        return Err(
+            "promotion requires one measured R6 registration and unchanged earlier origins".into(),
+        );
+    }
+    Ok(proposed.into())
 }
 
 fn compiled(file: &str, header: &str, raw: &str) -> Result<Definition, CatalogError> {
@@ -185,7 +216,10 @@ fn build_with(
         return Err("unsupported fixture provenance version or rules".into());
     }
     let source_dir = provenance_path.parent().ok_or("provenance has no parent")?;
-    let origins = origin_registry(&read(&source_dir.join("accepted-archives.json"))?)?;
+    let origins = origin_registry(
+        &read(&source_dir.join("accepted-archives.json"))?,
+        accepted_archives()?,
+    )?;
     let mut witnesses = std::collections::BTreeMap::new();
     for row in &provenance.records {
         if witnesses
@@ -296,20 +330,33 @@ pub fn verify_archive(
     archive_path: &Path,
     provenance_path: &Path,
 ) -> Result<serde_json::Value, CatalogError> {
+    verify_fixture_archive(archive_path, provenance_path, false)
+}
+
+pub fn verify_fixture_archive(
+    archive_path: &Path,
+    provenance_path: &Path,
+    promotion: bool,
+) -> Result<serde_json::Value, CatalogError> {
     use std::io::{BufRead, BufReader};
     let mut reader = BufReader::new(fs::File::open(archive_path).map_err(|e| e.to_string())?);
     let mut header = Vec::new();
     reader
         .read_until(b'\n', &mut header)
         .map_err(|e| e.to_string())?;
-    let accepted = accepted_manifest(std::str::from_utf8(&header).map_err(|e| e.to_string())?)?;
-    verify_archive_with(reader, &header, accepted, provenance_path).map_err(Into::into)
+    let registry = fixture_registry(provenance_path, promotion)?;
+    let accepted = registered_manifest(
+        std::str::from_utf8(&header).map_err(|e| e.to_string())?,
+        &registry,
+    )?;
+    verify_archive_with(reader, &header, accepted, provenance_path, &registry).map_err(Into::into)
 }
 fn verify_archive_with(
     mut reader: impl std::io::BufRead,
     header: &[u8],
     accepted: &AcceptedArchive,
     provenance_path: &Path,
+    registry: &[AcceptedArchive],
 ) -> Result<serde_json::Value, String> {
     use sha2::{Digest, Sha256};
     let expected_hash = accepted
@@ -327,7 +374,7 @@ fn verify_archive_with(
     {
         return Err("unsupported fixture provenance version or rules".into());
     }
-    let origins = origin_registry(&read_file(&dir.join("accepted-archives.json"))?)?;
+    let origins = origin_registry(&read_file(&dir.join("accepted-archives.json"))?, registry)?;
     let origin = origins
         .iter()
         .find(|a| a.manifest_sha256 == accepted.manifest_sha256)
@@ -426,6 +473,15 @@ pub fn extract_records(
     provenance_path: &Path,
     selectors: &[String],
 ) -> Result<serde_json::Value, String> {
+    extract_fixture_records(archive_path, provenance_path, selectors, false)
+}
+
+pub fn extract_fixture_records(
+    archive_path: &Path,
+    provenance_path: &Path,
+    selectors: &[String],
+    promotion: bool,
+) -> Result<serde_json::Value, String> {
     use std::io::{BufRead, BufReader};
     if selectors.is_empty() {
         return Err("select at least one exact name or Oracle ID".into());
@@ -436,8 +492,16 @@ pub fn extract_records(
         .read_until(b'\n', &mut line)
         .map_err(|e| e.to_string())?;
     let header = std::str::from_utf8(&line).map_err(|e| e.to_string())?;
-    let accepted = accepted_manifest(header)?;
-    extract_verified(reader, line, accepted, provenance_path, selectors)
+    let registry = fixture_registry(provenance_path, promotion)?;
+    let accepted = registered_manifest(header, &registry)?;
+    extract_verified(
+        reader,
+        line,
+        accepted,
+        provenance_path,
+        selectors,
+        &registry,
+    )
 }
 fn extract_verified(
     mut reader: impl std::io::BufRead,
@@ -445,6 +509,7 @@ fn extract_verified(
     accepted: &AcceptedArchive,
     provenance_path: &Path,
     selectors: &[String],
+    registry: &[AcceptedArchive],
 ) -> Result<serde_json::Value, String> {
     use sha2::{Digest, Sha256};
     let header = std::str::from_utf8(&header_bytes).map_err(|e| e.to_string())?;
@@ -462,7 +527,7 @@ fn extract_verified(
     }
     let mut provenance: FixtureProvenance = strict_read(&read_file(provenance_path)?)?;
     let origins_path = dir.join("accepted-archives.json");
-    let mut origins = origin_registry(&read_file(&origins_path)?)?;
+    let mut origins = origin_registry(&read_file(&origins_path)?, registry)?;
     if provenance.fixture_version != 1
         || provenance.rules_edition != RULES_EDITION
         || provenance.rules_sha256 != RULES_SHA256
@@ -963,7 +1028,14 @@ mod guard_tests {
         if corrupt {
             body.extend(b"\n");
         }
-        let result = extract_verified(Cursor::new(body), header, &accepted, &p, selectors);
+        let result = extract_verified(
+            Cursor::new(body),
+            header,
+            &accepted,
+            &p,
+            selectors,
+            accepted_archives().unwrap(),
+        );
         (scratch, result, raw)
     }
     #[test]
@@ -1020,7 +1092,13 @@ mod guard_tests {
                 _ => {}
             }
             fs::write(&path, serde_json::to_vec(&p).unwrap()).unwrap();
-            let verified = verify_archive_with(Cursor::new(raw), header, &accepted, &path);
+            let verified = verify_archive_with(
+                Cursor::new(raw),
+                header,
+                &accepted,
+                &path,
+                accepted_archives().unwrap(),
+            );
             if change == "none" {
                 assert_eq!(verified.unwrap()["verified_records"], 1);
             } else {

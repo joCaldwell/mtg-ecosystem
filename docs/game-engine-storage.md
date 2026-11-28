@@ -48,6 +48,32 @@ stale local crates; prefer per-worktree targets. `list` also reports the unselec
 legacy `$XDG_CACHE_HOME/mtg-ecosystem/cargo/<repo>/<rustc>` cache and global
 `engine-verification/cargo.lock`; reclaiming that cache requires ownership review.
 
+## Abandoned bundle stages
+
+A [frozen-input compile](game-engine-catalogs.md#frozen-input-compile)
+leaves a private sibling stage if it fails, is interrupted after creating the
+stage, or finds an identical published bundle. Each retry creates a new stage.
+Keep abandoned stages if they hold evidence you need.
+
+```sh
+mtg-sim catalog stages /path/to/destination-parent
+mtg-sim catalog stages --remove /path/to/destination-parent/.bulk-stage-EXACT-NAME
+```
+
+The list command defaults to the current directory. It recognizes the generated
+name, which consists of `.bulk-stage-` followed by the destination basename's
+SHA-256, decimal process ID, hexadecimal Unix-epoch nanoseconds and hexadecimal
+serial, separated by hyphens. Remove only a stage you own after its publisher
+has exited. Removal opens the directory without following a leaf symlink,
+rechecks its identity before each unlink, and allows only regular files named
+`catalog.json`, `index.json`, `manifest.json`, `outcomes.jsonl` and
+`compile-manifest.json`. It accepts empty and partial stages. Directories,
+symlinks and other entries inside the named stage block removal. The final
+directory removal is by name, so a concurrent swap can remove only an empty
+replacement directory and leaves any replacement files intact. See
+[frozen-input compile](game-engine-catalogs.md#frozen-input-compile) for the
+POSIX limitation.
+
 ## Inventory
 
 ```sh

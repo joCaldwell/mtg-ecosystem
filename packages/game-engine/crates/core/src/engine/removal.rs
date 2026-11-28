@@ -378,23 +378,10 @@ impl RulesTxn {
                 )
             }
 
-            _ if instruction.target_destroy().is_some()
-                || matches!(
-                    instruction,
-                    kernel!(Move {
-                        what: target_object!(_),
-                        to: mtg_contracts::kir::Destination::Exile
-                    })
-                ) =>
-            {
-                let (target_slot, optional, source_block) =
-                    match (&instruction, instruction.target_destroy()) {
-                        (_, Some((slot, optional, _, block))) => (slot, optional, block),
-                        (kernel!(Move { what: target_object!(slot), .. } @ block), None) => {
-                            (*slot, false, *block)
-                        }
-                        _ => return Err("expected target removal".into()),
-                    };
+            _ if instruction.target_destroy().is_some() => {
+                let (target_slot, optional, _, source_block) = instruction
+                    .target_destroy()
+                    .ok_or("expected target removal")?;
                 let target = *self
                     .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
                     .ok_or("missing removal target")?;
@@ -412,20 +399,7 @@ impl RulesTxn {
                     return self.offer_optional_target_effect(frame, target, source_block);
                 }
                 (
-                    if matches!(
-                        instruction,
-                        kernel!(Move {
-                            what: target_object!(_),
-                            to: mtg_contracts::kir::Destination::Exile
-                        })
-                    ) {
-                        ProposedEvent::Move {
-                            object: target,
-                            destination: Zone::Exile,
-                        }
-                    } else {
-                        ProposedEvent::DestroyPermanent { object: target }
-                    },
+                    ProposedEvent::DestroyPermanent { object: target },
                     source_block,
                 )
             }

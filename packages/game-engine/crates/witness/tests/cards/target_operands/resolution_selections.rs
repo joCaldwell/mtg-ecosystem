@@ -307,17 +307,17 @@ fn graveyard_target_uses_exact_characteristics_and_enters_tapped() {
     let prepared = board(&[
         (
             HELPING_HAND,
-            &[Cell::MoveOwnGraveyardCreatureToBattlefield],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
             Tiers::EXECUTES,
         ),
         (
             NATURES_SPIRAL,
-            &[Cell::MoveOwnGraveyardTargetToHand],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
             Tiers::EXECUTES,
         ),
         (
             ODUNOS,
-            &[Cell::MoveOwnGraveyardTargetToHand],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
             Tiers::EXECUTES,
         ),
     ])
@@ -356,7 +356,7 @@ fn graveyard_target_fails_after_the_selected_card_pays_an_exile_cost() {
     let prepared = board(&[
         (
             NATURES_SPIRAL,
-            &[Cell::MoveOwnGraveyardTargetToHand],
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
             Tiers::EXECUTES,
         ),
         (

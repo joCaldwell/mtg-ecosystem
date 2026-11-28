@@ -175,7 +175,7 @@ fn blossoming_defense_targets_only_a_creature_you_control() {
 fn exclusion_mage_returns_only_an_opponents_creature() {
     let prepared = board(&[(
         EXCLUSION_MAGE,
-        &[Cell::MovePermanentOwnerHand],
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
         Tiers::EXECUTES,
     )])
     .permanent_or_hand("Exclusion Mage", 0, 0, true)
@@ -269,7 +269,7 @@ fn titanias_boon_counters_each_creature_you_control() {
 fn blinking_spirit_returns_its_own_battlefield_incarnation_once() {
     let prepared = board(&[(
         BLINKING_SPIRIT,
-        &[Cell::MoveSourceOwnerZone],
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
         Tiers::EXECUTES,
     )])
     .permanent_or_hand("Blinking Spirit", 0, 0, false)
@@ -319,11 +319,15 @@ fn horseshoe_crab_untaps_itself() {
 /// Fencer Clique: "{U}: Put this creature on top of its owner's library."
 #[test]
 fn fencer_clique_puts_itself_on_top_of_its_library() {
-    let prepared = board(&[(FENCER_CLIQUE, &[Cell::MoveSourceOwnerZone], Tiers::EXECUTES)])
-        .permanent_or_hand("Fencer Clique", 0, 0, false)
-        .permanent_or_hand("Island", 0, 0, false)
-        .libraries("Plains", 2)
-        .prepare();
+    let prepared = board(&[(
+        FENCER_CLIQUE,
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Fencer Clique", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .libraries("Plains", 2)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     activate(&mut g, 0, 0);
     Driver::pay(&mut g, &[1]);
@@ -342,10 +346,14 @@ fn fencer_clique_puts_itself_on_top_of_its_library() {
 #[test]
 fn selenia_returning_itself_offers_the_command_zone() {
     for to_command in [true, false] {
-        let prepared = board(&[(SELENIA, &[Cell::MoveSourceOwnerZone], Tiers::EXECUTES)])
-            .permanent_or_hand("Selenia, Dark Angel", 0, 0, false)
-            .commander(CardId(0))
-            .prepare();
+        let prepared = board(&[(
+            SELENIA,
+            &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+            Tiers::EXECUTES,
+        )])
+        .permanent_or_hand("Selenia, Dark Angel", 0, 0, false)
+        .commander(CardId(0))
+        .prepare();
         let mut g = Game::with_trace(prepared, TraceMode::Detailed);
         let before = g.state.rules.players[0].life.clone();
         activate(&mut g, 0, 0);
@@ -423,12 +431,16 @@ fn the_art_of_tea_may_announce_zero_targets() {
 /// permanent type the caster controls is offered; the opponent's is not.
 #[test]
 fn rescue_returns_a_permanent_you_control() {
-    let prepared = board(&[(RESCUE, &[Cell::MovePermanentOwnerHand], Tiers::EXECUTES)])
-        .permanent_or_hand("Rescue", 0, 0, true)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Sol Ring", 0, 0, false)
-        .permanent_or_hand("Sol Ring", 1, 1, false)
-        .prepare();
+    let prepared = board(&[(
+        RESCUE,
+        &[Cell::Evaluated(mtg_contracts::kir::EvaluatedVerb::Move)],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Rescue", 0, 0, true)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 0, 0, false)
+    .permanent_or_hand("Sol Ring", 1, 1, false)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let (mine, theirs) = (Driver::object(&g, 2), Driver::object(&g, 3));
     Driver::cast(&mut g, CardId(0));
