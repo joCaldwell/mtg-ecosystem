@@ -49,6 +49,8 @@ pub(super) fn lower(
         pilot_board_set(cx, on, None)?
     } else if is_this_creature(on) || (!counter.needs_creature() && is_this_permanent(on)) {
         kir::SetExpr::source()
+    } else if let Some((set, _)) = card_result::movement_result(cx, on)? {
+        set
     } else if matches!(on, ast::ObjectRef::It(_) | ast::ObjectRef::That(_)) {
         // CR 608.2c: the one permanent the pronoun names.
         match antecedent::permanent(cx, on)? {

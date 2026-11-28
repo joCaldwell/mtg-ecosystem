@@ -372,6 +372,12 @@ impl Resolution {
                 let evaluated = typed
                     .get(index)
                     .and_then(|block| evaluated_site(block, path));
+                if matches!(role, Role::Resolved(ResolvedRef::StepResult(result))
+                    if matches!(result.role, ast::StepResultRole::Selection | ast::StepResultRole::Remainder)
+                        && super::compose::revealed::local_reference(ability, path))
+                {
+                    continue;
+                }
                 let admitted = match (evaluated, role) {
                     (Some(kind), Role::Resolved(reference)) => {
                         evaluated_reference(reference, kind, &site)
@@ -496,7 +502,10 @@ impl Resolution {
             let expression = ability.pointer(&r.path);
             let ResolvedRef::Target(t) = &*r.r#ref else {
                 // The typed operand check already authenticated the event subject.
-                if matches!(&*r.r#ref, ResolvedRef::EventObject(_)) {
+                if matches!(&*r.r#ref, ResolvedRef::EventObject(_))
+                    || matches!(&*r.r#ref, ResolvedRef::StepResult(result)
+                        if local_movement_result(ability, &r.path, result))
+                {
                     continue;
                 }
                 // CR 608.2b-c: other singular follow-up object effects
@@ -1436,7 +1445,8 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
             word.is_none_or(|w| (w == "rest") == (s.role.as_str() == "remainder"))
                 && word_row(word, at, |at| {
                     at.effects_operand()
-                        && (step_producer(at.block, at.ability, at.path, s)
+                        && (local_movement_result(at.ability, at.path, s)
+                            || step_producer(at.block, at.ability, at.path, s)
                             || delayed_exile_producer(at.ability, at.path, s))
                 })
         }
@@ -1473,6 +1483,60 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
             | ResolvedRef::AnnouncedX(_),
         ) => word_row(word, at, |_| false),
     }
+}
+
+/// R5's step locator is checked against the printed scope. The result
+/// consumer resolves the noun, cardinality and public incarnation in KIR.
+fn local_movement_result(ability: &Value, path: &str, result: &ast::ResolvedRefStepResult) -> bool {
+    let Some((consumer, field)) = path.rsplit_once('/') else {
+        return false;
+    };
+    if result.role != ast::StepResultRole::Objects
+        || ability.pointer(consumer).is_none_or(|step| {
+            !matches!(
+                (step["effect"].as_str(), field),
+                (Some("move-zone"), "what") | (Some("put-counters"), "on")
+            )
+        })
+    {
+        return false;
+    }
+    let Some(producer) = ability.pointer(&result.step) else {
+        return false;
+    };
+    let zone = match producer["effect"].as_str() {
+        Some("exile") => kir::ResultZone::Exile,
+        Some("move-zone") if producer["to"]["zone"] == "battlefield" => {
+            kir::ResultZone::Battlefield
+        }
+        _ => return false,
+    };
+    // The two steps share the same direct sequence, including a sequence
+    // within a printed optional group or chosen mode.
+    fn position(path: &str) -> Option<(&str, usize, usize)> {
+        let (sentence_path, step) = path.rsplit_once("/steps/")?;
+        let (effects_path, sentence) = sentence_path.rsplit_once('/')?;
+        if let Ok(sentence) = sentence.parse() {
+            Some((effects_path, sentence, step.parse().ok()?))
+        } else {
+            None
+        }
+    }
+    let Some((producer_scope, sentence, step)) = position(&result.step) else {
+        return false;
+    };
+    let Some((consumer_scope, next_sentence, next_step)) = position(consumer) else {
+        return false;
+    };
+    producer_scope == consumer_scope
+        && (sentence, step) < (next_sentence, next_step)
+        && ability
+            .pointer(path)
+            .cloned()
+            .and_then(|raw| serde_json::from_value(raw).ok())
+            .is_some_and(|object| {
+                crate::rules::card_result::movement_mention(&object, zone).is_some()
+            })
 }
 
 /// CR 109.5: a controller resolved with no scope in a block with a

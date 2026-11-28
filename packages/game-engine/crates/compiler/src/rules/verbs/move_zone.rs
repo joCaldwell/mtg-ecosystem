@@ -46,11 +46,28 @@ pub(super) fn lower(
     // under your control, tapped when the move specifies it.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if ast_is(to.as_ref(), serde_json::json!({"zone": "battlefield"})) {
-        if order.is_some()
-            || who.is_some()
-            || *tapped == Some(false)
-            || *controller == Some(ast::EffectMoveZoneController::Owner)
-        {
+        if order.is_some() || who.is_some() || *tapped == Some(false) {
+            return Err(step("move-zone", "battlefield_entry_modifier"));
+        }
+        if let Some((what, slot)) = card_result::movement_result(cx, &what)? {
+            let controller = match controller {
+                Some(ast::EffectMoveZoneController::Owner) => PlayerExpr::OwnerOf {
+                    object: Ref::Target {
+                        slot: slot
+                            .ok_or_else(|| operand("result", "owner_requires_single_target"))?,
+                    },
+                },
+                None | Some(ast::EffectMoveZoneController::You) => PlayerExpr::you(cx.context),
+            };
+            return Ok(cx.act(Verb::Move {
+                what,
+                to: Destination::Battlefield {
+                    controller,
+                    tapped: *tapped == Some(true),
+                },
+            }));
+        }
+        if *controller == Some(ast::EffectMoveZoneController::Owner) {
             return Err(step("move-zone", "battlefield_entry_modifier"));
         }
         let entry = Destination::Battlefield {

@@ -19,6 +19,7 @@ use evaluated::{StepProgress, StepResults};
 enum Binding {
     Player(PlayerId),
     Objects(Vec<ObjectId>),
+    Revealed(Vec<ObjectId>),
     CreatureType(CreatureType),
 }
 
@@ -106,6 +107,11 @@ where
 }
 
 impl Task {
+    pub(in crate::engine) fn publicly_reveals(&self, object: ObjectId) -> bool {
+        self.bindings
+            .values()
+            .any(|binding| matches!(binding, Binding::Revealed(cards) if cards.contains(&object)))
+    }
     pub(in crate::engine) fn sacrifice_choices(&self) -> &[(PlayerId, ObjectId)] {
         match &self.stage {
             Stage::Step(StepProgress::Collect {
@@ -238,6 +244,7 @@ impl RulesTxn {
                 Node::ForEach { body, .. }
                 | Node::Choose { body, .. }
                 | Node::ChooseCreatureType { body, .. }
+                | Node::RevealTop { body, .. }
                 | Node::Optional { node: body, .. }
                 | Node::UnlessPays { node: body, .. }
                 | Node::IfPays { node: body, .. }
@@ -257,6 +264,11 @@ impl RulesTxn {
         let entry = self.entry(frame.stack_id)?;
         Ok(match set {
             SetExpr::Matching { zone, filter } => self.kernel_set(frame, zone, filter)?.0,
+            SetExpr::Revealed {
+                var,
+                filter,
+                except,
+            } => self.revealed_objects(task, *var, filter, *except)?,
             SetExpr::Result {
                 step,
                 filter,
@@ -294,6 +306,37 @@ impl RulesTxn {
             }
             _ => return Err("unsupported kernel object expression".into()),
         })
+    }
+
+    fn revealed_objects(
+        &self,
+        task: &Task,
+        var: u32,
+        filter: &Pred,
+        except: Option<u32>,
+    ) -> Result<Vec<ObjectId>, String> {
+        let objects = |var| match task.bindings.get(&var) {
+            Some(Binding::Revealed(objects)) => Ok(objects.as_slice()),
+            _ => Err("missing revealed library binding"),
+        };
+        let excluded = except.map(objects).transpose()?.unwrap_or_default();
+        let you = self.entry(self.kernel_root()?.stack_id)?.controller;
+        let mut selected = vec![];
+        for &id in objects(var)? {
+            if excluded.contains(&id)
+                || !self
+                    .current(id)
+                    .is_ok_and(|obj| matches!(obj.zone, Zone::Library { .. }))
+            {
+                continue;
+            }
+            if filter.is_empty()
+                || self.damage_fact_matches(filter, you, None, &self.object_before(id)?)
+            {
+                selected.push(id);
+            }
+        }
+        Ok(selected)
     }
 
     fn control_players(
@@ -791,13 +834,18 @@ impl RulesTxn {
             }
             (
                 Stage::Ask(AskKind::Pick {
+                    chooser,
                     remaining,
                     selected,
                     minimum,
                     maximum,
                     ..
                 }),
-                Node::Choose { .. },
+                Node::Choose {
+                    chooser: named,
+                    from,
+                    ..
+                },
             ) if minimum <= maximum
                 && remaining
                     .iter()
@@ -809,6 +857,17 @@ impl RulesTxn {
                 && selected.len() < *maximum
                 && selected.len() + remaining.len() > *minimum =>
             {
+                if self.control_players(task, named)? != [*chooser] {
+                    return Err("kernel choice differs from its chooser".into());
+                }
+                let permitted = self.control_objects(task, from)?;
+                if remaining
+                    .iter()
+                    .chain(selected)
+                    .any(|id| self.current(*id).is_ok() && !permitted.contains(id))
+                {
+                    return Err("kernel choice includes an unrelated object".into());
+                }
                 Ok(())
             }
             _ => Err("invalid kernel suspension".into()),
@@ -1069,6 +1128,30 @@ impl RulesTxn {
                 task.stage = Stage::Ask(AskKind::CreatureType { chooser });
                 self.install_kernel(task);
             }
+            Node::RevealTop {
+                var, player, count, ..
+            } => {
+                // CR 701.20b: revealing leaves each card in its place.
+                // A token that was put in the library is not a card (111.6).
+                let Resolved::Present(player) = self.measured_player(&task, player)? else {
+                    return self.return_kernel(task.resume);
+                };
+                if !self.is_live(player) {
+                    return self.return_kernel(task.resume);
+                }
+                let objects = self.state.rules.libraries[&player]
+                    .iter()
+                    .filter(|card| !self.state.rules.tokens.contains_key(card))
+                    .take(*count as usize)
+                    .map(|card| self.object_id(*card).ok_or("missing revealed library card"))
+                    .collect::<Result<Vec<_>, _>>()?;
+                for &object in &objects {
+                    self.remember_revealed_library_top(object);
+                }
+                let mut child = task.child(0);
+                child.bindings.insert(*var, Binding::Revealed(objects));
+                self.install_kernel(child);
+            }
             Node::Choose {
                 var,
                 chooser,
@@ -1080,16 +1163,15 @@ impl RulesTxn {
                 let Some(player) = self.chooser(&task, chooser)? else {
                     return self.return_kernel(task.resume);
                 };
-                let mut candidates = self
-                    .control_objects(&task, from)?
-                    .into_iter()
-                    .map(|object| Ok((self.handle_for(player, object)?.0, object)))
-                    .collect::<Result<Vec<_>, String>>()?;
-                candidates.sort_by(|left, right| left.0.cmp(&right.0));
-                let mut objects = candidates
-                    .into_iter()
-                    .map(|(_, object)| object)
-                    .collect::<Vec<_>>();
+                let mut objects = self.control_objects(&task, from)?;
+                if !matches!(from, SetExpr::Revealed { .. }) {
+                    let mut candidates = objects
+                        .into_iter()
+                        .map(|object| Ok((self.handle_for(player, object)?.0, object)))
+                        .collect::<Result<Vec<_>, String>>()?;
+                    candidates.sort_by(|left, right| left.0.cmp(&right.0));
+                    objects = candidates.into_iter().map(|(_, object)| object).collect();
+                }
                 let min = self.control_amount(&task, minimum)?;
                 let max = self.control_amount(&task, maximum)?;
                 if min.is_negative() || max < min {
@@ -1224,6 +1306,12 @@ impl RulesTxn {
                 }
                 false
             }
+            // A local dependent move can only become possible once the
+            // earlier step of this optional sequence has been performed.
+            Node::Do(Verb::Move {
+                what: SetExpr::LiveResult { .. },
+                ..
+            }) => false,
             Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
             Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
             Node::Do(Verb::CreateMyriadToken { defender }) => {
@@ -1394,7 +1482,14 @@ impl RulesTxn {
                 selected.extend(remaining.into_iter().rev());
             }
             let mut child = task.child(0);
-            child.bindings.insert(var, Binding::Objects(selected));
+            let binding = match self.node_at(&task)?.0 {
+                Node::Choose {
+                    from: SetExpr::Revealed { .. },
+                    ..
+                } => Binding::Revealed(selected),
+                _ => Binding::Objects(selected),
+            };
+            child.bindings.insert(var, binding);
             self.install_kernel(child);
         } else {
             task.stage = Stage::Ask(AskKind::Pick {

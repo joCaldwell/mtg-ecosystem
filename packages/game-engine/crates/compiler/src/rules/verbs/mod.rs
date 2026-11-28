@@ -533,7 +533,11 @@ fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Am
         Ok(amount) => return Ok(amount),
         Err(failure) => failure,
     };
-    if !sentence.steps.iter().all(Step::is_evaluated) {
+    if !sentence
+        .steps
+        .iter()
+        .all(|step| step.is_evaluated() || matches!(step, Step::Pump { .. }))
+    {
         return Err(original);
     }
     let [binding] = sentence.bindings.as_slice() else {

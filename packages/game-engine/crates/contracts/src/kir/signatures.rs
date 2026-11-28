@@ -84,7 +84,8 @@ impl OperandClass {
             SetExpr::Matching { .. } => Some(Self::Measure),
             SetExpr::Pool { pool } => Self::reference(pool),
             SetExpr::Targets { .. } => Some(Self::Target),
-            SetExpr::Result { .. } => Some(Self::StepResult),
+            SetExpr::Result { .. } | SetExpr::LiveResult { .. } => Some(Self::StepResult),
+            SetExpr::Revealed { .. } => Some(Self::Bound),
         }
     }
 
@@ -346,6 +347,8 @@ const MOVE_SLOTS: &[OperandSlot] = &[
             OperandClass::Source,
             OperandClass::Target,
             OperandClass::Measure,
+            OperandClass::StepResult,
+            OperandClass::Bound,
         ],
         quantity: None,
         read: ReadTime::StepStart,
@@ -356,7 +359,7 @@ const MOVE_SLOTS: &[OperandSlot] = &[
         field: "controller",
         role: SlotRole::Recipient,
         sort: Sort::Player,
-        accepts: &[OperandClass::Controller],
+        accepts: &[OperandClass::Controller, OperandClass::TargetRelation],
         quantity: None,
         read: ReadTime::StepStart,
         use_: ObjectUse::ReadCurrentOrLastKnown,
@@ -687,15 +690,20 @@ impl Verb {
 /// The leaf that supplies one unambiguous projection within a Seq sibling.
 /// Stage 1 allows a direct action or a single guarded body.
 pub fn step_producer(node: &Node) -> Option<(&'static VerbSignature, Option<u32>)> {
+    let (verb, child) = step_producer_verb(node)?;
+    Some((verb.evaluated()?.0, child))
+}
+
+pub(crate) fn step_producer_verb(node: &Node) -> Option<(&Verb, Option<u32>)> {
     match node {
-        Node::Do(verb) => Some((verb.evaluated()?.0, None)),
+        Node::Do(verb) => Some((verb, None)),
         Node::Optional { node, .. }
         | Node::IfPays { node, .. }
         | Node::If {
             then: node,
             otherwise: None,
             ..
-        } => Some((node.verb()?.evaluated()?.0, Some(0))),
+        } => Some((node.verb()?, Some(0))),
         _ => None,
     }
 }

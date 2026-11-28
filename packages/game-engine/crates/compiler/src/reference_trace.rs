@@ -30,6 +30,10 @@ pub enum Resolved {
         /// The trigger's event object is the source itself (CR 201.5).
         is_source: bool,
     },
+    StepResult {
+        step: String,
+        role: &'static str,
+    },
     Other {
         reference: String,
     },

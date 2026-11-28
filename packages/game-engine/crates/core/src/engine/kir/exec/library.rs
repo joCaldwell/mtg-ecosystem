@@ -1025,7 +1025,11 @@ impl RulesTxn {
                     object: *object,
                     target: *target,
                 },
-                None if tapped => ProposedEvent::EnterTapped { object: *object },
+                None if tapped
+                    && foreign.is_none_or(|p| self.state.rules.cards[&object.card].owner == p) =>
+                {
+                    ProposedEvent::EnterTapped { object: *object }
+                }
                 None => ProposedEvent::Move {
                     object: *object,
                     destination: Zone::Battlefield,
@@ -1040,21 +1044,7 @@ impl RulesTxn {
         for (object, host) in entering {
             // CR 110.2a: a card enters under its owner's control unless the
             // effect puts it onto the battlefield under another player's.
-            if let Some(controller) = foreign
-                && self.state.rules.cards[&object.card].owner != controller
-            {
-                if host.is_some() {
-                    return Err("foreign entry cannot attach".into());
-                }
-                overrides.push((
-                    *object,
-                    events::EntryOverride::CreatureController {
-                        player: controller,
-                        tapped,
-                    },
-                ));
-                continue;
-            }
+            let controller = foreign.filter(|p| self.state.rules.cards[&object.card].owner != *p);
             let choice = self.entry_choice(*object)?;
             let accepted = match &choice {
                 Some(EntryChoice::Life(amount)) => {
@@ -1079,10 +1069,15 @@ impl RulesTxn {
                 }
                 None => false,
             };
-            if tapped && (choice.is_some() || host.is_some()) {
-                overrides.push((*object, events::EntryOverride::ForceTapped));
-            } else if choice.is_some() {
-                overrides.push((*object, events::EntryOverride::Choice { accepted }));
+            if controller.is_some() || choice.is_some() || tapped && host.is_some() {
+                overrides.push((
+                    *object,
+                    events::EntryOverride {
+                        tapped,
+                        controller,
+                        accepted: (!tapped && choice.is_some()).then_some(accepted),
+                    },
+                ));
             }
         }
         // CR 701.20a: the revealed cards stay in the player's hand,
