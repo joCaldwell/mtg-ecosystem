@@ -58,6 +58,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     };
     if mana_token {
         d.mana_abilities.push(ManaAbility {
+            chosen_cost: None,
             costs,
             hybrid_mana: vec![],
             production: ManaProduction::AnyColor,

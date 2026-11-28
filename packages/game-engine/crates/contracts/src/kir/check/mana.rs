@@ -5,6 +5,9 @@
 //! [`ManaAbility`](crate::ManaAbility) fields; the rest of its printed effect
 //! is a list of rider nodes, each admitted here under its own cell and
 //! performed by the mana activation executor after the mana is added.
+//! A printed any-color ability may use the shared chosen-object cost for
+//! its tap symbol and a written tap of one untapped creature its activator
+//! controls (CR 302.6, 605.3a).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::{Definition, ManaAbility, ManaProduction};

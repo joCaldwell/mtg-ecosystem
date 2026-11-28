@@ -1332,7 +1332,7 @@ pub enum ActivationCost {
     },
 }
 /// Finite permanent costs; costs are committed only after complete payment.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermanentActivationCosts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1426,6 +1426,10 @@ pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<kir::Cond>,
     pub costs: PermanentActivationCosts,
+    /// CR 118.3, 302.6, 605.3a: a chosen-object cost can pay both the
+    /// source's tap symbol and one additional written tap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_cost: Option<ChosenObjectCost>,
     /// CR 107.4e, 602.2b, 605.3a: two-color hybrid symbols of the mana
     /// cost, in printed order, each announced as one of its colors before
     /// the nested payment.
@@ -1441,6 +1445,15 @@ pub struct ManaAbility {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub riders: Vec<kir::Node>,
     pub source_block: u32,
+}
+impl ManaAbility {
+    pub fn taps_source(&self) -> bool {
+        self.costs.tap
+            || self
+                .chosen_cost
+                .as_ref()
+                .is_some_and(|cost| cost.tap_source)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -2128,6 +2141,9 @@ impl Definition {
         }
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
+        }
+        if self.mana_abilities.iter().any(|a| a.chosen_cost.is_some()) {
+            set.insert(Capability::ChosenObjectCostV1);
         }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);

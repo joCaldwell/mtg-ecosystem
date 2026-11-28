@@ -745,6 +745,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     {
         cells.insert(Cell::ActivationRemoveCounters);
     }
+    if d.mana_abilities.iter().any(|a| a.chosen_cost.is_some()) {
+        cells.insert(Cell::ChosenObjectCost);
+    }
     for a in &d.activated {
         if a.x_mana_cost {
             cells.insert(Cell::XManaCost);
