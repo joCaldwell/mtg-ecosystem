@@ -8,7 +8,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-mod chosen;
+pub(crate) mod chosen;
 
 #[derive(Default)]
 struct Terms {
@@ -391,6 +391,7 @@ pub(super) fn announced(
             (tap, mana, sacrifice, pay_life, counters) => ActivationCost::Composite {
                 costs: PermanentActivationCosts {
                     remove_source_counters: counters,
+                    tap_other: None,
                     tap,
                     mana,
                     sacrifice,
@@ -433,6 +434,7 @@ pub(super) fn announced(
         (tap, mana, sacrifice, None) => ActivationCost::Composite {
             costs: PermanentActivationCosts {
                 remove_source_counters: None,
+                tap_other: None,
                 tap,
                 mana,
                 sacrifice,

@@ -772,10 +772,11 @@ fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), St
         // CR 118.3, 119.4, 122.1: life and +1/+1 counter removal from the
         // source are paid with the other source terms after any mana.
         ActivationCost::Composite { costs } => {
-            costs
-                .remove_source_counters
-                .as_ref()
-                .is_none_or(RemoveCounterCost::valid)
+            costs.tap_other.is_none()
+                && costs
+                    .remove_source_counters
+                    .as_ref()
+                    .is_none_or(RemoveCounterCost::valid)
                 && costs
                     .pay_life
                     .as_ref()
@@ -1141,7 +1142,7 @@ pub(crate) fn mana_production_supported(production: &ManaProduction) -> bool {
     };
     match production {
         ManaProduction::Fixed { symbols } => !symbols.is_empty(),
-        ManaProduction::Counted { .. } => true,
+        ManaProduction::Counted { .. } | ManaProduction::Conditional { .. } => true,
         ManaProduction::Bundles { options } => {
             (2..=128).contains(&options.len())
                 && options.iter().enumerate().all(|(i, bundle)| {
@@ -2047,6 +2048,7 @@ mod tests {
                     ActivationCost::Composite {
                         costs: PermanentActivationCosts {
                             remove_source_counters: None,
+                            tap_other: None,
                             tap: true,
                             mana: Some(ManaCost {
                                 generic: 1.into(),
@@ -2097,6 +2099,7 @@ mod tests {
                         condition: None,
                         costs: PermanentActivationCosts {
                             remove_source_counters: None,
+                            tap_other: None,
                             tap: true,
                             mana: None,
                             sacrifice: false,
@@ -2342,6 +2345,7 @@ mod tests {
             condition: None,
             costs: PermanentActivationCosts {
                 remove_source_counters: None,
+                tap_other: None,
                 tap: true,
                 mana: None,
                 sacrifice: false,
@@ -2396,6 +2400,7 @@ mod tests {
             ActivationCost::Composite {
                 costs: PermanentActivationCosts {
                     remove_source_counters: None,
+                    tap_other: None,
                     tap: false,
                     mana: Some(ManaCost {
                         generic: Quantity::zero(),

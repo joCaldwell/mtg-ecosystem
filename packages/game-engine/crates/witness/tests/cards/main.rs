@@ -27,6 +27,7 @@ mod replacements;
 mod resolution_moves;
 mod sagas;
 mod split;
+mod subtype_pump;
 mod target_operands;
 mod token_creation;
 mod transform_adventure;

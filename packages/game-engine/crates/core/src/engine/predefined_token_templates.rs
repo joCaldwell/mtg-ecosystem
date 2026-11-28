@@ -48,6 +48,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     let mana_token = matches!(kind, PredefinedToken::Treasure | PredefinedToken::Gold);
     let costs = PermanentActivationCosts {
         remove_source_counters: None,
+        tap_other: None,
         tap: matches!(kind, PredefinedToken::Treasure | PredefinedToken::Food),
         mana: (!mana_token).then(|| ManaCost {
             generic: 2.into(),

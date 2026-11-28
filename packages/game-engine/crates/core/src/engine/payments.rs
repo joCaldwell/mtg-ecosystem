@@ -761,6 +761,7 @@ impl RulesTxn {
                 stack.source,
                 stack.controller,
                 &costs,
+                None,
                 BatchCause::AbilityActivation {
                     stack_id: stack.id,
                     player: stack.controller,

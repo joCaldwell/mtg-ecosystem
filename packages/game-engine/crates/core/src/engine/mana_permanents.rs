@@ -30,6 +30,7 @@ pub enum ManaStage {
     /// CR 107.4e, 602.2b, 605.3a: hybrid symbols are announced before the
     /// nested payment.
     Hybrid,
+    TapObject,
     Payment,
     Spend,
     Color,
@@ -185,6 +186,10 @@ testkit_fields! {
         pub spent_restricted: Vec<RestrictedMana>,
         pub absent: BTreeSet<Color>,
         pub sacrificed: bool,
+        /// The exact extra object the written tap cost used. It was untapped
+        /// before the activation, and a reversal never follows its successor.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub tapped_other: Option<ObjectId>,
         /// CR 733.1: every actual its costs published. A reversal removes
         /// the triggers and watcher firings of exactly these occurrences.
         pub cost_events: Vec<EventId>,
@@ -365,7 +370,7 @@ impl RulesTxn {
         // CR 122.1, 733.1: reversal restores exactly the counters the source
         // had as the activation began, which its captured facts also hold.
         // A ceased token keeps no definition to compare its identity with.
-        if receipt.source.object != source {
+        if receipt.source.object != source || receipt.tapped_other == Some(source) {
             return Err("mana receipt source mismatch".into());
         }
         Self::validate_fact_counters(&receipt.source)?;
@@ -473,13 +478,27 @@ impl RulesTxn {
         Ok(!self.printed_mana_abilities(object)?.is_empty()
             || !self.granted_mana_abilities(object)?.is_empty())
     }
+    fn mana_output<'a>(
+        &self,
+        player: PlayerId,
+        production: &'a ManaProduction,
+    ) -> &'a ManaProduction {
+        production.select(|filter| {
+            let count = self.mana_count(player, &mtg_contracts::kir::ZoneExpr::Battlefield, filter);
+            Quantity::from(i64::try_from(count).expect("bounded battlefield count"))
+        })
+    }
+
     pub(super) fn mana_colors(
         &self,
         player: PlayerId,
         production: &ManaProduction,
     ) -> Result<Vec<Color>, String> {
-        Ok(match production {
+        Ok(match self.mana_output(player, production) {
             ManaProduction::Fixed { symbols } => symbols.clone(),
+            ManaProduction::Conditional { .. } => {
+                return Err("nested conditional mana production".into());
+            }
             ManaProduction::SourceChosenColor => return Err("unbound mana production".into()),
             ManaProduction::Counted {
                 color,
@@ -796,7 +815,36 @@ impl RulesTxn {
         {
             return Err("invalid permanent mana source or tap eligibility".into());
         }
+        if a.costs.tap_other.is_some() && self.mana_tap_objects(player, source, a)?.is_empty() {
+            return Err("no eligible object for mana tap cost".into());
+        }
         Ok(())
+    }
+
+    fn mana_tap_objects(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        ability: &ManaAbility,
+    ) -> Result<Vec<ObjectId>, String> {
+        let filter = ability
+            .costs
+            .tap_other
+            .clone()
+            .ok_or("missing mana tap cost")?;
+        self.eligible_cost_objects(
+            player,
+            source,
+            &ChosenObjectCost {
+                action: ChosenCostAction::Tap,
+                filter,
+                count: 1,
+                minimum_power: None,
+                another: true,
+                tap_source: true,
+                mana: None,
+            },
+        )
     }
 
     pub(crate) fn mixed_mana_choices(
@@ -945,7 +993,9 @@ impl RulesTxn {
             granted,
             rider: 0,
             decision_id: input.decision_id,
-            stage: if ability.hybrid_mana.is_empty() {
+            stage: if ability.costs.tap_other.is_some() {
+                ManaStage::TapObject
+            } else if ability.hybrid_mana.is_empty() {
                 ManaStage::Payment
             } else {
                 ManaStage::Hybrid
@@ -956,8 +1006,8 @@ impl RulesTxn {
             receipts: vec![],
             paid: None,
         };
-        if activation.payment_cost().is_none() {
-            self.pay_mana_ability(activation, BTreeMap::new(), vec![])
+        if activation.stage != ManaStage::TapObject && activation.payment_cost().is_none() {
+            self.pay_mana_ability(activation, BTreeMap::new(), vec![], None)
         } else {
             self.rules_mut().frame = Frame::ManaAbility {
                 activation: Box::new(activation),
@@ -971,6 +1021,14 @@ impl RulesTxn {
     ) -> Result<Decision<Rules>, String> {
         match a.stage {
             ManaStage::Hybrid => Ok(self.hybrid_pick(a.player, &a.ability.hybrid_mana)),
+            ManaStage::TapObject => Ok(self.pick_objects(
+                a.player,
+                Reason::ChosenObjectCost {
+                    action: ChosenCostAction::Tap,
+                },
+                self.mana_tap_objects(a.player, a.source, &a.ability)?,
+                1,
+            )),
             ManaStage::Payment | ManaStage::Spend => self.payment_decision(
                 a.player,
                 a.payment_cost().ok_or("missing mana ability cost")?,
@@ -1068,7 +1126,13 @@ impl RulesTxn {
             Answer::Pay { pay } if a.stage == ManaStage::Spend => {
                 let (unrestricted, restricted) =
                     pay.spending().ok_or("expected mana allocation")?;
-                self.pay_mana_ability(a, unrestricted.clone(), restricted.to_vec())?;
+                self.pay_mana_ability(a, unrestricted.clone(), restricted.to_vec(), None)?;
+            }
+            Answer::Pick { .. } if a.stage == ManaStage::TapObject => {
+                let Candidate::Object { object } = *input.one()? else {
+                    return Err("invalid mana tap choice".into());
+                };
+                self.pay_mana_ability(a, BTreeMap::new(), vec![], Some(object))?;
             }
             Answer::Pick { .. } if a.stage == ManaStage::Color => match input.one()? {
                 Candidate::Color { color } => self.resolve_mana_ability(a, Some(*color))?,
@@ -1086,8 +1150,17 @@ impl RulesTxn {
         mut a: ManaActivation,
         spending: BTreeMap<Color, Quantity>,
         restricted: Vec<RestrictedMana>,
+        tapped_other: Option<ObjectId>,
     ) -> Result<(), String> {
         self.validate_permanent_mana_costs(a.player, a.source, a.slot())?;
+        match (a.ability.costs.tap_other.is_some(), tapped_other) {
+            (false, None) => {}
+            (true, Some(object))
+                if self
+                    .mana_tap_objects(a.player, a.source, &a.ability)?
+                    .contains(&object) => {}
+            _ => return Err("unpayable mana tap choice".into()),
+        }
         // No costs are paid until the nested payment succeeds (601.2g-h).
         let pool = &self.state.rules.players[a.player.0 as usize].mana;
         let mut receipt = PermanentManaUndo {
@@ -1120,6 +1193,7 @@ impl RulesTxn {
                 .filter(|c| !pool.contains_key(c))
                 .collect(),
             sacrificed: a.ability.costs.sacrifice,
+            tapped_other,
             cost_events: vec![],
             kept: !a.reversible(),
             ledger: LedgerDelta::default(),
@@ -1145,7 +1219,13 @@ impl RulesTxn {
         }
         let history = self.state.rules.cast_history.clone();
         let ((), journal) = self.with_actual_journal(|txn| {
-            txn.pay_permanent_source_costs(a.source, a.player, &a.ability.costs, cause)
+            txn.pay_permanent_source_costs(
+                a.source,
+                a.player,
+                &a.ability.costs,
+                tapped_other,
+                cause,
+            )
         })?;
         // CR 733.1: `kept` is the rules flag set above from the ability
         // alone, never inferred from what its costs wrote. A reversible
@@ -1165,7 +1245,7 @@ impl RulesTxn {
             self.rules_mut().mana_ability_uses.insert(k);
         }
         a.paid = Some(Box::new(receipt));
-        match a.ability.production {
+        match self.mana_output(a.player, &a.ability.production) {
             ManaProduction::Fixed { .. } | ManaProduction::Counted { .. } => {
                 self.resolve_mana_ability(a, None)
             }
@@ -1209,6 +1289,7 @@ impl RulesTxn {
         source: ObjectId,
         player: PlayerId,
         costs: &PermanentActivationCosts,
+        tapped_other: Option<ObjectId>,
         cause: BatchCause,
     ) -> Result<(), String> {
         if !self.permanent_source_costs_payable(source, player, costs) {
@@ -1233,6 +1314,11 @@ impl RulesTxn {
         if costs.tap {
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::Tap { object: source },
+            });
+        }
+        if let Some(object) = tapped_other {
+            children.push(EventGroup::Occurrence {
+                proposed: ProposedEvent::Tap { object },
             });
         }
         // CR 119.4: paying life is loss of life, never damage.
@@ -1281,7 +1367,7 @@ impl RulesTxn {
         a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
-        let units = match &a.ability.production {
+        let units = match self.mana_output(a.player, &a.ability.production) {
             ManaProduction::Counted {
                 color,
                 factor,
@@ -1659,6 +1745,16 @@ impl RulesTxn {
                 // CR 400.7/733: a departed source is never restored or rebound.
             }
         }
+        if let Some(tapped) = r.tapped_other
+            && let Some(object) = self.rules_mut().objects.get_mut(&tapped.card)
+            && object.id == tapped
+            && object.zone == Zone::Battlefield
+        {
+            if !object.tapped {
+                return Err("mana reversal chosen permanent changed".into());
+            }
+            object.tapped = false;
+        }
         // Checked before any write, so a stale receipt changes nothing here.
         r.ledger.revert(&mut self.rules_mut().cast_history)?;
         if let Some(k) = r.ability_use {
@@ -1788,6 +1884,18 @@ impl RulesTxn {
             }
             self.rules_mut().pending = None;
         }
+        // CR 800.4a: a departed permanent no longer pays the written tap
+        // cost. Ask again when another eligible permanent remains.
+        if let Frame::ManaAbility { activation } = &self.state.rules.frame
+            && activation.stage == ManaStage::TapObject
+            && let Some(input) = &self.state.rules.pending
+            && let Ok(Candidate::Object { object }) = input.one()
+            && !self
+                .mana_tap_objects(activation.player, activation.source, &activation.ability)?
+                .contains(object)
+        {
+            self.rules_mut().pending = None;
+        }
         // CR 106.7: a departure can remove the last land that defined a
         // "could produce" type. The paid ability then adds no mana.
         if let Frame::ManaAbility { activation } = &self.state.rules.frame
@@ -1832,6 +1940,8 @@ impl RulesTxn {
                 || !self.mana_resume_player(self.saved_frame(a.resume)?, a.player)
                 || (a.stage == ManaStage::Color) != a.paid.is_some()
                 || !a.hybrid_bound()
+                || (a.stage == ManaStage::TapObject)
+                    != (a.ability.costs.tap_other.is_some() && a.paid.is_none())
                 || (a.stage == ManaStage::Hybrid && !a.receipts.is_empty())
                 || a.receipts.iter().any(|r| r.player != a.player)
             {
@@ -1842,6 +1952,9 @@ impl RulesTxn {
             // ability: it carries evidence exactly when that ability has a
             // condition.
             if let Some(paid) = &a.paid {
+                if a.ability.costs.tap_other.is_some() != paid.tapped_other.is_some() {
+                    return Err("snapshot mana tap evidence invariant".into());
+                }
                 if a.ability.condition.is_some()
                     != paid.condition.as_ref().is_some_and(|e| e.index == a.index)
                 {

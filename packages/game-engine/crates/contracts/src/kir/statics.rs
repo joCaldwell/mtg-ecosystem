@@ -997,6 +997,7 @@ pub fn granted_mana_supported(
         && !abilities.is_empty()
         && abilities.iter().all(|a| {
             a.costs.tap
+                && a.costs.tap_other.is_none()
                 && !a.costs.sacrifice
                 && a.costs.mana.is_none()
                 // CR 107.4e: hybrid symbols are mana costs too.
@@ -1010,7 +1011,11 @@ pub fn granted_mana_supported(
                 && a.condition.is_none()
                 && a.riders.is_empty()
                 && a.spend_restriction.is_none()
-                && !matches!(a.production, crate::ManaProduction::SourceChosenColor)
+                && !matches!(
+                    a.production,
+                    crate::ManaProduction::SourceChosenColor
+                        | crate::ManaProduction::Conditional { .. }
+                )
                 && super::tiers::mana_production_supported(&a.production)
         })
 }

@@ -91,7 +91,7 @@ impl RulesTxn {
                 || self.has_keyword(source, KeywordAbility::Haste)?))
     }
 
-    fn eligible_cost_objects(
+    pub(super) fn eligible_cost_objects(
         &self,
         player: PlayerId,
         source: ObjectId,

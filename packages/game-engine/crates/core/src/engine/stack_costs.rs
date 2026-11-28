@@ -866,6 +866,7 @@ impl RulesTxn {
                     object,
                     player,
                     costs,
+                    None,
                     BatchCause::AbilityActivation {
                         stack_id: id,
                         player,

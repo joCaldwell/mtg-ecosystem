@@ -295,6 +295,13 @@ source with several mana abilities first asks which to activate (CR 605.3a).
 Riders follow in order: damage to the controller or life gain (CR 605.3b). A
 nested payment rechecks outer costs.
 
+Printed conditional production and written tap costs use the
+[mana ability checker](../packages/game-engine/crates/contracts/src/kir/check/mana.rs).
+The engine reads the production condition after costs (CR 614.15, 605.3b).
+A written tap cost can choose a summoning-sick creature (CR 302.6), and
+reversal restores both taps on their exact incarnations (CR 733.1).
+The simulator reserves the chosen helper before planning further payments.
+
 Statics may grant quoted mana abilities in layer 6 (CR 113.10a, 613.1f). The
 recipient taps for its activator (CR 109.5, 302.6); printed then granted
 abilities drive activation, views, planning and saves. Grants admit only tap and

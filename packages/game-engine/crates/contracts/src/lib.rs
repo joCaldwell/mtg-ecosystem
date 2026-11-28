@@ -1338,6 +1338,10 @@ pub struct PermanentActivationCosts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove_source_counters: Option<RemoveCounterCost>,
     pub tap: bool,
+    /// CR 118.3, 302.6: choose and tap another eligible permanent, by a
+    /// written tap cost rather than that permanent's own tap symbol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tap_other: Option<ChosenCostFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana: Option<ManaCost>,
     pub sacrifice: bool,
@@ -1365,6 +1369,14 @@ impl RemoveCounterCost {
 pub enum ManaProduction {
     Fixed {
         symbols: Vec<Color>,
+    },
+    /// CR 614.15, 605.3b: read the public condition after costs, then
+    /// produce exactly one of two complete outputs.
+    Conditional {
+        filter: kir::Pred,
+        minimum: Quantity,
+        base: Box<ManaProduction>,
+        instead: Box<ManaProduction>,
     },
     /// CR 605.3b, 608.2h: multiply the symbol by a public count after costs.
     Counted {
@@ -1399,6 +1411,24 @@ pub enum ManaProduction {
     },
 }
 impl ManaProduction {
+    pub fn select(&self, count: impl FnOnce(&kir::Pred) -> Quantity) -> &Self {
+        match self {
+            Self::Conditional {
+                filter,
+                minimum,
+                base,
+                instead,
+            } => {
+                if count(filter) >= *minimum {
+                    instead
+                } else {
+                    base
+                }
+            }
+            production => production,
+        }
+    }
+
     pub fn bind_color(&self, chosen: Option<Color>) -> Self {
         match self {
             Self::SourceChosenColor => Self::Fixed {

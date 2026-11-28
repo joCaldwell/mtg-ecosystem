@@ -5,7 +5,7 @@ use ChosenCostAction::{Discard, ExileFromGraveyard, Tap};
 use ChosenCostFilter::{Any, ArtifactOrCreature, Subtype, Type};
 use serde_json::{Value, json};
 
-pub(super) fn lower(cost: &SourceCost) -> Result<ChosenObjectCost, Failure> {
+pub(crate) fn lower(cost: &SourceCost) -> Result<ChosenObjectCost, Failure> {
     let (action, what) = match cost {
         SourceCost::Discard { what, random: None } => (Discard, what),
         SourceCost::TapObjects { what } => (Tap, what),

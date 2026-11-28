@@ -18,9 +18,10 @@ mod activation_restrictions;
 #[cfg(test)]
 mod antecedent_tests;
 pub(crate) mod control;
-mod costs;
+pub(crate) mod costs;
 mod events;
 pub(crate) mod keywords;
+mod mana_replacement;
 mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
@@ -1604,6 +1605,41 @@ fn compose_face(
                         .as_ref()
                         .filter(|r| r.once_each_turn && r.window.is_none())
                         .map(|_| SourceActivationRestriction::OnceEachTurn {});
+                    if let Some(mana) = mana_replacement::lower(
+                        &costs,
+                        &effects,
+                        &result.lines[block].text,
+                        block,
+                        &|path| {
+                            resolution.control_player(
+                                block,
+                                &printed[block],
+                                path,
+                                Context::Activated,
+                            )
+                        },
+                    )? {
+                        if spell_kind || timing != SpellTiming::Instant || restriction.is_some() {
+                            return Err(unsupported(
+                                "compose.mana-replacement",
+                                "activation context",
+                            ));
+                        }
+                        printed::choices_printed(
+                            &result.lines[block].text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        )?;
+                        resolution.target_slots_with_reflexive(
+                            block,
+                            &printed[block],
+                            &[],
+                            None,
+                        )?;
+                        labels.mana.push(label);
+                        definition.mana_abilities.push(mana);
+                        return Ok(());
+                    }
                     // CR 602.2b, 700.2: modes are chosen as the ability is
                     // activated; a mana ability has no modes here.
                     if modal::declared(&effects) {
@@ -1667,6 +1703,9 @@ fn compose_face(
                         None => None,
                     };
                     if let Some(mut mana) = mana {
+                        if mana.costs.tap_other.is_some() {
+                            costs::printed(&costs, &result.lines[block].text)?;
+                        }
                         if spell_kind
                             || timing != SpellTiming::Instant
                             || restriction

@@ -226,6 +226,7 @@ fn granted_mana() -> Game {
                     condition: None,
                     costs: mtg_contracts::PermanentActivationCosts {
                         remove_source_counters: None,
+                        tap_other: None,
                         tap: true,
                         mana: None,
                         sacrifice: false,

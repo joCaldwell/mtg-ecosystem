@@ -22,6 +22,7 @@ pub(crate) fn lower_permanent_costs(
     let mut hybrid = vec![];
     let mut result = PermanentActivationCosts {
         remove_source_counters: None,
+        tap_other: None,
         tap: false,
         mana: None,
         sacrifice: false,
@@ -33,6 +34,13 @@ pub(crate) fn lower_permanent_costs(
                 result.remove_source_counters = Some(lower_remove_counter_cost(cost, is_self)?);
             }
             SourceCost::TapSelf {} if !result.tap => result.tap = true,
+            SourceCost::TapObjects { .. } if result.tap_other.is_none() => {
+                let term = crate::compose::costs::chosen::lower(cost)?;
+                if term.count != 1 || term.filter != ChosenCostFilter::Type(CardKind::Creature) {
+                    return Err(unsupported("mana", "chosen permanent tap cost"));
+                }
+                result.tap_other = Some(term.filter);
+            }
             SourceCost::Mana { symbols } if result.mana.is_none() && hybrid.is_empty() => {
                 let m = activation_mana(symbols, "cost")?;
                 if m.base.colored.contains(&Color::C) {
@@ -157,7 +165,10 @@ pub(super) fn counted_mana(
 /// CR 106.1a, 106.7: the complete production of the ability's one AddMana
 /// step. A choice lists distinct fixed bundles. A "could produce" over anything but one land
 /// controlled by "you" or "an opponent" rejects.
-fn production(mana: &SourceMana, you: &PlayerSelector) -> Result<ManaProduction, Failure> {
+pub(crate) fn production(
+    mana: &SourceMana,
+    you: &PlayerSelector,
+) -> Result<ManaProduction, Failure> {
     let unsupported_production = || unsupported("mana", "unsupported complete mana production");
     Ok(match mana {
         SourceMana::Fixed { symbols } if !symbols.is_empty() => ManaProduction::Fixed {
