@@ -2,7 +2,7 @@
 
 import { parseTargetChoiceRequirement } from "./target-requirements.ts";
 import { parsePregameDeckReveal } from "./pregame-deck.ts";
-import type { Amount, Color, Condition, ObjectRef, StaticEffect, StaticModifier } from "../ast.ts";
+import type { Amount, Color, Condition, ObjectFilter, ObjectRef, StaticEffect, StaticModifier } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import type { Token } from "../lexer.ts";
 import { canonicalSubtypeName } from "../vocab.ts";
@@ -804,7 +804,7 @@ function parseLinkedCreatureCharacteristics(c: Cursor): StaticEffect | null {
       if (!c.words("the", "last")) return null;
       const start = c.pos;
       if (!c.words("creature", "card")) return null;
-      const filter = c.mark({ cls: "card" as const, types: ["creature"] }, start);
+      const filter = c.mark<ObjectFilter>({ cls: "card", types: ["creature"] }, start);
       if (!c.words("exiled", "with")) return null;
       const linkedTo = parseObjectRef(c);
       return linkedTo?.ref === "it" ? { order: "last" as const, filter, linkedTo } : null;
