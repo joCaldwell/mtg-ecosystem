@@ -44,6 +44,54 @@ fn reject<T>(detail: &str) -> Result<T, Failure> {
     Err(unsupported("compose.control", detail))
 }
 
+/// CR 111.2, 121.2, 608.2h: a single instruction to create identical
+/// tokens or draw cards for each member reads one count. Token creation
+/// is one event, and the evaluator makes individual attempts for draws.
+/// Other instruction-wise bodies can need bound members and a transaction.
+pub(super) fn counted_instruction(sentence: &Value) -> Value {
+    let mut lowered = sentence.clone();
+    let Some(steps) = lowered.get_mut("steps").and_then(Value::as_array_mut) else {
+        return lowered;
+    };
+    for step in steps {
+        if let Some(action) = counted_step(step) {
+            *step = action;
+        }
+    }
+    lowered
+}
+
+pub(crate) fn counted_step(step: &Value) -> Option<Value> {
+    if step.as_object()?.len() != 4
+        || step["effect"] != "for-each"
+        || step["processing"] != "instruction-wise"
+        || step["each"]["ref"] != "each"
+        || step["each"].as_object()?.len() != 2
+        || !step["each"]["filter"].is_object()
+    {
+        return None;
+    }
+    let [body] = step["effects"].as_array()?.as_slice() else {
+        return None;
+    };
+    let [action] = body["steps"].as_array()?.as_slice() else {
+        return None;
+    };
+    if body.as_object()?.len() != 1
+        || !matches!(action["effect"].as_str(), Some("draw" | "create-token"))
+        || action.get("forEach").is_some()
+        || action.get("optional").is_some()
+        || action
+            .get("who")
+            .is_some_and(|who| who != &serde_json::json!({"player": "you"}))
+    {
+        return None;
+    }
+    let mut action = action.clone();
+    action["forEach"] = step["each"]["filter"].clone();
+    Some(action)
+}
+
 /// One printed control construct over core steps `[start, end)` of core
 /// sentence `sentence`. `depth` orders wraps over the same range: a
 /// sentence condition encloses a group, which encloses a step choice.
@@ -434,7 +482,11 @@ impl Site<'_> {
                     *uses_result = true;
                     Cond::Compare {
                         left: kir::Amount::Count {
-                            set: SetExpr::Result { step, filter },
+                            set: SetExpr::Result {
+                                step,
+                                filter,
+                                destination: None,
+                            },
                         },
                         cmp,
                         right: kir::Amount::Fixed { value },

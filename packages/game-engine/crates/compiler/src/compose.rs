@@ -17,7 +17,7 @@ use super::*;
 mod activation_restrictions;
 #[cfg(test)]
 mod antecedent_tests;
-mod control;
+pub(crate) mod control;
 mod costs;
 mod events;
 pub(crate) mod keywords;
@@ -233,7 +233,7 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
 /// Decode one effect sentence; evaluated actions (including discard and mill)
 /// decode through the generated effect schema in `Step::deserialize`.
 pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
-    serde_json::from_value(raw.clone()).map_err(|e| mirror_gap(raw, &e))
+    serde_json::from_value(control::counted_instruction(raw)).map_err(|e| mirror_gap(raw, &e))
 }
 
 /// A reviewed trigger lowers typed sentences only. A sentence of step table
@@ -940,6 +940,7 @@ fn compose(
     }
     for (index, (_, face)) in card.faces.iter().enumerate() {
         resolution.cover_spend_riders(index, face.abilities.get())?;
+        resolution.cover_control(index, face.abilities.get())?;
         if face.abilities.get().contains("\"final-chapter-ability\"") {
             let abilities: Vec<serde_json::Value> = decode(face.abilities.get(), "abilities")?;
             if abilities

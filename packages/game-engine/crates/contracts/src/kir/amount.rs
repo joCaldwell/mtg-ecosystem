@@ -16,6 +16,12 @@ pub enum Amount {
     Count {
         set: SetExpr,
     },
+    /// CR 608.2h: the members of a public set with a type chosen in
+    /// the enclosing resolution.
+    CountChosenCreatureType {
+        set: SetExpr,
+        var: u32,
+    },
     /// A characteristic of one object, using last known information if it
     /// has left (CR 608.2h).
     StatOf {
@@ -42,11 +48,11 @@ pub enum Amount {
     LifeOf {
         player: PlayerExpr,
     },
-    /// CR 122.1, 608.2h: how many counters of `counter` are on one object
-    /// as the verb reads it, using last known information if it has left.
+    /// CR 122.1, 608.2h: how many counters of the named kind (or of all
+    /// kinds) are on one object, using last known information if it has left.
     CountersOn {
         object: Ref,
-        counter: CounterKind,
+        counter: Option<CounterKind>,
     },
     /// CR 509.1g, 702.23a: the number of creatures blocking `object` as the
     /// verb is performed, less `beyond`, never below zero.
@@ -125,6 +131,7 @@ impl Amount {
     pub fn is_resolution_count(&self) -> bool {
         match self {
             Self::Count { .. }
+            | Self::CountChosenCreatureType { .. }
             | Self::Greatest { .. }
             | Self::Devotion { .. }
             | Self::CountersOn { .. }

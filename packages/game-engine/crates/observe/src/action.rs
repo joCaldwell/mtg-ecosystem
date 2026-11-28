@@ -15,6 +15,7 @@ pub struct Choices {
     pub slot: usize,
     pub picked: usize,
     pub remaining: i32,
+    pub(crate) candidate_offset: usize,
 }
 impl Choices {
     fn new(slot: usize, picked: usize) -> Self {
@@ -25,6 +26,7 @@ impl Choices {
             slot,
             picked,
             remaining: 0,
+            candidate_offset: 0,
         }
     }
 }
@@ -33,6 +35,23 @@ pub enum Step {
     Answer(Answer),
 }
 pub struct Composer;
+
+pub(crate) fn paged_creature_types(d: &Decision<Viewer>) -> bool {
+    d.candidates.len() > STOP
+        && matches!(
+            d.reason,
+            Reason::ChooseCreatureType | Reason::ReplacementOrder { .. }
+        )
+        && matches!(&d.shape, Shape::Pick { slots, rules }
+            if rules.is_empty()
+                && matches!(slots.as_slice(), [slot]
+                    if (slot.min, slot.max) == (1, 1)
+                        && slot.allowed.iter().copied().eq(0..d.candidates.len() as u32)))
+        && d.candidates
+            .iter()
+            .all(|c| matches!(c, Candidate::CreatureType { .. }))
+}
+
 impl Composer {
     /// The bound comes exclusively from the acting player's view and catalog.
     pub fn compose(
@@ -40,7 +59,8 @@ impl Composer {
         actions: &[usize],
         bound: Option<&Quantity>,
     ) -> Result<Step, String> {
-        if d.candidates.len() > STOP {
+        let paged = paged_creature_types(d);
+        if d.candidates.len() > STOP && !paged {
             return Err("decision exceeds candidate capacity".into());
         }
         let mut actions = actions.iter().copied();
@@ -68,6 +88,24 @@ impl Composer {
             };
         }
         let answer = match &d.shape {
+            Shape::Pick { .. } if paged => {
+                let mut offset = 0;
+                let pick = loop {
+                    let remaining = d.candidates.len() - offset;
+                    let mut choices = Choices::new(0, 0);
+                    choices.candidate_offset = offset;
+                    choices.pointer[..remaining.min(STOP)].fill(1);
+                    choices.pointer[STOP] = (remaining > STOP) as u8;
+                    let action = select!(choices);
+                    if action != STOP {
+                        break offset + action;
+                    }
+                    offset += STOP;
+                };
+                Answer::Pick {
+                    picks: vec![vec![pick as u32]],
+                }
+            }
             Shape::Pick { slots, rules } => {
                 let mut picks = vec![vec![]; slots.len()];
                 // CR 701.23a: a search with no matching card still looks at

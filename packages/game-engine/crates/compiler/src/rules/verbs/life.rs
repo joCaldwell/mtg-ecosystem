@@ -42,7 +42,7 @@ pub(super) fn lower(
             };
             return linked_change(cx, gain, player, change, optional.is_some());
         }
-        (None, amount) => pilot_amount(cx, amount)?,
+        (None, amount) => pilot_amount_relative(cx, amount, Some(&player))?,
     };
     Ok(wrap(cx, action(gain, player, amount), optional.is_some()))
 }

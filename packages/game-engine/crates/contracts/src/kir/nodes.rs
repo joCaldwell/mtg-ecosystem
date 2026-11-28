@@ -144,6 +144,12 @@ pub enum Node {
         maximum: Amount,
         body: Box<Node>,
     },
+    /// CR 608.2d, 205.3m: choose a creature type while resolving.
+    ChooseCreatureType {
+        var: u32,
+        chooser: PlayerExpr,
+        body: Box<Node>,
+    },
     /// CR 608.2d: the controller chooses one object from the current public set.
     ChooseObject {
         from: SetExpr,
@@ -264,6 +270,7 @@ impl Node {
             Self::If { .. }
             | Self::ForEach { .. }
             | Self::Choose { .. }
+            | Self::ChooseCreatureType { .. }
             | Self::UnlessPays { .. }
             | Self::IfPays { .. } => true,
             Self::Reflexive { .. } => true,

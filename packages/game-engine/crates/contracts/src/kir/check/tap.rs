@@ -2,6 +2,20 @@
 use super::*;
 
 impl Walk<'_, '_> {
+    pub(super) fn battlefield_target_set(&self, slots: &[u32]) -> Result<(), KirError> {
+        for slot in slots {
+            if !matches!(
+                self.domain(*slot)?,
+                TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+            ) {
+                return unaudited("simultaneous battlefield target domain");
+            }
+        }
+        Ok(())
+    }
+
     /// CR 701.26a, 608.2b: tap one announced permanent.
     pub(super) fn audit_tap(&self, what: &SetExpr) -> Result<Cell, KirError> {
         match what {
@@ -16,6 +30,10 @@ impl Walk<'_, '_> {
                 | TargetDomain::BattlefieldCreature => Ok(Cell::TapTarget),
                 _ => unaudited("tap target domain"),
             },
+            SetExpr::Targets { slots } => {
+                self.battlefield_target_set(slots)?;
+                Ok(Cell::TapSet)
+            }
             SetExpr::Matching {
                 zone: ZoneExpr::Battlefield,
                 filter,
@@ -48,6 +66,10 @@ impl Walk<'_, '_> {
                 | TargetDomain::BattlefieldCreature => Ok(Cell::UntapTarget),
                 _ => unaudited("untap target domain"),
             },
+            SetExpr::Targets { slots } => {
+                self.battlefield_target_set(slots)?;
+                Ok(Cell::UntapSet)
+            }
             what if *what == SetExpr::lands_you_control(self.env.context) => {
                 Ok(Cell::UntapControllerLands)
             }
@@ -61,7 +83,10 @@ impl Walk<'_, '_> {
 }
 
 pub(super) fn tap_capabilities(what: &SetExpr, out: &mut BTreeSet<Capability>) {
-    if matches!(what, SetExpr::One { .. } | SetExpr::Matching { .. }) {
+    if matches!(
+        what,
+        SetExpr::One { .. } | SetExpr::Matching { .. } | SetExpr::Targets { .. }
+    ) {
         out.insert(Capability::TapPermanentV1);
     }
 }
@@ -78,9 +103,9 @@ pub(super) fn untap_capabilities(what: &SetExpr, out: &mut BTreeSet<Capability>)
         {
             out.insert(Capability::UntapControllerLandsV1);
         }
-        SetExpr::Matching { .. } => {
+        SetExpr::Matching { .. } | SetExpr::Targets { .. } => {
             out.insert(Capability::UntapPermanentV1);
         }
-        SetExpr::Pool { .. } | SetExpr::Targets { .. } | SetExpr::Result { .. } => {}
+        SetExpr::Pool { .. } | SetExpr::Result { .. } => {}
     }
 }

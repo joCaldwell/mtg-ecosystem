@@ -6,8 +6,12 @@
 //! performing the step. Rust decides which from the typed facts it has:
 //! each target's domain and filter, the event role and whether the event
 //! object is the source, and which earlier printed steps named another
-//! object. Exactly one admissible candidate binds; none or several reject
-//! with a located diagnostic, never a positional guess.
+//! object. Permanent actions exclude stack spells and reject a read of an
+//! incarnation moved earlier in the sequence. Mixed object/player targets,
+//! plural or qualified nouns, competing mentions and absent antecedents
+//! yield located rejections. Modes supply independent target and step scopes.
+//! "That player" can also name the previous step's direct announced player
+//! when that was the mode's only target and no event names a player.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::reference_trace::{self, Bound};
@@ -284,6 +288,56 @@ pub(super) fn target(cx: &StepCx<'_>, object: &ast::ObjectRef) -> Result<Ref, Fa
         target @ Ref::Target { .. } => Ok(target),
         _ => Err(operand("player", "controller:unbound_target")),
     }
+}
+
+/// CR 608.2c, 700.2: a separate step's "that player" refers back to the
+/// single player named directly by the adjacent step in the same mode.
+pub(super) fn player_target(cx: &StepCx<'_>) -> Option<PlayerExpr> {
+    if cx.player_binding != PlayerBinding::Unbound {
+        return None;
+    }
+    let [target] = cx.program.targets.get(cx.floor.targets..)? else {
+        return None;
+    };
+    if !matches!(
+        target.domain,
+        TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer
+    ) {
+        return None;
+    }
+    let step = cx
+        .program
+        .instructions
+        .get(cx.floor.instructions..)?
+        .last()?;
+    if step.source_block() != cx.source_block {
+        return None;
+    }
+    let (_, operands) = step.verb()?.evaluated()?;
+    let player = PlayerExpr::target(target.slot);
+    let directly_named = match operands {
+        kir::Evaluated::PlayerAmount {
+            player: subject, ..
+        }
+        | kir::Evaluated::Discard {
+            player: subject, ..
+        }
+        | kir::Evaluated::Sacrifice {
+            player: subject, ..
+        } => *subject == player,
+        kir::Evaluated::Damage {
+            to: kir::DamageTo::Players { players },
+            ..
+        } => *players == player,
+        kir::Evaluated::Damage {
+            to: kir::DamageTo::Ref {
+                who: Ref::Target { slot },
+            },
+            ..
+        } => *slot == target.slot,
+        _ => false,
+    };
+    directly_named.then_some(player)
 }
 
 /// Report a bound pronoun to the sweep-time differential, when enabled.

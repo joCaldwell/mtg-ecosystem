@@ -379,7 +379,7 @@ impl GraveyardGroup {
                 let kind = match result {
                     GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature),
                     GroupResult::ActualEffect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldPermanent),
-                    GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}) | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. }),
+                    GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..} | mtg_contracts::kir::SetExpr::Targets {..}, ..}) | Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. }),
                     GroupResult::Sacrifice {player} if matches!(i, Instruction::Kernel { node: mtg_contracts::kir::Node::SacrificeForTappedReturn { .. }, .. }) => *player == entry.controller,
                     GroupResult::Sacrifice {..} => false,
                 };
@@ -387,6 +387,7 @@ impl GraveyardGroup {
                     (i,ProposedEvent::DestroyPermanent {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| game.bound_object_target(entry,slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),
                     (i,ProposedEvent::DestroyCreature {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| entry.targets.get(slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),
                     (kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}),ProposedEvent::DestroyPermanent {..}) => true,
+                    (kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Targets { slots }, ..}), ProposedEvent::DestroyPermanent {object}) => game.legal_kernel_object_targets(frame, slots).is_ok_and(|targets| targets.contains(object)),
                     // CR 608.2b: a group destroys only its legal announced members.
                     (Instruction::Kernel { node: mtg_contracts::kir::Node::RemoveTargets { removal: mtg_contracts::kir::GroupRemoval::Destroy, .. }, .. },ProposedEvent::DestroyPermanent {object}) => entry.targets.iter().zip(&frame.legal_targets).any(|(target, legal)| target == object && *legal),
                     (_,ProposedEvent::Sacrifice {player,..}) => matches!(result, GroupResult::Sacrifice {player:p} if p == player),

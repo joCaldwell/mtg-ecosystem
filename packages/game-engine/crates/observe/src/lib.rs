@@ -20,7 +20,7 @@ pub fn fits_layout(view: &PermittedView, decision: &Decision<Viewer>) -> bool {
         + view.known_searched_hand.len()
         + view.revealed_library_cards.len()
         <= MAX_ENTITIES
-        && decision.candidates.len() <= action::STOP
+        && (decision.candidates.len() <= action::STOP || action::paged_creature_types(decision))
         && view.players.len() <= 4
 }
 
@@ -125,6 +125,16 @@ fn zone(z: Zone) -> i32 {
         Zone::Stack => 6,
     }
 }
+
+/// One three-bit digit per choice, first choice least significant. Zero
+/// pads the list; a digit of one denotes the first printed mode.
+fn packed_modes(indices: &[u8]) -> i32 {
+    indices
+        .iter()
+        .rev()
+        .fold(0, |packed, &index| (packed << 3) | (i32::from(index) + 1))
+}
+
 pub fn encode(
     c: &catalog::ObservationCatalog,
     o: &Observation,
@@ -331,6 +341,7 @@ pub fn encode(
         n[18] = -1;
         // CR 702.34a: a flashback spell is exiled as it leaves the stack.
         n[19] = s.flashback as i32;
+        n[22] = s.chosen_modes.as_deref().map_or(0, packed_modes);
     }
     for (j, k) in v.known_library_positions.iter().enumerate() {
         let i = base + v.stack.len() + j;
@@ -362,7 +373,14 @@ pub fn encode(
         r.ent_num[i][15] = -1;
         r.ent_num[i][18] = -1;
     }
-    for (i, k) in d.candidates.iter().enumerate() {
+    let offset = choices.candidate_offset;
+    for (i, k) in d
+        .candidates
+        .iter()
+        .skip(offset)
+        .take(action::STOP)
+        .enumerate()
+    {
         let (kind, entity, seat, a, b) = match k {
             Candidate::Object { object: h } => (0, object(h), -1, 0, 0),
             Candidate::Stack { stack: h } => {
@@ -405,7 +423,7 @@ pub fn encode(
                 0,
             ),
             Candidate::Flag { flag } => (8, -1, -1, *flag as i32, 0),
-            Candidate::Modes { mask, .. } => (14, -1, -1, i32::from(*mask), 0),
+            Candidate::Modes { chosen_modes, .. } => (14, -1, -1, packed_modes(chosen_modes), 0),
             Candidate::Action { action } => match action {
                 Action::Pass => (9, -1, -1, 0, 0),
                 Action::PlayLand { object: h } => (10, object(h), -1, 0, 0),
@@ -420,8 +438,9 @@ pub fn encode(
                 }
             },
         };
-        r.cand[i] = [kind, entity, seat, a, b, i32::from(funding[i])];
-        if mask_unfundable && funding[i] == 0 {
+        let funding = funding[offset + i];
+        r.cand[i] = [kind, entity, seat, a, b, i32::from(funding)];
+        if mask_unfundable && funding == 0 {
             r.ptr_mask[i] = 0;
         }
     }

@@ -1122,7 +1122,11 @@ impl CheckedAction {
                         ));
                     };
                     let count = Amount::Count {
-                        set: SetExpr::Result { step: 0, filter },
+                        set: SetExpr::Result {
+                            step: 0,
+                            filter,
+                            destination: None,
+                        },
                     };
                     if n == 1 {
                         count

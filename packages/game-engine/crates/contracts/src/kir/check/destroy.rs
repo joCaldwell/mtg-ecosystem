@@ -19,6 +19,10 @@ impl Walk<'_, '_> {
                 }
                 _ => unaudited("destroy target domain"),
             },
+            SetExpr::Targets { slots } if !regeneration_forbidden => {
+                self.battlefield_target_set(slots)?;
+                Ok(Cell::DestroySet)
+            }
             // CR 701.8, 608.2h: destroy every battlefield permanent that
             // satisfies the filter as the instruction is performed.
             // CR 701.19c: forbidding regeneration is audited for the nonland
@@ -53,12 +57,9 @@ pub(super) fn capabilities(what: &SetExpr, out: &mut BTreeSet<Capability>) {
         {
             out.insert(Capability::DestroyCreatureV1);
         }
-        SetExpr::Matching { .. } => {
+        SetExpr::Matching { .. } | SetExpr::Targets { .. } => {
             out.insert(Capability::BoardWipesV1);
         }
-        SetExpr::One { .. }
-        | SetExpr::Pool { .. }
-        | SetExpr::Targets { .. }
-        | SetExpr::Result { .. } => {}
+        SetExpr::One { .. } | SetExpr::Pool { .. } | SetExpr::Result { .. } => {}
     }
 }

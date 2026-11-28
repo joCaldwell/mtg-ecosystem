@@ -40,6 +40,17 @@ pub(super) fn lower(
     uncounted(cx)?;
     if to == "your" {
         let what = what.as_ref().clone();
+        if let Some(set) = graveyard_set(cx, &what)? {
+            if optional.is_some()
+                || !matches!(&set, SetExpr::Matching { zone: kir::ZoneExpr::Graveyard { of }, .. } if of.is_you())
+            {
+                return Err(operand("set", "graveyard_return_owner"));
+            }
+            return Ok(cx.act(Verb::Move {
+                what: set,
+                to: Destination::OwnerHand,
+            }));
+        }
         if let Some(choice) = super::move_zone::chosen(cx, &what, Destination::OwnerHand)? {
             return match (optional, choice) {
                 (None, choice) => Ok(choice),
@@ -103,8 +114,12 @@ pub(super) fn lower(
         });
     }
     if is_set(&what) {
+        let what = match graveyard_set(cx, &what)? {
+            Some(set) => set,
+            None => lower_board_set(&what, cx.context)?,
+        };
         return Ok(cx.act(Verb::Move {
-            what: lower_board_set(&what, cx.context)?,
+            what,
             to: Destination::OwnerHand,
         }));
     }

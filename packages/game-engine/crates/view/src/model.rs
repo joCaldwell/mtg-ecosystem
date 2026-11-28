@@ -94,8 +94,12 @@ pub enum Candidate<S: Space> {
         mana: ManaCost,
     },
     Modes {
+        /// Selection key within the modal declaration.
         mask: u8,
         labels: Vec<String>,
+        /// Zero-based printed mode indices, with repeats.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        chosen_modes: Vec<u8>,
     },
     HybridPayment {
         payment: HybridPayment,
@@ -180,6 +184,10 @@ pub enum Reason<S: Space> {
         offered: Option<GraveyardOrderOption>,
     },
     OptionalEffect,
+    /// CR 101.4b: public choices already made for this same instruction.
+    OptionalResolution {
+        previous: Vec<(PlayerId, bool)>,
+    },
     MyriadDefender,
     DamageEffect {
         recipient: S::Entity,
@@ -234,6 +242,8 @@ pub enum Reason<S: Space> {
     Proliferate,
     /// CR 608.2d: choose a public object while applying an instruction.
     ResolveObjectChoice,
+    /// CR 608.2d, 205.3m: choose a creature type while applying an instruction.
+    ChooseCreatureType,
     /// CR 608.2d: the found land to put onto the battlefield tapped.
     SearchSplitBattlefield,
     /// CR 701.20e: choose a looked-at card to put into hand.
@@ -295,6 +305,8 @@ impl<S: Space> Reason<S> {
             Self::ResolveCardChoice => 38,
             Self::MyriadDefender => 39,
             Self::ReplacementOrder { .. } => 40,
+            Self::ChooseCreatureType => 41,
+            Self::OptionalResolution { .. } => 42,
         }
     }
 }

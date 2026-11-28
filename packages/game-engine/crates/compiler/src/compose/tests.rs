@@ -596,9 +596,10 @@ fn source_authority_counts_the_cards_discarded_this_way_on_both_cuts() {
         set: SetExpr::Result {
             step: 0,
             filter: kir::Pred(filter),
+            destination: None,
         },
     };
-    // CR 102.2-102.3, 608.2c: each other player discards; you draw one card
+    // CR 806.1, 903.2, 608.2c: each other player discards; you draw one card
     // for each card they actually discarded.
     let syphon = lower(r5, SYPHON_R5).unwrap();
     assert!(syphon.spell.as_ref().unwrap().targets.is_empty());
