@@ -482,7 +482,11 @@ impl Site<'_> {
                     *uses_result = true;
                     Cond::Compare {
                         left: kir::Amount::Count {
-                            set: SetExpr::Result { step, filter },
+                            set: SetExpr::Result {
+                                step,
+                                filter,
+                                destination: None,
+                            },
                         },
                         cmp,
                         right: kir::Amount::Fixed { value },

@@ -28,7 +28,7 @@ pub(super) fn lower(cx: &mut StepCx<'_>, draw: &ast::EffectDraw) -> Result<Instr
     let player = pilot_player(cx, who)?;
     let amount = match for_each {
         Some(filter) => pilot_each_filter(cx, filter, amount, Some(&player))?,
-        None => pilot_amount(cx, amount)?,
+        None => pilot_amount_relative(cx, amount, Some(&player))?,
     };
     let chooser = match decided_by.as_deref().unwrap_or(who) {
         ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
