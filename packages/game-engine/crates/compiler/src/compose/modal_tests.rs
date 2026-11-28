@@ -107,14 +107,14 @@ fn modal_declarations_that_disagree_with_print_reject_by_name() {
         row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0] = step;
     });
     assert!(reason(&dropped).contains("does not cover the AST"));
-    // A declaration term the lowering does not consume: repeated modes
-    // (CR 700.2d) are a different announcement.
+    // CR 700.2d: a repeat declaration must be present in the printed
+    // header as well as in the AST.
     let extra = changed(GRIXIS_CHARM, |row| {
         let mut step = options(row);
         step["allowRepeat"] = json!(true);
         row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0] = step;
     });
-    assert_eq!(reason(&extra), "verb:modal:declaration");
+    assert_eq!(reason(&extra), "verb:modal:printed_repeat");
 }
 
 #[test]

@@ -383,6 +383,12 @@ targets and instructions (CR 700.2). The frozen R5 resolution is not consulted
 for this choice.
 `scripts/rework-reference-diff.py` compares it at sweep time with that resolution.
 
+A spell that says to choose three modes and permits repeats resolves every
+occurrence in printed mode order (CR 700.2d, 608.2c). Each occurrence announces
+its own targets and has its own antecedent scope. Distinct selections use a
+bitmask. Repeating selections use the ordinal of the sorted mode list, with
+the full list supplied in the decision's labels.
+
 **Actual card results.** An unqualified “discarded”, “milled”, “exiled” or
 “returned this way” in a count or condition names the unique earlier direct
 producer of that event (a move to exile, or to a hand or the battlefield) in
@@ -398,6 +404,11 @@ accepting a player set does not license a simultaneous or divided write. One
 member or members in turn: `Single`, `EachSequential`. One event for every
 member: `EachSimultaneous`, or `CollectThenSimultaneous` after APNAP choice
 collection (CR 101.4). Divided: `DividedAtAnnouncement`, rejected in Stage 1.
+
+When each player may draw, the engine collects every answer in APNAP order and
+supplies the public prior answers to the next chooser. It then draws in APNAP
+order, keeping card identities private. A later instruction can read which
+players successfully drew (CR 101.4, 121.2c, 608.2e).
 
 **Projections.** A step binds only a declared projection of a dominating
 performed step; each `(verb, StepRole)` has exactly one: the actual result after
