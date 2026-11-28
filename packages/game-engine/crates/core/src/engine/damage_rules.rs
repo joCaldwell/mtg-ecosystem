@@ -105,9 +105,10 @@ impl RulesTxn {
         else {
             return Ok(None);
         };
-        Ok((!self.printed_abilities_lost(source)?
-            && condition.is_none_or(|c| self.static_condition(holder, c)))
-        .then_some((holder, rule)))
+        Ok(
+            (!self.printed_abilities_lost(source)? && self.condition_holds(holder, condition)?)
+                .then_some((holder, rule)),
+        )
     }
 
     fn live_damage_rules(&self) -> Result<Vec<(ObjectId, u32, &Object, &StaticRule)>, String> {
@@ -121,7 +122,7 @@ impl RulesTxn {
             {
                 if let Some((rule, condition)) = Self::damage_rule(ability)
                     && !self.printed_abilities_lost(holder.id)?
-                    && condition.is_none_or(|c| self.static_condition(holder, c))
+                    && self.condition_holds(holder, condition)?
                 {
                     rules.push((holder.id, index as u32, holder, rule));
                 }
@@ -434,7 +435,7 @@ impl RulesTxn {
                 }
                 let target = self.directed_damage_target(entry, *slot)?;
                 let present = match target {
-                    TargetEntity::Object { object } => self.is_battlefield_creature(object),
+                    TargetEntity::Object { object } => self.is_battlefield_creature(object)?,
                     TargetEntity::Player { player } => self.is_live(player),
                 };
                 if !present {
@@ -453,7 +454,7 @@ impl RulesTxn {
                     .targets
                     .get(*slot as usize)
                     .ok_or("missing prevented source target")?;
-                if !legal(*slot) || !self.is_battlefield_creature(object) {
+                if !legal(*slot) || !self.is_battlefield_creature(object)? {
                     return Ok(None);
                 }
                 Some(PreventedSources::One { object })

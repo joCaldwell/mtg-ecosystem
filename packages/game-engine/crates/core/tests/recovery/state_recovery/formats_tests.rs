@@ -15,7 +15,9 @@
 //! fourth stops a granted mana ability at its color choice; a fifth puts a
 //! loyalty ability and its source's prior-row facts on the stack; a sixth
 //! fills a held mana receipt's cost event identities and ledger delta; a
-//! seventh suspends a counted draw between attempts.
+//! seventh suspends a counted draw between attempts; an eighth suspends a
+//! proliferate on a replacement order, crosses a departure and commits
+//! its lineage.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -23,16 +25,16 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    112,
-    "b8d18727130691d0888e16c0569a82d06379b1e8f5ced59798014dae522514a6",
+    114,
+    "3339d6f7e34df4b8a3f789a754639f76c924256ddb16442552180ac18c705178",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    144,
-    "946d581ef85b141f15b19e955a1e5398902a6a21da76c0c2c948ce156cab1cfb",
+    146,
+    "91310cdbf94614686eeca19e91a699529d49e7b4783c4eeb331cb9f6ac94b8b5",
 );
 const WORK_PIN: (u32, &str) = (
-    69,
-    "21374626abe37f1e047337eb6d879071e541e3f2bc269de746ff056b0969164a",
+    70,
+    "5f071e11dd1a310b17ad5138750df874ff9213dfe6ff6cd4a1efde04714ffd82",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -831,6 +833,113 @@ fn suspended_proliferate() -> Game {
     game
 }
 
+/// CR 616.1: a proliferate whose +1/+1 placement meets an addition and a
+/// multiplication suspends on the creature controller's order, keeping the
+/// consumed proliferate input; answering it commits the placement with its
+/// recorded lineage (traced in detail).
+fn suspended_replacement_order() -> [Game; 3] {
+    use mtg_contracts::QuantityModification;
+    use mtg_contracts::kir::{
+        Context, CounterKind, CounterRecipients, PlayerExpr, QuantityEvent, ReplacementOrigin,
+        StaticEffect, StaticRule, Verb,
+    };
+
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for (name, change) in [
+        (
+            "Darksteel Relic",
+            QuantityModification::Add { amount: 1.into() },
+        ),
+        (
+            "Forest",
+            QuantityModification::Multiply { factor: 2.into() },
+        ),
+    ] {
+        let d = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == name)
+            .unwrap();
+        d.source_labels = None;
+        d.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::rule(StaticRule::ModifyQuantity {
+                event: QuantityEvent::PutCounters {
+                    counter: Some(CounterKind::PlusOnePlusOne),
+                    recipients: CounterRecipients::Creatures,
+                    origin: ReplacementOrigin::Any,
+                },
+                change,
+            }),
+        }];
+        d.capabilities = d.requirements();
+    }
+    let spell = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Unsummon")
+        .unwrap();
+    spell.source_labels = None;
+    let program = spell.spell.as_mut().unwrap();
+    program.targets.clear();
+    program.instructions = vec![Instruction::act(
+        Verb::Proliferate {
+            player: PlayerExpr::you(Context::Spell),
+        },
+        0,
+    )];
+    spell.capabilities = spell.requirements();
+    let mut game = Game::with_trace(
+        Board::new(catalog, "snapshot-replacement-order")
+            .step(TurnStep::PrecombatMain)
+            .seats(4)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Darksteel Relic", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .prepare(),
+        TraceMode::Detailed,
+    );
+    let bears = Driver::object(&game, 2);
+    game.state
+        .rules
+        .objects
+        .get_mut(&bears.card)
+        .unwrap()
+        .plus_one_counters = 1.into();
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    for _ in 0..game.live_players().len() {
+        Driver::pass(&mut game);
+    }
+    let d = Driver::request(&mut game, u64::MAX);
+    assert_eq!(d.reason, Reason::Proliferate);
+    let answer = d.pick_one(&Candidate::Object { object: bears }).unwrap();
+    game.respond(d.player, d.id, answer).unwrap();
+    let d = Driver::request(&mut game, u64::MAX);
+    assert_eq!(
+        d.reason,
+        Reason::ReplacementOrder {
+            subject: Some(bears)
+        }
+    );
+    let pending = game.fork();
+    let mut rebuilding = pending.fork();
+    rebuilding.concede(PlayerId(2)).unwrap();
+    assert!(matches!(
+        rebuilding.advance(Budget::new(1)),
+        Advance::Suspended { .. }
+    ));
+    let relic = Driver::object(&game, 3);
+    let answer = d.pick_one(&Candidate::Object { object: relic }).unwrap();
+    game.respond(d.player, d.id, answer).unwrap();
+    Driver::request(&mut game, u64::MAX);
+    // 1 + (1 + 1) × 2.
+    assert_eq!(game.current(bears).unwrap().plus_one_counters, 5.into());
+    [pending, rebuilding, game]
+}
+
 /// A stack target offer with two public regeneration shields. The first
 /// shield can be projected while the second still keeps work suspended.
 fn stack_target_and_shields() -> Game {
@@ -1130,6 +1239,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             suspended_convoke(),
             saga_chapter(),
         ])
+        .chain(suspended_replacement_order())
         .chain(mana_riders())
         .chain([granted_mana()])
         .chain(chosen_cost_shapes())
@@ -1282,6 +1392,48 @@ fn search_with_blocker_limit() -> String {
     serde_json::to_string(&saved).unwrap()
 }
 
+/// A suspended observation keeps the counter predicate in its target offer.
+fn work_with_counter_target() -> String {
+    use mtg_contracts::kir::{Atom, Cmp, Pred};
+
+    let mut catalog = FixtureCatalog::Base.get().clone();
+    let spell = catalog
+        .definitions
+        .iter_mut()
+        .find(|definition| definition.name == "Unsummon")
+        .unwrap();
+    spell.source_labels = None;
+    let target = &mut spell.spell.as_mut().unwrap().targets[0];
+    target.domain = TargetDomain::BattlefieldPermanent;
+    let mut filter =
+        mtg_contracts::PermanentFilter::any().with_types([mtg_contracts::CardKind::Creature]);
+    filter.predicate = Some(Pred(vec![Atom::Counters {
+        counter: None,
+        cmp: Cmp::Exactly,
+        value: 0.into(),
+    }]));
+    target.filter = Some(filter);
+    spell.capabilities = spell.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "formats-counter-target")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    let offer = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(offer.reason, Reason::Targets { .. }));
+    let QueryResult::Incomplete { work, .. } = game.observe(offer.player, Budget::new(1)) else {
+        panic!("target observation should suspend");
+    };
+    let raw = game.save_work(&work).unwrap();
+    assert!(raw.contains(r#""atom":"counters""#));
+    game.restore_work(&raw).unwrap();
+    raw
+}
+
 #[test]
 fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
     // Suspended observation and decision queries; a query finishing within its
@@ -1316,6 +1468,7 @@ fn saved_work_shape_fingerprint_is_pinned_to_work_version() {
     game.restore_work(&raw).unwrap();
     samples.push(raw);
     samples.push(search_with_blocker_limit());
+    samples.push(work_with_counter_target());
     let saga = saga_chapter();
     let viewer = PlayerId(0);
     let units = saga.observation_work_units(viewer).unwrap();

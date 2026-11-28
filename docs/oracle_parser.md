@@ -64,6 +64,23 @@ punctuation canonicalization. A quoted slice must parse as one JSON string
 literal. A literal token's original range remains the
 whole edit hull. Lexical and parse failures retain their diagnostic and range.
 
+Each quoted grant has a located wrapper that includes both delimiters. Its
+ability body accounts for the interior tokens in grammar order, including
+punctuation, even when parsing rewrites a named token's self-reference. A
+comma or period moved past a closing delimiter by the lexer belongs to the
+enclosing production. Facts inside an ability quote belong to the innermost
+located node in that ability. A single grant shared by several AST branches
+has one printed enclosure. Other branches can alias the grant wrapper.
+
+Quoted terms keep their enclosing ability's scope. The replayed words
+`"legend rule"` are an operand of a legend-rule exemption, and
+`"bands with other"` names the keyword family in an ability removal. Both
+delimiters must be in the span or attributed clause that covers the term.
+The containing production must cover the complete clause around the quote,
+including `the … doesn't apply` or `all … abilities`. Facts inside the term
+retain their printed location and innermost containing owner.
+The lexer treats literal names as single tokens in recognized name slots.
+
 ## Responsibilities and invariants
 
 - Normalize punctuation, reminder text and exact-case self-references, preserving
@@ -208,7 +225,12 @@ printed digest and the source, AST, binding and resolution hash preimages. A
 mismatch identifies the first failing line and blocks publication. `--legacy-baseline
 PATH --verify-candidate PATH` repeats D0 on existing files. The JSON receipt
 includes the exact archive pins, counts by capture basis, elapsed check time,
-and largest raw line including LF. The candidate manifest and frozen snapshots
+and largest raw line including LF. For printed capture changes,
+`python3 scripts/check-printed-regressions.py BASELINE CANDIDATE PREVIOUS`
+compares D0-verified candidates at the same AST paths. Its JSON receipt
+reports every node change and rejects lost token coverage or a downgrade
+from recorded, alias or implicit evidence. Alias coverage follows the
+canonical occurrence. The candidate manifest and frozen snapshots
 are published beside the archive by content identity. Rust acceptance and
 registration follow the [catalog contract](game-engine-catalogs.md#catalog-source-and-commands).
 

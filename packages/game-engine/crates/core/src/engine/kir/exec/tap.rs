@@ -23,7 +23,7 @@ impl RulesTxn {
                         },
                 },
             ] => match self.kernel_players(&frame, player)? {
-                Players::One(player) => self.controlled_creatures(player),
+                Players::One(player) => self.controlled_creatures(player)?,
                 Players::Nobody => vec![],
                 Players::EachOpponent => return Err("expected one targeted player".into()),
             },

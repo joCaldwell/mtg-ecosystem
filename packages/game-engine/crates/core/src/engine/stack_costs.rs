@@ -598,16 +598,35 @@ impl RulesTxn {
         if *change == zero {
             return Ok(());
         }
-        self.current(object)?;
+        let controller = self.current(object)?.controller;
         let kind = mtg_contracts::kir::CounterKind::Loyalty;
+        // CR 118.11, 614.16: a cost's placement is not produced by an
+        // effect; only any-origin quantity replacements see it.
+        let placed = if *change > zero {
+            let creature = self.is_battlefield_creature(object)?;
+            Some(self.replace_quantity(
+                replacement::QuantityMember::Counters {
+                    holder: object,
+                    controller,
+                    creature,
+                    counter: &kind,
+                    shown: Some(object),
+                },
+                change,
+                false,
+            )?)
+        } else {
+            None
+        };
         // Loyalty is a balance with no stack timestamp.
         let source = self
             .rules_mut()
             .objects
             .get_mut(&object.card)
             .ok_or("missing loyalty source")?;
-        if *change > zero {
-            source.loyalty_counters.add(change);
+        if let Some(placed) = placed {
+            source.loyalty_counters.add(&placed.amount);
+            self.record_quantity(placed);
         } else {
             let mut removed = zero;
             removed.subtract(change);

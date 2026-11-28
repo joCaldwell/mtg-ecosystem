@@ -21,6 +21,7 @@ mod permanents_mana;
 mod planeswalker;
 mod removal_wipes;
 mod replacement_prevention;
+mod replacements;
 mod resolution_moves;
 mod sagas;
 mod split;

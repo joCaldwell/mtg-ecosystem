@@ -310,7 +310,7 @@ incarnation (CR 400.7, 608.2h).
 Battlefield sets and permanent targets share counter-balance predicates.
 They read a specified counter kind or the total of all kinds on the current
 incarnation (CR 122.1). Announced targets recheck the predicate at resolution
-(CR 601.2c, 608.2b). Observation 112 includes counter predicates in public
+(CR 601.2c, 608.2b). Observation 114 includes counter predicates in public
 target specifications. Battlefield movement and destruction sets can compare
 mana value against announced X (CR 107.3, 202.3). A quantity may read the
 greatest current stat in a battlefield set or count a resolved player's
@@ -459,8 +459,9 @@ of a simultaneous step after an earlier sibling took from the pool. A printed
 target's block-relative slot must be the one announced for its selection.
 Evaluated-verb pronouns, `its controller` and the follow-up steps that act on a
 target bind through the [antecedent rule](#verb-signatures). Counters on each of
-several targets reject as `operand:target:<count|up_to>:counters`, because
-per-member leaves would split one simultaneous placement (CR 608.2f, 603.2c).
+several targets lower to one `PutCounters` over `SetExpr::Targets`, a single
+simultaneous placement on the counted occurrence's legal members (CR 608.2f,
+603.2c); per-member leaves would split it into several events.
 
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.
