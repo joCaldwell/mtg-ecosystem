@@ -618,6 +618,9 @@ fn remove_open_stage(
         unlinkat(dir, &entry, AtFlags::empty())?;
     }
     check_identity()?;
+    // Files were unlinked through the verified handle. POSIX has no handle-bound
+    // rmdir, so a concurrent swap here can remove only an empty replacement
+    // directory and leaves any replacement files intact.
     unlinkat(parent, name, AtFlags::REMOVEDIR)?;
     Ok(())
 }

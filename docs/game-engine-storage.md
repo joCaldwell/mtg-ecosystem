@@ -68,7 +68,11 @@ has exited. Removal opens the directory without following a leaf symlink,
 rechecks its identity before each unlink, and allows only regular files named
 `catalog.json`, `index.json`, `manifest.json`, `outcomes.jsonl` and
 `compile-manifest.json`. It accepts empty and partial stages. Directories,
-symlinks and other entries inside the named stage block removal.
+symlinks and other entries inside the named stage block removal. The final
+directory removal is by name, so a concurrent swap can remove only an empty
+replacement directory and leaves any replacement files intact. See
+[frozen-input compile](game-engine-catalogs.md#frozen-input-compile) for the
+POSIX limitation.
 
 ## Inventory
 

@@ -79,7 +79,7 @@ policy copies and evidence. Missing scenario digests fail admission without
 preventing diagnostic CLI builds.
 
 The promoted R6 cut has an origin under `phase1-r6/`. Both archives verify for
-all 742 R5-origin fixture identities. Each R6 fixture keeps the same archive
+all 751 R5-origin fixture identities. Each R6 fixture keeps the same archive
 line and adds only `printed` and `printedSha256` to the R5 row. The R5 origin and
 fixture manifests supply the default controls.
 
@@ -633,7 +633,10 @@ identical bytes. Errors after staging and identical retries report the retained
 stage's path. Each retry creates a new stage. The `.bulk-stage-` prefix is
 reserved for staging. Use
 [`catalog stages`](game-engine-storage.md#abandoned-bundle-stages) to inspect or
-explicitly remove abandoned stages.
+explicitly remove abandoned stages. Explicit removal unlinks files through an
+identity-verified directory handle, then removes the empty stage by name because
+POSIX has no handle-bound `rmdir`. A concurrent swap at that final step can
+remove only an empty replacement directory and leaves any replacement files intact.
 
 ## Single matches and policy inputs
 
