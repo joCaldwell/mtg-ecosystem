@@ -136,9 +136,13 @@ impl<'a> ArchiveEvidence<'a> {
             return Ok(Self(None));
         }
         let pins = archive.r6.as_ref().ok_or("R6 cut has no measured pins")?;
+        // The printed schema and vocabulary pins are the wire contract this
+        // decoder reads. The generator pin is the registered producer of a
+        // cut, checked against its header: a later generator that changes
+        // only the legacy AST decoder (a grammar batch, rework plan format
+        // cut 3) still reads an earlier cut's identical printed evidence.
         if pins.printed_schema_sha256 != PRINTED_SCHEMA_SHA256
             || pins.printed_vocabulary_sha256 != PRINTED_VOCABULARY_SHA256
-            || pins.printed_generator_sha256 != PRINTED_GENERATOR_SHA256
         {
             return Err("R6 printed decoder identity mismatch".into());
         }

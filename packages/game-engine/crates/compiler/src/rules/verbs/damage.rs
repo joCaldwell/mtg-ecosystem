@@ -19,6 +19,7 @@ pub(super) fn lower(
         to,
         unpreventable,
         excess_to,
+        excess_condition,
     } = damage;
     if starting_with.is_some()
         || for_each_beyond.is_some()
@@ -26,6 +27,7 @@ pub(super) fn lower(
         || duration.is_some()
         || unpreventable.is_some()
         || excess_to.is_some()
+        || excess_condition.is_some()
         || (decided_by.is_some()
             && !(optional.is_some()
                 && matches!(decided_by.as_deref(), Some(ast::PlayerRef::You(_)))))

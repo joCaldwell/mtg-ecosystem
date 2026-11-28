@@ -980,6 +980,7 @@ pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
         adventure,
         control,
         controlled_by,
+        controller_matches,
         cast,
         cast_for_keyword_cost,
         not_cast_this_way,
@@ -1012,7 +1013,7 @@ pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
         relation,
         from_among,
     } = filter;
-    let fields: [(&'static str, bool); 76] = [
+    let fields: [(&'static str, bool); 77] = [
         (
             "characteristic_relations",
             characteristic_relations.is_some(),
@@ -1061,6 +1062,7 @@ pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
         ("adventure", adventure.is_some()),
         ("control", control.is_some()),
         ("controlled_by", controlled_by.is_some()),
+        ("controller_matches", controller_matches.is_some()),
         ("cast", cast.is_some()),
         ("cast_for_keyword_cost", cast_for_keyword_cost.is_some()),
         ("not_cast_this_way", not_cast_this_way.is_some()),

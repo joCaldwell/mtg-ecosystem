@@ -29,6 +29,16 @@ def read_blocks(row):
     return blocks
 
 
+def legacy_blocks(row):
+    """The legacy AST of each parsed block, by face and block index."""
+    blocks = {}
+    for face in row.get("faces", ()):
+        result = face.get("result") or {}
+        for index, line in enumerate(result.get("lines", ())):
+            blocks[face["sourceFaceIndex"], index] = json.dumps(line, sort_keys=True)
+    return blocks
+
+
 def compare_row(old, new, receipt):
     source_index = old["sourceIndex"]
     old_faces = old.get("printed", {}).get("faces", ())
@@ -42,13 +52,25 @@ def compare_row(old, new, receipt):
                 "reason": "printed token coordinates changed",
             })
     old_blocks, new_blocks = read_blocks(old), read_blocks(new)
-    if old_blocks.keys() != new_blocks.keys():
+    # A grammar cut may read a block that failed before (gained). A block
+    # that stops reading is always a regression.
+    if old_blocks.keys() - new_blocks.keys():
         receipt["regressions"].append({"sourceIndex": source_index, "reason": "read blocks changed"})
-    for site in sorted(old_blocks.keys() | new_blocks.keys()):
+    old_ast, new_ast = legacy_blocks(old), legacy_blocks(new)
+    for site in sorted(new_blocks.keys() - old_blocks.keys()):
+        receipt["gainedBlocks"].append({"sourceIndex": source_index, "name": old["source"]["name"],
+                                        "face": site[0], "block": site[1]})
+    for site in sorted(old_blocks.keys() & new_blocks.keys()):
         before = {node["path"]: node for node in old_blocks.get(site, {}).get("nodes", ())}
         after = {node["path"]: node for node in new_blocks.get(site, {}).get("nodes", ())}
         receipt["nodesCompared"] += len(before.keys() | after.keys())
         if before == after:
+            continue
+        # A block whose legacy AST changed is a reparse, listed by D0; its
+        # evidence describes the new tree, so it cannot regress the old one.
+        if old_ast.get(site) != new_ast.get(site):
+            receipt["reparsedBlocks"].append({"sourceIndex": source_index, "name": old["source"]["name"],
+                                              "face": site[0], "block": site[1]})
             continue
         for path in sorted(before.keys() | after.keys()):
             previous, current = before.get(path), after.get(path)
@@ -79,7 +101,7 @@ def compare_row(old, new, receipt):
 def compare(baseline, candidate, previous):
     receipt = {
         "rows": 0, "nodesCompared": 0, "changedRows": [],
-        "changedSincePrevious": [], "nodeChanges": [], "regressions": [],
+        "changedSincePrevious": [], "nodeChanges": [], "gainedBlocks": [], "reparsedBlocks": [], "regressions": [],
     }
     headers = [json.loads(stream.readline()) for stream in (baseline, candidate, previous)]
     expected = headers[0]["inputRecords"]

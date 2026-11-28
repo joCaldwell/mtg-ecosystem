@@ -642,14 +642,19 @@ function renderVocabulary({ identity, vocabulary }: PrintedContract): string {
 }
 
 
+/** Grammar batch 1 legacy decoder, without its source hash line. */
+const LEGACY_DECODER_SHA256 = "894753d2895748700eb01310bfcea6874d07d4472a1994bd1c43cd3fbf0c5a83";
+
 function main(): void {
   const check = process.argv.includes("--check");
   const legacy = generate();
   // Freeze the legacy decoder through the R6 bridge. Its source fingerprint
-  // covers this generator, so that one line is allowed to change.
+  // covers this generator, so that one line is allowed to change. Each
+  // grammar batch pins its own decoder (rework plan, format cut 3); batch 1
+  // only adds optional fields and variants, so R5 and R6 rows decode as before.
   const legacyHash = /^\/\/ Source SHA-256: [0-9a-f]{64}\n/m;
   if (!legacyHash.test(legacy) ||
-      sha256(legacy.replace(legacyHash, "")) !== "e0c6f8aef7e531d685658354178c5f38407bf1833a6808de4d5c63e9b3f0ba0e")
+      sha256(legacy.replace(legacyHash, "")) !== LEGACY_DECODER_SHA256)
     throw new Error("R6 bridge changed the legacy generated AST outside its source hash");
 
   const contract = printedContract();

@@ -398,7 +398,15 @@ function parsePlayerCombatRule(c: Cursor): { who: PlayerRef; rule: PlayerCombatR
       return list;
     };
     let rule: PlayerCombatRule;
-    if (c.words("can't", "attack")) {
+    // "Can't attack with creatures": no creature may be declared as that
+    // player's attacker (CR 508.1a, 508.1c), a declaration limit of zero.
+    const none = c.attempt(c => {
+      if (!c.words("can't", "attack", "with")) return null;
+      const at = c.pos;
+      return c.word("creatures") !== null && (c.done() || c.isPunct(".")) ? c.mark({ amount: "fixed" as const, value: 0 }, at) : null;
+    });
+    if (none) rule = { rule: "attack-limit", maximum: none };
+    else if (c.words("can't", "attack")) {
       const list = defenders();
       if (!list) return null;
       rule = { rule: "attack-restriction", defenders: list };

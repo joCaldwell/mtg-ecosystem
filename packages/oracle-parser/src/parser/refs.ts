@@ -237,7 +237,20 @@ function parseAmountTerm(c: Cursor): Amount | null {
       // "The number of spells you've cast this turn": completed actions.
       const history = parseHistoryUnit(c) ?? parseTimesCastUnit(c, true, { ref: "it" });
       if (history) return history;
-      const of = parseFilter(c);
+      const countedAt = c.pos;
+      let of = parseFilter(c);
+      // "Reveal a creature card with mana value less than or equal to the
+      // number of lands you control from among them": the pool qualifies the
+      // enclosing selection, as a following zone phrase does for counters.
+      if (of?.fromAmong) {
+        const from = c.tokens.findIndex((token, index) => index >= countedAt && index < c.pos && token.kind === "word"
+          && token.value === "from" && c.tokens[index + 1]?.kind === "word" && (c.tokens[index + 1] as { value: string }).value === "among");
+        const counted = from > countedAt ? new Cursor(c.tokens.slice(countedAt, from)) : null;
+        const narrowed = counted && parseFilter(counted);
+        if (!counted || !narrowed || !counted.done() || narrowed.fromAmong) return null;
+        c.pos = from;
+        of = narrowed;
+      }
       if (!of || hasCombatHistory(of)) return null;
       return { amount: "count", of };
     }
@@ -262,6 +275,13 @@ function parseAttributeExtremum(c: Cursor): Extract<Amount, { amount: "attribute
     // objects that description matches, like "among commanders you own".
     const viaAmong = c.word("among") !== null;
     if (!viaAmong && !c.words("of", "a") && !c.words("of", "an")) return null;
+    // CR 903.3: "your commanders" are the cards you own that have the
+    // commander designation, in whatever zone they are.
+    const commanders = viaAmong ? c.attempt((c): ObjectFilter | null => {
+      const start = c.pos;
+      return c.words("your", "commanders") ? c.mark({ commander: true, own: "you" }, start) : null;
+    }) : null;
+    if (commanders) return { amount: "attribute-extremum", extremum: adjective === "greatest" || adjective === "highest" ? "maximum" : "minimum", attribute, among: commanders };
     const first = parseFilter(c);
     const among = first && viaAmong ? (parsePooledFilter(c, first, parseFilter, false) ?? first) : first;
     return among && { amount: "attribute-extremum", extremum: adjective === "greatest" || adjective === "highest" ? "maximum" : "minimum", attribute, among };
@@ -1364,6 +1384,9 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
     if (blockHistory) return head.combatHistory ? null : blockHistory;
     const damageHistory = parseDamageHistoryPredicate(c, { parseRelationObject, parsePlayerRef });
     if (damageHistory) return { damageHistory };
+    const controllerMatches = head.controllerMatches || head.control || head.controlledBy ? null
+      : parseWhoseControllerQualifier(c) ?? parseControlledByChoosers(c);
+    if (controllerMatches) return { controllerMatches };
     const zoneHistory = parseZoneChangeHistoryQualifier(c, head, { parseZoneRef, parsePossessivePlayer });
     if (zoneHistory) return zoneHistory;
     const pastControl = parsePastControlQualifier(c, head, { parsePlayerRef, parseQualifier: parseFilterQualifier });
@@ -1774,13 +1797,17 @@ const poolMembers = new WeakSet<PropertyConstraint>();
  * compared set unambiguously. */
 function parseTiedExtremum(c: Cursor, head: ObjectFilter): ObjectFilter | null {
   return c.attempt((c): ObjectFilter | null => {
-    if (Object.keys(head).length !== 1 || head.types?.length !== 1 || head.types[0] !== "creature") return null;
+    if (Object.keys(head).length !== 1 || head.types?.length !== 1) return null;
+    const [type] = head.types;
     if (!c.words("with", "the")) return null;
     const adjective = c.word("greatest", "least");
-    const attribute = adjective && c.word("power", "toughness");
-    if (!adjective || (attribute !== "power" && attribute !== "toughness")) return null;
-    if (!c.words("or", "tied", "for", "the", adjective, attribute)) return null;
-    const value: Amount = { amount: "attribute-extremum", extremum: adjective === "greatest" ? "maximum" : "minimum", attribute, among: { types: ["creature"] } };
+    // CR 202.3: mana value is defined for every card and permanent; power
+    // and toughness only compare creatures (CR 208.1).
+    const attribute = adjective && (c.words("mana", "value") ? "mana-value" : type === "creature" ? c.word("power", "toughness") : null);
+    if (!adjective || (attribute !== "power" && attribute !== "toughness" && attribute !== "mana-value")) return null;
+    if (attribute === "mana-value" && !["artifact", "creature", "enchantment", "planeswalker"].includes(type)) return null;
+    if (!c.words("or", "tied", "for", "the", adjective, ...(attribute === "mana-value" ? ["mana", "value"] : [attribute]))) return null;
+    const value: Amount = { amount: "attribute-extremum", extremum: adjective === "greatest" ? "maximum" : "minimum", attribute, among: { types: [type] } };
     return { properties: [{ property: attribute, comparison: { op: "eq", value } }] };
   });
 }
@@ -1841,6 +1868,40 @@ export function isPluralPlayerRef(ref: PlayerRef): boolean {
     : ref.player === "each-player" || ref.player === "each-opponent" || ref.player === "each-opponent-of" || ref.player === "those-players";
 }
 
+/** "whose controller was dealt combat damage by this creature this turn":
+ * the candidate object's controller is the recipient of that damage
+ * history (CR 108.4, 120.3). Only the passive recipient reading is a
+ * description of the controller; other relatives stay unsupported. */
+function parseWhoseControllerQualifier(c: Cursor): PlayerFilter | null {
+  return c.attempt((c): PlayerFilter | null => {
+    if (!c.words("whose", "controller")) return null;
+    if (c.word("was") === null && !c.words("has", "been")) return null;
+    const damageHistory = parseDamageHistoryPredicate(c, { parseRelationObject, parsePlayerRef });
+    return damageHistory?.role === "recipient" ? { damageHistory } : null;
+  });
+}
+
+/** "who chose war" after a player noun: the named option that player picked. */
+function parseChoseOption(c: Cursor): PlayerFilter | null {
+  return c.attempt((c): PlayerFilter | null => {
+    const start = c.pos;
+    if (!c.words("who", "chose")) return null;
+    const token = c.peek();
+    if (token?.kind !== "word" || token.possessive || !/^[a-z]+$/.test(token.value)) return null;
+    c.pos++;
+    return { choseOption: c.mark({ option: token.value }, start) };
+  });
+}
+
+/** "Creatures controlled by players who chose war": each creature's own
+ * controller is one of the players the description admits. */
+function parseControlledByChoosers(c: Cursor): PlayerFilter | null {
+  return c.attempt((c): PlayerFilter | null => {
+    if (!c.words("controlled", "by", "players")) return null;
+    return parseChoseOption(c);
+  });
+}
+
 /** Each candidate supplies the hand/life/control subject, and is the actor
  * of an event outcome ("who didn't discard a card this way"). */
 function parsePlayerQualifier(c: Cursor, base?: PlayerRef): PlayerFilter | null {
@@ -1872,6 +1933,23 @@ function parsePlayerQualifier(c: Cursor, base?: PlayerRef): PlayerFilter | null 
     if (searched) return searched;
     const votedFor = parseVotedForQualifier(c, { parsePlayerRef });
     if (votedFor) return votedFor;
+    // "Who cast a spell this turn" / "who attacked with a creature this
+    // turn": at least one such completed action in the period.
+    const castHistory = c.attempt((c): PlayerFilter | null => {
+      const start = c.pos;
+      if (c.words("who", "cast", "a") || c.words("who", "cast", "an")) {
+        const what = parseFilter(c);
+        return what?.cls === "spell" && c.words("this", "turn")
+          ? { castHistory: c.mark({ what, during: "this-turn" as const }, start) } : null;
+      }
+      if (!c.words("who", "attacked", "with", "a")) return null;
+      const attackers = parseFilter(c);
+      return attackers && Object.keys(attackers).length === 1 && attackers.types?.length === 1 && attackers.types[0] === "creature"
+        && c.words("this", "turn") ? { attackHistory: c.mark({ with: attackers, during: "this-turn" as const }, start) } : null;
+    });
+    if (castHistory) return castHistory;
+    const chose = parseChoseOption(c);
+    if (chose) return chose;
     // CR 119.3: "who lost life this turn" is any life-loss event that turn.
     const lifeChange = c.attempt(c => {
       if (c.word("who") === null) return null;
@@ -2503,6 +2581,11 @@ function parseObjectRelation(c: Cursor): ObjectRelation | null {
   return c.attempt(c => {
     const who = parsePlayerRef(c);
     const event = c.word("exiled", "sacrificed", "discarded", "revealed", "destroyed") as keyof typeof RESULT_EVENTS | null;
+    if (!event && !who && c.words("put", "onto", "the", "battlefield", "with")) {
+      // CR 607.2a: linked to the ability of the source that put it there.
+      const source = parseObjectRef(c);
+      return source && (source.ref === "this" || source.ref === "self") ? { relation: "linked-entry", source } : null;
+    }
     if (!event && !who && c.words("created", "with")) {
       // CR 607.2c: linked to the token-making ability printed on the source.
       const source = parseObjectRef(c);

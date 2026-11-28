@@ -4,11 +4,11 @@ import { link, mkdir, open, rm, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import type { PrintedCard, PrintedNode } from "../packages/oracle-parser/src/printed/schema.ts";
 import {
-  prepareArchive, publishSourceSnapshot, requireSnapshot, verifyLegacyHashes,
+  addResolutionSummary, emptyResolutionSummary, prepareArchive, publishSourceSnapshot, requireSnapshot, verifyLegacyHashes,
   type ArchiveManifest, type ArchiveRecord,
 } from "./archive-parser.ts";
 import { printedIdentity } from "./generate-rust-ast.ts";
-import { sha256, sourceDigest } from "./validate-parser.ts";
+import { addBindingSummary, emptyBindingSummary, sha256, sourceDigest } from "./validate-parser.ts";
 
 // Frozen input identity and limits come from the R5 compile manifest and Rust
 // bulk contracts. D0 proves the transition only; Rust acceptance belongs to B1.
@@ -200,7 +200,37 @@ function matchesSummaryFields(actual: unknown, template: object): boolean {
   });
 }
 
-function headerPair(baseline: Buffer, candidate: Buffer, pin: LegacyPin): R6Manifest {
+/** A grammar cut (rework plan, format cut 3) changes the legacy rows its
+ * productions reparse. D0 then lists every such row and recomputes the
+ * legacy summary counts from the candidate rows; all other bytes keep the
+ * R5 projection exactly. */
+export interface D0Options { legacyChanges?: "listed" }
+interface LegacySummary {
+  cardsOk: number; linesChecked: number; linesOk: number;
+  bindingSummary: ReturnType<typeof emptyBindingSummary>;
+  resolutionSummary: ReturnType<typeof emptyResolutionSummary>;
+}
+export interface ChangedLegacyRow { sourceIndex: number; oracleIdentity: string; name: string; before: string; after: string }
+
+function emptyLegacySummary(): LegacySummary {
+  return { cardsOk: 0, linesChecked: 0, linesOk: 0, bindingSummary: emptyBindingSummary(), resolutionSummary: emptyResolutionSummary() };
+}
+
+function countLegacy(summary: LegacySummary, record: ArchiveRecord): void {
+  if (record.status === "excluded") return;
+  if (record.status === "parsed") summary.cardsOk++;
+  for (const face of record.faces) {
+    if (face.status !== "attempted") continue;
+    for (const line of face.result.lines) {
+      summary.linesChecked++;
+      if (line.ok) summary.linesOk++;
+    }
+  }
+  addBindingSummary(summary.bindingSummary, record.binding);
+  addResolutionSummary(summary.resolutionSummary, record.resolution);
+}
+
+function headerPair(baseline: Buffer, candidate: Buffer, pin: LegacyPin, legacyChanges = false): R6Manifest {
   if (sha256(baseline.subarray(0, -1)) !== pin.headerSha256) throw new Error("R5 header hash differs from the pin");
   const old = canonicalObject<ArchiveManifest>(baseline);
   const header = canonicalObject<R6Manifest>(candidate);
@@ -213,14 +243,36 @@ function headerPair(baseline: Buffer, candidate: Buffer, pin: LegacyPin): R6Mani
         .every(value => typeof value === "string" && digestPattern.test(value)) ||
       !Number.isSafeInteger(nameCatalog.names) || nameCatalog.names < 1)
     throw new Error("R6 header has invalid archive or evidence pins");
-  if (!matchesSummaryFields(printedSummary, emptyPrintedSummary()) ||
-      !candidate.equals(serializeR6Manifest(r6Manifest(old, header))))
+  if (!matchesSummaryFields(printedSummary, emptyPrintedSummary()))
+    throw new Error("R6 header fields or field order differ from the schema-5 writer");
+  // A grammar cut's legacy counts are checked after its rows are read.
+  if (!legacyChanges && !candidate.equals(serializeR6Manifest(r6Manifest(old, header))))
     throw new Error("R6 header fields or field order differ from the schema-5 writer");
   return header;
 }
 
-function verifyRow(baseline: Buffer, line: Buffer, sourceIndex: number) {
-  const record = canonicalObject<ArchiveRecord>(baseline);
+/** The legacy record of a grammar-cut row: exactly the writer's bytes up to
+ * the appended printed fields, the same source and scope as R5, and its own
+ * AST, binding and resolution hash preimages. */
+function changedLegacyRow(baseline: ArchiveRecord, line: Buffer): ArchiveRecord {
+  const text = utf8.decode(line);
+  const at = text.lastIndexOf(PRINTED_FIELD + '{"artifactKind":');
+  if (at < 0) throw new Error("expected exactly printed and printedSha256 appended after resolutionSha256");
+  const legacy = text.slice(0, at) + "}";
+  const record = JSON.parse(legacy) as ArchiveRecord;
+  if (!record || typeof record !== "object" || JSON.stringify(record) !== legacy)
+    throw new Error("changed legacy row is not canonically serialized");
+  if (record.recordType !== "card" || record.sourceIndex !== baseline.sourceIndex ||
+      record.oracleIdentity !== baseline.oracleIdentity || record.sourceSha256 !== baseline.sourceSha256 ||
+      JSON.stringify(record.source) !== JSON.stringify(baseline.source))
+    throw new Error("changed legacy row has a different source than R5");
+  if (record.status !== "parsed" && record.status !== "unsupported") throw new Error("changed legacy row left the paper scope");
+  verifyLegacyHashes(record);
+  return record;
+}
+
+function verifyRow(baseline: Buffer, line: Buffer, sourceIndex: number, changed?: ChangedLegacyRow[]) {
+  let record = canonicalObject<ArchiveRecord>(baseline);
   const rowStart = `{"recordType":"card","sourceIndex":${sourceIndex},`;
   if (record.recordType !== "card" || record.sourceIndex !== sourceIndex ||
       !line.subarray(0, rowStart.length).equals(Buffer.from(rowStart))) throw new Error("source order differs from R5");
@@ -229,8 +281,15 @@ function verifyRow(baseline: Buffer, line: Buffer, sourceIndex: number) {
     return { record, printedSha256: "excluded" };
   }
   if (record.status !== "parsed" && record.status !== "unsupported") throw new Error("unknown R5 row status");
-  const prefix = baseline.subarray(0, -2); // Drop only the final object brace and LF.
-  if (!line.subarray(0, prefix.length).equals(prefix)) throw new Error("legacy row prefix differs from R5");
+  let prefix = baseline.subarray(0, -2); // Drop only the final object brace and LF.
+  if (!line.subarray(0, prefix.length).equals(prefix) || line[prefix.length] !== PRINTED_FIELD.charCodeAt(0)) {
+    if (!changed) throw new Error("legacy row prefix differs from R5");
+    const before = record;
+    record = changedLegacyRow(before, line);
+    changed.push({ sourceIndex, oracleIdentity: record.oracleIdentity, name: record.source.name ?? "",
+      before: before.status, after: record.status });
+    prefix = Buffer.from(JSON.stringify(record).slice(0, -1));
+  }
   const appended = line.subarray(prefix.length);
   const suffix = PRINTED_SUFFIX.exec(utf8.decode(appended));
   if (!suffix) throw new Error("expected exactly printed and printedSha256 appended after resolutionSha256");
@@ -251,8 +310,12 @@ function verifyRow(baseline: Buffer, line: Buffer, sourceIndex: number) {
 /** D0 reads exact LF-terminated bytes from both files. Canonical R5 serialization
  * plus prefix equality establishes the legacy preimages before checking their
  * hashes, including the array of face abilities used by the legacy AST hash. */
-export async function verifyR6Archive(baselineFile: string, candidateFile: string, pin = frozen.archive) {
+export async function verifyR6Archive(baselineFile: string, candidateFile: string, pin = frozen.archive, options: D0Options = {}) {
   const start = performance.now();
+  const changed: ChangedLegacyRow[] | undefined = options.legacyChanges === "listed" ? [] : undefined;
+  const legacySummary = emptyLegacySummary();
+  let baselineHeader: ArchiveManifest | undefined;
+  let candidateHeader: Buffer | undefined;
   const baseline = archiveLines(baselineFile);
   const baselineHash = createHash("sha256");
   const fileHash = createHash("sha256");
@@ -276,13 +339,16 @@ export async function verifyR6Archive(baselineFile: string, candidateFile: strin
         baselineHash.update(oldLine);
         baselineBytes += oldLine.length;
         if (lineNumber === 1) {
-          manifest = headerPair(oldLine, line, pin);
+          manifest = headerPair(oldLine, line, pin, !!changed);
+          baselineHeader = canonicalObject<ArchiveManifest>(oldLine);
+          candidateHeader = Buffer.from(line);
           manifestSha256 = sha256(line.subarray(0, -1));
           largestLine = { ...largestLine, bytes: line.length, line: 1 };
           continue;
         }
-        const { record, printed, printedSha256 } = verifyRow(oldLine, line, lineNumber - 2);
+        const { record, printed, printedSha256 } = verifyRow(oldLine, line, lineNumber - 2, changed);
         sourceHash.update(verifyLegacyHashes(record)).update("\n");
+        countLegacy(legacySummary, record);
         printedHash.update(orderedDigestEntry(record, printedSha256));
         if (printed) countPrinted(printedSummary, printed);
         if (line.length > largestLine.bytes) {
@@ -302,9 +368,12 @@ export async function verifyR6Archive(baselineFile: string, candidateFile: strin
     if (printedHash.digest("hex") !== manifest.printed.recordsSha256 ||
         JSON.stringify(printedSummary) !== JSON.stringify(manifest.printedSummary))
       throw new Error("D0 line 1: ordered printed digest or capture summary mismatch");
+    if (changed && !candidateHeader!.equals(serializeR6Manifest(r6Manifest({ ...baselineHeader!, ...legacySummary }, manifest))))
+      throw new Error("D0 line 1: grammar-cut header differs from the schema-5 writer over its own legacy rows");
     return {
       manifest, manifestSha256, fileSha256: fileHash.digest("hex"), bytes, largestLine,
       rows: lineNumber - 1, lines: lineNumber, elapsedMs: Math.round(performance.now() - start),
+      ...(changed ? { changedLegacyRows: changed } : {}),
     };
   } finally {
     await baseline.return(undefined);
@@ -341,16 +410,18 @@ function reportCandidate(result: Awaited<ReturnType<typeof verifyR6Archive>>) {
     sizes: { bytes, rows, lines, largestLine, archiveLimits: ARCHIVE_LIMITS, bulkLimits: BULK_LIMITS },
     printedSummary: manifest.printedSummary,
     d0: { status: "passed", elapsedMs },
+    ...(result.changedLegacyRows ? { changedLegacyRows: result.changedLegacyRows } : {}),
   };
 }
 
-export async function checkR6Candidate(baseline: string, candidate: string) {
-  return reportCandidate(await verifyR6Archive(baseline, candidate));
+export async function checkR6Candidate(baseline: string, candidate: string, options: D0Options = {}) {
+  return reportCandidate(await verifyR6Archive(baseline, candidate, frozen.archive, options));
 }
 
 export async function writeR6Candidate(options: {
   baseline: string; output: string; rulesFile: string;
   archive: Parameters<typeof prepareArchive>[0];
+  d0?: D0Options;
 }) {
   const { baseline, output, rulesFile } = options;
   if (resolve(output) === resolve(baseline) || basename(output) === "oracle-ast-phase1-r5.jsonl")
@@ -412,7 +483,7 @@ export async function writeR6Candidate(options: {
     } finally {
       await candidate.close();
     }
-    const result = await verifyR6Archive(baseline, temporary);
+    const result = await verifyR6Archive(baseline, temporary, frozen.archive, options.d0);
     requireSnapshot({ revision: null, sourceSha256: legacy.parser.sourceSha256 }, fingerprint);
     if (JSON.stringify(printedIdentity()) !== JSON.stringify(printedContract))
       throw new Error("Printed decoder identity changed during archive generation");

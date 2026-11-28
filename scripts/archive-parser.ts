@@ -324,17 +324,22 @@ export async function publishArchive(archive: ParserArchive, outputFile = DEFAUL
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const options = new Map<string, string>();
-  const flags = ["--input", "--output", "--paper-evidence", "--legacy-baseline", "--rules", "--verify-candidate"];
+  const flags = ["--input", "--output", "--paper-evidence", "--legacy-baseline", "--rules", "--verify-candidate", "--legacy-rows"];
   for (let i = 0; i < args.length; i += 2) {
     const [flag, value] = [args[i], args[i + 1]];
     if (!flags.includes(flag) || !value || value.startsWith("--") || options.has(flag))
       throw new Error(`Usage: npm run archive-parser -- [${flags.join(" PATH] [")} PATH]`);
-    options.set(flag, path.resolve(value));
+    options.set(flag, flag === "--legacy-rows" ? value : path.resolve(value));
   }
+  // A grammar cut lists its changed legacy rows instead of failing D0.
+  const legacyRows = options.get("--legacy-rows");
+  if (legacyRows !== undefined && legacyRows !== "changed") throw new Error("--legacy-rows takes only the value changed");
+  options.delete("--legacy-rows");
+  const d0 = legacyRows ? { legacyChanges: "listed" as const } : {};
   const baseline = options.get("--legacy-baseline");
   const verify = options.get("--verify-candidate");
   const rules = options.get("--rules");
-  if (!baseline && (verify || rules)) throw new Error("--verify-candidate and --rules require --legacy-baseline");
+  if (!baseline && (verify || rules || legacyRows)) throw new Error("--verify-candidate, --rules and --legacy-rows require --legacy-baseline");
   if (verify && options.size !== 2)
     throw new Error("--verify-candidate takes only --legacy-baseline in addition to its candidate path");
   const cacheFile = options.get("--input") ?? DEFAULT_INPUT;
@@ -342,8 +347,8 @@ async function main(): Promise<void> {
   const evidenceFile = options.get("--paper-evidence");
   if (baseline) {
     const { checkR6Candidate, writeR6Candidate } = await import("./archive-r6.ts");
-    const report = verify ? await checkR6Candidate(baseline, verify) : await writeR6Candidate({
-      baseline, output: outputFile, rulesFile: rules ?? DEFAULT_RULES,
+    const report = verify ? await checkR6Candidate(baseline, verify, d0) : await writeR6Candidate({
+      baseline, output: outputFile, rulesFile: rules ?? DEFAULT_RULES, d0,
       archive: { cacheFile, ...(evidenceFile ? { paperEvidence: loadPaperEvidence(evidenceFile) } : {}) },
     });
     console.log(JSON.stringify(report, null, 2));
