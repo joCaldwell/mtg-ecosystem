@@ -3,9 +3,7 @@
 //! One pipeline lowers a record block by block: `ingest` (exact record,
 //! source, parse and typed AST mirror) -> `operands` (total operand lowerers)
 //! -> `rules` (verb and block lowerers) -> `assemble` (definition shell and
-//! admission), driven by `compose` over the record's Archive R4 resolution.
-//! A record without a complete resolution, or with a shape no block table
-//! lowers, is rejected.
+//! admission). Composition selects a source authority before lowering.
 pub use catalog::*;
 use mtg_contracts::kir::{
     Amount, Atom, Cmp, Context, Destination, EventPattern, PlayerExpr, Pred, Ref, SetExpr, Verb,
@@ -81,8 +79,8 @@ pub fn compile(manifest: &str, record: &str) -> CompileResult {
         accepted_manifest(manifest)
             .map_err(|e| invalid("manifest", e))
             .and_then(|archive| {
-                ingest::ArchiveEvidence::verify_fixture(archive, record)?;
-                lower(archive, record)
+                let evidence = ingest::ArchiveEvidence::verify_fixture(archive, record)?;
+                compose::lower(archive, record, evidence.as_ref())
             }),
     )
 }
@@ -101,8 +99,4 @@ fn compile_result(result: Result<Definition, Failure>) -> CompileResult {
             reason: e.reason,
         },
     }
-}
-
-fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
-    compose::lower(archive, record)
 }

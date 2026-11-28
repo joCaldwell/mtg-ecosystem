@@ -184,7 +184,9 @@ fn krenko_counts_goblins_as_the_ability_resolves() {
         assert!(
             definition_cells(g.copiable_definition(Driver::object(&g, 1)).unwrap())
                 .unwrap()
-                .contains(&Cell::CountedTokens)
+                .contains(&Cell::Evaluated(
+                    mtg_contracts::kir::EvaluatedVerb::CreateTokens
+                ))
         );
         let krenko = Driver::object(&g, 1);
         Driver::action(

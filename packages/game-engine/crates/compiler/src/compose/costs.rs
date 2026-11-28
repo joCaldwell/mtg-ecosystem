@@ -95,60 +95,88 @@ pub(super) fn sacrifice_quality(filter: &serde_json::Value) -> Result<SacrificeF
         }
     };
     let filter = filter.as_object().ok_or_else(unsupported_filter)?;
-    let keys: Vec<&str> = filter.keys().map(String::as_str).collect();
-    match keys.as_slice() {
-        // CR 110.1: "a permanent" is any permanent its controller controls.
-        ["cls"] if filter["cls"] == "permanent" => Ok(SacrificeFilter {
-            types: vec![],
-            subtypes: vec![],
-        }),
-        ["types"] => Ok(SacrificeFilter {
-            types: vec![kind(&one(&filter["types"])?)?],
-            subtypes: vec![],
-        }),
-        ["subtypes"] => {
-            let subtype = one(&filter["subtypes"])?;
-            let subtype = subtype.as_str().ok_or_else(unsupported_filter)?;
-            if subtype.is_empty() || !subtype.chars().all(|c| c.is_ascii_alphabetic() || c == '-') {
-                return Err(unsupported_filter());
-            }
-            Ok(SacrificeFilter {
-                types: vec![],
-                subtypes: vec![subtype.to_owned()],
-            })
-        }
-        ["allOf"] => {
-            // The parser spells a printed "A or B" as allOf[anyOf[...]].
-            let union = one(&filter["allOf"])?;
-            let alternatives = union
-                .as_object()
-                .filter(|o| o.len() == 1)
-                .and_then(|o| o.get("anyOf"))
-                .and_then(|v| v.as_array())
-                .ok_or_else(unsupported_filter)?;
-            let mut types = vec![];
-            for alternative in alternatives {
-                let only = alternative
-                    .as_object()
-                    .filter(|o| o.len() == 1)
-                    .and_then(|o| o.get("types"))
-                    .ok_or_else(unsupported_filter)?;
-                let kind = kind(&one(only)?)?;
-                if types.contains(&kind) {
+    if filter.is_empty() {
+        return Err(unsupported_filter());
+    }
+    let mut result = SacrificeFilter::default();
+    let token = |result: &mut SacrificeFilter, value: bool| match result.token.replace(value) {
+        Some(_) => Err(unsupported_filter()),
+        None => Ok(()),
+    };
+    let mut types = None;
+    for (key, value) in filter {
+        match key.as_str() {
+            // CR 110.1: "a permanent" is any permanent its controller controls.
+            "cls" if value == "permanent" => {}
+            // CR 111.1: "a token" is a token permanent.
+            "cls" if value == "token" => token(&mut result, true)?,
+            "nonToken" if value == true => token(&mut result, false)?,
+            "types" => {
+                if types.replace(vec![kind(&one(value)?)?]).is_some() {
                     return Err(unsupported_filter());
                 }
-                types.push(kind);
             }
-            if types.len() < 2 {
-                return Err(unsupported_filter());
+            "allOf" => {
+                // The parser spells a printed "A or B" as allOf[anyOf[...]].
+                let union = one(value)?;
+                let alternatives = union
+                    .as_object()
+                    .filter(|o| o.len() == 1)
+                    .and_then(|o| o.get("anyOf"))
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(unsupported_filter)?;
+                let mut kinds = vec![];
+                for alternative in alternatives {
+                    let only = alternative
+                        .as_object()
+                        .filter(|o| o.len() == 1)
+                        .and_then(|o| o.get("types"))
+                        .ok_or_else(unsupported_filter)?;
+                    let kind = kind(&one(only)?)?;
+                    if kinds.contains(&kind) {
+                        return Err(unsupported_filter());
+                    }
+                    kinds.push(kind);
+                }
+                if kinds.len() < 2 || types.replace(kinds).is_some() {
+                    return Err(unsupported_filter());
+                }
             }
-            Ok(SacrificeFilter {
-                types,
-                subtypes: vec![],
-            })
+            "subtypes" => {
+                let subtype = one(value)?;
+                let subtype = subtype.as_str().ok_or_else(unsupported_filter)?;
+                if subtype.is_empty()
+                    || !subtype.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+                {
+                    return Err(unsupported_filter());
+                }
+                result.subtypes = vec![subtype.to_owned()];
+            }
+            // CR 105.2: "a black creature" has that color.
+            "colors" => {
+                let colors: Vec<crate::ast::Color> =
+                    serde_json::from_value(value.clone()).map_err(|_| unsupported_filter())?;
+                for color in &colors {
+                    let color = crate::operands::color(color);
+                    if result.colors.contains(&color) {
+                        return Err(unsupported_filter());
+                    }
+                    result.colors.push(color);
+                }
+                // No printed sacrifice cost conjoins colors.
+                if result.colors.len() != 1 {
+                    return Err(unsupported_filter());
+                }
+            }
+            _ => return Err(unsupported_filter()),
         }
-        _ => Err(unsupported_filter()),
     }
+    result.types = types.unwrap_or_default();
+    // A subtype is a conjunction with at most the one type it narrows.
+    if !result.subtypes.is_empty() && result.types.len() > 1 {
+        return Err(unsupported_filter());
+    }
+    Ok(result)
 }
 
 fn term(card: &Card<'_>, terms: &mut Terms, cost: &SourceCost) -> Result<(), Failure> {

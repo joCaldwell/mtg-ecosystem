@@ -169,6 +169,9 @@ fn pilot_player(cx: &mut StepCx<'_>, who: &ast::PlayerRef) -> Result<PlayerExpr,
                         counter_constraints: None,
                         controls: None,
                         life_change: None,
+                        chose_option: None,
+                        cast_history: None,
+                        attack_history: None,
                         other_than: None,
                         attacking_player: None,
                         preceding_action: None,
@@ -422,6 +425,18 @@ fn pilot_amount(cx: &mut StepCx<'_>, amount: &ast::Amount) -> Result<Amount, Fai
         ast::Amount::LifeTotal(total) => Ok(Amount::LifeOf {
             player: pilot_player(cx, &total.of)?,
         }),
+        // CR 107.1a: half of a number, rounded as printed.
+        ast::Amount::Half(half) => {
+            let round_up = match half.round {
+                ast::AmountHalfRound::Up => true,
+                ast::AmountHalfRound::Down => false,
+                ast::AmountHalfRound::Exact => return Err(operand("amount", "half:exact")),
+            };
+            Ok(Amount::Half {
+                of: Box::new(pilot_amount(cx, &half.of)?),
+                round_up,
+            })
+        }
         _ => Err(operand("amount", variant(amount))),
     }
 }
@@ -445,7 +460,7 @@ fn pilot_x_binding(cx: &mut StepCx<'_>, sentence: &Sentence) -> Result<Option<Am
         Ok(amount) => return Ok(amount),
         Err(failure) => failure,
     };
-    if !sentence.steps.iter().all(|step| step.effect().is_some()) {
+    if !sentence.steps.iter().all(Step::is_evaluated) {
         return Err(original);
     }
     let [binding] = sentence.bindings.as_slice() else {
@@ -547,10 +562,25 @@ pub(crate) fn append_spell_effects(
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         // CR 608.2c: "where X is its power" follows the sentence's steps.
+        // X is read by its first reading step, so untargeted objects that
+        // step or a later one introduces (the tokens it creates) do not
+        // exist yet and cannot be what X describes. Its targets and the
+        // source already exist.
+        let first_reader = sentence
+            .reads_x
+            .iter()
+            .position(|reads| *reads)
+            .unwrap_or(sentence.introduces.len());
         let pending = sentence
             .introduces
             .iter()
             .fold(Introduced::default(), |all, step| all.join(*step));
+        let before_x = Introduced {
+            other: sentence.introduces[..first_reader]
+                .iter()
+                .any(|step| step.other),
+            ..pending
+        };
         let bound = pilot_x_binding(
             &mut StepCx {
                 program,
@@ -562,7 +592,7 @@ pub(crate) fn append_spell_effects(
                 source_named: scope.source_named,
                 floor: scope.floor,
                 prior,
-                pending,
+                pending: before_x,
                 subject: None,
                 source_block,
                 x: None,

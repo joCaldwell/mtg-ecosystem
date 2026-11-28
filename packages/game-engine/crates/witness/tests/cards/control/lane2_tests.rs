@@ -261,6 +261,12 @@ fn lane2_distant_melody_binds_the_type_at_resolution() {
         .choose_with_game(&observation, &game)
         .unwrap();
     assert_eq!(answer, decision.pick_one(&bear).unwrap());
+    assert_eq!(
+        Strategy::new(&catalog, Policy::Develop, [0; 4])
+            .choose(&observation)
+            .unwrap(),
+        answer
+    );
 
     // The RL head keeps the full legal vocabulary, including its final page.
     let last = decision.candidates.len() - 1;
@@ -352,7 +358,7 @@ fn lane2_seeded_sim_policy_resolves_distant_melody_and_kwain() {
         frozen!("ac6c5852-71c7-4f19-8c87-ccb345052862"),
         frozen!("ce6a85b5-e249-4582-a6be-ce200da5fd53"),
     ]);
-    let mut game = Game::new(
+    let mut game = Game::with_trace(
         Board::new(catalog.clone(), "lane2-policy-witness")
             .step(TurnStep::PrecombatMain)
             .seed([47; 32])
@@ -364,32 +370,57 @@ fn lane2_seeded_sim_policy_resolves_distant_melody_and_kwain() {
             .permanent_or_hand("Island", 0, 0, false)
             .permanent_or_hand("Island", 0, 0, false)
             .permanent_or_hand("Island", 0, 0, false)
-            .libraries("Island", 6)
+            .libraries("Island", 4)
             .prepare(),
+        TraceMode::Detailed,
     );
     let initial_life = game.state.rules.players[0].life.clone();
     let mut seen_type = false;
     let mut accepts = 0;
+    let mut resolved_both = false;
     let mut policy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
-    for _ in 0..64 {
-        let boundary = Driver::request(&mut game, 1024);
-        if seen_type && accepts == 4 && game.state.rules.stack.is_empty() {
-            assert_eq!(hand(&game, PlayerId(0)), 3);
+    for _ in 0..512 {
+        let boundary = match Driver::settle(&mut game, 1024) {
+            Advance::AwaitingDecision(decision) => decision,
+            Advance::Finished { .. } | Advance::Draw if resolved_both => return,
+            other => panic!("unexpected seeded simulation outcome {other:?}"),
+        };
+        if !resolved_both && seen_type && accepts == 4 && game.state.rules.stack.is_empty() {
+            let draws = |card| {
+                game.trace()
+                    .records
+                    .iter()
+                    .filter_map(|entry| {
+                        let EvidenceRecord::Batch { batch } = &entry.record else {
+                            return None;
+                        };
+                        match batch.cause {
+                            BatchCause::InstructionDraw { source, player, .. }
+                                if source.card == card
+                                    && matches!(batch.occurrences.as_slice(), [result]
+                                if matches!(result.actual, EventOutcome::Moved { .. })) =>
+                            {
+                                Some(player)
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(draws(CardId(0)), vec![PlayerId(0); 2]);
+            assert_eq!(draws(CardId(1)), (0..4).map(PlayerId).collect::<Vec<_>>());
             let mut life = initial_life.clone();
             life.add(&1.into());
-            for seat in 0..4 {
-                assert_eq!(game.state.rules.players[usize::from(seat)].life, life);
-                if seat != 0 {
-                    assert_eq!(hand(&game, PlayerId(seat)), 1);
-                }
+            for player in &game.state.rules.players {
+                assert_eq!(player.life, life);
             }
-            return;
+            resolved_both = true;
         }
         let observation = observe(&game, boundary.player);
         let answer = policy.choose_with_game(&observation, &game).unwrap();
         match boundary.reason {
             Reason::ChooseCreatureType => seen_type = true,
-            Reason::OptionalResolution { .. } => {
+            Reason::OptionalResolution { .. } if !resolved_both => {
                 assert_eq!(
                     answer,
                     boundary
@@ -414,7 +445,7 @@ fn lane2_seeded_sim_policy_resolves_distant_melody_and_kwain() {
         };
         game.submit(response).unwrap();
     }
-    panic!("both control programs did not resolve within 64 decisions");
+    panic!("the seeded simulation did not finish within 512 decisions");
 }
 
 #[test]

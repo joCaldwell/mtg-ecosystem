@@ -606,6 +606,13 @@ impl RulesTxn {
                 value.multiply(factor);
                 value
             }
+            // CR 107.1a: the printed rounding of an exact half.
+            Amount::Half { of, round_up } => {
+                let Resolved::Present(value) = self.evaluated_amount(task, of)? else {
+                    return Ok(Resolved::Absent(AbsentReason::NotPerformed));
+                };
+                value.halved(*round_up)
+            }
             Amount::Var {
                 of:
                     Ref::StepResult {
@@ -722,7 +729,10 @@ impl RulesTxn {
                         })
                     })
             }
-            Evaluated::PlayerAmount { player, .. } => {
+            Evaluated::PlayerAmount { player, .. }
+            | Evaluated::Tokens {
+                controller: player, ..
+            } => {
                 matches!(self.evaluated_players(task, player)?, Resolved::Present(players) if !players.is_empty())
             }
             Evaluated::Damage { source, to, .. } => {

@@ -111,18 +111,33 @@ fn intervening_history_creature_death_uses_its_pre_move_controller() {
     );
 }
 
+/// Nightpack Ambusher's "Other Wolves and Werewolves you control get +1/+1"
+/// is a creature scope over a union of creature subtypes (CR 613.4c), so the
+/// card now lowers with its intervening-if trigger. The other record keeps
+/// its frozen blocker.
 #[test]
 fn intervening_history_keeps_other_frozen_blockers() {
-    for (record, blocker) in [
-        (AMBUSHER, "cell:static:continuous-change"),
-        (
-            record!("0f208cd3-7673-4380-9cb8-5b6f09966ebd"),
-            "diagnostic:unsupported-reference",
-        ),
-    ] {
-        let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, record);
-        assert!(format!("{result:?}").contains(blocker), "{result:?}");
-    }
+    let result = mtg_witness::compile(mtg_witness::R5_MANIFEST, AMBUSHER);
+    let mtg_compiler::CompileResult::Lowered { definition } = &result else {
+        panic!("Nightpack Ambusher lowers: {result:?}");
+    };
+    assert!(
+        definition
+            .static_abilities
+            .iter()
+            .any(|a| matches!(&a.effect,
+        mtg_contracts::StaticEffect::Continuous {
+            affects: mtg_contracts::kir::Scope::Matching { filter }, ..
+        } if filter.0.iter().any(|atom| matches!(atom, mtg_contracts::kir::Atom::AnyOf { .. }))))
+    );
+    let result = mtg_witness::compile(
+        mtg_witness::R5_MANIFEST,
+        record!("0f208cd3-7673-4380-9cb8-5b6f09966ebd"),
+    );
+    assert!(
+        format!("{result:?}").contains("diagnostic:unsupported-reference"),
+        "{result:?}"
+    );
 }
 
 #[test]

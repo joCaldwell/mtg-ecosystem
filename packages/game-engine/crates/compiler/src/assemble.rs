@@ -118,6 +118,7 @@ pub(crate) fn shell(
             source_sha256: r.source_sha256.clone(),
             ast_sha256: card.ast_sha256.clone(),
             binding_sha256: r.binding_sha256.clone(),
+            printed_sha256: None,
             archive_manifest_sha256: archive.manifest_sha256.clone(),
             parser_sha256: archive.parser_source_sha256.clone(),
             source_json: r.source.get().into(),

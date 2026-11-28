@@ -1,5 +1,10 @@
 //! Reproducible whole-archive intake measurement; no header substitution.
-use crate::{CompileResult, bulk::OutcomePhase, compile_result, lower};
+use crate::{
+    CompileResult,
+    bulk::OutcomePhase,
+    compile_result, compose,
+    ingest::{ArchiveEvidence, evidence::CardEvidence},
+};
 use mtg_contracts::bulk_catalog::BulkStatus;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
@@ -34,9 +39,28 @@ fn io(e: std::io::Error) -> CoverageError {
     }
 }
 
-fn verify_evidence(archive: &AcceptedArchive, text: &str) -> Result<(), CoverageError> {
-    crate::ingest::ArchiveEvidence::verify_text(archive, text)
-        .map_err(|(line, reason)| CoverageError::InvalidRecord { line, reason })
+fn verified_rows(
+    archive: &AcceptedArchive,
+    text: &str,
+    mut visit: impl FnMut(usize, &str, Option<&CardEvidence>) -> Result<(), CoverageError>,
+) -> Result<(), CoverageError> {
+    let mut lines = text.split_inclusive('\n');
+    let invalid = |line, reason| CoverageError::InvalidRecord { line, reason };
+    let mut evidence = ArchiveEvidence::new(archive, lines.next().map_or(0, str::len))
+        .map_err(|reason| invalid(1, reason))?;
+    for (index, line) in lines.enumerate() {
+        let number = index + 2;
+        let raw = match line.strip_suffix('\n') {
+            Some(raw) => raw,
+            None if archive.cut != ArchiveCut::R6 => line,
+            None => return Err(invalid(number, "R6 row is missing LF".into())),
+        };
+        let card = evidence
+            .record(raw, line.len(), number)
+            .map_err(|reason| invalid(number, reason))?;
+        visit(number, raw, card.as_ref())?;
+    }
+    evidence.finish().map_err(|reason| invalid(1, reason))
 }
 #[derive(Debug, Serialize)]
 pub struct ReasonCount {
@@ -122,6 +146,7 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
         }
     }
     if [
+        "evidence:",
         "operand:",
         "verb:",
         "cell:",
@@ -227,6 +252,7 @@ pub(crate) fn assess_record(
     accepted: &AcceptedArchive,
     raw: &str,
     row: &Value,
+    evidence: Option<&CardEvidence>,
 ) -> RecordAssessment {
     let gap = |status, reason, phase, location| RecordAssessment::Gap {
         status,
@@ -238,7 +264,7 @@ pub(crate) fn assess_record(
         return gap(BulkStatus::Unparsed, reason, OutcomePhase::Scope, None);
     }
     let ast = &row["faces"][0]["result"]["abilities"];
-    match compile_result(lower(accepted, raw)) {
+    match compile_result(compose::lower(accepted, raw, evidence)) {
         CompileResult::Lowered { definition } => {
             let mut singleton = Catalog {
                 schema_version: CURRENT_IR_VERSION,
@@ -313,8 +339,13 @@ pub struct Blocker {
 /// failure outside the blocks. Lowering still rejects at the first; this
 /// report defers the binding checks and goes on past a failed block, so no
 /// blocker is hidden behind another.
-pub(crate) fn record_blockers(accepted: &AcceptedArchive, raw: &str, row: &Value) -> Vec<Blocker> {
-    let found = crate::compose::blockers(accepted, raw);
+fn record_blockers(
+    accepted: &AcceptedArchive,
+    raw: &str,
+    row: &Value,
+    evidence: Option<&CardEvidence>,
+) -> Vec<Blocker> {
+    let found = crate::compose::blockers(accepted, raw, evidence);
     let faces = row["faces"].as_array();
     let blocks = faces
         .into_iter()
@@ -377,19 +408,16 @@ pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageE
     if accepted.file_sha256.as_deref() != Some(sha256(&bytes).as_str()) {
         return Err(CoverageError::ArchiveHashMismatch);
     }
-    verify_evidence(accepted, text)?;
     let mut gaps = vec![];
-    for (i, raw) in text.lines().skip(1).enumerate() {
-        let row: Value = strict_read(raw).map_err(|reason| CoverageError::InvalidRecord {
-            line: i + 2,
-            reason,
-        })?;
-        if archive_exclusion(&row).is_some() || crate::compose::lower(accepted, raw).is_ok() {
-            continue;
+    verified_rows(accepted, text, |line, raw, evidence| {
+        let row: Value =
+            strict_read(raw).map_err(|reason| CoverageError::InvalidRecord { line, reason })?;
+        if archive_exclusion(&row).is_some() || compose::lower(accepted, raw, evidence).is_ok() {
+            return Ok(());
         }
-        let blockers = record_blockers(accepted, raw, &row);
+        let blockers = record_blockers(accepted, raw, &row, evidence);
         if blockers.is_empty() {
-            continue;
+            return Ok(());
         }
         gaps.push(CompositionGap {
             oracle_id: row["oracleIdentity"]
@@ -403,7 +431,8 @@ pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageE
             commander_legal: row["source"]["legalities"]["commander"] == "legal",
             blockers,
         });
-    }
+        Ok(())
+    })?;
     Ok(gaps)
 }
 
@@ -461,7 +490,6 @@ pub fn coverage_selected(
     if accepted.file_sha256.as_deref() != Some(hash.as_str()) {
         return Err(CoverageError::ArchiveHashMismatch);
     }
-    verify_evidence(accepted, text)?;
     let mut summary = CoverageSummary {
         report_version: 1,
         archive_sha256: hash,
@@ -483,50 +511,48 @@ pub fn coverage_selected(
     let mut reasons: BTreeMap<(String, String), (usize, Vec<String>)> = BTreeMap::new();
     let mut tsv = String::from("oracle_id\tname\tstatus\treason\n");
     let mut blockers = String::from("oracle_id\tcommander_legal\tkind\tblock\tcode\n");
-    for (i, raw) in text.lines().skip(1).enumerate() {
+    verified_rows(accepted, text, |line, raw, evidence| {
         let selected = match (only, row_identity(raw)) {
             (None, _) => None,
             (Some(only), Some(id)) if only.contains(id.as_ref()) => Some(id),
-            (Some(_), _) => continue,
+            (Some(_), _) => return Ok(()),
         };
-        let row: Value = strict_read(raw).map_err(|reason| CoverageError::InvalidRecord {
-            line: i + 2,
-            reason,
-        })?;
+        let row: Value =
+            strict_read(raw).map_err(|reason| CoverageError::InvalidRecord { line, reason })?;
         if row["recordType"] != "card" {
             return Err(CoverageError::InvalidRecord {
-                line: i + 2,
+                line,
                 reason: "expected card record".into(),
             });
         }
         let id = row["oracleIdentity"]
             .as_str()
             .ok_or_else(|| CoverageError::InvalidRecord {
-                line: i + 2,
+                line,
                 reason: "missing oracleIdentity".into(),
             })?;
         if let Some(selected) = selected
             && (selected != id || !matched.insert(id.to_owned()))
         {
             return Err(CoverageError::InvalidRecord {
-                line: i + 2,
+                line,
                 reason: "selected oracleIdentity is not the unique top-level key".into(),
             });
         }
         let name = row["source"]["name"]
             .as_str()
             .ok_or_else(|| CoverageError::InvalidRecord {
-                line: i + 2,
+                line,
                 reason: "missing source.name".into(),
             })?;
         let legal = row["source"]["legalities"]["commander"]
             .as_str()
             .ok_or_else(|| CoverageError::InvalidRecord {
-                line: i + 2,
+                line,
                 reason: "missing source.legalities.commander".into(),
             })?
             == "legal";
-        let result = assess_record(accepted, raw, &row);
+        let result = assess_record(accepted, raw, &row, evidence);
         if matches!(
             result,
             RecordAssessment::Gap {
@@ -534,7 +560,7 @@ pub fn coverage_selected(
                 ..
             }
         ) {
-            for blocker in record_blockers(accepted, raw, &row) {
+            for blocker in record_blockers(accepted, raw, &row, evidence) {
                 blockers.push_str(&format!(
                     "{}\t{legal}\t{}\t{}\t{}\n",
                     escape_tsv(id),
@@ -568,7 +594,8 @@ pub fn coverage_selected(
             escape_tsv(name),
             escape_tsv(&reason)
         ));
-    }
+        Ok(())
+    })?;
     if let Some(only) = only {
         summary.selection = Some(CoverageSelection {
             oracle_ids_sha256: CoverageSelection::ids_sha256(only),
@@ -706,28 +733,32 @@ pub fn reference_trace(archive: &Path, out: &Path) -> Result<Value, CoverageErro
     }
     let mut lines = String::new();
     let (mut lowered, mut bound) = (0usize, 0usize);
-    for (i, raw) in text.lines().skip(1).enumerate() {
-        let row: Value = strict_read(raw).map_err(|reason| CoverageError::InvalidRecord {
-            line: i + 2,
-            reason,
-        })?;
-        let (result, trace) = crate::reference_trace::traced(|| assess_record(accepted, raw, &row));
+    verified_rows(accepted, text, |line, raw, evidence| {
+        let row: Value =
+            strict_read(raw).map_err(|reason| CoverageError::InvalidRecord { line, reason })?;
+        let (result, trace) = crate::reference_trace::traced_with_source(|| {
+            assess_record(accepted, raw, &row, evidence)
+        });
         if !matches!(result, RecordAssessment::Definition(_)) {
-            continue;
+            return Ok(());
         }
         lowered += 1;
-        bound += trace.len();
-        let line = serde_json::json!({
+        bound += trace.bound.len();
+        let mut line = serde_json::json!({
             "oracle_id": row["oracleIdentity"],
-            "bound": trace,
+            "bound": trace.bound,
         });
+        if !trace.source.is_empty() {
+            line["source_choices"] = serde_json::json!(trace.source);
+        }
         lines.push_str(
             &serde_json::to_string(&line).map_err(|e| CoverageError::Io {
                 reason: e.to_string(),
             })?,
         );
         lines.push('\n');
-    }
+        Ok(())
+    })?;
     fs::write(out, lines).map_err(io)?;
     Ok(serde_json::json!({
         "archive_sha256": hash,

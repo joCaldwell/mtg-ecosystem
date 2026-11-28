@@ -180,12 +180,6 @@ impl RulesTxn {
                 self.execute_removal_instruction(frame, instruction)
             };
         }
-        // CR 111.1: tokens keep the token executor, whose proposed events and
-        // recipe authentication recovery re-derives.
-        if matches!(node, Node::Do(Verb::CreateTokens { .. })) {
-            return self
-                .execute_token_instruction(frame, Instruction::Kernel { node, source_block });
-        }
         if let Node::Do(Verb::PreventDamage { prevention, .. }) = &node {
             return self.kernel_prevent_damage(frame, prevention, source_block);
         }

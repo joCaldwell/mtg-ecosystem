@@ -430,7 +430,15 @@ fn lower(
         S::SpellAdditionalCost(_) => return Err(gap("spell-additional-cost")),
         S::AsEnters(x) => {
             use serde_json::json;
-            if !entry_source(&x.what) {
+            let ast::StaticEffectAsEnters {
+                what,
+                effects: _,
+                enters_with: None,
+            } = &**x
+            else {
+                return Err(gap("entry-choice:with-counters"));
+            };
+            if !entry_source(what) {
                 return Err(gap("entry-choice:source"));
             }
             let choose = |category| {
@@ -568,7 +576,21 @@ fn lower(
                         }
                         terms.other = Some(true);
                     }
-                    Some(counted_set(&terms, None)?)
+                    let set = counted_set(&terms, None)?;
+                    // CR 400.7: a card entering from the counted graveyard is
+                    // not the entrant, so "other" there cannot exclude it.
+                    if terms.other == Some(true)
+                        && matches!(
+                            set,
+                            kir::SetExpr::Matching {
+                                zone: kir::ZoneExpr::Graveyards | kir::ZoneExpr::Graveyard { .. },
+                                ..
+                            }
+                        )
+                    {
+                        return Err(gap("enters-with-counters:graveyard-other"));
+                    }
+                    Some(set)
                 }
                 Some(ast::Amount::KickerCount(_)) => {
                     return Err(gap("enters-with-counters:kicker-count"));
@@ -698,6 +720,29 @@ fn signed(n: &ast::SignedAmount) -> Result<Amount, Failure> {
         ast::SignedAmountSign::N1 => n_value,
         ast::SignedAmountSign::Minus1 => negative(&n_value),
     }))
+}
+
+/// CR 608.2h, 613.4c: "+N/+M for each [filter]": each stat gains its
+/// printed bonus times the number of matching public objects, recounted
+/// whenever it is read. A bonus of zero contributes nothing. A penalty
+/// ("-1/-1 for each") has no nonnegative count form and rejects by name.
+fn counted(n: &ast::SignedAmount, set: &SetExpr) -> Result<Amount, Failure> {
+    let value = fixed_nonnegative(&n.amount)?;
+    if value == Quantity::zero() {
+        return Ok(Amount::fixed(0));
+    }
+    if matches!(&*n.sign, ast::SignedAmountSign::Minus1) {
+        return Err(gap("modifier:for-each:negative"));
+    }
+    let count = Amount::Count { set: set.clone() };
+    Ok(if value == Quantity::from(1) {
+        count
+    } else {
+        Amount::Times {
+            factor: value,
+            of: Box::new(count),
+        }
+    })
 }
 
 fn negative(value: &Quantity) -> Quantity {
@@ -1376,13 +1421,32 @@ fn modify(
     }
     for (modifier, raw_modifier) in x.modifiers.iter().zip(raw_modifiers) {
         let change = match modifier {
-            M::Pt(m) => {
-                plain!(m);
-                Change::PowerToughness {
-                    power: signed(&m.power)?,
-                    toughness: signed(&m.toughness)?,
+            M::Pt(m) => match &m.for_each {
+                Some(each)
+                    if m.multiplier.is_none()
+                        && m.value_scope.is_none()
+                        && m.condition.is_none()
+                        && m.condition_scope.is_none() =>
+                {
+                    let set = cda_set(each).map_err(|e| {
+                        gap(&format!(
+                            "modifier:for-each:{}",
+                            e.reason.strip_prefix("static:cda-pt:").unwrap_or(&e.reason)
+                        ))
+                    })?;
+                    Change::PowerToughness {
+                        power: counted(&m.power, &set)?,
+                        toughness: counted(&m.toughness, &set)?,
+                    }
                 }
-            }
+                _ => {
+                    plain!(m);
+                    Change::PowerToughness {
+                        power: signed(&m.power)?,
+                        toughness: signed(&m.toughness)?,
+                    }
+                }
+            },
             M::BasePt(m) => {
                 plain!(m);
                 let (Some(power), Some(toughness)) = (&m.power, &m.toughness) else {

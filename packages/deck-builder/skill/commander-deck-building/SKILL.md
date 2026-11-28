@@ -41,21 +41,19 @@ those, not a general tune-up.
 
 ## Comparing sources and keeping proposals current
 
-Use `compare_deck_sources` with the target and every source deck together.
-Read its `shared_cards`, `remaining_cards`, evidence, unknown quantities and
-application-computed totals. Use `apply_source_tags` with all observed revisions
-when the owner asks to label sources. Treat source membership as a reuse
-candidate; it does not prove a physical copy is free. `Have` records ownership,
-`Keep` records preference, and unknown ownership remains unresolved. Record
-new evidence with `record_ownership` only when the owner has supplied it.
+Use `compare_deck_sources` with the target and every source deck together, and
+read its `shared_cards`, `remaining_cards`, evidence, unknown quantities and
+computed totals. Use `apply_source_tags` with all observed revisions when the owner
+asks to label sources. Source membership is a reuse candidate, not proof that a
+physical copy is free; `Have` records ownership, `Keep` records preference, and
+unknown ownership stays unresolved. Record evidence with `record_ownership` only
+when the owner has supplied it.
 
-When a package leaves the list, inspect engine findings and pending proposals.
-Propose related brief repairs in one `propose_document_changes` group. If the
-budget or finishing plan changes again, amend the whole group with
-`revise_proposal` or explicitly name it in `supersedes`; carry forward every
-still-needed change. Withdraw abandoned drafts. Read `list_proposals` to verify
-one current plan remains, with earlier drafts linked in history. Approval of
-brief and power targets remains the owner's action.
+When a package leaves the list, inspect engine findings and pending proposals and
+propose related brief repairs in one `propose_document_changes` group. If the plan
+changes again, amend the whole group, carrying forward every still-needed change,
+and withdraw abandoned drafts. Read `list_proposals` to verify one current plan
+remains.
 
 ## Building from a commander
 
@@ -65,13 +63,13 @@ brief and power targets remains the owner's action.
 4. `define_slots` with targets that fit this plan. Typical starting points for a 100-card deck are roughly 36–38 lands, 10–12 ramp, 10 card advantage, 10 interaction, with the rest carrying the thesis; adjust to the curve and say why.
    File the principal purpose as `slot`, and additional purposes as `secondary_slots`. Targets count primary assignments only; read the app's separate secondary coverage before deciding a role is missing. Tags track where cards come from, ownership, assembly and status, rather than card purposes.
 5. Fill slot by slot with `edit_cards`, searching per slot. After each batch read the returned counts and checks, and steer by them.
-6. When the Theorycrafted deck is at 100 with no check problems, walk the owner through it by slot. Record engines with `propose_brief_edit`. Only the owner changes lifecycle to Paper. Brief edits always require approval; Archived decks are read-only.
+6. When the Theorycrafted deck is at 100 with no check problems, walk the owner through it by slot and record engines with `propose_brief_edit`.
 
 ## Reworking a deck the owner wants to keep
 
-Fork it (`fork_deck`). The fork is Theorycrafted with the parent's list, brief and
-memories. Change the fork's thesis first, then the cards. `compare_decks` on
-the fork shows what has changed from the parent; use it to summarise.
+Fork it (`fork_deck`): the Theorycrafted fork keeps the parent's list, brief and
+memories. Change its thesis first, then the cards, and summarise with
+`compare_decks`, which shows what changed from the parent.
 
 ## What should I build next
 

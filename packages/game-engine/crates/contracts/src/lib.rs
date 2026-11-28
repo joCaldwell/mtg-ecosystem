@@ -1042,12 +1042,19 @@ pub enum SacrificeDamageAmount {
     Fixed { value: Quantity },
     SacrificedPower,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SacrificeFilter {
     /// A union of permanent types; empty means any permanent type.
     pub types: Vec<CardKind>,
     pub subtypes: Vec<String>,
+    /// CR 105.2, 202.2: the listed color (at most one) is one of the
+    /// permanent's colors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub colors: Vec<Color>,
+    /// CR 111.1: whether the permanent must (or must not) be a token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<bool>,
 }
 /// Fixed-turn effects expire in the atomic cleanup action (CR 514.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1672,6 +1679,9 @@ pub struct SourceProvenance {
     pub source_sha256: String,
     pub ast_sha256: String,
     pub binding_sha256: String,
+    /// Verified printed evidence hash when it governed semantic resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub printed_sha256: Option<String>,
     pub archive_manifest_sha256: String,
     pub parser_sha256: String,
     /// Exact compact archive subvalues, not executable text.
@@ -2185,6 +2195,15 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         if !self.composed {
             return Err("definition requires complete Archive R4 composition".into());
+        }
+        if let Some(hash) = &self.provenance.printed_sha256
+            && (!bulk_catalog::is_sha256(hash)
+                || !archives::accepted_archives()?.iter().any(|archive| {
+                    archive.cut == archives::ArchiveCut::R6
+                        && archive.manifest_sha256 == self.provenance.archive_manifest_sha256
+                }))
+        {
+            return Err("definition printed evidence provenance is invalid".into());
         }
         kir::executes(self)
     }

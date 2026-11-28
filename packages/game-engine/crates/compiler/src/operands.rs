@@ -842,11 +842,21 @@ pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fa
     let mut plain = filter.clone();
     let each = plain.all_of.take();
     let any = plain.any_of.take();
-    let other = plain.other.take();
+    let mut other = plain.other.take();
     let chosen_type = plain.chosen_type.take();
     let chosen_color = plain.chosen_color.take();
     if other == Some(false) {
         return Err(operand("filter", "other:false"));
+    }
+    // CR 109.1, 201.5: "other than this" in a static's own filter is the
+    // same exclusion of its source as "other".
+    if matches!(
+        plain.other_than.as_deref(),
+        Some(ast::ObjectFilterOtherThan::ObjectRef(object))
+            if matches!(**object, ast::ObjectRef::SelfObject(_) | ast::ObjectRef::This(_))
+    ) {
+        plain.other_than = None;
+        other = Some(true);
     }
     let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller(), false)?;
     if let Some(chosen) = chosen_type {
@@ -1069,6 +1079,7 @@ pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
         adventure,
         control,
         controlled_by,
+        controller_matches,
         cast,
         cast_for_keyword_cost,
         not_cast_this_way,
@@ -1101,7 +1112,7 @@ pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
         relation,
         from_among,
     } = filter;
-    let fields: [(&'static str, bool); 76] = [
+    let fields: [(&'static str, bool); 77] = [
         (
             "characteristic_relations",
             characteristic_relations.is_some(),
@@ -1150,6 +1161,7 @@ pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
         ("adventure", adventure.is_some()),
         ("control", control.is_some()),
         ("controlled_by", controlled_by.is_some()),
+        ("controller_matches", controller_matches.is_some()),
         ("cast", cast.is_some()),
         ("cast_for_keyword_cost", cast_for_keyword_cost.is_some()),
         ("not_cast_this_way", not_cast_this_way.is_some()),

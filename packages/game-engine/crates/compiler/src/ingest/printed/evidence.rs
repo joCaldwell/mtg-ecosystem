@@ -16,6 +16,7 @@ pub(crate) struct CardEvidence(Option<VerifiedCard>);
 struct VerifiedCard {
     printed: PrintedCard,
     faces: Vec<Option<VerifiedFace>>,
+    sha256: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,12 +99,21 @@ impl CardEvidence {
     pub(in crate::ingest) fn verified(
         printed: PrintedCard,
         faces: Vec<Option<VerifiedFace>>,
+        sha256: String,
     ) -> Self {
-        Self(Some(VerifiedCard { printed, faces }))
+        Self(Some(VerifiedCard {
+            printed,
+            faces,
+            sha256,
+        }))
     }
 
     pub(in crate::ingest) fn legacy() -> Self {
         Self(None)
+    }
+
+    pub(crate) fn sha256(&self) -> Option<&str> {
+        self.0.as_ref().map(|card| card.sha256.as_str())
     }
 
     /// Locates an obligation even when the legacy cut has no byte evidence.
@@ -120,7 +130,7 @@ impl CardEvidence {
             obligation: obligation.into(),
             range,
         };
-        let VerifiedCard { printed, faces } = self
+        let VerifiedCard { printed, faces, .. } = self
             .0
             .as_ref()
             .ok_or_else(|| missing(Check::RequiresR6, None))?;
@@ -233,6 +243,19 @@ fn linked_field(fact: &PrintedFact) -> Option<&str> {
 }
 
 impl<'a> BlockEvidence<'a> {
+    pub(crate) fn single_line(&self) -> Option<(u32, &'a str)> {
+        let [first, end] = self.block.lines.0;
+        let PrintedLine::Lexed(line) = self.face.lines.get(first as usize)? else {
+            return None;
+        };
+        let [start, stop] = line.n.0;
+        (end == first + 1).then(|| (first, &self.normalized[start as usize..stop as usize]))
+    }
+
+    pub(crate) fn missing(&self, path: &str) -> EvidenceError {
+        self.error(Check::P11, path, self.container(path))
+    }
+
     fn error(&self, check: Check, obligation: impl Into<String>, range: [u32; 2]) -> EvidenceError {
         EvidenceError {
             check,

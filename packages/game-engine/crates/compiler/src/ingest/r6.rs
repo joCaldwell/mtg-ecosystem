@@ -117,6 +117,17 @@ fn failure(error: Failure) -> String {
     format!("{}: {}", error.path, error.reason)
 }
 
+/// Printed generators whose output this decoder is. The registered R6 v4
+/// generator (`436b1b17…`) emitted this exact `printed.rs` and `vocab.rs`
+/// except the `PRINTED_GENERATOR_SHA256` line; grammar batch 1 moved the
+/// generator only to change the legacy AST decoder and its freeze pin.
+/// `v4_generator_entry_is_this_printed_decoder` proves the equality; when it
+/// fails the printed decoder changed and the v4 entry must go.
+const ACCEPTED_PRINTED_GENERATORS: [&str; 2] =
+    [PRINTED_GENERATOR_SHA256, R6_V4_PRINTED_GENERATOR_SHA256];
+const R6_V4_PRINTED_GENERATOR_SHA256: &str =
+    "436b1b172a982c79711de3e6479451431e5645a9ee897fbe45af0f216f2dfa9e";
+
 pub(crate) struct ArchiveEvidence<'a>(Option<ArchiveR6<'a>>);
 
 struct ArchiveR6<'a> {
@@ -138,7 +149,7 @@ impl<'a> ArchiveEvidence<'a> {
         let pins = archive.r6.as_ref().ok_or("R6 cut has no measured pins")?;
         if pins.printed_schema_sha256 != PRINTED_SCHEMA_SHA256
             || pins.printed_vocabulary_sha256 != PRINTED_VOCABULARY_SHA256
-            || pins.printed_generator_sha256 != PRINTED_GENERATOR_SHA256
+            || !ACCEPTED_PRINTED_GENERATORS.contains(&pins.printed_generator_sha256.as_str())
         {
             return Err("R6 printed decoder identity mismatch".into());
         }
@@ -201,28 +212,6 @@ impl<'a> ArchiveEvidence<'a> {
         // The reviewed raw-row pin carries the corpus-wide catalog check
         // performed at registration. A standalone fixture has no source corpus.
         Ok(verify_row(raw, &mut printed::NameClaims::default())?.evidence)
-    }
-
-    pub(crate) fn verify_text(
-        archive: &'a AcceptedArchive,
-        text: &str,
-    ) -> Result<(), (usize, String)> {
-        if archive.cut != ArchiveCut::R6 {
-            return Ok(());
-        }
-        let mut lines = text.split_inclusive('\n');
-        let mut evidence =
-            Self::new(archive, lines.next().map_or(0, str::len)).map_err(|error| (1, error))?;
-        for (index, raw) in lines.enumerate() {
-            let line = index + 2;
-            let record = raw
-                .strip_suffix('\n')
-                .ok_or((line, "R6 row is missing LF".into()))?;
-            evidence
-                .record(record, raw.len(), line)
-                .map_err(|error| (line, error))?;
-        }
-        evidence.finish().map_err(|error| (1, error))
     }
 }
 
@@ -318,8 +307,8 @@ fn verify_row(raw: &str, claims: &mut printed::NameClaims) -> Result<RowIdentity
                 r.oracle_identity,
                 r.source,
                 r.source_sha256,
-                r.printed_sha256,
-                Some(CardEvidence::verified(evidence, faces)),
+                r.printed_sha256.clone(),
+                Some(CardEvidence::verified(evidence, faces, r.printed_sha256)),
             )
         };
     let decoded: Value = decode(source.get(), "source")?;
@@ -392,6 +381,56 @@ mod tests {
                 "blocks":blocks}]}
 
         })
+    }
+
+    /// The R6 v4 printed decoder, digested without its generator line.
+    const V4_PRINTED_RS_WITHOUT_GENERATOR: &str =
+        "b6af2c7ab8c85bc3f0a68cf1541a77bd7b46f2a2d1eca11060c4f2b2e77f18c0";
+    const V4_VOCAB_RS: &str = "2746c9b1cbcece6286130333af480cdc9e81d1aee4caf1a8079af0ce5c8b7e94";
+
+    #[test]
+    fn v4_generator_entry_is_this_printed_decoder() {
+        let printed = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../oracle-ast/src/printed.rs"
+        ));
+        let vocab = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../oracle-ast/src/vocab.rs"
+        ));
+        let generator_line = "pub const PRINTED_GENERATOR_SHA256: ";
+        let (removed, kept): (Vec<_>, Vec<_>) = printed
+            .split_inclusive('\n')
+            .partition(|line| line.starts_with(generator_line));
+        assert_eq!(removed.len(), 1);
+        assert_eq!(
+            sha256(kept.concat().as_bytes()),
+            V4_PRINTED_RS_WITHOUT_GENERATOR
+        );
+        assert_eq!(sha256(vocab.as_bytes()), V4_VOCAB_RS);
+        assert_eq!(
+            ACCEPTED_PRINTED_GENERATORS,
+            [PRINTED_GENERATOR_SHA256, R6_V4_PRINTED_GENERATOR_SHA256]
+        );
+    }
+
+    #[test]
+    fn reader_opens_the_registered_v4_pins_and_no_other_generator() {
+        let v4 = mtg_contracts::accepted_archives()
+            .unwrap()
+            .iter()
+            .find(|a| {
+                a.r6.as_ref()
+                    .is_some_and(|p| p.printed_generator_sha256 == R6_V4_PRINTED_GENERATOR_SHA256)
+            })
+            .expect("the registered R6 v4 cut");
+        assert!(ArchiveEvidence::new(v4, 0).is_ok());
+        let mut other = v4.clone();
+        other.r6.as_mut().unwrap().printed_generator_sha256 = sha256(b"another generator");
+        assert_eq!(
+            ArchiveEvidence::new(&other, 0).err().as_deref(),
+            Some("R6 printed decoder identity mismatch")
+        );
     }
 
     fn rehash(row: &mut Value) {

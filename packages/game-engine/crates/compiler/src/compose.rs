@@ -25,6 +25,8 @@ mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
 mod sagas;
+mod source_action;
+mod source_authority;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -877,17 +879,25 @@ pub(super) struct Blockers {
 /// The sentinel a deferred composition returns once some block failed.
 const BLOCKS_FAILED: &str = "blocks failed";
 
-pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
-    compose(archive, record, None)
+pub(super) fn lower(
+    archive: &AcceptedArchive,
+    record: &str,
+    evidence: Option<&evidence::CardEvidence>,
+) -> Result<Definition, Failure> {
+    compose(archive, record, evidence, None)
 }
 
 /// Every blocker the gap report should rank, without changing what lowers:
 /// the card-wide binding checks are recorded instead of returned, so the
 /// first block that also fails is named rather than hidden behind them. The
 /// definition built under deferred checks is discarded; only `lower` admits.
-pub(super) fn blockers(archive: &AcceptedArchive, record: &str) -> Blockers {
+pub(super) fn blockers(
+    archive: &AcceptedArchive,
+    record: &str,
+    evidence: Option<&evidence::CardEvidence>,
+) -> Blockers {
     let mut found = Blockers::default();
-    if let Err(failure) = compose(archive, record, Some(&mut found))
+    if let Err(failure) = compose(archive, record, evidence, Some(&mut found))
         && !(failure.path == "compose" && failure.reason == BLOCKS_FAILED)
     {
         found.card = Some(failure);
@@ -913,9 +923,15 @@ fn binding_gate(
 fn compose(
     archive: &AcceptedArchive,
     record: &str,
+    evidence: Option<&evidence::CardEvidence>,
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
     let mut card = ingest::read_card(archive, record)?;
+    // Select the whole-card authority before decoding any resolution verdict,
+    // projection or segment. A compound ability keeps its existing authority.
+    if let Some(claim) = source_authority::select(archive, &card)? {
+        return source_authority::compose(archive, &mut card, claim, evidence);
+    }
     let r = &card.record;
     let mut resolution =
         resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;

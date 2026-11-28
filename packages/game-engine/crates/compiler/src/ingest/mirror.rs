@@ -828,6 +828,12 @@ impl Step {
             _ => None,
         }
     }
+
+    /// Whether the shared evaluator performs this step's verb, so any amount
+    /// it reads may be one the evaluator measures (CR 608.2h).
+    pub(crate) fn is_evaluated(&self) -> bool {
+        matches!(self, Self::Evaluated(_) | Self::CreateToken { .. })
+    }
 }
 
 /// The operands of a [`Step::plain_move`].

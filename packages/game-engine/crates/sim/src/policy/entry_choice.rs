@@ -83,6 +83,19 @@ pub(super) fn pick<'a>(
         .filter_map(|id| definition(catalog, id).ok())
         .map(Definition::card_characteristics)
         .collect();
+    // A resolving type count can use the current board to break deck ties,
+    // including when a view-only caller has no original roster.
+    let controlled_creatures: Vec<_> = view
+        .objects
+        .iter()
+        .filter(|object| {
+            matches!(decision.reason, Reason::ChooseCreatureType)
+                && object.zone == Zone::Battlefield
+                && object.controller == view.viewer
+                && !object.phased_out
+        })
+        .filter_map(|object| object.characteristics.as_ref())
+        .collect();
     let rank = |hits, own: usize| {
         // A missing source or unclassified effect defaults to the deck's
         // most common value. For a known shrink, prioritize opposing hits
@@ -107,10 +120,11 @@ pub(super) fn pick<'a>(
                     |c: &Characteristics| c.has_type(CardKind::Creature) && c.has_subtype(name);
                 let hits = opponents.iter().filter(|c| matches(c)).count();
                 let own = deck.iter().filter(|c| matches(c)).count();
-                Some((rank(hits, own), Reverse(name), index))
+                let controlled = controlled_creatures.iter().filter(|c| matches(c)).count();
+                Some((rank(hits, own), controlled, Reverse(name), index))
             })
             .max()
-            .map(|(_, _, index)| index),
+            .map(|(_, _, _, index)| index),
         Atom::SourceChosenColor {} => {
             let commander_colors = view
                 .commanders

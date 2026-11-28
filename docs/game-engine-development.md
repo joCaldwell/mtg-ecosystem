@@ -23,7 +23,7 @@ outcomes.
 
 ## Fresh worktree
 
-Reuse healthy dependencies. Only when missing/broken and unowned, run:
+Reuse healthy dependencies. Only when they are missing/broken and unowned, run:
 
 ```sh
 sh scripts/engine-bootstrap.sh
@@ -32,11 +32,11 @@ sh scripts/engine-env.sh npm run check:engine:tooling
 
 Bootstrap runs locked root/engine/parser `npm ci` without scripts, then doctor;
 it installs no native tools, builds or fetches nothing and changes no refs.
-Applications/SDK use isolated installs. Doctor (`scripts/engine-doctor.ts`)
-exits 0 healthy/warnings, 1 unhealthy, 2 invalid arguments; launcher failures may
-precede its JSON, so inspect stderr/status. It checks direct locked workspace
-dependencies, not transitive or cache integrity, and fails/warns below 256 MiB/2 GiB
-free at the worktree and nearest target ancestor.
+Applications/SDK use isolated installs. Doctor exits 0 healthy/warnings,
+1 unhealthy, 2 invalid arguments; launcher failures may precede its JSON, so
+inspect stderr/status. It checks direct locked workspace dependencies, not
+transitive or cache integrity, and fails/warns below 256 MiB/2 GiB free at the
+worktree and nearest target ancestor.
 
 ## Toolchain setup
 
@@ -65,10 +65,10 @@ qualification and extra reviews unless requested or needed to diagnose a
 failure. Confirm the selector executed; skipped and unrun checks are omissions.
 
 Choose a witness for the changed boundary: exact frozen source for rules and
-compiler changes, affected harness tests for verification tooling, and a targeted
-shape, isolation, atomic rejection or recovery test for those contracts. Prefer
-shared invariant cases to per-card matrices; retain counterexamples and use
-baselines only for behavior that should be preserved.
+compiler changes, affected harness tests for tooling, and a targeted shape,
+isolation, atomic rejection or recovery test for those contracts. Prefer shared
+invariant cases to per-card matrices; retain counterexamples and use baselines
+only for behavior that should be preserved.
 
 Live attempts need a done criterion and deadline before starting. A bounded
 witness qualifies only its exercised path, never a full game. Timeout means
@@ -108,18 +108,17 @@ sh scripts/engine-env.sh npm run check:engine:gate
 Prefix with `sh scripts/engine-env.sh`; `--plan` prints commands and omissions
 without executing. Every debug command shares one feature shape
 (`--workspace --features mtg-core/testkit`) and the root `Cargo.toml` `dev`/`test`
-profile, keeping assertions and overflow checks. The production check builds host and simulator without
-`testkit`, so dead code stays visible. No plan builds release or runs `mtg-sim`.
-Compiler-coverage PRs also run one whole-archive `engine:decks coverage --all`
-before publishing and report its family scoreboard. Python suites need explicit
-filenames (discovery misses hyphens).
+profile, keeping assertions and overflow checks. The production check builds host
+and simulator without `testkit`, so dead code stays visible. No plan builds release
+or runs `mtg-sim`. Compiler-coverage PRs also run one whole-archive
+`engine:decks coverage --all` before publishing and report its family scoreboard.
+Python suites need explicit filenames (discovery misses hyphens).
 
 ### Engine test topology
 
-Cargo builds twelve test executables: eight library harnesses (view, encoder,
-batched environment, local contracts, compiler lowering and catalog
-regeneration, private core anchors, simulator policies/search/smoke, server
-units) and four integration suites for cross-module behavior.
+The gate requires a passing test from each of twelve harnesses (named in
+`scripts/check-engine-driver.ts`): eight library harnesses and four integration
+suites for cross-module behavior.
 
 | Integration target | Scope |
 | --- | --- |
@@ -137,23 +136,20 @@ and saved-work assertions stay with their witnesses.
 
 The gate runs `cargo test --tests` with one libtest thread budget (minimum of
 available CPUs and 16); test helpers must not spawn their own thread pools
-(nested pools once reached 13 GiB). Each of the twelve harnesses must report a
-passing test. The separate `cargo test --doc` phase requires both core
-compile-fail examples (action continuations and player sessions) to pass.
+(nested pools once reached 13 GiB). The separate `cargo test --doc` phase requires
+both core compile-fail examples (action continuations and player sessions) to pass.
 
 ## Cargo coordination and cache integration
 
-Each worktree builds in its own `target/engine` and holds that target's advisory
-lock (`python3 scripts/engine-cache.py lock`); worktrees never wait on or
-invalidate each other. Commands sharing a target, including an explicit shared
-`CARGO_TARGET_DIR`, serialize. `check:engine*`, `engine:dev` and `play-deck.sh`
-own the lock internally and admit the cache under it: never acquire it twice.
-`engine:dev` accepts Cargo `check`, `build`, `test` or `clippy` arguments and
-adds `--features mtg-core/testkit` when the selection builds core. Unset
-`CARGO_BUILD_JOBS` defaults to a quarter of the CPUs (at least 4); on 32
-threads/30 GiB a cold test build then peaks near 6 GiB per worktree.
-[Storage policy](game-engine-storage.md#cache-selection-and-lifecycle) owns the
-budget and eviction.
+Each worktree builds in its own `target/engine` under that target's advisory lock
+([selection and budget](game-engine-storage.md#cache-selection-and-lifecycle)), so
+worktrees never wait on or invalidate each other. Commands sharing a target,
+including an explicit shared `CARGO_TARGET_DIR`, serialize. `check:engine*`,
+`engine:dev` and `play-deck.sh` own the lock internally and admit the cache under
+it: never acquire it twice. `engine:dev` accepts Cargo `check`, `build`, `test` or
+`clippy` arguments and adds `--features mtg-core/testkit` when the selection builds
+core. Unset `CARGO_BUILD_JOBS` defaults to a quarter of the CPUs (at least 4); on
+32 threads/30 GiB a cold test build then peaks near 6 GiB per worktree.
 
 ## Bound and publish a batch
 
@@ -175,19 +171,17 @@ receipts to every delegate brief.
 
 ## Batched NumPy environment
 
+`mtg_env.VecEnv` advances a batch of four-seat Commander games in lockstep for
+training rollouts and throughput measurement, exposing only the acting seat's
+permitted knowledge as read-only NumPy tensors. Its signatures, shapes, dtypes,
+action encoding, errors, determinism and threading contracts live in the typed
+stub [`mtg_env.pyi`](../packages/game-engine/crates/env/python/mtg_env.pyi).
+
 Build the native extension with `PYO3_PYTHON=/usr/bin/python3 sh scripts/engine-env.sh cargo build --locked -p mtg-env`.
 On Linux, `python3 packages/game-engine/crates/env/python/smoke.py target/engine/debug/libmtg_env.so`
-loads that exact library; a module search path containing it named `mtg_env.so`
-supports `import mtg_env`. Native PyO3 supports Python 3.14; the runtime requires NumPy.
-
-`VecEnv(catalog_dir_or_profile, pods=None, num_envs=1, threads=32, seed=0, config=None)`
-accepts a profile name and its default decks, or pod files selected by
-environment index modulo pod count. An embedded-profile pod file contains the
-four serialized decklists. A bulk catalog directory requires a `manifest_sha256`
-configuration value and dynamic pod files in the simulator's `{"decks": [...]}`
-multi-seat format. Episode seeds bind the supplied seed, environment index and
-episode ordinal; explicit reset restarts episode zero. Each rules and query call
-uses the pod driver's 1024-unit quantum.
+loads that exact library and checks the stub's names against it; `import mtg_env`
+needs it on the module search path as `mtg_env.so`. Native PyO3 supports Python
+3.14; the runtime requires NumPy.
 
 ```python
 env = mtg_env.VecEnv("commander-foundations-v1", num_envs=32, seed=57)
@@ -198,50 +192,6 @@ with env.buffers() as batch:
 env.step(actions)
 ```
 
-Arrays from `buffers()` borrow contiguous Rust storage. Batch exit or `release()`
-drops the batch's references; slices and retained arrays keep a lease, and the
-next step or reset raises while any lease is live, so copy tensors to keep them.
-Reset and step release the GIL. Each environment owns a persistent thread pool;
-worker `w` writes rows whose batch index modulo the worker count is `w`. An
-internal fault requires a reset; an invalid input leaves all games at the
-previous decision.
-
-`payment` is `auto` (default) or `manual`; spend always uses the exact solver.
-`opponents` is `self_play` (default) or `baseline` (seat zero acts, other seats
-use Develop). `mask_unfundable` defaults to true: the encoder proves fixed costs
-from the unrestricted pool and intrinsic single-color lands. It keeps an
-otherwise unfundable candidate with funding code 2 when the pool contains
-restricted mana or when sources, payments or visible spell-cost reducers make
-funding uncertain. It preserves the original pointers if filtering would empty
-the head. `head` selects pointer (0) or number (1). Pointers 0–127 address
-ordered candidates, 128 ends a slot or ordering, and 129 and 130 finish
-production with undo or keep. For creature-type decisions spanning several
-pages, 128 advances to the next page and pointers 0–127 address the current page.
-Numbers 0–62 are literal and 63 selects the numeric upper bound, which AnnounceX
-can tighten when resources are fully modeled; otherwise the published maximum
-applies, and an unbounded decision with unknown supply uses the signed 32-bit
-ceiling. The bound never falls below the decision's published minimum.
-
-Entity rows preserve object order, then stack order, then remembered library
-positions, then one hand-zone row per publicly known revealed hand card in
-published order; remembered positions and known hand cards have no targetable
-handle. Missing entity and seat references are -1; card zero is absent identity.
-Player features and entity seat references rotate around the viewer; `seat` and
-terminal rewards use absolute seat order. A terminal step returns the next
-opening observation with the previous episode's reward, done and counters. Info
-columns 0–3 count illegal actions, cast reversals, censor class (0 outcome,
-1 workload limit, 2 engine capacity, 3 tensor capacity) and completed rules
-decisions. Tensor overflow ends the episode with zero reward and a fresh opening
-observation. Numeric features saturate at the signed 32-bit limits. Stack
-entity numeric column 22 and mode candidate column 3 encode selected modes in
-three-bit digits, first choice least significant. Digit zero pads the list;
-digit one is the first printed mode. Repeated choices occupy separate digits.
-
-`catalog()` exposes padded 192-token rows, lengths, sixteen numeric features and
-the SHA-256 of the sorted vocabulary encoded as compact JSON. Token IDs start at
-one; an overlength definition ends with a truncation token. Bind model inputs to
-both catalog and vocabulary identity.
-
 ## Measurement and deck work
 
 Check output streams subprocess output. Timing JSONL records source/driver
@@ -250,8 +200,9 @@ and host load; `MTG_ENGINE_TIMING_FILE` selects a create-new path and source
 mutation fails. Compare only matching source, workload and cache state; label
 cold builds.
 
-`npm run engine:decks -- COMMAND` is the one deck harness, on a release
-`mtg-sim` built from this checkout:
+`npm run engine:decks -- COMMAND` is the one deck harness, on a release `mtg-sim`
+built from this checkout; its docstring (`scripts/engine-decks.py`) owns options
+and report contents:
 
 ```sh
 npm run engine:decks -- coverage SIM --out generated/NEW [--baseline OLD/report.json] [--all]
@@ -260,17 +211,36 @@ npm run engine:decks -- play "Jo's Cascade" 0
 npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --pod-decks A.json --swap SLOT:REMOVE:ADD --blocks 8 --out generated/NEW
 ```
 
-Use [rework-sweep.py](../scripts/rework-sweep.py) to compare fixed rework cohorts and source guardrails.
-While Stage 1 reads unchanged R5, [rework-reference-diff.py](../scripts/rework-reference-diff.py)
-compares `mtg-sim catalog reference-trace` with the frozen resolution, and each
-baseline definition's IR with the candidate's. It exits 1 on an unexplained difference.
+`coverage` joins `catalog coverage` receipts to the deck snapshot (`--all`: the
+whole archive) and ranks blockers by family, counting the deck slots and cards
+each family touches and alone blocks. `stage` accepts only the registered Archive
+R5 file, requires every card to compile and templates the reviewed
+`commander-foundations-v1` profile. `play` stages and plays one seeded match from a
+detached HEAD under `generated/deck-play.*` (live journals in its
+`live-journals/`). `bench` runs the [paired runner](#paired-deck-experiments) and
+also writes `report.json` and `summary.md`.
+[rework-sweep.py](../scripts/rework-sweep.py) compares fixed rework cohorts and
+source guardrails; the [catalog contract](game-engine-catalogs.md#verb-signatures)
+owns the Stage 1 reference differential.
 
-The script docstring (`scripts/engine-decks.py`) owns options and report
-contents. `coverage` joins `catalog coverage` receipts to the deck snapshot
-(`--all`: the whole archive) and ranks blockers by family, counting the deck
-slots and cards each family touches and alone blocks. `stage` accepts only the
-registered Archive R5 file, requires every card to compile and templates the
-reviewed `commander-foundations-v1` profile. `play` stages and plays one seeded
-match from a detached HEAD under `generated/deck-play.*` (live journals in its
-`live-journals/`). `bench` wraps the [paired runner](game-engine-search.md#paired-deck-experiments)
-and writes its report and Markdown summary.
+### Paired deck experiments
+
+`mtg-sim bench-pair` admits both decks at the HeadlessQualified tier. Supply
+`--bulk-artifact DIR --manifest-sha SHA --pod-decks A.json`, one or more
+`--swap SLOT:REMOVE:ADD` flags for the same zero-based slot, `--blocks N` and
+`--out NEW_DIR`. Each block uses the indexed `bench-pair-v1` seed, starter
+`index % 4`, and all four rotations; one worker runs all eight games, and output
+order is independent of thread count.
+
+`pairs.jsonl` records the first unequal accepted input (zero-based, including a
+length mismatch) and compares the physical slots in the focal initial seven. The
+focal win indicator counts a terminal draw as zero. The primary estimate averages
+within-block win differences across fully observed four-rotation blocks;
+complete-case estimates use all jointly terminal pairs. Percentile intervals
+resample whole seed blocks 10,000 times from a run-identity-bound ChaCha seed; the
+exact two-sided sign test excludes tied blocks; undefined values are null. The
+censoring table indexes A rows and A′ columns, complete then censored; worst-case
+bounds assign each missing win indicator both extremes. A rules or policy failure
+invalidates the run. Confounding is flagged by a censoring rate above 2%, a
+censoring-difference interval excluding zero, or bounds spanning zero alongside a
+complete-case interval excluding zero.

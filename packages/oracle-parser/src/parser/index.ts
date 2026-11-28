@@ -23,7 +23,7 @@ import { parseCondition } from "./refs.ts";
 import { hasUnboundStaticOther, hasUnsupportedStaticConditional, hasUnsupportedStaticTargets, parseStatic } from "./statics.ts";
 import { hasAlternativeKickerTargets } from "./self-replacement.ts";
 import { hasCastingCostModes } from "./modal.ts";
-import { prepareStackCopyInput, uniqueStackTriggerEvent, type StackCopyInputProof } from "./stack-copy.ts";
+import { prepareStackCopyInput, selfSpellCopyInput, uniqueStackTriggerEvent, type StackCopyInputProof } from "./stack-copy.ts";
 import { finalizeCharacteristicDefinitions } from "./characteristic-origin.ts";
 import { attachDiceTable, parseDiceTableRows } from "./dice.ts";
 import { parseClassCard, parseLevelCard } from "./level-cards.ts";
@@ -355,7 +355,7 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
           && trigger.what.count.amount === "fixed" && trigger.what.count.value === 1
           && (!trigger.what.filter.cls || trigger.what.filter.cls === "permanent") ? "enters-permanent" : undefined;
       const block = withConditionDifference(condition ?? undefined, () => parseEffectsBlock(c, options,
-        condition ? undefined : prepareStackCopyInput(c, trigger), true, false, triggerScope));
+        condition ? selfSpellCopyInput(trigger) : prepareStackCopyInput(c, trigger), true, false, triggerScope));
       if (block && !block.restriction && !block.permission && !block.costModifications && !block.paymentRestriction &&
           (!block.variableConstraints || mentionsX(block.sentences))) {
         return {

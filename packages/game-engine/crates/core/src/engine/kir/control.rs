@@ -1,6 +1,14 @@
 //! A suspended node names its location in the admitted instruction. Sequences
 //! and iterations save their remaining work on the same stack as rule frames.
 //! No snapshot supplies an executable node.
+//!
+//! A creature-type choice binds a name from CR 205.3m for its child to read
+//! (CR 608.2d). A singleton optional effect is skipped when its chooser leaves
+//! (CR 800.4a). When each player or each opponent may draw, collect choices
+//! in APNAP order and show earlier answers to the next chooser. Then draw in
+//! APNAP order, keeping card identities private. A later instruction can read
+//! the players who actually drew (CR 101.4, 121.2c, 608.2e).
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{Cmp, Cond, CreatureType, Domain, Payment};
 mod evaluated;
@@ -1208,15 +1216,6 @@ impl RulesTxn {
             }
             Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
             Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
-            Node::Do(Verb::CreateTokens {
-                controller, count, ..
-            }) => {
-                self.control_amount(task, count)? > Quantity::zero()
-                    && self
-                        .control_players(task, controller)?
-                        .into_iter()
-                        .any(|p| self.is_live(p))
-            }
             Node::Do(Verb::CreateMyriadToken { defender }) => {
                 self.myriad_defender(task, defender)?.is_some()
             }
