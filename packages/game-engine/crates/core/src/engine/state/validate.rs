@@ -172,6 +172,18 @@ impl RulesTxn {
         // CR 715.3d: only an adventurer card exiled as a resolving Adventure
         // carries its controller's permission to play it.
         for object in s.rules.objects.values() {
+            if object.entry_selection.is_some_and(|selection| {
+                object.zone != Zone::Battlefield
+                    || match selection {
+                        EntrySelection::Color { color } => color == Color::C,
+                        EntrySelection::Player { player } => {
+                            player.0 as usize >= s.rules.players.len()
+                        }
+                        EntrySelection::CreatureType { .. } => false,
+                    }
+            }) {
+                return Err("snapshot has an impossible entry choice".into());
+            }
             if let Some(player) = object.adventure_player
                 && (object.zone != Zone::Exile
                     || object.hideaway.is_some()

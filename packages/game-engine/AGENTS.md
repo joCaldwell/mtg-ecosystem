@@ -6,10 +6,9 @@ parser have their own manuals. Read [the current map](../../docs/game-engine-cur
 publication) and the affected [runtime invariants](../../docs/game-engine-mechanics.md#runtime-invariants)
 before edits. [Core](../../docs/game-engine-mechanics.md) and [board](../../docs/game-engine-board-mechanics.md) mechanics own supported semantics.
 
-- Lower complete exact archived source or reject. Use frozen fixtures, pinned
-  rules and meaningful positive/rejection tests; never bless a changed expected
-  outcome without source/rules review. Card names/IDs identify witnesses, never
-  mechanics.
+- Lower complete exact archived source or reject, with positive and rejection
+  tests; never bless a changed expected outcome without source/rules review. Card
+  names/IDs identify witnesses, never mechanics.
 - Core imports only IR and permitted-view contracts: no compiler/parser
   dependency, I/O, clocks, OS randomness, async inference or unsafe code.
   Compiler test fixtures are development-only. [Structure checks](../../docs/game-engine-catalogs.md#ir-and-build-identity)
@@ -38,8 +37,7 @@ before edits. [Core](../../docs/game-engine-mechanics.md) and [board](../../docs
 - Compile whole archives through the [frozen-input command](../../docs/game-engine-catalogs.md#frozen-input-compile);
   use the R6 input manifest for cached or fresh reproduction. `build-ir`
   remains its byte-identical legacy control.
-- Iterate with `engine:dev` selectors and run [`check:engine:gate`](../../docs/game-engine-development.md#inner-loop-and-one-gate)
-  once before publishing; never take the Cargo lock around a runner that owns it.
+- Iterate and gate per [development](../../docs/game-engine-development.md#inner-loop-and-one-gate).
   No incidental mechanic or pool expansion.
 
 Topical contracts: [catalogs/profiles](../../docs/game-engine-catalogs.md),

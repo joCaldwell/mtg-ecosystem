@@ -659,6 +659,7 @@ impl RulesTxn {
             .ok_or("missing object definition")?;
         if let Some(link) = &object.hideaway {
             return Ok(VisibleObject {
+                entry_selection: None,
                 entered_this_turn: false,
                 faces: if self.is_live(viewer) && link.may_look(viewer) {
                     self.visible_faces(object)?
@@ -746,6 +747,7 @@ impl RulesTxn {
             || (viewer == object.controller && self.is_live(viewer))
             || matches!(self.state.rules.frame, Frame::Finished { .. });
         Ok(VisibleObject {
+            entry_selection: object.entry_selection,
             faces: faces.filter(|_| identified),
             face_down: object.face_down,
             exiled_by: None,

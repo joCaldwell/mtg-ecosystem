@@ -277,6 +277,29 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
   });
 }
 
+/** "As ~ enters, <instructions>. ~ enters with <counters>": the final
+ * sentence states counters for the same entry; it may count what the
+ * instructions did ("removed this way", "revealed this way"). */
+function parseAsEntersWithCounters(c: Cursor, what: ObjectRef): StaticEffect | null {
+  return c.attempt((c): StaticEffect | null => {
+    const start = c.pos;
+    let last = -1;
+    for (let i = c.tokens.length - 2; i > start; i--) {
+      if (c.tokens[i].kind === "punct" && (c.tokens[i] as { value: string }).value === ".") { last = i; break; }
+    }
+    if (last < 0) return null;
+    const body = new Cursor(c.tokens.slice(start, last + 1));
+    const effects = parseSentences(body, { modalOptions: [] });
+    if (!effects || !body.done()) return null;
+    const tail = new Cursor(c.tokens.slice(last + 1));
+    const entersWith = parseStatic(tail);
+    if (entersWith?.static !== "enters-with-counters" || !tail.done() || entersWith.condition
+      || JSON.stringify(entersWith.what) !== JSON.stringify(what)) return null;
+    c.pos = c.tokens.length;
+    return { static: "as-enters", what, effects, entersWith };
+  });
+}
+
 export function parseStatic(c: Cursor): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
     if (c.words("as", "you", "cascade")) {
@@ -847,8 +870,11 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
       if (!what || c.word("enters", "enter") === null) return null;
       c.words("the", "battlefield");
       if (!c.punct(",")) return null;
+      const bodyAt = c.pos;
       const effects = parseSentences(c, { modalOptions: [] });
-      return effects && c.done() ? { static: "as-enters", what, effects } : null;
+      if (effects && c.done()) return { static: "as-enters", what, effects };
+      c.pos = bodyAt;
+      return parseAsEntersWithCounters(c, what);
     });
     if (asEnters) return asEnters;
 

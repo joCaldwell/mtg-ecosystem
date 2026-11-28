@@ -34,7 +34,7 @@ import { parseStickerAction } from "./stickers.ts";
 import { parseBattlefieldEntryDetails, hasExplicitSourceZone } from "./entry.ts";
 import { parseUnlessPayment } from "./payment-choices.ts";
 import { parseOfferedDamageFallback, parseUnlessDamage } from "./unless-damage.ts";
-import { parseValueChoice } from "./choices.ts";
+import { parseNamedOptions, parseValueChoice } from "./choices.ts";
 import { parseSelfReplacement, withSelfReplacement } from "./self-replacement.ts";
 import { foldCounterDestination } from "./counter-destination.ts";
 import { parseModalEffect } from "./modal.ts";
@@ -142,6 +142,10 @@ export interface EffectContext {
   /** Actor of an elided imperative verb after "[player] may"; set only while
    * parseStep parses the instruction that "may" governs. */
   impliedActor?: PlayerRef;
+  /** "You gain life and draw cards equal to its power": the amount printed
+   * once after the second verb, read at token `at` and owned by that verb's
+   * instruction; the first instruction holds an alias of it. */
+  sharedTrailingAmount?: { at: number; end: number; amount: Amount };
 }
 
 function containsEffect(value: unknown, kind: Effect["effect"]): boolean {
@@ -1608,6 +1612,12 @@ const parseDraw: StepParser = transactionalStep((c, ctx) => {
       return { amount: "damage-history-total", to, during: "this-turn", sourceControllerAtDamage: { player: "they" } } satisfies Amount;
     });
   }
+  const shared = !amount && ctx.sharedTrailingAmount?.at === c.pos ? ctx.sharedTrailingAmount : undefined;
+  if (shared) {
+    ctx.sharedTrailingAmount = undefined;
+    c.pos = shared.end;
+    return [{ effect: "draw", who, amount: shared.amount }];
+  }
   if (!amount) amount = parseEqualTo(c);
   if (!amount) return null;
   amount = parseAmountAdjustment(c, amount);
@@ -1686,6 +1696,10 @@ const parseChoose: StepParser = transactionalStep((c, ctx, options) => {
   if (pair) return options?.optionalConsumed ? null : [pair];
   const value = parseValueChoice(c, parseFilter);
   if (value) return [{ effect: "choose-value", who, ...value }];
+  const named = parseNamedOptions(c);
+  if (named) return [{ effect: "choose-option", who, options: named }];
+  const kicked = who.player === "you" ? parseKickedAdditionalTargets(c) : null;
+  if (kicked) return options?.optionalConsumed ? c.fail("mandatory target announcement") : [{ effect: "declare-target", what: kicked }];
   // "Choose target creature you control and target creature you don't
   // control": each target is announced as the spell is cast (CR 601.2c).
   const targets = who.player === "you" ? c.attempt(c => {
@@ -1704,6 +1718,33 @@ const parseChoose: StepParser = transactionalStep((c, ctx, options) => {
   const asOf = targeted && "player" in what && what.player === "filtered" ? parseAnnouncementTime(c) : null;
   return targeted ? [{ effect: "declare-target", what, ...(asOf ? { asOf } : {}) }] : [{ effect: "choose-object", who, what }];
 });
+
+/** "Choose any target, then choose another target for each time this spell
+ * was kicked": one more distinct target of the same description per kicker
+ * payment, all announced as the spell is cast (CR 115.3, 601.2c, 702.33d).
+ * The description is one target selection with that total count. */
+function parseKickedAdditionalTargets(c: Cursor): ObjectRef | null {
+  return c.attempt((c): ObjectRef | null => {
+    const start = c.pos;
+    const first = parseObjectSelection(c);
+    if (!first || (first.ref !== "any-target" && first.ref !== "target") || first.upTo || first.count?.amount !== undefined
+      && !(first.count.amount === "fixed" && first.count.value === 1)) return null;
+    if (!c.punct(",") || c.word("then") === null || c.word("choose") === null || c.word("another") === null) return null;
+    // "another target [creature]" restates the first description.
+    if (c.word("target") === null) return null;
+    if (first.ref === "target") {
+      const restated = parseFilter(c);
+      if (!restated || JSON.stringify(restated) !== JSON.stringify(first.filter)) return null;
+    }
+    const forAt = c.pos;
+    if (!c.words("for", "each")) return null;
+    const kicks = parseKickCount(c, parseObjectRef);
+    if (kicks?.amount !== "kicker-count" || kicks.of.ref !== "this") return null;
+    const one = first.count ?? c.implicit({ amount: "fixed", value: 1 } as Amount, "implied-singular-target");
+    const count: Amount = c.hull({ amount: "plus", a: one, b: kicks }, forAt, c.pos);
+    return c.mark({ ...first, count } as ObjectRef, start);
+  });
+}
 
 /** CR 115.3, 702.62b: one target, either a battlefield permanent or an
  * exiled suspended card, with eligibility scoped to each alternative. */
@@ -2016,8 +2057,13 @@ const parseSacrifice: StepParser = transactionalStep((c, ctx) => {
     ctx.lastPlayer = chooser;
     return [{ effect: "sacrifice", who: chooser, what, chosenBy: c.alias(chooser) }];
   }
-  const who = parseActor(c, ctx, "sacrifice", "sacrifices");
+  const actorAt = c.pos;
+  const who = parseActor(c, ctx, "sacrifice", "sacrifices", true);
   if (!who) return null;
+  // "You and that player each sacrifice": only a printed group subject; an
+  // elided group actor of a coordinated sacrifice stays unsupported.
+  if (who.player === "group" && !(c.tokens[actorAt]?.kind === "word" && (c.tokens[actorAt] as { value: string }).value === "you"))
+    return c.fail("explicit grouped sacrifice subject");
   const greatest = who.player === "each-opponent" && c.attempt((c): ObjectRef | null => {
     // CR 701.21a: each player sacrifices their own permanent. The greatest
     // power is compared within each player's controlled creatures.
@@ -2437,12 +2483,29 @@ const parseLifeGainLoss: StepParser = transactionalStep((c, ctx) => {
   if (!amount) {
     amount = gained && who.player === "you" && ctx.triggerScope === "leaves-self"
       && c.words("equal", "to", "the", "life", "you", "lost", "when", "it", "entered")
-      ? { amount: "life-lost-on-entry", who, what: { ref: "it" } } : parseEqualTo(c);
+      ? { amount: "life-lost-on-entry", who, what: { ref: "it" } } : parseEqualTo(c) ?? sharedTrailingAmount(c, ctx);
     if (!amount) return null;
   }
   const effect = gained ? "gain-life" : "lose-life";
   return [{ effect, who, amount }];
 });
+
+/** "Gain life and draw cards equal to X": the coordinated draw of the same
+ * actor states the one amount both instructions use (CR 608.2c). The amount
+ * is read ahead here and consumed by that draw; nothing else may claim it. */
+function sharedTrailingAmount(c: Cursor, ctx: EffectContext): Amount | null {
+  const word = (offset: number, ...values: string[]) => {
+    const token = c.tokens[c.pos + offset];
+    return token?.kind === "word" && !token.possessive && values.includes(token.value);
+  };
+  if (!word(0, "and") || !word(1, "draw", "draws") || !word(2, "cards") || !word(3, "equal")) return null;
+  const at = c.pos + 3;
+  const ahead = new Cursor(c.tokens.slice(at));
+  const amount = parseEqualTo(ahead);
+  if (!amount || !(ahead.done() || ahead.isPunct("."))) return null;
+  ctx.sharedTrailingAmount = { at, end: at + ahead.pos, amount };
+  return c.alias(amount);
+}
 
 const parseGainControl: StepParser = transactionalStep((c, ctx) => {
   const who = parseActor(c, ctx, "gain", "gains");

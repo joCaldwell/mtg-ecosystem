@@ -207,7 +207,10 @@ impl RulesTxn {
             Atom::AnyOf { alternatives } => alternatives
                 .iter()
                 .any(|p| self.damage_fact_matches(p, you, holder, fact)),
-            Atom::Is { .. } | Atom::Counters { .. } => false,
+            Atom::Is { .. }
+            | Atom::Counters { .. }
+            | Atom::SourceChosenColor {}
+            | Atom::SourceChosenCreatureType {} => false,
         })
     }
 

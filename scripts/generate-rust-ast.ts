@@ -642,14 +642,20 @@ function renderVocabulary({ identity, vocabulary }: PrintedContract): string {
 }
 
 
+/** The legacy decoder freeze, without its source hash line. It lives outside
+ * this file so a grammar batch's new pin leaves PRINTED_GENERATOR_SHA256 fixed. */
+const LEGACY_DECODER_PIN = "scripts/generate-rust-ast.legacy-decoder.sha256";
+
 function main(): void {
   const check = process.argv.includes("--check");
   const legacy = generate();
   // Freeze the legacy decoder through the R6 bridge. Its source fingerprint
-  // covers this generator, so that one line is allowed to change.
+  // covers this generator, so that one line is allowed to change. Each
+  // grammar batch updates the pin file (rework plan, format cut 3).
   const legacyHash = /^\/\/ Source SHA-256: [0-9a-f]{64}\n/m;
-  if (!legacyHash.test(legacy) ||
-      sha256(legacy.replace(legacyHash, "")) !== "e0c6f8aef7e531d685658354178c5f38407bf1833a6808de4d5c63e9b3f0ba0e")
+  const pin = fs.readFileSync(path.join(ROOT, LEGACY_DECODER_PIN), "utf8");
+  if (!/^[0-9a-f]{64}$/.test(pin)) throw new Error(`${LEGACY_DECODER_PIN} must hold one SHA-256 without a newline`);
+  if (!legacyHash.test(legacy) || sha256(legacy.replace(legacyHash, "")) !== pin)
     throw new Error("R6 bridge changed the legacy generated AST outside its source hash");
 
   const contract = printedContract();

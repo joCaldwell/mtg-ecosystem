@@ -1828,9 +1828,9 @@ impl Strategy<'_> {
             ActivationCost::Mana { cost } => (false, false, cost.clone()),
             ActivationCost::Composite { costs } => {
                 if costs
-                    .remove_source_plus_one_counters
+                    .remove_source_counters
                     .as_ref()
-                    .is_some_and(|n| o.plus_one_counters < *n)
+                    .is_some_and(|cost| !o.can_remove_counters(cost))
                     // CR 119.4, 119.8: life that cannot change pays no life;
                     // otherwise keep a margin above the printed payment.
                     || costs.pay_life.as_ref().is_some_and(|life| {

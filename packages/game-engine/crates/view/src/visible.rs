@@ -11,6 +11,45 @@ pub struct VisibleCounter {
     pub count: Quantity,
 }
 
+/// A CR 614.1c choice attached to one public battlefield incarnation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "chosen", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EntrySelection {
+    Color {
+        color: mtg_contracts::Color,
+    },
+    CreatureType {
+        kind: mtg_contracts::kir::CreatureType,
+    },
+    Player {
+        player: PlayerId,
+    },
+}
+
+impl EntrySelection {
+    pub fn color(self) -> Option<mtg_contracts::Color> {
+        match self {
+            Self::Color { color } => Some(color),
+            _ => None,
+        }
+    }
+}
+
+impl<H> VisibleObject<H> {
+    /// CR 122.1: the +1/+1 balance has a dedicated public field.
+    pub fn can_remove_counters(&self, cost: &mtg_contracts::RemoveCounterCost) -> bool {
+        use mtg_contracts::kir::CounterKind;
+        match cost.kind {
+            CounterKind::PlusOnePlusOne => self.plus_one_counters >= cost.amount,
+            CounterKind::Loyalty => self.loyalty_counters >= cost.amount,
+            _ => self
+                .counters
+                .iter()
+                .any(|c| c.kind == cost.kind && c.count >= cost.amount),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleCommanderReturnChoice {
@@ -185,6 +224,8 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub exiled_by: Option<H>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phased_out: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_selection: Option<EntrySelection>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub entered_this_turn: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -232,6 +273,7 @@ impl<H> VisibleObject<H> {
             face_down: self.face_down,
             exiled_by: self.exiled_by.map(&mut convert),
             phased_out: self.phased_out,
+            entry_selection: self.entry_selection,
             entered_this_turn: self.entered_this_turn,
             mana_ability_used: self.mana_ability_used,
             attached_to: self.attached_to.map(&mut convert),

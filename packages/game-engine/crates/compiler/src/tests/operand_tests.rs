@@ -31,6 +31,17 @@ fn unrepresented_filter_terms_name_their_field() {
             json!({"types":["creature"],"status":["blocking"]}),
             "operand:filter:status:blocking",
         ),
+        // Grammar batch 1 (Steel Hellkite, Archangel of Strife): a described
+        // controller has no runtime predicate yet (CR 108.4).
+        (
+            json!({"types":["creature"],"controllerMatches":{"choseOption":{"option":"war"}}}),
+            "operand:filter:controller_matches",
+        ),
+        (
+            json!({"cls":"permanent","nonTypes":["land"],"controllerMatches":{"damageHistory":{"role":"recipient",
+                "window":{"during":"this-turn"},"damage":"combat","source":{"ref":"this","noun":"creature"}}}}),
+            "operand:filter:controller_matches",
+        ),
     ] {
         let what = json!({"ref":"all","filter":filter});
         let failure = object(&what)
@@ -511,6 +522,29 @@ fn entry_reveal_lowers_one_filtered_hand_card_or_rejects() {
         let failure = lower_static(&reveal(what.clone()), &site).expect_err("rejected reveal");
         assert_eq!(code(failure), expected, "{what}");
     }
+}
+
+#[test]
+fn entry_choice_rejects_a_linked_counters_clause() {
+    let site = StaticSite {
+        quoted: &|_| unreachable!("no quoted ability"),
+    };
+    let mut choice = json!({
+        "static": "as-enters",
+        "what": {"ref": "this", "noun": "artifact"},
+        "effects": [{"steps": [{
+            "effect": "choose-value", "who": {"player": "you"}, "category": "creature-type"
+        }]}]
+    });
+    assert!(lower_static(&choice, &site).is_ok());
+    choice["entersWith"] = json!({
+        "static": "enters-with-counters",
+        "what": {"ref": "this", "noun": "artifact"},
+        "counter": {"type": "fellowship"},
+        "count": {"amount": "fixed", "value": 1}
+    });
+    let failure = lower_static(&choice, &site).expect_err("reject the combined entry ability");
+    assert_eq!(code(failure), "static:entry-choice:with-counters");
 }
 
 /// CR 208.2a, 604.3: a printed star is zero until one self CDA defines the

@@ -1033,7 +1033,11 @@ export type Effect = EffectBase &
     | { effect: "additional-land-plays"; allowance: LandPlayAllowance; duration: Duration }
     /** `times` is "twice" / "N times": the action happens that many times in
      * sequence, as separate events (not one scaled event). */
-    | { effect: "keyword-action"; action: "proliferate" | "populate" | "investigate"; who: PlayerRef; times?: Amount }
+    | { effect: "keyword-action"; action: "proliferate" | "populate" | "investigate"; who: PlayerRef; times?: Amount;
+        /** Populate followed by "The token enters tapped and attacking": the
+         * one copy it creates enters with these statuses, choosing what it
+         * attacks as it enters (CR 701.36a, 508.4, 614.1c). */
+        token?: { tapped?: true; attacking?: true } }
     /** Designations and player-level keyword actions with no further
      * parameters: CR 725.2 (become the monarch), 726.2 (take the initiative),
      * 701.54a (the Ring tempts), 701.48a, 701.61a, 701.51b, 701.31b (planeswalk). */
@@ -1114,7 +1118,11 @@ export type Effect = EffectBase &
         /** CR 120.4a: the part of this damage beyond lethal damage (a
          * creature) or loyalty/defense that would be dealt to the recipient
          * permanent is dealt to this player instead. */
-        excessTo?: PlayerRef }
+        excessTo?: PlayerRef;
+        /** "If the creature you control has trample, excess damage is dealt
+         * to …": the excess redirection applies only if this holds as the
+         * damage is dealt (CR 120.4a, 608.2c). */
+        excessCondition?: Condition }
     /** A no-regeneration rider modifies this destruction (CR 608.2c),
      * rather than resolving after the permanent has already been destroyed. */
     | { effect: "destroy"; what: ObjectRef; regenerationForbidden?: true }
@@ -1236,7 +1244,13 @@ export type Effect = EffectBase &
     /** CR 122.5: remove counters from `from`, then put them onto `to`. If either
      * half is impossible nothing moves. `"any"` is any kind of counter; with a
      * count of 1 the kind is chosen on resolution, with "all" every kind moves. */
-    | { effect: "move-counters"; counter: CounterSpec | "any"; count: Amount | "all"; from: ObjectRef; to: ObjectRef }
+    | { effect: "move-counters"; counter: CounterSpec | "any"; count: Amount | "all"; from: ObjectRef; to: ObjectRef;
+        /** "Move any number of +1/+1 counters from this creature onto other
+         * creatures": `to` describes the eligible recipients, not each of
+         * them. On resolution the mover chooses how many counters move and
+         * where each one goes, any number to each recipient and none to the
+         * rest; nothing is targeted (CR 122.5, 608.2d). */
+        split?: "chosen-recipients" }
     /** CR 601.2d / 608.2d: the division is announced with the targets (or, for
      * an untargeted group, chosen on resolution); each recipient gets at least one. */
     | { effect: "distribute-counters"; counter: CounterSpec; count: Amount; among: ObjectRef }
@@ -1415,6 +1429,10 @@ export type Effect = EffectBase &
     | { effect: "become-blocked"; what: ObjectRef }
     | { effect: "combat-rule"; what: ObjectRef; rule: CombatRule }
     | { effect: "player-combat-rule"; who: PlayerRef; rule: PlayerCombatRule }
+    /** "Each player chooses war or peace": `who` (each of them, for a group)
+     * picks one of two printed option words that have no rules meaning of
+     * their own; later text tests who chose which (CR 608.2d, 607.2d). */
+    | { effect: "choose-option"; who: PlayerRef; options: [string, string] }
   );
 
 /** "One [category] with another": one chosen word of the category is
@@ -2119,7 +2137,12 @@ export type StaticEffect =
    * [cost]": every matching spell offers this additional cost to its caster
    * (Defilers). A condition `additional-cost-paid` tests whether it was paid. */
   | { static: "spell-additional-cost"; scope: Extract<CostModificationScope, { action: "cast" }>; costs: Cost[]; optional?: true }
-  | { static: "as-enters"; what: ObjectRef; effects: Sentence[] }
+  | { static: "as-enters"; what: ObjectRef; effects: Sentence[];
+      /** "As this creature enters, remove all counters from all permanents.
+       * This creature enters with a +1/+1 counter on it for each counter
+       * removed this way": the same entry gets these counters, measured after
+       * `effects` are performed as it would enter (CR 614.1c, 614.12). */
+      entersWith?: Extract<StaticEffect, { static: "enters-with-counters" }> }
   /** CR 708.11: an "As [this permanent] is turned face up" ability is applied
    * while it is being turned face up, not afterward and not as a trigger.
    * `alsoEnters` is "As this creature enters or is turned face up". */
@@ -2923,7 +2946,19 @@ export type Condition =
    * anywhere above it is compared. False when `what` is not in it. */
   | { condition: "graveyard-position"; what: ObjectRef; graveyard: ZoneRef;
       above: { match: "directly"; filter: ObjectFilter } | { match: "count"; filter: ObjectFilter; comparison: Comparison } }
-  | { condition: "cards-in-hand"; who: PlayerRef; comparison: Comparison };
+  | { condition: "cards-in-hand"; who: PlayerRef; comparison: Comparison }
+  /** "If they attacked you and/or a planeswalker you control", the
+   * intervening condition of a player-attacks declaration trigger: at
+   * least one creature `who` declared as an attacker in that triggering
+   * declaration is attacking one of `defenders` (CR 506.3, 508.1b, 603.4).
+   * No period is printed; the declaration is the trigger event's. */
+  | { condition: "declaration-attacked"; who: PlayerRef; defenders: CombatDefender[] }
+  /** "If you can't sacrifice a creature": `who` could not begin the earlier
+   * instruction of this resolution that the clause restates (CR 118.12,
+   * 608.2c). The restatement identifies that step, which need not be the
+   * directly preceding one; it is neither a new instruction nor a fresh
+   * test of whether the action is possible now. */
+  | { condition: "restated-action-unable"; who: PlayerRef; action: { action: "sacrifice"; what: ObjectRef } };
 
 export type PlayerDesignation = "monarch" | "initiative" | "city's-blessing"
   /** CR 702.195b: kept for the rest of the game; any number of players. */
@@ -3148,6 +3183,18 @@ export interface PlayerFilter {
    * at least one such event, of any size and from any cause, damage and
    * life payments included; a net change of life total is irrelevant. */
   lifeChange?: { change: "gained" | "lost"; during: "this-turn" };
+  /** "Players who chose war": the candidate's own choice in the named-option
+   * choice of this object's linked ability was this printed option (CR
+   * 607.2d). A player who made no such choice did not choose it. */
+  choseOption?: { option: string };
+  /** "Who cast a spell this turn": the candidate cast at least one spell
+   * matching `what` during the period (CR 601.2i). */
+  castHistory?: { what: ObjectFilter; during: "this-turn" };
+  /** "Who attacked with a creature this turn": the candidate declared at
+   * least one creature matching `with` as an attacker during the period;
+   * a creature put onto the battlefield attacking was not declared (CR
+   * 508.1, 508.4). */
+  attackHistory?: { with: ObjectFilter; during: "this-turn" };
   otherThan?: PlayerRef;
   /** Unresolved lexical "other" ("each other player", "each other
    * opponent"): every candidate except one contrasted player the wording
@@ -3328,6 +3375,10 @@ export type ObjectRelation = {
    * instruction sequence; otherwise `period` is the window. */
   | { relation: "zone-change"; to: ZoneRef; from?: ZoneRef | "anywhere"; scope?: "this-way" }
   | { relation: "linked-exile"; source: ObjectRef }
+  /** "The creature put onto the battlefield with this enchantment": the
+   * object an ability of `source` linked to this one put onto the
+   * battlefield, while it remains that object (CR 400.7, 607.1, 607.2a). */
+  | { relation: "linked-entry"; source: ObjectRef }
   /** CR 603.7c, 712.21c, 730.3c: capture all card successors of this
    * replacement application’s exile when its delayed trigger is created. */
   | { relation: "replacement-exile-results" }
@@ -3488,6 +3539,11 @@ export interface ObjectFilter {
   control?: "you" | "opponent" | "not-you" | "that-player";
   /** A specifically referenced controller, including a targeted player. */
   controlledBy?: PlayerRef;
+  /** "whose controller was dealt combat damage by this creature this turn",
+   * "controlled by players who chose war": each candidate object's own
+   * current controller (CR 108.4) satisfies this player description. No
+   * player is chosen or shared across candidates. */
+  controllerMatches?: PlayerFilter;
   /** Historical/proposed casting action, separate from control/current zone. */
   cast?: { by: PlayerRef; from?: ZoneRef };
   /** CR 702.185c: the spell was cast for the alternative cost of this
