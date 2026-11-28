@@ -118,8 +118,8 @@ its card is assessed; the [parser contract](oracle_parser.md#ast-archive) owns
 the printed wire format and evidence bases. P6 rebuilds quote regions from the
 original text through verified normalization, lexing and punctuation order.
 Every matched quote pair in a successfully read block needs an owner: a quoted
-grant's AST body, or the exact `the "legend rule" doesn't apply` and `all "bands
-with other" abilities` terms when their located production and complete pair
+grant's AST body, or the exact `the "legend rule" doesn't apply` and `all "bands with other" abilities`
+terms when their located production and complete pair
 are in each covering run set. An ancestor's span may include an owned quote with
 both marks; terms stay in the enclosing ability's scope. P7 requires a fact and
 its owner, and P9 the target token, its fact owner and the linked selection
@@ -222,7 +222,9 @@ mechanics describe each family's behavior, including counted target groups and
 sacrifice-for-return.
 
 - `Seq` follows written order. `If` supports `Compare`, `Exists`, `CostPaid`,
-  `Not` and `All`. `ForEach` binds a player or a singleton object.
+  `Not` and `All`; `Satisfies` can test the printed creature type of a
+  bound graveyard card after exile (CR 608.2b, 608.2h). `ForEach` binds a
+  player or a singleton object.
 - `Optional`, `UnlessPays` and `IfPays` take a singleton player expression; both
   payment nodes support life and generic mana. With no live chooser the optional
   effect is skipped; with no live payer only `UnlessPays` performs its node

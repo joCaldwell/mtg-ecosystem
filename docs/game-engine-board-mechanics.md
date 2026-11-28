@@ -325,14 +325,14 @@ control, also in last-known information (CR 603.4, 702.30a); other echo costs
 reject. Combat keywords (CR 702.83, 702.91, 702.23, 702.25, 702.105, 702.116,
 702.121, 702.130, 702.149) read the declaration: the attack witness records
 whether its creature attacked alone, attacked with a greater-power creature and
-attacked the player with the most life (read once attackers have tapped, CR
-508.1m), and the combat records its declared defenders. Exalted, battle cry,
+attacked the player with the most life (read once attackers have tapped,
+CR 508.1m), and the combat records its declared defenders. Exalted, battle cry,
 rampage, melee, flanking (marker and trigger only together), dethrone,
 training and afflict follow their rules; rampage and melee count on resolution.
 Annihilator N makes the defending player sacrifice N permanents together, or all
 if fewer (CR 702.86). Mentor compares both powers at placement and resolution,
 using the mentor's last known power after it leaves (CR 702.134a–b, 608.2b);
-"whenever ... mentors" events reject. Myriad (a single-faced creature card
+"whenever ... mentors" events (CR 702.134c) reject. Myriad (a single-faced creature card
 without entry replacements) offers a copy per other live opponent; each
 accepted copy attacks that opponent or a planeswalker they control, entering
 together tapped and attacking (CR 508.4, 608.2f) without having attacked, and
