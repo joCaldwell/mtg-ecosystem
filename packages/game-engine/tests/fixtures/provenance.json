@@ -13986,6 +13986,15 @@
       "archive_line": 33255
     },
     {
+      "file": "phase1-r6/dc8210b4-8e17-4156-994b-e95e215e3e34.json",
+      "oracle_id": "dc8210b4-8e17-4156-994b-e95e215e3e34",
+      "record_sha256": "1cd1ba648e04e94e082b744e4a7c91002c083e6665cb89a48d56fc838a16f08d",
+      "source_sha256": "e78917376f1932683f68a73f838b217bc73e638ffabd4a644a1c06c61a3b4066",
+      "ast_sha256": "3c41b00a8b81a7c6e177f6c6324595aa1995501e7c180488f48abbb002d8e936",
+      "archive": "archive-manifest-r6-candidate-6a4226a5e7c5ed8d0044770ac4ededc8c2e5586217b80e53b454dd4a9f952b37.json",
+      "archive_line": 33284
+    },
+    {
       "file": "phase1-r6/dc974eb4-72b9-4213-887b-8ee684b93420.json",
       "oracle_id": "dc974eb4-72b9-4213-887b-8ee684b93420",
       "record_sha256": "b4d7fe12f001e90ea505cf15a5a65283f0a23dac92747371dbb4975831130ccc",
