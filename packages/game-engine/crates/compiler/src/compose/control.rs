@@ -23,8 +23,9 @@
 //! * CR 614.15: an "instead" step that changes only the amount of the
 //!   original effect is one [`Node::If`] with both branches.
 //! * CR 608.2c: "if"/"unless" is [`Node::If`] over a board condition the
-//!   continuation evaluates on resolution: a count of permanents a player
-//!   controls (CR 109.5).
+//!   continuation evaluates on resolution: counts of permanents a player
+//!   controls (CR 109.5), exact turn history for graveyard casts and
+//!   activations (CR 601.2i, 602.2b), and Boolean combinations.
 //!
 //! A wrapped step whose instruction range is empty, a wrap that overlaps
 //! another, a chooser or payer the resolution does not bind to a kernel
@@ -577,6 +578,63 @@ impl Site<'_> {
                         .map(|(i, part)| self.condition(&format!("{path}/conditions/{i}"), part))
                         .collect::<Result<_, _>>()?,
                 })
+            }
+            Some("any-of") if fields == 2 => {
+                let parts = condition["conditions"]
+                    .as_array()
+                    .filter(|parts| parts.len() >= 2)
+                    .ok_or_else(|| unsupported("compose.control", "any_of_shape"))?;
+                Ok(Cond::Not {
+                    condition: Box::new(Cond::All {
+                        conditions: parts
+                            .iter()
+                            .enumerate()
+                            .map(|(i, part)| {
+                                Ok(Cond::Not {
+                                    condition: Box::new(
+                                        self.condition(&format!("{path}/conditions/{i}"), part)?,
+                                    ),
+                                })
+                            })
+                            .collect::<Result<_, Failure>>()?,
+                    }),
+                })
+            }
+            Some("cast-count" | "player-action-history")
+                if fields
+                    == (if condition["condition"] == "cast-count" {
+                        6
+                    } else {
+                        5
+                    })
+                    && condition["during"] == "this-turn"
+                    && condition["who"] == serde_json::json!({"player":"you"})
+                    && self.player(&format!("{path}/who"))?.is_you() =>
+            {
+                let graveyard = serde_json::json!({"zone":"graveyard","owner":"any"});
+                let fact = match condition["condition"].as_str() {
+                    Some("cast-count")
+                        if condition["what"] == serde_json::json!({"cls":"spell"})
+                            && condition["from"] == graveyard =>
+                    {
+                        kir::TurnFact::SpellsCastFromGraveyard
+                    }
+                    Some("player-action-history")
+                        if condition["action"]
+                            == serde_json::json!({
+                                "action":"activate",
+                                "what":{"cls":"ability","abilitySource":{
+                                    "ref":"filter","filter":{"cls":"card","zone":graveyard},
+                                    "count":{"amount":"fixed","value":1}
+                                }}
+                            }) =>
+                    {
+                        kir::TurnFact::AbilitiesActivatedFromGraveyard
+                    }
+                    _ => return reject("graveyard_history_shape"),
+                };
+                let (cmp, value) = comparison(&condition["comparison"])?;
+                Ok(Cond::TurnHistory { fact, cmp, value })
             }
             // CR 608.2h: "if it was a creature card" reads the announced
             // graveyard incarnation, even after the preceding exile.

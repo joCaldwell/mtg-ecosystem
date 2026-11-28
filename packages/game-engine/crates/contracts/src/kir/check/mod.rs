@@ -556,6 +556,7 @@ impl Walk<'_, '_> {
                 | Atom::NotToken
                 | Atom::Keyword { .. }
                 | Atom::NotKeyword { .. }
+                | Atom::ControllerTookSourceCombatDamage {}
                 | Atom::Counters { .. } => {}
                 Atom::AnyType { kinds } => {
                     if kinds.is_empty() {
@@ -938,6 +939,13 @@ impl Walk<'_, '_> {
                 }
                 Ok(())
             }
+            Cond::TurnHistory {
+                fact:
+                    super::TurnFact::SpellsCastFromGraveyard
+                    | super::TurnFact::AbilitiesActivatedFromGraveyard,
+                value,
+                ..
+            } if !value.is_negative() => Ok(()),
             // CR 603.4: only an intervening "if" reads these, through
             // [`Intervening`]; no resolving control node does.
             Cond::Satisfies { .. }
@@ -2043,7 +2051,7 @@ impl Walk<'_, '_> {
                 }
                 Atom::OwnedBy { player } if player.is_you() => {}
                 Atom::Counters { .. } => battlefield_target_atom(atom, true)?,
-                atom if read_x && *zone == ZoneExpr::Battlefield && mana_value_at_most_announced_x(atom) => {}
+                atom if read_x && *zone == ZoneExpr::Battlefield && mana_value_compares_to_announced_x(atom) => {}
                 Atom::Power { value, .. }
                 | Atom::Toughness { value, .. }
                 | Atom::ManaValue { value, .. } => {
@@ -2057,6 +2065,7 @@ impl Walk<'_, '_> {
                         .try_for_each(|alternative| Self::audit_set_filter(zone, alternative, read_x))?;
                 }
                 Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } | Atom::Is { .. }
+                | Atom::ControllerTookSourceCombatDamage {}
                 | Atom::SourceChosenColor {} | Atom::SourceChosenCreatureType {} => {
                     return unaudited("set filter atom");
                 }

@@ -1,0 +1,52 @@
+{
+  "artifactKind": "oracle-compile-inputs",
+  "schemaVersion": 2,
+  "oracle": {
+    "path": "../../../../generated/oracle-source-f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738.json",
+    "bytes": 203323272,
+    "sha256": "f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738",
+    "canonicalRecordsSha256": "2acb9b7730fb81a944a393dd99303d86617a2a62b22fe77a3fda1c833cf93582"
+  },
+  "paperEvidence": {
+    "path": "../../../../generated/paper-printing-evidence-d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699.json",
+    "bytes": 8216961,
+    "sha256": "d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699"
+  },
+  "scope": "paper-printing-evidence-non-silver-non-acorn-v2",
+  "rules": {
+    "edition": "2026-09-25",
+    "sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca"
+  },
+  "reader": {
+    "revision": "bd486901087e4af43ad38bfedbeddf60551cf10f",
+    "sourceSha256": "63284738071e8c8df7ff3d6096607312ebc1950ff523226e5bd9552982059f18"
+  },
+  "archive": {
+    "file": "oracle-ast-grammar-batch2-candidate.v3.jsonl",
+    "schemaVersion": 5,
+    "bytes": 656903779,
+    "sha256": "3b9202f51ab3fc1e4250fbc42b7b5d8630f85b0604ec7dc75da8abf96f1a65fb",
+    "headerSha256": "1732e894984e0574d8ae100411c9f01fc22aca12baaa46cd64bc43d7fab7b4af"
+  },
+  "r6": {
+    "archiveManifest": "archive-manifest-r6-candidate-1732e894984e0574d8ae100411c9f01fc22aca12baaa46cd64bc43d7fab7b4af.json",
+    "legacyArchive": "../../../../generated/oracle-ast-phase1-r5.jsonl",
+    "rulesPath": "../../../../.scryfall-cache/ComprehensiveRules-20260925.txt",
+    "printed": {
+      "schemaVersion": 1,
+      "schemaSha256": "372726596d541248b2b2caf0bfe2797b8b98ab19d513ec4a251044e0585dcf35",
+      "vocabularySha256": "b6e23112217e523e273629d2ac8cf4dd481873c342c1c3421b756c56559c943c",
+      "generatorSha256": "35757d7908e9c00dc77ee9545057668eae970f4c92fc40d64331ae1f6f118332",
+      "recordsSha256": "41f5f1e973f434cfff9129f5b9147ea4ef03d609d9e03b53325c27d0699ca666"
+    },
+    "nameCatalog": {
+      "sha256": "101b11ae52b305afab73cca17cd884552f03ad76cbce0c23e54a15195087b193",
+      "names": 40046
+    },
+    "legacyRows": "changed"
+  },
+  "compiler": {
+    "irVersion": 1,
+    "bulkFormatVersion": 2
+  }
+}

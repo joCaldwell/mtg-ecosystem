@@ -639,3 +639,54 @@ test("printed counts, zones, and cost adjustments retain their own token spans",
     assert.equal(spelling(face, text, span(block(face), path)), expected, path);
   }
 });
+
+test("records listed permanent types and the per-player pool (Cataclysmic Gearhulk)", () => {
+  const trigger = "When this creature enters, each player chooses an artifact, a creature, an enchantment, and a planeswalker from among the nonland permanents they control, then sacrifices the rest.";
+  const text = `Vigilance\n${trigger}`;
+  const typeLine = "Artifact Creature — Construct";
+  const face = read(text, "Cataclysmic Gearhulk", typeLine);
+  const found = block(face, 1);
+  const choice = "/effects/0/steps/0";
+  assert.equal(spelling(face, text, span(found, `${choice}/perPermanentType`)),
+    "an artifact, a creature, an enchantment, and a planeswalker");
+  assert.equal(spelling(face, text, span(found, `${choice}/what/filter`)),
+    "nonland permanents they control");
+  assert.equal(spelling(face, text, span(found, "/effects/0/steps/1/what")), "the rest");
+  assertLocated(face);
+  for (const near of [
+    trigger.replace(", and a planeswalker", ", and a creature"),
+    trigger.replace("the nonland permanents they control", "the permanents they control"),
+    trigger.replace("then sacrifices the rest", "then sacrifices one of them"),
+  ]) {
+    assert.equal(parseOracleText(near, "Witness", { typeLine }).ok, false, near);
+  }
+});
+
+test("limits a nonbasic qualifier to the land branch (Wave of Vitriol)", () => {
+  const text = "Each player sacrifices all artifacts, enchantments, and nonbasic lands they control. For each land sacrificed this way, its controller may search their library for a basic land card and put it onto the battlefield tapped. Then each player who searched their library this way shuffles.";
+  const face = read(text, "Wave of Vitriol", "Sorcery");
+  const found = block(face);
+  const path = "/effects/0/steps/0/what/filter";
+  assert.equal(spelling(face, text, span(found, `${path}/allOf/0/anyOf/2`)), "nonbasic lands");
+  assert.equal(spelling(face, text, span(found, `${path}/controlledBy`)), "they");
+  assertLocated(face);
+  const unclear = text.replace("and nonbasic lands they control", "or nonbasic lands they control");
+  assert.equal(parseOracleText(unclear, "Witness", { typeLine: "Sorcery" }).ok, false);
+});
+
+test("records the last matching linked card and retained subtype (Duplicant)", () => {
+  const text = "Imprint — When this creature enters, you may exile target nontoken creature.\nAs long as a card exiled with this creature is a creature card, this creature has the power, toughness, and creature types of the last creature card exiled with it. It's still a Shapeshifter.";
+  const typeLine = "Artifact Creature — Shapeshifter";
+  const face = read(text, "Duplicant", typeLine);
+  const found = block(face, 1);
+  assert.equal(spelling(face, text, span(found, "/effect/effect/from")), "the last creature card exiled with it");
+  assert.equal(spelling(face, text, span(found, "/effect/effect/attributes")), "power, toughness, and creature types");
+  assertLocated(face);
+  for (const near of [
+    text.replace("the last creature card", "any creature card"),
+    text.replace("exiled with it", "exiled this turn"),
+    text.replace("still a Shapeshifter", "still a Nonsense"),
+  ]) {
+    assert.equal(parseOracleText(near, "Witness", { typeLine }).ok, false, near);
+  }
+});

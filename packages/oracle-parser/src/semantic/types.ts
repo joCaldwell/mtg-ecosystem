@@ -252,7 +252,7 @@ export type BindingNode = NodeBase & (
   | { node: "existing-counter-kind"; scope: string; chooser: string; member: string; event: string; count: 1;
       placement: "optional-for-each-member"; ordering: "choose-all-then-place" }
   | { node: "multiplayer-choice"; scope: string; event: string; group: string; member: string;
-      selector: string; result: string; startWith?: string; choose: "one-per-permanent-type" | "printed-count" }
+      selector: string; result: string; startWith?: string; choose: "one-per-permanent-type" | "printed-count"; types?: string[] }
   | { node: "unchosen-permanents"; scope: string; chosen: string; member?: string; filter: ObjectFilter;
       exclude: "all-player-choices" | "own-choices"; cardinality: "many" }
   | { node: "intervening-condition-pool"; scope: string; filter: ObjectFilter; cardinality: "many";

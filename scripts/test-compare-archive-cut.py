@@ -106,7 +106,7 @@ class CompareArchiveCut(unittest.TestCase):
                 receipt = deepcopy(report)
                 receipt['d0']['elapsedMs'] = 9
                 entry, _, actual_header = cut.promotion_inputs(root, r5, candidate, receipt, revision)
-                verify.assert_called_once_with(root, r5, candidate)
+                verify.assert_called_once_with(root, r5, candidate, False)
                 self.assertEqual(entry['parser_revision'], revision)
                 self.assertEqual(actual_header, header)
                 changes = [
@@ -133,8 +133,8 @@ class CompareArchiveCut(unittest.TestCase):
             root = Path(path)
             source = root / 'source'
             source.mkdir()
-            r5 = {'cut': 'r5', 'manifest_file': 'r5.json', 'record_sha256': []}
-            r6 = {'cut': 'r6', 'manifest_file': 'r6.json', 'record_sha256': []}
+            r5 = {'cut': 'r5', 'manifest_file': 'r5.json', 'manifest_sha256': '5' * 64, 'record_sha256': []}
+            r6 = {'cut': 'r6', 'manifest_file': 'r6.json', 'manifest_sha256': '6' * 64, 'record_sha256': []}
             rows = []
             for line, oid in enumerate(('b', 'a'), 2):
                 raw = cut.json_bytes({'status': 'excluded', 'oracleIdentity': oid})

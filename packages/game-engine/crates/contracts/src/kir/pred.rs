@@ -53,6 +53,8 @@ pub enum Atom {
     ControlledBy {
         player: PlayerExpr,
     },
+    /// CR 120.2a, 400.7: its current controller took combat damage from the source this turn.
+    ControllerTookSourceCombatDamage {},
     OwnedBy {
         player: PlayerExpr,
     },
@@ -290,4 +292,9 @@ impl SetExpr {
 /// CR 601.2b-c: the invocation's X binds this top-level target term.
 pub fn mana_value_at_most_announced_x(atom: &Atom) -> bool {
     matches!(atom, Atom::ManaValue { cmp: Cmp::AtMost, value } if value.is_announced_x())
+}
+
+/// CR 107.3, 202.3: a battlefield mana-value filter reads the invocation's X.
+pub fn mana_value_compares_to_announced_x(atom: &Atom) -> bool {
+    matches!(atom, Atom::ManaValue { cmp: Cmp::AtMost | Cmp::Exactly, value } if value.is_announced_x())
 }

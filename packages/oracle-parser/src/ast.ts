@@ -900,7 +900,7 @@ export type Effect = EffectBase &
     | { effect: "choose-object"; who: PlayerRef; what: ObjectRef | PlayerRef;
         /** CR 110.4, 205.2b, 608.2d: at most one from the pool per permanent
          * type, with the same multitype permanent eligible for multiple types. */
-        perPermanentType?: { skipMissing: true; sameObjectForMultipleTypes: true } }
+        perPermanentType?: { skipMissing: true; sameObjectForMultipleTypes: true; types?: string[] } }
     /** "For each player, choose friend or foe": as this instruction resolves,
      * `who` labels every player of `players` (you included) either friend or
      * foe (CR 608.2d); it is neither a target nor a vote. Later "each friend"
@@ -2326,6 +2326,12 @@ export type StaticEffect =
       duration?: Duration;
       bindings?: { variable: "x"; value: Amount }[];
     }
+  /** CR 607.2a, 613.1d, 613.4b: read the last matching card still in
+   * exile from the linked ability, with an explicitly retained subtype. */
+  | { static: "linked-creature-characteristics"; what: ObjectRef;
+      attributes: { power: true; toughness: true; creatureTypes: true };
+      from: { order: "last"; filter: ObjectFilter; linkedTo: ObjectRef };
+      retainSubtype: string }
   | { static: "cda-pt"; what: ObjectRef; stat: "power" | "toughness" | "both"; value: Amount }
   | { static: "conditional"; condition: Condition; effect: StaticEffect; otherwise?: StaticEffect }
   | { static: "cda-colors"; what: ObjectRef; operation: "set" | "add"; colors: Color[] | ChosenValueRef<"color"> }

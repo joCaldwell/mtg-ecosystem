@@ -15,7 +15,7 @@ pub(super) fn lower(
             return Err(step("destroy", "qualified set"));
         }
         return Ok(cx.act(Verb::Destroy {
-            what: lower_board_set(&what, cx.context)?,
+            what: destroy_set(&what, cx.context)?,
             regeneration_forbidden: false,
         }));
     }
@@ -48,4 +48,43 @@ pub(super) fn lower(
         )),
         (true, true) => Err(step("destroy", "optional_regeneration_forbidden")),
     }
+}
+
+/// CR 120.2a, 400.7, 608.2h: the historical recipient is each candidate's
+/// current controller, and the damage must be from this source incarnation.
+fn destroy_set(what: &ast::ObjectRef, context: Context) -> Result<SetExpr, Failure> {
+    let filter = match what {
+        ast::ObjectRef::All(set) => &set.filter,
+        ast::ObjectRef::Each(set) => &set.filter,
+        _ => return lower_board_set(what, context),
+    };
+    if context != Context::Activated || filter.controller_matches.is_none() {
+        return lower_board_set(what, context);
+    }
+    use serde_json::json;
+    let source_history: ast::PlayerFilter = typed(
+        &json!({"damageHistory":{
+            "role":"recipient","window":{"during":"this-turn"},"damage":"combat",
+            "source":{"ref":"this","noun":"creature"}
+        }}),
+        "controllerMatches",
+    )?;
+    if filter.controller_matches.as_deref() != Some(&source_history) {
+        return lower_board_set(what, context);
+    }
+    if filter.zone.is_some() {
+        return Err(operand("filter", "controller_matches:zone"));
+    }
+    let mut ordinary = what.clone();
+    let filter = match &mut ordinary {
+        ast::ObjectRef::All(set) => &mut set.filter,
+        ast::ObjectRef::Each(set) => &mut set.filter,
+        _ => unreachable!("checked set shape"),
+    };
+    filter.controller_matches = None;
+    let SetExpr::Matching { zone, mut filter } = lower_board_set(&ordinary, context)? else {
+        unreachable!("board set lowering always matches the battlefield");
+    };
+    filter.0.push(Atom::ControllerTookSourceCombatDamage {});
+    Ok(SetExpr::Matching { zone, filter })
 }
