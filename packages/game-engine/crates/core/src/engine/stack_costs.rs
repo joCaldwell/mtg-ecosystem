@@ -691,7 +691,16 @@ impl RulesTxn {
             .next_stack_id
             .checked_add(1)
             .ok_or("stack ID resource limit")?;
-        let total_cost = cost.fixed_mana();
+        let cost_lock = self.activation_cost_lock(
+            object,
+            &self
+                .copiable_definition(object)?
+                .activated
+                .get(ability as usize)
+                .ok_or("missing activated cost")?
+                .cost_changes,
+        )?;
+        let total_cost = costs::locked_activation_total(cost.fixed_mana(), cost_lock.as_ref())?;
         let chosen = matches!(
             cost,
             ActivationCost::SacrificePermanent { .. } | ActivationCost::ChooseObjects(_)
@@ -715,7 +724,7 @@ impl RulesTxn {
             target_triggers: vec![],
             mode_mask: None,
             hybrid_colors: vec![],
-            cost_lock: None,
+            cost_lock,
             selected_additional_costs: None,
 
             x: None,
@@ -941,7 +950,10 @@ impl RulesTxn {
         if entry.x.as_ref().is_some_and(Quantity::is_negative) {
             return Err("negative announced X".into());
         }
-        let total = activated.announced_cost(&entry.hybrid_colors, entry.x.as_ref());
+        let total = costs::locked_activation_total(
+            activated.announced_cost(&entry.hybrid_colors, entry.x.as_ref()),
+            entry.cost_lock.as_ref(),
+        )?;
         self.rules_mut()
             .stack
             .last_mut()
@@ -1011,7 +1023,10 @@ impl RulesTxn {
         {
             return Err("snapshot paid loyalty activation lacks its turn marker".into());
         }
-        let expected = activated.announced_cost(&entry.hybrid_colors, entry.x.as_ref());
+        let expected = costs::locked_activation_total(
+            activated.announced_cost(&entry.hybrid_colors, entry.x.as_ref()),
+            entry.cost_lock.as_ref(),
+        )?;
         let program = self.program_for(entry)?;
         // CR 602.5b: a paid activation recorded its use; an unpaid one may
         // still begin, and a once-each-turn ability has no other use.

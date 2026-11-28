@@ -756,15 +756,13 @@ impl RulesTxn {
             | EntryPayment::Declined
             | EntryPayment::Paid { .. }
             | EntryPayment::Revealed { .. } => {
-                let entry = if force_tapped {
-                    EntryOverride::ForceTapped
-                } else {
-                    EntryOverride::Choice {
-                        accepted: matches!(
-                            payment,
-                            EntryPayment::Paid { .. } | EntryPayment::Revealed { .. }
-                        ),
-                    }
+                let entry = EntryOverride {
+                    tapped: force_tapped,
+                    accepted: (!force_tapped).then_some(matches!(
+                        payment,
+                        EntryPayment::Paid { .. } | EntryPayment::Revealed { .. }
+                    )),
+                    ..EntryOverride::default()
                 };
                 self.commit_entry_batch(
                     cause,

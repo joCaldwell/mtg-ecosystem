@@ -80,6 +80,10 @@ pub(super) fn capabilities(what: &SetExpr, out: &mut BTreeSet<Capability>) {
         SetExpr::Matching { .. } | SetExpr::Targets { .. } => {
             out.insert(Capability::BoardWipesV1);
         }
-        SetExpr::One { .. } | SetExpr::Pool { .. } | SetExpr::Result { .. } => {}
+        SetExpr::One { .. }
+        | SetExpr::Pool { .. }
+        | SetExpr::Result { .. }
+        | SetExpr::LiveResult { .. }
+        | SetExpr::Revealed { .. } => {}
     }
 }

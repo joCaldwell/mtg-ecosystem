@@ -154,6 +154,14 @@ impl ZoneExpr {
     }
 }
 
+/// The public destination whose exact successor a later instruction names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResultZone {
+    Battlefield,
+    Exile,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "set", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SetExpr {
@@ -167,6 +175,15 @@ pub enum SetExpr {
     /// CR 115.3, 608.2b: the still-legal announced objects of a counted
     /// target occurrence's slots, acted on together as one event.
     Targets { slots: Vec<u32> },
+    /// CR 400.7j: live successors that reached this public destination.
+    LiveResult { step: u32, zone: ResultZone },
+    /// A public reveal's exact library incarnations, or a choice from them.
+    Revealed {
+        var: u32,
+        filter: Pred,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        except: Option<u32>,
+    },
     /// Characteristic reads of the actual publicly moved cards (CR 608.2h).
     /// Only count and existence readers accept this set.
     Result {

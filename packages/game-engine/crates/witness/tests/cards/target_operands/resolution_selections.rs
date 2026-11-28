@@ -528,10 +528,7 @@ fn it_reuses_the_certified_target_for_untap_and_keyword_grants() {
         ),
         (
             LIGHTFOOT,
-            &[
-                Cell::PlusOneCountersTarget,
-                Cell::TargetKeywordsUntilEndOfTurn,
-            ],
+            &[Cell::PlusOneCountersTarget, Cell::SetCharacteristics],
             Tiers::EXECUTES,
         ),
     ])

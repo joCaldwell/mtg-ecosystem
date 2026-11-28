@@ -177,7 +177,7 @@ fn overwhelming_stampede_reads_the_greatest_power_once() {
     assert!(
         definition_cells(&lowered(OVERWHELMING_STAMPEDE))
             .unwrap()
-            .contains(&Cell::PumpCounted)
+            .contains(&Cell::SetCharacteristics)
     );
     cast(&mut g, &lands, None);
     resolve(&mut g);
@@ -278,7 +278,11 @@ fn sanguimancy_draws_and_loses_its_devotion() {
 #[test]
 fn hellkite_igniter_counts_artifacts_for_its_own_pump() {
     let d = lowered(HELLKITE_IGNITER);
-    assert!(definition_cells(&d).unwrap().contains(&Cell::PumpCounted));
+    assert!(
+        definition_cells(&d)
+            .unwrap()
+            .contains(&Cell::SetCharacteristics)
+    );
     let json = serde_json::to_string(&d.activated).unwrap();
     assert!(json.contains(r#""delta":"counted""#), "{json}");
     assert!(!json.contains("announced_x"), "{json}");

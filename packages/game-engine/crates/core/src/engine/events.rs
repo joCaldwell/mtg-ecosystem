@@ -425,18 +425,13 @@ enum FactKey {
 }
 // Ephemeral proof from validating a complete root group against the prior
 // state. Raw occurrence application receives no authority.
-#[derive(Clone, Copy)]
-pub(super) enum EntryOverride {
-    ForceTapped,
-    CreatureController {
-        player: PlayerId,
-        tapped: bool,
-    },
+#[derive(Clone, Copy, Default)]
+pub(super) struct EntryOverride {
+    pub(super) tapped: bool,
+    pub(super) controller: Option<PlayerId>,
     /// CR 614.12: the entry choice was made (life paid or card revealed)
     /// or declined.
-    Choice {
-        accepted: bool,
-    },
+    pub(super) accepted: Option<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -446,9 +441,6 @@ enum BatchAuthority<'a> {
         player: PlayerId,
         face: CardFace,
         face_down: bool,
-    },
-    ResolvingPermanent {
-        stack: StackId,
     },
     Graveyard(
         &'a BTreeMap<ObjectId, Zone>,
@@ -465,13 +457,27 @@ enum BatchAuthority<'a> {
     BattlefieldEntry {
         entries: &'a [(ObjectId, EntryOverride)],
         land: Option<(ObjectId, PlayerId, CardFace)>,
+        resolving_spell: Option<(ObjectId, StackId)>,
     },
 }
 impl BatchAuthority<'_> {
-    fn resolving_permanent(self) -> Option<StackId> {
+    fn resolving_spell(self, entrant: ObjectId) -> Option<StackId> {
         match self {
-            Self::ResolvingPermanent { stack } => Some(stack),
+            Self::BattlefieldEntry {
+                resolving_spell: Some((source, stack)),
+                ..
+            } if source == entrant => Some(stack),
             _ => None,
+        }
+    }
+
+    fn entry_override(self, object: ObjectId) -> EntryOverride {
+        match self {
+            Self::BattlefieldEntry { entries, .. } => entries
+                .iter()
+                .find_map(|(entrant, entry)| (*entrant == object).then_some(*entry))
+                .unwrap_or_default(),
+            _ => EntryOverride::default(),
         }
     }
 }
@@ -1738,6 +1744,23 @@ impl RulesTxn {
             } => Some((*source, *player, *face)),
             _ => None,
         };
+        // CR 107.3m: the source of a completing permanent spell carries
+        // its announced X even when an entry replacement also chose modifiers.
+        let resolving_spell = match &cause {
+            BatchCause::SpellCompletion {
+                stack_id, source, ..
+            } if matches!(events.as_slice(),
+                    [ProposedEvent::Move { object, destination: Zone::Battlefield }
+                    | ProposedEvent::EnterAttached { object, .. }] if object == source) =>
+            {
+                let spell = self.entry(*stack_id)?;
+                if spell.source != *source || !spell.kind.is_spell() {
+                    return Err("permanent spell completion source mismatch".into());
+                }
+                Some((*source, *stack_id))
+            }
+            _ => None,
+        };
         let authority = if counter_cost {
             let (BatchCause::AbilityActivation { source, .. }
             | BatchCause::ManaActivation { source, .. }) = cause
@@ -1755,10 +1778,11 @@ impl RulesTxn {
                 return Err("counter cost must pay once from the activating source".into());
             }
             BatchAuthority::PayCounters
-        } else if !entry_override.is_empty() || land.is_some() {
+        } else if !entry_override.is_empty() || land.is_some() || resolving_spell.is_some() {
             BatchAuthority::BattlefieldEntry {
                 entries: entry_override,
                 land,
+                resolving_spell,
             }
         } else if cause == BatchCause::PrecombatMainLore {
             if self.main_phase_lore_group()?.as_ref() != Some(&group) {
@@ -1836,18 +1860,6 @@ impl RulesTxn {
                 face: *face,
                 face_down: *face_down,
             }
-        } else if let BatchCause::SpellCompletion {
-            stack_id, source, ..
-        } = &cause
-            && matches!(events.as_slice(),
-                [ProposedEvent::Move { object, destination: Zone::Battlefield }
-                | ProposedEvent::EnterAttached { object, .. }] if object == source)
-        {
-            let spell = self.entry(*stack_id)?;
-            if spell.source != *source || !spell.kind.is_spell() {
-                return Err("permanent spell completion source mismatch".into());
-            }
-            BatchAuthority::ResolvingPermanent { stack: *stack_id }
         } else {
             BatchAuthority::Ordinary
         };
@@ -2473,13 +2485,15 @@ impl RulesTxn {
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 let prior = entry_state.unwrap_or(self);
                 let source = prior.current(*object)?;
+                let entry = authority.entry_override(*object);
                 {
                     let characteristics = prior.structural_characteristics(*object)?;
                     // CR 303.4f: an Aura entering without being cast (from its
                     // owner's library, hand or graveyard) enchants a chosen
                     // object it could enchant; that choice does not target.
                     let owner = prior.state.rules.cards[&object.card].owner;
-                    let chosen = matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } | Zone::Hand { owner: p } if p == owner);
+                    let chosen = source.zone == Zone::Exile
+                        || matches!(source.zone, Zone::Library { owner: p } | Zone::Graveyard { owner: p } | Zone::Hand { owner: p } if p == owner);
                     if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]
@@ -2494,19 +2508,17 @@ impl RulesTxn {
                         return Err("invalid attached Aura entry".into());
                     }
                 }
-                let force_tapped = matches!(authority, BatchAuthority::BattlefieldEntry { entries, .. }
-                    if entries.iter().any(|(entrant, entry)| entrant == object
-                        && matches!(entry, EntryOverride::ForceTapped)));
+                let intended = entry.controller.map(|player| (player, object.face));
                 let EventOutcome::Moved { movement } = self.apply_move(
                     *object,
                     Zone::Battlefield,
-                    (None, false),
+                    (intended, false),
                     entry_state,
                     battlefield_entry::EntryModifiers {
-                        tapped: force_tapped,
+                        tapped: entry.tapped,
+                        accepted: entry.accepted,
                         attached_to: Some(*target),
-                        resolving_spell: authority.resolving_permanent(),
-                        ..Default::default()
+                        resolving_spell: authority.resolving_spell(*object),
                     },
                 )?
                 else {
@@ -3245,6 +3257,7 @@ impl RulesTxn {
                 self.rules_mut().active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
                     self.expire_player_protection(*owner);
+                    self.expire_characteristics_at_turn_start(previous_owner, *owner);
                     self.rules_mut().players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.rules_mut().mana_ability_uses.clear();
                     self.rules_mut().activation_uses.clear();
@@ -3559,25 +3572,11 @@ impl RulesTxn {
                     }
                     _ => None,
                 };
-                let entry = match authority {
-                    BatchAuthority::BattlefieldEntry { entries, .. } => entries
-                        .iter()
-                        .find(|(entrant, _)| entrant == object)
-                        .map(|(_, entry)| *entry),
-                    _ => None,
-                };
-                let (force_tapped, payment) = match entry {
-                    Some(EntryOverride::ForceTapped) => (true, None),
-                    Some(EntryOverride::CreatureController { tapped, .. }) => (tapped, None),
-                    Some(EntryOverride::Choice { accepted }) => (false, Some(accepted)),
-                    None => (false, None),
-                };
-                let intended = match entry {
-                    Some(EntryOverride::CreatureController { player, .. }) => {
-                        Some((player, object.face))
-                    }
-                    _ => intended,
-                };
+                let entry = authority.entry_override(*object);
+                let intended = entry
+                    .controller
+                    .map(|player| (player, object.face))
+                    .or(intended);
                 let face_down = matches!(
                     authority,
                     BatchAuthority::SpellToStack {
@@ -3591,9 +3590,9 @@ impl RulesTxn {
                     (intended, face_down),
                     entry_state,
                     battlefield_entry::EntryModifiers {
-                        tapped: force_tapped,
-                        accepted: payment,
-                        resolving_spell: authority.resolving_permanent(),
+                        tapped: entry.tapped,
+                        accepted: entry.accepted,
+                        resolving_spell: authority.resolving_spell(*object),
                         ..Default::default()
                     },
                 )?

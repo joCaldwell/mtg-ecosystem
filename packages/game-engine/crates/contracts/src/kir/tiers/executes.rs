@@ -152,7 +152,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         | kir::Node::IfPays { node, .. } => cost_conditions(node, out),
         kir::Node::ForEach { body, .. }
         | kir::Node::Choose { body, .. }
-        | kir::Node::ChooseCreatureType { body, .. } => cost_conditions(body, out),
+        | kir::Node::ChooseCreatureType { body, .. }
+        | kir::Node::RevealTop { body, .. } => cost_conditions(body, out),
         kir::Node::Delayed { .. } | kir::Node::Reflexive { .. } => Ok(()),
     }
 }
@@ -463,7 +464,13 @@ fn validate_target_bindings(
         let sacrifice_return = !p.optional_target
             && matches!(targeted.as_slice(),
             [kir::Node::SacrificeForTappedReturn { count: c }] if *c as usize == count);
-        if !(batch || leaves || placement || sacrifice_return) {
+        let linked_batch = battlefield
+            && matches!(targeted.as_slice(), [kir::Node::Seq(nodes)] if matches!(
+                nodes.first().and_then(kir::Node::verb),
+                Some(kir::Verb::Move { what: kir::SetExpr::Targets { slots }, to: kir::Destination::Exile })
+                    if slots.iter().copied().eq(0..count as u32)
+            ));
+        if !(batch || leaves || placement || sacrifice_return || linked_batch) {
             return cell("target", "group_requires_batch_or_order_free_leaves");
         }
     } else if p.targets.len() > 1 && p.optional_target {
@@ -836,6 +843,22 @@ fn activation_mana(cost: &ActivationCost) -> Option<&ManaCost> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 601.2f, 602.2b: an ability's own cost change applies to the mana
+    // its mana window pays.
+    if a.cost_changes.iter().any(|change| {
+        kir::counts_all_counter_kinds(change.multiplier.as_ref(), change.condition.as_ref())
+    }) {
+        return cell("activated", "all_kinds_counter_count");
+    }
+    if !a.cost_changes.is_empty()
+        && (activation_mana(&a.cost).is_none()
+            || !a
+                .cost_changes
+                .iter()
+                .all(kir::activation_cost_change_supported))
+    {
+        return cell("activated", "cost_change");
+    }
     // CR 107.3a, 107.4e-f, 602.2b: a battlefield ability's X and hybrid or
     // Phyrexian symbols are announced before its targets and paid in its
     // mana window; a modal ability or another zone has no announcement.
@@ -1981,6 +2004,7 @@ mod tests {
             x_mana_cost: false,
             hybrid_mana: vec![],
             modal: None,
+            cost_changes: vec![],
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost,

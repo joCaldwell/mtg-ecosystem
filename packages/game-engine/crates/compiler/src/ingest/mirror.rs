@@ -760,6 +760,7 @@ impl<'de> Deserialize<'de> for Step {
                     | "exile-until"
                     | "return-to-hand"
                     | "move-zone"
+                    | "set-pt"
             )
         ) {
             if raw

@@ -1501,6 +1501,25 @@ pub struct ActivatedAbility {
     /// activated; `program` then carries timing only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modal: Option<ModalSpell>,
+    /// CR 601.2f, 602.2b: "This ability costs [mana] more/less to activate",
+    /// in printed order, locked into the total as the activation begins.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cost_changes: Vec<ActivationCostChange>,
+}
+/// CR 601.2f, 602.2b (2026-09-25): one printed change to an ability's own
+/// activation cost. `multiplier` ("for each ...") and `condition` ("if ...")
+/// are read from the source as a static ability reads them, once, as the
+/// total cost is determined; increases apply before reductions, and generic
+/// mana is never reduced below zero (CR 118.7d).
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivationCostChange {
+    pub change: kir::SpellCostChange,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiplier: Option<kir::Amount>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<kir::Cond>,
 }
 impl ActivationRestriction {
     /// CR 602.5b: how many times each turn one object may activate the
@@ -2336,24 +2355,34 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     }
     Ok(())
 }
+/// The reviewed layer-6 counter vocabulary (CR 122.1b, 613.1f).
+pub(crate) fn supported_keyword_counter(keyword: KeywordAbility) -> bool {
+    matches!(
+        keyword,
+        KeywordAbility::Flying
+            | KeywordAbility::DoubleStrike
+            | KeywordAbility::Vigilance
+            | KeywordAbility::Reach
+            | KeywordAbility::Deathtouch
+            | KeywordAbility::Indestructible
+            | KeywordAbility::Lifelink
+            | KeywordAbility::Hexproof
+            | KeywordAbility::Haste
+            | KeywordAbility::Menace
+            | KeywordAbility::Trample
+            | KeywordAbility::FirstStrike
+    )
+}
+
 pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
     !keywords.is_empty()
         && keywords.iter().enumerate().all(|(index, keyword)| {
-            matches!(
-                keyword,
-                KeywordAbility::Flying
-                    | KeywordAbility::DoubleStrike
-                    | KeywordAbility::Vigilance
-                    | KeywordAbility::Reach
-                    | KeywordAbility::Deathtouch
-                    | KeywordAbility::Indestructible
-                    | KeywordAbility::Lifelink
-                    | KeywordAbility::Hexproof
-                    | KeywordAbility::Haste
-                    | KeywordAbility::Menace
-                    | KeywordAbility::Trample
-                    | KeywordAbility::FirstStrike
-            ) && !keywords[..index].contains(keyword)
+            (supported_keyword_counter(*keyword)
+                || matches!(
+                    keyword,
+                    KeywordAbility::Shroud | KeywordAbility::Fear | KeywordAbility::Intimidate
+                ))
+                && !keywords[..index].contains(keyword)
         })
 }
 /// Borrowed parameters of one complete ordinary targeted temporary keyword program.

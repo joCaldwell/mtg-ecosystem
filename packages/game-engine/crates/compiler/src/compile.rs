@@ -395,7 +395,7 @@ impl FrozenInputs {
     /// removed, so cache and checkout placement never enter identity.
     pub fn logical(&self) -> Value {
         let mut value = serde_json::to_value(self).expect("serializable inputs");
-        for pointer in LOCATION_FIELDS.iter().chain(OPTIONAL_PINS) {
+        for pointer in LOCATION_FIELDS.iter().copied().chain(["/compiler/buildId"]) {
             let (parent, key) = pointer.rsplit_once('/').expect("pointer");
             if let Some(object) = value.pointer_mut(parent).and_then(Value::as_object_mut) {
                 object.remove(key);

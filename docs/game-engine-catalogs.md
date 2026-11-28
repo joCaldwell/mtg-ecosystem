@@ -140,7 +140,11 @@ and folds, aliases, implicit nodes with closed reasons, or hulls; an unlocated
 object, an unusable alias or a root-assigned fact for uncovered tokens yields a
 located `evidence:missing`. P11 requires the resolver to discharge each field
 of the block AST with a verified exact link, a production-specific check of the
-printed phrase and value, or a closed default at its governing node. P12
+printed phrase and value, or a closed default at its governing node. Only a
+family that checks the whole recorded parent phrase may discharge an unlocated
+object the parser synthesized inside it (the `each-player` base of "each other
+player"); words that introduce a composite child ("for each") are claimed at
+its recorded parent. P12
 requires a checked meaning or structural role for every printed fact and token;
 structural roles are verified [punctuation facts](../packages/oracle-parser/src/printed/facts.ts)
 at a production boundary (sentence periods, trigger and for-each clause commas,
@@ -205,6 +209,7 @@ without a manifest edit is not detected ([Cargo rerun-if-changed](https://doc.ru
 
 `crates/core/src/formats.rs` owns the core wire/persistence versions
 (`SNAPSHOT_VERSION`, `OBSERVATION_VERSION`, `WORK_VERSION`, search envelopes).
+Shapes change in place until a consumer reads these formats; bump once when one appears.
 `formats_tests` pins the Observation schema and Snapshot/SavedWork shape
 fingerprints, with samples that include resolving and nested Kernel-IR choices.
 Tests import the constants; deliberate historical forgeries use literals.
@@ -247,7 +252,9 @@ sacrifice-for-return.
   player or a singleton object.
 - `UnlessPays` and `IfPays` take a singleton player expression and support
   life and generic mana. With no live payer only `UnlessPays` performs its
-  node (CR 118.12). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
+  node (CR 118.12). Ward's `UnlessPays` counters `Ref::EventStackObject`, the
+  stack object its targeting event names, and asks that object's controller
+  (CR 702.21a). See [resolution choices and continuations](../packages/game-engine/crates/core/src/engine/kir/control.rs)
   for optional effects, creature-type choices and APNAP draws.
 - `Choose` binds a pool from a matching public set when both bounds force zero
   or the set's size. `ChooseObject` offers one mandatory public object choice
@@ -290,7 +297,8 @@ capability and tested rules operation only where the algebra cannot express it.
 ### Verb signatures
 
 Draw, life, damage, permanent counter placement, sacrifice, discard, mill,
-token creation (`CreateTokens`) and zone changes (`Move`) use `kir::signatures`.
+token creation (`CreateTokens`), zone changes (`Move`) and temporary
+additional land plays use `kir::signatures`.
 The resolving spell shuffling itself (CR 608.2n) and the resolution object
 choice stay outside it. `kir::Verb` remains the wire representation. Damage
 prevention and commit, counter placement and graveyard moves retain their
@@ -345,6 +353,14 @@ successor or its last known characteristics (CR 400.7, 608.2h, 701.9c, 701.17c).
 A destination test uses the recorded move. A card hidden in both origin and
 destination supplies no characteristics.
 
+An action on a public move's result reads the successor and recorded
+destination from the published move facets. It acts only on that incarnation
+while it remains in that zone (CR 400.7j, 608.2c). The
+[public library reveal lowerer](../packages/game-engine/crates/compiler/src/compose/revealed.rs)
+owns the admitted reveal and selection forms. Their bindings capture the
+revealed library incarnations and the selected subset for the rest of the
+instruction (CR 701.20, 608.2d).
+
 **Distribution** is admitted per verb, separately from operand acceptance:
 accepting a player set does not license a simultaneous or divided write.
 `Single` and `EachSequential` act on one member or members in turn;
@@ -363,6 +379,7 @@ replacement.
 | `PutCounters` | > 0 | `EachSimultaneous` | counters actually put | recipients | none |
 | `Sacrifice` | > 0, as many as possible (CR 609.3) | `CollectThenSimultaneous` (CR 701.21a) | number sacrificed | permanents sacrificed, whatever the destination | sacrificing players |
 | `CreateTokens` | ≥ 0; zero creates nothing (CR 111.1) | `Single`, one creation event | none | none | none |
+| `AdditionalLandPlays` | positive fixed allowance | `Single`, for the controller this turn (CR 305.2, 514.2) | none | none | none |
 | `Move` | none | `EachSimultaneous` (CR 608.2c) | objects that reached the destination | their prior and successor incarnations; public facts unless the destination is hidden | none |
 
 A second projection of one verb ("life lost this way" from damage, "died this
@@ -586,12 +603,14 @@ failure; exit 2 is usage.
 
 The strict input manifest
 ([R5](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r5.json),
-[R6](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r6.json))
+[R6](../packages/game-engine/tests/fixtures/compile-inputs-phase1-r6.json),
+[grammar batch 2](../packages/game-engine/tests/fixtures/compile-inputs-grammar-batch2.json))
 pins Oracle and paper-evidence bytes, canonical records, scope, rules, reader,
 archive length/full-file/header hashes and IR/bulk versions. Every pin is mandatory
-except `compiler.buildId`, which must equal the binary when present, and
-`r6.legacyRows: "changed"`, which selects listed-change generation for a grammar cut; unknown keys
-reject as unpinned inputs. Source paths resolve relative to the manifest and must
+except `compiler.buildId`, which must equal the binary when present. Grammar cuts
+require `r6.legacyRows: "changed"` as a logical input to select listed-change generation.
+The base R6 cut rejects that field. Unknown keys reject as unpinned inputs.
+Source paths resolve relative to the manifest and must
 be regular files or hard links. Input schema 1 uses the retained schema-4 archive.
 Input schema 2 requires a promoted schema-5 archive, its exact registered header
 file, the printed schema, vocabulary, generator and record digests, and the

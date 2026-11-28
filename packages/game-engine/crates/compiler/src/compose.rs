@@ -24,6 +24,7 @@ pub(crate) mod keywords;
 mod modal;
 mod printed;
 pub(super) mod resolution_triggers;
+pub(super) mod revealed;
 mod sagas;
 mod source_action;
 mod source_authority;
@@ -139,6 +140,9 @@ enum Block {
         ability_word: Option<String>,
         costs: Vec<SourceCost>,
         effects: Vec<serde_json::Value>,
+        /// CR 601.2f, 602.2b: "This ability costs ... less to activate".
+        #[serde(rename = "costModifications")]
+        cost_modifications: Option<Vec<serde_json::Value>>,
     },
     /// CR 601.2b, 601.2f-h: "As an additional cost to cast this spell, ...".
     #[serde(rename = "additional-cost")]
@@ -166,6 +170,7 @@ struct LoyaltyCost {
 enum Part {
     Typed(Sentence),
     Table(Vec<serde_json::Value>),
+    Revealed(Vec<serde_json::Value>),
     Reflexive(ManaCost, serde_json::Value),
     Departure(SpellProgram),
 }
@@ -186,6 +191,7 @@ fn quoted_ability(
         ability_word: None,
         costs,
         effects,
+        cost_modifications: None,
     }) = serde_json::from_value::<Block>(raw.clone())
     else {
         return Err(quoted());
@@ -201,7 +207,9 @@ fn quoted_ability(
         .into_iter()
         .map(|p| match p {
             Part::Typed(s) => Ok(s),
-            Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(quoted()),
+            Part::Table(_) | Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => {
+                Err(quoted())
+            }
         })
         .collect::<Result<_, _>>()?;
     let mana =
@@ -210,6 +218,9 @@ fn quoted_ability(
 }
 
 fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
+    if revealed::candidate(effects) {
+        return Ok(vec![Part::Revealed(effects.to_vec())]);
+    }
     effects
         .iter()
         .map(|sentence| {
@@ -230,8 +241,8 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
         .collect()
 }
 
-/// Decode one effect sentence; evaluated actions (including discard and mill)
-/// decode through the generated effect schema in `Step::deserialize`.
+/// Decode one effect sentence; evaluated actions (including discard, mill and
+/// set-pt) decode through the generated effect schema in `Step::deserialize`.
 pub(crate) fn decode_sentence(raw: &serde_json::Value) -> Result<Sentence, Failure> {
     if raw["steps"].as_array().is_some_and(|steps| {
         steps.iter().any(|step| {
@@ -256,7 +267,7 @@ fn reviewed_sentence(part: Part) -> Result<Sentence, Failure> {
         Part::Table(steps) => {
             serde_json::from_value(serde_json::json!({ "steps": steps })).map_err(|_| table())
         }
-        Part::Reflexive(..) | Part::Departure(_) => Err(table()),
+        Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => Err(table()),
     }
 }
 
@@ -348,7 +359,7 @@ fn append_effects(
             .into_iter()
             .map(|p| match p {
                 Part::Typed(s) => s,
-                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => {
+                Part::Table(_) | Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => {
                     unreachable!("all parts are typed")
                 }
             })
@@ -391,6 +402,7 @@ fn append_effects(
                     program.instructions.push(instruction);
                 }
             }
+            Part::Revealed(effects) => revealed::lower(&effects, program, slots, context, label)?,
             Part::Reflexive(..) | Part::Departure(_) => {
                 return Err(unsupported(
                     "compose.step",
@@ -438,6 +450,7 @@ fn activation(
         x_mana_cost,
         hybrid_mana,
         modal: None,
+        cost_changes: vec![],
         functioning_zone,
         restriction: None,
         cost,
@@ -633,7 +646,7 @@ fn trigger_event(
         && !parts.iter().any(|part| match part {
             Part::Typed(_) => false,
             Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
-            Part::Reflexive(..) | Part::Departure(_) => true,
+            Part::Revealed(_) | Part::Reflexive(..) | Part::Departure(_) => true,
         });
     if table.is_none()
         && reviewed_effects
@@ -1044,7 +1057,7 @@ fn compose(
         front.back_face = Some(Box::new(back));
         front.capabilities = front.requirements();
     } else {
-        keywords::printed(&card.shape, &front.keywords)?;
+        keywords::printed_with_grants(&card.shape, &front)?;
     }
     front
         .validate()
@@ -1170,8 +1183,34 @@ fn compose_face(
                 None
             };
             let lowering = bound.as_deref().unwrap_or(raw.get());
-            let ability: Block =
-                serde_json::from_str(lowering).map_err(|e| block_mirror_gap(lowering, &e))?;
+            // CR 702.21a: ward instances lower from the typed AST; the
+            // keyword mirror reads the block's other keywords.
+            let ward = keywords::split_ward(lowering)?;
+            let ward_names: Vec<Option<String>> = match &ward {
+                Some(_) => serde_json::from_str::<serde_json::Value>(lowering)
+                    .ok()
+                    .and_then(|b| b["keywords"].as_array().cloned())
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|k| {
+                        let name = k["keyword"].as_str().unwrap_or_default();
+                        (name != "ward").then(|| name.replace('-', " "))
+                    })
+                    .collect(),
+                None => vec![],
+            };
+            let (lowering, wards) = match &ward {
+                Some((rest, wards)) => (rest.as_str(), wards.as_slice()),
+                None => (lowering, [].as_slice()),
+            };
+            let ability: Block = if !wards.is_empty() && ward_names.iter().all(Option::is_none) {
+                Block::Keywords {
+                    ability_word: None,
+                    keywords: vec![],
+                }
+            } else {
+                serde_json::from_str(lowering).map_err(|e| block_mirror_gap(lowering, &e))?
+            };
             numbers_printed(line, raw.get())?;
             let (activated, triggered) = (definition.activated.len(), definition.triggered.len());
             // A spell's printed blocks share one program; each announces its own
@@ -1185,6 +1224,27 @@ fn compose_face(
                     ability_word(&word, &result.lines[block].text)?;
                     let text = &result.lines[block].text;
                     match keywords.as_slice() {
+                        // CR 702.21a: each ward instance is its own
+                        // triggered ability beside the listed keywords.
+                        _ if !wards.is_empty() => {
+                            if word.is_some() || keywords.iter().any(keywords::is_triggered) {
+                                return Err(unsupported("keyword", "keyword:ward:printed"));
+                            }
+                            if !keywords.is_empty() {
+                                definition
+                                    .keywords
+                                    .extend(keywords::lower_triggered_companion(
+                                        card.kind, &keywords,
+                                    )?);
+                            }
+                            keywords::ward_printed(&ward_names, wards, text)?;
+                            for ward in wards {
+                                definition
+                                    .triggered
+                                    .push(keywords::ward(&card, ward, label)?);
+                                labels.triggered.push(label);
+                            }
+                        }
                         [one]
                             if matches!(
                                 one.keyword.as_str(),
@@ -1582,6 +1642,7 @@ fn compose_face(
                         x_mana_cost: false,
                         hybrid_mana: vec![],
                         modal: None,
+                        cost_changes: vec![],
                         functioning_zone: FunctioningZone::Battlefield,
                         restriction: None,
                         cost: ActivationCost::Loyalty {
@@ -1596,8 +1657,14 @@ fn compose_face(
                     restriction,
                     costs,
                     effects,
+                    cost_modifications,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
+                    let cost_changes = cost_modifications
+                        .iter()
+                        .flatten()
+                        .map(activation_cost_change)
+                        .collect::<Result<Vec<_>, _>>()?;
                     let (timing, restriction) = activation_restrictions::lower(
                         restriction,
                         &result.lines[block].text,
@@ -1618,6 +1685,12 @@ fn compose_face(
                     // activated; a mana ability has no modes here.
                     if modal::declared(&effects) {
                         modal::reject_mana_modes(&effects)?;
+                        if !cost_changes.is_empty() {
+                            return Err(unsupported(
+                                "compose.block",
+                                "modal activation cost change",
+                            ));
+                        }
                         let text = &result.lines[block].text;
                         let site = control::Site {
                             resolution,
@@ -1660,7 +1733,10 @@ fn compose_face(
                         .iter()
                         .map(|p| match p {
                             Part::Typed(s) => Some(s.clone()),
-                            Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => None,
+                            Part::Table(_)
+                            | Part::Revealed(_)
+                            | Part::Reflexive(..)
+                            | Part::Departure(_) => None,
                         })
                         .collect();
                     // A mana ability has no resolution-time control (CR 605.3b).
@@ -1677,6 +1753,9 @@ fn compose_face(
                         None => None,
                     };
                     if let Some(mut mana) = mana {
+                        if !cost_changes.is_empty() {
+                            return Err(unsupported("compose.block", "mana ability cost change"));
+                        }
                         if spell_kind
                             || timing != SpellTiming::Instant
                             || restriction
@@ -1712,6 +1791,7 @@ fn compose_face(
                             ));
                         }
                         ability.restriction = restriction;
+                        ability.cost_changes = cost_changes;
                         let site = control::Site {
                             resolution,
                             index: block,

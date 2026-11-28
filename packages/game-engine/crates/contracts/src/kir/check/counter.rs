@@ -5,6 +5,11 @@ use super::*;
 
 impl Walk<'_, '_> {
     pub(super) fn audit_counter(&self, what: &Ref) -> Result<Cell, KirError> {
+        // CR 702.21a, 603.2: a targeting trigger counters the stack object
+        // its event names; it announces no target.
+        if *what == Ref::EventStackObject && self.targeting_event() {
+            return Ok(Cell::CounterStackTarget);
+        }
         if self.env.targets.len() == 1
             && *what == (Ref::Target { slot: 0 })
             && matches!(
@@ -26,6 +31,30 @@ impl Walk<'_, '_> {
         payment: &Payment,
         node: &Node,
     ) -> bool {
+        // CR 702.21a, 118.12a: "counter that spell or ability unless its
+        // controller pays [a fixed mana or life cost]".
+        if let (
+            PlayerExpr::ControllerOf {
+                object: Ref::EventStackObject,
+            },
+            Node::Do(Verb::Counter {
+                what: Ref::EventStackObject,
+            }),
+        ) = (payer, node)
+        {
+            return self.targeting_event()
+                && match payment {
+                    Payment::Generic { amount } | Payment::Life { amount } => {
+                        amount.as_fixed().is_some_and(|v| !v.is_negative())
+                    }
+                    Payment::Mana { mana } => {
+                        !mana.generic.is_negative()
+                            && !mana.colored.is_empty()
+                            && !mana.colored.contains(&crate::Color::C)
+                    }
+                    Payment::Sacrifice { .. } | Payment::DiscardArtifact {} => false,
+                };
+        }
         matches!(
             (payer, payment, node),
             (PlayerExpr::ControllerOf { object },

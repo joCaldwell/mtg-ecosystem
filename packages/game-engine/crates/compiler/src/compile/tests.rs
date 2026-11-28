@@ -2,6 +2,8 @@ use super::*;
 
 const R5: &str = include_str!("../../../../tests/fixtures/compile-inputs-phase1-r5.json");
 const R6: &str = include_str!("../../../../tests/fixtures/compile-inputs-phase1-r6.json");
+const GRAMMAR_BATCH_TWO: &str =
+    include_str!("../../../../tests/fixtures/compile-inputs-grammar-batch2.json");
 const PRODUCER: &str = "0000000000000000000000000000000000000000000000000000000000000001";
 
 fn r5() -> Value {
@@ -120,6 +122,35 @@ fn r6_requires_its_versioned_pins_and_the_promoted_registration() {
 }
 
 #[test]
+fn changed_legacy_rows_are_required_only_for_the_grammar_cut() {
+    let mut grammar: Value = strict_read(GRAMMAR_BATCH_TWO).unwrap();
+    let inputs = read(&grammar).unwrap();
+    let promoted = check_registration(&inputs).unwrap();
+    let second_r6 = accepted_archives()
+        .unwrap()
+        .iter()
+        .filter(|row| row.cut == ArchiveCut::R6)
+        .nth(1)
+        .unwrap();
+    assert_eq!(promoted.manifest_sha256, second_r6.manifest_sha256);
+    assert!(!promoted.pending && !promoted.candidate);
+    assert_eq!(inputs.logical()["r6"]["legacyRows"], "changed");
+
+    grammar["r6"].as_object_mut().unwrap().remove("legacyRows");
+    assert!(matches!(
+        check_registration(&read(&grammar).unwrap()),
+        Err(CompileError::Registration(_))
+    ));
+
+    let mut base: Value = strict_read(R6).unwrap();
+    base["r6"]["legacyRows"] = "changed".into();
+    assert!(matches!(
+        check_registration(&read(&base).unwrap()),
+        Err(CompileError::Registration(_))
+    ));
+}
+
+#[test]
 fn r6_fresh_writer_fails_closed_on_a_different_reader() {
     let dir = scratch("fresh-reader");
     let mut inputs = read(&strict_read(R6).unwrap()).unwrap();
@@ -208,7 +239,7 @@ fn staged_writer_io_errors_are_destination_failures() {
 }
 
 #[test]
-fn every_pin_except_build_id_is_mandatory() {
+fn every_r5_pin_except_build_id_is_mandatory() {
     for pointer in [
         "/oracle/sha256",
         "/paperEvidence/path",
