@@ -509,6 +509,12 @@ several targets lower to one `PutCounters` over `SetExpr::Targets`, a single
 simultaneous placement on the counted occurrence's legal members (CR 608.2f,
 603.2c); per-member leaves would split it into several events.
 
+A linked entry value must resolve to the matching printed producer on the same
+face (CR 607.2d). The checker requires one compatible entry choice before
+admitting a linked static scope or mana production. Produced mana binds its
+spend permission to the chosen creature type and carries any spend rider as a
+separate term. Choice and cost definitions here qualify at `Executes`.
+
 `resolution::class_of` classifies the migrated operand references from the
 generated AST positions. Other references still use `resolution::reference_row`.
 Rejected sites report `ref:<role>:<block kind>`. Steps dispatch on the AST `effect` tag to

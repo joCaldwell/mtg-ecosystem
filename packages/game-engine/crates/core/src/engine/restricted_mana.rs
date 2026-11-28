@@ -18,6 +18,6 @@ pub(super) fn valid_buckets(pool: &[RestrictedMana]) -> bool {
     pool.len() <= MAX_RESTRICTED_BUCKETS
         && pool
             .iter()
-            .all(|unit| unit.amount > Quantity::zero() && unit.restriction.is_canonical())
+            .all(|unit| unit.amount > Quantity::zero() && unit.restriction.valid_bucket())
         && pool.windows(2).all(|pair| pair[0].key() < pair[1].key())
 }

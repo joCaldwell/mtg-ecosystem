@@ -73,6 +73,7 @@ impl RulesTxn {
         modifiers: &EntryModifiers,
     ) -> Object {
         Object {
+            entry_selection: None,
             id,
             controller,
             default_controller: controller,
@@ -167,7 +168,8 @@ impl RulesTxn {
                         | StaticEffect::EntersTappedIf { .. }
                         | StaticEffect::PayLifeOrEnterTapped { .. }
                         | StaticEffect::RevealOrEnterTapped { .. }
-                        | StaticEffect::EntersWithPlusOneCounters { .. }
+                        | StaticEffect::EntersWithCounters { .. }
+                        | StaticEffect::ChooseOnEntry { .. }
                 )
             })
         {
@@ -199,38 +201,55 @@ impl RulesTxn {
                 };
             }
         }
+        // CR 614.12: the choice belongs to this incoming incarnation. Any
+        // unanswered request suspends the entire entry transaction.
+        if let Some(choice) = definition.static_abilities.iter().find_map(|ability| {
+            if let StaticEffect::ChooseOnEntry { choice } = ability.effect {
+                Some(choice)
+            } else {
+                None
+            }
+        }) {
+            let shown = self.current(previous).ok().filter(|object| {
+                !object.face_down
+                    && (!matches!(object.zone, Zone::Library { .. } | Zone::Hand { .. })
+                        || matches!(object.zone, Zone::Hand { owner } if owner == entrant.controller))
+            }).map(|object| object.id);
+            entrant.entry_selection =
+                Some(self.entry_value(previous, entrant.controller, shown, choice)?);
+        }
         // CR 122.6, 614.1c, 714.3a: these counters are part of the entry,
         // one contained placement per kind.
-        let mut plus_one = Quantity::zero();
+        let mut counters = BTreeMap::<mtg_contracts::kir::CounterKind, Quantity>::new();
         for ability in &definition.static_abilities {
-            if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
-                plus_one.add(count);
+            if let StaticEffect::EntersWithCounters { kind, count, per } = &ability.effect {
+                let mut count = count.clone();
+                if let Some(set) = per {
+                    // CR 614.12: use the common prior occupancy, relative
+                    // to the incoming permanent's controller.
+                    let matches = self.static_count(entrant, set)?;
+                    count.multiply(&Quantity::from(
+                        i64::try_from(matches).map_err(|_| "entry count exceeds object limit")?,
+                    ));
+                }
+                if count > Quantity::zero() {
+                    counters.entry(kind.clone()).or_default().add(&count);
+                }
             }
         }
-        if plus_one > Quantity::zero() {
-            let placed = self.entry_counters(
-                previous,
-                entrant,
-                token,
-                &mtg_contracts::kir::CounterKind::PlusOnePlusOne,
-                &plus_one,
-            )?;
-            entrant.plus_one_counters.add(&placed.amount);
-            applied.push(placed);
-        }
         if prospective.characteristics.has_subtype("Saga") {
-            let placed = self.entry_counters(
-                previous,
-                entrant,
-                token,
-                &mtg_contracts::kir::CounterKind::Lore,
-                &1.into(),
-            )?;
-            entrant.counters.push(CounterStack {
-                kind: mtg_contracts::kir::CounterKind::Lore,
-                count: placed.amount.clone(),
-                timestamp: entrant.keyword_timestamp.ok_or("missing entry timestamp")?,
-            });
+            counters
+                .entry(mtg_contracts::kir::CounterKind::Lore)
+                .or_default()
+                .add(&1.into());
+        }
+        for (kind, count) in counters {
+            let placed = self.entry_counters(previous, entrant, token, &kind, &count)?;
+            entrant.add_counters(
+                &kind,
+                &placed.amount,
+                entrant.keyword_timestamp.ok_or("missing entry timestamp")?,
+            );
             applied.push(placed);
         }
         Ok(applied)

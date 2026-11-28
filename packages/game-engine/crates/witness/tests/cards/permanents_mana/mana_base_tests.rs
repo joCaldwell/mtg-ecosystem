@@ -833,12 +833,6 @@ fn unsupported_named_mana_riders_and_restrictions_reject() {
     }
     for (name, raw, path, reason) in [
         (
-            "Cavern of Souls",
-            record!("89ca686a-7c72-4d8f-9290-e89635624a83"),
-            "resolution",
-            "diagnostic:missing-antecedent",
-        ),
-        (
             "Castle Garenbrig",
             record!("de75e5dd-8a52-406c-b55c-96d686885500"),
             "mana",

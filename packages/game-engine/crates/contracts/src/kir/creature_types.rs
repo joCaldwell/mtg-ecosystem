@@ -29,11 +29,68 @@ Thalakos Thopter Thrull Tiefling Toy Treefolk Trilobite Triskelavite Troll Turtl
 Unicorn Utrom Vampire Varmint Vedalken Villain Volver Wall Walrus Warlock Warrior Weasel Weird
 Werewolf Whale Wizard Wolf Wolverine Wombat Worm Wraith Wurm Yeti Zombie Zubera";
 
-pub fn is_creature_subtype(subtype: &str) -> bool {
-    subtype == "Time Lord"
-        || SINGLE_WORD_SUBTYPES
+/// A validated choice from CR 205.3m, serialized by its printed name.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(try_from = "String", into = "String")]
+#[schemars(with = "String")]
+pub struct CreatureType(u16);
+
+impl CreatureType {
+    pub fn all() -> impl Iterator<Item = Self> {
+        Self::names()
+            .enumerate()
+            .map(|(index, _)| Self(index as u16))
+    }
+
+    fn names() -> impl Iterator<Item = &'static str> {
+        SINGLE_WORD_SUBTYPES
             .split_ascii_whitespace()
-            .any(|kind| kind == subtype)
+            .chain(["Time Lord"])
+    }
+
+    pub fn index(self) -> u16 {
+        self.0
+    }
+
+    pub fn name(self) -> &'static str {
+        Self::names()
+            .nth(usize::from(self.0))
+            .expect("validated creature type")
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::names()
+            .position(|kind| kind == name)
+            .map(|index| Self(index as u16))
+    }
+}
+
+impl TryFrom<String> for CreatureType {
+    type Error = &'static str;
+    fn try_from(name: String) -> Result<Self, Self::Error> {
+        Self::from_name(&name).ok_or("not a creature type")
+    }
+}
+impl From<CreatureType> for String {
+    fn from(kind: CreatureType) -> Self {
+        kind.name().into()
+    }
+}
+
+pub fn is_creature_subtype(subtype: &str) -> bool {
+    CreatureType::from_name(subtype).is_some()
 }
 
 /// CR 205.3i land types; the first five are the basic land types (CR 305.6).
