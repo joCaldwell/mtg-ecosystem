@@ -409,7 +409,8 @@ function reportCandidate(result: Awaited<ReturnType<typeof verifyR6Archive>>) {
     legacy: manifest.legacy,
     sizes: { bytes, rows, lines, largestLine, archiveLimits: ARCHIVE_LIMITS, bulkLimits: BULK_LIMITS },
     printedSummary: manifest.printedSummary,
-    d0: { status: "passed", elapsedMs },
+    // Listed legacy changes are a grammar cut's D0, not the exact-R5 pass.
+    d0: { status: result.changedLegacyRows ? "passed-with-listed-legacy-changes" : "passed", elapsedMs },
     ...(result.changedLegacyRows ? { changedLegacyRows: result.changedLegacyRows } : {}),
   };
 }
@@ -422,8 +423,18 @@ export async function writeR6Candidate(options: {
   baseline: string; output: string; rulesFile: string;
   archive: Parameters<typeof prepareArchive>[0];
   d0?: D0Options;
+  expect?: { sourceSha256: string; generatorSha256: string };
 }) {
   const { baseline, output, rulesFile } = options;
+  if (options.expect) {
+    const found = { sourceSha256: fingerprint().sourceSha256, generatorSha256: printedIdentity().generatorSha256 };
+    if (found.sourceSha256 !== options.expect.sourceSha256 || found.generatorSha256 !== options.expect.generatorSha256) {
+      const error = new Error(`reader identity differs from the registered cut: pinned source ${options.expect.sourceSha256}, ` +
+        `generator ${options.expect.generatorSha256}; this checkout has source ${found.sourceSha256}, generator ${found.generatorSha256}`);
+      error.name = "ReaderIdentityError";
+      throw error;
+    }
+  }
   if (resolve(output) === resolve(baseline) || basename(output) === "oracle-ast-phase1-r5.jsonl")
     throw new Error("R6 output must be separate from the frozen R5 archive");
   const baselineStat = await stat(baseline);

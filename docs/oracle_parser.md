@@ -233,10 +233,14 @@ row only when it is the writer's canonical serialization, keeps the R5 source
 and scope, and passes its own AST, binding and resolution hash preimages. The
 receipt's `changedLegacyRows` lists each such row with its status before and
 after. The header's legacy counts must equal the counts recomputed from the
-candidate's own rows. Every other row keeps the exact R5 projection. Each batch
-pins its own legacy decoder in `scripts/generate-rust-ast.ts`. A new AST
-variant goes at the end of its union so the generated Rust names of existing
-variants do not move. For printed capture changes,
+candidate's own rows. Every other row keeps the exact R5 projection, and the
+receipt's D0 status is `passed-with-listed-legacy-changes`. Each batch updates
+the legacy decoder pin in `scripts/generate-rust-ast.legacy-decoder.sha256`,
+which leaves the printed generator digest fixed. Generated Rust variant names
+derive from wire tags, so a new variant renames none, although a generated
+string enum may reorder. A grammar cut registers as its own cut, with frozen
+inputs and fixture re-extraction, at the first promotion that consumes a
+grammar-dependent card. For printed capture changes,
 `python3 scripts/check-printed-regressions.py BASELINE CANDIDATE PREVIOUS`
 compares D0-verified candidates at the same AST paths. Its JSON receipt
 reports every node change and rejects lost token coverage or a downgrade
